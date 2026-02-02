@@ -3,8 +3,8 @@
  * @param value - The percentage value (0-100)
  * @returns Formatted string (e.g., "45.67%")
  */
-export function formatPercent(value: number): string {
-  return `${value.toFixed(2)}%`;
+export function formatAsPercent(value: number): string {
+  return `${(value * 100).toFixed(2)}%`;
 }
 
 /**

@@ -1,5 +1,4 @@
 import { Box, Typography, Sheet } from '@mui/joy';
-import { mockContainers } from '../data/mock-docker-containers';
 import ContainerTable from './docker/ContainerTable';
 
 export default function DockerDashboard() {
@@ -9,7 +8,7 @@ export default function DockerDashboard() {
         Docker Containers Dashboard
       </Typography>
       <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-        <ContainerTable containers={mockContainers} />
+        <ContainerTable />
       </Sheet>
     </Box>
   );

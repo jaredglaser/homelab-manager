@@ -1,0 +1,12 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "bun",
+			"script": "vite dev --port 3000",
+			"problemMatcher": [],
+			"label": "bun: dev",
+			"detail": "bun run vite dev --port 3000 - package.json"
+		}
+	]
+}

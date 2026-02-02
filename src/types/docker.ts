@@ -8,3 +8,6 @@ export interface DockerContainer {
   networkWrite: number; // megabits per second
   ioWait: number; // percentage
 }
+
+// Re-export ContainerStatsWithRates from rate-calculator
+export type { ContainerStatsWithRates } from '../lib/rate-calculator';
