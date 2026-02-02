@@ -7,24 +7,48 @@ export function formatAsPercent(value: number): string {
   return `${(value * 100).toFixed(2)}%`;
 }
 
+
 /**
- * Format disk IO as megabytes per second with 2 decimal places
- * @param value - The MB/s value
+ * Formats bytes with 2 decimal places ie Kilobyte = 1024 bytes
+ * Converts to KiB/s for values >= 1024
+ * Converts to MiB/s for values >= 1024 * 1024
+ * Converts to GiB/s for values >= 1024 * 1024 * 1024
+ * @param bytes - The B/s value
  * @returns Formatted string (e.g., "125.50 MB/s")
  */
-export function formatMBps(value: number): string {
-  return `${value.toFixed(2)} MB/s`;
+export function formatBytes(bytes: number, isPerSecond: boolean): string {
+
+  if (bytes >= 1024*1024*1024){
+    return `${(bytes/(1024*1024*1024)).toFixed(2)} ${isPerSecond ? 'GiB/s':'GiB'}`;
+  }
+  else if (bytes >= 1024*1024){
+    return `${(bytes/(1024*1024)).toFixed(2)} ${isPerSecond ? 'MiB/s':'MiB'}`;
+  }
+  else if(bytes >= 1024)
+   return `${(bytes/(1024)).toFixed(2)} ${isPerSecond ? 'KiB/s':'KiB'}`;
+  else {
+    return `${bytes.toFixed(2)} ${isPerSecond ? 'B/s':'B'}`;
+  }
+  
 }
 
 /**
- * Format network speed as megabits per second with 2 decimal places
- * Converts to Gbps for values >= 1000
- * @param value - The Mbps value
+ * Formats bits with 2 decimal places using SI units, ie Kilobit = 1000 bits
+  * Converts to Kbps for values >= 1000
+ * Converts to Mbps for values >= 1000 * 1000
+ * Converts to Gbps/s for values >= 1000 * 1000 * 1000
+ * @param value - The bps value
  * @returns Formatted string (e.g., "125.50 Mbps" or "1.25 Gbps")
  */
-export function formatMbps(value: number): string {
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(2)} Gbps`;
+export function formatBitsSIUnits(bits: number, isPerSecond: boolean): string {
+  if (bits >= 1000*1000*1000) {
+    return `${(bits / 1000*1000*1000).toFixed(2)} ${isPerSecond ? 'Gbps':'Gb'}`;
   }
-  return `${value.toFixed(2)} Mbps`;
+  else if(bits >= 1000 * 1000) {
+    return `${(bits / 1000 / 1000).toFixed(2)} ${isPerSecond ? 'Mbps':'Mb'}`;
+  }
+  else if(bits >= 1000) {
+    return `${(bits / 1000).toFixed(2)} ${isPerSecond ? 'Kbps':'Kb'}`;
+  }
+  return `${bits.toFixed(2)} ${isPerSecond ? 'bps':'bp'}`;
 }

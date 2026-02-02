@@ -1,5 +1,5 @@
 import type { ContainerStatsWithRates } from '../../types/docker';
-import { formatAsPercent, formatMBps, formatMbps } from '../../formatters/metrics';
+import { formatAsPercent, formatBytes, formatBitsSIUnits } from '../../formatters/metrics';
 import MetricCell from './MetricCell';
 
 interface ContainerRowProps {
@@ -10,22 +10,22 @@ export default function ContainerRow({ container }: ContainerRowProps) {
   const { rates } = container;
 
   // Convert bytes/sec to MB/s (using binary: 1 MB = 1024 * 1024 bytes)
-  const blockReadMBps = rates.blockIoReadBytesPerSec / (1024 * 1024);
-  const blockWriteMBps = rates.blockIoWriteBytesPerSec / (1024 * 1024);
+  const blockReadMBps = rates.blockIoReadBytesPerSec;
+  const blockWriteMBps = rates.blockIoWriteBytesPerSec;
 
   // Convert bytes/sec to Mbps (using decimal: 1 Mbps = 1,000,000 bits/sec)
-  const networkRxMbps = (rates.networkRxBytesPerSec * 8) / (1000 * 1000);
-  const networkTxMbps = (rates.networkTxBytesPerSec * 8) / (1000 * 1000);
+  const networkRxBps = (rates.networkRxBytesPerSec * 8);
+  const networkTxBps = (rates.networkTxBytesPerSec * 8);
 
   return (
     <tr>
       <td>{container.name}</td>
       <MetricCell>{formatAsPercent(rates.cpuPercent / 100)}</MetricCell>
       <MetricCell>{formatAsPercent(rates.memoryPercent / 100)}</MetricCell>
-      <MetricCell>{formatMBps(blockReadMBps)}</MetricCell>
-      <MetricCell>{formatMBps(blockWriteMBps)}</MetricCell>
-      <MetricCell>{formatMbps(networkRxMbps)}</MetricCell>
-      <MetricCell>{formatMbps(networkTxMbps)}</MetricCell>
+      <MetricCell>{formatBytes(blockReadMBps, true)}</MetricCell>
+      <MetricCell>{formatBytes(blockWriteMBps, true)}</MetricCell>
+      <MetricCell>{formatBitsSIUnits(networkRxBps * 8, true)}</MetricCell>
+      <MetricCell>{formatBitsSIUnits(networkTxBps * 8, true)}</MetricCell>
     </tr>
   );
 }
