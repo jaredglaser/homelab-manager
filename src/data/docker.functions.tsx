@@ -1,17 +1,12 @@
 import { createServerFn } from '@tanstack/react-start'
-import { createMiddleware } from '@tanstack/react-start';
 import Dockerode from 'dockerode';
-import Docker from 'dockerode'
 import { streamToAsyncIterator, mergeAsyncIterables } from '../lib/stream-utils';
 import { calculateRates, clearRatesCache } from '../lib/rate-calculator';
+import { dockerMiddleware } from '../middleware/docker-middleware';
+
 export const getServerTime = createServerFn().handler(async () => {
   // This runs only on the server
   return new Date().toISOString();
-});
-
-const dockerMiddleware = createMiddleware().server(async ({ next }) => {
-  const docker = new Docker({ protocol: 'http', host: process.env.DOCKER_HOST_1, port: process.env.DOCKER_HOST_PORT_1 });
-  return next({ context: { docker } });
 });
 
 export const getDockerContainers = createServerFn().middleware([dockerMiddleware]).handler(async ({ context }) => {
