@@ -9,12 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TestZfsRouteImport } from './routes/test-zfs'
+import { Route as ZfsRouteImport } from './routes/zfs'
 import { Route as IndexRouteImport } from './routes/index'
 
-const TestZfsRoute = TestZfsRouteImport.update({
-  id: '/test-zfs',
-  path: '/test-zfs',
+const ZfsRoute = ZfsRouteImport.update({
+  id: '/zfs',
+  path: '/zfs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -25,37 +25,37 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/test-zfs': typeof TestZfsRoute
+  '/zfs': typeof ZfsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/test-zfs': typeof TestZfsRoute
+  '/zfs': typeof ZfsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/test-zfs': typeof TestZfsRoute
+  '/zfs': typeof ZfsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/test-zfs'
+  fullPaths: '/' | '/zfs'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/test-zfs'
-  id: '__root__' | '/' | '/test-zfs'
+  to: '/' | '/zfs'
+  id: '__root__' | '/' | '/zfs'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  TestZfsRoute: typeof TestZfsRoute
+  ZfsRoute: typeof ZfsRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/test-zfs': {
-      id: '/test-zfs'
-      path: '/test-zfs'
-      fullPath: '/test-zfs'
-      preLoaderRoute: typeof TestZfsRouteImport
+    '/zfs': {
+      id: '/zfs'
+      path: '/zfs'
+      fullPath: '/zfs'
+      preLoaderRoute: typeof ZfsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -70,7 +70,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  TestZfsRoute: TestZfsRoute,
+  ZfsRoute: ZfsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

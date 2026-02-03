@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { Box, Typography } from '@mui/joy';
 import { ChevronRight } from 'lucide-react';
 import type { VdevStats } from '@/types/zfs';
-import { formatBytes, formatAsPercent } from '@/formatters/metrics';
-import { MetricCell } from '../shared-table';
+import ZFSMetricCells from './ZFSMetricCells';
 import ZFSDiskRow from './ZFSDiskRow';
 
 interface ZFSVdevAccordionProps {
@@ -33,16 +32,7 @@ export default function ZFSVdevAccordion({ vdev, indent }: ZFSVdevAccordionProps
             <Typography level="body-sm">{vdev.data.name}</Typography>
           </Box>
         </td>
-        <MetricCell>
-          {vdev.data.capacity.alloc > 0
-            ? formatBytes(vdev.data.capacity.alloc, false)
-            : '—'}
-        </MetricCell>
-        <MetricCell>{vdev.data.rates.readOpsPerSec.toFixed(0)}</MetricCell>
-        <MetricCell>{vdev.data.rates.writeOpsPerSec.toFixed(0)}</MetricCell>
-        <MetricCell>{formatBytes(vdev.data.rates.readBytesPerSec, true)}</MetricCell>
-        <MetricCell>{formatBytes(vdev.data.rates.writeBytesPerSec, true)}</MetricCell>
-        <MetricCell>{formatAsPercent(vdev.data.rates.utilizationPercent / 100)}</MetricCell>
+        <ZFSMetricCells data={vdev.data} showCapacity={vdev.data.capacity.alloc > 0} />
       </tr>
 
       {expanded && Array.from(vdev.disks.values()).map((disk) => (

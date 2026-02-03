@@ -1,10 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from 'bun:test';
 import type Dockerode from 'dockerode';
-import {
-  calculateRates,
-  clearRatesCache,
-  removeContainerFromCache,
-} from './rate-calculator';
+import { DockerRateCalculator } from './rate-calculator';
+
+let calculator: DockerRateCalculator;
 
 // Helper to create mock Docker stats
 function createMockStats(overrides: Partial<Dockerode.ContainerStats> = {}): Dockerode.ContainerStats {
@@ -114,9 +112,13 @@ function createMockStats(overrides: Partial<Dockerode.ContainerStats> = {}): Doc
   } as Dockerode.ContainerStats;
 }
 
-describe('calculateRates', () => {
+function calculate(containerId: string, containerName: string, stats: Dockerode.ContainerStats) {
+  return calculator.calculate(containerId, { containerId, containerName, stats });
+}
+
+describe('DockerRateCalculator.calculate', () => {
   beforeEach(() => {
-    clearRatesCache();
+    calculator = new DockerRateCalculator();
     jest.useFakeTimers();
   });
 
@@ -126,7 +128,7 @@ describe('calculateRates', () => {
 
   it('should calculate memory percentage on first call', () => {
     const stats = createMockStats();
-    const result = calculateRates('container1', 'test-container', stats);
+    const result = calculate('container1', 'test-container', stats);
 
     expect(result.id).toBe('container1');
     expect(result.name).toBe('test-container');
@@ -135,7 +137,7 @@ describe('calculateRates', () => {
 
   it('should return zero rates on first call (no previous data)', () => {
     const stats = createMockStats();
-    const result = calculateRates('container1', 'test-container', stats);
+    const result = calculate('container1', 'test-container', stats);
 
     expect(result.rates.cpuPercent).toBe(0);
     expect(result.rates.networkRxBytesPerSec).toBe(0);
@@ -148,7 +150,7 @@ describe('calculateRates', () => {
     const stats1 = createMockStats();
 
     // First call - no rates yet
-    calculateRates('container1', 'test-container', stats1);
+    calculate('container1', 'test-container', stats1);
 
     // Advance time by 1 second
     jest.advanceTimersByTime(1000);
@@ -168,7 +170,7 @@ describe('calculateRates', () => {
       },
     });
 
-    const result = calculateRates('container1', 'test-container', stats2);
+    const result = calculate('container1', 'test-container', stats2);
 
     // CPU calculation: (cpuDelta / systemDelta) * cpuCount * 100
     // (1200000000 - 1000000000) / (11000000000 - 10000000000) * 4 * 100
@@ -192,7 +194,7 @@ describe('calculateRates', () => {
       },
     });
 
-    calculateRates('container1', 'test-container', stats1);
+    calculate('container1', 'test-container', stats1);
 
     // Advance time by 1 second
     jest.advanceTimersByTime(1000);
@@ -213,7 +215,7 @@ describe('calculateRates', () => {
       },
     });
 
-    const result = calculateRates('container1', 'test-container', stats2);
+    const result = calculate('container1', 'test-container', stats2);
 
     // Rate = delta / time (in seconds)
     // RX: 10 MB / 1s = 10 * 1024 * 1024 bytes/sec = 10485760 bytes/sec
@@ -239,7 +241,7 @@ describe('calculateRates', () => {
       },
     });
 
-    calculateRates('container1', 'test-container', stats1);
+    calculate('container1', 'test-container', stats1);
 
     // Advance time by 2 seconds
     jest.advanceTimersByTime(2000);
@@ -261,7 +263,7 @@ describe('calculateRates', () => {
       },
     });
 
-    const result = calculateRates('container1', 'test-container', stats2);
+    const result = calculate('container1', 'test-container', stats2);
 
     // Rate = delta / time
     // Read: 20 MB / 2s = 10 MB/s = 10 * 1024 * 1024 bytes/sec = 10485760 bytes/sec
@@ -296,7 +298,7 @@ describe('calculateRates', () => {
       },
     });
 
-    calculateRates('container1', 'test-container', stats1);
+    calculate('container1', 'test-container', stats1);
     jest.advanceTimersByTime(1000);
 
     const stats2 = createMockStats({
@@ -324,7 +326,7 @@ describe('calculateRates', () => {
       },
     });
 
-    const result = calculateRates('container1', 'test-container', stats2);
+    const result = calculate('container1', 'test-container', stats2);
 
     // Should sum both interfaces
     // RX: (10 + 10) MB/s = 20 MB/s
@@ -349,7 +351,7 @@ describe('calculateRates', () => {
       },
     });
 
-    calculateRates('container1', 'test-container', stats1);
+    calculate('container1', 'test-container', stats1);
     jest.advanceTimersByTime(1000);
 
     // Container restarted - counters reset
@@ -368,7 +370,7 @@ describe('calculateRates', () => {
       },
     });
 
-    const result = calculateRates('container1', 'test-container', stats2);
+    const result = calculate('container1', 'test-container', stats2);
 
     // Should not show negative rates
     expect(result.rates.networkRxBytesPerSec).toBe(0);
@@ -377,7 +379,7 @@ describe('calculateRates', () => {
 
   it('should handle missing network data', () => {
     const stats1 = createMockStats({ networks: undefined });
-    const result1 = calculateRates('container1', 'test-container', stats1);
+    const result1 = calculate('container1', 'test-container', stats1);
 
     expect(result1.rates.networkRxBytesPerSec).toBe(0);
     expect(result1.rates.networkTxBytesPerSec).toBe(0);
@@ -387,8 +389,8 @@ describe('calculateRates', () => {
     const container1Stats1 = createMockStats();
     const container2Stats1 = createMockStats();
 
-    calculateRates('container1', 'test1', container1Stats1);
-    calculateRates('container2', 'test2', container2Stats1);
+    calculate('container1', 'test1', container1Stats1);
+    calculate('container2', 'test2', container2Stats1);
 
     jest.advanceTimersByTime(1000);
 
@@ -422,8 +424,8 @@ describe('calculateRates', () => {
       },
     });
 
-    const result1 = calculateRates('container1', 'test1', container1Stats2);
-    const result2 = calculateRates('container2', 'test2', container2Stats2);
+    const result1 = calculate('container1', 'test1', container1Stats2);
+    const result2 = calculate('container2', 'test2', container2Stats2);
 
     // Container 1: 10 MB/s
     expect(result1.rates.networkRxBytesPerSec).toBeCloseTo(10 * 1024 * 1024, 0);
@@ -433,11 +435,11 @@ describe('calculateRates', () => {
 
   it('should prevent division by zero for very fast calls', () => {
     const stats1 = createMockStats();
-    calculateRates('container1', 'test-container', stats1);
+    calculate('container1', 'test-container', stats1);
 
     // Don't advance time - immediate second call
     const stats2 = createMockStats();
-    const result = calculateRates('container1', 'test-container', stats2);
+    const result = calculate('container1', 'test-container', stats2);
 
     // Should return safe zero values instead of Infinity or NaN
     expect(result.rates.cpuPercent).toBe(0);
@@ -461,7 +463,7 @@ describe('calculateRates', () => {
       },
     });
 
-    calculateRates('container1', 'test-container', stats1);
+    calculate('container1', 'test-container', stats1);
     jest.advanceTimersByTime(1000);
 
     const stats2 = createMockStats({
@@ -480,15 +482,16 @@ describe('calculateRates', () => {
       },
     });
 
-    const result = calculateRates('container1', 'test-container', stats2);
+    const result = calculate('container1', 'test-container', stats2);
 
     expect(result.rates.blockIoReadBytesPerSec).toBeCloseTo(10 * 1024 * 1024, 0);
     expect(result.rates.blockIoWriteBytesPerSec).toBeCloseTo(5 * 1024 * 1024, 0);
   });
 });
 
-describe('clearRatesCache', () => {
+describe('DockerRateCalculator.clear', () => {
   beforeEach(() => {
+    calculator = new DockerRateCalculator();
     jest.useFakeTimers();
   });
 
@@ -500,25 +503,26 @@ describe('clearRatesCache', () => {
     const stats = createMockStats();
 
     // Add some containers to cache
-    calculateRates('container1', 'test1', stats);
-    calculateRates('container2', 'test2', stats);
+    calculate('container1', 'test1', stats);
+    calculate('container2', 'test2', stats);
 
     // Clear cache
-    clearRatesCache();
+    calculator.clear();
 
     jest.advanceTimersByTime(1000);
 
     // Next calls should act as first calls (no previous data)
-    const result1 = calculateRates('container1', 'test1', createMockStats());
-    const result2 = calculateRates('container2', 'test2', createMockStats());
+    const result1 = calculate('container1', 'test1', createMockStats());
+    const result2 = calculate('container2', 'test2', createMockStats());
 
     expect(result1.rates.cpuPercent).toBe(0);
     expect(result2.rates.cpuPercent).toBe(0);
   });
 });
 
-describe('removeContainerFromCache', () => {
+describe('DockerRateCalculator.remove', () => {
   beforeEach(() => {
+    calculator = new DockerRateCalculator();
     jest.useFakeTimers();
   });
 
@@ -529,16 +533,16 @@ describe('removeContainerFromCache', () => {
   it('should remove specific container from cache', () => {
     const stats = createMockStats();
 
-    calculateRates('container1', 'test1', stats);
-    calculateRates('container2', 'test2', stats);
+    calculate('container1', 'test1', stats);
+    calculate('container2', 'test2', stats);
 
     // Remove only container1
-    removeContainerFromCache('container1');
+    calculator.remove('container1');
 
     jest.advanceTimersByTime(1000);
 
-    const result1 = calculateRates('container1', 'test1', createMockStats());
-    const result2 = calculateRates('container2', 'test2', createMockStats({
+    const result1 = calculate('container1', 'test1', createMockStats());
+    const result2 = calculate('container2', 'test2', createMockStats({
       networks: {
         eth0: {
           rx_bytes: 1024 * 1024 * 110,

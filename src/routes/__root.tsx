@@ -3,6 +3,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 
 import appCss from '../styles.css?url'
+import '../App.css'
 import '@fontsource/inter/index.css'
 import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'

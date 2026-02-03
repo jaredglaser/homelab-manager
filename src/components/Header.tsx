@@ -18,9 +18,12 @@ export default function Header() {
         borderColor: 'divider',
       }}
     >
-      <nav style={{ display: 'flex', flexDirection: 'row' }}>
+      <nav style={{ display: 'flex', flexDirection: 'row', gap: '0.5rem' }}>
         <Box sx={{ px: 0.5, fontWeight: 'bold' }}>
-          <Link to="/">Home</Link>
+          <Link to="/">Docker</Link>
+        </Box>
+        <Box sx={{ px: 0.5, fontWeight: 'bold' }}>
+          <Link to="/zfs">ZFS</Link>
         </Box>
       </nav>
       <ModeToggle />

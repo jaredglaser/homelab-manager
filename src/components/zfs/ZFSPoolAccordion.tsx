@@ -2,25 +2,13 @@ import { useState } from 'react';
 import { Box, Chip, Tooltip, Typography } from '@mui/joy';
 import { ChevronRight } from 'lucide-react';
 import type { PoolStats } from '@/types/zfs';
-import { formatBytes, formatAsPercent } from '@/formatters/metrics';
-import { MetricCell } from '../shared-table';
+import ZFSMetricCells from './ZFSMetricCells';
 import ZFSVdevAccordion from './ZFSVdevAccordion';
 import ZFSDiskRow from './ZFSDiskRow';
 
 interface ZFSPoolAccordionProps {
   pool: PoolStats;
 }
-
-const buildMetricCells = (pool: PoolStats) => (
-  <>
-    <MetricCell>{formatBytes(pool.data.capacity.alloc, false)}</MetricCell>
-    <MetricCell>{pool.data.rates.readOpsPerSec.toFixed(0)}</MetricCell>
-    <MetricCell>{pool.data.rates.writeOpsPerSec.toFixed(0)}</MetricCell>
-    <MetricCell>{formatBytes(pool.data.rates.readBytesPerSec, true)}</MetricCell>
-    <MetricCell>{formatBytes(pool.data.rates.writeBytesPerSec, true)}</MetricCell>
-    <MetricCell>{formatAsPercent(pool.data.rates.utilizationPercent / 100)}</MetricCell>
-  </>
-);
 
 export default function ZFSPoolAccordion({ pool }: ZFSPoolAccordionProps) {
   const [expanded, setExpanded] = useState(false);
@@ -59,7 +47,7 @@ export default function ZFSPoolAccordion({ pool }: ZFSPoolAccordionProps) {
             )}
           </Box>
         </td>
-        {buildMetricCells(pool)}
+        <ZFSMetricCells data={pool.data} />
       </tr>
     );
   }
@@ -83,7 +71,7 @@ export default function ZFSPoolAccordion({ pool }: ZFSPoolAccordionProps) {
               {badgeLabel && <Chip size="sm" variant="soft">{badgeLabel}</Chip>}
             </Box>
           </td>
-          {buildMetricCells(pool)}
+          <ZFSMetricCells data={pool.data} />
         </tr>
         {expanded &&
           vdevDisks.map((disk) => (
@@ -113,7 +101,7 @@ export default function ZFSPoolAccordion({ pool }: ZFSPoolAccordionProps) {
             <Typography fontWeight="bold">{pool.data.name}</Typography>
           </Box>
         </td>
-        {buildMetricCells(pool)}
+        <ZFSMetricCells data={pool.data} />
       </tr>
 
       {expanded && (

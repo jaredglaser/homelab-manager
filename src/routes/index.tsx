@@ -1,23 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
-import '../App.css'
-import { Box } from '@mui/joy';
-import ThemeProvider from '../components/ThemeProvider';
-import Header from '../components/Header';
-import DockerDashboard from '../components/DockerDashboard';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-const queryClient = new QueryClient();
+import AppShell from '../components/AppShell'
+import ContainerTable from '../components/docker/ContainerTable'
 
-export const Route = createFileRoute('/')({ ssr: false, component: App })
+export const Route = createFileRoute('/')({ ssr: false, component: DockerPage })
 
-export default function App() {
+function DockerPage() {
   return (
-    <ThemeProvider>
-      <Header />
-      <QueryClientProvider client={queryClient}>
-        <Box sx={{ minHeight: '100vh' }}>
-          <DockerDashboard />
-        </Box>
-      </QueryClientProvider>
-    </ThemeProvider>
-  );
+    <AppShell>
+      <ContainerTable />
+    </AppShell>
+  )
 }

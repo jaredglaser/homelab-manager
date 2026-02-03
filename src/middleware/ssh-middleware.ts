@@ -28,14 +28,6 @@ export function createSSHMiddleware(config: SSHConnectionConfig) {
  * @param envPrefix - Prefix for environment variables (e.g., 'ZFS_SSH')
  */
 export function createSSHMiddlewareFromEnv(envPrefix: string) {
-  // Debug: Log all environment variables with this prefix
-  console.log(`[SSH Middleware] Checking environment variables for prefix: ${envPrefix}`);
-  console.log(`[SSH Middleware] ${envPrefix}_HOST:`, process.env[`${envPrefix}_HOST`]);
-  console.log(`[SSH Middleware] ${envPrefix}_PORT:`, process.env[`${envPrefix}_PORT`]);
-  console.log(`[SSH Middleware] ${envPrefix}_USER:`, process.env[`${envPrefix}_USER`]);
-  console.log(`[SSH Middleware] ${envPrefix}_KEY_PATH:`, process.env[`${envPrefix}_KEY_PATH`]);
-  console.log(`[SSH Middleware] All env keys:`, Object.keys(process.env).filter(k => k.includes('ZFS')));
-
   const host = process.env[`${envPrefix}_HOST`];
   const port = parseInt(process.env[`${envPrefix}_PORT`] || '22');
   const username = process.env[`${envPrefix}_USER`] || 'root';

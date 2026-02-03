@@ -9,5 +9,4 @@ export interface DockerContainer {
   ioWait: number; // percentage
 }
 
-// Re-export ContainerStatsWithRates from rate-calculator
 export type { ContainerStatsWithRates } from '../lib/rate-calculator';

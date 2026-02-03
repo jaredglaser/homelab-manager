@@ -42,7 +42,7 @@ export function formatBytes(bytes: number, isPerSecond: boolean): string {
  */
 export function formatBitsSIUnits(bits: number, isPerSecond: boolean): string {
   if (bits >= 1000*1000*1000) {
-    return `${(bits / 1000*1000*1000).toFixed(2)} ${isPerSecond ? 'Gbps':'Gb'}`;
+    return `${(bits / (1000 * 1000 * 1000)).toFixed(2)} ${isPerSecond ? 'Gbps':'Gb'}`;
   }
   else if(bits >= 1000 * 1000) {
     return `${(bits / 1000 / 1000).toFixed(2)} ${isPerSecond ? 'Mbps':'Mb'}`;
