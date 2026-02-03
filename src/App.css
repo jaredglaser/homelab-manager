@@ -1,8 +1,1 @@
 @import "tailwindcss";
-
-@theme {
-  --color-header-bg: #fff;
-  --color-header-text: #000;
-  --color-row-vdev: #f5f5f5;
-  --color-row-disk: #fafafa;
-}

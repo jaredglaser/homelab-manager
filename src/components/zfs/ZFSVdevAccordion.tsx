@@ -19,7 +19,8 @@ export default function ZFSVdevAccordion({ vdev, indent }: ZFSVdevAccordionProps
     <>
       <tr
         onClick={() => hasDisks && setExpanded(!expanded)}
-        className={`bg-row-vdev ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
+        style={{ backgroundColor: 'var(--joy-palette-background-level2)' }}
+        className={hasDisks ? 'cursor-pointer' : 'cursor-default'}
       >
         <td style={{ paddingLeft: `${indent * 2}rem` }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

@@ -10,7 +10,7 @@ interface ZFSDiskRowProps {
 
 export default function ZFSDiskRow({ disk, indent }: ZFSDiskRowProps) {
   return (
-    <tr className="bg-row-disk">
+    <tr style={{ backgroundColor: 'var(--joy-palette-background-level1)' }}>
       <td style={{ paddingLeft: `${indent * 2}rem` }}>
         <Typography level="body-sm" sx={{ fontFamily: 'code', fontSize: '0.75rem' }}>
           {disk.name}

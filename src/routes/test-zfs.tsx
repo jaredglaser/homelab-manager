@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import ThemeProvider from '../components/ThemeProvider';
+import Header from '../components/Header';
 import ZFSDashboard from '../components/ZFSDashboard';
 
 export const Route = createFileRoute('/test-zfs')({
@@ -9,6 +10,7 @@ export const Route = createFileRoute('/test-zfs')({
 function TestZFS() {
   return (
     <ThemeProvider>
+      <Header />
       <ZFSDashboard />
     </ThemeProvider>
   );
