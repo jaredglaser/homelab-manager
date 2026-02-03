@@ -16,7 +16,11 @@ export default defineConfig({
     devtools(),
     nitro(),
     tailwindcss(),
-    tanstackStart(),
+    tanstackStart({
+      spa: {
+        enabled: true,
+      },
+    }),
     viteReact(),
   ],
 })
