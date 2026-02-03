@@ -11,9 +11,10 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 
 ### Current Features
 
-- **Docker Dashboard** — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX)
-- **ZFS Dashboard** — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics streamed over SSH
+- **Docker Dashboard** (`/`) — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX)
+- **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics streamed over SSH
 - **Live-Updating UI** — Server-side async generators stream data continuously to the client with no polling
+- **Factory-Based Table Architecture** — Adding a new streaming data source requires only a server function, column definitions, and a row renderer
 
 ## Built With
 
@@ -73,20 +74,20 @@ graph TD
 
 ### Data Streaming Pipeline
 
-Every data source follows the same extensible pipeline pattern. This is what makes it straightforward to add new services — implement a client, parser, and rate calculator, and the rest of the infrastructure handles streaming to the UI.
+Every data source follows the same extensible pipeline pattern. Adding a new service means implementing a client, parser, and rate calculator on the server — the client-side infrastructure (`useServerStream` hook and `StreamingTable` factory component) handles the rest.
 
 ```mermaid
 flowchart LR
-    SF["TanStack Start<br/>Server Function<br/>(async generator)"]
+    SF["Server Function<br/>(async generator)"]
     MW["Middleware<br/>(inject client)"]
     CL["Client<br/>(Docker / SSH / HTTP)"]
     RS["Raw Stream<br/>(JSON / text)"]
     PA["Parser<br/>(structured data)"]
     RC["Rate Calculator<br/>(deltas & metrics)"]
-    TQ["TanStack Query<br/>(client state)"]
-    UI["React Component<br/>(live UI)"]
+    Hook["useServerStream<br/>(hook)"]
+    ST["StreamingTable<br/>(factory component)"]
 
-    SF --> MW --> CL --> RS --> PA --> RC --> TQ --> UI
+    SF --> MW --> CL --> RS --> PA --> RC --> Hook --> ST
 ```
 
 **How it works:**
@@ -95,9 +96,9 @@ flowchart LR
 2. **Middleware** injects the appropriate connection client (Docker, SSH, etc.)
 3. The **client** opens a persistent connection and begins streaming raw data
 4. A **parser** transforms the raw stream into structured TypeScript objects
-5. A **rate calculator** computes deltas and per-second metrics
-6. **TanStack Query** on the client consumes the stream and manages state
-7. **React components** re-render with each new data point
+5. A **rate calculator** (class implementing `RateCalculator` interface) computes deltas and per-second metrics
+6. The **`useServerStream` hook** on the client consumes the async generator, managing abort/cleanup, error state, and optional retry with exponential backoff
+7. The **`StreamingTable` factory component** renders the title, loading/error states, column headers, and rows from a declarative config — each data source just provides a stream function, columns, an `onData` reducer, and a row renderer
 
 ## Getting Started
 
@@ -140,6 +141,51 @@ bun dev
 ```
 
 There is **no Docker container available yet**. Running locally with `bun dev` is currently the only way to use the project. See the roadmap below for self-hosting plans.
+
+## Project Structure
+
+```
+src/
+├── components/
+│   ├── AppShell.tsx                 # Shared layout (ThemeProvider, QueryClient, Header)
+│   ├── Header.tsx                   # Navigation header
+│   ├── ModeToggle.tsx               # Dark/light theme toggle
+│   ├── ThemeProvider.tsx            # MUI Joy theme wrapper
+│   ├── docker/
+│   │   ├── ContainerTable.tsx       # Docker StreamingTable config
+│   │   └── ContainerRow.tsx         # Docker container row renderer
+│   ├── zfs/
+│   │   ├── ZFSPoolsTable.tsx        # ZFS StreamingTable config
+│   │   ├── ZFSPoolAccordion.tsx     # Expandable pool row
+│   │   ├── ZFSVdevAccordion.tsx     # Expandable vdev row
+│   │   ├── ZFSDiskRow.tsx           # Disk row renderer
+│   │   └── ZFSMetricCells.tsx       # Shared ZFS metric columns
+│   └── shared-table/
+│       ├── MetricCell.tsx           # Right-aligned table cell
+│       └── StreamingTable.tsx       # Factory component for streaming tables
+├── hooks/
+│   └── useServerStream.ts          # Generic streaming server function consumer
+├── data/
+│   ├── docker.functions.tsx         # Docker server functions
+│   └── zfs.functions.tsx            # ZFS server functions
+├── middleware/
+│   ├── docker-middleware.ts         # Docker client injection
+│   └── ssh-middleware.ts            # SSH client injection
+├── lib/
+│   ├── clients/                     # Connection managers (Docker, SSH)
+│   ├── parsers/                     # Stream parsers (ZFS iostat, text lines)
+│   ├── utils/                       # Rate calculators, hierarchy builders
+│   ├── streaming/types.ts           # Core interfaces (StreamingClient, RateCalculator)
+│   ├── rate-calculator.ts           # DockerRateCalculator class
+│   └── stream-utils.ts             # Async iterator utilities
+├── types/                           # Domain types (Docker, ZFS)
+├── formatters/metrics.ts            # Number formatting (%, bytes, bits)
+├── routes/
+│   ├── __root.tsx                   # HTML shell (SSR-safe, no MUI)
+│   ├── index.tsx                    # Docker page (/)
+│   └── zfs.tsx                      # ZFS page (/zfs)
+└── theme.ts                         # MUI Joy theme config
+```
 
 ## Roadmap
 
