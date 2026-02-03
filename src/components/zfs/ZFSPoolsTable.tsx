@@ -18,25 +18,40 @@ export default function ZFSPoolsTable() {
       setIsStreaming(true);
       setError(null);
 
-      try {
-        // The server now yields a complete ZFSIOStatWithRates[] per cycle,
-        // so each iteration gives us a full snapshot of all pools/vdevs/disks.
-        for await (const cycleStats of await streamZFSIOStat()) {
-          if (aborted) break;
+      let retryCount = 0;
+      const maxRetryDelay = 30_000;
+      const baseDelay = 1_000;
 
-          const hierarchy = buildHierarchy(cycleStats);
-          setPoolStats(hierarchy);
+      while (!aborted) {
+        try {
+          for await (const cycleStats of await streamZFSIOStat()) {
+            if (aborted) break;
+            retryCount = 0; // Reset backoff on successful data
+            setError(null);
+            const hierarchy = buildHierarchy(cycleStats);
+            setPoolStats(hierarchy);
+          }
+
+          if (!aborted) {
+            console.log('[ZFSPoolsTable] Stream ended, will reconnect');
+          }
+        } catch (err) {
+          if (!aborted) {
+            console.error('[ZFSPoolsTable] Stream error:', err);
+            setError(err as Error);
+          }
         }
-      } catch (err) {
-        if (!aborted) {
-          console.error('[ZFSPoolsTable] Stream error:', err);
-          setError(err as Error);
-        }
-      } finally {
-        if (!aborted) {
-          setIsStreaming(false);
-        }
+
+        if (aborted) break;
+
+        const delay = Math.min(baseDelay * 2 ** retryCount, maxRetryDelay);
+        retryCount++;
+        console.log(`[ZFSPoolsTable] Reconnecting in ${delay}ms (attempt ${retryCount})`);
+        await new Promise((r) => setTimeout(r, delay));
+        setError(null);
       }
+
+      setIsStreaming(false);
     }
 
     startStream();
@@ -65,16 +80,20 @@ export default function ZFSPoolsTable() {
   }
 
   return (
-    <Table aria-label="zfs pools table" sx={{ '& thead th': { fontWeight: 600 } }}>
+    <Table aria-label="zfs pools table" sx={{
+      tableLayout: 'fixed',
+      '& thead th': { fontWeight: 600 },
+      '& td:first-child': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+    }}>
       <thead>
         <tr>
           <th style={{ width: '30%' }}>Pool / Device</th>
-          <th style={{ textAlign: 'right' }}>Capacity</th>
-          <th style={{ textAlign: 'right' }}>Read Ops/s</th>
-          <th style={{ textAlign: 'right' }}>Write Ops/s</th>
-          <th style={{ textAlign: 'right' }}>Read</th>
-          <th style={{ textAlign: 'right' }}>Write</th>
-          <th style={{ textAlign: 'right' }}>Utilization</th>
+          <th style={{ width: '14%', textAlign: 'right' }}>Capacity</th>
+          <th style={{ width: '11%', textAlign: 'right' }}>Read Ops/s</th>
+          <th style={{ width: '11%', textAlign: 'right' }}>Write Ops/s</th>
+          <th style={{ width: '11%', textAlign: 'right' }}>Read</th>
+          <th style={{ width: '11%', textAlign: 'right' }}>Write</th>
+          <th style={{ width: '12%', textAlign: 'right' }}>Utilization</th>
         </tr>
       </thead>
       <tbody>

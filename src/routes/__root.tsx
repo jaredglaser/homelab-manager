@@ -6,6 +6,8 @@ import Header from '../components/Header'
 
 import appCss from '../styles.css?url'
 import '@fontsource/inter/index.css'
+import '@fontsource/inter/600.css'
+import '@fontsource/inter/700.css'
 
 export const Route = createRootRoute({
   head: () => ({

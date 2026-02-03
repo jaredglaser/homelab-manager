@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { CssVarsProvider } from '@mui/joy/styles';
-import CssBaseline from '@mui/joy/CssBaseline';
+import ThemeProvider from '../components/ThemeProvider';
 import ZFSDashboard from '../components/ZFSDashboard';
 
 export const Route = createFileRoute('/test-zfs')({
@@ -9,9 +8,8 @@ export const Route = createFileRoute('/test-zfs')({
 
 function TestZFS() {
   return (
-    <CssVarsProvider>
-      <CssBaseline />
+    <ThemeProvider>
       <ZFSDashboard />
-    </CssVarsProvider>
+    </ThemeProvider>
   );
 }

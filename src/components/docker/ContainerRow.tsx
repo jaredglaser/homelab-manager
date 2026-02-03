@@ -1,6 +1,6 @@
 import type { ContainerStatsWithRates } from '../../types/docker';
 import { formatAsPercent, formatBytes, formatBitsSIUnits } from '../../formatters/metrics';
-import MetricCell from './MetricCell';
+import { MetricCell } from '../shared-table';
 
 interface ContainerRowProps {
   container: ContainerStatsWithRates;

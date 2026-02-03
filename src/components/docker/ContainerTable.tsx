@@ -80,13 +80,13 @@ export default function ContainerTable() {
     <Table aria-label="docker containers table" sx={{ '& thead th': { fontWeight: 600 } }}>
       <thead>
         <tr>
-          <th style={{ width: '20%' }}>Container Name</th>
-          <th style={{ textAlign: 'right' }}>CPU %</th>
-          <th style={{ textAlign: 'right' }}>RAM %</th>
-          <th style={{ textAlign: 'right' }}>Block Read (MB/s)</th>
-          <th style={{ textAlign: 'right' }}>Block Write (MB/s)</th>
-          <th style={{ textAlign: 'right' }}>Network RX (Mbps)</th>
-          <th style={{ textAlign: 'right' }}>Network TX (Mbps)</th>
+          <th className="w-[20%]">Container Name</th>
+          <th className="text-right">CPU %</th>
+          <th className="text-right">RAM %</th>
+          <th className="text-right">Block Read (MB/s)</th>
+          <th className="text-right">Block Write (MB/s)</th>
+          <th className="text-right">Network RX (Mbps)</th>
+          <th className="text-right">Network TX (Mbps)</th>
         </tr>
       </thead>
       <tbody>

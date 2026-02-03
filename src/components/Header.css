@@ -2,8 +2,8 @@
   padding: 0.5rem;
   display: flex;
   gap: 0.5rem;
-  background-color: #fff;
-  color: #000;
+  background-color: var(--color-header-bg);
+  color: var(--color-header-text);
   justify-content: space-between;
 }
 

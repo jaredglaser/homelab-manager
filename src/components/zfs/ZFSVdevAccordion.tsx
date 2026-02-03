@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/joy';
 import { ChevronRight } from 'lucide-react';
 import type { VdevStats } from '@/types/zfs';
 import { formatBytes, formatAsPercent } from '@/formatters/metrics';
-import ZFSMetricCell from './ZFSMetricCell';
+import { MetricCell } from '../shared-table';
 import ZFSDiskRow from './ZFSDiskRow';
 
 interface ZFSVdevAccordionProps {
@@ -19,35 +19,29 @@ export default function ZFSVdevAccordion({ vdev, indent }: ZFSVdevAccordionProps
     <>
       <tr
         onClick={() => hasDisks && setExpanded(!expanded)}
-        style={{
-          cursor: hasDisks ? 'pointer' : 'default',
-          backgroundColor: '#f5f5f5',
-        }}
+        className={`bg-row-vdev ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
       >
         <td style={{ paddingLeft: `${indent * 2}rem` }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {hasDisks && (
               <ChevronRight
                 size={16}
-                style={{
-                  transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.2s',
-                }}
+                className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
               />
             )}
             <Typography level="body-sm">{vdev.data.name}</Typography>
           </Box>
         </td>
-        <ZFSMetricCell>
+        <MetricCell>
           {vdev.data.capacity.alloc > 0
             ? formatBytes(vdev.data.capacity.alloc, false)
             : '—'}
-        </ZFSMetricCell>
-        <ZFSMetricCell>{vdev.data.rates.readOpsPerSec.toFixed(0)}</ZFSMetricCell>
-        <ZFSMetricCell>{vdev.data.rates.writeOpsPerSec.toFixed(0)}</ZFSMetricCell>
-        <ZFSMetricCell>{formatBytes(vdev.data.rates.readBytesPerSec, true)}</ZFSMetricCell>
-        <ZFSMetricCell>{formatBytes(vdev.data.rates.writeBytesPerSec, true)}</ZFSMetricCell>
-        <ZFSMetricCell>{formatAsPercent(vdev.data.rates.utilizationPercent / 100)}</ZFSMetricCell>
+        </MetricCell>
+        <MetricCell>{vdev.data.rates.readOpsPerSec.toFixed(0)}</MetricCell>
+        <MetricCell>{vdev.data.rates.writeOpsPerSec.toFixed(0)}</MetricCell>
+        <MetricCell>{formatBytes(vdev.data.rates.readBytesPerSec, true)}</MetricCell>
+        <MetricCell>{formatBytes(vdev.data.rates.writeBytesPerSec, true)}</MetricCell>
+        <MetricCell>{formatAsPercent(vdev.data.rates.utilizationPercent / 100)}</MetricCell>
       </tr>
 
       {expanded && Array.from(vdev.disks.values()).map((disk) => (
