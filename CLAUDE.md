@@ -120,7 +120,7 @@ Rate calculators:
 - Naming: `*.test.ts` or `*.test.tsx`
 - Test utilities: separate directories (e.g., `src/lib/test/`), NOT in `__tests__/`
 - Use `bun:test` imports: `import { describe, it, expect } from 'bun:test'`
-- **Coverage requirements:** 90% lines, 90% functions (automatically enforced by `bun test`)
+- **Coverage requirements:** 93% lines, 93% functions (automatically enforced by `bun test`)
 - `bun test` automatically checks coverage and fails if below threshold
 
 ### Imports
