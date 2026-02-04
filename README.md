@@ -142,6 +142,20 @@ bun dev
 
 There is **no Docker container available yet**. Running locally with `bun dev` is currently the only way to use the project. See the roadmap below for self-hosting plans.
 
+### Testing
+
+Tests are written using [Bun's built-in test runner](https://bun.sh/docs/cli/test) and are organized in `__tests__/` folders alongside the source code they test:
+
+```bash
+# Run all tests
+bun test
+
+# Run tests in watch mode
+bun test --watch
+```
+
+Test files follow the `*.test.ts` naming convention and are located in `__tests__/` directories within the same folder as the code they're testing (e.g., `src/lib/__tests__/stream-utils.test.ts` tests `src/lib/stream-utils.ts`).
+
 ## Project Structure
 
 ```
@@ -172,8 +186,12 @@ src/
 │   ├── docker-middleware.ts         # Docker client injection
 │   └── ssh-middleware.ts            # SSH client injection
 ├── lib/
+│   ├── __tests__/                   # Unit tests
+│   │   ├── rate-calculator.test.ts
+│   │   └── stream-utils.test.ts
 │   ├── clients/                     # Connection managers (Docker, SSH)
 │   ├── parsers/                     # Stream parsers (ZFS iostat, text lines)
+│   ├── test/                        # Test utilities and helpers
 │   ├── utils/                       # Rate calculators, hierarchy builders
 │   ├── streaming/types.ts           # Core interfaces (StreamingClient, RateCalculator)
 │   ├── rate-calculator.ts           # DockerRateCalculator class

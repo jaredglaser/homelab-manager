@@ -1,5 +1,19 @@
 # Project Guidelines for Claude
 
+## Workflow
+
+**Start of every conversation:**
+- ALWAYS read this file (`CLAUDE.md`) first to get up-to-date project context and guidelines.
+
+**End of every task:**
+- After completing a task, check if `README.md` and `CLAUDE.md` need updates to reflect changes.
+- Update documentation immediately if:
+  - New architecture patterns were introduced
+  - File/folder organization changed
+  - New commands or scripts were added
+  - Testing conventions changed
+  - New tech stack components were added
+
 ## Tech Stack
 
 - **Framework:** TanStack Start (SPA mode, SSR disabled)
@@ -54,6 +68,12 @@
 ### Types
 - Domain types go in `src/types/` (e.g., `docker.ts`, `zfs.ts`).
 - Streaming infrastructure types go in `src/lib/streaming/types.ts`.
+
+### Testing
+- Test files must be placed in `__tests__/` folders within the same directory as the files they test.
+- Test files use the naming convention `*.test.ts` or `*.test.tsx`.
+- Test utilities and helpers live in their own directories (e.g., `src/lib/test/`) and are NOT placed in `__tests__/`.
+- Use Bun's built-in test runner (`bun:test`) — import `describe`, `it`, `expect`, etc. from `'bun:test'`.
 
 ### Do NOT
 - Do not use `console.log` for debugging in committed code. Use `console.error` only for actual errors.

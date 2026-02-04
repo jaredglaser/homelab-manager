@@ -1,7 +1,7 @@
 import { describe, it, expect, spyOn } from 'bun:test';
 import { Readable } from 'node:stream';
-import { streamToAsyncIterator } from './stream-utils';
-import { createMockJSONStream } from './test/stream-utils';
+import { streamToAsyncIterator } from '../stream-utils';
+import { createMockJSONStream } from '../test/stream-utils';
 
 describe('streamToAsyncIterator', () => {
   it('should convert a Node.js stream to async iterator', async () => {

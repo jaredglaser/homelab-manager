@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from 'bun:test';
 import type Dockerode from 'dockerode';
-import { DockerRateCalculator } from './rate-calculator';
+import { DockerRateCalculator } from '../rate-calculator';
 
 let calculator: DockerRateCalculator;
 
