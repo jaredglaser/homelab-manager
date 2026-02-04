@@ -1,6 +1,6 @@
 # Homelab Manager
 
-[![CI](https://github.com/YOUR_USERNAME/homelab-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/homelab-manager/actions/workflows/ci.yml)
+[![CI](https://github.com/jaredglaser/homelab-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/jaredglaser/homelab-manager/actions/workflows/ci.yml)
 
 > A real-time monitoring dashboard for homelab infrastructure, built on TanStack Start.
 
