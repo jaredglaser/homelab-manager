@@ -6,8 +6,10 @@
     "dev": "vite dev --port 3000",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "bun test",
-    "test:watch": "bun test --watch"
+    "test": "cross-env-shell \"bun test --coverage 2>&1 | node scripts/check-coverage.js\"",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "test:coverage:check": "node scripts/check-coverage.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -44,6 +46,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "cross-env": "^10.1.0",
     "jsdom": "^27.0.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",

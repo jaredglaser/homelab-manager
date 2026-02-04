@@ -36,10 +36,12 @@
 ## Commands
 
 ```bash
-bun dev              # Dev server (port 3000)
-bun build            # Production build
-bun test             # Run all tests
-bun test --watch     # Watch mode
+bun dev                     # Dev server (port 3000)
+bun build                   # Production build
+bun test                    # Run all tests
+bun test --watch            # Watch mode
+bun run test:coverage       # Run tests with coverage report
+bun run test:coverage:check # Run tests and enforce 90% coverage threshold
 ```
 
 ## File Organization
@@ -118,6 +120,8 @@ Rate calculators:
 - Naming: `*.test.ts` or `*.test.tsx`
 - Test utilities: separate directories (e.g., `src/lib/test/`), NOT in `__tests__/`
 - Use `bun:test` imports: `import { describe, it, expect } from 'bun:test'`
+- **Coverage requirements:** 90% lines, 90% functions (automatically enforced by `bun test`)
+- `bun test` automatically checks coverage and fails if below threshold
 
 ### Imports
 - **Always use `@/` for project imports**: `import { Header } from '@/components/Header'`

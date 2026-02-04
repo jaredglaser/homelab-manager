@@ -24,8 +24,11 @@ jobs:
       - name: Build project
         run: bun run build
 
-      - name: Run tests
-        run: bun test
+      - name: Run tests with coverage
+        run: bun test --coverage
+
+      - name: Check coverage thresholds
+        run: bun run test:coverage:check
 
       - name: Check licenses
         run: |

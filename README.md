@@ -149,12 +149,21 @@ There is **no Docker container available yet**. Running locally with `bun dev` i
 Tests are written using [Bun's built-in test runner](https://bun.sh/docs/cli/test) and are organized in `__tests__/` folders alongside the source code they test:
 
 ```bash
-# Run all tests
+# Run all tests (automatically enforces 90% coverage threshold)
 bun test
 
-# Run tests in watch mode
+# Run tests in watch mode (no coverage enforcement)
 bun test --watch
+
+# Run tests with coverage report only (no enforcement)
+bun run test:coverage
 ```
+
+**Coverage Requirements:**
+- Minimum **90% line coverage**
+- Minimum **90% function coverage**
+- Coverage is **automatically enforced** when running `bun test`
+- Coverage is enforced in CI pipeline
 
 Test files follow the `*.test.ts` naming convention and are located in `__tests__/` directories within the same folder as the code they're testing (e.g., `src/lib/__tests__/stream-utils.test.ts` tests `src/lib/stream-utils.ts`).
 
