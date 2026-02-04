@@ -1,5 +1,7 @@
 # Homelab Manager
 
+[![CI](https://github.com/YOUR_USERNAME/homelab-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/YOUR_USERNAME/homelab-manager/actions/workflows/ci.yml)
+
 > A real-time monitoring dashboard for homelab infrastructure, built on TanStack Start.
 
 > [!WARNING]
@@ -220,3 +222,5 @@ AI tools are used during development, particularly in early-stage prototyping an
 ## License
 
 This project is licensed under the [Apache License 2.0](LICENSE).
+
+All dependencies use permissive licenses compatible with Apache 2.0. License compliance is verified automatically in CI using [license-checker-rseidelsohn](https://github.com/RSeidelsohn/license-checker-rseidelsohn).
