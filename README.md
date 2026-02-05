@@ -224,9 +224,39 @@ src/
 - [ ] **Optional database support** — persist historical metrics for trend analysis and graphing alongside live statistics
 - [ ] **Extensible service architecture** — plugin-like system for adding any service over SSH or HTTP
 
+## Contributing
+
+All changes to `main` must go through a pull request. Direct pushes to `main` are not allowed.
+
+**PR requirements:**
+- CI must pass (build, tests, coverage, license check)
+- Automatic Claude code review is triggered on every PR
+- Human review and approval before merging
+
+**Interacting with Claude on PRs:**
+- Mention `@claude` in any PR comment or review to ask questions, request changes, or get implementation help
+
+### Branch Protection Setup
+
+Branch protection rules must be configured in GitHub repository settings:
+
+1. Go to **Settings > Rules > Rulesets** (or **Settings > Branches** for classic branch protection)
+2. Add a rule targeting `main`
+3. Enable:
+   - **Require a pull request before merging**
+   - **Require status checks to pass** — add `Build, Test & License Check` and `review` as required checks
+   - **Require review approval** (at least 1 reviewer)
+   - **Do not allow bypassing the above settings**
+
+### Required Secrets
+
+The `ANTHROPIC_API_KEY` secret must be configured in **Settings > Secrets and variables > Actions** for Claude code review to function.
+
+The [Claude GitHub App](https://github.com/apps/claude) must also be installed and granted access to the repository.
+
 ## AI Disclosure
 
-AI tools are used during development, particularly in early-stage prototyping and testing. **All code is fully human-reviewed** before being merged. The codebase is under active refactoring to ensure it is readable, well-structured, and efficient.
+AI tools are used during development, particularly in early-stage prototyping and testing. **All code is reviewed** before being merged, both by Claude (automated) and by humans. The codebase is under active refactoring to ensure it is readable, well-structured, and efficient.
 
 ## License
 
