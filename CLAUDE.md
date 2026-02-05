@@ -52,6 +52,7 @@ src/
 │   ├── shared-table/        # StreamingTable, MetricCell (shared infrastructure)
 │   ├── docker/              # Docker-specific components
 │   ├── zfs/                 # ZFS-specific components
+│   ├── settings/            # Settings form and section components
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
 ├── hooks/                   # Custom hooks (useServerStream, etc.)
 ├── data/                    # Server functions (*.functions.tsx)
@@ -62,8 +63,9 @@ src/
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
 │   ├── utils/               # Rate calculators, hierarchy builders
+│   ├── validation/          # Zod schemas (settings, etc.)
 │   └── streaming/types.ts   # Core interfaces
-├── types/                   # Domain types (docker.ts, zfs.ts)
+├── types/                   # Domain types (docker.ts, zfs.ts, settings.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/                  # TanStack Router pages
 ```

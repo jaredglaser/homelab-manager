@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { Box } from '@mui/joy'
+import { Settings } from 'lucide-react'
 import ModeToggle from './ModeToggle'
 
 export default function Header() {
@@ -26,7 +27,12 @@ export default function Header() {
           <Link to="/zfs">ZFS</Link>
         </Box>
       </nav>
-      <ModeToggle />
+      <div className="flex items-center gap-1">
+        <Link to="/settings" aria-label="Settings">
+          <Settings size={18} />
+        </Link>
+        <ModeToggle />
+      </div>
     </Box>
   )
 }
