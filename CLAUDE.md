@@ -156,16 +156,6 @@ Rate calculators:
 | **Claude PR Review** | `.github/workflows/claude-review.yml` | PRs targeting `main` (opened, synchronize, ready_for_review, reopened) |
 | **Claude Code** | `.github/workflows/claude.yml` | `@claude` mentions in issues, PR comments, and PR reviews |
 
-**Access restrictions:**
-- Claude PR review only runs on PRs authored by `jaredglaser` or `claude[bot]`.
-- Interactive `@claude` mentions only respond to `jaredglaser`.
-
-### Required Secrets
-- `ANTHROPIC_API_KEY` — must be configured in repository secrets for Claude code review workflows.
-
-### Required GitHub Apps
-- [Claude GitHub App](https://github.com/apps/claude) — must be installed and granted access to the repository.
-
 ## Security & Best Practices
 
 - Never log environment variables or sensitive config
