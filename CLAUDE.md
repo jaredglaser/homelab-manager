@@ -147,7 +147,8 @@ Rate calculators:
 ### Branch Protection
 - All changes to `main` must go through a pull request — direct pushes are blocked.
 - PRs require passing CI status checks (build, test, coverage, license) before merging.
-- PRs receive an automatic Claude code review via the `claude-review.yml` workflow.
+- PRs by `jaredglaser` or `claude[bot]` receive an automatic Claude code review via the `claude-review.yml` workflow.
+- `CODEOWNERS` (`.github/CODEOWNERS`) assigns `@jaredglaser` as the owner of the entire codebase — only they can approve PRs.
 
 ### GitHub Actions Workflows
 | Workflow | File | Triggers |
@@ -155,6 +156,10 @@ Rate calculators:
 | **CI** | `.github/workflows/ci.yml` | Push to `main`, PRs targeting `main` |
 | **Claude PR Review** | `.github/workflows/claude-review.yml` | PRs targeting `main` (opened, synchronize, ready_for_review, reopened) |
 | **Claude Code** | `.github/workflows/claude.yml` | `@claude` mentions in issues, PR comments, and PR reviews |
+
+**Access restrictions:**
+- Claude PR review only runs on PRs authored by `jaredglaser` or `claude[bot]`.
+- Interactive `@claude` mentions only respond to `jaredglaser`.
 
 ### Required Secrets
 - `ANTHROPIC_API_KEY` — must be configured in repository secrets for Claude code review workflows.

@@ -7,6 +7,9 @@ on:
 
 jobs:
   review:
+    if: >-
+      github.event.pull_request.user.login == 'jaredglaser' ||
+      github.event.pull_request.user.login == 'claude[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read

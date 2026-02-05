@@ -224,21 +224,9 @@ src/
 - [ ] **Optional database support** — persist historical metrics for trend analysis and graphing alongside live statistics
 - [ ] **Extensible service architecture** — plugin-like system for adding any service over SSH or HTTP
 
-## Contributing
-
-All changes to `main` must go through a pull request. Direct pushes to `main` are not allowed.
-
-**PR requirements:**
-- CI must pass (build, tests, coverage, license check)
-- Automatic Claude code review is triggered on every PR
-- Human review and approval before merging
-
-**Interacting with Claude on PRs:**
-- Mention `@claude` in any PR comment or review to ask questions, request changes, or get implementation help
-
 ## AI Disclosure
 
-AI tools are used during development, particularly in early-stage prototyping and testing. **All code is reviewed** before being merged, both by Claude (automated) and by humans. The codebase is under active refactoring to ensure it is readable, well-structured, and efficient.
+AI tools are used during development, particularly in early-stage prototyping and testing. **All code is fully human-reviewed** before being merged. The codebase is under active refactoring to ensure it is readable, well-structured, and efficient.
 
 ## License
 
