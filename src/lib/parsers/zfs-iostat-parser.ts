@@ -39,7 +39,7 @@ function parseIOStatValue(value: string): number {
  */
 export function parseZFSIOStat(
   line: string,
-  context?: ParseContext
+  _context?: ParseContext
 ): ZFSIOStatRaw | null {
   // Skip separator lines (dashes and whitespace only)
   if (line.match(/^[-\s]+$/)) {
@@ -112,18 +112,16 @@ export function parseZFSIOStat(
  * ZFS iostat parser class implementing StreamParser interface
  */
 export class ZFSIOStatParser implements StreamParser<ZFSIOStatRaw> {
-  private inDataSection = false;
   private headersSeen = 0;
 
-  parseLine(line: string, context?: ParseContext): ZFSIOStatRaw | null {
+  parseLine(line: string, _context?: ParseContext): ZFSIOStatRaw | null {
     // Track headers (first 2 lines are headers)
     if (this.headersSeen < 2) {
       this.headersSeen++;
       return null;
     }
 
-    this.inDataSection = true;
-    return parseZFSIOStat(line, context);
+    return parseZFSIOStat(line, _context);
   }
 
   shouldProcessLine(line: string): boolean {

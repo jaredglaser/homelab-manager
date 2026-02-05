@@ -5,7 +5,7 @@
 > A real-time monitoring dashboard for homelab infrastructure, built on TanStack Start.
 
 > [!WARNING]
-> This project is a **work in progress**. Features are incomplete, APIs may change, and the codebase is under active development. There is no Docker container available yet — see [Roadmap](#roadmap) for what's planned.
+> This project is a **work in progress**. Features are incomplete, APIs may change, and the codebase is under active development. See [Roadmap](#roadmap) for planned features.
 
 ## Overview
 
@@ -15,6 +15,8 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 
 - **Docker Dashboard** (`/`) — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX)
 - **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics streamed over SSH
+- **PostgreSQL Persistence** — Background worker continuously collects stats with progressive downsampling (raw → minute → hour → day aggregates) for infinite retention
+- **Docker Compose Deployment** — Full stack with PostgreSQL, web server, background worker, and daily cleanup job (builds from source, no pre-built image)
 - **Live-Updating UI** — Server-side async generators stream data continuously to the client with no polling
 - **Factory-Based Table Architecture** — Adding a new streaming data source requires only a server function, column definitions, and a row renderer
 
@@ -112,7 +114,7 @@ flowchart LR
 
 ### Environment Setup
 
-A `.env` file is **required** in the project root. Create one based on the variables below:
+A `.env` file is **required** in the project root. Create one based on `.env.example`:
 
 ```env
 # Docker Configuration
@@ -134,15 +136,35 @@ ZFS_SSH_PASSWORD="your-password"     # Password-based auth
 
 ### Run Locally
 
+#### Option 1: Docker Compose (Recommended)
+
+```bash
+# Start the full stack (PostgreSQL, web server, background worker)
+docker compose up -d
+
+# View logs
+docker compose logs -f
+
+# Stop everything
+docker compose down
+```
+
+Access the UI at http://localhost:3000
+
+#### Option 2: Local Development
+
 ```bash
 # Install dependencies
 bun install
 
 # Start the dev server (port 3000)
 bun dev
+
+# In another terminal, start the background worker (optional)
+bun worker
 ```
 
-There is **no Docker container available yet**. Running locally with `bun dev` is currently the only way to use the project. See the roadmap below for self-hosting plans.
+**Note:** For local development without Docker Compose, you'll need to run PostgreSQL separately if you want background data collection.
 
 ### Testing
 
@@ -218,10 +240,13 @@ src/
 
 ## Roadmap
 
+- [x] **PostgreSQL persistence** — background worker collects stats with progressive downsampling (second → minute → hour → day aggregates)
+- [x] **Docker Compose deployment** — multi-container setup with PostgreSQL, web server, and background worker
+- [ ] **Optimize data source connections** — reduce duplicate SSH/API connections by adding a caching layer (web server reads from database instead of direct connections)
+- [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
 - [ ] **Proxmox API integration** — VM and LXC container management and statistics
-- [ ] **Self-hostable Docker Compose** — single `docker compose up` deployment
 - [ ] **Authentication** — user login and access control using OIDC with first class Pocket ID support
-- [ ] **Optional database support** — persist historical metrics for trend analysis and graphing alongside live statistics
+- [ ] **Pre-built Docker image** — publish to a container registry for one-step deployment without building from source
 - [ ] **Extensible service architecture** — plugin-like system for adding any service over SSH or HTTP
 
 ## AI Disclosure

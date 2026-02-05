@@ -1,0 +1,37 @@
+# Dependencies
+node_modules
+.bun
+
+# Build output
+dist
+.output
+.vinxi
+.react-router
+
+# Development files
+.git
+.github
+.vscode
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage
+*.lcov
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+
+# Docker files
+Dockerfile
+.dockerignore
+docker-compose.yml

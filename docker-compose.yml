@@ -1,0 +1,90 @@
+x-postgres-env: &postgres-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_SSL: "false"
+
+x-docker-env: &docker-env
+  DOCKER_HOST_1: ${DOCKER_HOST_1}
+  DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1}
+
+x-zfs-env: &zfs-env
+  ZFS_SSH_HOST: ${ZFS_SSH_HOST:-}
+  ZFS_SSH_PORT: ${ZFS_SSH_PORT}
+  ZFS_SSH_USER: ${ZFS_SSH_USER:-}
+  ZFS_SSH_PASSWORD: ${ZFS_SSH_PASSWORD:-}
+  ZFS_SSH_KEY_PATH: ${ZFS_SSH_KEY_PATH:-}
+
+x-shared-build: &shared-build
+  build:
+    context: .
+    dockerfile: Dockerfile
+  volumes:
+    - .:/app
+    - /app/node_modules
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  restart: unless-stopped
+  networks:
+    - homelab-network
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # PostgreSQL database
+  postgres:
+    image: postgres:16-alpine
+    container_name: homelab-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - homelab-network
+
+  # Background worker (collects stats and persists to DB)
+  worker:
+    <<: *shared-build
+    container_name: homelab-worker
+    command: bun src/worker/collector.ts
+    environment:
+      <<: [*postgres-env, *docker-env, *zfs-env]
+      POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
+      WORKER_ENABLED: ${WORKER_ENABLED}
+      WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
+      WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
+      WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
+      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE}
+      WORKER_BATCH_TIMEOUT_MS: ${WORKER_BATCH_TIMEOUT_MS}
+
+  # Web server (live streaming UI)
+  web:
+    <<: *shared-build
+    container_name: homelab-web
+    command: bun run dev -- --host 0.0.0.0
+    ports:
+      - "${WEB_PORT}:3000"
+    environment:
+      <<: [*postgres-env, *docker-env, *zfs-env]
+
+  # Daily cleanup job (downsampling)
+  cleanup:
+    <<: *shared-build
+    container_name: homelab-cleanup
+    command: sh -c "while true; do sleep 86400 && bun run cleanup; done"
+    environment:
+      <<: *postgres-env
+
+networks:
+  homelab-network:
+    driver: bridge

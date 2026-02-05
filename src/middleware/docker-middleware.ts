@@ -6,7 +6,7 @@ import { dockerConnectionManager } from '../lib/clients/docker-client';
  * Creates middleware that injects a Docker client into the context
  */
 export function createDockerMiddleware(config?: {
-  protocol?: string;
+  protocol?: 'ssh' | 'http' | 'https';
   host?: string;
   port?: number;
 }) {
@@ -34,7 +34,10 @@ export function createDockerMiddleware(config?: {
  * @param envPrefix - Prefix for environment variables (e.g., 'DOCKER')
  */
 export function createDockerMiddlewareFromEnv(envPrefix: string) {
-  const protocol = process.env[`${envPrefix}_PROTOCOL`] || 'http';
+  const protocolEnv = process.env[`${envPrefix}_PROTOCOL`] || 'http';
+  const protocol: 'ssh' | 'http' | 'https' = (protocolEnv === 'ssh' || protocolEnv === 'http' || protocolEnv === 'https')
+    ? protocolEnv
+    : 'http';
   const host = process.env[`${envPrefix}_HOST`];
   const port = parseInt(process.env[`${envPrefix}_PORT`] || '2375');
 

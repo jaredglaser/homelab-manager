@@ -1,4 +1,4 @@
-import { describe, it, expect, spyOn } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { parseZFSIOStat, ZFSIOStatParser } from '../zfs-iostat-parser';
 import type { ZFSIOStatRaw } from '@/types/zfs';
 
@@ -420,7 +420,7 @@ describe('ZFSIOStatParser', () => {
 
   it('should handle context parameter', () => {
     const parser = new ZFSIOStatParser();
-    const context = { timestamp: Date.now() };
+    const context = { timestamp: Date.now(), lineNumber: 0 };
 
     parser.parseLine('header1', context);
     parser.parseLine('header2', context);

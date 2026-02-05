@@ -7,6 +7,7 @@
 
 **End of every task:**
 - Check if `README.md` and `CLAUDE.md` need updates (architecture changes, file organization, commands, testing, tech stack).
+- Run `bun run typecheck` to verify TypeScript types are correct.
 - Run tests with `bun test` after code changes.
 - Update documentation immediately if changes affect project structure or conventions.
 
@@ -29,19 +30,39 @@
 - **Routing:** TanStack Router (file-based, auto-generated `routeTree.gen.ts`)
 - **State:** TanStack Query (QueryClient singleton in `__root.tsx`)
 - **Streaming:** Server functions via `createServerFn()` with async generators
-- **Clients:** Dockerode (Docker API), ssh2 (SSH)
+- **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL)
+- **Database:** PostgreSQL 16 (generic EAV time-series schema with progressive downsampling)
+- **Background Worker:** Standalone Bun process for continuous data collection
 - **Validation:** Zod
 - **Testing:** Bun test (`bun:test`)
+- **Deployment:** Docker Compose (multi-container setup)
 
 ## Commands
 
+### Development
 ```bash
 bun dev                     # Dev server (port 3000)
-bun build                   # Production build
+bun run typecheck           # Run TypeScript type checking
+bun build                   # Production build (runs typecheck first)
 bun test                    # Run all tests
 bun test --watch            # Watch mode
 bun run test:coverage       # Run tests with coverage report
 bun run test:coverage:check # Run tests and enforce 90% coverage threshold
+```
+
+### Background Worker & Database
+```bash
+bun worker                  # Run background collector (Docker + ZFS stats)
+bun cleanup                 # Run daily downsampling/cleanup job
+```
+
+### Docker Compose (Development)
+```bash
+docker compose up -d          # Start all services (PostgreSQL, web, worker, cleanup)
+docker compose down && docker compose up -d  # Restart with fresh database
+docker compose logs -f web    # View web server logs
+docker compose logs -f worker # View background worker logs
+docker compose ps             # View service status
 ```
 
 ## File Organization
@@ -55,17 +76,27 @@ src/
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
 ├── hooks/                   # Custom hooks (useServerStream, etc.)
 ├── data/                    # Server functions (*.functions.tsx)
-├── middleware/              # Connection injection (Docker, SSH)
+├── middleware/              # Connection injection (Docker, SSH, Database)
 ├── lib/
 │   ├── __tests__/           # Unit tests (*.test.ts)
-│   ├── clients/             # Connection managers (Docker, SSH)
+│   ├── clients/             # Connection managers (Docker, SSH, Database)
+│   ├── config/              # Configuration loaders (database, worker)
+│   ├── database/
+│   │   ├── repositories/    # Data access layer (generic StatsRepository)
+│   │   └── migrate.ts       # Database migration runner
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
 │   ├── utils/               # Rate calculators, hierarchy builders
 │   └── streaming/types.ts   # Core interfaces
+├── worker/
+│   ├── collectors/          # Background collectors (Docker, ZFS)
+│   ├── collector.ts         # Worker entry point
+│   └── cleanup.ts           # Daily downsampling script
 ├── types/                   # Domain types (docker.ts, zfs.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/                  # TanStack Router pages
+
+migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 ```
 
 ## Architecture Patterns
@@ -93,6 +124,50 @@ When adding a new streaming data source:
 Rate calculators:
 - Must implement `RateCalculator<TInput, TOutput>` interface (`src/lib/streaming/types.ts`)
 - Use class-based calculators (not module-level functions)
+
+### PostgreSQL Persistence & Background Workers
+The application has dual-mode operation:
+1. **Live streaming** (existing): Real-time stats via HTTP requests, no persistence
+2. **Background collection** (new): Continuous data collection → PostgreSQL
+
+**Database schema** (generic EAV model):
+- `stat_source` — dimension table (e.g., 'docker', 'zfs')
+- `stat_type` — metric types scoped to source (e.g., 'cpu_percent', 'read_ops_per_sec')
+- `stats_raw` — raw measurements (timestamp, source_id, type_id, entity, value)
+- `stats_agg` — aggregated measurements (period_start, period_end, min/avg/max, sample_count, granularity)
+
+Adding a new data source requires only a new collector — no schema changes needed.
+
+**Architecture**:
+- **Background worker**: Standalone Bun process (`bun worker`)
+- **Collectors**: Class-based, extend `BaseCollector` (implements `AsyncDisposable`)
+  - `BaseCollector` handles: collection loop, batch management, exponential backoff, graceful shutdown
+  - Subclasses implement: `name`, `collectOnce()`, `isConfigured()`
+  - Uses `AbortController` for cancellable sleeps and instant shutdown
+  - Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
+- **Persistent rate calculators**: Never cleared (unlike request-scoped calculators)
+- **Batch writes**: Accumulate stats then write to DB via `StatsRepository`
+- **Collectors convert** domain objects into `RawStatRow[]` (source, type, entity, value)
+- **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
+- **Progressive downsampling**: 4-tier retention strategy
+  - 0-7 days: Raw data (1-second granularity)
+  - 7-14 days: Minute aggregates (min/avg/max)
+  - 14-30 days: Hour aggregates (min/avg/max)
+  - 30+ days: Daily aggregates (min/avg/max) - infinite retention
+- **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
+
+**Key files**:
+- Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
+- Repository: `src/lib/database/repositories/stats-repository.ts` (generic, caches dimension IDs)
+- Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, batch management, backoff)
+- Collectors: `src/worker/collectors/` (Docker, ZFS — extend `BaseCollector`)
+- Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
+- Migrations: `migrations/*.sql` (generic schema + downsampling functions)
+- Cleanup: `src/worker/cleanup.ts` (daily downsampling job)
+
+**Environment variables**:
+- `POSTGRES_*`: Database connection config
+- `WORKER_*`: Worker behavior config (enabled, batch size, intervals)
 
 ### Components
 - Shared table infrastructure: `src/components/shared-table/` (MetricCell, StreamingTable)
@@ -190,4 +265,5 @@ Rate calculators:
 | Import from src | `@/path/to/file` |
 | Test file location | `__tests__/filename.test.ts` |
 | Run tests | `bun test` |
+| Check TypeScript types | `bun run typecheck` |
 | Type validation | Zod schema |
