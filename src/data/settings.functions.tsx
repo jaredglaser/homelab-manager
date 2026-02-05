@@ -6,11 +6,35 @@ import type { SettingsSaved } from '@/types/settings';
 /**
  * In-memory settings store.
  * In a production app this would be backed by a database or config file.
- * For now, settings default from environment variables and can be overridden at runtime.
+ * Secrets only exist here after an explicit save — the load path never
+ * materializes passwords or passphrases.
  */
 let savedSettings: Settings | null = null;
 
-function getDefaults(): Settings {
+/**
+ * Build the client-safe representation directly, without ever
+ * constructing an object that contains secret values.
+ */
+function loadSettings(): SettingsSaved {
+  if (savedSettings) {
+    return {
+      docker: {
+        host: savedSettings.docker.host,
+        port: savedSettings.docker.port,
+        protocol: savedSettings.docker.protocol,
+      },
+      zfs: {
+        host: savedSettings.zfs.host,
+        port: savedSettings.zfs.port,
+        username: savedSettings.zfs.username,
+        authType: savedSettings.zfs.authType,
+        hasPassword: !!(savedSettings.zfs.password && savedSettings.zfs.password.length > 0),
+        keyPath: savedSettings.zfs.keyPath || undefined,
+        hasPassphrase: !!(savedSettings.zfs.passphrase && savedSettings.zfs.passphrase.length > 0),
+      },
+    };
+  }
+
   return {
     docker: {
       host: process.env.DOCKER_HOST_1 || '',
@@ -22,38 +46,18 @@ function getDefaults(): Settings {
       port: parseInt(process.env.ZFS_SSH_PORT || '22', 10),
       username: process.env.ZFS_SSH_USER || 'root',
       authType: process.env.ZFS_SSH_KEY_PATH ? 'privateKey' : 'password',
-      password: process.env.ZFS_SSH_PASSWORD || '',
-      keyPath: process.env.ZFS_SSH_KEY_PATH || '',
-      passphrase: process.env.ZFS_SSH_KEY_PASSPHRASE || '',
-    },
-  };
-}
-
-function stripSecrets(settings: Settings): SettingsSaved {
-  return {
-    docker: {
-      host: settings.docker.host,
-      port: settings.docker.port,
-      protocol: settings.docker.protocol,
-    },
-    zfs: {
-      host: settings.zfs.host,
-      port: settings.zfs.port,
-      username: settings.zfs.username,
-      authType: settings.zfs.authType,
-      hasPassword: !!(settings.zfs.password && settings.zfs.password.length > 0),
-      keyPath: settings.zfs.keyPath || undefined,
-      hasPassphrase: !!(settings.zfs.passphrase && settings.zfs.passphrase.length > 0),
+      hasPassword: !!process.env.ZFS_SSH_PASSWORD,
+      keyPath: process.env.ZFS_SSH_KEY_PATH || undefined,
+      hasPassphrase: !!process.env.ZFS_SSH_KEY_PASSPHRASE,
     },
   };
 }
 
 /**
- * Load current settings (secrets stripped).
+ * Load current settings. Secrets are never included in the response.
  */
 export const getSettings = createServerFn().handler(async (): Promise<SettingsSaved> => {
-  const current = savedSettings ?? getDefaults();
-  return stripSecrets(current);
+  return loadSettings();
 });
 
 /**
@@ -63,5 +67,5 @@ export const saveSettings = createServerFn()
   .validator(settingsSchema)
   .handler(async ({ data }): Promise<SettingsSaved> => {
     savedSettings = data;
-    return stripSecrets(data);
+    return loadSettings();
   });
