@@ -18,7 +18,6 @@ export class ZFSRateCalculator implements RateCalculator<ZFSIOStatRaw, ZFSIOStat
 
   calculate(id: string, current: ZFSIOStatRaw): ZFSIOStatWithRates {
     const now = Date.now();
-    const previous = this.cache.get(id);
 
     // Initialize with defaults (zpool iostat provides these directly)
     let rates = {
@@ -33,15 +32,6 @@ export class ZFSRateCalculator implements RateCalculator<ZFSIOStatRaw, ZFSIOStat
     const totalCapacity = current.capacity.alloc + current.capacity.free;
     if (totalCapacity > 0) {
       rates.utilizationPercent = (current.capacity.alloc / totalCapacity) * 100;
-    }
-
-    // If we have previous data, we could calculate deltas for validation
-    // But zpool iostat already provides accurate per-second rates
-    if (previous) {
-      const timeDeltaSec = (now - previous.timestamp) / 1000;
-
-      // Could validate or compute additional metrics here if needed
-      // For now, trust zpool iostat's built-in rate calculations
     }
 
     // Update cache

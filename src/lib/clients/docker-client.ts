@@ -9,10 +9,8 @@ export class DockerClient implements StreamingClient {
   readonly id: string;
   private docker: Dockerode;
   private connected: boolean = false;
-  private config: { host: string; port: number; protocol?: string };
 
-  constructor(config: { host: string; port: number; protocol?: string }) {
-    this.config = config;
+  constructor(config: { host: string; port: number; protocol?: 'ssh' | 'http' | 'https' }) {
     this.id = `docker://${config.host}:${config.port}`;
     this.docker = new Dockerode({
       protocol: config.protocol || 'http',
@@ -71,7 +69,7 @@ class DockerConnectionManager {
    * Get or create a Docker client for the given config
    * Reuses existing connections when possible
    */
-  async getClient(config: { host: string; port: number; protocol?: string }): Promise<DockerClient> {
+  async getClient(config: { host: string; port: number; protocol?: 'ssh' | 'http' | 'https' }): Promise<DockerClient> {
     const key = `${config.host}:${config.port}`;
 
     let client = this.connections.get(key);
@@ -110,11 +108,3 @@ class DockerConnectionManager {
 
 // Singleton instance
 export const dockerConnectionManager = new DockerConnectionManager();
-
-// Graceful shutdown handler
-if (typeof process !== 'undefined') {
-  process.on('SIGTERM', async () => {
-    console.log('[DockerConnectionManager] SIGTERM received, closing connections');
-    await dockerConnectionManager.closeAll();
-  });
-}

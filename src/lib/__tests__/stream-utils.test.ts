@@ -340,7 +340,7 @@ describe('mergeAsyncIterables', () => {
     const iterable3 = createIterableWithReturn([100, 200, 300, 400, 500], returnSpy3);
 
     let count = 0;
-    for await (const item of mergeAsyncIterables([iterable1, iterable2, iterable3])) {
+    for await (const _item of mergeAsyncIterables([iterable1, iterable2, iterable3])) {
       count++;
       if (count >= 3) break; // Exit early
     }

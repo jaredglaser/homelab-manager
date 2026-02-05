@@ -1,5 +1,5 @@
 import { Client, ClientChannel } from 'ssh2';
-import type { SSHConnectionConfig, StreamingClient, AuthCredentials } from '../streaming/types';
+import type { SSHConnectionConfig, StreamingClient } from '../streaming/types';
 import { readFileSync } from 'fs';
 
 export class SSHClient implements StreamingClient {
@@ -224,6 +224,7 @@ class SSHConnectionManager {
    */
   async closeAll(): Promise<void> {
     console.log('[SSHConnectionManager] Closing all connections');
+    this.stopCleanup();
     const promises = Array.from(this.connections.values()).map(client => client.close());
     await Promise.all(promises);
     this.connections.clear();
@@ -258,12 +259,3 @@ class SSHConnectionManager {
 
 // Singleton instance
 export const sshConnectionManager = new SSHConnectionManager();
-
-// Graceful shutdown handler
-if (typeof process !== 'undefined') {
-  process.on('SIGTERM', async () => {
-    console.log('[SSHConnectionManager] SIGTERM received, closing connections');
-    await sshConnectionManager.closeAll();
-    sshConnectionManager.stopCleanup();
-  });
-}
