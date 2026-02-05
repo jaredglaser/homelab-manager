@@ -64,6 +64,7 @@ export default function SettingsForm() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [zfsSaveCount, setZfsSaveCount] = useState(0);
 
   useEffect(() => {
     getSettings()
@@ -179,7 +180,7 @@ export default function SettingsForm() {
       });
 
       setSavedState(result);
-      // Clear sensitive fields after save
+      // Clear sensitive fields and reset visibility toggles after save
       setFormState((prev) => ({
         ...prev,
         zfs: {
@@ -188,6 +189,7 @@ export default function SettingsForm() {
           passphrase: '',
         },
       }));
+      setZfsSaveCount((prev) => prev + 1);
       setSaveSuccess(true);
     } catch {
       setSaveError('Failed to save settings. Please try again.');
@@ -228,6 +230,7 @@ export default function SettingsForm() {
         <Card variant="outlined">
           <CardContent>
             <ZFSSettingsSection
+              key={zfsSaveCount}
               values={formState.zfs}
               errors={errors.zfs}
               saved={savedState?.zfs ?? null}

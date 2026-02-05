@@ -1,14 +1,16 @@
+import { useState } from 'react';
 import {
   Alert,
   FormControl,
   FormLabel,
   FormHelperText,
+  IconButton,
   Input,
   Option,
   Select,
   Typography,
 } from '@mui/joy';
-import { Info } from 'lucide-react';
+import { Eye, EyeOff, Info } from 'lucide-react';
 import type { ZFSSettingsSaved } from '@/types/settings';
 
 interface ZFSSettingsSectionProps {
@@ -32,6 +34,9 @@ export default function ZFSSettingsSection({
   saved,
   onChange,
 }: ZFSSettingsSectionProps) {
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPassphrase, setShowPassphrase] = useState(false);
+
   const showPasswordSavedHint =
     saved?.hasPassword && values.authType === 'password' && !values.password;
   const showPassphraseSavedHint =
@@ -101,10 +106,20 @@ export default function ZFSSettingsSection({
           <FormControl error={!!errors.password}>
             <FormLabel>Password</FormLabel>
             <Input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder={showPasswordSavedHint ? '••••••••' : 'Enter password'}
               value={values.password}
               onChange={(e) => onChange('password', e.target.value)}
+              endDecorator={
+                <IconButton
+                  variant="plain"
+                  size="sm"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </IconButton>
+              }
             />
             {errors.password && (
               <FormHelperText>{errors.password}</FormHelperText>
@@ -140,10 +155,20 @@ export default function ZFSSettingsSection({
           <FormControl error={!!errors.passphrase} className="sm:col-span-2">
             <FormLabel>Passphrase (optional)</FormLabel>
             <Input
-              type="password"
+              type={showPassphrase ? 'text' : 'password'}
               placeholder={showPassphraseSavedHint ? '••••••••' : 'Enter passphrase if key is encrypted'}
               value={values.passphrase}
               onChange={(e) => onChange('passphrase', e.target.value)}
+              endDecorator={
+                <IconButton
+                  variant="plain"
+                  size="sm"
+                  onClick={() => setShowPassphrase((prev) => !prev)}
+                  aria-label={showPassphrase ? 'Hide passphrase' : 'Show passphrase'}
+                >
+                  {showPassphrase ? <EyeOff size={16} /> : <Eye size={16} />}
+                </IconButton>
+              }
             />
             {errors.passphrase && (
               <FormHelperText>{errors.passphrase}</FormHelperText>
