@@ -148,7 +148,6 @@ Rate calculators:
 - All changes to `main` must go through a pull request — direct pushes are blocked.
 - PRs require passing CI status checks (build, test, coverage, license) before merging.
 - PRs by `jaredglaser` or `claude[bot]` receive an automatic Claude code review via the `claude-review.yml` workflow.
-- `CODEOWNERS` (`.github/CODEOWNERS`) assigns `@jaredglaser` as the owner of the entire codebase — only they can approve PRs.
 
 ### GitHub Actions Workflows
 | Workflow | File | Triggers |
