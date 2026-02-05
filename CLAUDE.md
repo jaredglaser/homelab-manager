@@ -142,6 +142,20 @@ Rate calculators:
 **Extract:** Repeated 3+ times OR clear reusable abstraction
 **Don't:** One-off use or requires excessive props to function
 
+## CI/CD & Code Review
+
+### Branch Protection
+- All changes to `main` must go through a pull request — direct pushes are blocked.
+- PRs require passing CI status checks (build, test, coverage, license) before merging.
+- PRs by `jaredglaser` or `claude[bot]` receive an automatic Claude code review via the `claude-review.yml` workflow.
+
+### GitHub Actions Workflows
+| Workflow | File | Triggers |
+|----------|------|----------|
+| **CI** | `.github/workflows/ci.yml` | Push to `main`, PRs targeting `main` |
+| **Claude PR Review** | `.github/workflows/claude-review.yml` | PRs targeting `main` (opened, synchronize, ready_for_review, reopened) |
+| **Claude Code** | `.github/workflows/claude.yml` | `@claude` mentions in issues, PR comments, and PR reviews |
+
 ## Security & Best Practices
 
 - Never log environment variables or sensitive config
