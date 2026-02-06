@@ -58,7 +58,7 @@ bun cleanup                 # Run daily downsampling/cleanup job
 
 ### Docker Compose (Production)
 ```bash
-docker compose up -d          # Start all services (production build, ~200-300MB web)
+docker compose up -d          # Start all services
 docker compose down && docker compose up -d  # Restart with fresh database
 docker compose logs -f web    # View web server logs
 docker compose logs -f worker # View background worker logs
