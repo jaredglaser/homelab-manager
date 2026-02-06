@@ -1,22 +1,25 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import ContainerRow from './ContainerRow';
 import { streamDockerStatsFromDB } from '@/data/docker.functions';
-import type { ContainerStatsDisplay, DockerStatsFromDB } from '@/types/docker';
+import type { DockerStatsFromDB } from '@/types/docker';
 import StreamingTable, { type ColumnDef } from '../shared-table/StreamingTable';
+import { useSettings } from '@/hooks/useSettings';
 
-const columns: ColumnDef[] = [
-  { label: 'Container Name', width: '20%' },
-  { label: 'CPU %', align: 'right' },
-  { label: 'RAM %', align: 'right' },
-  { label: 'Block Read (MB/s)', align: 'right' },
-  { label: 'Block Write (MB/s)', align: 'right' },
-  { label: 'Network RX (Mbps)', align: 'right' },
-  { label: 'Network TX (Mbps)', align: 'right' },
-];
-
-type DockerState = Map<string, ContainerStatsDisplay>;
+type DockerState = Map<string, DockerStatsFromDB>;
 
 export default function ContainerTable() {
+  const { docker } = useSettings();
+
+  const columns: ColumnDef[] = useMemo(() => [
+    { label: 'Container Name', width: '20%' },
+    { label: 'CPU %', align: 'right' },
+    { label: docker.memoryDisplayMode === 'percentage' ? 'RAM %' : 'RAM', align: 'right' },
+    { label: 'Block Read (MB/s)', align: 'right' },
+    { label: 'Block Write (MB/s)', align: 'right' },
+    { label: 'Network RX (Mbps)', align: 'right' },
+    { label: 'Network TX (Mbps)', align: 'right' },
+  ], [docker.memoryDisplayMode]);
+
   const onData = useCallback(
     (prev: DockerState, stat: DockerStatsFromDB): DockerState => {
       const next = new Map(prev);
