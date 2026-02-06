@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import AppShell from '../components/AppShell'
 import ZFSPoolsTable from '../components/zfs/ZFSPoolsTable'
+import PageHeader from '@/components/PageHeader'
 
 export const Route = createFileRoute('/zfs')({
   ssr: false,
@@ -10,7 +11,10 @@ export const Route = createFileRoute('/zfs')({
 function ZFSPage() {
   return (
     <AppShell>
-      <ZFSPoolsTable />
+      <div className="w-full p-6">
+        <PageHeader title="ZFS Pools Dashboard" />
+        <ZFSPoolsTable />
+      </div>
     </AppShell>
   )
 }

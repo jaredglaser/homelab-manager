@@ -35,7 +35,6 @@ export default function ZFSPoolsTable() {
 
   return (
     <StreamingTable<ZFSStatsFromDB[], ZFSHierarchy>
-      title="ZFS Pools Dashboard"
       ariaLabel="zfs pools table"
       columns={columns}
       streamFn={streamZFSStatsFromDB}
