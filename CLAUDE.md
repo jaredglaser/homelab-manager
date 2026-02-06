@@ -75,19 +75,23 @@ src/
 │   ├── zfs/                 # ZFS-specific components
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
 ├── hooks/                   # Custom hooks (useServerStream, etc.)
-├── data/                    # Server functions (*.functions.tsx)
+├── data/                    # Server functions (*.functions.tsx) - DB-backed streaming
 ├── middleware/              # Connection injection (Docker, SSH, Database)
 ├── lib/
 │   ├── __tests__/           # Unit tests (*.test.ts)
+│   ├── cache/               # Stats cache singleton (shared across connections)
 │   ├── clients/             # Connection managers (Docker, SSH, Database)
 │   ├── config/              # Configuration loaders (database, worker)
 │   ├── database/
 │   │   ├── repositories/    # Data access layer (generic StatsRepository)
+│   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler
 │   │   └── migrate.ts       # Database migration runner
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
+│   ├── transformers/        # DB rows → domain objects (Docker, ZFS)
 │   ├── utils/               # Rate calculators, hierarchy builders
-│   └── streaming/types.ts   # Core interfaces
+│   ├── streaming/types.ts   # Core interfaces
+│   └── server-init.ts       # Server-side shutdown handlers
 ├── worker/
 │   ├── collectors/          # Background collectors (Docker, ZFS)
 │   ├── collector.ts         # Worker entry point
@@ -109,9 +113,23 @@ migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 
 ### Server Functions & Streaming
 - All server logic: `createServerFn()` from `@tanstack/react-start`.
-- Connection injection via middleware (never create Docker/SSH clients in server functions).
 - Streaming: async generator functions (`async function*`).
 - Data flow: Server function → `useServerStream` hook → `StreamingTable` component.
+- **Frontend reads from database** (not direct API/SSH connections):
+  - Worker collects stats → writes to PostgreSQL → sends `NOTIFY stats_update`
+  - Server maintains LISTEN connection → updates shared cache on notification
+  - Server functions yield from cache when notified
+  - Multiple browser tabs share the same server-side cache
+- **IMPORTANT: Use dynamic imports for server-only modules** in server functions:
+  ```typescript
+  // BAD - gets bundled into client, causes "Buffer is not defined"
+  import { subscriptionService } from '@/lib/database/subscription-service';
+
+  // GOOD - only loaded on server at runtime
+  export const myServerFn = createServerFn().handler(async () => {
+    const { subscriptionService } = await import('@/lib/database/subscription-service');
+  });
+  ```
 
 ### Streaming Data Sources (Factory Pattern)
 When adding a new streaming data source:
@@ -126,9 +144,12 @@ Rate calculators:
 - Use class-based calculators (not module-level functions)
 
 ### PostgreSQL Persistence & Background Workers
-The application has dual-mode operation:
-1. **Live streaming** (existing): Real-time stats via HTTP requests, no persistence
-2. **Background collection** (new): Continuous data collection → PostgreSQL
+The frontend reads stats from the database via PostgreSQL LISTEN/NOTIFY:
+```
+Worker → Docker/ZFS APIs → stats_raw INSERT → NOTIFY stats_update
+                                                      ↓
+Browser → Server (SSE) ← LISTEN stats_update → Cache Update → yield stats
+```
 
 **Database schema** (generic EAV model):
 - `stat_source` — dimension table (e.g., 'docker', 'zfs')
@@ -155,15 +176,25 @@ Adding a new data source requires only a new collector — no schema changes nee
   - 14-30 days: Hour aggregates (min/avg/max)
   - 30+ days: Daily aggregates (min/avg/max) - infinite retention
 - **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
+- **ZFS hierarchical entity paths**: Entity names encode hierarchy for filtering
+  - Pool: `"tank"` (indent 0)
+  - Vdev: `"tank/mirror-0"` (indent 2)
+  - Disk: `"tank/mirror-0/sda"` (indent 4+)
+  - Enables visibility filtering: collapsed pool skips `tank/*` entities
+- **Stale data warning**: If no NOTIFY received for 30+ seconds, UI shows warning (TanStack Query with refetchInterval)
 
 **Key files**:
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
-- Repository: `src/lib/database/repositories/stats-repository.ts` (generic, caches dimension IDs)
+- Repository: `src/lib/database/repositories/stats-repository.ts` (generic, caches dimension IDs, NOTIFY after insert)
 - Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, batch management, backoff)
 - Collectors: `src/worker/collectors/` (Docker, ZFS — extend `BaseCollector`)
 - Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
 - Migrations: `migrations/*.sql` (generic schema + downsampling functions)
 - Cleanup: `src/worker/cleanup.ts` (daily downsampling job)
+- **Stats cache**: `src/lib/cache/stats-cache.ts` (singleton, shared across frontend connections)
+- **Subscription service**: `src/lib/database/subscription-service.ts` (LISTEN handler, updates cache on NOTIFY)
+- **Transformers**: `src/lib/transformers/` (convert DB rows to domain objects)
+- **Server init**: `src/lib/server-init.ts` (graceful shutdown handlers)
 
 **Environment variables**:
 - `POSTGRES_*`: Database connection config
@@ -253,6 +284,7 @@ Adding a new data source requires only a new collector — no schema changes nee
 - Test files outside `__tests__/` folders
 - `console.log` in committed code
 - Logging sensitive data
+- Static imports of server-only modules (pg, subscription-service, stats-cache) in server function files — use dynamic `await import()` inside handlers
 
 ## Quick Reference
 

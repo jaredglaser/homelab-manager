@@ -10,19 +10,70 @@ import { BaseCollector } from './base-collector';
 
 const ZFS_SOURCE = 'zfs';
 
-function toRawStatRows(stat: ZFSIOStatWithRates): RawStatRow[] {
+/**
+ * Detects the hierarchy level based on indentation from zpool iostat -vvv output
+ *   indent 0  → pool (top-level)
+ *   indent 2  → vdev (mirror-N, raidz-N, or single-disk acting as vdev)
+ *   indent 4+ → disk (individual drive under a vdev)
+ */
+function detectHierarchyLevel(indent: number): 'pool' | 'vdev' | 'disk' {
+  if (indent <= 0) return 'pool';
+  if (indent <= 2) return 'vdev';
+  return 'disk';
+}
+
+function toRawStatRows(stat: ZFSIOStatWithRates, entityPath: string): RawStatRow[] {
   const timestamp = new Date(stat.timestamp);
-  const entity = stat.name;
 
   return [
-    { timestamp, source: ZFS_SOURCE, type: 'capacity_alloc', entity, value: stat.capacity.alloc },
-    { timestamp, source: ZFS_SOURCE, type: 'capacity_free', entity, value: stat.capacity.free },
-    { timestamp, source: ZFS_SOURCE, type: 'read_ops_per_sec', entity, value: stat.rates.readOpsPerSec },
-    { timestamp, source: ZFS_SOURCE, type: 'write_ops_per_sec', entity, value: stat.rates.writeOpsPerSec },
-    { timestamp, source: ZFS_SOURCE, type: 'read_bytes_per_sec', entity, value: stat.rates.readBytesPerSec },
-    { timestamp, source: ZFS_SOURCE, type: 'write_bytes_per_sec', entity, value: stat.rates.writeBytesPerSec },
-    { timestamp, source: ZFS_SOURCE, type: 'utilization_percent', entity, value: stat.rates.utilizationPercent },
+    { timestamp, source: ZFS_SOURCE, type: 'capacity_alloc', entity: entityPath, value: stat.capacity.alloc },
+    { timestamp, source: ZFS_SOURCE, type: 'capacity_free', entity: entityPath, value: stat.capacity.free },
+    { timestamp, source: ZFS_SOURCE, type: 'read_ops_per_sec', entity: entityPath, value: stat.rates.readOpsPerSec },
+    { timestamp, source: ZFS_SOURCE, type: 'write_ops_per_sec', entity: entityPath, value: stat.rates.writeOpsPerSec },
+    { timestamp, source: ZFS_SOURCE, type: 'read_bytes_per_sec', entity: entityPath, value: stat.rates.readBytesPerSec },
+    { timestamp, source: ZFS_SOURCE, type: 'write_bytes_per_sec', entity: entityPath, value: stat.rates.writeBytesPerSec },
+    { timestamp, source: ZFS_SOURCE, type: 'utilization_percent', entity: entityPath, value: stat.rates.utilizationPercent },
   ];
+}
+
+/** Holds current position in hierarchy for building entity paths */
+interface HierarchyContext {
+  currentPool: string | null;
+  currentVdev: string | null;
+}
+
+/**
+ * Builds the hierarchical entity path based on indent level
+ * - Pool: "poolname"
+ * - Vdev: "poolname/vdevname"
+ * - Disk: "poolname/vdevname/diskname"
+ */
+function buildEntityPath(stat: ZFSIOStatWithRates, ctx: HierarchyContext): { path: string; ctx: HierarchyContext } {
+  const level = detectHierarchyLevel(stat.indent);
+
+  switch (level) {
+    case 'pool':
+      return {
+        path: stat.name,
+        ctx: { currentPool: stat.name, currentVdev: null },
+      };
+    case 'vdev': {
+      const vdevPath = ctx.currentPool ? `${ctx.currentPool}/${stat.name}` : stat.name;
+      return {
+        path: vdevPath,
+        ctx: { ...ctx, currentVdev: vdevPath },
+      };
+    }
+    case 'disk': {
+      // If we have a vdev, disk is under vdev; otherwise under pool directly
+      const parentPath = ctx.currentVdev || ctx.currentPool;
+      const diskPath = parentPath ? `${parentPath}/${stat.name}` : stat.name;
+      return {
+        path: diskPath,
+        ctx, // Disk doesn't change context
+      };
+    }
+  }
 }
 
 export class ZFSCollector extends BaseCollector {
@@ -55,7 +106,10 @@ export class ZFSCollector extends BaseCollector {
     this.resetBackoff();
 
     const stream = await sshClient.exec('zpool iostat -vvv 1');
-    let currentCycle: ZFSIOStatWithRates[] = [];
+    // Store stats with their hierarchical entity paths
+    let currentCycle: { stat: ZFSIOStatWithRates; entityPath: string }[] = [];
+    // Track hierarchy position for building entity paths
+    let hierarchyCtx: HierarchyContext = { currentPool: null, currentVdev: null };
 
     for await (const line of streamTextLines(stream)) {
       if (this.signal.aborted) break;
@@ -69,9 +123,11 @@ export class ZFSCollector extends BaseCollector {
         line.includes('bandwidth')
       ) {
         if (currentCycle.length > 0) {
-          await this.addToBatch(currentCycle.flatMap(toRawStatRows));
+          await this.addToBatch(currentCycle.flatMap(({ stat, entityPath }) => toRawStatRows(stat, entityPath)));
           currentCycle = [];
         }
+        // Reset hierarchy context at cycle boundary
+        hierarchyCtx = { currentPool: null, currentVdev: null };
         continue;
       }
 
@@ -79,12 +135,17 @@ export class ZFSCollector extends BaseCollector {
       if (!parsed) continue;
 
       const statsWithRates = this.calculator.calculate(parsed.name, parsed);
-      currentCycle.push(statsWithRates);
+
+      // Build hierarchical entity path and update context
+      const { path: entityPath, ctx: newCtx } = buildEntityPath(statsWithRates, hierarchyCtx);
+      hierarchyCtx = newCtx;
+
+      currentCycle.push({ stat: statsWithRates, entityPath });
     }
 
     // Flush final cycle
     if (currentCycle.length > 0) {
-      await this.addToBatch(currentCycle.flatMap(toRawStatRows));
+      await this.addToBatch(currentCycle.flatMap(({ stat, entityPath }) => toRawStatRows(stat, entityPath)));
     }
   }
 }

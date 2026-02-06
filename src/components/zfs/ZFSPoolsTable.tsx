@@ -1,9 +1,10 @@
 import { useCallback } from 'react';
-import { streamZFSIOStat } from '@/data/zfs.functions';
-import type { ZFSHierarchy, ZFSIOStatWithRates } from '@/types/zfs';
+import { streamZFSStatsFromDB } from '@/data/zfs.functions';
+import type { ZFSHierarchy } from '@/types/zfs';
 import { buildHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import ZFSPoolAccordion from './ZFSPoolAccordion';
 import StreamingTable, { type ColumnDef } from '../shared-table/StreamingTable';
+import type { ZFSStatsFromDB } from '@/lib/transformers/zfs-transformer';
 
 const columns: ColumnDef[] = [
   { label: 'Pool / Device', width: '30%' },
@@ -16,8 +17,9 @@ const columns: ColumnDef[] = [
 ];
 
 export default function ZFSPoolsTable() {
+
   const onData = useCallback(
-    (_prev: ZFSHierarchy, cycleStats: ZFSIOStatWithRates[]): ZFSHierarchy => {
+    (_prev: ZFSHierarchy, cycleStats: ZFSStatsFromDB[]): ZFSHierarchy => {
       return buildHierarchy(cycleStats);
     },
     [],
@@ -32,11 +34,11 @@ export default function ZFSPoolsTable() {
   );
 
   return (
-    <StreamingTable<ZFSIOStatWithRates[], ZFSHierarchy>
+    <StreamingTable<ZFSStatsFromDB[], ZFSHierarchy>
       title="ZFS Pools Dashboard"
       ariaLabel="zfs pools table"
       columns={columns}
-      streamFn={streamZFSIOStat}
+      streamFn={streamZFSStatsFromDB}
       initialState={new Map()}
       onData={onData}
       renderRows={renderRows}

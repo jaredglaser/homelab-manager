@@ -135,7 +135,6 @@ export abstract class BaseCollector implements AsyncDisposable {
 
     try {
       await this.repository.insertRawStats(this.batch);
-      console.log(`[${this.name}] Flushed ${this.batch.length} stats to database`);
       this.batch = [];
     } catch (err) {
       console.error(`[${this.name}] Failed to flush batch:`, err);

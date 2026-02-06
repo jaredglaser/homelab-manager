@@ -1,9 +1,9 @@
-import type { ContainerStatsWithRates } from '../../types/docker';
+import type { ContainerStatsDisplay } from '../../types/docker';
 import { formatAsPercent, formatBytes, formatBitsSIUnits } from '../../formatters/metrics';
 import { MetricCell } from '../shared-table';
 
 interface ContainerRowProps {
-  container: ContainerStatsWithRates;
+  container: ContainerStatsDisplay;
 }
 
 export default function ContainerRow({ container }: ContainerRowProps) {

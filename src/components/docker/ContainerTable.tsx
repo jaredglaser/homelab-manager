@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import ContainerRow from './ContainerRow';
-import { streamAllDockerContainerStats } from '@/data/docker.functions';
-import type { ContainerStatsWithRates } from '@/types/docker';
+import { streamDockerStatsFromDB } from '@/data/docker.functions';
+import type { ContainerStatsDisplay, DockerStatsFromDB } from '@/types/docker';
 import StreamingTable, { type ColumnDef } from '../shared-table/StreamingTable';
 
 const columns: ColumnDef[] = [
@@ -14,11 +14,11 @@ const columns: ColumnDef[] = [
   { label: 'Network TX (Mbps)', align: 'right' },
 ];
 
-type DockerState = Map<string, ContainerStatsWithRates>;
+type DockerState = Map<string, ContainerStatsDisplay>;
 
 export default function ContainerTable() {
   const onData = useCallback(
-    (prev: DockerState, stat: ContainerStatsWithRates): DockerState => {
+    (prev: DockerState, stat: DockerStatsFromDB): DockerState => {
       const next = new Map(prev);
       next.set(stat.id, stat);
       return next;
@@ -35,11 +35,11 @@ export default function ContainerTable() {
   );
 
   return (
-    <StreamingTable<ContainerStatsWithRates, DockerState>
+    <StreamingTable<DockerStatsFromDB, DockerState>
       title="Docker Containers Dashboard"
       ariaLabel="docker containers table"
       columns={columns}
-      streamFn={streamAllDockerContainerStats}
+      streamFn={streamDockerStatsFromDB}
       initialState={new Map()}
       onData={onData}
       renderRows={renderRows}

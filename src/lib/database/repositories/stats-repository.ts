@@ -8,6 +8,14 @@ export interface RawStatRow {
   value: number;
 }
 
+/** Row returned by getLatestStats - latest value for each entity/type combination */
+export interface LatestStatRow {
+  timestamp: Date;
+  type: string;
+  entity: string;
+  value: number;
+}
+
 export class StatsRepository {
   private sourceCache = new Map<string, number>();
   private typeCache = new Map<string, number>();
@@ -103,10 +111,49 @@ export class StatsRepository {
       `;
 
       await this.pool.query(query, values);
+
+      // Notify listeners about new stats for each source
+      const sources = [...new Set(rows.map(r => r.source))];
+      for (const source of sources) {
+        await this.pool.query(`NOTIFY stats_update, '${source}'`);
+      }
     } catch (err) {
       console.error('[StatsRepository] Failed to insert stats:', err);
       throw err;
     }
+  }
+
+  /**
+   * Get the most recent stats for each entity/type combination
+   * Used by the subscription service to populate cache after NOTIFY
+   */
+  async getLatestStats(params: {
+    sourceName: string;
+    maxAge?: number; // Seconds, default 5
+  }): Promise<LatestStatRow[]> {
+    const sourceId = await this.getOrCreateSource(params.sourceName);
+    const maxAge = params.maxAge ?? 5;
+
+    const result = await this.pool.query(
+      `SELECT DISTINCT ON (entity, type_id)
+              sr.timestamp,
+              st.name AS type,
+              sr.entity,
+              sr.value
+       FROM stats_raw sr
+       JOIN stat_type st ON sr.type_id = st.id
+       WHERE sr.source_id = $1
+         AND sr.timestamp >= NOW() - make_interval(secs => $2)
+       ORDER BY entity, type_id, sr.timestamp DESC`,
+      [sourceId, maxAge]
+    );
+
+    return result.rows.map((row: { timestamp: Date; type: string; entity: string; value: number }) => ({
+      timestamp: row.timestamp,
+      type: row.type,
+      entity: row.entity,
+      value: row.value,
+    }));
   }
 
   async getEntities(
