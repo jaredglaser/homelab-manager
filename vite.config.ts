@@ -41,6 +41,14 @@ export default defineConfig({
   ssr: {
     external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams'],
   },
+  preview: {
+    host: true,
+  },
+  server: {
+    watch: {
+      usePolling: true,
+    },
+  },
   build: {
     rollupOptions: {
       external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams'],
