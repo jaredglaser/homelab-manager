@@ -56,13 +56,20 @@ bun worker                  # Run background collector (Docker + ZFS stats)
 bun cleanup                 # Run daily downsampling/cleanup job
 ```
 
-### Docker Compose (Development)
+### Docker Compose (Production)
 ```bash
-docker compose up -d          # Start all services (PostgreSQL, web, worker, cleanup)
+docker compose up -d          # Start all services
 docker compose down && docker compose up -d  # Restart with fresh database
 docker compose logs -f web    # View web server logs
 docker compose logs -f worker # View background worker logs
 docker compose ps             # View service status
+```
+
+### Docker Compose (Development - HMR)
+```bash
+docker compose -f docker-compose.dev.yml up -d    # Start with HMR + volume mounts
+docker compose -f docker-compose.dev.yml down      # Stop dev services
+docker compose -f docker-compose.dev.yml logs -f web  # View dev web logs
 ```
 
 ## File Organization

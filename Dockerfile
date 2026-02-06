@@ -1,7 +1,8 @@
 # Dockerfile for homelab-manager
-# Used for both web server and worker by overriding CMD in docker-compose
+# Multi-stage build: base (worker/cleanup/dev) and production (web)
 
-FROM oven/bun:1
+# Base stage - shared dependencies and source
+FROM oven/bun:1 AS base
 
 WORKDIR /app
 
@@ -14,8 +15,13 @@ RUN bun install --frozen-lockfile
 # Copy source code
 COPY . .
 
-# Expose port for web server (not used by worker)
 EXPOSE 3000
 
-# Default command (overridden in docker-compose)
-CMD ["bun", "run", "dev"]
+# Production stage - builds the web app for serving
+FROM base AS production
+
+ENV NODE_ENV=production
+
+RUN bun run build
+
+CMD ["bun", ".output/server/index.mjs"]

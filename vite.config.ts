@@ -18,6 +18,8 @@ const customLogger = {
   },
 }
 
+const isDev = process.env.NODE_ENV !== 'production'
+
 export default defineConfig({
   customLogger,
   resolve: {
@@ -26,7 +28,7 @@ export default defineConfig({
     },
   },
   plugins: [
-    devtools(),
+    isDev && devtools(),
     nitro(),
     tailwindcss(),
     tanstackStart({
@@ -38,6 +40,14 @@ export default defineConfig({
   ],
   ssr: {
     external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams'],
+  },
+  preview: {
+    host: true,
+  },
+  server: {
+    watch: {
+      usePolling: true,
+    },
   },
   build: {
     rollupOptions: {

@@ -184,7 +184,7 @@ export class SSHClient implements StreamingClient {
 class SSHConnectionManager {
   private connections = new Map<string, SSHClient>();
   private cleanupInterval: NodeJS.Timeout | null = null;
-  private readonly TTL = 5 * 60 * 1000; // 5 minutes
+  private readonly TTL = 60 * 1000; // 1 minute
 
   constructor() {
     this.startCleanup();
