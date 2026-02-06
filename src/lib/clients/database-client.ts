@@ -29,7 +29,8 @@ export class DatabaseClient implements StreamingClient {
       database: config.database,
       user: config.user,
       password: config.password,
-      max: config.max || 10,
+      max: config.max || 3,
+      idleTimeoutMillis: 30000,
     };
 
     if (config.ssl) {

@@ -18,6 +18,8 @@ const customLogger = {
   },
 }
 
+const isDev = process.env.NODE_ENV !== 'production'
+
 export default defineConfig({
   customLogger,
   resolve: {
@@ -26,7 +28,7 @@ export default defineConfig({
     },
   },
   plugins: [
-    devtools(),
+    isDev && devtools(),
     nitro(),
     tailwindcss(),
     tanstackStart({
