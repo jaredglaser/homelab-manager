@@ -10,3 +10,23 @@ export interface DockerContainer {
 }
 
 export type { ContainerStatsWithRates } from '../lib/rate-calculator';
+
+/**
+ * Common interface for container stats that works with both
+ * direct streaming (ContainerStatsWithRates) and database-backed streaming (DockerStatsFromDB)
+ */
+export interface ContainerStatsDisplay {
+  id: string;
+  name: string;
+  rates: {
+    cpuPercent: number;
+    memoryPercent: number;
+    networkRxBytesPerSec: number;
+    networkTxBytesPerSec: number;
+    blockIoReadBytesPerSec: number;
+    blockIoWriteBytesPerSec: number;
+  };
+}
+
+// Re-export the DB type for convenience
+export type { DockerStatsFromDB } from '../lib/transformers/docker-transformer';

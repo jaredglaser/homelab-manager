@@ -43,66 +43,86 @@ This project is built on the **TanStack ecosystem** as its core framework:
 
 ```mermaid
 graph TD
-    Browser["Browser"]
+    Browser["Browser<br/>(multiple tabs)"]
 
-    subgraph TanStack_Start["TanStack Start"]
+    subgraph TanStack_Start["TanStack Start Server"]
         ServerFns["Server Functions<br/>(async generators)"]
-        Middleware["Middleware<br/>(client injection)"]
+        SubSvc["Subscription Service<br/>(LISTEN handler)"]
+        Cache["Stats Cache<br/>(shared singleton)"]
         TQ["TanStack Query<br/>(client-side state)"]
     end
 
-    subgraph Connections["Service Connections"]
-        DockerAPI["Docker API<br/>(HTTP)"]
-        SSH["SSH Connection"]
+    subgraph Database["PostgreSQL"]
+        StatsRaw["stats_raw table"]
+        Notify["NOTIFY stats_update"]
+    end
+
+    subgraph Worker["Background Worker"]
+        Collectors["Collectors<br/>(Docker, ZFS)"]
     end
 
     subgraph Hosts["Homelab Hosts"]
         DockerHost["Docker Host<br/>Container Stats"]
-        ProxmoxHost["Proxmox Host<br/>VM / LXC Management"]
-        FutureHTTP["Future Services<br/>(HTTP-based)"]
         ZFSHost["ZFS Host<br/>zpool iostat"]
-        FutureSSH["Future Services<br/>(SSH-based)"]
     end
 
-    Browser <-->|"Live streaming"| TQ
+    Browser <-->|"SSE streaming"| TQ
     TQ <--> ServerFns
-    ServerFns --> Middleware
-    Middleware --> DockerAPI
-    Middleware --> SSH
-    DockerAPI --> DockerHost
-    DockerAPI -.->|"Planned"| ProxmoxHost
-    DockerAPI -.->|"Planned"| FutureHTTP
-    SSH --> ZFSHost
-    SSH -.->|"Planned"| FutureSSH
+    ServerFns --> Cache
+    SubSvc -->|"On NOTIFY"| Cache
+    Notify --> SubSvc
+    StatsRaw --> Notify
+    Collectors -->|"Batch INSERT"| StatsRaw
+    Collectors --> DockerHost
+    Collectors --> ZFSHost
 ```
+
+The frontend reads stats from the database, not directly from Docker/ZFS APIs. This enables:
+- **Multiple browser tabs** share the same server-side cache
+- **Real-time updates** via PostgreSQL LISTEN/NOTIFY (no polling)
+- **Visibility filtering** for ZFS (only stream data for expanded pools/vdevs)
+- **Stale data detection** when background worker stops (30+ second warning)
 
 ### Data Streaming Pipeline
 
-Every data source follows the same extensible pipeline pattern. Adding a new service means implementing a client, parser, and rate calculator on the server — the client-side infrastructure (`useServerStream` hook and `StreamingTable` factory component) handles the rest.
+The application uses a two-stage pipeline: background collection and real-time streaming.
+
+**Stage 1: Background Collection (Worker)**
 
 ```mermaid
 flowchart LR
-    SF["Server Function<br/>(async generator)"]
-    MW["Middleware<br/>(inject client)"]
-    CL["Client<br/>(Docker / SSH / HTTP)"]
+    CL["Client<br/>(Docker / SSH)"]
     RS["Raw Stream<br/>(JSON / text)"]
     PA["Parser<br/>(structured data)"]
     RC["Rate Calculator<br/>(deltas & metrics)"]
+    Batch["Batch Writer"]
+    DB["PostgreSQL<br/>+ NOTIFY"]
+
+    CL --> RS --> PA --> RC --> Batch --> DB
+```
+
+**Stage 2: Real-Time Streaming (Server → Browser)**
+
+```mermaid
+flowchart LR
+    DB["PostgreSQL<br/>LISTEN"]
+    SubSvc["Subscription Service"]
+    Cache["Stats Cache"]
+    SF["Server Function<br/>(async generator)"]
     Hook["useServerStream<br/>(hook)"]
     ST["StreamingTable<br/>(factory component)"]
 
-    SF --> MW --> CL --> RS --> PA --> RC --> Hook --> ST
+    DB -->|"NOTIFY"| SubSvc --> Cache --> SF --> Hook --> ST
 ```
 
 **How it works:**
 
-1. A **TanStack Start server function** (async generator) is called from the client
-2. **Middleware** injects the appropriate connection client (Docker, SSH, etc.)
-3. The **client** opens a persistent connection and begins streaming raw data
-4. A **parser** transforms the raw stream into structured TypeScript objects
-5. A **rate calculator** (class implementing `RateCalculator` interface) computes deltas and per-second metrics
-6. The **`useServerStream` hook** on the client consumes the async generator, managing abort/cleanup, error state, and optional retry with exponential backoff
-7. The **`StreamingTable` factory component** renders the title, loading/error states, column headers, and rows from a declarative config — each data source just provides a stream function, columns, an `onData` reducer, and a row renderer
+1. **Background worker** continuously collects stats from Docker/ZFS APIs
+2. Stats are **batch inserted** into PostgreSQL with `NOTIFY stats_update`
+3. **Subscription service** maintains a `LISTEN` connection, updates the **shared cache** on each notification
+4. **Server functions** yield stats from the cache when notified (filtered by visibility for ZFS)
+5. The **`useServerStream` hook** consumes the async generator, managing abort/cleanup and error state
+6. The **`StreamingTable` factory component** renders the UI with automatic stale data detection
 
 ## Getting Started
 
@@ -209,26 +229,37 @@ src/
 │   │   └── ZFSMetricCells.tsx       # Shared ZFS metric columns
 │   └── shared-table/
 │       ├── MetricCell.tsx           # Right-aligned table cell
-│       └── StreamingTable.tsx       # Factory component for streaming tables
+│       └── StreamingTable.tsx       # Factory component (with stale detection)
 ├── hooks/
-│   └── useServerStream.ts          # Generic streaming server function consumer
+│   └── useServerStream.ts           # Generic streaming server function consumer
 ├── data/
-│   ├── docker.functions.tsx         # Docker server functions
-│   └── zfs.functions.tsx            # ZFS server functions
+│   ├── docker.functions.tsx         # Docker server functions (DB-backed)
+│   └── zfs.functions.tsx            # ZFS server functions (DB-backed, visibility filtering)
 ├── middleware/
 │   ├── docker-middleware.ts         # Docker client injection
 │   └── ssh-middleware.ts            # SSH client injection
 ├── lib/
 │   ├── __tests__/                   # Unit tests
-│   │   ├── rate-calculator.test.ts
-│   │   └── stream-utils.test.ts
-│   ├── clients/                     # Connection managers (Docker, SSH)
+│   ├── cache/
+│   │   └── stats-cache.ts           # Singleton stats cache (shared across connections)
+│   ├── clients/                     # Connection managers (Docker, SSH, Database)
+│   ├── config/                      # Configuration loaders (database, worker)
+│   ├── database/
+│   │   ├── repositories/            # Data access layer (StatsRepository)
+│   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler
+│   │   └── migrate.ts               # Database migration runner
 │   ├── parsers/                     # Stream parsers (ZFS iostat, text lines)
 │   ├── test/                        # Test utilities and helpers
+│   ├── transformers/                # DB rows → domain objects
+│   │   ├── docker-transformer.ts    # DB rows → Docker stats
+│   │   └── zfs-transformer.ts       # DB rows → ZFS stats (with hierarchy)
 │   ├── utils/                       # Rate calculators, hierarchy builders
 │   ├── streaming/types.ts           # Core interfaces (StreamingClient, RateCalculator)
-│   ├── rate-calculator.ts           # DockerRateCalculator class
-│   └── stream-utils.ts             # Async iterator utilities
+│   └── server-init.ts               # Server-side shutdown handlers
+├── worker/
+│   ├── collectors/                  # Background collectors (Docker, ZFS)
+│   ├── collector.ts                 # Worker entry point
+│   └── cleanup.ts                   # Daily downsampling script
 ├── types/                           # Domain types (Docker, ZFS)
 ├── formatters/metrics.ts            # Number formatting (%, bytes, bits)
 ├── routes/
@@ -236,13 +267,15 @@ src/
 │   ├── index.tsx                    # Docker page (/)
 │   └── zfs.tsx                      # ZFS page (/zfs)
 └── theme.ts                         # MUI Joy theme config
+
+migrations/                          # SQL migrations (schema + downsampling functions)
 ```
 
 ## Roadmap
 
 - [x] **PostgreSQL persistence** — background worker collects stats with progressive downsampling (second → minute → hour → day aggregates)
 - [x] **Docker Compose deployment** — multi-container setup with PostgreSQL, web server, and background worker
-- [ ] **Optimize data source connections** — reduce duplicate SSH/API connections by adding a caching layer (web server reads from database instead of direct connections)
+- [x] **Database-backed streaming** — frontend reads from PostgreSQL via LISTEN/NOTIFY instead of direct API/SSH connections; shared cache across browser tabs
 - [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
 - [ ] **Proxmox API integration** — VM and LXC container management and statistics
 - [ ] **Authentication** — user login and access control using OIDC with first class Pocket ID support

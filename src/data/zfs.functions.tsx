@@ -1,84 +1,70 @@
 import { createServerFn } from '@tanstack/react-start';
-import { streamTextLines } from '../lib/parsers/text-parser';
-import { parseZFSIOStat } from '../lib/parsers/zfs-iostat-parser';
-import { ZFSRateCalculator } from '../lib/utils/zfs-rate-calculator';
-import type { ZFSIOStatWithRates } from '../types/zfs';
-import { zfsSSHMiddleware } from '../middleware/ssh-middleware';
+import type { ZFSStatsFromDB } from '@/lib/transformers/zfs-transformer';
 
-const rateCalculator = new ZFSRateCalculator();
+/**
+ * Stream ZFS stats from the database via PostgreSQL LISTEN/NOTIFY.
+ * Uses the shared stats cache updated by the subscription service.
+ */
+export const streamZFSStatsFromDB = createServerFn()
+  .handler(async function* (): AsyncGenerator<ZFSStatsFromDB[]> {
+    // Dynamic imports to avoid bundling server-only code into client
+    // Also initializes server-side shutdown handlers
+    await import('@/lib/server-init');
+    const { subscriptionService } = await import('@/lib/database/subscription-service');
+    const { statsCache } = await import('@/lib/cache/stats-cache');
 
-export const streamZFSIOStat = createServerFn()
-  .middleware([zfsSSHMiddleware])
-  .handler(async function* ({ context }): AsyncGenerator<ZFSIOStatWithRates[]> {
-    const sshClient = context.ssh;
+    // Ensure subscription service is running
+    await subscriptionService.start();
 
-    try {
-      const stream = await sshClient.exec('zpool iostat -vvv 1');
-      let currentCycle: ZFSIOStatWithRates[] = [];
+    // Yield initial state from cache
+    const initialStats = statsCache.getZFS();
+    if (initialStats.length > 0) {
+      yield initialStats;
+    }
 
-      for await (const line of streamTextLines(stream)) {
-        if (!line.trim()) continue;
-
-        if (
-          line.includes('capacity') &&
-          line.includes('operations') &&
-          line.includes('bandwidth')
-        ) {
-          if (currentCycle.length > 0) {
-            yield currentCycle;
-            currentCycle = [];
+    // Wait for updates and yield stats
+    while (true) {
+      await new Promise<void>(resolve => {
+        const handler = (source: string) => {
+          if (source === 'zfs') {
+            subscriptionService.removeListener('stats_update', handler);
+            resolve();
           }
-          continue;
-        }
+        };
+        subscriptionService.on('stats_update', handler);
+      });
 
-        const parsed = parseZFSIOStat(line);
-        if (!parsed) continue;
-
-        const statsWithRates = rateCalculator.calculate(parsed.name, parsed);
-        currentCycle.push(statsWithRates);
-      }
-
-      if (currentCycle.length > 0) {
-        yield currentCycle;
-      }
-    } catch (err) {
-      console.error('[streamZFSIOStat] Stream error:', err);
-      throw err;
-    } finally {
-      rateCalculator.clear();
+      // Yield stats from the updated cache
+      const stats = statsCache.getZFS();
+      yield stats;
     }
   });
 
-export const getZFSPools = createServerFn()
-  .middleware([zfsSSHMiddleware])
-  .handler(async ({ context }) => {
-    const sshClient = context.ssh;
+/**
+ * Get list of active ZFS pools from the database.
+ */
+export const getActiveZFSPools = createServerFn()
+  .handler(async (): Promise<string[]> => {
+    const { subscriptionService } = await import('@/lib/database/subscription-service');
+    const { statsCache } = await import('@/lib/cache/stats-cache');
 
-    try {
-      const stream = await sshClient.exec('zpool list -H');
-      const lines: string[] = [];
+    await subscriptionService.start();
 
-      for await (const line of streamTextLines(stream)) {
-        if (line.trim()) {
-          lines.push(line);
-        }
+    // Get pool names (entities without '/' are pools)
+    const pools: string[] = [];
+    for (const entityPath of statsCache.getAllZFS().keys()) {
+      if (!entityPath.includes('/')) {
+        pools.push(entityPath);
       }
-
-      const pools = lines.map((line) => {
-        const parts = line.split(/\s+/);
-        return {
-          name: parts[0],
-          size: parts[1],
-          allocated: parts[2],
-          free: parts[3],
-          capacity: parts[7],
-          health: parts[9],
-        };
-      });
-
-      return pools;
-    } catch (err) {
-      console.error('[getZFSPools] Error fetching pools:', err);
-      throw err;
     }
+    return pools;
+  });
+
+/**
+ * Check if ZFS data in cache is stale (no updates for 30+ seconds)
+ */
+export const isZFSDataStale = createServerFn()
+  .handler(async (): Promise<boolean> => {
+    const { statsCache } = await import('@/lib/cache/stats-cache');
+    return statsCache.isZFSStale();
   });

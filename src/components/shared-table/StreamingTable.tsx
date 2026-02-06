@@ -1,7 +1,12 @@
 import { type ReactNode, useState, useCallback } from 'react';
 import Table from '@mui/joy/Table';
-import { Box, CircularProgress, Sheet, Typography } from '@mui/joy';
+import { Alert, Box, CircularProgress, Sheet, Typography } from '@mui/joy';
+import { AlertTriangle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { useServerStream } from '@/hooks/useServerStream';
+
+const STALE_THRESHOLD_MS = 30000; // 30 seconds
+const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
 
 export interface ColumnDef {
   label: string;
@@ -36,11 +41,25 @@ export default function StreamingTable<TRaw, TState>({
 }: StreamingTableProps<TRaw, TState>) {
   const [state, setState] = useState<TState>(initialState);
   const [hasData, setHasData] = useState(false);
+  const [lastDataTime, setLastDataTime] = useState<number | null>(null);
 
   const handleData = useCallback((data: TRaw) => {
     setState(prev => onData(prev, data));
     setHasData(true);
+    setLastDataTime(Date.now());
   }, [onData]);
+
+  // Check for stale data periodically using TanStack Query
+  const { data: isStale = false } = useQuery({
+    queryKey: ['stale-check', lastDataTime],
+    queryFn: () => {
+      if (!lastDataTime) return false;
+      return Date.now() - lastDataTime > STALE_THRESHOLD_MS;
+    },
+    enabled: hasData,
+    refetchInterval: STALE_CHECK_INTERVAL_MS,
+    staleTime: 0, // Always consider stale to trigger refetch
+  });
 
   const { isStreaming, error } = useServerStream({
     streamFn,
@@ -75,6 +94,16 @@ export default function StreamingTable<TRaw, TState>({
   return (
     <Box sx={{ width: '100%', p: 3 }}>
       <Typography level="h2" sx={{ mb: 3 }}>{title}</Typography>
+      {isStale && (
+        <Alert
+          color="warning"
+          variant="soft"
+          startDecorator={<AlertTriangle size={18} />}
+          className="mb-3"
+        >
+          Data is stale. Background worker may not be running.
+        </Alert>
+      )}
       <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
         <Table aria-label={ariaLabel} sx={{ '& thead th': { fontWeight: 600 }, ...tableProps }}>
           <thead>
