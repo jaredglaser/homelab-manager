@@ -137,9 +137,11 @@ class SubscriptionService extends EventEmitter {
     if (!this.repository) return;
 
     try {
-      // Load Docker stats
+      // Load Docker stats with metadata
       const dockerRows = await this.repository.getLatestStats({ sourceName: 'docker' });
-      statsCache.updateDocker(transformDockerStats(dockerRows));
+      const dockerEntities = [...new Set(dockerRows.map(r => r.entity))];
+      const dockerMetadata = await this.repository.getEntityMetadata('docker', dockerEntities);
+      statsCache.updateDocker(transformDockerStats(dockerRows, dockerMetadata));
       console.log(`[SubscriptionService] Loaded ${dockerRows.length} Docker stat rows into cache`);
 
       // Load ZFS stats
@@ -158,7 +160,9 @@ class SubscriptionService extends EventEmitter {
       const rows = await this.repository.getLatestStats({ sourceName: source });
 
       if (source === 'docker') {
-        statsCache.updateDocker(transformDockerStats(rows));
+        const entities = [...new Set(rows.map(r => r.entity))];
+        const metadata = await this.repository.getEntityMetadata('docker', entities);
+        statsCache.updateDocker(transformDockerStats(rows, metadata));
       } else if (source === 'zfs') {
         statsCache.updateZFS(transformZFSStats(rows));
       }

@@ -34,14 +34,24 @@ const DOCKER_TYPE_MAP: Record<string, (stats: DockerStatsFromDB, value: number) 
   block_io_write_bytes_per_sec: (s, v) => (s.rates.blockIoWriteBytesPerSec = v),
 };
 
+/** Entity metadata map: entity -> key -> value */
+export type EntityMetadata = Map<string, Map<string, string>>;
+
 /**
- * Creates an empty DockerStatsFromDB object with default values
+ * Creates an empty DockerStatsFromDB object with default values.
+ * Uses metadata to look up display name if available.
  */
-function createEmptyDockerStats(entityId: string): DockerStatsFromDB {
+function createEmptyDockerStats(
+  entityId: string,
+  metadata?: EntityMetadata
+): DockerStatsFromDB {
+  const entityMeta = metadata?.get(entityId);
+  const name = entityMeta?.get('name') ?? entityId.substring(0, 12);
+
   return {
     id: entityId,
-    name: entityId.substring(0, 12), // Docker short ID format
-    timestamp: new Date(),
+    name,
+    timestamp: new Date(0), // Epoch; will be updated by first row
     rates: {
       cpuPercent: 0,
       memoryPercent: 0,
@@ -62,15 +72,19 @@ function createEmptyDockerStats(entityId: string): DockerStatsFromDB {
  * Groups rows by entity (container ID) and maps type names to object fields.
  *
  * @param rows - Latest stat rows from the database
+ * @param metadata - Optional entity metadata for display names
  * @returns Map of container ID to stats object
  */
-export function transformDockerStats(rows: LatestStatRow[]): Map<string, DockerStatsFromDB> {
+export function transformDockerStats(
+  rows: LatestStatRow[],
+  metadata?: EntityMetadata
+): Map<string, DockerStatsFromDB> {
   const result = new Map<string, DockerStatsFromDB>();
 
   for (const row of rows) {
     let stats = result.get(row.entity);
     if (!stats) {
-      stats = createEmptyDockerStats(row.entity);
+      stats = createEmptyDockerStats(row.entity, metadata);
       result.set(row.entity, stats);
     }
 
