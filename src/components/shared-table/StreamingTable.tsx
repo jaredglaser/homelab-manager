@@ -4,6 +4,7 @@ import { Alert, Box, CircularProgress, Sheet, Typography } from '@mui/joy';
 import { AlertTriangle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useServerStream } from '@/hooks/useServerStream';
+import PageHeader from '@/components/PageHeader';
 
 const STALE_THRESHOLD_MS = 30000; // 30 seconds
 const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
@@ -69,31 +70,31 @@ export default function StreamingTable<TRaw, TState>({
 
   if (error && !hasData) {
     return (
-      <Box sx={{ width: '100%', p: 3 }}>
-        <Typography level="h2" sx={{ mb: 3 }}>{title}</Typography>
+      <div className="w-full p-6">
+        <PageHeader title={title} />
         <Box sx={{ p: 2 }}>
           <Typography color="danger">
             {errorLabel ?? 'Error streaming data'}: {error.message}
           </Typography>
         </Box>
-      </Box>
+      </div>
     );
   }
 
   if (!isStreaming && !hasData) {
     return (
-      <Box sx={{ width: '100%', p: 3 }}>
-        <Typography level="h2" sx={{ mb: 3 }}>{title}</Typography>
+      <div className="w-full p-6">
+        <PageHeader title={title} />
         <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
           <CircularProgress />
         </Box>
-      </Box>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ width: '100%', p: 3 }}>
-      <Typography level="h2" sx={{ mb: 3 }}>{title}</Typography>
+    <div className="w-full p-6">
+      <PageHeader title={title} />
       {isStale && (
         <Alert
           color="warning"
@@ -127,6 +128,6 @@ export default function StreamingTable<TRaw, TState>({
           </tbody>
         </Table>
       </Sheet>
-    </Box>
+    </div>
   );
 }
