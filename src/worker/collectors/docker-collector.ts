@@ -11,7 +11,7 @@ const DOCKER_SOURCE = 'docker';
 
 function toRawStatRows(stat: ContainerStatsWithRates): RawStatRow[] {
   const timestamp = new Date();
-  const entity = stat.id;
+  const entity = stat.name;
 
   return [
     { timestamp, source: DOCKER_SOURCE, type: 'cpu_percent', entity, value: stat.rates.cpuPercent },

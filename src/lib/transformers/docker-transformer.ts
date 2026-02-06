@@ -40,7 +40,7 @@ const DOCKER_TYPE_MAP: Record<string, (stats: DockerStatsFromDB, value: number) 
 function createEmptyDockerStats(entityId: string): DockerStatsFromDB {
   return {
     id: entityId,
-    name: entityId.substring(0, 12), // Docker short ID format
+    name: entityId,
     timestamp: new Date(),
     rates: {
       cpuPercent: 0,
