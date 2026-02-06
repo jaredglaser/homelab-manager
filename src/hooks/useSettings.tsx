@@ -1,8 +1,9 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { getAllSettings, updateSetting } from '@/data/settings.functions';
 
 export type MemoryDisplayMode = 'percentage' | 'bytes';
 
-interface Settings {
+export interface Settings {
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
   };
@@ -12,49 +13,45 @@ interface SettingsContextValue extends Settings {
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
 }
 
-const STORAGE_KEY = 'homelab-settings';
-
 const DEFAULT_SETTINGS: Settings = {
   docker: {
     memoryDisplayMode: 'percentage',
   },
 };
 
-function loadSettings(): Settings {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      return {
-        docker: {
-          memoryDisplayMode: parsed?.docker?.memoryDisplayMode ?? DEFAULT_SETTINGS.docker.memoryDisplayMode,
-        },
-      };
-    }
-  } catch {
-    // Ignore parse errors, use defaults
-  }
-  return DEFAULT_SETTINGS;
-}
+const VALID_MEMORY_MODES: readonly string[] = ['percentage', 'bytes'];
 
-function saveSettings(settings: Settings): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  } catch {
-    // Ignore storage errors (e.g., private browsing quota)
-  }
+function parseSettings(raw: Record<string, string>): Settings {
+  const memMode = raw['docker/memoryDisplayMode'];
+  return {
+    docker: {
+      memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
+        ? (memMode as MemoryDisplayMode)
+        : DEFAULT_SETTINGS.docker.memoryDisplayMode,
+    },
+  };
 }
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(loadSettings);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+
+  useEffect(() => {
+    getAllSettings().then(raw => {
+      setSettings(parseSettings(raw));
+    }).catch(() => {
+      // DB unavailable — keep defaults
+    });
+  }, []);
 
   const setMemoryDisplayMode = useCallback((mode: MemoryDisplayMode) => {
-    setSettings(prev => {
-      const next = { ...prev, docker: { ...prev.docker, memoryDisplayMode: mode } };
-      saveSettings(next);
-      return next;
+    setSettings(prev => ({
+      ...prev,
+      docker: { ...prev.docker, memoryDisplayMode: mode },
+    }));
+    updateSetting({ data: { key: 'docker/memoryDisplayMode', value: mode } }).catch(() => {
+      // Fire-and-forget; optimistic update already applied
     });
   }, []);
 
