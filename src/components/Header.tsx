@@ -25,6 +25,9 @@ export default function Header() {
         <Box sx={{ px: 0.5, fontWeight: 'bold' }}>
           <Link to="/zfs">ZFS</Link>
         </Box>
+        <Box sx={{ px: 0.5, fontWeight: 'bold' }}>
+          <Link to="/settings">Settings</Link>
+        </Box>
       </nav>
       <ModeToggle />
     </Box>
