@@ -271,6 +271,22 @@ src/
 migrations/                          # SQL migrations (schema + downsampling functions)
 ```
 
+## Known Issues
+
+### Streaming Connections Accumulate When Switching Tabs
+
+When rapidly switching between the Docker (`/`) and ZFS (`/zfs`) tabs, streaming connections can accumulate and eventually cause the tables to stop updating.
+
+**Root Cause:** TanStack Start's streaming server functions (async generators) do not properly propagate client disconnection to the server. When a component unmounts during navigation, the client-side fetch is abandoned but the server-side generator continues running indefinitely, waiting for the next database notification.
+
+**Upstream Issues:**
+- [TanStack Start #4651](https://github.com/TanStack/router/issues/4651) — Abort signal not working for streaming server functions
+- [TanStack Start #3490](https://github.com/TanStack/router/issues/3490) — Server function streaming doesn't respect client disconnect
+
+**Workaround:** Refresh the page if tables stop updating after switching tabs multiple times.
+
+**Status:** Waiting for upstream fix. A [PR was merged](https://github.com/TanStack/router/pull/5470) to address this, but the fix is not yet fully released or has bundling issues with the current TanStack Start version.
+
 ## Roadmap
 
 - [x] **PostgreSQL persistence** — background worker collects stats with progressive downsampling (second → minute → hour → day aggregates)

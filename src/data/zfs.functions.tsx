@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start';
+import { getRequest } from '@tanstack/react-start/server';
 import type { ZFSStatsFromDB } from '@/lib/transformers/zfs-transformer';
 
 /**
@@ -22,16 +23,28 @@ export const streamZFSStatsFromDB = createServerFn()
       yield initialStats;
     }
 
+    const request = getRequest();
+    const abortSignal = request.signal;
+
     // Wait for updates and yield stats
     while (true) {
-      await new Promise<void>(resolve => {
+      await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          subscriptionService.removeListener('stats_update', handler);
+          abortSignal.removeEventListener('abort', onAbort);
+        };
         const handler = (source: string) => {
           if (source === 'zfs') {
-            subscriptionService.removeListener('stats_update', handler);
+            cleanup();
             resolve();
           }
         };
+        const onAbort = () => {
+          cleanup();
+          reject(new Error('Request aborted'));
+        };
         subscriptionService.on('stats_update', handler);
+        abortSignal.addEventListener('abort', onAbort, { once: true });
       });
 
       // Yield stats from the updated cache
