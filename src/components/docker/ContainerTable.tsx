@@ -21,9 +21,11 @@ export default function ContainerTable() {
   ], [docker.memoryDisplayMode]);
 
   const onData = useCallback(
-    (prev: DockerState, stat: DockerStatsFromDB): DockerState => {
-      const next = new Map(prev);
-      next.set(stat.id, stat);
+    (_prev: DockerState, stats: DockerStatsFromDB[]): DockerState => {
+      const next = new Map<string, DockerStatsFromDB>();
+      for (const stat of stats) {
+        next.set(stat.id, stat);
+      }
       return next;
     },
     [],
@@ -38,7 +40,7 @@ export default function ContainerTable() {
   );
 
   return (
-    <StreamingTable<DockerStatsFromDB, DockerState>
+    <StreamingTable<DockerStatsFromDB[], DockerState>
       title="Docker Containers Dashboard"
       ariaLabel="docker containers table"
       columns={columns}

@@ -6,7 +6,7 @@ import type { DockerStatsFromDB } from '@/lib/transformers/docker-transformer';
  * Uses the shared stats cache updated by the subscription service.
  */
 export const streamDockerStatsFromDB = createServerFn()
-  .handler(async function* (): AsyncGenerator<DockerStatsFromDB> {
+  .handler(async function* (): AsyncGenerator<DockerStatsFromDB[]> {
     // Dynamic imports to avoid bundling server-only code into client
     // Also initializes server-side shutdown handlers
     await import('@/lib/server-init');
@@ -18,11 +18,11 @@ export const streamDockerStatsFromDB = createServerFn()
 
     // Yield initial state from cache
     const initialStats = statsCache.getDocker();
-    for (const stat of initialStats) {
-      yield stat;
+    if (initialStats.length > 0) {
+      yield initialStats;
     }
 
-    // Wait for updates and yield new stats
+    // Wait for updates and yield stats
     while (true) {
       await new Promise<void>(resolve => {
         const handler = (source: string) => {
@@ -36,9 +36,7 @@ export const streamDockerStatsFromDB = createServerFn()
 
       // Yield all stats from the updated cache
       const stats = statsCache.getDocker();
-      for (const stat of stats) {
-        yield stat;
-      }
+      yield stats;
     }
   });
 
