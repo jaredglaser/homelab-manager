@@ -271,27 +271,12 @@ src/
 migrations/                          # SQL migrations (schema + downsampling functions)
 ```
 
-## Known Issues
-
-### Streaming Connections Accumulate When Switching Tabs
-
-When rapidly switching between the Docker (`/`) and ZFS (`/zfs`) tabs, streaming connections can accumulate and eventually cause the tables to stop updating.
-
-**Root Cause:** TanStack Start's streaming server functions (async generators) do not properly propagate client disconnection to the server. When a component unmounts during navigation, the client-side fetch is abandoned but the server-side generator continues running indefinitely, waiting for the next database notification.
-
-**Upstream Issues:**
-- [TanStack Start #4651](https://github.com/TanStack/router/issues/4651) — Abort signal not working for streaming server functions
-- [TanStack Start #3490](https://github.com/TanStack/router/issues/3490) — Server function streaming doesn't respect client disconnect
-
-**Workaround:** Refresh the page if tables stop updating after switching tabs multiple times.
-
-**Status:** Waiting for upstream fix. A [PR was merged](https://github.com/TanStack/router/pull/5470) to address this, but the fix is not yet fully released or has bundling issues with the current TanStack Start version.
-
 ## Roadmap
 
 - [x] **PostgreSQL persistence** — background worker collects stats with progressive downsampling (second → minute → hour → day aggregates)
 - [x] **Docker Compose deployment** — multi-container setup with PostgreSQL, web server, and background worker
 - [x] **Database-backed streaming** — frontend reads from PostgreSQL via LISTEN/NOTIFY instead of direct API/SSH connections; shared cache across browser tabs
+- [ ] **Return to TanStack Start streaming server functions** — currently using SSE as a workaround because streaming server functions don't close quickly enough when rapidly switching between tabs; once TanStack Start's abort signal propagation is more reliable, migrate back to the native streaming pattern
 - [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
 - [ ] **Proxmox API integration** — VM and LXC container management and statistics
 - [ ] **Authentication** — user login and access control using OIDC with first class Pocket ID support

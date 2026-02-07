@@ -16,7 +16,7 @@
 1. **Styling**: TailwindCSS ONLY. Never use `sx` props, inline `style`, or create `.css` files (exception: `theme.ts`).
 2. **Imports**: Always use `@/` for src files (e.g., `@/components/Header`). Use relative paths only within `__tests__/` for test imports.
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly.
-4. **Streaming Pattern**: Server functions → `useServerStream` → `StreamingTable`. Never use raw `useEffect` + `for await`.
+4. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useSSE` hook → `StreamingTable` component. Server handles client disconnect via `request.signal`.
 5. **File Creation**: PREFER editing existing files over creating new ones. Only create files when genuinely necessary.
 6. **Testing**: Tests in `__tests__/` folders co-located with source. Use `bun:test` imports.
 7. **No Logging**: No `console.log` in committed code. Only `console.error` for actual errors.
@@ -29,7 +29,7 @@
 - **UI:** MUI Joy UI (components) + TailwindCSS (styling)
 - **Routing:** TanStack Router (file-based, auto-generated `routeTree.gen.ts`)
 - **State:** TanStack Query (QueryClient singleton in `__root.tsx`)
-- **Streaming:** Server functions via `createServerFn()` with async generators
+- **Streaming:** Server-Sent Events (SSE) via TanStack Router server routes (`src/routes/api/`)
 - **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL)
 - **Database:** PostgreSQL 16 (generic EAV time-series schema with progressive downsampling)
 - **Background Worker:** Standalone Bun process for continuous data collection
@@ -81,7 +81,7 @@ src/
 │   ├── docker/              # Docker-specific components
 │   ├── zfs/                 # ZFS-specific components
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
-├── hooks/                   # Custom hooks (useServerStream, etc.)
+├── hooks/                   # Custom hooks (useSSE, etc.)
 ├── data/                    # Server functions (*.functions.tsx) - DB-backed streaming
 ├── middleware/              # Connection injection (Docker, SSH, Database)
 ├── lib/
@@ -105,7 +105,9 @@ src/
 │   └── cleanup.ts           # Daily downsampling script
 ├── types/                   # Domain types (docker.ts, zfs.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
-└── routes/                  # TanStack Router pages
+└── routes/
+    ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts)
+    └── [index, zfs, settings].tsx  # Page routes
 
 migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 ```
@@ -118,33 +120,77 @@ migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 - Client-side layout lives in `AppShell.tsx`. Each route wraps content with `<AppShell>`.
 - All routes: `ssr: false` (SPA mode).
 
-### Server Functions & Streaming
-- All server logic: `createServerFn()` from `@tanstack/react-start`.
-- Streaming: async generator functions (`async function*`).
-- Data flow: Server function → `useServerStream` hook → `StreamingTable` component.
+### Server Functions & SSE Streaming
+- Non-streaming server logic: `createServerFn()` from `@tanstack/react-start`
+- **Real-time streaming**: SSE via TanStack Router server routes in `src/routes/api/`
+- Data flow: SSE endpoint → `useSSE` hook → `StreamingTable` component
+- **Note**: SSE is a workaround because TanStack Start's streaming server functions don't close quickly enough when rapidly switching between tabs — the abort signal doesn't propagate reliably. Once this is fixed upstream, I plan to migrate back to native streaming (see roadmap).
 - **Frontend reads from database** (not direct API/SSH connections):
   - Worker collects stats → writes to PostgreSQL → sends `NOTIFY stats_update`
   - Server maintains LISTEN connection → updates shared cache on notification
-  - Server functions yield from cache when notified
+  - SSE endpoints stream from cache when notified
   - Multiple browser tabs share the same server-side cache
-- **IMPORTANT: Use dynamic imports for server-only modules** in server functions:
+- **SSE endpoints use `createFileRoute` with `server.handlers`**:
   ```typescript
-  // BAD - gets bundled into client, causes "Buffer is not defined"
+  // src/routes/api/docker-stats.ts
+  import { createFileRoute } from '@tanstack/react-router';
+
+  export const Route = createFileRoute('/api/docker-stats')({
+    server: {
+      handlers: {
+        GET: async ({ request }) => {
+          const { subscriptionService } = await import('@/lib/database/subscription-service');
+          const { statsCache } = await import('@/lib/cache/stats-cache');
+
+          await subscriptionService.start();
+
+          let closed = false;
+          const stream = new ReadableStream({
+            start(controller) {
+              const handler = (source: string) => {
+                if (source === 'docker' && !closed) {
+                  sendData(statsCache.getDocker());
+                }
+              };
+              subscriptionService.on('stats_update', handler);
+
+              // Clean up on client disconnect via abort signal
+              request.signal.addEventListener('abort', () => {
+                closed = true;
+                subscriptionService.removeListener('stats_update', handler);
+                controller.close();
+              });
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              Connection: 'keep-alive',
+            },
+          });
+        },
+      },
+    },
+  });
+  ```
+- **IMPORTANT: Use dynamic imports for server-only modules** in SSE endpoints:
+  ```typescript
+  // BAD - gets bundled into client
   import { subscriptionService } from '@/lib/database/subscription-service';
 
   // GOOD - only loaded on server at runtime
-  export const myServerFn = createServerFn().handler(async () => {
-    const { subscriptionService } = await import('@/lib/database/subscription-service');
-  });
+  const { subscriptionService } = await import('@/lib/database/subscription-service');
   ```
 
-### Streaming Data Sources (Factory Pattern)
-When adding a new streaming data source:
-1. Create server function (async generator)
+### SSE Data Sources (Factory Pattern)
+When adding a new SSE data source:
+1. Create SSE route in `src/routes/api/` using `createFileRoute` with `server.handlers` (e.g., `src/routes/api/my-stats.ts`)
 2. Define column config
 3. Create `onData` reducer (how to merge new data)
 4. Create row renderer component
-5. Pass all to `StreamingTable`
+5. Pass all to `StreamingTable` with `sseUrl="/api/my-stats"`
 
 Rate calculators:
 - Must implement `RateCalculator<TInput, TOutput>` interface (`src/lib/streaming/types.ts`)
@@ -191,6 +237,9 @@ Adding a new data source requires only a new collector — no schema changes nee
 - **Stale data warning**: If no NOTIFY received for 30+ seconds, UI shows warning (TanStack Query with refetchInterval)
 
 **Key files**:
+- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — TanStack Router server routes with proper disconnect handling)
+- **SSE hook**: `src/hooks/useSSE.ts` (EventSource-based SSE consumer)
+- **Streaming table**: `src/components/shared-table/StreamingTable.tsx` (factory component for streaming tables)
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
 - Repository: `src/lib/database/repositories/stats-repository.ts` (generic, caches dimension IDs, NOTIFY after insert)
 - Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, batch management, backoff)
@@ -221,8 +270,8 @@ Adding a new data source requires only a new collector — no schema changes nee
 
 ### State Management
 - `QueryClient` is a singleton in `__root.tsx` — never create per-route
-- Use `useServerStream` for consuming streaming server functions
-- Never duplicate streaming logic with raw `useEffect` + `for await`
+- Use `useSSE` hook for consuming SSE streams from `src/routes/api/` endpoints
+- SSE connection management handled automatically by the browser's EventSource API
 
 ### Types
 - Domain types: `src/types/` (e.g., `docker.ts`, `zfs.ts`)
@@ -286,7 +335,7 @@ Adding a new data source requires only a new collector — no schema changes nee
 - Adding `component` to root route (breaks SSR)
 - Creating QueryClient per route (singleton only)
 - Creating clients in server functions (use middleware)
-- Raw `useEffect` + `for await` (use `useServerStream`)
+- Using TanStack Start streaming server functions (use SSE via `src/routes/api/` server routes instead — proper disconnect handling)
 - Dashboard wrapper components (use `StreamingTable`)
 - Test files outside `__tests__/` folders
 - `console.log` in committed code
@@ -298,8 +347,9 @@ Adding a new data source requires only a new collector — no schema changes nee
 | Need | Solution |
 |------|----------|
 | Style component | TailwindCSS classes |
-| Server logic | `createServerFn()` + middleware |
-| Consume stream | `useServerStream` hook |
+| Server logic (non-streaming) | `createServerFn()` + middleware |
+| Real-time streaming | SSE route in `src/routes/api/` |
+| Consume SSE stream | `useSSE` hook |
 | New streaming table | `StreamingTable` factory |
 | Import from src | `@/path/to/file` |
 | Test file location | `__tests__/filename.test.ts` |
