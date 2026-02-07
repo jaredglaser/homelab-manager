@@ -30,3 +30,35 @@ export interface ContainerStatsDisplay {
 
 // Re-export the DB type for convenience
 export type { DockerStatsFromDB } from '../lib/transformers/docker-transformer';
+
+/**
+ * Hierarchical data structures for multi-host Docker dashboard
+ */
+
+/** Aggregated stats for a Docker host (calculated from containers) */
+export interface HostAggregatedStats {
+  cpuPercent: number;
+  memoryUsage: number;
+  memoryLimit: number;
+  memoryPercent: number;
+  networkRxBytesPerSec: number;
+  networkTxBytesPerSec: number;
+  blockIoReadBytesPerSec: number;
+  blockIoWriteBytesPerSec: number;
+  containerCount: number;
+}
+
+/** Container stats within a host */
+export interface ContainerStats {
+  data: import('../lib/transformers/docker-transformer').DockerStatsFromDB;
+}
+
+/** Docker host with its containers */
+export interface HostStats {
+  hostName: string;
+  aggregated: HostAggregatedStats;
+  containers: Map<string, ContainerStats>;
+}
+
+/** Complete Docker hierarchy: hosts -> containers */
+export type DockerHierarchy = Map<string, HostStats>;

@@ -5,9 +5,10 @@ import { useSettings } from '@/hooks/useSettings';
 
 interface ContainerRowProps {
   container: DockerStatsFromDB;
+  indent?: number;
 }
 
-export default function ContainerRow({ container }: ContainerRowProps) {
+export default function ContainerRow({ container, indent }: ContainerRowProps) {
   const { docker } = useSettings();
   const { rates } = container;
 
@@ -25,7 +26,7 @@ export default function ContainerRow({ container }: ContainerRowProps) {
 
   return (
     <tr>
-      <td>{container.name}</td>
+      <td className={indent ? 'pl-8' : undefined}>{container.name}</td>
       <MetricCell>{formatAsPercent(rates.cpuPercent / 100)}</MetricCell>
       <MetricCell>{memoryDisplay}</MetricCell>
       <MetricCell>{formatBytes(blockReadMBps, true)}</MetricCell>

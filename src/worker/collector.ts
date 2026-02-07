@@ -2,6 +2,7 @@ import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
+import { loadDockerConfig } from '@/lib/config/docker-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { runMigrations } from '@/lib/database/migrate';
 import { DockerCollector } from './collectors/docker-collector';
@@ -53,9 +54,21 @@ async function main() {
       const runners: Promise<void>[] = [];
 
       if (workerConfig.docker.enabled) {
-        console.log('[Worker] Starting Docker collector');
-        const collector = stack.use(new DockerCollector(db, workerConfig, shutdownController));
-        runners.push(collector.run());
+        const dockerConfig = loadDockerConfig();
+
+        if (dockerConfig.hosts.length === 0) {
+          console.log('[Worker] Docker enabled but no hosts configured');
+        } else {
+          console.log(`[Worker] Starting ${dockerConfig.hosts.length} Docker collector(s)`);
+
+          for (const hostConfig of dockerConfig.hosts) {
+            console.log(`[Worker] Starting Docker collector for ${hostConfig.name}`);
+            const collector = stack.use(
+              new DockerCollector(db, workerConfig, hostConfig, shutdownController)
+            );
+            runners.push(collector.run());
+          }
+        }
       } else {
         console.log('[Worker] Docker collector disabled');
       }

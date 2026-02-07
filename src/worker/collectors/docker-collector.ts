@@ -1,5 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
+import type { DockerHostConfig } from '@/lib/config/docker-config';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { DockerRateCalculator, type ContainerStatsWithRates } from '@/lib/rate-calculator';
 import type { RawStatRow } from '@/lib/database/repositories/stats-repository';
@@ -9,9 +10,9 @@ import { BaseCollector } from './base-collector';
 
 const DOCKER_SOURCE = 'docker';
 
-function toRawStatRows(stat: ContainerStatsWithRates): RawStatRow[] {
+function toRawStatRows(stat: ContainerStatsWithRates, hostName: string): RawStatRow[] {
   const timestamp = new Date();
-  const entity = stat.id;
+  const entity = `${hostName}/${stat.id}`;
 
   return [
     { timestamp, source: DOCKER_SOURCE, type: 'cpu_percent', entity, value: stat.rates.cpuPercent },
@@ -26,21 +27,30 @@ function toRawStatRows(stat: ContainerStatsWithRates): RawStatRow[] {
 }
 
 export class DockerCollector extends BaseCollector {
-  readonly name = 'DockerCollector';
+  readonly name: string;
   private readonly calculator = new DockerRateCalculator();
+  private readonly hostConfig: DockerHostConfig;
 
-  constructor(db: DatabaseClient, config: WorkerConfig, abortController?: AbortController) {
+  constructor(
+    db: DatabaseClient,
+    config: WorkerConfig,
+    hostConfig: DockerHostConfig,
+    abortController?: AbortController
+  ) {
     super(db, config, abortController);
+    this.hostConfig = hostConfig;
+    this.name = `DockerCollector[${hostConfig.name}]`;
   }
 
   protected isConfigured(): boolean {
-    return !!process.env.DOCKER_HOST_1;
+    return !!this.hostConfig.host;
   }
 
   protected async collectOnce(): Promise<void> {
     const dockerClient = await dockerConnectionManager.getClient({
-      host: process.env.DOCKER_HOST_1!,
-      port: parseInt(process.env.DOCKER_HOST_PORT_1 || '2375', 10),
+      host: this.hostConfig.host,
+      port: this.hostConfig.port,
+      protocol: this.hostConfig.protocol,
     });
 
     const docker = dockerClient.getDocker();
@@ -54,9 +64,10 @@ export class DockerCollector extends BaseCollector {
     // Upsert container name metadata for display purposes
     for (const containerInfo of containers) {
       const containerName = containerInfo.Names[0]?.replace(/^\//, '') || containerInfo.Id.substring(0, 12);
+      const entityPath = `${this.hostConfig.name}/${containerInfo.Id}`;
       await this.repository.upsertEntityMetadata(
         DOCKER_SOURCE,
-        containerInfo.Id,
+        entityPath,
         'name',
         containerName
       );
@@ -71,7 +82,7 @@ export class DockerCollector extends BaseCollector {
     try {
       for await (const stats of mergeAsyncIterables(containerStreams)) {
         if (this.signal.aborted) break;
-        await this.addToBatch(toRawStatRows(stats));
+        await this.addToBatch(toRawStatRows(stats, this.hostConfig.name));
       }
     } finally {
       streams.forEach(stream => {

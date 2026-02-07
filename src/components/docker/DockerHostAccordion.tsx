@@ -1,0 +1,51 @@
+import { useState } from 'react';
+import { Box, Chip, Typography } from '@mui/joy';
+import { ChevronRight, Server } from 'lucide-react';
+import type { HostStats } from '@/types/docker';
+import ContainerRow from './ContainerRow';
+import DockerHostMetricCells from './DockerHostMetricCells';
+
+interface DockerHostAccordionProps {
+  host: HostStats;
+}
+
+export default function DockerHostAccordion({ host }: DockerHostAccordionProps) {
+  const [expanded, setExpanded] = useState(true);
+  const containers = Array.from(host.containers.values());
+  const hasContainers = containers.length > 0;
+
+  return (
+    <>
+      <tr
+        onClick={() => hasContainers && setExpanded(!expanded)}
+        className={hasContainers ? 'cursor-pointer' : 'cursor-default'}
+      >
+        <td>
+          <Box className="flex items-center gap-2">
+            {hasContainers && (
+              <ChevronRight
+                size={18}
+                className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+              />
+            )}
+            <Server size={18} />
+            <Typography fontWeight="bold">{host.hostName}</Typography>
+            <Chip size="sm" variant="soft">
+              {host.aggregated.containerCount} container{host.aggregated.containerCount !== 1 ? 's' : ''}
+            </Chip>
+          </Box>
+        </td>
+        <DockerHostMetricCells aggregated={host.aggregated} />
+      </tr>
+
+      {expanded &&
+        containers.map((container) => (
+          <ContainerRow
+            key={container.data.id}
+            container={container.data}
+            indent={1}
+          />
+        ))}
+    </>
+  );
+}

@@ -1,17 +1,16 @@
 import { useCallback, useMemo } from 'react';
-import ContainerRow from './ContainerRow';
-import type { DockerStatsFromDB } from '@/types/docker';
+import DockerHostAccordion from './DockerHostAccordion';
+import type { DockerStatsFromDB, DockerHierarchy } from '@/types/docker';
+import { buildDockerHierarchy } from '@/lib/utils/docker-hierarchy-builder';
 import StreamingTable, { type ColumnDef } from '../shared-table/StreamingTable';
 import { useSettings } from '@/hooks/useSettings';
-
-type DockerState = Map<string, DockerStatsFromDB>;
 
 export default function ContainerTable() {
   const { docker } = useSettings();
 
   const columns: ColumnDef[] = useMemo(
     () => [
-      { label: 'Container Name', width: '20%' },
+      { label: 'Host / Container', width: '20%' },
       { label: 'CPU %', align: 'right' },
       {
         label:
@@ -27,26 +26,22 @@ export default function ContainerTable() {
   );
 
   const onData = useCallback(
-    (_prev: DockerState, stats: DockerStatsFromDB[]): DockerState => {
-      const next = new Map<string, DockerStatsFromDB>();
-      for (const stat of stats) {
-        next.set(stat.id, stat);
-      }
-      return next;
+    (_prev: DockerHierarchy, stats: DockerStatsFromDB[]): DockerHierarchy => {
+      return buildDockerHierarchy(stats);
     },
     [],
   );
 
   const renderRows = useCallback(
-    (state: DockerState) =>
-      Array.from(state.values()).map((containerStat) => (
-        <ContainerRow key={containerStat.id} container={containerStat} />
+    (state: DockerHierarchy) =>
+      Array.from(state.values()).map((hostStats) => (
+        <DockerHostAccordion key={hostStats.hostName} host={hostStats} />
       )),
     [],
   );
 
   return (
-    <StreamingTable<DockerStatsFromDB[], DockerState>
+    <StreamingTable<DockerStatsFromDB[], DockerHierarchy>
       ariaLabel="docker containers table"
       columns={columns}
       sseUrl="/api/docker-stats"

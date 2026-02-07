@@ -1,0 +1,104 @@
+import type {
+  DockerStatsFromDB,
+  DockerHierarchy,
+  HostAggregatedStats,
+  ContainerStats,
+} from '@/types/docker';
+
+/**
+ * Parse entity path to extract host and container ID
+ * Entity format: "hostname/container-id"
+ */
+function parseEntityPath(entityPath: string): { hostName: string; containerId: string } {
+  const slashIndex = entityPath.indexOf('/');
+  if (slashIndex === -1) {
+    throw new Error(`Invalid entity path format: ${entityPath}. Expected "host/container-id"`);
+  }
+  return {
+    hostName: entityPath.substring(0, slashIndex),
+    containerId: entityPath.substring(slashIndex + 1),
+  };
+}
+
+/**
+ * Calculate aggregated stats for a host from its containers
+ */
+function calculateHostAggregates(containers: Map<string, ContainerStats>): HostAggregatedStats {
+  let cpuPercent = 0;
+  let memoryUsage = 0;
+  let memoryLimit = 0;
+  let networkRxBytesPerSec = 0;
+  let networkTxBytesPerSec = 0;
+  let blockIoReadBytesPerSec = 0;
+  let blockIoWriteBytesPerSec = 0;
+
+  for (const container of containers.values()) {
+    const { rates, memory_stats } = container.data;
+    cpuPercent += rates.cpuPercent;
+    memoryUsage += memory_stats.usage;
+    memoryLimit += memory_stats.limit;
+    networkRxBytesPerSec += rates.networkRxBytesPerSec;
+    networkTxBytesPerSec += rates.networkTxBytesPerSec;
+    blockIoReadBytesPerSec += rates.blockIoReadBytesPerSec;
+    blockIoWriteBytesPerSec += rates.blockIoWriteBytesPerSec;
+  }
+
+  const memoryPercent = memoryLimit > 0 ? (memoryUsage / memoryLimit) * 100 : 0;
+
+  return {
+    cpuPercent,
+    memoryUsage,
+    memoryLimit,
+    memoryPercent,
+    networkRxBytesPerSec,
+    networkTxBytesPerSec,
+    blockIoReadBytesPerSec,
+    blockIoWriteBytesPerSec,
+    containerCount: containers.size,
+  };
+}
+
+/**
+ * Build hierarchical structure from flat array of Docker stats
+ * Groups containers by host and calculates aggregated host-level stats
+ *
+ * @param stats - Array of Docker stats from DB
+ * @returns Hierarchical Map structure: host -> containers
+ */
+export function buildDockerHierarchy(stats: DockerStatsFromDB[]): DockerHierarchy {
+  const hierarchy: DockerHierarchy = new Map();
+
+  // Group containers by host
+  for (const stat of stats) {
+    const { hostName } = parseEntityPath(stat.id);
+
+    let hostStats = hierarchy.get(hostName);
+    if (!hostStats) {
+      hostStats = {
+        hostName,
+        aggregated: {
+          cpuPercent: 0,
+          memoryUsage: 0,
+          memoryLimit: 0,
+          memoryPercent: 0,
+          networkRxBytesPerSec: 0,
+          networkTxBytesPerSec: 0,
+          blockIoReadBytesPerSec: 0,
+          blockIoWriteBytesPerSec: 0,
+          containerCount: 0,
+        },
+        containers: new Map(),
+      };
+      hierarchy.set(hostName, hostStats);
+    }
+
+    hostStats.containers.set(stat.id, { data: stat });
+  }
+
+  // Calculate aggregates for each host
+  for (const hostStats of hierarchy.values()) {
+    hostStats.aggregated = calculateHostAggregates(hostStats.containers);
+  }
+
+  return hierarchy;
+}

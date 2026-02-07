@@ -38,6 +38,15 @@ const DOCKER_TYPE_MAP: Record<string, (stats: DockerStatsFromDB, value: number) 
 export type EntityMetadata = Map<string, Map<string, string>>;
 
 /**
+ * Extract container ID from entity path.
+ * Entity format: "host/container-id"
+ */
+function extractContainerId(entityPath: string): string {
+  const slashIndex = entityPath.indexOf('/');
+  return slashIndex === -1 ? entityPath : entityPath.substring(slashIndex + 1);
+}
+
+/**
  * Creates an empty DockerStatsFromDB object with default values.
  * Uses metadata to look up display name if available.
  */
@@ -46,7 +55,9 @@ function createEmptyDockerStats(
   metadata?: EntityMetadata
 ): DockerStatsFromDB {
   const entityMeta = metadata?.get(entityId);
-  const name = entityMeta?.get('name') ?? entityId.substring(0, 12);
+  // Fallback: extract container ID from path and truncate to 12 chars
+  const containerId = extractContainerId(entityId);
+  const name = entityMeta?.get('name') ?? containerId.substring(0, 12);
 
   return {
     id: entityId,
