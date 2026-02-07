@@ -14,6 +14,7 @@ export interface Settings {
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
     expandedHosts: Set<string>;
+    expandedContainers: Set<string>;
     decimals: DecimalSettings;
   };
   zfs: {
@@ -28,6 +29,8 @@ interface SettingsContextValue extends Settings {
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
   toggleHostExpanded: (hostName: string) => void;
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
+  toggleContainerExpanded: (containerId: string) => void;
+  isContainerExpanded: (containerId: string) => boolean;
   togglePoolExpanded: (poolName: string) => void;
   isPoolExpanded: (poolName: string, totalPools: number) => boolean;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
@@ -45,6 +48,7 @@ const DEFAULT_SETTINGS: Settings = {
   docker: {
     memoryDisplayMode: 'percentage',
     expandedHosts: new Set(),
+    expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
   },
   zfs: {
@@ -83,6 +87,7 @@ function parseSettings(raw: Record<string, string>): Settings {
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
       expandedHosts: parseExpandedSet(raw['docker/expandedHosts']),
+      expandedContainers: parseExpandedSet(raw['docker/expandedContainers']),
       decimals: {
         cpu: parseBool(raw['docker/decimals/cpu'], DEFAULT_DECIMAL_SETTINGS.cpu),
         memory: parseBool(raw['docker/decimals/memory'], DEFAULT_DECIMAL_SETTINGS.memory),
@@ -158,6 +163,39 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [settings.docker.expandedHosts]
   );
 
+  const toggleContainerExpanded = useCallback((containerId: string) => {
+    setSettings(prev => {
+      const newExpanded = new Set(prev.docker.expandedContainers);
+      if (newExpanded.has(containerId)) {
+        newExpanded.delete(containerId);
+      } else {
+        newExpanded.add(containerId);
+      }
+
+      // Persist to DB
+      updateSetting({
+        data: {
+          key: 'docker/expandedContainers',
+          value: JSON.stringify(Array.from(newExpanded)),
+        },
+      }).catch(() => {
+        // Fire-and-forget
+      });
+
+      return {
+        ...prev,
+        docker: { ...prev.docker, expandedContainers: newExpanded },
+      };
+    });
+  }, []);
+
+  const isContainerExpanded = useCallback(
+    (containerId: string): boolean => {
+      return settings.docker.expandedContainers.has(containerId);
+    },
+    [settings.docker.expandedContainers]
+  );
+
   const togglePoolExpanded = useCallback((poolName: string) => {
     setSettings(prev => {
       const newExpanded = new Set(prev.zfs.expandedPools);
@@ -227,6 +265,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setMemoryDisplayMode,
         toggleHostExpanded,
         isHostExpanded,
+        toggleContainerExpanded,
+        isContainerExpanded,
         togglePoolExpanded,
         isPoolExpanded,
         setDockerDecimal,
