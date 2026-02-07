@@ -39,7 +39,7 @@ export default defineConfig({
     viteReact(),
   ],
   ssr: {
-    external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'events'],
+    external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams'],
   },
   preview: {
     host: true,
