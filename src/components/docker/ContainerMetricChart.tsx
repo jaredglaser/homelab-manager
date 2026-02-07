@@ -1,6 +1,7 @@
 import { Sheet, Typography } from '@mui/joy';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import { useSettings } from '@/hooks/useSettings';
 
 interface DataPoint {
   timestamp: number;
@@ -71,13 +72,15 @@ function getChartOption(
   dataPoints: DataPoint[],
   colorVar: string,
   formatValue: (value: number) => string,
-  isPercent: boolean
+  isPercent: boolean,
+  use12HourTime: boolean
 ): EChartsOption {
   const timestamps = dataPoints.map((d) =>
     new Date(d.timestamp).toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      hour12: use12HourTime,
     })
   );
   const values = dataPoints.map((d) => d.value);
@@ -94,10 +97,7 @@ function getChartOption(
   const tooltipText = getCssVar('--chart-tooltip-text');
 
   return {
-    animation: true,
-    animationDuration: 0,
-    animationDurationUpdate: 1000,
-    animationEasingUpdate: 'linear',
+    animation: false,
     grid: {
       top: 10,
       right: 15,
@@ -130,9 +130,9 @@ function getChartOption(
       axisTick: { show: false },
       axisLabel: {
         show: true,
-        interval: 'auto',
         color: textMuted,
         fontSize: 9,
+        interval: 14, // Show roughly every 15 seconds (every 15th label)
       },
       splitLine: { show: false },
     },
@@ -186,8 +186,9 @@ export default function ContainerMetricChart({
   colorVar,
   formatValue,
 }: ContainerMetricChartProps) {
+  const { general } = useSettings();
   const isPercent = title.includes('%');
-  const option = getChartOption(dataPoints, colorVar, formatValue, isPercent);
+  const option = getChartOption(dataPoints, colorVar, formatValue, isPercent, general.use12HourTime);
 
   return (
     <Sheet variant="soft" className="rounded-sm p-3">

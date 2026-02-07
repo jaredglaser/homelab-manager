@@ -25,8 +25,8 @@ export default function DockerHostMetricCells({ aggregated }: DockerHostMetricCe
       <MetricCell>{memoryDisplay}</MetricCell>
       <MetricCell>{formatBytes(aggregated.blockIoReadBytesPerSec, true, decimals.diskSpeed)}</MetricCell>
       <MetricCell>{formatBytes(aggregated.blockIoWriteBytesPerSec, true, decimals.diskSpeed)}</MetricCell>
-      <MetricCell>{formatBitsSIUnits(networkRxBps * 8, true, decimals.networkSpeed)}</MetricCell>
-      <MetricCell>{formatBitsSIUnits(networkTxBps * 8, true, decimals.networkSpeed)}</MetricCell>
+      <MetricCell>{formatBitsSIUnits(networkRxBps, true, decimals.networkSpeed)}</MetricCell>
+      <MetricCell>{formatBitsSIUnits(networkTxBps, true, decimals.networkSpeed)}</MetricCell>
     </>
   );
 }

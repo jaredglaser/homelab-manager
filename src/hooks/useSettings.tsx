@@ -11,6 +11,9 @@ export interface DecimalSettings {
 }
 
 export interface Settings {
+  general: {
+    use12HourTime: boolean;
+  };
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
     expandedHosts: Set<string>;
@@ -26,6 +29,7 @@ export interface Settings {
 }
 
 interface SettingsContextValue extends Settings {
+  setUse12HourTime: (value: boolean) => void;
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
   toggleHostExpanded: (hostName: string) => void;
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
@@ -45,6 +49,9 @@ const DEFAULT_DECIMAL_SETTINGS: DecimalSettings = {
 };
 
 const DEFAULT_SETTINGS: Settings = {
+  general: {
+    use12HourTime: true,
+  },
   docker: {
     memoryDisplayMode: 'percentage',
     expandedHosts: new Set(),
@@ -82,6 +89,9 @@ function parseBool(raw: string | undefined, defaultValue: boolean): boolean {
 function parseSettings(raw: Record<string, string>): Settings {
   const memMode = raw['docker/memoryDisplayMode'];
   return {
+    general: {
+      use12HourTime: parseBool(raw['general/use12HourTime'], DEFAULT_SETTINGS.general.use12HourTime),
+    },
     docker: {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
         ? (memMode as MemoryDisplayMode)
@@ -114,6 +124,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setSettings(parseSettings(raw));
     }).catch(() => {
       // DB unavailable — keep defaults
+    });
+  }, []);
+
+  const setUse12HourTime = useCallback((value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      general: { ...prev.general, use12HourTime: value },
+    }));
+    updateSetting({ data: { key: 'general/use12HourTime', value: String(value) } }).catch(() => {
+      // Fire-and-forget
     });
   }, []);
 
@@ -262,6 +282,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     <SettingsContext.Provider
       value={{
         ...settings,
+        setUse12HourTime,
         setMemoryDisplayMode,
         toggleHostExpanded,
         isHostExpanded,

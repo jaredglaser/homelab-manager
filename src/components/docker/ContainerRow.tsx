@@ -16,13 +16,13 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
   const { decimals } = docker;
   const expanded = isContainerExpanded(container.id);
 
-  // Convert bytes/sec to MB/s (using binary: 1 MB = 1024 * 1024 bytes)
+  // Block I/O is in bytes/sec
   const blockReadMBps = rates.blockIoReadBytesPerSec;
   const blockWriteMBps = rates.blockIoWriteBytesPerSec;
 
-  // Convert bytes/sec to Mbps (using decimal: 1 Mbps = 1,000,000 bits/sec)
-  const networkRxBps = (rates.networkRxBytesPerSec * 8);
-  const networkTxBps = (rates.networkTxBytesPerSec * 8);
+  // Network values are in bytes/sec, convert to bits/sec for display
+  const networkRxBps = rates.networkRxBytesPerSec * 8;
+  const networkTxBps = rates.networkTxBytesPerSec * 8;
 
   const memoryDisplay = docker.memoryDisplayMode === 'bytes'
     ? formatBytes(container.memory_stats.usage, false, decimals.memory)
@@ -51,8 +51,8 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
         <MetricCell>{memoryDisplay}</MetricCell>
         <MetricCell>{formatBytes(blockReadMBps, true, decimals.diskSpeed)}</MetricCell>
         <MetricCell>{formatBytes(blockWriteMBps, true, decimals.diskSpeed)}</MetricCell>
-        <MetricCell>{formatBitsSIUnits(networkRxBps * 8, true, decimals.networkSpeed)}</MetricCell>
-        <MetricCell>{formatBitsSIUnits(networkTxBps * 8, true, decimals.networkSpeed)}</MetricCell>
+        <MetricCell>{formatBitsSIUnits(networkRxBps, true, decimals.networkSpeed)}</MetricCell>
+        <MetricCell>{formatBitsSIUnits(networkTxBps, true, decimals.networkSpeed)}</MetricCell>
       </tr>
       {expanded && (
         <tr>

@@ -18,13 +18,24 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { docker, zfs, setMemoryDisplayMode, setDockerDecimal, setZfsDecimal } = useSettings();
+  const { general, docker, zfs, setUse12HourTime, setMemoryDisplayMode, setDockerDecimal, setZfsDecimal } = useSettings();
 
   return (
     <div className="w-full p-6">
       <PageHeader title="Settings" />
 
       <div className="flex flex-col gap-4 max-w-2xl">
+        <Card variant="outlined">
+          <Typography level="title-lg" className="mb-4">General</Typography>
+          <FormControl orientation="horizontal" className="justify-between">
+            <FormLabel>Use 12-hour time format</FormLabel>
+            <Switch
+              checked={general.use12HourTime}
+              onChange={(e) => setUse12HourTime(e.target.checked)}
+            />
+          </FormControl>
+        </Card>
+
         <Card variant="outlined">
           <Typography level="title-lg" className="mb-4">Docker Containers Dashboard</Typography>
           <div className="flex flex-col gap-4">

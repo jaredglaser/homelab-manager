@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import type { TimeSeriesDataPoint } from '@/hooks/useTimeSeriesBuffer';
 import { formatBytes } from '@/formatters/metrics';
+import { useSettings } from '@/hooks/useSettings';
 
 interface ZFSPoolSpeedChartProps {
   poolName: string;
@@ -89,12 +90,13 @@ function calculateCleanYAxis(maxValue: number): YAxisConfig {
   };
 }
 
-function getChartOption(dataPoints: TimeSeriesDataPoint[]): EChartsOption {
+function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolean): EChartsOption {
   const timestamps = dataPoints.map((d) =>
     new Date(d.timestamp).toLocaleTimeString([], {
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
+      hour12: use12HourTime,
     })
   );
   const readData = dataPoints.map((d) => d.readBytesPerSec);
@@ -117,10 +119,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[]): EChartsOption {
   const tooltipText = getCssVar('--chart-tooltip-text');
 
   return {
-    animation: true,
-    animationDuration: 0,
-    animationDurationUpdate: 1000,
-    animationEasingUpdate: 'linear',
+    animation: false,
     grid: {
       top: 10,
       right: 15,
@@ -167,9 +166,9 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[]): EChartsOption {
       axisTick: { show: false },
       axisLabel: {
         show: true,
-        interval: 'auto',
         color: textMuted,
         fontSize: 10,
+        interval: 14, // Show roughly every 15 seconds
       },
       splitLine: { show: false },
     },
@@ -243,7 +242,8 @@ export default function ZFSPoolSpeedChart({
   poolName,
   dataPoints,
 }: ZFSPoolSpeedChartProps) {
-  const option = getChartOption(dataPoints);
+  const { general } = useSettings();
+  const option = getChartOption(dataPoints, general.use12HourTime);
 
   return (
     <Sheet variant="outlined" className="rounded-sm p-4">
