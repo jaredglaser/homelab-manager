@@ -3,13 +3,24 @@ import { getAllSettings, updateSetting } from '@/data/settings.functions';
 
 export type MemoryDisplayMode = 'percentage' | 'bytes';
 
+export interface DecimalSettings {
+  cpu: boolean;
+  memory: boolean;
+  diskSpeed: boolean;
+  networkSpeed: boolean;
+}
+
 export interface Settings {
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
     expandedHosts: Set<string>;
+    decimals: DecimalSettings;
   };
   zfs: {
     expandedPools: Set<string>;
+    decimals: {
+      diskSpeed: boolean;
+    };
   };
 }
 
@@ -19,15 +30,28 @@ interface SettingsContextValue extends Settings {
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   togglePoolExpanded: (poolName: string) => void;
   isPoolExpanded: (poolName: string, totalPools: number) => boolean;
+  setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
+  setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
 }
+
+const DEFAULT_DECIMAL_SETTINGS: DecimalSettings = {
+  cpu: false,
+  memory: false,
+  diskSpeed: false,
+  networkSpeed: false,
+};
 
 const DEFAULT_SETTINGS: Settings = {
   docker: {
     memoryDisplayMode: 'percentage',
     expandedHosts: new Set(),
+    decimals: { ...DEFAULT_DECIMAL_SETTINGS },
   },
   zfs: {
     expandedPools: new Set(),
+    decimals: {
+      diskSpeed: false,
+    },
   },
 };
 
@@ -46,6 +70,11 @@ function parseExpandedSet(raw: string | undefined): Set<string> {
   return new Set();
 }
 
+function parseBool(raw: string | undefined, defaultValue: boolean): boolean {
+  if (raw === undefined) return defaultValue;
+  return raw === 'true';
+}
+
 function parseSettings(raw: Record<string, string>): Settings {
   const memMode = raw['docker/memoryDisplayMode'];
   return {
@@ -54,9 +83,18 @@ function parseSettings(raw: Record<string, string>): Settings {
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
       expandedHosts: parseExpandedSet(raw['docker/expandedHosts']),
+      decimals: {
+        cpu: parseBool(raw['docker/decimals/cpu'], DEFAULT_DECIMAL_SETTINGS.cpu),
+        memory: parseBool(raw['docker/decimals/memory'], DEFAULT_DECIMAL_SETTINGS.memory),
+        diskSpeed: parseBool(raw['docker/decimals/diskSpeed'], DEFAULT_DECIMAL_SETTINGS.diskSpeed),
+        networkSpeed: parseBool(raw['docker/decimals/networkSpeed'], DEFAULT_DECIMAL_SETTINGS.networkSpeed),
+      },
     },
     zfs: {
       expandedPools: parseExpandedSet(raw['zfs/expandedPools']),
+      decimals: {
+        diskSpeed: parseBool(raw['zfs/decimals/diskSpeed'], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
+      },
     },
   };
 }
@@ -156,6 +194,32 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [settings.zfs.expandedPools]
   );
 
+  const setDockerDecimal = useCallback((key: keyof DecimalSettings, value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      docker: {
+        ...prev.docker,
+        decimals: { ...prev.docker.decimals, [key]: value },
+      },
+    }));
+    updateSetting({ data: { key: `docker/decimals/${key}`, value: String(value) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
+  const setZfsDecimal = useCallback((key: 'diskSpeed', value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      zfs: {
+        ...prev.zfs,
+        decimals: { ...prev.zfs.decimals, [key]: value },
+      },
+    }));
+    updateSetting({ data: { key: `zfs/decimals/${key}`, value: String(value) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
   return (
     <SettingsContext.Provider
       value={{
@@ -165,6 +229,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isHostExpanded,
         togglePoolExpanded,
         isPoolExpanded,
+        setDockerDecimal,
+        setZfsDecimal,
       }}
     >
       {children}

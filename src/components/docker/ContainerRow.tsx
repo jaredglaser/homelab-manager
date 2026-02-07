@@ -11,6 +11,7 @@ interface ContainerRowProps {
 export default function ContainerRow({ container, indent }: ContainerRowProps) {
   const { docker } = useSettings();
   const { rates } = container;
+  const { decimals } = docker;
 
   // Convert bytes/sec to MB/s (using binary: 1 MB = 1024 * 1024 bytes)
   const blockReadMBps = rates.blockIoReadBytesPerSec;
@@ -21,18 +22,18 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
   const networkTxBps = (rates.networkTxBytesPerSec * 8);
 
   const memoryDisplay = docker.memoryDisplayMode === 'bytes'
-    ? formatBytes(container.memory_stats.usage, false)
-    : formatAsPercent(rates.memoryPercent / 100);
+    ? formatBytes(container.memory_stats.usage, false, decimals.memory)
+    : formatAsPercent(rates.memoryPercent / 100, decimals.memory);
 
   return (
     <tr>
       <td className={indent ? 'pl-8' : undefined}>{container.name}</td>
-      <MetricCell>{formatAsPercent(rates.cpuPercent / 100)}</MetricCell>
+      <MetricCell>{formatAsPercent(rates.cpuPercent / 100, decimals.cpu)}</MetricCell>
       <MetricCell>{memoryDisplay}</MetricCell>
-      <MetricCell>{formatBytes(blockReadMBps, true)}</MetricCell>
-      <MetricCell>{formatBytes(blockWriteMBps, true)}</MetricCell>
-      <MetricCell>{formatBitsSIUnits(networkRxBps * 8, true)}</MetricCell>
-      <MetricCell>{formatBitsSIUnits(networkTxBps * 8, true)}</MetricCell>
+      <MetricCell>{formatBytes(blockReadMBps, true, decimals.diskSpeed)}</MetricCell>
+      <MetricCell>{formatBytes(blockWriteMBps, true, decimals.diskSpeed)}</MetricCell>
+      <MetricCell>{formatBitsSIUnits(networkRxBps * 8, true, decimals.networkSpeed)}</MetricCell>
+      <MetricCell>{formatBitsSIUnits(networkTxBps * 8, true, decimals.networkSpeed)}</MetricCell>
     </tr>
   );
 }

@@ -1,6 +1,7 @@
 import type { ZFSIOStatWithRates } from '@/types/zfs';
 import { formatBytes, formatAsPercent } from '@/formatters/metrics';
 import { MetricCell } from '../shared-table';
+import { useSettings } from '@/hooks/useSettings';
 
 interface ZFSMetricCellsProps {
   data: ZFSIOStatWithRates;
@@ -8,6 +9,9 @@ interface ZFSMetricCellsProps {
 }
 
 export default function ZFSMetricCells({ data, showCapacity = true }: ZFSMetricCellsProps) {
+  const { zfs } = useSettings();
+  const { decimals } = zfs;
+
   return (
     <>
       <MetricCell>
@@ -17,9 +21,9 @@ export default function ZFSMetricCells({ data, showCapacity = true }: ZFSMetricC
       </MetricCell>
       <MetricCell>{data.rates.readOpsPerSec.toFixed(0)}</MetricCell>
       <MetricCell>{data.rates.writeOpsPerSec.toFixed(0)}</MetricCell>
-      <MetricCell>{formatBytes(data.rates.readBytesPerSec, true)}</MetricCell>
-      <MetricCell>{formatBytes(data.rates.writeBytesPerSec, true)}</MetricCell>
-      <MetricCell>{formatAsPercent(data.rates.utilizationPercent / 100)}</MetricCell>
+      <MetricCell>{formatBytes(data.rates.readBytesPerSec, true, decimals.diskSpeed)}</MetricCell>
+      <MetricCell>{formatBytes(data.rates.writeBytesPerSec, true, decimals.diskSpeed)}</MetricCell>
+      <MetricCell>{formatAsPercent(data.rates.utilizationPercent / 100, decimals.diskSpeed)}</MetricCell>
     </>
   );
 }

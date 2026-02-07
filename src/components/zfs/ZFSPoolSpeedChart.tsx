@@ -183,7 +183,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[]): EChartsOption {
       axisLabel: {
         color: textMuted,
         fontSize: 10,
-        formatter: (value: number) => formatBytes(value, true),
+        formatter: (value: number) => formatBytes(value, true, false),
       },
       splitLine: {
         lineStyle: {
