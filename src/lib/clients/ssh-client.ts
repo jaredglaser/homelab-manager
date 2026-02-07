@@ -114,6 +114,13 @@ export class SSHClient implements StreamingClient {
   }
 
   /**
+   * Check if there are active channels (streaming commands)
+   */
+  hasActiveChannels(): boolean {
+    return this.channels.size > 0;
+  }
+
+  /**
    * Close all channels and disconnect
    */
   async close(): Promise<void> {
@@ -237,6 +244,10 @@ class SSHConnectionManager {
     this.cleanupInterval = setInterval(() => {
       const now = Date.now();
       for (const [key, client] of this.connections.entries()) {
+        // Skip connections with active streaming channels
+        if (client.hasActiveChannels()) {
+          continue;
+        }
         if (now - client.getLastUsed() > this.TTL) {
           console.log(`[SSHConnectionManager] Cleaning up stale connection: ${key}`);
           client.close();
