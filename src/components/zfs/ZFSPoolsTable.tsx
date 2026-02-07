@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { streamZFSStatsFromDB } from '@/data/zfs.functions';
 import type { ZFSHierarchy } from '@/types/zfs';
 import { buildHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import ZFSPoolAccordion from './ZFSPoolAccordion';
@@ -17,7 +16,6 @@ const columns: ColumnDef[] = [
 ];
 
 export default function ZFSPoolsTable() {
-
   const onData = useCallback(
     (_prev: ZFSHierarchy, cycleStats: ZFSStatsFromDB[]): ZFSHierarchy => {
       return buildHierarchy(cycleStats);
@@ -38,15 +36,18 @@ export default function ZFSPoolsTable() {
       title="ZFS Pools Dashboard"
       ariaLabel="zfs pools table"
       columns={columns}
-      streamFn={streamZFSStatsFromDB}
+      sseUrl="/api/zfs-stats"
       initialState={new Map()}
       onData={onData}
       renderRows={renderRows}
-      retry={{ enabled: true }}
-      errorLabel="Error streaming ZFS stats"
+      errorLabel="Error connecting to ZFS stats"
       tableProps={{
         tableLayout: 'fixed',
-        '& td:first-child': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+        '& td:first-child': {
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        },
       }}
     />
   );

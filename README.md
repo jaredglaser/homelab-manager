@@ -276,6 +276,7 @@ migrations/                          # SQL migrations (schema + downsampling fun
 - [x] **PostgreSQL persistence** — background worker collects stats with progressive downsampling (second → minute → hour → day aggregates)
 - [x] **Docker Compose deployment** — multi-container setup with PostgreSQL, web server, and background worker
 - [x] **Database-backed streaming** — frontend reads from PostgreSQL via LISTEN/NOTIFY instead of direct API/SSH connections; shared cache across browser tabs
+- [ ] **Return to TanStack Start streaming server functions** — currently using SSE as a workaround because streaming server functions don't close quickly enough when rapidly switching between tabs; once TanStack Start's abort signal propagation is more reliable, migrate back to the native streaming pattern
 - [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
 - [ ] **Proxmox API integration** — VM and LXC container management and statistics
 - [ ] **Authentication** — user login and access control using OIDC with first class Pocket ID support
