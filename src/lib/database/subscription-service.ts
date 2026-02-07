@@ -34,6 +34,11 @@ class SubscriptionService extends EventEmitter {
   private readonly maxReconnectAttempts = 10;
   private readonly baseReconnectDelay = 1000; // 1 second
 
+  // Throttle state: emit at most once per interval per source
+  private readonly emitThrottleMs = 1000; // 1 second between UI updates
+  private lastEmitTime: Map<string, number> = new Map();
+  private pendingEmit: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
   /**
    * Start the subscription service.
    * Connects to PostgreSQL, sets up LISTEN, and begins processing notifications.
@@ -159,6 +164,7 @@ class SubscriptionService extends EventEmitter {
     try {
       const rows = await this.repository.getLatestStats({ sourceName: source });
 
+      // Always update cache immediately so data is fresh
       if (source === 'docker') {
         const entities = [...new Set(rows.map(r => r.entity))];
         const metadata = await this.repository.getEntityMetadata('docker', entities);
@@ -167,12 +173,46 @@ class SubscriptionService extends EventEmitter {
         statsCache.updateZFS(transformZFSStats(rows));
       }
 
-      // Emit event for server functions to yield to frontends
-      this.emit('stats_update', source);
+      // Throttle UI updates: emit at most once per interval per source
+      this.throttledEmit(source);
     } catch (err) {
       console.error(`[SubscriptionService] Failed to handle notification for ${source}:`, err);
       this.emit('error', err instanceof Error ? err : new Error(String(err)));
     }
+  }
+
+  /**
+   * Emit stats_update event with throttling.
+   * Ensures UI updates happen at a consistent pace (~1/sec) even when
+   * notifications arrive rapidly from multiple containers.
+   */
+  private throttledEmit(source: 'docker' | 'zfs'): void {
+    const now = Date.now();
+    const lastEmit = this.lastEmitTime.get(source) ?? 0;
+    const elapsed = now - lastEmit;
+
+    if (elapsed >= this.emitThrottleMs) {
+      // Enough time has passed, emit immediately
+      this.lastEmitTime.set(source, now);
+      this.emit('stats_update', source);
+
+      // Clear any pending trailing emit since we just emitted
+      const pending = this.pendingEmit.get(source);
+      if (pending) {
+        clearTimeout(pending);
+        this.pendingEmit.delete(source);
+      }
+    } else if (!this.pendingEmit.has(source)) {
+      // Schedule a trailing emit to send latest data after throttle window
+      const delay = this.emitThrottleMs - elapsed;
+      const timer = setTimeout(() => {
+        this.pendingEmit.delete(source);
+        this.lastEmitTime.set(source, Date.now());
+        this.emit('stats_update', source);
+      }, delay);
+      this.pendingEmit.set(source, timer);
+    }
+    // If already have a pending emit scheduled, do nothing - it will send latest data
   }
 
   private scheduleReconnect(): void {
@@ -232,6 +272,12 @@ class SubscriptionService extends EventEmitter {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+
+    // Clear any pending throttled emits
+    for (const timer of this.pendingEmit.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingEmit.clear();
 
     await this.cleanup();
     console.log('[SubscriptionService] Stopped');
