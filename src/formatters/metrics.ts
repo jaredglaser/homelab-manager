@@ -9,6 +9,16 @@ export function formatAsPercent(value: number, showDecimals = true): string {
   return `${(value * 100).toFixed(decimals)}%`;
 }
 
+export interface FormattedParts {
+  value: string;
+  unit: string;
+}
+
+export function formatAsPercentParts(value: number, showDecimals = true): FormattedParts {
+  const decimals = showDecimals ? 2 : 0;
+  return { value: (value * 100).toFixed(decimals), unit: '%' };
+}
+
 
 /**
  * Formats bytes ie Kilobyte = 1024 bytes
@@ -39,6 +49,26 @@ export function formatBytes(bytes: number, isPerSecond: boolean, showDecimals = 
   }
 }
 
+export function formatBytesParts(bytes: number, isPerSecond: boolean, showDecimals = true): FormattedParts {
+  const decimals = showDecimals ? 2 : 0;
+
+  if (bytes >= 1024*1024*1024*1024){
+    return { value: (bytes/(1024*1024*1024*1024)).toFixed(decimals), unit: isPerSecond ? 'TiB/s':'TiB' };
+  }
+  else if (bytes >= 1024*1024*1024){
+    return { value: (bytes/(1024*1024*1024)).toFixed(decimals), unit: isPerSecond ? 'GiB/s':'GiB' };
+  }
+  else if (bytes >= 1024*1024){
+    return { value: (bytes/(1024*1024)).toFixed(decimals), unit: isPerSecond ? 'MiB/s':'MiB' };
+  }
+  else if(bytes >= 1024) {
+    return { value: (bytes/1024).toFixed(decimals), unit: isPerSecond ? 'KiB/s':'KiB' };
+  }
+  else {
+    return { value: bytes.toFixed(decimals), unit: isPerSecond ? 'B/s':'B' };
+  }
+}
+
 /**
  * Formats bits using SI units, ie Kilobit = 1000 bits
  * Converts to Kbps for values >= 1000
@@ -62,4 +92,19 @@ export function formatBitsSIUnits(bits: number, isPerSecond: boolean, showDecima
     return `${(bits / 1000).toFixed(decimals)} ${isPerSecond ? 'Kbps':'Kb'}`;
   }
   return `${bits.toFixed(decimals)} ${isPerSecond ? 'bps':'bp'}`;
+}
+
+export function formatBitsSIUnitsParts(bits: number, isPerSecond: boolean, showDecimals = true): FormattedParts {
+  const decimals = showDecimals ? 2 : 0;
+
+  if (bits >= 1000*1000*1000) {
+    return { value: (bits / (1000 * 1000 * 1000)).toFixed(decimals), unit: isPerSecond ? 'Gbps':'Gb' };
+  }
+  else if(bits >= 1000 * 1000) {
+    return { value: (bits / 1000 / 1000).toFixed(decimals), unit: isPerSecond ? 'Mbps':'Mb' };
+  }
+  else if(bits >= 1000) {
+    return { value: (bits / 1000).toFixed(decimals), unit: isPerSecond ? 'Kbps':'Kb' };
+  }
+  return { value: bits.toFixed(decimals), unit: isPerSecond ? 'bps':'bp' };
 }

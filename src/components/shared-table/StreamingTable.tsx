@@ -12,6 +12,7 @@ export interface ColumnDef {
   label: string;
   width?: string;
   align?: 'left' | 'right' | 'center';
+  paddingRight?: string;
 }
 
 interface StreamingTableProps<TRaw, TState> {
@@ -23,6 +24,8 @@ interface StreamingTableProps<TRaw, TState> {
   renderRows: (state: TState) => ReactNode;
   tableProps?: Record<string, unknown>;
   errorLabel?: string;
+  /** Minimum width for the table. When viewport is smaller, table scrolls horizontally. */
+  minWidth?: string;
 }
 
 export default function StreamingTable<TRaw, TState>({
@@ -34,6 +37,7 @@ export default function StreamingTable<TRaw, TState>({
   renderRows,
   tableProps,
   errorLabel,
+  minWidth,
 }: StreamingTableProps<TRaw, TState>) {
   const [state, setState] = useState<TState>(initialState);
   const [hasData, setHasData] = useState(false);
@@ -100,7 +104,7 @@ export default function StreamingTable<TRaw, TState>({
         </Alert>
       )}
       <Sheet variant="outlined" className="rounded-sm overflow-auto">
-        <Table aria-label={ariaLabel} sx={tableProps}>
+        <Table aria-label={ariaLabel} sx={{ minWidth, ...tableProps }}>
           <thead>
             <tr>
               {columns.map((col, i) => (
@@ -109,6 +113,7 @@ export default function StreamingTable<TRaw, TState>({
                   style={{
                     ...(col.width ? { width: col.width } : {}),
                     ...(col.align ? { textAlign: col.align } : {}),
+                    ...(col.paddingRight ? { paddingRight: col.paddingRight } : {}),
                   }}
                   className={`font-semibold ${col.align === 'right' ? 'text-right' : ''}`}
                 >

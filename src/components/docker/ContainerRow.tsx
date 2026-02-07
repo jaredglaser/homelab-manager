@@ -1,6 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import type { DockerStatsFromDB } from '@/types/docker';
-import { formatAsPercent, formatBytes, formatBitsSIUnits } from '../../formatters/metrics';
+import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
 import { MetricCell } from '../shared-table';
 import { useSettings } from '@/hooks/useSettings';
 import { useContainerChartData } from '@/hooks/useContainerChartData';
@@ -15,13 +15,16 @@ interface ContainerRowProps {
 export default function ContainerRow({ container, indent }: ContainerRowProps) {
   const { docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
   const { rates } = container;
-  const { decimals } = docker;
+  const { decimals, showSparklines } = docker;
   const expanded = isContainerExpanded(container.id);
 
+  // Only fetch chart data if sparklines are enabled or row is expanded
+  const needsChartData = showSparklines || expanded;
   const { dataPoints } = useContainerChartData({
     containerId: container.id,
     currentStats: rates,
     seconds: expanded ? 60 : 15,
+    enabled: needsChartData,
   });
 
   // Extract sparkline data (last 15 points for compact display)
@@ -41,9 +44,15 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
   const networkRxBps = rates.networkRxBytesPerSec * 8;
   const networkTxBps = rates.networkTxBytesPerSec * 8;
 
-  const memoryDisplay = docker.memoryDisplayMode === 'bytes'
-    ? formatBytes(container.memory_stats.usage, false, decimals.memory)
-    : formatAsPercent(rates.memoryPercent / 100, decimals.memory);
+  // Format all metrics as parts for proper alignment
+  const cpuParts = formatAsPercentParts(rates.cpuPercent / 100, decimals.cpu);
+  const memoryParts = docker.memoryDisplayMode === 'bytes'
+    ? formatBytesParts(container.memory_stats.usage, false, decimals.memory)
+    : formatAsPercentParts(rates.memoryPercent / 100, decimals.memory);
+  const blockReadParts = formatBytesParts(blockReadMBps, true, decimals.diskSpeed);
+  const blockWriteParts = formatBytesParts(blockWriteMBps, true, decimals.diskSpeed);
+  const networkRxParts = formatBitsSIUnitsParts(networkRxBps, true, decimals.networkSpeed);
+  const networkTxParts = formatBitsSIUnitsParts(networkTxBps, true, decimals.networkSpeed);
 
   const handleClick = () => {
     toggleContainerExpanded(container.id);
@@ -66,38 +75,44 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
         </td>
         <MetricCell>
           <div className="flex items-center justify-end gap-2">
-            <SparklineChart data={cpuSparkline} color="--chart-cpu" />
-            <span className="min-w-[4rem] text-right">{formatAsPercent(rates.cpuPercent / 100, decimals.cpu)}</span>
+            {showSparklines && <SparklineChart data={cpuSparkline} color="--chart-cpu" className="hidden xl:block" />}
+            <span className="min-w-[2rem] text-right tabular-nums">{cpuParts.value}</span>
+            <span className="w-[3rem] text-left">{cpuParts.unit}</span>
           </div>
         </MetricCell>
         <MetricCell>
           <div className="flex items-center justify-end gap-2">
-            <SparklineChart data={memorySparkline} color="--chart-memory" />
-            <span className="min-w-[4rem] text-right">{memoryDisplay}</span>
+            {showSparklines && <SparklineChart data={memorySparkline} color="--chart-memory" className="hidden xl:block" />}
+            <span className="min-w-[2rem] text-right tabular-nums">{memoryParts.value}</span>
+            <span className="w-[3rem] text-left">{memoryParts.unit}</span>
           </div>
         </MetricCell>
         <MetricCell>
           <div className="flex items-center justify-end gap-2">
-            <SparklineChart data={blockReadSparkline} color="--chart-read" />
-            <span className="min-w-[5rem] text-right">{formatBytes(blockReadMBps, true, decimals.diskSpeed)}</span>
+            {showSparklines && <SparklineChart data={blockReadSparkline} color="--chart-read" className="hidden xl:block" />}
+            <span className="min-w-[2rem] text-right tabular-nums">{blockReadParts.value}</span>
+            <span className="w-[3rem] text-left">{blockReadParts.unit}</span>
           </div>
         </MetricCell>
         <MetricCell>
           <div className="flex items-center justify-end gap-2">
-            <SparklineChart data={blockWriteSparkline} color="--chart-write" />
-            <span className="min-w-[5rem] text-right">{formatBytes(blockWriteMBps, true, decimals.diskSpeed)}</span>
+            {showSparklines && <SparklineChart data={blockWriteSparkline} color="--chart-write" className="hidden xl:block" />}
+            <span className="min-w-[2rem] text-right tabular-nums">{blockWriteParts.value}</span>
+            <span className="w-[3rem] text-left">{blockWriteParts.unit}</span>
           </div>
         </MetricCell>
         <MetricCell>
           <div className="flex items-center justify-end gap-2">
-            <SparklineChart data={networkRxSparkline} color="--chart-read" />
-            <span className="min-w-[5rem] text-right">{formatBitsSIUnits(networkRxBps, true, decimals.networkSpeed)}</span>
+            {showSparklines && <SparklineChart data={networkRxSparkline} color="--chart-read" className="hidden xl:block" />}
+            <span className="min-w-[2rem] text-right tabular-nums">{networkRxParts.value}</span>
+            <span className="w-[3rem] text-left">{networkRxParts.unit}</span>
           </div>
         </MetricCell>
         <MetricCell>
           <div className="flex items-center justify-end gap-2">
-            <SparklineChart data={networkTxSparkline} color="--chart-write" />
-            <span className="min-w-[5rem] text-right">{formatBitsSIUnits(networkTxBps, true, decimals.networkSpeed)}</span>
+            {showSparklines && <SparklineChart data={networkTxSparkline} color="--chart-write" className="hidden xl:block" />}
+            <span className="min-w-[2rem] text-right tabular-nums">{networkTxParts.value}</span>
+            <span className="w-[3rem] text-left">{networkTxParts.unit}</span>
           </div>
         </MetricCell>
       </tr>

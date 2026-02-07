@@ -18,7 +18,7 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { general, docker, zfs, setUse12HourTime, setMemoryDisplayMode, setDockerDecimal, setZfsDecimal } = useSettings();
+  const { general, docker, zfs, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setDockerDecimal, setZfsDecimal } = useSettings();
 
   return (
     <div className="w-full p-6">
@@ -50,6 +50,14 @@ function SettingsContent() {
                 <Option value="percentage">Percentage (%)</Option>
                 <Option value="bytes">Bytes (B, KiB, MiB, GiB)</Option>
               </Select>
+            </FormControl>
+
+            <FormControl orientation="horizontal" className="justify-between">
+              <FormLabel>Show Sparklines</FormLabel>
+              <Switch
+                checked={docker.showSparklines}
+                onChange={(e) => setShowSparklines(e.target.checked)}
+              />
             </FormControl>
 
             <div>

@@ -6,6 +6,7 @@ interface SparklineChartProps {
   color: string;
   height?: number;
   width?: number;
+  className?: string;
 }
 
 function getCssVar(name: string): string {
@@ -18,6 +19,7 @@ export default function SparklineChart({
   color,
   height = 24,
   width = 60,
+  className,
 }: SparklineChartProps) {
   const lineColor = getCssVar(color);
   const areaStart = getCssVar(`${color}-area-start`);
@@ -67,12 +69,14 @@ export default function SparklineChart({
   };
 
   return (
-    <ReactECharts
-      option={option}
-      style={{ height, width }}
-      opts={{ renderer: 'canvas' }}
-      notMerge={false}
-      lazyUpdate={true}
-    />
+    <div className={className}>
+      <ReactECharts
+        option={option}
+        style={{ height, width }}
+        opts={{ renderer: 'canvas' }}
+        notMerge={false}
+        lazyUpdate={true}
+      />
+    </div>
   );
 }

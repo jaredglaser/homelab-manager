@@ -16,6 +16,7 @@ export interface Settings {
   };
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
+    showSparklines: boolean;
     expandedHosts: Set<string>;
     expandedContainers: Set<string>;
     decimals: DecimalSettings;
@@ -31,6 +32,7 @@ export interface Settings {
 interface SettingsContextValue extends Settings {
   setUse12HourTime: (value: boolean) => void;
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
+  setShowSparklines: (value: boolean) => void;
   toggleHostExpanded: (hostName: string) => void;
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   toggleContainerExpanded: (containerId: string) => void;
@@ -54,6 +56,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   docker: {
     memoryDisplayMode: 'percentage',
+    showSparklines: true,
     expandedHosts: new Set(),
     expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
@@ -96,6 +99,7 @@ function parseSettings(raw: Record<string, string>): Settings {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
+      showSparklines: parseBool(raw['docker/showSparklines'], DEFAULT_SETTINGS.docker.showSparklines),
       expandedHosts: parseExpandedSet(raw['docker/expandedHosts']),
       expandedContainers: parseExpandedSet(raw['docker/expandedContainers']),
       decimals: {
@@ -144,6 +148,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     }));
     updateSetting({ data: { key: 'docker/memoryDisplayMode', value: mode } }).catch(() => {
       // Fire-and-forget; optimistic update already applied
+    });
+  }, []);
+
+  const setShowSparklines = useCallback((value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      docker: { ...prev.docker, showSparklines: value },
+    }));
+    updateSetting({ data: { key: 'docker/showSparklines', value: String(value) } }).catch(() => {
+      // Fire-and-forget
     });
   }, []);
 
@@ -284,6 +298,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         ...settings,
         setUse12HourTime,
         setMemoryDisplayMode,
+        setShowSparklines,
         toggleHostExpanded,
         isHostExpanded,
         toggleContainerExpanded,

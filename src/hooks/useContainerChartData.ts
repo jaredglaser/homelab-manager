@@ -14,6 +14,8 @@ interface UseContainerChartDataOptions {
   };
   /** Number of seconds of historical data to fetch and maintain. Default: 15 */
   seconds?: number;
+  /** Whether to fetch and accumulate data. Default: true */
+  enabled?: boolean;
 }
 
 interface UseContainerChartDataResult {
@@ -29,6 +31,7 @@ export function useContainerChartData({
   containerId,
   currentStats,
   seconds = 15,
+  enabled = true,
 }: UseContainerChartDataOptions): UseContainerChartDataResult {
   const [dataPoints, setDataPoints] = useState<ContainerChartDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,6 +40,7 @@ export function useContainerChartData({
 
   // Load historical data on mount or when seconds increases
   useEffect(() => {
+    if (!enabled) return;
     // Only fetch if we need more data than we've already fetched
     if (seconds <= secondsFetchedRef.current) return;
 
@@ -60,11 +64,11 @@ export function useContainerChartData({
         console.error('[useContainerChartData] Failed to load historical data:', err);
         setIsLoading(false);
       });
-  }, [containerId, seconds]);
+  }, [containerId, seconds, enabled]);
 
   // Append new data point when currentStats changes
   useEffect(() => {
-    if (isLoading) return;
+    if (!enabled || isLoading) return;
 
     const now = Date.now();
     // Debounce: only add new point if at least 500ms has passed
@@ -89,7 +93,7 @@ export function useContainerChartData({
       }
       return next;
     });
-  }, [currentStats, isLoading, seconds]);
+  }, [currentStats, isLoading, seconds, enabled]);
 
   return { dataPoints, isLoading };
 }

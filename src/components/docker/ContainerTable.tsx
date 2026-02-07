@@ -11,16 +11,17 @@ export default function ContainerTable() {
   const columns: ColumnDef[] = useMemo(
     () => [
       { label: 'Host / Container', width: '20%' },
-      { label: 'CPU %', align: 'right' },
+      { label: 'CPU', align: 'right', paddingRight: '4rem' },
       {
         label:
           docker.memoryDisplayMode === 'percentage' ? 'RAM %' : 'RAM',
         align: 'right',
+        paddingRight: '4rem',
       },
-      { label: 'Block Read (MB/s)', align: 'right' },
-      { label: 'Block Write (MB/s)', align: 'right' },
-      { label: 'Network RX (Mbps)', align: 'right' },
-      { label: 'Network TX (Mbps)', align: 'right' },
+      { label: 'Block Read', align: 'right', paddingRight: '4rem' },
+      { label: 'Block Write', align: 'right', paddingRight: '4rem' },
+      { label: 'Network RX', align: 'right', paddingRight: '4rem' },
+      { label: 'Network TX', align: 'right', paddingRight: '4rem' },
     ],
     [docker.memoryDisplayMode],
   );
@@ -55,6 +56,7 @@ export default function ContainerTable() {
       onData={onData}
       renderRows={renderRows}
       errorLabel="Error connecting to Docker stats"
+      minWidth="1000px"
     />
   );
 }
