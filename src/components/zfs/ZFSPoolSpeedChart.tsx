@@ -119,7 +119,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[]): EChartsOption {
   return {
     animation: true,
     animationDuration: 0,
-    animationDurationUpdate: 850,
+    animationDurationUpdate: 1000,
     animationEasingUpdate: 'linear',
     grid: {
       top: 10,
