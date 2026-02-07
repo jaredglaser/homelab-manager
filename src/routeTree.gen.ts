@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as ZfsRouteImport } from './routes/zfs'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiZfsStatsRouteImport } from './routes/api/zfs-stats'
+import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
 
 const ZfsRoute = ZfsRouteImport.update({
   id: '/zfs',
@@ -28,35 +30,59 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiZfsStatsRoute = ApiZfsStatsRouteImport.update({
+  id: '/api/zfs-stats',
+  path: '/api/zfs-stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDockerStatsRoute = ApiDockerStatsRouteImport.update({
+  id: '/api/docker-stats',
+  path: '/api/docker-stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
+  '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/zfs-stats': typeof ApiZfsStatsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
+  '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/zfs-stats': typeof ApiZfsStatsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
+  '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/zfs-stats': typeof ApiZfsStatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/settings' | '/zfs'
+  fullPaths: '/' | '/settings' | '/zfs' | '/api/docker-stats' | '/api/zfs-stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/settings' | '/zfs'
-  id: '__root__' | '/' | '/settings' | '/zfs'
+  to: '/' | '/settings' | '/zfs' | '/api/docker-stats' | '/api/zfs-stats'
+  id:
+    | '__root__'
+    | '/'
+    | '/settings'
+    | '/zfs'
+    | '/api/docker-stats'
+    | '/api/zfs-stats'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
   ZfsRoute: typeof ZfsRoute
+  ApiDockerStatsRoute: typeof ApiDockerStatsRoute
+  ApiZfsStatsRoute: typeof ApiZfsStatsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +108,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/zfs-stats': {
+      id: '/api/zfs-stats'
+      path: '/api/zfs-stats'
+      fullPath: '/api/zfs-stats'
+      preLoaderRoute: typeof ApiZfsStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/docker-stats': {
+      id: '/api/docker-stats'
+      path: '/api/docker-stats'
+      fullPath: '/api/docker-stats'
+      preLoaderRoute: typeof ApiDockerStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +129,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
   ZfsRoute: ZfsRoute,
+  ApiDockerStatsRoute: ApiDockerStatsRoute,
+  ApiZfsStatsRoute: ApiZfsStatsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

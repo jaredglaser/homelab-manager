@@ -1,9 +1,9 @@
 import { type ReactNode, useState, useCallback } from 'react';
 import Table from '@mui/joy/Table';
-import { Alert, CircularProgress, Sheet, Typography } from '@mui/joy';
+import { Alert, Box, CircularProgress, Sheet, Typography } from '@mui/joy';
 import { AlertTriangle } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { useServerStream } from '@/hooks/useServerStream';
+import { useSSE } from '@/hooks/useSSE';
 
 const STALE_THRESHOLD_MS = 30000; // 30 seconds
 const STALE_CHECK_INTERVAL_MS = 5000; // Check every 5 seconds
@@ -17,23 +17,21 @@ export interface ColumnDef {
 interface StreamingTableProps<TRaw, TState> {
   ariaLabel: string;
   columns: ColumnDef[];
-  streamFn: () => Promise<AsyncIterable<TRaw>>;
+  sseUrl: string;
   initialState: TState;
   onData: (prev: TState, data: TRaw) => TState;
   renderRows: (state: TState) => ReactNode;
-  retry?: { enabled: boolean; baseDelay?: number; maxDelay?: number };
-  tableProps?: Record<string, any>;
+  tableProps?: Record<string, unknown>;
   errorLabel?: string;
 }
 
 export default function StreamingTable<TRaw, TState>({
   ariaLabel,
   columns,
-  streamFn,
+  sseUrl,
   initialState,
   onData,
   renderRows,
-  retry,
   tableProps,
   errorLabel,
 }: StreamingTableProps<TRaw, TState>) {
@@ -41,11 +39,14 @@ export default function StreamingTable<TRaw, TState>({
   const [hasData, setHasData] = useState(false);
   const [lastDataTime, setLastDataTime] = useState<number | null>(null);
 
-  const handleData = useCallback((data: TRaw) => {
-    setState(prev => onData(prev, data));
-    setHasData(true);
-    setLastDataTime(Date.now());
-  }, [onData]);
+  const handleData = useCallback(
+    (data: TRaw) => {
+      setState((prev) => onData(prev, data));
+      setHasData(true);
+      setLastDataTime(Date.now());
+    },
+    [onData],
+  );
 
   // Check for stale data periodically using TanStack Query
   const { data: isStale = false } = useQuery({
@@ -59,32 +60,35 @@ export default function StreamingTable<TRaw, TState>({
     staleTime: 0, // Always consider stale to trigger refetch
   });
 
-  const { isStreaming, error } = useServerStream({
-    streamFn,
+  const { isConnected, error } = useSSE<TRaw>({
+    url: sseUrl,
     onData: handleData,
-    retry,
   });
 
   if (error && !hasData) {
     return (
-      <div className="p-2">
-        <Typography color="danger">
-          {errorLabel ?? 'Error streaming data'}: {error.message}
-        </Typography>
-      </div>
+      <Box className="w-full">
+        <Box className="p-2">
+          <Typography color="danger">
+            {errorLabel ?? 'Error connecting to data stream'}: {error.message}
+          </Typography>
+        </Box>
+      </Box>
     );
   }
 
-  if (!isStreaming && !hasData) {
+  if (!isConnected && !hasData) {
     return (
-      <div className="flex justify-center p-4">
-        <CircularProgress />
-      </div>
+      <Box className="w-full">
+        <Box className="flex justify-center p-4">
+          <CircularProgress />
+        </Box>
+      </Box>
     );
   }
 
   return (
-    <>
+    <Box className="w-full">
       {isStale && (
         <Alert
           color="warning"
@@ -95,8 +99,8 @@ export default function StreamingTable<TRaw, TState>({
           Data is stale. Background worker may not be running.
         </Alert>
       )}
-      <Sheet variant="outlined" sx={{ borderRadius: 'sm', overflow: 'auto' }}>
-        <Table aria-label={ariaLabel} sx={{ '& thead th': { fontWeight: 600 }, ...tableProps }}>
+      <Sheet variant="outlined" className="rounded-sm overflow-auto">
+        <Table aria-label={ariaLabel} sx={tableProps}>
           <thead>
             <tr>
               {columns.map((col, i) => (
@@ -106,18 +110,16 @@ export default function StreamingTable<TRaw, TState>({
                     ...(col.width ? { width: col.width } : {}),
                     ...(col.align ? { textAlign: col.align } : {}),
                   }}
-                  className={col.align === 'right' ? 'text-right' : undefined}
+                  className={`font-semibold ${col.align === 'right' ? 'text-right' : ''}`}
                 >
                   {col.label}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody>
-            {renderRows(state)}
-          </tbody>
+          <tbody>{renderRows(state)}</tbody>
         </Table>
       </Sheet>
-    </>
+    </Box>
   );
 }
