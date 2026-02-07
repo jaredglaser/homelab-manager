@@ -33,10 +33,16 @@ export default function ContainerTable() {
   );
 
   const renderRows = useCallback(
-    (state: DockerHierarchy) =>
-      Array.from(state.values()).map((hostStats) => (
-        <DockerHostAccordion key={hostStats.hostName} host={hostStats} />
-      )),
+    (state: DockerHierarchy) => {
+      const totalHosts = state.size;
+      return Array.from(state.values()).map((hostStats) => (
+        <DockerHostAccordion
+          key={hostStats.hostName}
+          host={hostStats}
+          totalHosts={totalHosts}
+        />
+      ));
+    },
     [],
   );
 

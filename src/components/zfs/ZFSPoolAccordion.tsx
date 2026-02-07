@@ -1,19 +1,27 @@
-import { useState } from 'react';
 import { Box, Chip, Tooltip, Typography } from '@mui/joy';
 import { ChevronRight } from 'lucide-react';
 import type { PoolStats } from '@/types/zfs';
 import ZFSMetricCells from './ZFSMetricCells';
 import ZFSVdevAccordion from './ZFSVdevAccordion';
 import ZFSDiskRow from './ZFSDiskRow';
+import { useSettings } from '@/hooks/useSettings';
 
 interface ZFSPoolAccordionProps {
   pool: PoolStats;
+  totalPools: number;
 }
 
-export default function ZFSPoolAccordion({ pool }: ZFSPoolAccordionProps) {
-  const [expanded, setExpanded] = useState(false);
+export default function ZFSPoolAccordion({ pool, totalPools }: ZFSPoolAccordionProps) {
+  const { isPoolExpanded, togglePoolExpanded } = useSettings();
   const vdevs = Array.from(pool.vdevs.values());
   const disks = Array.from(pool.individualDisks.values());
+  const expanded = isPoolExpanded(pool.data.name, totalPools);
+
+  const handleToggle = () => {
+    if (totalPools > 1) {
+      togglePoolExpanded(pool.data.name);
+    }
+  };
 
   const singleVdev = vdevs.length === 1 && disks.length === 0;
   const isSingleDiskPool =
@@ -58,15 +66,17 @@ export default function ZFSPoolAccordion({ pool }: ZFSPoolAccordionProps) {
     return (
       <>
         <tr
-          onClick={() => setExpanded(!expanded)}
-          className="cursor-pointer"
+          onClick={handleToggle}
+          className={totalPools > 1 ? 'cursor-pointer' : 'cursor-default'}
         >
           <td>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <ChevronRight
-                size={18}
-                className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-              />
+              {totalPools > 1 && (
+                <ChevronRight
+                  size={18}
+                  className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+                />
+              )}
               <Typography fontWeight="bold">{pool.data.name}</Typography>
               {badgeLabel && <Chip size="sm" variant="soft">{badgeLabel}</Chip>}
             </Box>
@@ -87,12 +97,12 @@ export default function ZFSPoolAccordion({ pool }: ZFSPoolAccordionProps) {
   return (
     <>
       <tr
-        onClick={() => hasChildren && setExpanded(!expanded)}
-        className={hasChildren ? 'cursor-pointer' : 'cursor-default'}
+        onClick={() => hasChildren && handleToggle()}
+        className={hasChildren && totalPools > 1 ? 'cursor-pointer' : 'cursor-default'}
       >
         <td>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {hasChildren && (
+            {hasChildren && totalPools > 1 && (
               <ChevronRight
                 size={18}
                 className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}

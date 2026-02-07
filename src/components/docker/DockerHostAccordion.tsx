@@ -1,28 +1,36 @@
-import { useState } from 'react';
 import { Box, Chip, Typography } from '@mui/joy';
 import { ChevronRight, Server } from 'lucide-react';
 import type { HostStats } from '@/types/docker';
 import ContainerRow from './ContainerRow';
 import DockerHostMetricCells from './DockerHostMetricCells';
+import { useSettings } from '@/hooks/useSettings';
 
 interface DockerHostAccordionProps {
   host: HostStats;
+  totalHosts: number;
 }
 
-export default function DockerHostAccordion({ host }: DockerHostAccordionProps) {
-  const [expanded, setExpanded] = useState(true);
+export default function DockerHostAccordion({ host, totalHosts }: DockerHostAccordionProps) {
+  const { isHostExpanded, toggleHostExpanded } = useSettings();
   const containers = Array.from(host.containers.values());
   const hasContainers = containers.length > 0;
+  const expanded = isHostExpanded(host.hostName, totalHosts);
+
+  const handleClick = () => {
+    if (hasContainers && totalHosts > 1) {
+      toggleHostExpanded(host.hostName);
+    }
+  };
 
   return (
     <>
       <tr
-        onClick={() => hasContainers && setExpanded(!expanded)}
-        className={hasContainers ? 'cursor-pointer' : 'cursor-default'}
+        onClick={handleClick}
+        className={hasContainers && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'}
       >
         <td>
           <Box className="flex items-center gap-2">
-            {hasContainers && (
+            {hasContainers && totalHosts > 1 && (
               <ChevronRight
                 size={18}
                 className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}

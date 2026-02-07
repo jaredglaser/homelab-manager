@@ -24,10 +24,12 @@ export default function ZFSPoolsTable() {
   );
 
   const renderRows = useCallback(
-    (state: ZFSHierarchy) =>
-      Array.from(state.values()).map((pool) => (
-        <ZFSPoolAccordion key={pool.data.id} pool={pool} />
-      )),
+    (state: ZFSHierarchy) => {
+      const totalPools = state.size;
+      return Array.from(state.values()).map((pool) => (
+        <ZFSPoolAccordion key={pool.data.id} pool={pool} totalPools={totalPools} />
+      ));
+    },
     [],
   );
 
