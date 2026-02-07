@@ -1,7 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import AppShell from '../components/AppShell'
-import { Box, Card, FormControl, FormLabel, Option, Select, Typography } from '@mui/joy'
+import { Card, FormControl, FormLabel, Option, Select, Typography } from '@mui/joy'
 import { useSettings, type MemoryDisplayMode } from '@/hooks/useSettings'
+import PageHeader from '@/components/PageHeader'
 
 export const Route = createFileRoute('/settings')({
   ssr: false,
@@ -20,8 +21,8 @@ function SettingsContent() {
   const { docker, setMemoryDisplayMode } = useSettings();
 
   return (
-    <Box className="w-full p-6">
-      <Typography level="h2" className="mb-6">Settings</Typography>
+    <div className="w-full p-6">
+      <PageHeader title="Settings" />
 
       <div className="flex flex-col gap-4 max-w-2xl">
         <Card variant="outlined">
@@ -40,6 +41,6 @@ function SettingsContent() {
           </FormControl>
         </Card>
       </div>
-    </Box>
+    </div>
   )
 }

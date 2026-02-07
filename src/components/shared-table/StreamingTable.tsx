@@ -15,7 +15,6 @@ export interface ColumnDef {
 }
 
 interface StreamingTableProps<TRaw, TState> {
-  title: string;
   ariaLabel: string;
   columns: ColumnDef[];
   sseUrl: string;
@@ -27,7 +26,6 @@ interface StreamingTableProps<TRaw, TState> {
 }
 
 export default function StreamingTable<TRaw, TState>({
-  title,
   ariaLabel,
   columns,
   sseUrl,
@@ -69,10 +67,7 @@ export default function StreamingTable<TRaw, TState>({
 
   if (error && !hasData) {
     return (
-      <Box className="w-full p-3">
-        <Typography level="h2" className="mb-3">
-          {title}
-        </Typography>
+      <Box className="w-full">
         <Box className="p-2">
           <Typography color="danger">
             {errorLabel ?? 'Error connecting to data stream'}: {error.message}
@@ -84,10 +79,7 @@ export default function StreamingTable<TRaw, TState>({
 
   if (!isConnected && !hasData) {
     return (
-      <Box className="w-full p-3">
-        <Typography level="h2" className="mb-3">
-          {title}
-        </Typography>
+      <Box className="w-full">
         <Box className="flex justify-center p-4">
           <CircularProgress />
         </Box>
@@ -96,10 +88,7 @@ export default function StreamingTable<TRaw, TState>({
   }
 
   return (
-    <Box className="w-full p-3">
-      <Typography level="h2" className="mb-3">
-        {title}
-      </Typography>
+    <Box className="w-full">
       {isStale && (
         <Alert
           color="warning"

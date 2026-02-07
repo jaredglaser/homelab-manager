@@ -47,7 +47,6 @@ export default function ContainerTable() {
 
   return (
     <StreamingTable<DockerStatsFromDB[], DockerState>
-      title="Docker Containers Dashboard"
       ariaLabel="docker containers table"
       columns={columns}
       sseUrl="/api/docker-stats"
