@@ -124,18 +124,6 @@ export function transformZFSStats(rows: LatestStatRow[]): Map<string, ZFSStatsFr
 }
 
 /**
- * Transform and return as array sorted in hierarchy order.
- * This is the format expected by buildHierarchy().
- *
- * @param rows - Latest stat rows from the database
- * @returns Array of stats sorted by hierarchy (pools, then vdevs, then disks)
- */
-export function transformZFSStatsToArray(rows: LatestStatRow[]): ZFSStatsFromDB[] {
-  const statsMap = transformZFSStats(rows);
-  return Array.from(statsMap.values()).sort(compareZFSStats);
-}
-
-/**
  * Filters ZFS stats based on visibility state.
  *
  * @param allStats - All ZFS stats from the cache
