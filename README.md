@@ -14,11 +14,11 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 ### Current Features
 
 - **Docker Dashboard** (`/`) — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX)
-- **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics streamed over SSH
+- **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics collected via SSH and streamed from the database
 - **PostgreSQL Persistence** — Background worker continuously collects stats with progressive downsampling (raw → minute → hour → day aggregates) for infinite retention
 - **Docker Compose Deployment** — Full stack with PostgreSQL, web server, background worker, and daily cleanup job (builds from source, no pre-built image)
-- **Live-Updating UI** — Server-side async generators stream data continuously to the client with no polling
-- **Factory-Based Table Architecture** — Adding a new streaming data source requires only a server function, column definitions, and a row renderer
+- **Live-Updating UI** — Server-Sent Events (SSE) stream data continuously to the client with no polling
+- **Factory-Based Table Architecture** — Adding a new streaming data source requires only an SSE endpoint, column definitions, and a row renderer
 
 ## Built With
 
@@ -28,7 +28,7 @@ This project is built on the **TanStack ecosystem** as its core framework:
 |-------|-----------|------|
 | **Framework** | [TanStack Start](https://tanstack.com/start) | Full-stack React framework — server functions, SSR, and file-based routing |
 | **Routing** | [TanStack Router](https://tanstack.com/router) | Type-safe, file-based routing with built-in devtools |
-| **Async State** | [TanStack Query](https://tanstack.com/query) | Server state management — caching, refetching, and streaming data consumption |
+| **Async State** | [TanStack Query](https://tanstack.com/query) | Server state management — caching, refetching, and stale data detection |
 | **Runtime** | [Bun](https://bun.sh) | Package manager, test runner, and JavaScript runtime |
 | **Build** | [Vite](https://vite.dev) | Dev server and production bundler |
 | **UI** | [MUI Joy UI](https://mui.com/joy-ui/getting-started/) + [TailwindCSS](https://tailwindcss.com) | Component library and utility-first styling |
@@ -46,10 +46,9 @@ graph TD
     Browser["Browser<br/>(multiple tabs)"]
 
     subgraph TanStack_Start["TanStack Start Server"]
-        ServerFns["Server Functions<br/>(async generators)"]
+        SSE["SSE Endpoints<br/>(server routes)"]
         SubSvc["Subscription Service<br/>(LISTEN handler)"]
         Cache["Stats Cache<br/>(shared singleton)"]
-        TQ["TanStack Query<br/>(client-side state)"]
     end
 
     subgraph Database["PostgreSQL"]
@@ -66,9 +65,8 @@ graph TD
         ZFSHost["ZFS Host<br/>zpool iostat"]
     end
 
-    Browser <-->|"SSE streaming"| TQ
-    TQ <--> ServerFns
-    ServerFns --> Cache
+    Browser <-->|"SSE streaming"| SSE
+    SSE --> Cache
     SubSvc -->|"On NOTIFY"| Cache
     Notify --> SubSvc
     StatsRaw --> Notify
@@ -108,11 +106,11 @@ flowchart LR
     DB["PostgreSQL<br/>LISTEN"]
     SubSvc["Subscription Service"]
     Cache["Stats Cache"]
-    SF["Server Function<br/>(async generator)"]
-    Hook["useServerStream<br/>(hook)"]
+    SSE["SSE Endpoint<br/>(server route)"]
+    Hook["useSSE<br/>(hook)"]
     ST["StreamingTable<br/>(factory component)"]
 
-    DB -->|"NOTIFY"| SubSvc --> Cache --> SF --> Hook --> ST
+    DB -->|"NOTIFY"| SubSvc --> Cache --> SSE --> Hook --> ST
 ```
 
 **How it works:**
@@ -120,8 +118,8 @@ flowchart LR
 1. **Background worker** continuously collects stats from Docker/ZFS APIs
 2. Stats are **batch inserted** into PostgreSQL with `NOTIFY stats_update`
 3. **Subscription service** maintains a `LISTEN` connection, updates the **shared cache** on each notification
-4. **Server functions** yield stats from the cache when notified (filtered by visibility for ZFS)
-5. The **`useServerStream` hook** consumes the async generator, managing abort/cleanup and error state
+4. **SSE endpoints** stream stats from the cache when notified (filtered by visibility for ZFS)
+5. The **`useSSE` hook** consumes the SSE stream via EventSource, managing connection lifecycle and error state
 6. The **`StreamingTable` factory component** renders the UI with automatic stale data detection
 
 ## Getting Started
@@ -191,7 +189,7 @@ bun worker
 Tests are written using [Bun's built-in test runner](https://bun.sh/docs/cli/test) and are organized in `__tests__/` folders alongside the source code they test:
 
 ```bash
-# Run all tests (automatically enforces 90% coverage threshold)
+# Run all tests (automatically enforces 93% coverage threshold)
 bun test
 
 # Run tests in watch mode (no coverage enforcement)
@@ -202,8 +200,8 @@ bun run test:coverage
 ```
 
 **Coverage Requirements:**
-- Minimum **90% line coverage**
-- Minimum **90% function coverage**
+- Minimum **93% line coverage**
+- Minimum **93% function coverage**
 - Coverage is **automatically enforced** when running `bun test`
 - Coverage is enforced in CI pipeline
 
@@ -231,10 +229,11 @@ src/
 │       ├── MetricCell.tsx           # Right-aligned table cell
 │       └── StreamingTable.tsx       # Factory component (with stale detection)
 ├── hooks/
-│   └── useServerStream.ts           # Generic streaming server function consumer
+│   └── useSSE.ts                    # EventSource-based SSE consumer
 ├── data/
-│   ├── docker.functions.tsx         # Docker server functions (DB-backed)
-│   └── zfs.functions.tsx            # ZFS server functions (DB-backed, visibility filtering)
+│   ├── docker.functions.tsx         # Docker server functions (active containers, stale check)
+│   ├── settings.functions.tsx       # Settings server functions (get/update)
+│   └── zfs.functions.tsx            # ZFS server functions (active pools, stale check)
 ├── middleware/
 │   ├── docker-middleware.ts         # Docker client injection
 │   └── ssh-middleware.ts            # SSH client injection
@@ -264,7 +263,11 @@ src/
 ├── formatters/metrics.ts            # Number formatting (%, bytes, bits)
 ├── routes/
 │   ├── __root.tsx                   # HTML shell (SSR-safe, no MUI)
+│   ├── api/
+│   │   ├── docker-stats.ts          # Docker SSE endpoint
+│   │   └── zfs-stats.ts             # ZFS SSE endpoint
 │   ├── index.tsx                    # Docker page (/)
+│   ├── settings.tsx                 # Settings page (/settings)
 │   └── zfs.tsx                      # ZFS page (/zfs)
 └── theme.ts                         # MUI Joy theme config
 
