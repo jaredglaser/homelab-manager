@@ -219,4 +219,52 @@ export class StatsRepository {
 
     return result.rows;
   }
+
+  /**
+   * Upsert entity metadata (key-value pair for an entity).
+   * Used for storing display names, labels, and other metadata.
+   */
+  async upsertEntityMetadata(
+    source: string,
+    entity: string,
+    key: string,
+    value: string
+  ): Promise<void> {
+    const sourceId = await this.getOrCreateSource(source);
+    await this.pool.query(
+      `INSERT INTO entity_metadata (source_id, entity, key, value, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (source_id, entity, key)
+       DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [sourceId, entity, key, value]
+    );
+  }
+
+  /**
+   * Get metadata for multiple entities.
+   * Returns a nested map: entity -> key -> value
+   */
+  async getEntityMetadata(
+    source: string,
+    entities: string[]
+  ): Promise<Map<string, Map<string, string>>> {
+    if (entities.length === 0) return new Map();
+
+    const sourceId = await this.getOrCreateSource(source);
+    const result = await this.pool.query(
+      `SELECT entity, key, value
+       FROM entity_metadata
+       WHERE source_id = $1 AND entity = ANY($2)`,
+      [sourceId, entities]
+    );
+
+    const metadata = new Map<string, Map<string, string>>();
+    for (const row of result.rows as { entity: string; key: string; value: string }[]) {
+      if (!metadata.has(row.entity)) {
+        metadata.set(row.entity, new Map());
+      }
+      metadata.get(row.entity)!.set(row.key, row.value);
+    }
+    return metadata;
+  }
 }

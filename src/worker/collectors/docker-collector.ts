@@ -51,6 +51,17 @@ export class DockerCollector extends BaseCollector {
       return; // Base class handles the reconnect delay
     }
 
+    // Upsert container name metadata for display purposes
+    for (const containerInfo of containers) {
+      const containerName = containerInfo.Names[0]?.replace(/^\//, '') || containerInfo.Id.substring(0, 12);
+      await this.repository.upsertEntityMetadata(
+        DOCKER_SOURCE,
+        containerInfo.Id,
+        'name',
+        containerName
+      );
+    }
+
     console.log(`[${this.name}] Monitoring ${containers.length} containers`);
     this.resetBackoff();
 
