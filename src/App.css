@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+/*
+ * Chart colors (values match Tailwind's default palette)
+ * Note: ECharts does not support oklch colors for stops, so we use hex/rgba values.
+ * See: https://github.com/apache/echarts/issues/20757
+ */
+
+/* Light mode */
+:root {
+  --chart-read: #3b82f6; /* blue-500 */
+  --chart-read-area-start: rgba(59, 130, 246, 0.3);
+  --chart-read-area-end: rgba(59, 130, 246, 0.02);
+  --chart-write: #10b981; /* emerald-500 */
+  --chart-write-area-start: rgba(16, 185, 129, 0.3);
+  --chart-write-area-end: rgba(16, 185, 129, 0.02);
+  --chart-text-muted: #94a3b8; /* slate-400 */
+  --chart-border: #e2e8f0; /* slate-200 */
+  --chart-tooltip-bg: #ffffff; /* white */
+  --chart-tooltip-text: #1e293b; /* slate-800 */
+}
+
+/* Chart colors - dark mode */
+[data-joy-color-scheme="dark"] {
+  --chart-read: #60a5fa; /* blue-400 */
+  --chart-read-area-start: rgba(96, 165, 250, 0.4);
+  --chart-read-area-end: rgba(96, 165, 250, 0.05);
+  --chart-write: #34d399; /* emerald-400 */
+  --chart-write-area-start: rgba(52, 211, 153, 0.4);
+  --chart-write-area-end: rgba(52, 211, 153, 0.05);
+  --chart-text-muted: #64748b; /* slate-500 */
+  --chart-border: #334155; /* slate-700 */
+  --chart-tooltip-bg: #1e293b; /* slate-800 */
+  --chart-tooltip-text: #f1f5f9; /* slate-100 */
+}

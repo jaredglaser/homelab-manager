@@ -31,6 +31,8 @@
     "@types/ssh2": "^1.15.5",
     "@types/ssh2-streams": "^0.1.13",
     "dockerode": "^4.0.9",
+    "echarts": "^6.0.0",
+    "echarts-for-react": "^3.0.6",
     "lucide-react": "^0.561.0",
     "nitro": "npm:nitro-nightly@latest",
     "pg": "^8.18.0",
