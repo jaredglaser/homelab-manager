@@ -47,7 +47,7 @@ bun build                   # Production build (runs typecheck first)
 bun test                    # Run all tests
 bun test --watch            # Watch mode
 bun run test:coverage       # Run tests with coverage report
-bun run test:coverage:check # Run tests and enforce 90% coverage threshold
+bun run test:coverage:check # Run tests and enforce 93% coverage threshold
 ```
 
 ### Background Worker & Database
@@ -82,7 +82,7 @@ src/
 │   ├── zfs/                 # ZFS-specific components
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
 ├── hooks/                   # Custom hooks (useSSE, etc.)
-├── data/                    # Server functions (*.functions.tsx) - DB-backed streaming
+├── data/                    # Server functions (*.functions.tsx) - non-streaming DB queries
 ├── middleware/              # Connection injection (Docker, SSH, Database)
 ├── lib/
 │   ├── __tests__/           # Unit tests (*.test.ts)
