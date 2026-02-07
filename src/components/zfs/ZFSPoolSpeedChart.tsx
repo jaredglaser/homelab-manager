@@ -39,7 +39,10 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[]): EChartsOption {
   const tooltipText = getCssVar('--chart-tooltip-text');
 
   return {
-    animation: false,
+    animation: true,
+    animationDuration: 0,
+    animationDurationUpdate: 850,
+    animationEasingUpdate: 'linear',
     grid: {
       top: 10,
       right: 15,
@@ -171,7 +174,8 @@ export default function ZFSPoolSpeedChart({
           option={option}
           style={{ height: '100%', width: '100%' }}
           opts={{ renderer: 'canvas' }}
-          notMerge={true}
+          notMerge={false}
+          lazyUpdate={true}
         />
       </div>
     </Sheet>
