@@ -11,7 +11,7 @@ interface MetricCellProps {
 
 export function MetricCell({ children, align = 'right' }: MetricCellProps) {
   return (
-    <td className={alignClass[align]}>
+    <td className={`${alignClass[align]} pr-16`}>
       {children}
     </td>
   );

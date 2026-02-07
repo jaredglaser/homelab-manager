@@ -1,6 +1,6 @@
 import type { HostAggregatedStats } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
-import { MetricCell } from '../shared-table';
+import { MetricCell, MetricValue } from '../shared-table';
 import { useSettings } from '@/hooks/useSettings';
 
 interface DockerHostMetricCellsProps {
@@ -28,40 +28,22 @@ export default function DockerHostMetricCells({ aggregated }: DockerHostMetricCe
   return (
     <>
       <MetricCell>
-        <div className="flex items-center justify-end gap-2">
-          <span className="min-w-[3.5rem] text-right tabular-nums">{cpuParts.value}</span>
-          <span className="w-[3rem] text-left">{cpuParts.unit}</span>
-        </div>
+        <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} />
       </MetricCell>
       <MetricCell>
-        <div className="flex items-center justify-end gap-2">
-          <span className="min-w-[3.5rem] text-right tabular-nums">{memoryParts.value}</span>
-          <span className="w-[3rem] text-left">{memoryParts.unit}</span>
-        </div>
+        <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} />
       </MetricCell>
       <MetricCell>
-        <div className="flex items-center justify-end gap-2">
-          <span className="min-w-[3.5rem] text-right tabular-nums">{blockReadParts.value}</span>
-          <span className="w-[3rem] text-left">{blockReadParts.unit}</span>
-        </div>
+        <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} />
       </MetricCell>
       <MetricCell>
-        <div className="flex items-center justify-end gap-2">
-          <span className="min-w-[3.5rem] text-right tabular-nums">{blockWriteParts.value}</span>
-          <span className="w-[3rem] text-left">{blockWriteParts.unit}</span>
-        </div>
+        <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} />
       </MetricCell>
       <MetricCell>
-        <div className="flex items-center justify-end gap-2">
-          <span className="min-w-[3.5rem] text-right tabular-nums">{networkRxParts.value}</span>
-          <span className="w-[3rem] text-left">{networkRxParts.unit}</span>
-        </div>
+        <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} />
       </MetricCell>
       <MetricCell>
-        <div className="flex items-center justify-end gap-2">
-          <span className="min-w-[3.5rem] text-right tabular-nums">{networkTxParts.value}</span>
-          <span className="w-[3rem] text-left">{networkTxParts.unit}</span>
-        </div>
+        <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} />
       </MetricCell>
     </>
   );

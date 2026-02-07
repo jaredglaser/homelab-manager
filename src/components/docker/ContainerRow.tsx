@@ -1,7 +1,7 @@
 import { ChevronRight } from 'lucide-react';
 import type { DockerStatsFromDB } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
-import { MetricCell } from '../shared-table';
+import { MetricCell, MetricValue } from '../shared-table';
 import { useSettings } from '@/hooks/useSettings';
 import { useContainerChartData } from '@/hooks/useContainerChartData';
 import ContainerChartsCard from './ContainerChartsCard';
@@ -74,46 +74,52 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
           </div>
         </td>
         <MetricCell>
-          <div className="flex items-center justify-end gap-2">
-            {showSparklines && <SparklineChart data={cpuSparkline} color="--chart-cpu" className="hidden xl:block" />}
-            <span className="min-w-[2rem] text-right tabular-nums">{cpuParts.value}</span>
-            <span className="w-[3rem] text-left">{cpuParts.unit}</span>
-          </div>
+          <MetricValue
+            value={cpuParts.value}
+            unit={cpuParts.unit}
+            hasDecimals={decimals.cpu}
+            sparkline={showSparklines && <SparklineChart data={cpuSparkline} color="--chart-cpu" className="hidden lg:block" />}
+          />
         </MetricCell>
         <MetricCell>
-          <div className="flex items-center justify-end gap-2">
-            {showSparklines && <SparklineChart data={memorySparkline} color="--chart-memory" className="hidden xl:block" />}
-            <span className="min-w-[2rem] text-right tabular-nums">{memoryParts.value}</span>
-            <span className="w-[3rem] text-left">{memoryParts.unit}</span>
-          </div>
+          <MetricValue
+            value={memoryParts.value}
+            unit={memoryParts.unit}
+            hasDecimals={decimals.memory}
+            sparkline={showSparklines && <SparklineChart data={memorySparkline} color="--chart-memory" className="hidden lg:block" />}
+          />
         </MetricCell>
         <MetricCell>
-          <div className="flex items-center justify-end gap-2">
-            {showSparklines && <SparklineChart data={blockReadSparkline} color="--chart-read" className="hidden xl:block" />}
-            <span className="min-w-[2rem] text-right tabular-nums">{blockReadParts.value}</span>
-            <span className="w-[3rem] text-left">{blockReadParts.unit}</span>
-          </div>
+          <MetricValue
+            value={blockReadParts.value}
+            unit={blockReadParts.unit}
+            hasDecimals={decimals.diskSpeed}
+            sparkline={showSparklines && <SparklineChart data={blockReadSparkline} color="--chart-read" className="hidden lg:block" />}
+          />
         </MetricCell>
         <MetricCell>
-          <div className="flex items-center justify-end gap-2">
-            {showSparklines && <SparklineChart data={blockWriteSparkline} color="--chart-write" className="hidden xl:block" />}
-            <span className="min-w-[2rem] text-right tabular-nums">{blockWriteParts.value}</span>
-            <span className="w-[3rem] text-left">{blockWriteParts.unit}</span>
-          </div>
+          <MetricValue
+            value={blockWriteParts.value}
+            unit={blockWriteParts.unit}
+            hasDecimals={decimals.diskSpeed}
+            sparkline={showSparklines && <SparklineChart data={blockWriteSparkline} color="--chart-write" className="hidden lg:block" />}
+          />
         </MetricCell>
         <MetricCell>
-          <div className="flex items-center justify-end gap-2">
-            {showSparklines && <SparklineChart data={networkRxSparkline} color="--chart-read" className="hidden xl:block" />}
-            <span className="min-w-[2rem] text-right tabular-nums">{networkRxParts.value}</span>
-            <span className="w-[3rem] text-left">{networkRxParts.unit}</span>
-          </div>
+          <MetricValue
+            value={networkRxParts.value}
+            unit={networkRxParts.unit}
+            hasDecimals={decimals.networkSpeed}
+            sparkline={showSparklines && <SparklineChart data={networkRxSparkline} color="--chart-read" className="hidden lg:block" />}
+          />
         </MetricCell>
         <MetricCell>
-          <div className="flex items-center justify-end gap-2">
-            {showSparklines && <SparklineChart data={networkTxSparkline} color="--chart-write" className="hidden xl:block" />}
-            <span className="min-w-[2rem] text-right tabular-nums">{networkTxParts.value}</span>
-            <span className="w-[3rem] text-left">{networkTxParts.unit}</span>
-          </div>
+          <MetricValue
+            value={networkTxParts.value}
+            unit={networkTxParts.unit}
+            hasDecimals={decimals.networkSpeed}
+            sparkline={showSparklines && <SparklineChart data={networkTxSparkline} color="--chart-write" className="hidden lg:block" />}
+          />
         </MetricCell>
       </tr>
       {expanded && (

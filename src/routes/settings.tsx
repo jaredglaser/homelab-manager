@@ -18,7 +18,7 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { general, docker, zfs, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setDockerDecimal, setZfsDecimal } = useSettings();
+  const { general, docker, zfs, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal } = useSettings();
 
   return (
     <div className="w-full p-6">
@@ -57,6 +57,14 @@ function SettingsContent() {
               <Switch
                 checked={docker.showSparklines}
                 onChange={(e) => setShowSparklines(e.target.checked)}
+              />
+            </FormControl>
+
+            <FormControl orientation="horizontal" className="justify-between">
+              <FormLabel>Use Abbreviated Units</FormLabel>
+              <Switch
+                checked={docker.useAbbreviatedUnits}
+                onChange={(e) => setUseAbbreviatedUnits(e.target.checked)}
               />
             </FormControl>
 

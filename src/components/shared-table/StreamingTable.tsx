@@ -114,6 +114,9 @@ export default function StreamingTable<TRaw, TState>({
                     ...(col.width ? { width: col.width } : {}),
                     ...(col.align ? { textAlign: col.align } : {}),
                     ...(col.paddingRight ? { paddingRight: col.paddingRight } : {}),
+                    whiteSpace: 'nowrap',
+                    overflow: 'visible',
+                    textOverflow: 'clip',
                   }}
                   className={`font-semibold ${col.align === 'right' ? 'text-right' : ''}`}
                 >

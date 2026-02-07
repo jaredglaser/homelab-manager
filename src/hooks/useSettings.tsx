@@ -17,6 +17,7 @@ export interface Settings {
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
     showSparklines: boolean;
+    useAbbreviatedUnits: boolean;
     expandedHosts: Set<string>;
     expandedContainers: Set<string>;
     decimals: DecimalSettings;
@@ -33,6 +34,7 @@ interface SettingsContextValue extends Settings {
   setUse12HourTime: (value: boolean) => void;
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
   setShowSparklines: (value: boolean) => void;
+  setUseAbbreviatedUnits: (value: boolean) => void;
   toggleHostExpanded: (hostName: string) => void;
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   toggleContainerExpanded: (containerId: string) => void;
@@ -57,6 +59,7 @@ const DEFAULT_SETTINGS: Settings = {
   docker: {
     memoryDisplayMode: 'percentage',
     showSparklines: true,
+    useAbbreviatedUnits: false,
     expandedHosts: new Set(),
     expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
@@ -100,6 +103,7 @@ function parseSettings(raw: Record<string, string>): Settings {
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
       showSparklines: parseBool(raw['docker/showSparklines'], DEFAULT_SETTINGS.docker.showSparklines),
+      useAbbreviatedUnits: parseBool(raw['docker/useAbbreviatedUnits'], DEFAULT_SETTINGS.docker.useAbbreviatedUnits),
       expandedHosts: parseExpandedSet(raw['docker/expandedHosts']),
       expandedContainers: parseExpandedSet(raw['docker/expandedContainers']),
       decimals: {
@@ -157,6 +161,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       docker: { ...prev.docker, showSparklines: value },
     }));
     updateSetting({ data: { key: 'docker/showSparklines', value: String(value) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
+  const setUseAbbreviatedUnits = useCallback((value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      docker: { ...prev.docker, useAbbreviatedUnits: value },
+    }));
+    updateSetting({ data: { key: 'docker/useAbbreviatedUnits', value: String(value) } }).catch(() => {
       // Fire-and-forget
     });
   }, []);
@@ -299,6 +313,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setUse12HourTime,
         setMemoryDisplayMode,
         setShowSparklines,
+        setUseAbbreviatedUnits,
         toggleHostExpanded,
         isHostExpanded,
         toggleContainerExpanded,

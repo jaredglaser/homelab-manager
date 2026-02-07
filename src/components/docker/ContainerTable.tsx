@@ -18,10 +18,10 @@ export default function ContainerTable() {
         align: 'right',
         paddingRight: '4rem',
       },
-      { label: 'Block Read', align: 'right', paddingRight: '4rem' },
-      { label: 'Block Write', align: 'right', paddingRight: '4rem' },
-      { label: 'Network RX', align: 'right', paddingRight: '4rem' },
-      { label: 'Network TX', align: 'right', paddingRight: '4rem' },
+      { label: 'Disk Read', align: 'right', paddingRight: '4rem' },
+      { label: 'Disk Write', align: 'right', paddingRight: '4rem' },
+      { label: 'Net RX', align: 'right', paddingRight: '4rem' },
+      { label: 'Net TX', align: 'right', paddingRight: '4rem' },
     ],
     [docker.memoryDisplayMode],
   );
@@ -56,7 +56,7 @@ export default function ContainerTable() {
       onData={onData}
       renderRows={renderRows}
       errorLabel="Error connecting to Docker stats"
-      minWidth="1000px"
+      minWidth="800px"
     />
   );
 }
