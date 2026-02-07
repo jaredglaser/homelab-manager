@@ -1,33 +1,15 @@
-import { Sheet, CircularProgress, Box } from '@mui/joy';
-import { useContainerChartData } from '@/hooks/useContainerChartData';
+import { Sheet } from '@mui/joy';
 import { formatAsPercent, formatBytes, formatBitsSIUnits } from '@/formatters/metrics';
 import ContainerMetricChart from './ContainerMetricChart';
-import type { DockerStatsFromDB } from '@/types/docker';
+import type { ContainerChartDataPoint } from '@/data/docker.functions';
 
 interface ContainerChartsCardProps {
-  containerId: string;
-  containerStats: DockerStatsFromDB;
+  dataPoints: ContainerChartDataPoint[];
 }
 
 export default function ContainerChartsCard({
-  containerId,
-  containerStats,
+  dataPoints,
 }: ContainerChartsCardProps) {
-  const { dataPoints, isLoading } = useContainerChartData({
-    containerId,
-    currentStats: containerStats.rates,
-  });
-
-  if (isLoading) {
-    return (
-      <Sheet variant="outlined" className="m-2 p-4 rounded-sm">
-        <Box className="flex items-center justify-center h-32">
-          <CircularProgress size="sm" />
-        </Box>
-      </Sheet>
-    );
-  }
-
   // Transform data points for each chart
   const cpuData = dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent }));
   const memoryData = dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent }));

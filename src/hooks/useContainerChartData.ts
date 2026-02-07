@@ -2,8 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import type { ContainerChartDataPoint } from '@/data/docker.functions';
 import { getHistoricalDockerChartData } from '@/data/docker.functions';
 
-const MAX_DATA_POINTS = 60;
-
 interface UseContainerChartDataOptions {
   containerId: string;
   currentStats: {
@@ -14,6 +12,8 @@ interface UseContainerChartDataOptions {
     networkRxBytesPerSec: number;
     networkTxBytesPerSec: number;
   };
+  /** Number of seconds of historical data to fetch and maintain. Default: 15 */
+  seconds?: number;
 }
 
 interface UseContainerChartDataResult {
@@ -28,22 +28,31 @@ interface UseContainerChartDataResult {
 export function useContainerChartData({
   containerId,
   currentStats,
+  seconds = 15,
 }: UseContainerChartDataOptions): UseContainerChartDataResult {
   const [dataPoints, setDataPoints] = useState<ContainerChartDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const initialDataLoaded = useRef(false);
+  const secondsFetchedRef = useRef(0);
   const lastTimestampRef = useRef<number>(0);
 
-  // Load historical data on mount
+  // Load historical data on mount or when seconds increases
   useEffect(() => {
-    if (initialDataLoaded.current) return;
-    initialDataLoaded.current = true;
+    // Only fetch if we need more data than we've already fetched
+    if (seconds <= secondsFetchedRef.current) return;
 
-    getHistoricalDockerChartData({ data: { containerId } })
+    setIsLoading(true);
+    getHistoricalDockerChartData({ data: { containerId, seconds } })
       .then((data) => {
+        secondsFetchedRef.current = seconds;
         if (data.length > 0) {
-          setDataPoints(data.slice(-MAX_DATA_POINTS));
-          lastTimestampRef.current = data[data.length - 1]?.timestamp ?? 0;
+          setDataPoints((prev) => {
+            // Merge historical data with any accumulated points
+            const historicalTimestamps = new Set(data.map((d) => d.timestamp));
+            const newPoints = prev.filter((p) => !historicalTimestamps.has(p.timestamp));
+            const merged = [...data, ...newPoints].slice(-seconds);
+            lastTimestampRef.current = merged[merged.length - 1]?.timestamp ?? 0;
+            return merged;
+          });
         }
         setIsLoading(false);
       })
@@ -51,7 +60,7 @@ export function useContainerChartData({
         console.error('[useContainerChartData] Failed to load historical data:', err);
         setIsLoading(false);
       });
-  }, [containerId]);
+  }, [containerId, seconds]);
 
   // Append new data point when currentStats changes
   useEffect(() => {
@@ -75,12 +84,12 @@ export function useContainerChartData({
 
     setDataPoints((prev) => {
       const next = [...prev, newPoint];
-      if (next.length > MAX_DATA_POINTS) {
+      if (next.length > seconds) {
         next.shift();
       }
       return next;
     });
-  }, [currentStats, isLoading]);
+  }, [currentStats, isLoading, seconds]);
 
   return { dataPoints, isLoading };
 }

@@ -34,6 +34,8 @@ export const isDockerDataStale = createServerFn()
 
 const getHistoricalDockerChartDataSchema = z.object({
   containerId: z.string(),
+  /** Number of seconds of historical data to fetch. Default: 60 */
+  seconds: z.number().optional().default(60),
 });
 
 /**
@@ -57,12 +59,12 @@ export const getHistoricalDockerChartData = createServerFn()
       const repo = new StatsRepository(dbClient.getPool());
 
       const now = new Date();
-      const sixtySecondsAgo = new Date(now.getTime() - 60000);
+      const startTime = new Date(now.getTime() - data.seconds * 1000);
 
       // Get time series data for all 6 metric types for this container
       const rows = await repo.getTimeSeriesStats({
         sourceName: 'docker',
-        startTime: sixtySecondsAgo,
+        startTime,
         endTime: now,
         typeNames: [
           'cpu_percent',
