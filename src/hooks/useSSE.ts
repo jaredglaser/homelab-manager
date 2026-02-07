@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 interface UseSSEOptions<T> {
   url: string;
   onData: (data: T) => void;
@@ -18,6 +20,7 @@ export function useSSE<T>({
   const [error, setError] = useState<Error | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onDataRef = useRef(onData);
+  const reconnectAttemptsRef = useRef(0);
 
   // Keep onData ref up to date
   onDataRef.current = onData;
@@ -35,6 +38,7 @@ export function useSSE<T>({
         if (mounted) {
           setIsConnected(true);
           setError(null);
+          reconnectAttemptsRef.current = 0;
         }
       };
 
@@ -52,8 +56,12 @@ export function useSSE<T>({
       eventSource.onerror = () => {
         if (mounted) {
           setIsConnected(false);
-          // EventSource will auto-reconnect, so we don't set error immediately
-          // Only set error if it's a persistent failure
+          reconnectAttemptsRef.current++;
+
+          // Set error after multiple failed reconnection attempts
+          if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+            setError(new Error('Connection failed after multiple attempts'));
+          }
         }
       };
     };

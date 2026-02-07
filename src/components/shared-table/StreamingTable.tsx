@@ -111,10 +111,7 @@ export default function StreamingTable<TRaw, TState>({
         </Alert>
       )}
       <Sheet variant="outlined" className="rounded-sm overflow-auto">
-        <Table
-          aria-label={ariaLabel}
-          sx={{ '& thead th': { fontWeight: 600 }, ...tableProps }}
-        >
+        <Table aria-label={ariaLabel} sx={tableProps}>
           <thead>
             <tr>
               {columns.map((col, i) => (
@@ -124,7 +121,7 @@ export default function StreamingTable<TRaw, TState>({
                     ...(col.width ? { width: col.width } : {}),
                     ...(col.align ? { textAlign: col.align } : {}),
                   }}
-                  className={col.align === 'right' ? 'text-right' : undefined}
+                  className={`font-semibold ${col.align === 'right' ? 'text-right' : ''}`}
                 >
                   {col.label}
                 </th>
