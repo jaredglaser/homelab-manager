@@ -221,6 +221,52 @@ export class StatsRepository {
   }
 
   /**
+   * Get time series stats for all entities matching optional filter.
+   * Returns data grouped by timestamp for charting purposes.
+   */
+  async getTimeSeriesStats(params: {
+    sourceName: string;
+    startTime: Date;
+    endTime: Date;
+    typeNames: string[];
+    entityFilter?: (entity: string) => boolean;
+  }): Promise<LatestStatRow[]> {
+    const sourceId = await this.getOrCreateSource(params.sourceName);
+
+    const typeIds: number[] = [];
+    for (const typeName of params.typeNames) {
+      typeIds.push(await this.getOrCreateType(params.sourceName, typeName));
+    }
+
+    const result = await this.pool.query(
+      `SELECT sr.timestamp, st.name AS type, sr.entity, sr.value
+       FROM stats_raw sr
+       JOIN stat_type st ON sr.type_id = st.id
+       WHERE sr.source_id = $1
+         AND sr.type_id = ANY($2)
+         AND sr.timestamp >= $3
+         AND sr.timestamp <= $4
+       ORDER BY sr.timestamp ASC`,
+      [sourceId, typeIds, params.startTime, params.endTime]
+    );
+
+    let rows = result.rows.map(
+      (row: { timestamp: Date; type: string; entity: string; value: number }) => ({
+        timestamp: row.timestamp,
+        type: row.type,
+        entity: row.entity,
+        value: row.value,
+      })
+    );
+
+    if (params.entityFilter) {
+      rows = rows.filter((row: LatestStatRow) => params.entityFilter!(row.entity));
+    }
+
+    return rows;
+  }
+
+  /**
    * Upsert entity metadata (key-value pair for an entity).
    * Used for storing display names, labels, and other metadata.
    */

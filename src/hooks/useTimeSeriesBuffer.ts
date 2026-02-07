@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSSE } from './useSSE';
 import type { ZFSIOStatWithRates } from '@/types/zfs';
 
@@ -15,16 +15,77 @@ export interface PoolTimeSeriesData {
   dataPoints: TimeSeriesDataPoint[];
 }
 
+export interface InitialPoolData {
+  poolName: string;
+  dataPoints: TimeSeriesDataPoint[];
+}
+
+interface UseTimeSeriesBufferOptions {
+  sseUrl: string;
+  fetchInitialData?: () => Promise<InitialPoolData[]>;
+}
+
 interface UseTimeSeriesBufferResult {
   poolsData: Map<string, PoolTimeSeriesData>;
   isConnected: boolean;
   error: Error | null;
 }
 
-export function useTimeSeriesBuffer(sseUrl: string): UseTimeSeriesBufferResult {
+export function useTimeSeriesBuffer(
+  options: UseTimeSeriesBufferOptions | string
+): UseTimeSeriesBufferResult {
+  // Support both old string API and new options API
+  const { sseUrl, fetchInitialData } =
+    typeof options === 'string' ? { sseUrl: options, fetchInitialData: undefined } : options;
+
   const [poolsData, setPoolsData] = useState<Map<string, PoolTimeSeriesData>>(
     new Map()
   );
+  const initialDataLoaded = useRef(false);
+
+  // Load initial data on mount
+  useEffect(() => {
+    if (!fetchInitialData || initialDataLoaded.current) return;
+
+    initialDataLoaded.current = true;
+
+    fetchInitialData()
+      .then((data) => {
+        if (!data || data.length === 0) return;
+
+        setPoolsData((prev) => {
+          const next = new Map(prev);
+          for (const pool of data) {
+            const existing = next.get(pool.poolName);
+            if (!existing || existing.dataPoints.length === 0) {
+              // No existing data - use historical data directly
+              next.set(pool.poolName, {
+                poolName: pool.poolName,
+                dataPoints: pool.dataPoints.slice(-MAX_DATA_POINTS),
+              });
+            } else {
+              // SSE data already arrived - prepend historical data
+              // Filter out historical points that overlap with existing data
+              const oldestExisting = existing.dataPoints[0]?.timestamp ?? Infinity;
+              const historicalPoints = pool.dataPoints.filter(
+                (p) => p.timestamp < oldestExisting
+              );
+              if (historicalPoints.length > 0) {
+                const merged = [...historicalPoints, ...existing.dataPoints];
+                next.set(pool.poolName, {
+                  poolName: pool.poolName,
+                  dataPoints: merged.slice(-MAX_DATA_POINTS),
+                });
+              }
+            }
+          }
+          return next;
+        });
+      })
+      .catch((err) => {
+        console.error('[useTimeSeriesBuffer] Failed to load initial data:', err);
+      });
+  }, [fetchInitialData]);
 
   const handleData = useCallback((data: ZFSIOStatWithRates[]) => {
     const now = Date.now();

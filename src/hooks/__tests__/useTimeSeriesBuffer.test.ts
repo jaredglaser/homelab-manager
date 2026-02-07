@@ -56,6 +56,9 @@ const mockSetPoolsData = (
   }
 };
 
+// Mock ref to track if initial data was loaded
+const mockRefs = new Map<string, { current: unknown }>();
+
 mock.module('react', () => ({
   useState: (initial: unknown) => {
     if (currentPoolsData.size === 0 && initial instanceof Map) {
@@ -64,6 +67,18 @@ mock.module('react', () => ({
     return [currentPoolsData, mockSetPoolsData];
   },
   useCallback: (fn: unknown) => fn,
+  useRef: (initial: unknown) => {
+    // Create a stable ref per initial value type
+    const key = typeof initial;
+    if (!mockRefs.has(key)) {
+      mockRefs.set(key, { current: initial });
+    }
+    return mockRefs.get(key)!;
+  },
+  useEffect: (fn: () => void | (() => void)) => {
+    // Run effect immediately for testing
+    fn();
+  },
 }));
 
 describe('useTimeSeriesBuffer', () => {
@@ -72,6 +87,7 @@ describe('useTimeSeriesBuffer', () => {
     mockOnData = null;
     mockIsConnected = false;
     mockError = null;
+    mockRefs.clear();
   });
 
   it('should initialize with empty pools data', () => {

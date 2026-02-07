@@ -1,9 +1,16 @@
+import { useCallback } from 'react';
 import { CircularProgress, Sheet, Typography } from '@mui/joy';
 import { useTimeSeriesBuffer } from '@/hooks/useTimeSeriesBuffer';
+import { getHistoricalZFSChartData } from '@/data/zfs.functions';
 import ZFSPoolSpeedChart from './ZFSPoolSpeedChart';
 
 export default function ZFSPoolSpeedCharts() {
-  const { poolsData, isConnected, error } = useTimeSeriesBuffer('/api/zfs-stats');
+  const fetchInitialData = useCallback(() => getHistoricalZFSChartData(), []);
+
+  const { poolsData, isConnected, error } = useTimeSeriesBuffer({
+    sseUrl: '/api/zfs-stats',
+    fetchInitialData,
+  });
 
   if (error && poolsData.size === 0) {
     return (
