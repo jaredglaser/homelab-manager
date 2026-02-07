@@ -32,7 +32,7 @@ export function useContainerChartData({
   const [dataPoints, setDataPoints] = useState<ContainerChartDataPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const initialDataLoaded = useRef(false);
-  const lastValuesRef = useRef<string>('');
+  const lastTimestampRef = useRef<number>(0);
 
   // Load historical data on mount
   useEffect(() => {
@@ -43,6 +43,7 @@ export function useContainerChartData({
       .then((data) => {
         if (data.length > 0) {
           setDataPoints(data.slice(-MAX_DATA_POINTS));
+          lastTimestampRef.current = data[data.length - 1]?.timestamp ?? 0;
         }
         setIsLoading(false);
       })
@@ -52,16 +53,15 @@ export function useContainerChartData({
       });
   }, [containerId]);
 
-  // Create a stable key from stats values to detect real changes
-  const statsKey = `${currentStats.cpuPercent.toFixed(2)}-${currentStats.memoryPercent.toFixed(2)}-${currentStats.blockIoReadBytesPerSec.toFixed(0)}-${currentStats.blockIoWriteBytesPerSec.toFixed(0)}-${currentStats.networkRxBytesPerSec.toFixed(0)}-${currentStats.networkTxBytesPerSec.toFixed(0)}`;
-
-  // Append new data point when stats actually change
+  // Append new data point when currentStats changes
   useEffect(() => {
     if (isLoading) return;
-    if (statsKey === lastValuesRef.current) return;
 
-    lastValuesRef.current = statsKey;
     const now = Date.now();
+    // Debounce: only add new point if at least 500ms has passed
+    if (now - lastTimestampRef.current < 500) return;
+
+    lastTimestampRef.current = now;
 
     const newPoint: ContainerChartDataPoint = {
       timestamp: now,
@@ -80,7 +80,7 @@ export function useContainerChartData({
       }
       return next;
     });
-  }, [statsKey, currentStats, isLoading]);
+  }, [currentStats, isLoading]);
 
   return { dataPoints, isLoading };
 }
