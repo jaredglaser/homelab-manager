@@ -147,4 +147,92 @@ describe('transformDockerStats', () => {
       expect(result.size).toBe(0);
     });
   });
+
+  describe('network stats', () => {
+    it('handles network_rx_bytes_per_sec', () => {
+      const rows: LatestStatRow[] = [
+        { timestamp: now, type: 'network_rx_bytes_per_sec', entity: 'container1', value: 1024 },
+      ];
+
+      const result = transformDockerStats(rows);
+      expect(result.get('container1')!.rates.networkRxBytesPerSec).toBe(1024);
+    });
+
+    it('handles network_tx_bytes_per_sec', () => {
+      const rows: LatestStatRow[] = [
+        { timestamp: now, type: 'network_tx_bytes_per_sec', entity: 'container1', value: 2048 },
+      ];
+
+      const result = transformDockerStats(rows);
+      expect(result.get('container1')!.rates.networkTxBytesPerSec).toBe(2048);
+    });
+  });
+
+  describe('block IO stats', () => {
+    it('handles block_io_read_bytes_per_sec', () => {
+      const rows: LatestStatRow[] = [
+        { timestamp: now, type: 'block_io_read_bytes_per_sec', entity: 'container1', value: 4096 },
+      ];
+
+      const result = transformDockerStats(rows);
+      expect(result.get('container1')!.rates.blockIoReadBytesPerSec).toBe(4096);
+    });
+
+    it('handles block_io_write_bytes_per_sec', () => {
+      const rows: LatestStatRow[] = [
+        { timestamp: now, type: 'block_io_write_bytes_per_sec', entity: 'container1', value: 8192 },
+      ];
+
+      const result = transformDockerStats(rows);
+      expect(result.get('container1')!.rates.blockIoWriteBytesPerSec).toBe(8192);
+    });
+  });
+
+  describe('entity path parsing', () => {
+    it('extracts container ID from host/container path', () => {
+      const rows: LatestStatRow[] = [
+        { timestamp: now, type: 'cpu_percent', entity: 'docker-host/abc123def456789xyz', value: 50.0 },
+      ];
+
+      const result = transformDockerStats(rows);
+      const stats = result.get('docker-host/abc123def456789xyz');
+
+      expect(stats).toBeDefined();
+      // Name should be extracted from after the slash, then truncated to 12 chars
+      expect(stats!.name).toBe('abc123def456');
+    });
+
+    it('uses metadata name over extracted container ID', () => {
+      const rows: LatestStatRow[] = [
+        { timestamp: now, type: 'cpu_percent', entity: 'host1/container123', value: 60.0 },
+      ];
+
+      const metadata: EntityMetadata = new Map([
+        ['host1/container123', new Map([['name', 'my-service']])],
+      ]);
+
+      const result = transformDockerStats(rows, metadata);
+      expect(result.get('host1/container123')!.name).toBe('my-service');
+    });
+  });
+
+  describe('unknown type handling', () => {
+    it('ignores unknown stat types', () => {
+      const rows: LatestStatRow[] = [
+        { timestamp: now, type: 'cpu_percent', entity: 'container1', value: 25.0 },
+        { timestamp: now, type: 'unknown_stat_type', entity: 'container1', value: 999 },
+      ];
+
+      const result = transformDockerStats(rows);
+      const stats = result.get('container1');
+
+      expect(stats!.rates.cpuPercent).toBe(25.0);
+      // Unknown type should not affect any field - all other rates should be 0
+      expect(stats!.rates.memoryPercent).toBe(0);
+      expect(stats!.rates.networkRxBytesPerSec).toBe(0);
+      expect(stats!.rates.networkTxBytesPerSec).toBe(0);
+      expect(stats!.rates.blockIoReadBytesPerSec).toBe(0);
+      expect(stats!.rates.blockIoWriteBytesPerSec).toBe(0);
+    });
+  });
 });
