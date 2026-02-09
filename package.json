@@ -27,6 +27,7 @@
     "@tanstack/react-router-ssr-query": "^1.158.1",
     "@tanstack/react-start": "^1.158.3",
     "@tanstack/router-plugin": "^1.158.1",
+    "@testing-library/react-hooks": "^8.0.1",
     "@types/dockerode": "^4.0.1",
     "@types/ssh2": "^1.15.5",
     "@types/ssh2-streams": "^0.1.13",
