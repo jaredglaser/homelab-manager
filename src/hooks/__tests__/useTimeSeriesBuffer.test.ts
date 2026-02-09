@@ -253,4 +253,182 @@ describe('useTimeSeriesBuffer', () => {
     expect(poolData.dataPoints[0].readBytesPerSec).toBe(1000);
     expect(poolData.dataPoints[1].readBytesPerSec).toBe(2000);
   });
+
+
+  describe('fetchInitialData', () => {
+    it('should load initial data when provided', async () => {
+      const initialData = [
+        {
+          poolName: 'tank',
+          dataPoints: [
+            { timestamp: 1000, readBytesPerSec: 100, writeBytesPerSec: 50 },
+            { timestamp: 2000, readBytesPerSec: 200, writeBytesPerSec: 100 },
+          ],
+        },
+      ];
+
+      useTimeSeriesBuffer({
+        sseUrl: '/api/zfs-stats',
+        fetchInitialData: () => Promise.resolve(initialData),
+      });
+
+      // Wait for the promise to resolve
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const poolData = currentPoolsData.get('tank');
+      expect(poolData).toBeDefined();
+      expect(poolData.dataPoints.length).toBe(2);
+      expect(poolData.dataPoints[0].readBytesPerSec).toBe(100);
+      expect(poolData.dataPoints[1].readBytesPerSec).toBe(200);
+    });
+
+    it('should handle empty initial data', async () => {
+      useTimeSeriesBuffer({
+        sseUrl: '/api/zfs-stats',
+        fetchInitialData: () => Promise.resolve([]),
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(currentPoolsData.size).toBe(0);
+    });
+
+    it('should handle null initial data', async () => {
+      useTimeSeriesBuffer({
+        sseUrl: '/api/zfs-stats',
+        fetchInitialData: () => Promise.resolve(null as unknown as []),
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(currentPoolsData.size).toBe(0);
+    });
+
+    it('should limit initial data to MAX_DATA_POINTS', async () => {
+      const manyPoints = Array.from({ length: 100 }, (_, i) => ({
+        timestamp: i * 1000,
+        readBytesPerSec: i * 10,
+        writeBytesPerSec: i * 5,
+      }));
+
+      useTimeSeriesBuffer({
+        sseUrl: '/api/zfs-stats',
+        fetchInitialData: () =>
+          Promise.resolve([{ poolName: 'tank', dataPoints: manyPoints }]),
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const poolData = currentPoolsData.get('tank');
+      expect(poolData.dataPoints.length).toBe(60); // MAX_DATA_POINTS
+    });
+
+    it('should prepend historical data to existing SSE data', async () => {
+      // Pre-populate with existing SSE data to simulate race condition
+      const sseTimestamp = Date.now();
+      currentPoolsData.set('tank', {
+        poolName: 'tank',
+        dataPoints: [{ timestamp: sseTimestamp, readBytesPerSec: 5000, writeBytesPerSec: 2500 }],
+      });
+
+      useTimeSeriesBuffer({
+        sseUrl: '/api/zfs-stats',
+        fetchInitialData: () =>
+          Promise.resolve([
+            {
+              poolName: 'tank',
+              dataPoints: [
+                { timestamp: sseTimestamp - 2000, readBytesPerSec: 100, writeBytesPerSec: 50 },
+                { timestamp: sseTimestamp - 1000, readBytesPerSec: 200, writeBytesPerSec: 100 },
+              ],
+            },
+          ]),
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const poolData = currentPoolsData.get('tank');
+      // Should have historical (2) + existing SSE (1) = 3 points
+      expect(poolData.dataPoints.length).toBe(3);
+      // Historical data should come first
+      expect(poolData.dataPoints[0].readBytesPerSec).toBe(100);
+      expect(poolData.dataPoints[1].readBytesPerSec).toBe(200);
+      // SSE data should be last
+      expect(poolData.dataPoints[2].readBytesPerSec).toBe(5000);
+    });
+
+    it('should not duplicate overlapping timestamps', async () => {
+      const timestamp = Date.now();
+
+      // Add SSE data first
+      currentPoolsData.set('tank', {
+        poolName: 'tank',
+        dataPoints: [{ timestamp, readBytesPerSec: 5000, writeBytesPerSec: 2500 }],
+      });
+
+      useTimeSeriesBuffer({
+        sseUrl: '/api/zfs-stats',
+        fetchInitialData: () =>
+          Promise.resolve([
+            {
+              poolName: 'tank',
+              dataPoints: [
+                // This timestamp overlaps with existing data
+                { timestamp: timestamp + 100, readBytesPerSec: 100, writeBytesPerSec: 50 },
+              ],
+            },
+          ]),
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      const poolData = currentPoolsData.get('tank');
+      // Overlapping data should be filtered out
+      expect(poolData.dataPoints.length).toBe(1);
+    });
+
+    it('should handle fetchInitialData rejection gracefully', async () => {
+      const consoleSpy = mock(() => {});
+      const originalError = console.error;
+      console.error = consoleSpy;
+
+      useTimeSeriesBuffer({
+        sseUrl: '/api/zfs-stats',
+        fetchInitialData: () => Promise.reject(new Error('Network error')),
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(consoleSpy).toHaveBeenCalled();
+      expect(currentPoolsData.size).toBe(0);
+
+      console.error = originalError;
+    });
+
+    it('should only load initial data once', async () => {
+      let callCount = 0;
+      const fetchFn = () => {
+        callCount++;
+        return Promise.resolve([
+          {
+            poolName: 'tank',
+            dataPoints: [{ timestamp: 1000, readBytesPerSec: 100, writeBytesPerSec: 50 }],
+          },
+        ]);
+      };
+
+      // Reset the ref mock to simulate multiple effect runs
+      mockRefs.clear();
+
+      useTimeSeriesBuffer({
+        sseUrl: '/api/zfs-stats',
+        fetchInitialData: fetchFn,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // The ref should prevent multiple calls
+      expect(callCount).toBe(1);
+    });
+  });
 });
