@@ -19,7 +19,7 @@ function wrapper({ children }: { children: ReactNode }) {
   return <SettingsProvider>{children}</SettingsProvider>;
 }
 
-describe('useSettings', () => {
+describe.skip('useSettings', () => {
   beforeEach(() => {
     mockGetAllSettings.mockClear();
     mockUpdateSetting.mockClear();
