@@ -254,7 +254,6 @@ describe('useTimeSeriesBuffer', () => {
     expect(poolData.dataPoints[1].readBytesPerSec).toBe(2000);
   });
 
-
   describe('fetchInitialData', () => {
     it('should load initial data when provided', async () => {
       const initialData = [

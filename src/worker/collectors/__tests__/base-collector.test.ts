@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { BaseCollector } from '../base-collector';
 import type { RawStatRow } from '@/lib/database/repositories/stats-repository';
 
@@ -9,6 +9,10 @@ mock.module('@/lib/database/repositories/stats-repository', () => ({
     insertRawStats = mock(async () => {});
   },
 }));
+
+// Suppress console output during tests
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
 
 function createMockDb() {
   return {
@@ -63,6 +67,14 @@ describe('BaseCollector', () => {
   beforeEach(() => {
     db = createMockDb();
     config = createMockConfig();
+    // Suppress console output during tests
+    console.log = mock(() => {});
+    console.error = mock(() => {});
+  });
+
+  afterEach(() => {
+    console.log = originalConsoleLog;
+    console.error = originalConsoleError;
   });
 
   describe('lifecycle', () => {

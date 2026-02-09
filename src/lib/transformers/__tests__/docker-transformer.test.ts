@@ -148,7 +148,6 @@ describe('transformDockerStats', () => {
     });
   });
 
-
   describe('network stats', () => {
     it('handles network_rx_bytes_per_sec', () => {
       const rows: LatestStatRow[] = [
