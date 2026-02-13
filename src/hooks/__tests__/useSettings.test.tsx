@@ -392,4 +392,3 @@ describe('parsing settings from database', () => {
         });
     });
 });
-});
