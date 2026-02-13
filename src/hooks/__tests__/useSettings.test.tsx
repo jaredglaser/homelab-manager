@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import { waitFor } from '@testing-library/react';
 import { renderHook, act } from '@testing-library/react-hooks';
 import type { ReactNode } from 'react';
