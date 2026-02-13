@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { waitFor, renderHook, act } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { createElement, type ReactNode } from 'react';
 
 // Mock the settings functions
 const mockGetAllSettings = mock(() => Promise.resolve({}));
@@ -14,8 +14,9 @@ mock.module('@/data/settings.functions', () => ({
 // Import after mocking
 const { SettingsProvider, useSettings } = await import('../useSettings');
 
+// Use createElement instead of JSX to avoid React 19 jsx-dev-runtime issues in CI
 function wrapper({ children }: { children: ReactNode }) {
-    return <SettingsProvider>{children}</SettingsProvider>;
+    return createElement(SettingsProvider, null, children);
 }
 
 beforeEach(() => {
