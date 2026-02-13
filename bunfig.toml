@@ -1,2 +1,2 @@
-# Bun configuration
-# Note: DOM setup is imported directly in test files that need it
+[test]
+preload = ["./src/lib/test/happydom.ts", "./src/lib/test/testing-library.ts"]
