@@ -10,34 +10,26 @@ jobs:
   build-test-license:
     name: Build, Test & License Check
     runs-on: ubuntu-latest
+    container:
+      image: oven/bun:latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Debug environment
         run: |
-          echo "Node version: $(node --version || echo 'not installed')"
           echo "Bun version: $(bun --version)"
           echo "NODE_ENV: $NODE_ENV"
-          echo "CI: $CI"
-          echo "React version: $(cat node_modules/react/package.json | grep '"version"')"
-          echo "React-DOM version: $(cat node_modules/react-dom/package.json | grep '"version"')"
-          echo "Testing Library React version: $(cat node_modules/@testing-library/react/package.json | grep '"version"')"
 
       - name: Build project
         run: bun run build
 
       - name: Run tests with coverage
         run: bun test
-        env:
-          NODE_ENV: test
 
       - name: Check licenses
         run: |
