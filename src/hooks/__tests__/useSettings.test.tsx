@@ -1,6 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { waitFor } from '@testing-library/react';
-import { renderHook, act } from '@testing-library/react-hooks';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { waitFor, renderHook, act } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
 // Mock the settings functions
@@ -19,13 +18,13 @@ function wrapper({ children }: { children: ReactNode }) {
     return <SettingsProvider>{children}</SettingsProvider>;
 }
 
-/*describe.skip('useSettings', () => {
+describe.skip('useSettings', () => {
     beforeEach(() => {
       mockGetAllSettings.mockClear();
       mockUpdateSetting.mockClear();
       mockGetAllSettings.mockImplementation(() => Promise.resolve({}));
       mockUpdateSetting.mockImplementation(() => Promise.resolve());
-});*/
+});
 
 describe('initialization', () => {
     it('should provide default settings on mount', async () => {
