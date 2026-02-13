@@ -1,9 +1,9 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 
 // Skip in CI due to some kind of compat issue... TODO: Figure out root cause and re-enable tests in CI
-const isCI = process.env.CI === 'true';
+//const isCI = process.env.CI === 'true';
 
-if (isCI) {
+if (false) {
     describe('useSettings', () => {
         it.skip('skipped in CI due to React 19 + Happy-DOM compatibility issue', () => {});
     });
