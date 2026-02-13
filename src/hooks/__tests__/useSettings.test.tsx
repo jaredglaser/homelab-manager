@@ -18,15 +18,15 @@ function wrapper({ children }: { children: ReactNode }) {
     return <SettingsProvider>{children}</SettingsProvider>;
 }
 
-describe.skip('useSettings', () => {
+describe('initialization', () => {
+
     beforeEach(() => {
       mockGetAllSettings.mockClear();
       mockUpdateSetting.mockClear();
       mockGetAllSettings.mockImplementation(() => Promise.resolve({}));
       mockUpdateSetting.mockImplementation(() => Promise.resolve());
-});
+    });
 
-describe('initialization', () => {
     it('should provide default settings on mount', async () => {
         const { result } = renderHook(() => useSettings(), { wrapper });
 
