@@ -24,7 +24,8 @@ x-shared-dev: &shared-dev
     target: base
   volumes:
     - .:/app
-    - /app/node_modules
+    - node_modules:/app/node_modules
+    - /app/public/icons
   extra_hosts:
     - "host.docker.internal:host-gateway"
   restart: unless-stopped
@@ -39,6 +40,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: homelab-db
+    mem_limit: 256m
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -58,6 +60,7 @@ services:
   worker:
     <<: *shared-dev
     container_name: homelab-worker
+    mem_limit: 512m
     command: bun src/worker/collector.ts
     environment:
       <<: [*postgres-env, *docker-env, *zfs-env]
@@ -73,6 +76,7 @@ services:
   web:
     <<: *shared-dev
     container_name: homelab-web
+    mem_limit: 2g
     command: bun run dev -- --host 0.0.0.0
     ports:
       - "${WEB_PORT}:3000"
@@ -83,9 +87,13 @@ services:
   cleanup:
     <<: *shared-dev
     container_name: homelab-cleanup
+    mem_limit: 256m
     command: sh -c "while true; do sleep 86400 && bun run cleanup; done"
     environment:
       <<: *postgres-env
+
+volumes:
+  node_modules:
 
 networks:
   homelab-network:

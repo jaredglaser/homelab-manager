@@ -47,6 +47,11 @@ export default defineConfig({
   server: {
     watch: {
       usePolling: true,
+      // 2600+ dashboard icon SVGs cause slow startup through WSL file mount
+      ignored: ['**/public/icons/**'],
+    },
+    warmup: {
+      clientFiles: ['./src/routes/index.tsx', './src/routes/__root.tsx'],
     },
   },
   build: {
