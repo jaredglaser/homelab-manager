@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { useSettings } from '@/hooks/useSettings';
 import { abbreviateUnit } from '@/lib/utils/abbreviate-unit';
 
@@ -18,7 +18,7 @@ interface MetricValueProps {
  * Reserves appropriate space for the value based on whether decimals are enabled,
  * preventing layout shift when values change.
  */
-export function MetricValue({
+export const MetricValue = memo(function MetricValue({
   value,
   unit,
   sparkline,
@@ -51,4 +51,4 @@ export function MetricValue({
       </span>
     </div>
   );
-}
+});

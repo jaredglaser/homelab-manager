@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState, useMemo } from 'react';
 import { ChevronRight, Settings } from 'lucide-react';
 import type { DockerStatsFromDB } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
@@ -16,7 +16,7 @@ interface ContainerRowProps {
   indent?: number;
 }
 
-export default function ContainerRow({ container, indent }: ContainerRowProps) {
+export default memo(function ContainerRow({ container, indent }: ContainerRowProps) {
   const { docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
   const { rates } = container;
   const { decimals, showSparklines } = docker;
@@ -41,32 +41,41 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
     enabled: needsChartData,
   });
 
-  // Extract sparkline data (last 15 points for compact display)
-  const sparklinePoints = dataPoints.slice(-15);
-  const cpuSparkline = sparklinePoints.map((d) => d.cpuPercent);
-  const memorySparkline = sparklinePoints.map((d) => d.memoryPercent);
-  const blockReadSparkline = sparklinePoints.map((d) => d.blockIoReadBytesPerSec);
-  const blockWriteSparkline = sparklinePoints.map((d) => d.blockIoWriteBytesPerSec);
-  const networkRxSparkline = sparklinePoints.map((d) => d.networkRxBytesPerSec);
-  const networkTxSparkline = sparklinePoints.map((d) => d.networkTxBytesPerSec);
+  // Memoize sparkline arrays to avoid recreating on every render
+  const sparklines = useMemo(() => {
+    const points = dataPoints.slice(-15);
+    return {
+      cpu: points.map((d) => d.cpuPercent),
+      memory: points.map((d) => d.memoryPercent),
+      blockRead: points.map((d) => d.blockIoReadBytesPerSec),
+      blockWrite: points.map((d) => d.blockIoWriteBytesPerSec),
+      networkRx: points.map((d) => d.networkRxBytesPerSec),
+      networkTx: points.map((d) => d.networkTxBytesPerSec),
+    };
+  }, [dataPoints]);
 
-  // Block I/O is in bytes/sec
-  const blockReadMBps = rates.blockIoReadBytesPerSec;
-  const blockWriteMBps = rates.blockIoWriteBytesPerSec;
+  // Memoize formatted metric parts
+  const metricParts = useMemo(() => {
+    const networkRxBps = rates.networkRxBytesPerSec * 8;
+    const networkTxBps = rates.networkTxBytesPerSec * 8;
 
-  // Network values are in bytes/sec, convert to bits/sec for display
-  const networkRxBps = rates.networkRxBytesPerSec * 8;
-  const networkTxBps = rates.networkTxBytesPerSec * 8;
-
-  // Format all metrics as parts for proper alignment
-  const cpuParts = formatAsPercentParts(rates.cpuPercent / 100, decimals.cpu);
-  const memoryParts = docker.memoryDisplayMode === 'bytes'
-    ? formatBytesParts(container.memory_stats.usage, false, decimals.memory)
-    : formatAsPercentParts(rates.memoryPercent / 100, decimals.memory);
-  const blockReadParts = formatBytesParts(blockReadMBps, true, decimals.diskSpeed);
-  const blockWriteParts = formatBytesParts(blockWriteMBps, true, decimals.diskSpeed);
-  const networkRxParts = formatBitsSIUnitsParts(networkRxBps, true, decimals.networkSpeed);
-  const networkTxParts = formatBitsSIUnitsParts(networkTxBps, true, decimals.networkSpeed);
+    return {
+      cpu: formatAsPercentParts(rates.cpuPercent / 100, decimals.cpu),
+      memory: docker.memoryDisplayMode === 'bytes'
+        ? formatBytesParts(container.memory_stats.usage, false, decimals.memory)
+        : formatAsPercentParts(rates.memoryPercent / 100, decimals.memory),
+      blockRead: formatBytesParts(rates.blockIoReadBytesPerSec, true, decimals.diskSpeed),
+      blockWrite: formatBytesParts(rates.blockIoWriteBytesPerSec, true, decimals.diskSpeed),
+      networkRx: formatBitsSIUnitsParts(networkRxBps, true, decimals.networkSpeed),
+      networkTx: formatBitsSIUnitsParts(networkTxBps, true, decimals.networkSpeed),
+    };
+  }, [
+    rates.cpuPercent, rates.memoryPercent,
+    rates.blockIoReadBytesPerSec, rates.blockIoWriteBytesPerSec,
+    rates.networkRxBytesPerSec, rates.networkTxBytesPerSec,
+    container.memory_stats.usage, docker.memoryDisplayMode,
+    decimals.cpu, decimals.memory, decimals.diskSpeed, decimals.networkSpeed,
+  ]);
 
   const handleClick = () => {
     toggleContainerExpanded(container.id);
@@ -109,50 +118,50 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
         </td>
         <MetricCell>
           <MetricValue
-            value={cpuParts.value}
-            unit={cpuParts.unit}
+            value={metricParts.cpu.value}
+            unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
-            sparkline={showSparklines && <SparklineChart data={cpuSparkline} color="--chart-cpu" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden lg:block" />}
           />
         </MetricCell>
         <MetricCell>
           <MetricValue
-            value={memoryParts.value}
-            unit={memoryParts.unit}
+            value={metricParts.memory.value}
+            unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
-            sparkline={showSparklines && <SparklineChart data={memorySparkline} color="--chart-memory" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden lg:block" />}
           />
         </MetricCell>
         <MetricCell>
           <MetricValue
-            value={blockReadParts.value}
-            unit={blockReadParts.unit}
+            value={metricParts.blockRead.value}
+            unit={metricParts.blockRead.unit}
             hasDecimals={decimals.diskSpeed}
-            sparkline={showSparklines && <SparklineChart data={blockReadSparkline} color="--chart-read" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden lg:block" />}
           />
         </MetricCell>
         <MetricCell>
           <MetricValue
-            value={blockWriteParts.value}
-            unit={blockWriteParts.unit}
+            value={metricParts.blockWrite.value}
+            unit={metricParts.blockWrite.unit}
             hasDecimals={decimals.diskSpeed}
-            sparkline={showSparklines && <SparklineChart data={blockWriteSparkline} color="--chart-write" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden lg:block" />}
           />
         </MetricCell>
         <MetricCell>
           <MetricValue
-            value={networkRxParts.value}
-            unit={networkRxParts.unit}
+            value={metricParts.networkRx.value}
+            unit={metricParts.networkRx.unit}
             hasDecimals={decimals.networkSpeed}
-            sparkline={showSparklines && <SparklineChart data={networkRxSparkline} color="--chart-read" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden lg:block" />}
           />
         </MetricCell>
         <MetricCell>
           <MetricValue
-            value={networkTxParts.value}
-            unit={networkTxParts.unit}
+            value={metricParts.networkTx.value}
+            unit={metricParts.networkTx.unit}
             hasDecimals={decimals.networkSpeed}
-            sparkline={showSparklines && <SparklineChart data={networkTxSparkline} color="--chart-write" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden lg:block" />}
           />
         </MetricCell>
       </tr>
@@ -164,13 +173,15 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
         </tr>
       )}
 
-      <IconPickerDialog
-        open={iconPickerOpen}
-        onClose={() => setIconPickerOpen(false)}
-        onSelect={handleIconSelect}
-        currentIcon={container.icon}
-        containerName={container.name}
-      />
+      {iconPickerOpen && (
+        <IconPickerDialog
+          open={iconPickerOpen}
+          onClose={() => setIconPickerOpen(false)}
+          onSelect={handleIconSelect}
+          currentIcon={container.icon}
+          containerName={container.name}
+        />
+      )}
     </>
   );
-}
+});

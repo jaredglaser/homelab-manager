@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Box, Chip, Typography } from '@mui/joy';
 import { ChevronRight, Server } from 'lucide-react';
 import type { HostStats } from '@/types/docker';
@@ -10,7 +11,7 @@ interface DockerHostAccordionProps {
   totalHosts: number;
 }
 
-export default function DockerHostAccordion({ host, totalHosts }: DockerHostAccordionProps) {
+export default memo(function DockerHostAccordion({ host, totalHosts }: DockerHostAccordionProps) {
   const { isHostExpanded, toggleHostExpanded } = useSettings();
   const containers = Array.from(host.containers.values());
   const hasContainers = containers.length > 0;
@@ -56,4 +57,4 @@ export default function DockerHostAccordion({ host, totalHosts }: DockerHostAcco
         ))}
     </>
   );
-}
+});

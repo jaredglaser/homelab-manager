@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { Sheet } from '@mui/joy';
 import { formatAsPercent, formatBytes, formatBitsSIUnits } from '@/formatters/metrics';
 import ContainerMetricChart from './ContainerMetricChart';
@@ -7,57 +8,67 @@ interface ContainerChartsCardProps {
   dataPoints: ContainerChartDataPoint[];
 }
 
-export default function ContainerChartsCard({
+// Stable formatter references to avoid breaking ContainerMetricChart memo
+const formatCpu = (v: number) => formatAsPercent(v / 100);
+const formatMemory = (v: number) => formatAsPercent(v / 100);
+const formatBlockRead = (v: number) => formatBytes(v, true);
+const formatBlockWrite = (v: number) => formatBytes(v, true);
+const formatNetworkRx = (v: number) => formatBitsSIUnits(v * 8, true);
+const formatNetworkTx = (v: number) => formatBitsSIUnits(v * 8, true);
+
+export default memo(function ContainerChartsCard({
   dataPoints,
 }: ContainerChartsCardProps) {
-  // Transform data points for each chart
-  const cpuData = dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent }));
-  const memoryData = dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent }));
-  const blockReadData = dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoReadBytesPerSec }));
-  const blockWriteData = dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoWriteBytesPerSec }));
-  const networkRxData = dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec }));
-  const networkTxData = dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec }));
+  // Memoize transformed data arrays
+  const chartData = useMemo(() => ({
+    cpu: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
+    memory: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent })),
+    blockRead: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoReadBytesPerSec })),
+    blockWrite: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoWriteBytesPerSec })),
+    networkRx: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
+    networkTx: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
+  }), [dataPoints]);
 
   return (
     <Sheet variant="outlined" className="m-2 p-4 rounded-sm">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         <ContainerMetricChart
           title="CPU %"
-          dataPoints={cpuData}
+          dataPoints={chartData.cpu}
           colorVar="--chart-cpu"
-          formatValue={(v) => formatAsPercent(v / 100)}
+          formatValue={formatCpu}
         />
         <ContainerMetricChart
           title="Memory %"
-          dataPoints={memoryData}
+          dataPoints={chartData.memory}
           colorVar="--chart-memory"
-          formatValue={(v) => formatAsPercent(v / 100)}
+          formatValue={formatMemory}
         />
         <ContainerMetricChart
           title="Block Read"
-          dataPoints={blockReadData}
+          dataPoints={chartData.blockRead}
           colorVar="--chart-read"
-          formatValue={(v) => formatBytes(v, true)}
+          formatValue={formatBlockRead}
         />
         <ContainerMetricChart
           title="Block Write"
-          dataPoints={blockWriteData}
+          dataPoints={chartData.blockWrite}
           colorVar="--chart-write"
-          formatValue={(v) => formatBytes(v, true)}
+          formatValue={formatBlockWrite}
         />
         <ContainerMetricChart
           title="Network RX"
-          dataPoints={networkRxData}
+          dataPoints={chartData.networkRx}
           colorVar="--chart-read"
-          formatValue={(v) => formatBitsSIUnits(v * 8, true)}
+          formatValue={formatNetworkRx}
         />
         <ContainerMetricChart
           title="Network TX"
-          dataPoints={networkTxData}
+          dataPoints={chartData.networkTx}
           colorVar="--chart-write"
-          formatValue={(v) => formatBitsSIUnits(v * 8, true)}
+          formatValue={formatNetworkTx}
         />
       </div>
     </Sheet>
   );
-}
+});

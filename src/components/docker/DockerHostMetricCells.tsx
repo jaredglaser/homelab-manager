@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { HostAggregatedStats } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import { MetricCell, MetricValue } from '../shared-table';
@@ -7,7 +8,7 @@ interface DockerHostMetricCellsProps {
   aggregated: HostAggregatedStats;
 }
 
-export default function DockerHostMetricCells({ aggregated }: DockerHostMetricCellsProps) {
+export default memo(function DockerHostMetricCells({ aggregated }: DockerHostMetricCellsProps) {
   const { docker } = useSettings();
   const { decimals } = docker;
 
@@ -47,4 +48,4 @@ export default function DockerHostMetricCells({ aggregated }: DockerHostMetricCe
       </MetricCell>
     </>
   );
-}
+});

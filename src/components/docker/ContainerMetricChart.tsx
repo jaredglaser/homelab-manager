@@ -1,3 +1,4 @@
+import { memo, useMemo } from 'react';
 import { Sheet, Typography } from '@mui/joy';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
@@ -180,7 +181,7 @@ function getChartOption(
   };
 }
 
-export default function ContainerMetricChart({
+export default memo(function ContainerMetricChart({
   title,
   dataPoints,
   colorVar,
@@ -188,7 +189,10 @@ export default function ContainerMetricChart({
 }: ContainerMetricChartProps) {
   const { general } = useSettings();
   const isPercent = title.includes('%');
-  const option = getChartOption(dataPoints, colorVar, formatValue, isPercent, general.use12HourTime);
+  const option = useMemo(
+    () => getChartOption(dataPoints, colorVar, formatValue, isPercent, general.use12HourTime),
+    [dataPoints, colorVar, formatValue, isPercent, general.use12HourTime],
+  );
 
   return (
     <Sheet variant="soft" className="rounded-sm p-3">
@@ -206,4 +210,4 @@ export default function ContainerMetricChart({
       </div>
     </Sheet>
   );
-}
+});
