@@ -1,4 +1,4 @@
-import { memo, useState, useMemo } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { ChevronRight, Settings } from 'lucide-react';
 import type { DockerStatsFromDB } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
@@ -22,7 +22,6 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
   const { decimals, showSparklines } = docker;
   const expanded = isContainerExpanded(container.id);
 
-  const [isHovered, setIsHovered] = useState(false);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
 
@@ -85,9 +84,7 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
     <>
       <div
         onClick={handleClick}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        className={`${DOCKER_GRID} items-center cursor-pointer transition-all duration-200 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]`}
+        className={`group ${DOCKER_GRID} items-center cursor-pointer transition-[background-color,box-shadow] duration-150 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]`}
       >
         <div className="px-3 py-2 pl-8">
           <div className="flex items-center gap-2">
@@ -107,9 +104,7 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
                 e.stopPropagation();
                 setIconPickerOpen(true);
               }}
-              className={`p-1 rounded transition-opacity hover:bg-neutral-500/20 ${
-                isHovered ? 'opacity-100' : 'opacity-0'
-              }`}
+              className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-neutral-500/20"
               aria-label="Change container icon"
             >
               <Settings size={14} />
