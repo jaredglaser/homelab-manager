@@ -61,7 +61,7 @@ export class DockerCollector extends BaseCollector {
       return; // Base class handles the reconnect delay
     }
 
-    // Upsert container name metadata for display purposes
+    // Upsert container metadata for display purposes
     for (const containerInfo of containers) {
       const containerName = containerInfo.Names[0]?.replace(/^\//, '') || containerInfo.Id.substring(0, 12);
       const entityPath = `${this.hostConfig.name}/${containerInfo.Id}`;
@@ -70,6 +70,13 @@ export class DockerCollector extends BaseCollector {
         entityPath,
         'name',
         containerName
+      );
+      // Also store the image name for icon resolution
+      await this.repository.upsertEntityMetadata(
+        DOCKER_SOURCE,
+        entityPath,
+        'image',
+        containerInfo.Image
       );
     }
 

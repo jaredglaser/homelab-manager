@@ -13,6 +13,8 @@ describe('buildDockerHierarchy', () => {
     return {
       id: `${hostName}/${containerId}`,
       name: containerName,
+      image: 'nginx:latest',
+      icon: null,
       timestamp: new Date(),
       rates: {
         cpuPercent: overrides?.cpuPercent ?? 10,
@@ -194,6 +196,8 @@ describe('buildDockerHierarchy', () => {
       {
         id: 'invalid-no-slash', // Missing slash
         name: 'test',
+        image: 'test:latest',
+        icon: null,
         timestamp: new Date(),
         rates: {
           cpuPercent: 0,
