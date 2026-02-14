@@ -3,7 +3,7 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useSettings } from '@/hooks/useSettings';
 import { useStreamingData } from '@/hooks/useStreamingData';
 import { Alert, Box, Chip, CircularProgress, Sheet, Typography } from '@mui/joy';
-import { AlertTriangle, ChevronRight, Server } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Server, WifiOff } from 'lucide-react';
 import type { DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
 import { buildDockerHierarchy } from '@/lib/utils/docker-hierarchy-builder';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
@@ -193,7 +193,7 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
       onClick={handleClick}
       className={`${DOCKER_GRID} items-center ${
         hasContainers && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
-      }`}
+      } ${host.isStale ? 'bg-amber-500/10' : ''}`}
     >
       <div className="px-3 py-2 flex items-center gap-2">
         {hasContainers && totalHosts > 1 && (
@@ -203,10 +203,18 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
           />
         )}
         <Server size={18} />
+        {host.isStale && (
+          <WifiOff size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
+        )}
         <span className="font-bold">{host.hostName}</span>
         <Chip size="sm" variant="soft">
           {a.containerCount} container{a.containerCount !== 1 ? 's' : ''}
         </Chip>
+        {a.staleContainerCount > 0 && !host.isStale && (
+          <Chip size="sm" variant="soft" color="warning">
+            {a.staleContainerCount} stale
+          </Chip>
+        )}
       </div>
       <div className="pr-16">
         <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} />

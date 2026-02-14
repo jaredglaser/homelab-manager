@@ -118,6 +118,17 @@ describe('transformDockerStats', () => {
     });
   });
 
+  describe('stale field', () => {
+    it('defaults stale to false', () => {
+      const rows: LatestStatRow[] = [
+        { timestamp: now, type: 'cpu_percent', entity: 'host/container1', value: 50 },
+      ];
+
+      const result = transformDockerStats(rows);
+      expect(result.get('host/container1')!.stale).toBe(false);
+    });
+  });
+
   describe('timestamp handling', () => {
     it('uses most recent timestamp', () => {
       const older = new Date('2024-01-01T00:00:00Z');

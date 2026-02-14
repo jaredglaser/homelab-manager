@@ -31,8 +31,13 @@ function calculateHostAggregates(containers: Map<string, ContainerStats>): HostA
   let networkTxBytesPerSec = 0;
   let blockIoReadBytesPerSec = 0;
   let blockIoWriteBytesPerSec = 0;
+  let staleContainerCount = 0;
 
   for (const container of containers.values()) {
+    if (container.data.stale) {
+      staleContainerCount++;
+      continue;
+    }
     const { rates, memory_stats } = container.data;
     cpuPercent += rates.cpuPercent;
     memoryUsage += memory_stats.usage;
@@ -55,6 +60,7 @@ function calculateHostAggregates(containers: Map<string, ContainerStats>): HostA
     blockIoReadBytesPerSec,
     blockIoWriteBytesPerSec,
     containerCount: containers.size,
+    staleContainerCount,
   };
 }
 
@@ -86,8 +92,10 @@ export function buildDockerHierarchy(stats: DockerStatsFromDB[]): DockerHierarch
           blockIoReadBytesPerSec: 0,
           blockIoWriteBytesPerSec: 0,
           containerCount: 0,
+          staleContainerCount: 0,
         },
         containers: new Map(),
+        isStale: false,
       };
       hierarchy.set(hostName, hostStats);
     }
@@ -98,6 +106,9 @@ export function buildDockerHierarchy(stats: DockerStatsFromDB[]): DockerHierarch
   // Calculate aggregates for each host
   for (const hostStats of hierarchy.values()) {
     hostStats.aggregated = calculateHostAggregates(hostStats.containers);
+    hostStats.isStale =
+      hostStats.aggregated.staleContainerCount === hostStats.containers.size &&
+      hostStats.containers.size > 0;
   }
 
   return hierarchy;

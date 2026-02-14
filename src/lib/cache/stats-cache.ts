@@ -2,6 +2,9 @@ import type { DockerStatsFromDB } from '@/lib/transformers/docker-transformer';
 import type { ZFSStatsFromDB } from '@/lib/transformers/zfs-transformer';
 import { filterVisibleZFSStats, sortZFSStats } from '@/lib/transformers/zfs-transformer';
 
+/** Remove stale entries after 5 minutes of no fresh data */
+const STALE_EXPIRY_MS = 5 * 60 * 1000;
+
 /**
  * Server-side cache for stats from the database.
  * Shared across all frontend connections to avoid duplicate DB queries.
@@ -16,10 +19,31 @@ class StatsCache {
   private lastZFSUpdate: Date | null = null;
 
   /**
-   * Update Docker stats in the cache
+   * Merge fresh Docker stats into the cache.
+   * - Fresh entries (in new data): updated with stale=false
+   * - Retained entries (in old cache, not in new data): kept with stale=true
+   * - Expired entries (stale + timestamp > STALE_EXPIRY_MS old): removed
    */
-  updateDocker(stats: Map<string, DockerStatsFromDB>): void {
-    this.docker = stats;
+  updateDocker(freshStats: Map<string, DockerStatsFromDB>): void {
+    const now = Date.now();
+    const merged = new Map<string, DockerStatsFromDB>();
+
+    // Add all fresh entries
+    for (const [id, stat] of freshStats) {
+      merged.set(id, { ...stat, stale: false });
+    }
+
+    // Retain old entries not in fresh set, marking them stale
+    for (const [id, oldStat] of this.docker) {
+      if (!freshStats.has(id)) {
+        const age = now - oldStat.timestamp.getTime();
+        if (age < STALE_EXPIRY_MS) {
+          merged.set(id, { ...oldStat, stale: true });
+        }
+      }
+    }
+
+    this.docker = merged;
     this.lastDockerUpdate = new Date();
   }
 

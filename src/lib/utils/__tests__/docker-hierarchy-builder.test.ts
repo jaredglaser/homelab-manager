@@ -8,13 +8,14 @@ describe('buildDockerHierarchy', () => {
     hostName: string,
     containerId: string,
     containerName: string,
-    overrides?: Partial<DockerStatsFromDB['rates'] & DockerStatsFromDB['memory_stats']>
+    overrides?: Partial<DockerStatsFromDB['rates'] & DockerStatsFromDB['memory_stats'] & { stale: boolean }>
   ): DockerStatsFromDB {
     return {
       id: `${hostName}/${containerId}`,
       name: containerName,
       image: 'nginx:latest',
       icon: null,
+      stale: overrides?.stale ?? false,
       timestamp: new Date(),
       rates: {
         cpuPercent: overrides?.cpuPercent ?? 10,
@@ -198,6 +199,7 @@ describe('buildDockerHierarchy', () => {
         name: 'test',
         image: 'test:latest',
         icon: null,
+        stale: false,
         timestamp: new Date(),
         rates: {
           cpuPercent: 0,
@@ -214,5 +216,79 @@ describe('buildDockerHierarchy', () => {
     expect(() => buildDockerHierarchy(stats)).toThrow(
       'Invalid entity path format: invalid-no-slash'
     );
+  });
+
+  describe('stale container handling', () => {
+    it('should exclude stale containers from aggregation sums', () => {
+      const stats = [
+        createMockStats('host1', 'c1', 'nginx', { cpuPercent: 25 }),
+        createMockStats('host1', 'c2', 'redis', { cpuPercent: 15, stale: true }),
+      ];
+
+      const hierarchy = buildDockerHierarchy(stats);
+      const host = hierarchy.get('host1')!;
+
+      // Only fresh container (nginx, 25%) should be in the sum
+      expect(host.aggregated.cpuPercent).toBe(25);
+    });
+
+    it('should count stale containers separately', () => {
+      const stats = [
+        createMockStats('host1', 'c1', 'nginx'),
+        createMockStats('host1', 'c2', 'redis', { stale: true }),
+        createMockStats('host1', 'c3', 'postgres', { stale: true }),
+      ];
+
+      const hierarchy = buildDockerHierarchy(stats);
+      const host = hierarchy.get('host1')!;
+
+      expect(host.aggregated.containerCount).toBe(3);
+      expect(host.aggregated.staleContainerCount).toBe(2);
+    });
+
+    it('should set isStale true when all containers are stale', () => {
+      const stats = [
+        createMockStats('host1', 'c1', 'nginx', { stale: true }),
+        createMockStats('host1', 'c2', 'redis', { stale: true }),
+      ];
+
+      const hierarchy = buildDockerHierarchy(stats);
+      expect(hierarchy.get('host1')!.isStale).toBe(true);
+    });
+
+    it('should set isStale false when some containers are fresh', () => {
+      const stats = [
+        createMockStats('host1', 'c1', 'nginx'),
+        createMockStats('host1', 'c2', 'redis', { stale: true }),
+      ];
+
+      const hierarchy = buildDockerHierarchy(stats);
+      expect(hierarchy.get('host1')!.isStale).toBe(false);
+    });
+
+    it('should set isStale false when no containers are stale', () => {
+      const stats = [
+        createMockStats('host1', 'c1', 'nginx'),
+        createMockStats('host1', 'c2', 'redis'),
+      ];
+
+      const hierarchy = buildDockerHierarchy(stats);
+      expect(hierarchy.get('host1')!.isStale).toBe(false);
+      expect(hierarchy.get('host1')!.aggregated.staleContainerCount).toBe(0);
+    });
+
+    it('should exclude stale container memory from host aggregation', () => {
+      const stats = [
+        createMockStats('host1', 'c1', 'nginx', { usage: 1000, limit: 2000 }),
+        createMockStats('host1', 'c2', 'redis', { usage: 500, limit: 1000, stale: true }),
+      ];
+
+      const hierarchy = buildDockerHierarchy(stats);
+      const host = hierarchy.get('host1')!;
+
+      // Only fresh container should contribute
+      expect(host.aggregated.memoryUsage).toBe(1000);
+      expect(host.aggregated.memoryLimit).toBe(2000);
+    });
   });
 });

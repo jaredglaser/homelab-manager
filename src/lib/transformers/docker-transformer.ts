@@ -9,6 +9,7 @@ export interface DockerStatsFromDB {
   name: string;
   image: string; // Docker image name (e.g., "nginx:latest")
   icon: string | null; // User-selected icon slug (e.g., "nginx") or null for auto
+  stale: boolean; // True when entity data is missing from recent query results
   timestamp: Date;
   rates: {
     cpuPercent: number;
@@ -68,6 +69,7 @@ function createEmptyDockerStats(
     name,
     image,
     icon,
+    stale: false,
     timestamp: new Date(0), // Epoch; will be updated by first row
     rates: {
       cpuPercent: 0,

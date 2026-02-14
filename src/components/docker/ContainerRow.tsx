@@ -84,7 +84,11 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
     <>
       <div
         onClick={handleClick}
-        className={`group ${DOCKER_GRID} items-center cursor-pointer transition-[background-color,box-shadow] duration-150 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]`}
+        className={`group ${DOCKER_GRID} items-center cursor-pointer transition-[background-color,box-shadow] duration-150 ${
+          container.stale
+            ? 'bg-amber-500/10 opacity-70 hover:bg-amber-500/15 hover:shadow-[inset_0_0_0_1px_rgba(245,158,11,0.4)]'
+            : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
+        }`}
       >
         <div className="px-3 py-2 pl-8">
           <div className="flex items-center gap-2">

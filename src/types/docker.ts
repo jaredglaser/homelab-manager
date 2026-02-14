@@ -46,6 +46,7 @@ export interface HostAggregatedStats {
   blockIoReadBytesPerSec: number;
   blockIoWriteBytesPerSec: number;
   containerCount: number;
+  staleContainerCount: number;
 }
 
 /** Container stats within a host */
@@ -58,6 +59,7 @@ export interface HostStats {
   hostName: string;
   aggregated: HostAggregatedStats;
   containers: Map<string, ContainerStats>;
+  isStale: boolean; // True when ALL containers are stale (host connectivity issue)
 }
 
 /** Complete Docker hierarchy: hosts -> containers */
