@@ -171,18 +171,22 @@ Access the UI at http://localhost:3000
 
 #### Option 2: Local Development
 
+**With Docker Compose (recommended)** — includes PostgreSQL, worker, and hot reload:
+
 ```bash
-# Install dependencies
-bun install
-
-# Start the dev server (port 3000)
-bun dev
-
-# In another terminal, start the background worker (optional)
-bun worker
+bun install             # Install dependencies
+bun dev:docker:up       # Start PostgreSQL + worker with HMR
+bun dev:docker:down     # Stop dev services
+bun dev:docker:restart  # Restart dev services
 ```
 
-**Note:** For local development without Docker Compose, you'll need to run PostgreSQL separately if you want background data collection.
+**Without Docker Compose** — requires external PostgreSQL:
+
+```bash
+bun install             # Install dependencies
+bun dev                 # Start dev server (port 3000)
+bun worker              # Start background worker (separate terminal)
+```
 
 ### Testing
 

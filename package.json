@@ -12,7 +12,10 @@
     "test:coverage": "bun test --coverage",
     "test:coverage:check": "node scripts/check-coverage.js",
     "worker": "bun src/worker/collector.ts",
-    "cleanup": "bun src/worker/cleanup.ts"
+    "cleanup": "bun src/worker/cleanup.ts",
+    "dev:docker:up": "docker compose -f docker-compose.dev.yml up -d",
+    "dev:docker:down": "docker compose -f docker-compose.dev.yml down",
+    "dev:docker:restart": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml up -d"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",

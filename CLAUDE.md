@@ -67,8 +67,9 @@ docker compose ps             # View service status
 
 ### Docker Compose (Development - HMR)
 ```bash
-docker compose -f docker-compose.dev.yml up -d    # Start with HMR + volume mounts
-docker compose -f docker-compose.dev.yml down      # Stop dev services
+bun dev:docker:up             # Start with HMR + volume mounts
+bun dev:docker:down           # Stop dev services
+bun dev:docker:restart        # Restart dev services (down && up)
 docker compose -f docker-compose.dev.yml logs -f web  # View dev web logs
 ```
 
