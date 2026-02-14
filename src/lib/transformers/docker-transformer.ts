@@ -7,6 +7,8 @@ import type { LatestStatRow } from '@/lib/database/repositories/stats-repository
 export interface DockerStatsFromDB {
   id: string;
   name: string;
+  image: string; // Docker image name (e.g., "nginx:latest")
+  icon: string | null; // User-selected icon slug (e.g., "nginx") or null for auto
   timestamp: Date;
   rates: {
     cpuPercent: number;
@@ -48,7 +50,7 @@ function extractContainerId(entityPath: string): string {
 
 /**
  * Creates an empty DockerStatsFromDB object with default values.
- * Uses metadata to look up display name if available.
+ * Uses metadata to look up display name, image, and icon if available.
  */
 function createEmptyDockerStats(
   entityId: string,
@@ -58,10 +60,14 @@ function createEmptyDockerStats(
   // Fallback: extract container ID from path and truncate to 12 chars
   const containerId = extractContainerId(entityId);
   const name = entityMeta?.get('name') ?? containerId.substring(0, 12);
+  const image = entityMeta?.get('image') ?? '';
+  const icon = entityMeta?.get('icon') ?? null;
 
   return {
     id: entityId,
     name,
+    image,
+    icon,
     timestamp: new Date(0), // Epoch; will be updated by first row
     rates: {
       cpuPercent: 0,

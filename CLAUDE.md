@@ -267,6 +267,7 @@ Adding a new data source requires only a new collector — no schema changes nee
 - **TailwindCSS only** for all layout and styling
 - Never use MUI `sx` props (use Tailwind: `p-3` not `sx={{ p: 3 }}`)
   - Exception: MUI Joy Table internal element selectors (e.g., `'& thead th'`) require `sx` for proper CSS specificity
+  - Exception: MUI Joy CSS variables (e.g., `'--ModalDialog-minWidth'`) require `sx` since Tailwind can't set them
 - Never use inline `style` attribute (exception: dynamic column widths in tables)
 - Never create `.css` files (exception: Joy UI theme in `theme.ts`)
 

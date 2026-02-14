@@ -1,4 +1,5 @@
-import { ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronRight, Settings } from 'lucide-react';
 import type { DockerStatsFromDB } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
 import { MetricCell, MetricValue } from '../shared-table';
@@ -6,6 +7,9 @@ import { useSettings } from '@/hooks/useSettings';
 import { useContainerChartData } from '@/hooks/useContainerChartData';
 import ContainerChartsCard from './ContainerChartsCard';
 import SparklineChart from './SparklineChart';
+import IconPickerDialog from './IconPickerDialog';
+import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
+import { updateContainerIcon } from '@/data/docker.functions';
 
 interface ContainerRowProps {
   container: DockerStatsFromDB;
@@ -17,6 +21,16 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
   const { rates } = container;
   const { decimals, showSparklines } = docker;
   const expanded = isContainerExpanded(container.id);
+
+  const [isHovered, setIsHovered] = useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [iconError, setIconError] = useState(false);
+
+  const iconUrl = getIconUrl(container.icon, container.image);
+
+  const handleIconSelect = async (iconSlug: string) => {
+    await updateContainerIcon({ data: { entityId: container.id, iconSlug } });
+  };
 
   // Only fetch chart data if sparklines are enabled or row is expanded
   const needsChartData = showSparklines || expanded;
@@ -62,6 +76,8 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
     <>
       <tr
         onClick={handleClick}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         className="cursor-pointer transition-all duration-200 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]"
       >
         <td className={indent ? 'pl-8' : undefined}>
@@ -70,7 +86,25 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
               size={16}
               className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
             />
-            {container.name}
+            <img
+              src={iconError ? FALLBACK_ICON_URL : iconUrl}
+              alt=""
+              className="w-5 h-5 flex-shrink-0"
+              onError={() => setIconError(true)}
+            />
+            <span className="truncate">{container.name}</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setIconPickerOpen(true);
+              }}
+              className={`p-1 rounded transition-opacity hover:bg-neutral-500/20 ${
+                isHovered ? 'opacity-100' : 'opacity-0'
+              }`}
+              aria-label="Change container icon"
+            >
+              <Settings size={14} />
+            </button>
           </div>
         </td>
         <MetricCell>
@@ -129,6 +163,14 @@ export default function ContainerRow({ container, indent }: ContainerRowProps) {
           </td>
         </tr>
       )}
+
+      <IconPickerDialog
+        open={iconPickerOpen}
+        onClose={() => setIconPickerOpen(false)}
+        onSelect={handleIconSelect}
+        currentIcon={container.icon}
+        containerName={container.name}
+      />
     </>
   );
 }
