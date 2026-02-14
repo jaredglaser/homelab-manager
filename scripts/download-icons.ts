@@ -1,92 +1,63 @@
 /**
- * Download ALL icons from Dashboard Icons repo.
+ * Download ALL icons from Dashboard Icons repo using sparse git clone.
  * Run with: bun scripts/download-icons.ts
  *
  * Icons are licensed under Apache 2.0 - see public/icons/LICENSE and public/icons/NOTICE
  *
- * @see https://github.com/walkxcode/dashboard-icons
+ * @see https://github.com/homarr-labs/dashboard-icons
  */
-import { mkdir, writeFile, readdir } from 'fs/promises';
+import { mkdir, writeFile, readdir, cp, rm } from 'fs/promises';
 import { existsSync } from 'fs';
+import { execSync } from 'child_process';
 
 const ICONS_DIR = './public/icons';
-const GITHUB_API =
-  'https://api.github.com/repos/walkxcode/dashboard-icons/contents/svg';
-const RAW_BASE =
-  'https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/svg';
+const REPO_URL = 'https://github.com/homarr-labs/dashboard-icons.git';
+const TEMP_DIR = './tmp-dashboard-icons';
 
-interface GitHubFile {
-  name: string;
-  type: 'file' | 'dir';
-  download_url: string;
-}
+async function cloneIcons(): Promise<void> {
+  // Clean up any previous temp directory
+  if (existsSync(TEMP_DIR)) {
+    await rm(TEMP_DIR, { recursive: true });
+  }
 
-async function getIconList(): Promise<string[]> {
-  console.log('Fetching icon list from GitHub API...');
+  console.log('Cloning Dashboard Icons repo (sparse, svg/ only)...');
 
-  const response = await fetch(GITHUB_API, {
-    headers: {
-      Accept: 'application/vnd.github.v3+json',
-      'User-Agent': 'homelab-manager',
-    },
+  // Shallow clone with no blobs, then sparse-checkout just the svg folder
+  execSync(
+    `git clone --depth 1 --filter=blob:none --sparse ${REPO_URL} ${TEMP_DIR}`,
+    { stdio: 'inherit' }
+  );
+  execSync('git sparse-checkout set svg', {
+    cwd: TEMP_DIR,
+    stdio: 'inherit',
   });
 
-  if (!response.ok) {
-    throw new Error(
-      `GitHub API error: ${response.status} ${response.statusText}`
-    );
-  }
-
-  const files: GitHubFile[] = await response.json();
-  return files
-    .filter((f) => f.type === 'file' && f.name.endsWith('.svg'))
-    .map((f) => f.name.replace('.svg', ''));
-}
-
-async function downloadIcon(slug: string): Promise<void> {
-  const url = `${RAW_BASE}/${slug}.svg`;
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch ${slug}: ${response.status}`);
-  }
-
-  const svg = await response.text();
-  await writeFile(`${ICONS_DIR}/${slug}.svg`, svg);
+  console.log('Clone complete.');
 }
 
 async function downloadIcons() {
-  // Create icons directory
+  // Clone the repo
+  await cloneIcons();
+
+  // Create icons directory (preserve LICENSE and NOTICE)
   if (!existsSync(ICONS_DIR)) {
     await mkdir(ICONS_DIR, { recursive: true });
   }
 
-  // Get list of all icons from GitHub
-  const icons = await getIconList();
-  console.log(`Found ${icons.length} icons in Dashboard Icons repo`);
+  // Copy SVGs from cloned repo to public/icons/
+  const svgDir = `${TEMP_DIR}/svg`;
+  const files = await readdir(svgDir);
+  const svgFiles = files.filter((f) => f.endsWith('.svg'));
 
-  // Download in batches to avoid overwhelming the network
-  const BATCH_SIZE = 50;
-  let downloaded = 0;
-  let failed = 0;
+  console.log(`Found ${svgFiles.length} icons, copying to ${ICONS_DIR}...`);
 
-  for (let i = 0; i < icons.length; i += BATCH_SIZE) {
-    const batch = icons.slice(i, i + BATCH_SIZE);
-
-    const results = await Promise.allSettled(batch.map((slug) => downloadIcon(slug)));
-
-    downloaded += results.filter((r) => r.status === 'fulfilled').length;
-    failed += results.filter((r) => r.status === 'rejected').length;
-
-    console.log(
-      `Progress: ${downloaded}/${icons.length} downloaded, ${failed} failed`
-    );
+  for (const file of svgFiles) {
+    await cp(`${svgDir}/${file}`, `${ICONS_DIR}/${file}`);
   }
 
-  console.log(`\nDone! Downloaded ${downloaded} icons to ${ICONS_DIR}`);
-  if (failed > 0) {
-    console.log(`Warning: ${failed} icons failed to download`);
-  }
+  // Clean up temp directory
+  await rm(TEMP_DIR, { recursive: true });
+  console.log(`Copied ${svgFiles.length} icons to ${ICONS_DIR}`);
 
   // Generate icon manifest for the frontend
   await generateIconManifest();

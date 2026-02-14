@@ -40,7 +40,10 @@ export default function IconPickerDialog({
 
   return (
     <Modal open={open} onClose={handleClose}>
-      <ModalDialog aria-labelledby="icon-picker-title" className="w-full max-w-lg">
+      <ModalDialog
+        aria-labelledby="icon-picker-title"
+        sx={{ width: 'min(90vw, 40rem)' }}
+      >
         <ModalClose />
         <DialogTitle id="icon-picker-title">Select Icon for {containerName}</DialogTitle>
         <DialogContent>
@@ -53,7 +56,7 @@ export default function IconPickerDialog({
             autoFocus
           />
           <div className="max-h-80 overflow-y-auto">
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(4.5rem, 1fr))' }}>
               {filteredIcons.map((slug) => (
                 <button
                   key={slug}
