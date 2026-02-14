@@ -16,7 +16,7 @@ type FlatRow =
 
 const ROW_HEIGHT_ESTIMATE = 41;
 const EXPANDED_ROW_HEIGHT_ESTIMATE = 350;
-const OVERSCAN = 5;
+const OVERSCAN = 10;
 
 export const DOCKER_GRID = 'grid grid-cols-[20%_repeat(6,1fr)] min-w-[800px]';
 
@@ -124,6 +124,8 @@ export default function ContainerTable() {
               height: virtualizer.getTotalSize(),
               width: '100%',
               position: 'relative',
+              willChange: 'transform',
+              contain: 'layout style',
             }}
           >
             <div
@@ -132,7 +134,7 @@ export default function ContainerTable() {
                 top: 0,
                 left: 0,
                 width: '100%',
-                transform: `translateY(${(items[0]?.start ?? 0) - virtualizer.options.scrollMargin}px)`,
+                transform: `translate3d(0, ${(items[0]?.start ?? 0) - virtualizer.options.scrollMargin}px, 0)`,
               }}
             >
               {items.map((virtualRow) => {

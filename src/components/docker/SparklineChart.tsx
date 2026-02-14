@@ -1,6 +1,4 @@
-import { memo, useMemo } from 'react';
-import ReactECharts from 'echarts-for-react';
-import type { EChartsOption } from 'echarts';
+import { memo, useId } from 'react';
 
 interface SparklineChartProps {
   data: number[];
@@ -15,6 +13,8 @@ function getCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+const PADDING = 2;
+
 export default memo(function SparklineChart({
   data,
   color,
@@ -22,64 +22,47 @@ export default memo(function SparklineChart({
   width = 60,
   className,
 }: SparklineChartProps) {
-  const option: EChartsOption = useMemo(() => {
-    const lineColor = getCssVar(color);
-    const areaStart = getCssVar(`${color}-area-start`);
-    const areaEnd = getCssVar(`${color}-area-end`);
+  const rawId = useId();
+  const gradientId = `spark${rawId.replace(/:/g, '')}`;
 
-    return {
-      animation: false,
-      grid: {
-        top: 2,
-        right: 2,
-        bottom: 2,
-        left: 2,
-      },
-      xAxis: {
-        type: 'category',
-        show: false,
-        data: data.map((_, i) => i),
-      },
-      yAxis: {
-        type: 'value',
-        show: false,
-        min: 0,
-        max: (value) => Math.max(value.max * 1.1, 1),
-      },
-      series: [
-        {
-          type: 'line',
-          smooth: false,
-          showSymbol: false,
-          data,
-          lineStyle: { color: lineColor, width: 1.5 },
-          areaStyle: {
-            color: {
-              type: 'linear',
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-              colorStops: [
-                { offset: 0, color: areaStart },
-                { offset: 1, color: areaEnd },
-              ],
-            },
-          },
-        },
-      ],
-    };
-  }, [data, color]);
+  const lineColor = getCssVar(color);
+  const drawWidth = width - PADDING * 2;
+  const drawHeight = height - PADDING * 2;
+  const max = Math.max(Math.max(...data) * 1.1, 1);
+  const bottom = height - PADDING;
+
+  // Build SVG coordinate points
+  const len = data.length;
+  const points = data.map((v, i) => {
+    const x = PADDING + (len === 1 ? drawWidth / 2 : (i / (len - 1)) * drawWidth);
+    const y = PADDING + drawHeight - (v / max) * drawHeight;
+    return [x, y] as const;
+  });
+
+  const lineD = points.map(([x, y], i) =>
+    `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+  ).join('');
+
+  // Close the path along the bottom edge for the area fill
+  const areaD = len > 0
+    ? `${lineD}L${(PADDING + drawWidth).toFixed(1)},${bottom}L${PADDING},${bottom}Z`
+    : '';
+
+  const areaStart = getCssVar(`${color}-area-start`);
+  const areaEnd = getCssVar(`${color}-area-end`);
 
   return (
-    <div className={className}>
-      <ReactECharts
-        option={option}
-        style={{ height, width }}
-        opts={{ renderer: 'svg' }}
-        notMerge={false}
-        lazyUpdate={true}
-      />
+    <div className={className} style={{ contain: 'strict', height, width }}>
+      <svg width={width} height={height}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor={areaStart} />
+            <stop offset="1" stopColor={areaEnd} />
+          </linearGradient>
+        </defs>
+        {areaD && <path d={areaD} fill={`url(#${gradientId})`} />}
+        {lineD && <path d={lineD} fill="none" stroke={lineColor} strokeWidth={1.5} />}
+      </svg>
     </div>
   );
 });
