@@ -26,12 +26,28 @@ export class StatsRepository {
     const cached = this.sourceCache.get(name);
     if (cached !== undefined) return cached;
 
-    const result = await this.pool.query(
-      `INSERT INTO stat_source (name) VALUES ($1)
-       ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
-       RETURNING id`,
+    // SELECT first to avoid wasting identity sequence values on conflict
+    let result = await this.pool.query(
+      `SELECT id FROM stat_source WHERE name = $1`,
       [name]
     );
+
+    if (result.rows.length === 0) {
+      result = await this.pool.query(
+        `INSERT INTO stat_source (name) VALUES ($1)
+         ON CONFLICT (name) DO NOTHING
+         RETURNING id`,
+        [name]
+      );
+
+      // Race condition: another connection inserted between SELECT and INSERT
+      if (result.rows.length === 0) {
+        result = await this.pool.query(
+          `SELECT id FROM stat_source WHERE name = $1`,
+          [name]
+        );
+      }
+    }
 
     const id = result.rows[0].id;
     this.sourceCache.set(name, id);
@@ -45,12 +61,28 @@ export class StatsRepository {
 
     const sourceId = await this.getOrCreateSource(sourceName);
 
-    const result = await this.pool.query(
-      `INSERT INTO stat_type (source_id, name) VALUES ($1, $2)
-       ON CONFLICT (source_id, name) DO UPDATE SET name = EXCLUDED.name
-       RETURNING id`,
+    // SELECT first to avoid wasting identity sequence values on conflict
+    let result = await this.pool.query(
+      `SELECT id FROM stat_type WHERE source_id = $1 AND name = $2`,
       [sourceId, typeName]
     );
+
+    if (result.rows.length === 0) {
+      result = await this.pool.query(
+        `INSERT INTO stat_type (source_id, name) VALUES ($1, $2)
+         ON CONFLICT (source_id, name) DO NOTHING
+         RETURNING id`,
+        [sourceId, typeName]
+      );
+
+      // Race condition: another connection inserted between SELECT and INSERT
+      if (result.rows.length === 0) {
+        result = await this.pool.query(
+          `SELECT id FROM stat_type WHERE source_id = $1 AND name = $2`,
+          [sourceId, typeName]
+        );
+      }
+    }
 
     const id = result.rows[0].id;
     this.typeCache.set(cacheKey, id);
