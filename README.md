@@ -13,12 +13,14 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 
 ### Current Features
 
-- **Docker Dashboard** (`/`) — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX)
+- **Docker Dashboard** (`/`) — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX) with inline sparkline charts
+- **Container Icons** — Auto-resolved icons from Docker image names with manual override via an icon picker (powered by [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons))
 - **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics collected via SSH and streamed from the database
 - **PostgreSQL Persistence** — Background worker continuously collects stats with progressive downsampling (raw → minute → hour → day aggregates) for infinite retention
 - **Docker Compose Deployment** — Full stack with PostgreSQL, web server, background worker, and daily cleanup job (builds from source, no pre-built image)
 - **Live-Updating UI** — Server-Sent Events (SSE) stream data continuously to the client with no polling
-- **Factory-Based Table Architecture** — Adding a new streaming data source requires only an SSE endpoint, column definitions, and a row renderer
+- **Virtualized Tables** — CSS Grid layouts with page-scroll virtualization (`useWindowVirtualizer`) for efficient rendering of large container/pool lists
+- **Per-Entity Stale Detection** — When a host or container stops reporting, rows stay visible with amber highlighting and a connection warning icon instead of disappearing
 
 ## Built With
 
@@ -29,6 +31,7 @@ This project is built on the **TanStack ecosystem** as its core framework:
 | **Framework** | [TanStack Start](https://tanstack.com/start) | Full-stack React framework — server functions, SSR, and file-based routing |
 | **Routing** | [TanStack Router](https://tanstack.com/router) | Type-safe, file-based routing with built-in devtools |
 | **Async State** | [TanStack Query](https://tanstack.com/query) | Server state management — caching, refetching, and stale data detection |
+| **Virtualization** | [TanStack Virtual](https://tanstack.com/virtual) | Virtualized rendering for large lists (page-scroll mode) |
 | **Runtime** | [Bun](https://bun.sh) | Package manager, test runner, and JavaScript runtime |
 | **Build** | [Vite](https://vite.dev) | Dev server and production bundler |
 | **UI** | [MUI Joy UI](https://mui.com/joy-ui/getting-started/) + [TailwindCSS](https://tailwindcss.com) | Component library and utility-first styling |
@@ -79,7 +82,7 @@ The frontend reads stats from the database, not directly from Docker/ZFS APIs. T
 - **Multiple browser tabs** share the same server-side cache
 - **Real-time updates** via PostgreSQL LISTEN/NOTIFY (no polling)
 - **Visibility filtering** for ZFS (only stream data for expanded pools/vdevs)
-- **Stale data detection** when background worker stops (30+ second warning)
+- **Stale data detection** at both global (30+ second warning) and per-entity levels (amber highlighting for individual hosts/containers)
 
 ### Data Streaming Pipeline
 
@@ -105,22 +108,22 @@ flowchart LR
 flowchart LR
     DB["PostgreSQL<br/>LISTEN"]
     SubSvc["Subscription Service"]
-    Cache["Stats Cache"]
+    Cache["Stats Cache<br/>(merge with staleness)"]
     SSE["SSE Endpoint<br/>(server route)"]
-    Hook["useSSE<br/>(hook)"]
-    ST["StreamingTable<br/>(factory component)"]
+    Hook["useStreamingData<br/>(hook)"]
+    Table["Virtualized Table<br/>(CSS Grid)"]
 
-    DB -->|"NOTIFY"| SubSvc --> Cache --> SSE --> Hook --> ST
+    DB -->|"NOTIFY"| SubSvc --> Cache --> SSE --> Hook --> Table
 ```
 
 **How it works:**
 
 1. **Background worker** continuously collects stats from Docker/ZFS APIs
 2. Stats are **batch inserted** into PostgreSQL with `NOTIFY stats_update`
-3. **Subscription service** maintains a `LISTEN` connection, updates the **shared cache** on each notification
+3. **Subscription service** maintains a `LISTEN` connection, updates the **shared cache** on each notification (merging with existing data; missing entities are marked stale rather than removed)
 4. **SSE endpoints** stream stats from the cache when notified (filtered by visibility for ZFS)
-5. The **`useSSE` hook** consumes the SSE stream via EventSource, managing connection lifecycle and error state
-6. The **`StreamingTable` factory component** renders the UI with automatic stale data detection
+5. The **`useStreamingData` hook** consumes the SSE stream, transforms raw data into a hierarchy, and tracks global stale state
+6. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
 
 ## Getting Started
 
@@ -218,24 +221,30 @@ src/
 ├── components/
 │   ├── AppShell.tsx                 # Shared layout (ThemeProvider, QueryClient, Header)
 │   ├── Header.tsx                   # Navigation header
+│   ├── PageHeader.tsx               # Page title with optional actions
 │   ├── ModeToggle.tsx               # Dark/light theme toggle
 │   ├── ThemeProvider.tsx            # MUI Joy theme wrapper
 │   ├── docker/
-│   │   ├── ContainerTable.tsx       # Docker StreamingTable config
-│   │   └── ContainerRow.tsx         # Docker container row renderer
+│   │   ├── ContainerTable.tsx       # Docker table (CSS Grid + useWindowVirtualizer, includes HostRow)
+│   │   ├── ContainerRow.tsx         # Container row with icon, metrics, and sparklines
+│   │   ├── ContainerChartsCard.tsx  # Expanded container detail charts (60s history)
+│   │   ├── ContainerMetricChart.tsx # Individual metric chart component
+│   │   ├── SparklineChart.tsx       # Inline SVG sparkline for real-time metrics
+│   │   └── IconPickerDialog.tsx     # Container icon picker with search
 │   ├── zfs/
-│   │   ├── ZFSPoolsTable.tsx        # ZFS StreamingTable config
-│   │   ├── ZFSPoolAccordion.tsx     # Expandable pool row
-│   │   ├── ZFSVdevAccordion.tsx     # Expandable vdev row
-│   │   ├── ZFSDiskRow.tsx           # Disk row renderer
-│   │   └── ZFSMetricCells.tsx       # Shared ZFS metric columns
+│   │   ├── ZFSPoolsTable.tsx        # ZFS table (CSS Grid + useWindowVirtualizer)
+│   │   ├── ZFSPoolSpeedCharts.tsx   # Pool-level speed charts
+│   │   └── ZFSPoolSpeedChart.tsx    # Individual pool speed chart
 │   └── shared-table/
-│       ├── MetricCell.tsx           # Right-aligned table cell
-│       └── StreamingTable.tsx       # Factory component (with stale detection)
+│       └── MetricValue.tsx          # Formatted metric display (value + unit + optional sparkline)
 ├── hooks/
-│   └── useSSE.ts                    # EventSource-based SSE consumer
+│   ├── useSSE.ts                    # EventSource-based SSE consumer
+│   ├── useStreamingData.ts          # SSE + state transform + global stale detection
+│   ├── useContainerChartData.ts     # Time-series chart data for containers
+│   ├── useTimeSeriesBuffer.ts       # Rolling time-series data buffer
+│   └── useSettings.tsx              # User preferences (expansion state, display modes, decimals)
 ├── data/
-│   ├── docker.functions.tsx         # Docker server functions (active containers, stale check)
+│   ├── docker.functions.tsx         # Docker server functions (active containers, icon updates)
 │   ├── settings.functions.tsx       # Settings server functions (get/update)
 │   └── zfs.functions.tsx            # ZFS server functions (active pools, stale check)
 ├── middleware/
@@ -244,19 +253,23 @@ src/
 ├── lib/
 │   ├── __tests__/                   # Unit tests
 │   ├── cache/
-│   │   └── stats-cache.ts           # Singleton stats cache (shared across connections)
+│   │   └── stats-cache.ts           # Singleton stats cache (merge-on-update with per-entity staleness)
 │   ├── clients/                     # Connection managers (Docker, SSH, Database)
 │   ├── config/                      # Configuration loaders (database, worker)
 │   ├── database/
-│   │   ├── repositories/            # Data access layer (StatsRepository)
+│   │   ├── repositories/            # Data access layer (StatsRepository, SettingsRepository)
 │   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler
 │   │   └── migrate.ts               # Database migration runner
 │   ├── parsers/                     # Stream parsers (ZFS iostat, text lines)
 │   ├── test/                        # Test utilities and helpers
 │   ├── transformers/                # DB rows → domain objects
-│   │   ├── docker-transformer.ts    # DB rows → Docker stats
+│   │   ├── docker-transformer.ts    # DB rows → Docker stats (with stale flag)
 │   │   └── zfs-transformer.ts       # DB rows → ZFS stats (with hierarchy)
-│   ├── utils/                       # Rate calculators, hierarchy builders
+│   ├── utils/
+│   │   ├── docker-hierarchy-builder.ts  # Flat stats → host/container hierarchy
+│   │   ├── zfs-hierarchy-builder.ts     # Flat stats → pool/vdev/disk hierarchy
+│   │   ├── icon-resolver.ts             # Auto-resolve icons from Docker image names
+│   │   └── available-icons.ts           # Icon slug registry (dashboard-icons)
 │   ├── streaming/types.ts           # Core interfaces (StreamingClient, RateCalculator)
 │   └── server-init.ts               # Server-side shutdown handlers
 ├── worker/
@@ -275,6 +288,7 @@ src/
 │   └── zfs.tsx                      # ZFS page (/zfs)
 └── theme.ts                         # MUI Joy theme config
 
+public/icons/                        # SVG icons from homarr-labs/dashboard-icons
 migrations/                          # SQL migrations (schema + downsampling functions)
 ```
 
