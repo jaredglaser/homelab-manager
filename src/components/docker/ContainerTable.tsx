@@ -1,62 +1,229 @@
-import { useCallback, useMemo } from 'react';
-import DockerHostAccordion from './DockerHostAccordion';
-import type { DockerStatsFromDB, DockerHierarchy } from '@/types/docker';
-import { buildDockerHierarchy } from '@/lib/utils/docker-hierarchy-builder';
-import StreamingTable, { type ColumnDef } from '../shared-table/StreamingTable';
+import { useCallback, useMemo, useRef } from 'react';
+import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useSettings } from '@/hooks/useSettings';
+import { useStreamingData } from '@/hooks/useStreamingData';
+import { Alert, Box, Chip, CircularProgress, Sheet, Typography } from '@mui/joy';
+import { AlertTriangle, ChevronRight, Server } from 'lucide-react';
+import type { DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
+import { buildDockerHierarchy } from '@/lib/utils/docker-hierarchy-builder';
+import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
+import { MetricValue } from '../shared-table';
+import ContainerRow from './ContainerRow';
+
+type FlatRow =
+  | { type: 'host'; host: HostStats; totalHosts: number }
+  | { type: 'container'; container: DockerStatsFromDB };
+
+const ROW_HEIGHT_ESTIMATE = 41;
+const EXPANDED_ROW_HEIGHT_ESTIMATE = 350;
+const OVERSCAN = 5;
+
+export const DOCKER_GRID = 'grid grid-cols-[20%_repeat(6,1fr)] min-w-[800px]';
 
 export default function ContainerTable() {
-  const { docker } = useSettings();
+  const { docker, isHostExpanded, isContainerExpanded } = useSettings();
 
-  const columns: ColumnDef[] = useMemo(
-    () => [
-      { label: 'Host / Container', width: '20%' },
-      { label: 'CPU', align: 'right', paddingRight: '4rem' },
-      {
-        label:
-          docker.memoryDisplayMode === 'percentage' ? 'RAM %' : 'RAM',
-        align: 'right',
-        paddingRight: '4rem',
-      },
-      { label: 'Disk Read', align: 'right', paddingRight: '4rem' },
-      { label: 'Disk Write', align: 'right', paddingRight: '4rem' },
-      { label: 'Net RX', align: 'right', paddingRight: '4rem' },
-      { label: 'Net TX', align: 'right', paddingRight: '4rem' },
-    ],
-    [docker.memoryDisplayMode],
-  );
-
-  const onData = useCallback(
-    (_prev: DockerHierarchy, stats: DockerStatsFromDB[]): DockerHierarchy => {
-      return buildDockerHierarchy(stats);
-    },
+  const transform = useCallback(
+    (stats: DockerStatsFromDB[]) => buildDockerHierarchy(stats),
     [],
   );
 
-  const renderRows = useCallback(
-    (state: DockerHierarchy) => {
-      const totalHosts = state.size;
-      return Array.from(state.values()).map((hostStats) => (
-        <DockerHostAccordion
-          key={hostStats.hostName}
-          host={hostStats}
-          totalHosts={totalHosts}
-        />
-      ));
+  const { state: hierarchy, hasData, isConnected, error, isStale } = useStreamingData<DockerStatsFromDB[], DockerHierarchy>({
+    url: '/api/docker-stats',
+    transform,
+    initialState: new Map(),
+    staleKey: 'docker',
+  });
+
+  // Flatten hierarchy into a single virtual row list
+  const flatRows = useMemo<FlatRow[]>(() => {
+    const rows: FlatRow[] = [];
+    const totalHosts = hierarchy.size;
+    for (const host of hierarchy.values()) {
+      rows.push({ type: 'host', host, totalHosts });
+      if (isHostExpanded(host.hostName, totalHosts)) {
+        for (const container of host.containers.values()) {
+          rows.push({ type: 'container', container: container.data });
+        }
+      }
+    }
+    return rows;
+  }, [hierarchy, isHostExpanded]);
+
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useWindowVirtualizer({
+    count: flatRows.length,
+    estimateSize: (index: number) => {
+      const row = flatRows[index];
+      if (row.type === 'host') return ROW_HEIGHT_ESTIMATE;
+      return isContainerExpanded(row.container.id) ? EXPANDED_ROW_HEIGHT_ESTIMATE : ROW_HEIGHT_ESTIMATE;
     },
-    [],
-  );
+    overscan: OVERSCAN,
+    scrollMargin: listRef.current?.offsetTop ?? 0,
+    getItemKey: (index: number) => {
+      const row = flatRows[index];
+      return row.type === 'host' ? `host-${row.host.hostName}` : `ctr-${row.container.id}`;
+    },
+  });
+
+  const items = virtualizer.getVirtualItems();
+  const memLabel = docker.memoryDisplayMode === 'percentage' ? 'RAM %' : 'RAM';
+
+  // Loading / error states
+  if (error && !hasData) {
+    return (
+      <Box className="w-full">
+        <Box className="p-2">
+          <Typography color="danger">
+            Error connecting to Docker stats: {error.message}
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+  if (!isConnected && !hasData) {
+    return (
+      <Box className="w-full">
+        <Box className="flex justify-center p-4">
+          <CircularProgress />
+        </Box>
+      </Box>
+    );
+  }
 
   return (
-    <StreamingTable<DockerStatsFromDB[], DockerHierarchy>
-      ariaLabel="docker containers table"
-      columns={columns}
-      sseUrl="/api/docker-stats"
-      initialState={new Map()}
-      onData={onData}
-      renderRows={renderRows}
-      errorLabel="Error connecting to Docker stats"
-      minWidth="800px"
-    />
+    <Box className="w-full">
+      {isStale && (
+        <Alert
+          color="warning"
+          variant="soft"
+          startDecorator={<AlertTriangle size={18} />}
+          className="mb-3"
+        >
+          Data is stale. Background worker may not be running.
+        </Alert>
+      )}
+      <Sheet variant="outlined" className="rounded-sm overflow-hidden">
+        {/* Column headers */}
+        <div className={`${DOCKER_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
+          <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Host / Container</div>
+          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">CPU</div>
+          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">{memLabel}</div>
+          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Disk Read</div>
+          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Disk Write</div>
+          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Net RX</div>
+          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Net TX</div>
+        </div>
+
+        {/* Virtualized body */}
+        <div ref={listRef}>
+          <div
+            style={{
+              height: virtualizer.getTotalSize(),
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${(items[0]?.start ?? 0) - virtualizer.options.scrollMargin}px)`,
+              }}
+            >
+              {items.map((virtualRow) => {
+                const row = flatRows[virtualRow.index];
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                  >
+                    {row.type === 'host' ? (
+                      <HostRow host={row.host} totalHosts={row.totalHosts} />
+                    ) : (
+                      <ContainerRow container={row.container} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Sheet>
+    </Box>
+  );
+}
+
+// ─── Host Row ────────────────────────────────────────────────────────────────
+
+function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) {
+  const { docker, isHostExpanded, toggleHostExpanded } = useSettings();
+  const { decimals } = docker;
+  const expanded = isHostExpanded(host.hostName, totalHosts);
+  const hasContainers = host.containers.size > 0;
+
+  const handleClick = () => {
+    if (hasContainers && totalHosts > 1) {
+      toggleHostExpanded(host.hostName);
+    }
+  };
+
+  const a = host.aggregated;
+  const networkRxBps = a.networkRxBytesPerSec * 8;
+  const networkTxBps = a.networkTxBytesPerSec * 8;
+
+  const cpuParts = formatAsPercentParts(a.cpuPercent / 100, decimals.cpu);
+  const memoryParts = docker.memoryDisplayMode === 'bytes'
+    ? formatBytesParts(a.memoryUsage, false, decimals.memory)
+    : formatAsPercentParts(a.memoryPercent / 100, decimals.memory);
+  const blockReadParts = formatBytesParts(a.blockIoReadBytesPerSec, true, decimals.diskSpeed);
+  const blockWriteParts = formatBytesParts(a.blockIoWriteBytesPerSec, true, decimals.diskSpeed);
+  const networkRxParts = formatBitsSIUnitsParts(networkRxBps, true, decimals.networkSpeed);
+  const networkTxParts = formatBitsSIUnitsParts(networkTxBps, true, decimals.networkSpeed);
+
+  return (
+    <div
+      onClick={handleClick}
+      className={`${DOCKER_GRID} items-center ${
+        hasContainers && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
+      }`}
+    >
+      <div className="px-3 py-2 flex items-center gap-2">
+        {hasContainers && totalHosts > 1 && (
+          <ChevronRight
+            size={18}
+            className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          />
+        )}
+        <Server size={18} />
+        <span className="font-bold">{host.hostName}</span>
+        <Chip size="sm" variant="soft">
+          {a.containerCount} container{a.containerCount !== 1 ? 's' : ''}
+        </Chip>
+      </div>
+      <div className="pr-16">
+        <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} />
+      </div>
+      <div className="pr-16">
+        <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} />
+      </div>
+      <div className="pr-16">
+        <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} />
+      </div>
+      <div className="pr-16">
+        <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} />
+      </div>
+      <div className="pr-16">
+        <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} />
+      </div>
+      <div className="pr-16">
+        <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} />
+      </div>
+    </div>
   );
 }

@@ -16,6 +16,7 @@
     "dev:docker:up": "docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml logs -f",
     "dev:docker:down": "docker compose -f docker-compose.dev.yml down",
     "dev:docker:restart": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml up -d",
+    "dev:docker:rebuild": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml build --no-cache && docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml logs -f",
     "icons:download": "bun scripts/download-icons.ts"
   },
   "dependencies": {
@@ -30,6 +31,7 @@
     "@tanstack/react-router-devtools": "^1.159.6",
     "@tanstack/react-router-ssr-query": "^1.159.6",
     "@tanstack/react-start": "^1.159.6",
+    "@tanstack/react-virtual": "^3.13.18",
     "@tanstack/router-plugin": "^1.159.6",
     "@testing-library/react-hooks": "^8.0.1",
     "@types/dockerode": "^4.0.1",

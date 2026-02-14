@@ -2,7 +2,7 @@ import { memo, useState, useMemo } from 'react';
 import { ChevronRight, Settings } from 'lucide-react';
 import type { DockerStatsFromDB } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
-import { MetricCell, MetricValue } from '../shared-table';
+import { MetricValue } from '../shared-table';
 import { useSettings } from '@/hooks/useSettings';
 import { useContainerChartData } from '@/hooks/useContainerChartData';
 import ContainerChartsCard from './ContainerChartsCard';
@@ -10,13 +10,13 @@ import SparklineChart from './SparklineChart';
 import IconPickerDialog from './IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
+import { DOCKER_GRID } from './ContainerTable';
 
 interface ContainerRowProps {
   container: DockerStatsFromDB;
-  indent?: number;
 }
 
-export default memo(function ContainerRow({ container, indent }: ContainerRowProps) {
+export default memo(function ContainerRow({ container }: ContainerRowProps) {
   const { docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
   const { rates } = container;
   const { decimals, showSparklines } = docker;
@@ -83,13 +83,13 @@ export default memo(function ContainerRow({ container, indent }: ContainerRowPro
 
   return (
     <>
-      <tr
+      <div
         onClick={handleClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className="cursor-pointer transition-all duration-200 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]"
+        className={`${DOCKER_GRID} items-center cursor-pointer transition-all duration-200 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]`}
       >
-        <td className={indent ? 'pl-8' : undefined}>
+        <div className="px-3 py-2 pl-8">
           <div className="flex items-center gap-2">
             <ChevronRight
               size={16}
@@ -115,62 +115,59 @@ export default memo(function ContainerRow({ container, indent }: ContainerRowPro
               <Settings size={14} />
             </button>
           </div>
-        </td>
-        <MetricCell>
+        </div>
+        <div className="pr-16">
           <MetricValue
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
             sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden lg:block" />}
           />
-        </MetricCell>
-        <MetricCell>
+        </div>
+        <div className="pr-16">
           <MetricValue
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
             sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden lg:block" />}
           />
-        </MetricCell>
-        <MetricCell>
+        </div>
+        <div className="pr-16">
           <MetricValue
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
             hasDecimals={decimals.diskSpeed}
             sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden lg:block" />}
           />
-        </MetricCell>
-        <MetricCell>
+        </div>
+        <div className="pr-16">
           <MetricValue
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}
             hasDecimals={decimals.diskSpeed}
             sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden lg:block" />}
           />
-        </MetricCell>
-        <MetricCell>
+        </div>
+        <div className="pr-16">
           <MetricValue
             value={metricParts.networkRx.value}
             unit={metricParts.networkRx.unit}
             hasDecimals={decimals.networkSpeed}
             sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden lg:block" />}
           />
-        </MetricCell>
-        <MetricCell>
+        </div>
+        <div className="pr-16">
           <MetricValue
             value={metricParts.networkTx.value}
             unit={metricParts.networkTx.unit}
             hasDecimals={decimals.networkSpeed}
             sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden lg:block" />}
           />
-        </MetricCell>
-      </tr>
+        </div>
+      </div>
+
       {expanded && (
-        <tr>
-          <td colSpan={7} className="p-0">
-            <ContainerChartsCard dataPoints={dataPoints} />
-          </td>
-        </tr>
+        <ContainerChartsCard dataPoints={dataPoints} />
       )}
 
       {iconPickerOpen && (

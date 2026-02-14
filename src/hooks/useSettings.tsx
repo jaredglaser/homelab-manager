@@ -24,6 +24,7 @@ export interface Settings {
   };
   zfs: {
     expandedPools: Set<string>;
+    expandedVdevs: Set<string>;
     decimals: {
       diskSpeed: boolean;
     };
@@ -41,6 +42,8 @@ interface SettingsContextValue extends Settings {
   isContainerExpanded: (containerId: string) => boolean;
   togglePoolExpanded: (poolName: string) => void;
   isPoolExpanded: (poolName: string, totalPools: number) => boolean;
+  toggleVdevExpanded: (vdevId: string) => void;
+  isVdevExpanded: (vdevId: string) => boolean;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
 }
@@ -66,6 +69,7 @@ const DEFAULT_SETTINGS: Settings = {
   },
   zfs: {
     expandedPools: new Set(),
+    expandedVdevs: new Set(),
     decimals: {
       diskSpeed: false,
     },
@@ -115,6 +119,7 @@ function parseSettings(raw: Record<string, string>): Settings {
     },
     zfs: {
       expandedPools: parseExpandedSet(raw['zfs/expandedPools']),
+      expandedVdevs: parseExpandedSet(raw['zfs/expandedVdevs']),
       decimals: {
         diskSpeed: parseBool(raw['zfs/decimals/diskSpeed'], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
       },
@@ -280,6 +285,38 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [settings.zfs.expandedPools]
   );
 
+  const toggleVdevExpanded = useCallback((vdevId: string) => {
+    setSettings(prev => {
+      const newExpanded = new Set(prev.zfs.expandedVdevs);
+      if (newExpanded.has(vdevId)) {
+        newExpanded.delete(vdevId);
+      } else {
+        newExpanded.add(vdevId);
+      }
+
+      updateSetting({
+        data: {
+          key: 'zfs/expandedVdevs',
+          value: JSON.stringify(Array.from(newExpanded)),
+        },
+      }).catch(() => {
+        // Fire-and-forget
+      });
+
+      return {
+        ...prev,
+        zfs: { ...prev.zfs, expandedVdevs: newExpanded },
+      };
+    });
+  }, []);
+
+  const isVdevExpanded = useCallback(
+    (vdevId: string): boolean => {
+      return settings.zfs.expandedVdevs.has(vdevId);
+    },
+    [settings.zfs.expandedVdevs]
+  );
+
   const setDockerDecimal = useCallback((key: keyof DecimalSettings, value: boolean) => {
     setSettings(prev => ({
       ...prev,
@@ -320,6 +357,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isContainerExpanded,
         togglePoolExpanded,
         isPoolExpanded,
+        toggleVdevExpanded,
+        isVdevExpanded,
         setDockerDecimal,
         setZfsDecimal,
       }}

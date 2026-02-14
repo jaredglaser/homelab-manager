@@ -16,7 +16,7 @@
 1. **Styling**: TailwindCSS ONLY. Never use `sx` props, inline `style`, or create `.css` files (exception: `theme.ts`).
 2. **Imports**: Always use `@/` for src files (e.g., `@/components/Header`). Use relative paths only within `__tests__/` for test imports.
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly.
-4. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useSSE` hook → `StreamingTable` component. Server handles client disconnect via `request.signal`.
+4. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useStreamingData` hook → CSS Grid + `useWindowVirtualizer`. Server handles client disconnect via `request.signal`.
 5. **File Creation**: PREFER editing existing files over creating new ones. Only create files when genuinely necessary.
 6. **Testing**: Tests in `__tests__/` folders co-located with source. Use `bun:test` imports.
 7. **No Logging**: No `console.log` in committed code. Only `console.error` for actual errors.
@@ -78,11 +78,11 @@ docker compose -f docker-compose.dev.yml logs -f web  # View dev web logs
 ```
 src/
 ├── components/
-│   ├── shared-table/        # StreamingTable, MetricCell (shared infrastructure)
-│   ├── docker/              # Docker-specific components
-│   ├── zfs/                 # ZFS-specific components
+│   ├── shared-table/        # MetricValue (shared infrastructure)
+│   ├── docker/              # Docker-specific components (CSS Grid + useWindowVirtualizer)
+│   ├── zfs/                 # ZFS-specific components (CSS Grid + useWindowVirtualizer)
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
-├── hooks/                   # Custom hooks (useSSE, etc.)
+├── hooks/                   # Custom hooks (useSSE, useStreamingData, etc.)
 ├── data/                    # Server functions (*.functions.tsx) - non-streaming DB queries
 ├── middleware/              # Connection injection (Docker, SSH, Database)
 ├── lib/
@@ -124,7 +124,7 @@ migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 ### Server Functions & SSE Streaming
 - Non-streaming server logic: `createServerFn()` from `@tanstack/react-start`
 - **Real-time streaming**: SSE via TanStack Router server routes in `src/routes/api/`
-- Data flow: SSE endpoint → `useSSE` hook → `StreamingTable` component
+- Data flow: SSE endpoint → `useStreamingData` hook → CSS Grid + `useWindowVirtualizer`
 - **Note**: SSE is a workaround because TanStack Start's streaming server functions don't close quickly enough when rapidly switching between tabs — the abort signal doesn't propagate reliably. Once this is fixed upstream, I plan to migrate back to native streaming (see roadmap).
 - **Frontend reads from database** (not direct API/SSH connections):
   - Worker collects stats → writes to PostgreSQL → sends `NOTIFY stats_update`
@@ -185,13 +185,13 @@ migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
   const { subscriptionService } = await import('@/lib/database/subscription-service');
   ```
 
-### SSE Data Sources (Factory Pattern)
-When adding a new SSE data source:
-1. Create SSE route in `src/routes/api/` using `createFileRoute` with `server.handlers` (e.g., `src/routes/api/my-stats.ts`)
-2. Define column config
-3. Create `onData` reducer (how to merge new data)
-4. Create row renderer component
-5. Pass all to `StreamingTable` with `sseUrl="/api/my-stats"`
+### SSE Data Sources (Virtualized Tables)
+Both Docker and ZFS tables use the same pattern:
+1. Create SSE route in `src/routes/api/` using `createFileRoute` with `server.handlers`
+2. Use `useStreamingData` hook with a `transform` function to convert raw SSE data to hierarchy state
+3. Flatten the hierarchy into a `FlatRow[]` discriminated union (respecting expansion state)
+4. Render with CSS Grid columns + `useWindowVirtualizer` (page-scroll virtualization)
+5. Row components are div-based (not `<table>/<tr>/<td>`) for virtualizer compatibility
 
 Rate calculators:
 - Must implement `RateCalculator<TInput, TOutput>` interface (`src/lib/streaming/types.ts`)
@@ -239,8 +239,8 @@ Adding a new data source requires only a new collector — no schema changes nee
 
 **Key files**:
 - **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — TanStack Router server routes with proper disconnect handling)
-- **SSE hook**: `src/hooks/useSSE.ts` (EventSource-based SSE consumer)
-- **Streaming table**: `src/components/shared-table/StreamingTable.tsx` (factory component for streaming tables)
+- **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useStreamingData.ts` (SSE + state + stale detection)
+- **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
 - Repository: `src/lib/database/repositories/stats-repository.ts` (generic, caches dimension IDs, NOTIFY after insert)
 - Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, batch management, backoff)
@@ -258,22 +258,23 @@ Adding a new data source requires only a new collector — no schema changes nee
 - `WORKER_*`: Worker behavior config (enabled, batch size, intervals)
 
 ### Components
-- Shared table infrastructure: `src/components/shared-table/` (MetricCell, StreamingTable)
+- Shared infrastructure: `src/components/shared-table/` (MetricValue)
 - Domain components: own directories (`docker/`, `zfs/`)
-- Extract repeated patterns into reusable components (e.g., `ZFSMetricCells`)
-- NO dashboard wrapper components — `StreamingTable` handles title + sheet + table + loading/error
+- Both Docker and ZFS tables use CSS Grid + `useWindowVirtualizer` with flat row models
+- `useStreamingData` hook handles SSE connection + state + stale detection for both tables
 
 ### Styling
 - **TailwindCSS only** for all layout and styling
 - Never use MUI `sx` props (use Tailwind: `p-3` not `sx={{ p: 3 }}`)
   - Exception: MUI Joy Table internal element selectors (e.g., `'& thead th'`) require `sx` for proper CSS specificity
   - Exception: MUI Joy CSS variables (e.g., `'--ModalDialog-minWidth'`) require `sx` since Tailwind can't set them
-- Never use inline `style` attribute (exception: dynamic column widths in tables)
+- Never use inline `style` attribute (exception: virtualizer positioning, dynamic indent padding)
 - Never create `.css` files (exception: Joy UI theme in `theme.ts`)
 
 ### State Management
 - `QueryClient` is a singleton in `__root.tsx` — never create per-route
-- Use `useSSE` hook for consuming SSE streams from `src/routes/api/` endpoints
+- Use `useStreamingData` hook for SSE-backed streaming tables (wraps `useSSE` + state + stale detection)
+- Use `useSSE` hook directly only for non-table SSE consumers
 - SSE connection management handled automatically by the browser's EventSource API
 
 ### Types
@@ -339,7 +340,8 @@ Adding a new data source requires only a new collector — no schema changes nee
 - Creating QueryClient per route (singleton only)
 - Creating clients in server functions (use middleware)
 - Using TanStack Start streaming server functions (use SSE via `src/routes/api/` server routes instead — proper disconnect handling)
-- Dashboard wrapper components (use `StreamingTable`)
+- HTML `<table>/<tr>/<td>` for streaming tables (use CSS Grid divs + virtualizer)
+- Dashboard wrapper components
 - Test files outside `__tests__/` folders
 - `console.log` in committed code
 - Logging sensitive data
@@ -352,8 +354,8 @@ Adding a new data source requires only a new collector — no schema changes nee
 | Style component | TailwindCSS classes |
 | Server logic (non-streaming) | `createServerFn()` + middleware |
 | Real-time streaming | SSE route in `src/routes/api/` |
-| Consume SSE stream | `useSSE` hook |
-| New streaming table | `StreamingTable` factory |
+| Consume SSE stream | `useStreamingData` hook (tables) or `useSSE` hook (other) |
+| New streaming table | CSS Grid + `useWindowVirtualizer` + `useStreamingData` |
 | Import from src | `@/path/to/file` |
 | Test file location | `__tests__/filename.test.ts` |
 | Run tests | `bun test` |
