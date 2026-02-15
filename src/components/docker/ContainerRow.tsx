@@ -84,10 +84,10 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
     <>
       <div
         onClick={handleClick}
-        className={`group ${DOCKER_GRID} items-center cursor-pointer transition-[background-color,box-shadow] duration-150 ${
+        className={`group ${DOCKER_GRID} items-center cursor-pointer transition-colors duration-150 ${
           container.stale
-            ? 'bg-amber-500/10 opacity-70 hover:bg-amber-500/15 hover:shadow-[inset_0_0_0_1px_rgba(245,158,11,0.4)]'
-            : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
+            ? 'bg-amber-500/10 opacity-70 hover:bg-amber-500/15'
+            : 'hover:bg-black/[0.02] dark:hover:bg-white/[0.03] active:bg-black/[0.04] dark:active:bg-white/[0.05]'
         }`}
       >
         <div className="px-3 py-2 pl-8">
@@ -108,7 +108,7 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
                 e.stopPropagation();
                 setIconPickerOpen(true);
               }}
-              className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-neutral-500/20"
+              className="p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/[0.06] dark:hover:bg-white/[0.08]"
               aria-label="Change container icon"
             >
               <Settings size={14} />

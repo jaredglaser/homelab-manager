@@ -14,7 +14,7 @@ export default function ZFSPoolSpeedCharts() {
 
   if (error && poolsData.size === 0) {
     return (
-      <Sheet variant="outlined" className="mt-6 rounded-sm p-4">
+      <Sheet variant="outlined" className="mt-6 rounded-xl shadow-sm p-4">
         <Typography color="danger">
           Error connecting to ZFS stats: {error.message}
         </Typography>
@@ -24,7 +24,7 @@ export default function ZFSPoolSpeedCharts() {
 
   if (!isConnected && poolsData.size === 0) {
     return (
-      <Sheet variant="outlined" className="mt-6 flex justify-center rounded-sm p-4">
+      <Sheet variant="outlined" className="mt-6 flex justify-center rounded-xl shadow-sm p-4">
         <CircularProgress />
       </Sheet>
     );
@@ -37,7 +37,7 @@ export default function ZFSPoolSpeedCharts() {
   }
 
   return (
-    <Sheet variant="outlined" className="mt-6 rounded-sm p-4">
+    <Sheet variant="outlined" className="mt-6 rounded-xl shadow-sm p-4">
       <Typography level="title-md" className="mb-3">
         Pool I/O Speed
       </Typography>

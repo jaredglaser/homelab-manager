@@ -24,7 +24,7 @@ function SettingsContent() {
     <div className="w-full p-6">
       <PageHeader title="Settings" />
 
-      <div className="flex flex-col gap-4 max-w-2xl">
+      <div className="flex flex-col gap-5 max-w-2xl">
         <Card variant="outlined">
           <Typography level="title-lg" className="mb-4">General</Typography>
           <FormControl orientation="horizontal" className="justify-between">
@@ -109,7 +109,7 @@ function SettingsContent() {
                 <FormLabel>Raw Data</FormLabel>
                 <Typography level="body-sm" className="font-mono">{formatHours(retention.rawDataHours)}</Typography>
               </div>
-              <Typography level="body-xs" className="text-neutral-500 mb-3">
+              <Typography level="body-xs" className="text-[var(--joy-palette-text-tertiary)] mb-3">
                 Second-level data is downsampled to minute averages after this period
               </Typography>
               <Slider
@@ -127,7 +127,7 @@ function SettingsContent() {
                 <FormLabel>Minute Aggregates</FormLabel>
                 <Typography level="body-sm" className="font-mono">{formatDays(retention.minuteAggDays)}</Typography>
               </div>
-              <Typography level="body-xs" className="text-neutral-500 mb-3">
+              <Typography level="body-xs" className="text-[var(--joy-palette-text-tertiary)] mb-3">
                 Minute averages are downsampled to hourly averages after this period
               </Typography>
               <Slider
@@ -145,7 +145,7 @@ function SettingsContent() {
                 <FormLabel>Hour Aggregates</FormLabel>
                 <Typography level="body-sm" className="font-mono">{formatDays(retention.hourAggDays)}</Typography>
               </div>
-              <Typography level="body-xs" className="text-neutral-500 mb-3">
+              <Typography level="body-xs" className="text-[var(--joy-palette-text-tertiary)] mb-3">
                 Hourly averages are downsampled to daily averages after this period. Daily data is kept forever.
               </Typography>
               <Slider
@@ -166,7 +166,7 @@ function SettingsContent() {
             <FormControl orientation="horizontal" className="justify-between">
               <div>
                 <FormLabel>Docker Debug Logging</FormLabel>
-                <Typography level="body-xs" className="text-neutral-500">
+                <Typography level="body-xs" className="text-[var(--joy-palette-text-tertiary)]">
                   Log connection lifecycle, stream events, and collection timing
                 </Typography>
               </div>
@@ -178,7 +178,7 @@ function SettingsContent() {
             <FormControl orientation="horizontal" className="justify-between">
               <div>
                 <FormLabel>Database Flush Logging</FormLabel>
-                <Typography level="body-xs" className="text-neutral-500">
+                <Typography level="body-xs" className="text-[var(--joy-palette-text-tertiary)]">
                   Log batch flush counts and database write timing
                 </Typography>
               </div>
@@ -190,7 +190,7 @@ function SettingsContent() {
             <FormControl orientation="horizontal" className="justify-between">
               <div>
                 <FormLabel>SSE Pipeline Logging</FormLabel>
-                <Typography level="body-xs" className="text-neutral-500">
+                <Typography level="body-xs" className="text-[var(--joy-palette-text-tertiary)]">
                   Log NOTIFY reception, cache updates, and SSE event emission
                 </Typography>
               </div>

@@ -95,8 +95,8 @@ export default function IconPickerDialog({
                         <button
                           key={slug}
                           onClick={() => handleSelect(slug)}
-                          className={`flex flex-col items-center p-2 rounded-md transition-colors hover:bg-blue-500/10 ${
-                            currentIcon === slug ? 'bg-blue-500/20 ring-1 ring-blue-500' : ''
+                          className={`flex flex-col items-center p-2 rounded-xl transition-all duration-200 hover:bg-[var(--joy-palette-primary-softBg)] active:scale-95 ${
+                            currentIcon === slug ? 'bg-[var(--joy-palette-primary-softBg)] ring-1 ring-[var(--joy-palette-primary-500)]' : ''
                           }`}
                         >
                           <img src={`/icons/${slug}.svg`} alt={slug} className="w-8 h-8" />

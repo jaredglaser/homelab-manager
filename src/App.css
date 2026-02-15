@@ -1,47 +1,50 @@
 @import "tailwindcss";
 
+/* Sync Tailwind dark: variant with MUI Joy color scheme toggle */
+@custom-variant dark (&:where([data-joy-color-scheme="dark"], [data-joy-color-scheme="dark"] *));
+
 /*
- * Chart colors (values match Tailwind's default palette)
+ * Chart colors — Apple system palette
  * Note: ECharts does not support oklch colors for stops, so we use hex/rgba values.
  * See: https://github.com/apache/echarts/issues/20757
  */
 
 /* Light mode */
 :root {
-  --chart-read: #3b82f6; /* blue-500 */
-  --chart-read-area-start: rgba(59, 130, 246, 0.3);
-  --chart-read-area-end: rgba(59, 130, 246, 0.02);
-  --chart-write: #10b981; /* emerald-500 */
-  --chart-write-area-start: rgba(16, 185, 129, 0.3);
-  --chart-write-area-end: rgba(16, 185, 129, 0.02);
-  --chart-cpu: #f97316; /* orange-500 */
-  --chart-cpu-area-start: rgba(249, 115, 22, 0.3);
-  --chart-cpu-area-end: rgba(249, 115, 22, 0.02);
-  --chart-memory: #a855f7; /* purple-500 */
-  --chart-memory-area-start: rgba(168, 85, 247, 0.3);
-  --chart-memory-area-end: rgba(168, 85, 247, 0.02);
-  --chart-text-muted: #94a3b8; /* slate-400 */
-  --chart-border: #e2e8f0; /* slate-200 */
-  --chart-tooltip-bg: #ffffff; /* white */
-  --chart-tooltip-text: #1e293b; /* slate-800 */
+  --chart-read: #007AFF; /* Apple blue */
+  --chart-read-area-start: rgba(0, 122, 255, 0.25);
+  --chart-read-area-end: rgba(0, 122, 255, 0.02);
+  --chart-write: #34C759; /* Apple green */
+  --chart-write-area-start: rgba(52, 199, 89, 0.25);
+  --chart-write-area-end: rgba(52, 199, 89, 0.02);
+  --chart-cpu: #FF9500; /* Apple orange */
+  --chart-cpu-area-start: rgba(255, 149, 0, 0.25);
+  --chart-cpu-area-end: rgba(255, 149, 0, 0.02);
+  --chart-memory: #AF52DE; /* Apple purple */
+  --chart-memory-area-start: rgba(175, 82, 222, 0.25);
+  --chart-memory-area-end: rgba(175, 82, 222, 0.02);
+  --chart-text-muted: #8e8e93; /* Apple secondary label */
+  --chart-border: #e8e8ed;
+  --chart-tooltip-bg: #ffffff;
+  --chart-tooltip-text: #1d1d1f;
 }
 
 /* Chart colors - dark mode */
 [data-joy-color-scheme="dark"] {
-  --chart-read: #60a5fa; /* blue-400 */
-  --chart-read-area-start: rgba(96, 165, 250, 0.4);
-  --chart-read-area-end: rgba(96, 165, 250, 0.05);
-  --chart-write: #34d399; /* emerald-400 */
-  --chart-write-area-start: rgba(52, 211, 153, 0.4);
-  --chart-write-area-end: rgba(52, 211, 153, 0.05);
-  --chart-cpu: #fb923c; /* orange-400 */
-  --chart-cpu-area-start: rgba(251, 146, 60, 0.4);
-  --chart-cpu-area-end: rgba(251, 146, 60, 0.05);
-  --chart-memory: #c084fc; /* purple-400 */
-  --chart-memory-area-start: rgba(192, 132, 252, 0.4);
-  --chart-memory-area-end: rgba(192, 132, 252, 0.05);
-  --chart-text-muted: #64748b; /* slate-500 */
-  --chart-border: #334155; /* slate-700 */
-  --chart-tooltip-bg: #1e293b; /* slate-800 */
-  --chart-tooltip-text: #f1f5f9; /* slate-100 */
+  --chart-read: #0a84ff; /* Apple blue (dark) */
+  --chart-read-area-start: rgba(10, 132, 255, 0.35);
+  --chart-read-area-end: rgba(10, 132, 255, 0.05);
+  --chart-write: #30d158; /* Apple green (dark) */
+  --chart-write-area-start: rgba(48, 209, 88, 0.35);
+  --chart-write-area-end: rgba(48, 209, 88, 0.05);
+  --chart-cpu: #ff9f0a; /* Apple orange (dark) */
+  --chart-cpu-area-start: rgba(255, 159, 10, 0.35);
+  --chart-cpu-area-end: rgba(255, 159, 10, 0.05);
+  --chart-memory: #bf5af2; /* Apple purple (dark) */
+  --chart-memory-area-start: rgba(191, 90, 242, 0.35);
+  --chart-memory-area-end: rgba(191, 90, 242, 0.05);
+  --chart-text-muted: #636366;
+  --chart-border: #3a3a3c;
+  --chart-tooltip-bg: #2c2c2e;
+  --chart-tooltip-text: #f5f5f7;
 }

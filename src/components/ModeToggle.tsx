@@ -7,12 +7,13 @@ export default function ModeToggle() {
 
   return (
     <IconButton
-      variant="plain"
+      variant="soft"
+      color="neutral"
       size="sm"
       onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
       aria-label="Toggle dark mode"
     >
-      {mode === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+      {mode === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
     </IconButton>
   );
 }

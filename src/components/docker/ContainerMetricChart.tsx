@@ -195,7 +195,7 @@ export default memo(function ContainerMetricChart({
   );
 
   return (
-    <Sheet variant="soft" className="rounded-sm p-3">
+    <Sheet variant="soft" className="rounded-xl p-3">
       <Typography level="body-sm" className="mb-1 font-medium">
         {title}
       </Typography>

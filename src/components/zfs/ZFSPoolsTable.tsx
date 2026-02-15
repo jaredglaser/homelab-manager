@@ -133,21 +133,21 @@ export default function ZFSPoolsTable() {
           color="warning"
           variant="soft"
           startDecorator={<AlertTriangle size={18} />}
-          className="mb-3"
+          className="mb-4 rounded-xl"
         >
           Data is stale. Background worker may not be running.
         </Alert>
       )}
-      <Sheet variant="outlined" className="rounded-sm overflow-hidden">
+      <Sheet variant="outlined" className="rounded-xl overflow-hidden shadow-sm">
         {/* Column headers */}
-        <div className={`${ZFS_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
-          <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Pool / Device</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Capacity</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Read Ops/s</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Write Ops/s</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Read</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Write</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Utilization</div>
+        <div className={`${ZFS_GRID} border-b border-[var(--joy-palette-divider)] bg-[var(--joy-palette-background-level1)]`}>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] whitespace-nowrap">Pool / Device</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right whitespace-nowrap">Capacity</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right whitespace-nowrap">Read Ops/s</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right whitespace-nowrap">Write Ops/s</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right whitespace-nowrap">Read</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right whitespace-nowrap">Write</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right whitespace-nowrap">Utilization</div>
         </div>
 
         {/* Virtualized body */}
@@ -263,7 +263,7 @@ function PoolRow({
   return (
     <div
       onClick={handleClick}
-      className={`${ZFS_GRID} items-center ${canToggle ? 'cursor-pointer' : 'cursor-default'}`}
+      className={`${ZFS_GRID} items-center transition-colors duration-150 ${canToggle ? 'cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.03] active:bg-black/[0.04] dark:active:bg-white/[0.05]' : 'cursor-default'}`}
     >
       <div className="px-3 py-2 flex items-center gap-2 overflow-hidden">
         {canToggle && (
@@ -300,7 +300,7 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
   return (
     <div
       onClick={handleClick}
-      className={`${ZFS_GRID} items-center bg-[var(--joy-palette-background-level2)] ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
+      className={`${ZFS_GRID} items-center bg-[var(--joy-palette-background-level2)] transition-colors duration-150 ${hasDisks ? 'cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.03]' : 'cursor-default'}`}
     >
       <div className="py-2 pr-3 flex items-center gap-2 overflow-hidden" style={{ paddingLeft: '2rem' }}>
         {hasDisks && (

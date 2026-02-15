@@ -4,6 +4,7 @@ import { lazy } from 'react'
 import appCss from '../styles.css?url'
 import '../App.css'
 import '@fontsource/inter/index.css'
+import '@fontsource/inter/500.css'
 import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
 

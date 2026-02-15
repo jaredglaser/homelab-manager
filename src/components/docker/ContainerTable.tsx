@@ -100,21 +100,21 @@ export default function ContainerTable() {
           color="warning"
           variant="soft"
           startDecorator={<AlertTriangle size={18} />}
-          className="mb-3"
+          className="mb-4 rounded-xl"
         >
           Data is stale. Background worker may not be running.
         </Alert>
       )}
-      <Sheet variant="outlined" className="rounded-sm overflow-hidden">
+      <Sheet variant="outlined" className="rounded-xl overflow-hidden shadow-sm">
         {/* Column headers */}
-        <div className={`${DOCKER_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
-          <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Host / Container</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">CPU</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">{memLabel}</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Disk Read</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Disk Write</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Net RX</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Net TX</div>
+        <div className={`${DOCKER_GRID} border-b border-[var(--joy-palette-divider)] bg-[var(--joy-palette-background-level1)]`}>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] whitespace-nowrap">Host / Container</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right pr-16 whitespace-nowrap">CPU</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right pr-16 whitespace-nowrap">{memLabel}</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right pr-16 whitespace-nowrap">Disk Read</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right pr-16 whitespace-nowrap">Disk Write</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right pr-16 whitespace-nowrap">Net RX</div>
+          <div className="px-3 py-2.5 font-semibold text-xs uppercase tracking-wide text-[var(--joy-palette-text-secondary)] text-right pr-16 whitespace-nowrap">Net TX</div>
         </div>
 
         {/* Virtualized body */}
@@ -191,8 +191,8 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
   return (
     <div
       onClick={handleClick}
-      className={`${DOCKER_GRID} items-center ${
-        hasContainers && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
+      className={`${DOCKER_GRID} items-center transition-colors duration-150 ${
+        hasContainers && totalHosts > 1 ? 'cursor-pointer hover:bg-black/[0.02] dark:hover:bg-white/[0.03] active:bg-black/[0.04] dark:active:bg-white/[0.05]' : 'cursor-default'
       } ${host.isStale ? 'bg-amber-500/10' : ''}`}
     >
       <div className="px-3 py-2 flex items-center gap-2">

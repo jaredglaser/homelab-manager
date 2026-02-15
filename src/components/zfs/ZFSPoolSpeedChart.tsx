@@ -246,7 +246,7 @@ export default function ZFSPoolSpeedChart({
   const option = getChartOption(dataPoints, general.use12HourTime);
 
   return (
-    <Sheet variant="outlined" className="rounded-sm p-4">
+    <Sheet variant="outlined" className="rounded-xl p-4 shadow-sm">
       <Typography level="title-sm" className="mb-2">
         {poolName}
       </Typography>
