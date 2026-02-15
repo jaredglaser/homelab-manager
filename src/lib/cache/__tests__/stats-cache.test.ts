@@ -1,9 +1,5 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { DockerStatsFromDB } from '@/lib/transformers/docker-transformer';
-
-// We need to test the StatsCache class directly, but it's exported as a singleton.
-// Re-import the module to get a fresh class each time by testing the exported instance.
-// Since the cache is a singleton, we'll use its clear() + updateDocker() methods.
 import { statsCache } from '../stats-cache';
 
 function createMockDockerStat(
@@ -35,65 +31,82 @@ function createMockDockerStat(
 }
 
 describe('StatsCache.updateDocker', () => {
+  let nowMs: number;
+  let dateNowSpy: ReturnType<typeof spyOn>;
+
   beforeEach(() => {
     statsCache.clear();
+    nowMs = 1_000_000_000;
+    dateNowSpy = spyOn(Date, 'now').mockImplementation(() => nowMs);
   });
 
+  afterEach(() => {
+    dateNowSpy.mockRestore();
+  });
+
+  const ts = () => new Date(nowMs);
+
   it('should add fresh entries on first update', () => {
-    const now = new Date();
-    const freshStats = new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
-      ['host1/c2', createMockDockerStat('host1/c2', now)],
-    ]);
+    statsCache.updateDocker(new Map([
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
+      ['host1/c2', createMockDockerStat('host1/c2', ts())],
+    ]));
 
-    statsCache.updateDocker(freshStats);
     const result = statsCache.getDocker();
-
     expect(result).toHaveLength(2);
     expect(result.every(s => s.stale === false)).toBe(true);
   });
 
-  it('should mark missing entries as stale', () => {
-    const now = new Date();
-
-    // First update: two containers
+  it('should keep missing entries fresh during grace period', () => {
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
-      ['host1/c2', createMockDockerStat('host1/c2', now)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
+      ['host1/c2', createMockDockerStat('host1/c2', ts())],
     ]));
 
-    // Second update: only one container
+    nowMs += 5_000; // 5s later — within 15s grace period
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
     ]));
 
     const result = statsCache.getDocker();
     expect(result).toHaveLength(2);
+    expect(result.find(s => s.id === 'host1/c1')!.stale).toBe(false);
+    expect(result.find(s => s.id === 'host1/c2')!.stale).toBe(false);
+  });
 
-    const c1 = result.find(s => s.id === 'host1/c1')!;
-    const c2 = result.find(s => s.id === 'host1/c2')!;
-    expect(c1.stale).toBe(false);
-    expect(c2.stale).toBe(true);
+  it('should mark entries stale after grace period expires', () => {
+    statsCache.updateDocker(new Map([
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
+      ['host1/c2', createMockDockerStat('host1/c2', ts())],
+    ]));
+
+    nowMs += 16_000; // 16s later — past 15s grace period
+    statsCache.updateDocker(new Map([
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
+    ]));
+
+    const result = statsCache.getDocker();
+    expect(result).toHaveLength(2);
+    expect(result.find(s => s.id === 'host1/c1')!.stale).toBe(false);
+    expect(result.find(s => s.id === 'host1/c2')!.stale).toBe(true);
   });
 
   it('should restore stale entries to fresh when they reappear', () => {
-    const now = new Date();
-
-    // First update: two containers
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
-      ['host1/c2', createMockDockerStat('host1/c2', now)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
+      ['host1/c2', createMockDockerStat('host1/c2', ts())],
     ]));
 
-    // Second update: c2 missing (becomes stale)
+    nowMs += 16_000;
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
     ]));
+    expect(statsCache.getDocker().find(s => s.id === 'host1/c2')!.stale).toBe(true);
 
-    // Third update: c2 returns
+    nowMs += 1_000;
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
-      ['host1/c2', createMockDockerStat('host1/c2', now)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
+      ['host1/c2', createMockDockerStat('host1/c2', ts())],
     ]));
 
     const result = statsCache.getDocker();
@@ -101,56 +114,28 @@ describe('StatsCache.updateDocker', () => {
     expect(result.every(s => s.stale === false)).toBe(true);
   });
 
-  it('should remove stale entries older than 5 minutes', () => {
-    const fiveMinutesAgo = new Date(Date.now() - 6 * 60 * 1000); // 6 minutes ago
-    const now = new Date();
-
-    // First update: one old container and one fresh
+  it('should remove entries after expiry (5 minutes)', () => {
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
-      ['host1/c2', createMockDockerStat('host1/c2', fiveMinutesAgo)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
+      ['host1/c2', createMockDockerStat('host1/c2', ts())],
     ]));
 
-    // Second update: only c1 (c2 is now stale with old timestamp)
+    nowMs += 6 * 60 * 1000; // 6 minutes later
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
     ]));
 
     const result = statsCache.getDocker();
-    // c2 should be removed because its timestamp is >5 minutes old
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('host1/c1');
   });
 
-  it('should keep stale entries with recent timestamps', () => {
-    const now = new Date();
-
-    // First update: two containers
+  it('should mark all entries stale after grace period with empty update', () => {
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
-      ['host1/c2', createMockDockerStat('host1/c2', now)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
     ]));
 
-    // Second update: only c1 (c2 has recent timestamp, should stay as stale)
-    statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
-    ]));
-
-    const result = statsCache.getDocker();
-    expect(result).toHaveLength(2);
-
-    const c2 = result.find(s => s.id === 'host1/c2')!;
-    expect(c2.stale).toBe(true);
-  });
-
-  it('should mark all entries stale when empty fresh map is provided', () => {
-    const now = new Date();
-
-    statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
-    ]));
-
-    // Empty update
+    nowMs += 16_000;
     statsCache.updateDocker(new Map());
 
     const result = statsCache.getDocker();
@@ -158,17 +143,26 @@ describe('StatsCache.updateDocker', () => {
     expect(result[0].stale).toBe(true);
   });
 
-  it('should always set stale=false on fresh entries even if previously stale', () => {
-    const now = new Date();
-
-    // Seed with a manually stale entry
+  it('should keep entries fresh with empty update within grace period', () => {
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now, { stale: true })],
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
     ]));
 
-    // Fresh update includes it
+    nowMs += 5_000;
+    statsCache.updateDocker(new Map());
+
+    const result = statsCache.getDocker();
+    expect(result).toHaveLength(1);
+    expect(result[0].stale).toBe(false);
+  });
+
+  it('should always set stale=false on fresh entries even if previously stale', () => {
     statsCache.updateDocker(new Map([
-      ['host1/c1', createMockDockerStat('host1/c1', now)],
+      ['host1/c1', createMockDockerStat('host1/c1', ts(), { stale: true })],
+    ]));
+
+    statsCache.updateDocker(new Map([
+      ['host1/c1', createMockDockerStat('host1/c1', ts())],
     ]));
 
     const result = statsCache.getDocker();

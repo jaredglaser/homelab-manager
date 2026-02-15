@@ -2,8 +2,11 @@ import type { DockerStatsFromDB } from '@/lib/transformers/docker-transformer';
 import type { ZFSStatsFromDB } from '@/lib/transformers/zfs-transformer';
 import { filterVisibleZFSStats, sortZFSStats } from '@/lib/transformers/zfs-transformer';
 
-/** Remove stale entries after 5 minutes of no fresh data */
+/** Remove entries entirely after 5 minutes of no fresh data */
 const STALE_EXPIRY_MS = 5 * 60 * 1000;
+
+/** Grace period before marking a missing container as stale */
+const STALE_GRACE_MS = 15_000;
 
 /**
  * Server-side cache for stats from the database.
@@ -18,11 +21,16 @@ class StatsCache {
   private lastDockerUpdate: Date | null = null;
   private lastZFSUpdate: Date | null = null;
 
+  /** Tracks when each Docker container was last seen in fresh query results */
+  private dockerLastSeen: Map<string, number> = new Map();
+
   /**
    * Merge fresh Docker stats into the cache.
-   * - Fresh entries (in new data): updated with stale=false
-   * - Retained entries (in old cache, not in new data): kept with stale=true
-   * - Expired entries (stale + timestamp > STALE_EXPIRY_MS old): removed
+   * - Fresh entries (in new data): updated with stale=false, lastSeen=now
+   * - Missing entries (in old cache, not in new data):
+   *   - Within grace period: kept with stale=false (timing jitter tolerance)
+   *   - Past grace period: marked stale=true
+   *   - Past expiry: removed entirely
    */
   updateDocker(freshStats: Map<string, DockerStatsFromDB>): void {
     const now = Date.now();
@@ -31,14 +39,24 @@ class StatsCache {
     // Add all fresh entries
     for (const [id, stat] of freshStats) {
       merged.set(id, { ...stat, stale: false });
+      this.dockerLastSeen.set(id, now);
     }
 
-    // Retain old entries not in fresh set, marking them stale
+    // Retain old entries not in fresh set
     for (const [id, oldStat] of this.docker) {
       if (!freshStats.has(id)) {
-        const age = now - oldStat.timestamp.getTime();
-        if (age < STALE_EXPIRY_MS) {
+        const lastSeen = this.dockerLastSeen.get(id) ?? 0;
+        const sinceSeen = now - lastSeen;
+
+        if (sinceSeen >= STALE_EXPIRY_MS) {
+          // Too old — drop entirely
+          this.dockerLastSeen.delete(id);
+        } else if (sinceSeen >= STALE_GRACE_MS) {
+          // Past grace period — mark stale
           merged.set(id, { ...oldStat, stale: true });
+        } else {
+          // Within grace period — keep as fresh
+          merged.set(id, { ...oldStat, stale: false });
         }
       }
     }
@@ -135,6 +153,7 @@ class StatsCache {
   clear(): void {
     this.docker.clear();
     this.zfs.clear();
+    this.dockerLastSeen.clear();
     this.lastDockerUpdate = null;
     this.lastZFSUpdate = null;
   }
