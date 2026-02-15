@@ -30,6 +30,7 @@ export class DockerCollector extends BaseCollector {
   readonly name: string;
   private readonly calculator = new DockerRateCalculator();
   private readonly hostConfig: DockerHostConfig;
+  private knownContainers = new Map<string, { name: string; image: string }>();
 
   constructor(
     db: DatabaseClient,
@@ -47,40 +48,46 @@ export class DockerCollector extends BaseCollector {
   }
 
   protected async collectOnce(): Promise<void> {
+    const t0 = performance.now();
+
     const dockerClient = await dockerConnectionManager.getClient({
       host: this.hostConfig.host,
       port: this.hostConfig.port,
       protocol: this.hostConfig.protocol,
     });
+    const tConnect = performance.now();
 
     const docker = dockerClient.getDocker();
     const containers = await docker.listContainers({ all: false });
+    const tList = performance.now();
 
     if (containers.length === 0) {
       console.log(`[${this.name}] No running containers found, waiting...`);
-      return; // Base class handles the reconnect delay
+      return;
     }
 
-    // Upsert container metadata for display purposes
+    // Only upsert metadata for containers we haven't seen or that changed
+    let metadataUpdates = 0;
     for (const containerInfo of containers) {
       const containerName = containerInfo.Names[0]?.replace(/^\//, '') || containerInfo.Id.substring(0, 12);
       const entityPath = `${this.hostConfig.name}/${containerInfo.Id}`;
-      await this.repository.upsertEntityMetadata(
-        DOCKER_SOURCE,
-        entityPath,
-        'name',
-        containerName
-      );
-      // Also store the image name for icon resolution
-      await this.repository.upsertEntityMetadata(
-        DOCKER_SOURCE,
-        entityPath,
-        'image',
-        containerInfo.Image
-      );
-    }
+      const known = this.knownContainers.get(containerInfo.Id);
 
-    console.log(`[${this.name}] Monitoring ${containers.length} containers`);
+      if (!known || known.name !== containerName || known.image !== containerInfo.Image) {
+        await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', containerName);
+        await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', containerInfo.Image);
+        this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image });
+        metadataUpdates++;
+      }
+    }
+    const tMeta = performance.now();
+
+    this.debugLog(
+      `[${this.name}] Monitoring ${containers.length} containers` +
+      ` (connect=${(tConnect - t0).toFixed(0)}ms` +
+      ` list=${(tList - tConnect).toFixed(0)}ms` +
+      ` metadata=${(tMeta - tList).toFixed(0)}ms/${metadataUpdates} updated)`
+    );
     this.resetBackoff();
 
     const streams: any[] = [];
@@ -97,6 +104,9 @@ export class DockerCollector extends BaseCollector {
           stream.destroy();
         }
       });
+      // Mark connection as disconnected so the connection manager
+      // forces a fresh connection + ping on the next retry
+      await dockerClient.close();
     }
   }
 
@@ -121,8 +131,10 @@ export class DockerCollector extends BaseCollector {
           stats,
         });
       }
+      console.error(`[${this.name}] Stream ended for ${containerName}`);
     } catch (err) {
-      console.error(`[${this.name}] Error streaming stats for ${containerName}:`, err);
+      const code = (err as any)?.code || 'unknown';
+      console.error(`[${this.name}] Stream error for ${containerName}: ${code}`);
     }
   }
 }

@@ -338,6 +338,62 @@ if (isCI) {
         });
     });
 
+    describe('developer settings', () => {
+        it('should default workerDebugLogging to false', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.workerDebugLogging).toBe(false);
+            });
+        });
+
+        it('should load workerDebugLogging from database', async () => {
+            mockGetAllSettings.mockImplementation(() =>
+                Promise.resolve({
+                    'developer/workerDebugLogging': 'true',
+                })
+            );
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.workerDebugLogging).toBe(true);
+            });
+        });
+
+        it('should update workerDebugLogging state', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.workerDebugLogging).toBe(false);
+            });
+
+            act(() => {
+                result.current.setWorkerDebugLogging(true);
+            });
+
+            expect(result.current.developer.workerDebugLogging).toBe(true);
+        });
+
+        it('should persist workerDebugLogging to database', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current).toBeDefined();
+            });
+
+            act(() => {
+                result.current.setWorkerDebugLogging(true);
+            });
+
+            await waitFor(() => {
+                expect(mockUpdateSetting).toHaveBeenCalledWith({
+                    data: { key: 'developer/workerDebugLogging', value: 'true' },
+                });
+            });
+        });
+    });
+
     describe('parsing settings from database', () => {
         it('should parse expanded hosts from JSON', async () => {
             mockGetAllSettings.mockImplementation(() =>

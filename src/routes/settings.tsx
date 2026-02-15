@@ -18,7 +18,7 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { general, docker, zfs, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal } = useSettings();
+  const { general, docker, zfs, developer, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal, setWorkerDebugLogging } = useSettings();
 
   return (
     <div className="w-full p-6">
@@ -99,6 +99,22 @@ function SettingsContent() {
               </FormControl>
             </div>
           </div>
+        </Card>
+
+        <Card variant="outlined">
+          <Typography level="title-lg" className="mb-4">Developer</Typography>
+          <FormControl orientation="horizontal" className="justify-between">
+            <div>
+              <FormLabel>Worker Debug Logging</FormLabel>
+              <Typography level="body-xs" className="text-neutral-500">
+                Log batch flush counts and connection timing in the worker container
+              </Typography>
+            </div>
+            <Switch
+              checked={developer.workerDebugLogging}
+              onChange={(e) => setWorkerDebugLogging(e.target.checked)}
+            />
+          </FormControl>
         </Card>
       </div>
     </div>

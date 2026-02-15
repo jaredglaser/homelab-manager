@@ -33,5 +33,6 @@ export class SettingsRepository {
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
       [key, value]
     );
+    await this.pool.query(`SELECT pg_notify('settings_change', $1)`, [key]);
   }
 }

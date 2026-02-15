@@ -29,6 +29,9 @@ export interface Settings {
       diskSpeed: boolean;
     };
   };
+  developer: {
+    workerDebugLogging: boolean;
+  };
 }
 
 interface SettingsContextValue extends Settings {
@@ -46,6 +49,7 @@ interface SettingsContextValue extends Settings {
   isVdevExpanded: (vdevId: string) => boolean;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
+  setWorkerDebugLogging: (value: boolean) => void;
 }
 
 const DEFAULT_DECIMAL_SETTINGS: DecimalSettings = {
@@ -73,6 +77,9 @@ const DEFAULT_SETTINGS: Settings = {
     decimals: {
       diskSpeed: false,
     },
+  },
+  developer: {
+    workerDebugLogging: false,
   },
 };
 
@@ -123,6 +130,9 @@ function parseSettings(raw: Record<string, string>): Settings {
       decimals: {
         diskSpeed: parseBool(raw['zfs/decimals/diskSpeed'], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
       },
+    },
+    developer: {
+      workerDebugLogging: parseBool(raw['developer/workerDebugLogging'], DEFAULT_SETTINGS.developer.workerDebugLogging),
     },
   };
 }
@@ -343,6 +353,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setWorkerDebugLogging = useCallback((value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      developer: { ...prev.developer, workerDebugLogging: value },
+    }));
+    updateSetting({ data: { key: 'developer/workerDebugLogging', value: String(value) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
   return (
     <SettingsContext.Provider
       value={{
@@ -361,6 +381,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isVdevExpanded,
         setDockerDecimal,
         setZfsDecimal,
+        setWorkerDebugLogging,
       }}
     >
       {children}

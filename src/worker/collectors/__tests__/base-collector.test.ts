@@ -55,6 +55,10 @@ class TestCollector extends BaseCollector {
     return this.addToBatch(rows);
   }
 
+  testDebugLog(message: string) {
+    this.debugLog(message);
+  }
+
   getSignal(): AbortSignal {
     return this.signal;
   }
@@ -183,6 +187,47 @@ describe('BaseCollector', () => {
       await collector.testAddToBatch(rows);
       // The batch should have been flushed since size >= 2
       // Dispose should have nothing to flush
+      await collector[Symbol.asyncDispose]();
+    });
+  });
+
+  describe('debug logging', () => {
+    it('should not emit debug logs by default', async () => {
+      const collector = new TestCollector(db as any, config);
+      const logged: string[] = [];
+      console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
+
+      collector.testDebugLog('[TestCollector] Debug message');
+
+      expect(logged).not.toContain('[TestCollector] Debug message');
+
+      await collector[Symbol.asyncDispose]();
+    });
+
+    it('should emit debug logs when enabled', async () => {
+      const collector = new TestCollector(db as any, config);
+      collector.debugLogging = true;
+      const logged: string[] = [];
+      console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
+
+      collector.testDebugLog('[TestCollector] Debug message');
+
+      expect(logged).toContain('[TestCollector] Debug message');
+
+      await collector[Symbol.asyncDispose]();
+    });
+
+    it('should stop emitting debug logs when disabled', async () => {
+      const collector = new TestCollector(db as any, config);
+      collector.debugLogging = true;
+      collector.debugLogging = false;
+      const logged: string[] = [];
+      console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
+
+      collector.testDebugLog('[TestCollector] Debug message');
+
+      expect(logged).not.toContain('[TestCollector] Debug message');
+
       await collector[Symbol.asyncDispose]();
     });
   });

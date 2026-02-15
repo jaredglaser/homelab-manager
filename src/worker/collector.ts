@@ -1,3 +1,4 @@
+import { Client } from 'pg';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
@@ -5,6 +6,8 @@ import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadDockerConfig } from '@/lib/config/docker-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { runMigrations } from '@/lib/database/migrate';
+import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
+import type { BaseCollector } from './collectors/base-collector';
 import { DockerCollector } from './collectors/docker-collector';
 import { ZFSCollector } from './collectors/zfs-collector';
 
@@ -29,7 +32,7 @@ async function main() {
       docker: workerConfig.docker.enabled,
       zfs: workerConfig.zfs.enabled,
       collectionInterval: `${workerConfig.collection.interval}ms`,
-      batchSize: workerConfig.batch.size,
+      batchTimeout: `${workerConfig.batch.timeout}ms`,
     });
 
     console.log('[Worker] Connecting to PostgreSQL...');
@@ -52,6 +55,7 @@ async function main() {
     {
       await using stack = new AsyncDisposableStack();
       const runners: Promise<void>[] = [];
+      const allCollectors: BaseCollector[] = [];
 
       if (workerConfig.docker.enabled) {
         const dockerConfig = loadDockerConfig();
@@ -66,6 +70,7 @@ async function main() {
             const collector = stack.use(
               new DockerCollector(db, workerConfig, hostConfig, shutdownController)
             );
+            allCollectors.push(collector);
             runners.push(collector.run());
           }
         }
@@ -76,6 +81,7 @@ async function main() {
       if (workerConfig.zfs.enabled) {
         console.log('[Worker] Starting ZFS collector');
         const collector = stack.use(new ZFSCollector(db, workerConfig, shutdownController));
+        allCollectors.push(collector);
         runners.push(collector.run());
       } else {
         console.log('[Worker] ZFS collector disabled');
@@ -85,6 +91,47 @@ async function main() {
         console.log('[Worker] No collectors enabled, exiting');
         process.exit(0);
       }
+
+      // Read initial debug logging setting and LISTEN for changes
+      const settingsRepo = new SettingsRepository(db.getPool());
+      const applyDebugSetting = (value: string | null) => {
+        const enabled = value === 'true';
+        for (const c of allCollectors) c.debugLogging = enabled;
+      };
+
+      try {
+        applyDebugSetting(await settingsRepo.get('developer/workerDebugLogging'));
+      } catch {
+        // DB read failed — keep default (off)
+      }
+
+      const listenClient = new Client({
+        host: dbConfig.host,
+        port: dbConfig.port,
+        database: dbConfig.database,
+        user: dbConfig.user,
+        password: dbConfig.password,
+      });
+      await listenClient.connect();
+      await listenClient.query('LISTEN settings_change');
+
+      listenClient.on('notification', async (msg) => {
+        if (msg.payload === 'developer/workerDebugLogging') {
+          try {
+            applyDebugSetting(await settingsRepo.get('developer/workerDebugLogging'));
+          } catch {
+            // DB read failed — keep current value
+          }
+        }
+      });
+
+      listenClient.on('error', (err) => {
+        console.error('[Worker] Settings LISTEN connection error:', err);
+      });
+
+      shutdownController.signal.addEventListener('abort', () => {
+        listenClient.end().catch(() => {});
+      });
 
       console.log(`[Worker] ${runners.length} collector(s) started, running...`);
       await Promise.all(runners);

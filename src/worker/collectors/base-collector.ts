@@ -5,8 +5,8 @@ import { abortableSleep, isAbortError } from '@/lib/utils/abortable-sleep';
 
 const MAX_BACKOFF_EXPONENT = 5; // max 32s
 const MAX_BACKOFF_MS = 30_000;
-const BASE_BACKOFF_MS = 1_000;
-const RECONNECT_DELAY_MS = 5_000;
+const BASE_BACKOFF_MS = 500;
+const RECONNECT_DELAY_MS = 1_000;
 
 /**
  * Abstract base class for background stats collectors.
@@ -25,6 +25,7 @@ export abstract class BaseCollector implements AsyncDisposable {
   private batch: RawStatRow[] = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveErrors = 0;
+  private _debugLogging = false;
 
   constructor(
     protected readonly db: DatabaseClient,
@@ -68,7 +69,7 @@ export abstract class BaseCollector implements AsyncDisposable {
 
         // Stream ended without error and we're not aborted — reconnect
         if (!this.signal.aborted) {
-          console.log(`[${this.name}] Stream ended unexpectedly, reconnecting...`);
+          this.debugLog(`[${this.name}] Stream ended unexpectedly, reconnecting...`);
           this.consecutiveErrors = 0;
           await abortableSleep(RECONNECT_DELAY_MS, this.signal);
         }
@@ -114,15 +115,12 @@ export abstract class BaseCollector implements AsyncDisposable {
 
   // --- Batch management ---
 
-  protected async addToBatch(rows: RawStatRow[]): Promise<void> {
+  protected addToBatch(rows: RawStatRow[]): void {
     this.batch.push(...rows);
-
-    if (this.batch.length >= this.config.batch.size) {
-      await this.flushBatch();
-    }
 
     if (!this.batchTimer) {
       this.batchTimer = setTimeout(() => {
+        this.batchTimer = null;
         this.flushBatch().catch(err => {
           console.error(`[${this.name}] Error in batch timeout flush:`, err);
         });
@@ -133,8 +131,10 @@ export abstract class BaseCollector implements AsyncDisposable {
   private async flushBatch(): Promise<void> {
     if (this.batch.length === 0) return;
 
+    const count = this.batch.length;
     try {
       await this.repository.insertRawStats(this.batch);
+      this.debugLog(`[${this.name}] Flushed ${count} rows`);
       this.batch = [];
     } catch (err) {
       console.error(`[${this.name}] Failed to flush batch:`, err);
@@ -150,5 +150,17 @@ export abstract class BaseCollector implements AsyncDisposable {
   /** Reset the error counter after a successful connection */
   protected resetBackoff(): void {
     this.consecutiveErrors = 0;
+  }
+
+  /** Enable or disable debug logging at runtime via the developer settings */
+  set debugLogging(enabled: boolean) {
+    this._debugLogging = enabled;
+  }
+
+  /** Log a message only when debug logging is enabled */
+  protected debugLog(message: string): void {
+    if (this._debugLogging) {
+      console.log(message);
+    }
   }
 }

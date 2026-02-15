@@ -102,7 +102,7 @@ export class ZFSCollector extends BaseCollector {
       },
     });
 
-    console.log(`[${this.name}] Connected to ZFS host, starting iostat stream`);
+    this.debugLog(`[${this.name}] Connected to ZFS host, starting iostat stream`);
     this.resetBackoff();
 
     const stream = await sshClient.exec('zpool iostat -vvv 1');

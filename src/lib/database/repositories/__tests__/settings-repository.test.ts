@@ -72,10 +72,12 @@ describe('SettingsRepository', () => {
       const r = new SettingsRepository(pool);
       await r.set('docker/memoryDisplayMode', 'bytes');
 
-      expect(queries).toHaveLength(1);
+      expect(queries).toHaveLength(2);
       expect(queries[0].sql).toContain('INSERT INTO settings');
       expect(queries[0].sql).toContain('ON CONFLICT');
       expect(queries[0].params).toEqual(['docker/memoryDisplayMode', 'bytes']);
+      expect(queries[1].sql).toContain('pg_notify');
+      expect(queries[1].params).toEqual(['docker/memoryDisplayMode']);
     });
   });
 });

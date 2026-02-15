@@ -151,6 +151,7 @@ export class SSHClient implements StreamingClient {
       port: this.config.port || 22,
       username: auth.username,
       readyTimeout: 10000,
+      compress: true,
     };
 
     // Add keepalive if specified

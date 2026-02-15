@@ -40,7 +40,7 @@ export function loadWorkerConfig(): WorkerConfig {
     },
     batch: {
       size: parseInt(process.env.WORKER_BATCH_SIZE || '10', 10),
-      timeout: parseInt(process.env.WORKER_BATCH_TIMEOUT_MS || '10000', 10),
+      timeout: parseInt(process.env.WORKER_BATCH_TIMEOUT_MS || '1000', 10),
     },
   };
 

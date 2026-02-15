@@ -116,39 +116,33 @@ export class StatsRepository {
     try {
       const idMap = await this.resolveIds(rows);
 
-      const values: unknown[] = [];
-      const placeholders: string[] = [];
+      const timestamps: Date[] = [];
+      const sourceIds: number[] = [];
+      const typeIds: number[] = [];
+      const entities: string[] = [];
+      const values: number[] = [];
 
-      rows.forEach((row, index) => {
-        const offset = index * 5;
+      for (const row of rows) {
         const ids = idMap.get(`${row.source}:${row.type}`)!;
-
-        placeholders.push(
-          `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`
-        );
-
-        values.push(
-          row.timestamp,
-          ids.sourceId,
-          ids.typeId,
-          row.entity,
-          row.value
-        );
-      });
-
-      const query = `
-        INSERT INTO stats_raw (timestamp, source_id, type_id, entity, value)
-        VALUES ${placeholders.join(', ')}
-        ON CONFLICT (timestamp, source_id, type_id, entity) DO NOTHING
-      `;
-
-      await this.pool.query(query, values);
-
-      // Notify listeners about new stats for each source
-      const sources = [...new Set(rows.map(r => r.source))];
-      for (const source of sources) {
-        await this.pool.query(`NOTIFY stats_update, '${source}'`);
+        timestamps.push(row.timestamp);
+        sourceIds.push(ids.sourceId);
+        typeIds.push(ids.typeId);
+        entities.push(row.entity);
+        values.push(row.value);
       }
+
+      // Fixed query shape regardless of batch size — PostgreSQL can cache the plan
+      await this.pool.query(
+        `INSERT INTO stats_raw (timestamp, source_id, type_id, entity, value)
+         SELECT * FROM unnest($1::timestamptz[], $2::int[], $3::int[], $4::varchar[], $5::float8[])
+         ON CONFLICT (timestamp, source_id, type_id, entity) DO NOTHING`,
+        [timestamps, sourceIds, typeIds, entities, values]
+      );
+
+      // NOTIFY must be separate — pg extended query protocol forbids multi-statement with parameters
+      const sources = [...new Set(rows.map(r => r.source))];
+      const notifies = sources.map(s => `SELECT pg_notify('stats_update', '${s}')`).join('; ');
+      await this.pool.query(notifies);
     } catch (err) {
       console.error('[StatsRepository] Failed to insert stats:', err);
       throw err;
