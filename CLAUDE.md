@@ -19,7 +19,7 @@
 4. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useStreamingData` hook → CSS Grid + `useWindowVirtualizer`. Server handles client disconnect via `request.signal`.
 5. **File Creation**: PREFER editing existing files over creating new ones. Only create files when genuinely necessary.
 6. **Testing**: Tests in `__tests__/` folders co-located with source. Use `bun:test` imports.
-7. **No Logging**: No `console.log` in committed code. Only `console.error` for actual errors.
+7. **No Logging**: No ad-hoc `console.log` in committed code. Only `console.error` for actual errors. Exception: `console.log` is allowed when gated behind a developer setting (e.g., `debugLog` methods controlled via the Settings UI).
 
 ## Tech Stack
 
