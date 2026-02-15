@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createFileRoute } from '@tanstack/react-router'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { Alert, Box, Button, CircularProgress, FormControl, FormLabel, Input, Option, Select, Sheet, Typography } from '@mui/joy'
@@ -31,19 +31,6 @@ const OVERSCAN = 20;
 const DEBUG_GRID = 'grid grid-cols-[180px_80px_160px_1fr_120px] min-w-[700px]';
 
 function DebugDbPage() {
-  const { developer } = useSettings();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!developer.showDatabaseDebug) {
-      navigate({ to: '/' });
-    }
-  }, [developer.showDatabaseDebug, navigate]);
-
-  if (!developer.showDatabaseDebug) {
-    return null;
-  }
-
   return (
     <AppShell>
       <div className="w-full p-6">

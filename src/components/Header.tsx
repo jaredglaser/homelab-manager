@@ -16,7 +16,7 @@ export default function Header() {
         </span>
         {developer.showDatabaseDebug && (
           <span className="px-1 font-bold">
-            <Link to="/debug-db">DB Debug</Link>
+            <Link to="/debug-db">Database</Link>
           </span>
         )}
         <span className="px-1 font-bold">
