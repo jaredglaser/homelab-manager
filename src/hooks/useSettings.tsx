@@ -38,6 +38,7 @@ export interface Settings {
     dockerDebugLogging: boolean;
     dbFlushDebugLogging: boolean;
     sseDebugLogging: boolean;
+    showDatabaseDebug: boolean;
   };
 }
 
@@ -60,6 +61,7 @@ interface SettingsContextValue extends Settings {
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
   setSseDebugLogging: (value: boolean) => void;
+  setShowDatabaseDebug: (value: boolean) => void;
 }
 
 const DEFAULT_DECIMAL_SETTINGS: DecimalSettings = {
@@ -97,6 +99,7 @@ const DEFAULT_SETTINGS: Settings = {
     dockerDebugLogging: false,
     dbFlushDebugLogging: false,
     sseDebugLogging: false,
+    showDatabaseDebug: false,
   },
 };
 
@@ -163,6 +166,7 @@ function parseSettings(raw: Record<string, string>): Settings {
       dockerDebugLogging: parseBool(raw['developer/dockerDebugLogging'], DEFAULT_SETTINGS.developer.dockerDebugLogging),
       dbFlushDebugLogging: parseBool(raw['developer/dbFlushDebugLogging'], DEFAULT_SETTINGS.developer.dbFlushDebugLogging),
       sseDebugLogging: parseBool(raw['developer/sseDebugLogging'], DEFAULT_SETTINGS.developer.sseDebugLogging),
+      showDatabaseDebug: parseBool(raw['developer/showDatabaseDebug'], DEFAULT_SETTINGS.developer.showDatabaseDebug),
     },
   };
 }
@@ -423,6 +427,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setShowDatabaseDebug = useCallback((value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      developer: { ...prev.developer, showDatabaseDebug: value },
+    }));
+    updateSetting({ data: { key: 'developer/showDatabaseDebug', value: String(value) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
   return (
     <SettingsContext.Provider
       value={{
@@ -445,6 +459,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setDockerDebugLogging,
         setDbFlushDebugLogging,
         setSseDebugLogging,
+        setShowDatabaseDebug,
       }}
     >
       {children}

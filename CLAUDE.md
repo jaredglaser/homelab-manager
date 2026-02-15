@@ -108,7 +108,7 @@ src/
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/
     ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts)
-    └── [index, zfs, settings].tsx  # Page routes
+    └── [index, zfs, settings, debug-db].tsx  # Page routes
 
 migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 ```

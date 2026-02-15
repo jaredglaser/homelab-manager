@@ -18,7 +18,7 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { general, docker, zfs, retention, developer, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
+  const { general, docker, zfs, retention, developer, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging, setShowDatabaseDebug } = useSettings();
 
   return (
     <div className="w-full p-6">
@@ -197,6 +197,18 @@ function SettingsContent() {
               <Switch
                 checked={developer.sseDebugLogging}
                 onChange={(e) => setSseDebugLogging(e.target.checked)}
+              />
+            </FormControl>
+            <FormControl orientation="horizontal" className="justify-between">
+              <div>
+                <FormLabel>Database Debug View</FormLabel>
+                <Typography level="body-xs" className="text-neutral-500">
+                  Show the Database Debug page in navigation for inspecting raw database rows
+                </Typography>
+              </div>
+              <Switch
+                checked={developer.showDatabaseDebug}
+                onChange={(e) => setShowDatabaseDebug(e.target.checked)}
               />
             </FormControl>
           </div>

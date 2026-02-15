@@ -16,6 +16,22 @@ export interface LatestStatRow {
   value: number;
 }
 
+/** Row returned by debug database queries */
+export interface DebugStatRow {
+  timestamp: Date;
+  source: string;
+  type: string;
+  entity: string;
+  value: number;
+}
+
+/** Summary counts for the debug database view */
+export interface DebugDatabaseSummary {
+  sources: string[];
+  types: string[];
+  totalRows: number;
+}
+
 export class StatsRepository {
   private sourceCache = new Map<string, number>();
   private typeCache = new Map<string, number>();
@@ -338,5 +354,95 @@ export class StatsRepository {
       metadata.get(row.entity)!.set(row.key, row.value);
     }
     return metadata;
+  }
+
+  /**
+   * Get summary info for the debug database view.
+   * Returns available sources, types, and total row count.
+   */
+  async getDebugSummary(): Promise<DebugDatabaseSummary> {
+    const [sourcesResult, typesResult, countResult] = await Promise.all([
+      this.pool.query(`SELECT name FROM stat_source ORDER BY name`),
+      this.pool.query(
+        `SELECT ss.name AS source, st.name AS type
+         FROM stat_type st
+         JOIN stat_source ss ON st.source_id = ss.id
+         ORDER BY ss.name, st.name`
+      ),
+      this.pool.query(`SELECT COUNT(*)::int AS total FROM stats_raw`),
+    ]);
+
+    return {
+      sources: sourcesResult.rows.map((r: { name: string }) => r.name),
+      types: typesResult.rows.map(
+        (r: { source: string; type: string }) => `${r.source}/${r.type}`
+      ),
+      totalRows: countResult.rows[0]?.total ?? 0,
+    };
+  }
+
+  /**
+   * Query raw stats with filters for the debug database view.
+   * Supports source, type, entity, and time range filters with a row limit.
+   */
+  async queryDebugStats(params: {
+    source?: string;
+    type?: string;
+    entityFilter?: string;
+    maxAgeSeconds: number;
+    limit: number;
+  }): Promise<DebugStatRow[]> {
+    const conditions: string[] = [
+      `sr.timestamp >= NOW() - make_interval(secs => $1)`,
+    ];
+    const values: unknown[] = [params.maxAgeSeconds];
+    let paramIndex = 2;
+
+    if (params.source) {
+      conditions.push(`ss.name = $${paramIndex}`);
+      values.push(params.source);
+      paramIndex++;
+    }
+
+    if (params.type) {
+      const parts = params.type.split('/');
+      if (parts.length === 2) {
+        conditions.push(`ss.name = $${paramIndex}`);
+        values.push(parts[0]);
+        paramIndex++;
+        conditions.push(`st.name = $${paramIndex}`);
+        values.push(parts[1]);
+        paramIndex++;
+      }
+    }
+
+    if (params.entityFilter) {
+      conditions.push(`sr.entity ILIKE $${paramIndex}`);
+      values.push(`%${params.entityFilter}%`);
+      paramIndex++;
+    }
+
+    values.push(params.limit);
+
+    const result = await this.pool.query(
+      `SELECT sr.timestamp, ss.name AS source, st.name AS type, sr.entity, sr.value
+       FROM stats_raw sr
+       JOIN stat_source ss ON sr.source_id = ss.id
+       JOIN stat_type st ON sr.type_id = st.id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY sr.timestamp DESC
+       LIMIT $${paramIndex}`,
+      values
+    );
+
+    return result.rows.map(
+      (row: { timestamp: Date; source: string; type: string; entity: string; value: number }) => ({
+        timestamp: row.timestamp,
+        source: row.source,
+        type: row.type,
+        entity: row.entity,
+        value: row.value,
+      })
+    );
   }
 }
