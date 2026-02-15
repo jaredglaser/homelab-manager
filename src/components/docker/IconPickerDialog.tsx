@@ -62,7 +62,7 @@ export default function IconPickerDialog({
     <Modal open={open} onClose={handleClose}>
       <ModalDialog
         aria-labelledby="icon-picker-title"
-        sx={{ width: 'min(90vw, 40rem)' }}
+        className="!w-[min(90vw,40rem)]"
       >
         <ModalClose />
         <DialogTitle id="icon-picker-title">Select Icon for {containerName}</DialogTitle>
@@ -79,7 +79,7 @@ export default function IconPickerDialog({
             {filteredIcons.length === 0 ? (
               <p className="text-center py-4 text-sm opacity-70">No icons found for &quot;{search}&quot;</p>
             ) : (
-              <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+              <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
                 {virtualizer.getVirtualItems().map((virtualRow) => {
                   const row = iconRows[virtualRow.index];
                   return (
