@@ -17,6 +17,7 @@
     "dev:docker:down": "docker compose -f docker-compose.dev.yml down",
     "dev:docker:restart": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml up -d",
     "dev:docker:rebuild": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml build --no-cache",
+    "dev:docker:wipe": "docker compose -f docker-compose.dev.yml down -v",
     "icons:download": "bun scripts/download-icons.ts"
   },
   "dependencies": {

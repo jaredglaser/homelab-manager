@@ -114,12 +114,12 @@ DECLARE
   minute_deleted INTEGER;
   hour_deleted INTEGER;
 BEGIN
-  -- Delete raw data older than 7 days
-  DELETE FROM stats_raw WHERE timestamp < NOW() - INTERVAL '7 days';
+  -- Delete raw data older than 1 hour
+  DELETE FROM stats_raw WHERE timestamp < NOW() - INTERVAL '1 hour';
   GET DIAGNOSTICS raw_deleted = ROW_COUNT;
 
-  -- Delete minute aggregates older than 14 days
-  DELETE FROM stats_agg WHERE granularity = 'minute' AND period_start < NOW() - INTERVAL '14 days';
+  -- Delete minute aggregates older than 3 days
+  DELETE FROM stats_agg WHERE granularity = 'minute' AND period_start < NOW() - INTERVAL '3 days';
   GET DIAGNOSTICS minute_deleted = ROW_COUNT;
 
   -- Delete hour aggregates older than 30 days

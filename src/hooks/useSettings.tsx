@@ -29,6 +29,11 @@ export interface Settings {
       diskSpeed: boolean;
     };
   };
+  retention: {
+    rawDataHours: number;
+    minuteAggDays: number;
+    hourAggDays: number;
+  };
   developer: {
     workerDebugLogging: boolean;
   };
@@ -49,6 +54,7 @@ interface SettingsContextValue extends Settings {
   isVdevExpanded: (vdevId: string) => boolean;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
+  setRetention: (key: keyof Settings['retention'], value: number) => void;
   setWorkerDebugLogging: (value: boolean) => void;
 }
 
@@ -78,6 +84,11 @@ const DEFAULT_SETTINGS: Settings = {
       diskSpeed: false,
     },
   },
+  retention: {
+    rawDataHours: 1,
+    minuteAggDays: 3,
+    hourAggDays: 30,
+  },
   developer: {
     workerDebugLogging: false,
   },
@@ -101,6 +112,12 @@ function parseExpandedSet(raw: string | undefined): Set<string> {
 function parseBool(raw: string | undefined, defaultValue: boolean): boolean {
   if (raw === undefined) return defaultValue;
   return raw === 'true';
+}
+
+function parseIntSetting(raw: string | undefined, defaultValue: number): number {
+  if (raw === undefined) return defaultValue;
+  const parsed = parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
 function parseSettings(raw: Record<string, string>): Settings {
@@ -130,6 +147,11 @@ function parseSettings(raw: Record<string, string>): Settings {
       decimals: {
         diskSpeed: parseBool(raw['zfs/decimals/diskSpeed'], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
       },
+    },
+    retention: {
+      rawDataHours: parseIntSetting(raw['retention/rawDataHours'], DEFAULT_SETTINGS.retention.rawDataHours),
+      minuteAggDays: parseIntSetting(raw['retention/minuteAggDays'], DEFAULT_SETTINGS.retention.minuteAggDays),
+      hourAggDays: parseIntSetting(raw['retention/hourAggDays'], DEFAULT_SETTINGS.retention.hourAggDays),
     },
     developer: {
       workerDebugLogging: parseBool(raw['developer/workerDebugLogging'], DEFAULT_SETTINGS.developer.workerDebugLogging),
@@ -353,6 +375,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setRetention = useCallback((key: keyof Settings['retention'], value: number) => {
+    setSettings(prev => ({
+      ...prev,
+      retention: { ...prev.retention, [key]: value },
+    }));
+    updateSetting({ data: { key: `retention/${key}`, value: String(value) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
   const setWorkerDebugLogging = useCallback((value: boolean) => {
     setSettings(prev => ({
       ...prev,
@@ -381,6 +413,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isVdevExpanded,
         setDockerDecimal,
         setZfsDecimal,
+        setRetention,
         setWorkerDebugLogging,
       }}
     >

@@ -96,6 +96,8 @@ export class DockerCollector extends BaseCollector {
     try {
       for await (const stats of mergeAsyncIterables(containerStreams)) {
         if (this.signal.aborted) break;
+        const entity = `${this.hostConfig.name}/${stats.id}`;
+        if (!this.shouldWrite(entity)) continue;
         await this.addToBatch(toRawStatRows(stats, this.hostConfig.name));
       }
     } finally {

@@ -47,6 +47,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
       - "${POSTGRES_PORT}:5432"
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
@@ -88,12 +90,13 @@ services:
     <<: *shared-dev
     container_name: homelab-cleanup
     mem_limit: 256m
-    command: sh -c "while true; do sleep 86400 && bun run cleanup; done"
+    command: sh -c "while true; do sleep 3600 && bun run cleanup; done"
     environment:
       <<: *postgres-env
 
 volumes:
   node_modules:
+  pgdata-dev:
 
 networks:
   homelab-network:

@@ -55,6 +55,10 @@ class TestCollector extends BaseCollector {
     return this.addToBatch(rows);
   }
 
+  testShouldWrite(entity: string) {
+    return this.shouldWrite(entity);
+  }
+
   testDebugLog(message: string) {
     this.debugLog(message);
   }
@@ -188,6 +192,36 @@ describe('BaseCollector', () => {
       // The batch should have been flushed since size >= 2
       // Dispose should have nothing to flush
       await collector[Symbol.asyncDispose]();
+    });
+  });
+
+  describe('write throttling', () => {
+    it('should allow first write for an entity', () => {
+      const collector = new TestCollector(db as any, config);
+      expect(collector.testShouldWrite('entity-1')).toBe(true);
+    });
+
+    it('should throttle writes within collection interval', () => {
+      const collector = new TestCollector(db as any, config);
+      expect(collector.testShouldWrite('entity-1')).toBe(true);
+      expect(collector.testShouldWrite('entity-1')).toBe(false);
+    });
+
+    it('should allow writes for different entities independently', () => {
+      const collector = new TestCollector(db as any, config);
+      expect(collector.testShouldWrite('entity-1')).toBe(true);
+      expect(collector.testShouldWrite('entity-2')).toBe(true);
+    });
+
+    it('should allow writes after interval elapses', async () => {
+      const shortIntervalConfig = createMockConfig({ collection: { interval: 50 } });
+      const collector = new TestCollector(db as any, shortIntervalConfig);
+
+      expect(collector.testShouldWrite('entity-1')).toBe(true);
+      expect(collector.testShouldWrite('entity-1')).toBe(false);
+
+      await new Promise(resolve => setTimeout(resolve, 60));
+      expect(collector.testShouldWrite('entity-1')).toBe(true);
     });
   });
 

@@ -25,6 +25,7 @@ export abstract class BaseCollector implements AsyncDisposable {
   private batch: RawStatRow[] = [];
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveErrors = 0;
+  private lastWriteTime = new Map<string, number>();
   private _debugLogging = false;
 
   constructor(
@@ -150,6 +151,20 @@ export abstract class BaseCollector implements AsyncDisposable {
   /** Reset the error counter after a successful connection */
   protected resetBackoff(): void {
     this.consecutiveErrors = 0;
+  }
+
+  /**
+   * Throttle writes per entity based on collection.interval config.
+   * Returns true if enough time has elapsed since the last write for this entity.
+   * Streams still run at native speed (rate calculators stay accurate),
+   * but only 1-in-N samples is persisted to the database.
+   */
+  protected shouldWrite(entity: string): boolean {
+    const now = Date.now();
+    const lastWrite = this.lastWriteTime.get(entity) ?? 0;
+    if (now - lastWrite < this.config.collection.interval) return false;
+    this.lastWriteTime.set(entity, now);
+    return true;
   }
 
   /** Enable or disable debug logging at runtime via the developer settings */

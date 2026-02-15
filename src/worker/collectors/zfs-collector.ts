@@ -122,10 +122,10 @@ export class ZFSCollector extends BaseCollector {
         line.includes('operations') &&
         line.includes('bandwidth')
       ) {
-        if (currentCycle.length > 0) {
+        if (currentCycle.length > 0 && this.shouldWrite(currentCycle[0].entityPath)) {
           await this.addToBatch(currentCycle.flatMap(({ stat, entityPath }) => toRawStatRows(stat, entityPath)));
-          currentCycle = [];
         }
+        currentCycle = [];
         // Reset hierarchy context at cycle boundary
         hierarchyCtx = { currentPool: null, currentVdev: null };
         continue;
@@ -144,7 +144,7 @@ export class ZFSCollector extends BaseCollector {
     }
 
     // Flush final cycle
-    if (currentCycle.length > 0) {
+    if (currentCycle.length > 0 && this.shouldWrite(currentCycle[0].entityPath)) {
       await this.addToBatch(currentCycle.flatMap(({ stat, entityPath }) => toRawStatRows(stat, entityPath)));
     }
   }
