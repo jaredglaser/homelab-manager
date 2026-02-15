@@ -192,6 +192,51 @@ describe('buildDockerHierarchy', () => {
     expect(hierarchy.get('host3')!.aggregated.containerCount).toBe(1);
   });
 
+  describe('stable sorting', () => {
+    it('should sort hosts alphabetically regardless of input order', () => {
+      const stats = [
+        createMockStats('zeta-host', 'c1', 'nginx'),
+        createMockStats('alpha-host', 'c2', 'redis'),
+        createMockStats('mid-host', 'c3', 'postgres'),
+      ];
+
+      const hierarchy = buildDockerHierarchy(stats);
+      const hostNames = [...hierarchy.keys()];
+
+      expect(hostNames).toEqual(['alpha-host', 'mid-host', 'zeta-host']);
+    });
+
+    it('should sort containers within a host alphabetically by name', () => {
+      const stats = [
+        createMockStats('host1', 'c3', 'redis'),
+        createMockStats('host1', 'c1', 'nginx'),
+        createMockStats('host1', 'c2', 'caddy'),
+      ];
+
+      const hierarchy = buildDockerHierarchy(stats);
+      const containerNames = [...hierarchy.get('host1')!.containers.values()]
+        .map(c => c.data.name);
+
+      expect(containerNames).toEqual(['caddy', 'nginx', 'redis']);
+    });
+
+    it('should produce identical ordering for different input orders', () => {
+      const mkStats = (order: string[]) =>
+        order.map(name => createMockStats('host1', name, name));
+
+      const hierarchy1 = buildDockerHierarchy(mkStats(['zebra', 'apple', 'mango']));
+      const hierarchy2 = buildDockerHierarchy(mkStats(['mango', 'zebra', 'apple']));
+      const hierarchy3 = buildDockerHierarchy(mkStats(['apple', 'mango', 'zebra']));
+
+      const getNames = (h: ReturnType<typeof buildDockerHierarchy>) =>
+        [...h.get('host1')!.containers.values()].map(c => c.data.name);
+
+      expect(getNames(hierarchy1)).toEqual(['apple', 'mango', 'zebra']);
+      expect(getNames(hierarchy2)).toEqual(['apple', 'mango', 'zebra']);
+      expect(getNames(hierarchy3)).toEqual(['apple', 'mango', 'zebra']);
+    });
+  });
+
   it('should throw error for invalid entity path format', () => {
     const stats: DockerStatsFromDB[] = [
       {

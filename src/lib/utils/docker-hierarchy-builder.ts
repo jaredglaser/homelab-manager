@@ -111,5 +111,20 @@ export function buildDockerHierarchy(stats: DockerStatsFromDB[]): DockerHierarch
       hostStats.containers.size > 0;
   }
 
-  return hierarchy;
+  // Sort hosts alphabetically and containers within each host by name
+  // This ensures stable ordering regardless of database row order
+  const sorted: DockerHierarchy = new Map();
+  const sortedHostNames = [...hierarchy.keys()].sort((a, b) => a.localeCompare(b));
+
+  for (const hostName of sortedHostNames) {
+    const host = hierarchy.get(hostName)!;
+    const sortedContainers = new Map(
+      [...host.containers.entries()].sort(([, a], [, b]) =>
+        a.data.name.localeCompare(b.data.name),
+      ),
+    );
+    sorted.set(hostName, { ...host, containers: sortedContainers });
+  }
+
+  return sorted;
 }
