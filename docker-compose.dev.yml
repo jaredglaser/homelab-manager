@@ -21,11 +21,10 @@ x-shared-dev: &shared-dev
   build:
     context: .
     dockerfile: Dockerfile
-    target: base
+    target: deps
   volumes:
     - .:/app
     - node_modules:/app/node_modules
-    - /app/public/icons
   extra_hosts:
     - "host.docker.internal:host-gateway"
   restart: unless-stopped

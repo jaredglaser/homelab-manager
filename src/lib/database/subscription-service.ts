@@ -2,6 +2,7 @@ import { Client, type ClientConfig } from 'pg';
 import { EventEmitter } from 'events';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { StatsRepository } from '@/lib/database/repositories/stats-repository';
+import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import { statsCache } from '@/lib/cache/stats-cache';
 import { transformDockerStats } from '@/lib/transformers/docker-transformer';
 import { transformZFSStats } from '@/lib/transformers/zfs-transformer';
@@ -26,6 +27,7 @@ export interface SubscriptionServiceEvents {
 class SubscriptionService extends EventEmitter {
   private client: Client | null = null;
   private repository: StatsRepository | null = null;
+  private settingsRepo: SettingsRepository | null = null;
   private config: DatabaseConfig | null = null;
   private isRunning = false;
   private startPromise: Promise<void> | null = null;
@@ -38,6 +40,23 @@ class SubscriptionService extends EventEmitter {
   private readonly emitThrottleMs = 1000; // 1 second between UI updates
   private lastEmitTime: Map<string, number> = new Map();
   private pendingEmit: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+  // Debug logging
+  private _debugLogging = false;
+
+  get isDebugLogging(): boolean {
+    return this._debugLogging;
+  }
+
+  set debugLogging(enabled: boolean) {
+    this._debugLogging = enabled;
+  }
+
+  private debugLog(message: string): void {
+    if (this._debugLogging) {
+      console.log(message);
+    }
+  }
 
   /**
    * Start the subscription service.
@@ -116,7 +135,15 @@ class SubscriptionService extends EventEmitter {
     this.client.on('notification', async msg => {
       if (msg.channel === 'stats_update') {
         const source = msg.payload as 'docker' | 'zfs';
+        this.debugLog(`[SubscriptionService] NOTIFY received: source=${source}`);
         await this.handleNotification(source);
+      } else if (msg.channel === 'settings_change' && msg.payload === 'developer/sseDebugLogging') {
+        try {
+          const value = await this.settingsRepo?.get('developer/sseDebugLogging');
+          this.debugLogging = value === 'true';
+        } catch {
+          // DB read failed — keep current value
+        }
       }
     });
 
@@ -126,11 +153,22 @@ class SubscriptionService extends EventEmitter {
 
     // Subscribe to notifications
     await this.client.query('LISTEN stats_update');
+    await this.client.query('LISTEN settings_change');
     console.log('[SubscriptionService] Listening for stats_update notifications');
 
-    // Get a repository for querying
+    // Get repositories for querying
     const dbClient = await databaseConnectionManager.getClient(this.config);
-    this.repository = new StatsRepository(dbClient.getPool());
+    const pool = dbClient.getPool();
+    this.repository = new StatsRepository(pool);
+    this.settingsRepo = new SettingsRepository(pool);
+
+    // Load initial debug setting
+    try {
+      const value = await this.settingsRepo.get('developer/sseDebugLogging');
+      this.debugLogging = value === 'true';
+    } catch {
+      // DB read failed — keep default (off)
+    }
 
     // Load initial data into cache
     await this.loadInitialData();
@@ -159,10 +197,15 @@ class SubscriptionService extends EventEmitter {
   }
 
   private async handleNotification(source: 'docker' | 'zfs'): Promise<void> {
-    if (!this.repository) return;
+    if (!this.repository) {
+      this.debugLog(`[SubscriptionService] handleNotification(${source}): no repository, skipping`);
+      return;
+    }
 
     try {
+      const t0 = performance.now();
       const rows = await this.repository.getLatestStats({ sourceName: source });
+      const tQuery = performance.now();
 
       // Always update cache immediately so data is fresh
       if (source === 'docker') {
@@ -172,6 +215,12 @@ class SubscriptionService extends EventEmitter {
       } else if (source === 'zfs') {
         statsCache.updateZFS(transformZFSStats(rows));
       }
+      const tCache = performance.now();
+
+      this.debugLog(
+        `[SubscriptionService] ${source}: ${rows.length} rows` +
+        ` (query=${(tQuery - t0).toFixed(0)}ms cache=${(tCache - tQuery).toFixed(0)}ms)`
+      );
 
       // Throttle UI updates: emit at most once per interval per source
       this.throttledEmit(source);
@@ -194,6 +243,8 @@ class SubscriptionService extends EventEmitter {
     if (elapsed >= this.emitThrottleMs) {
       // Enough time has passed, emit immediately
       this.lastEmitTime.set(source, now);
+      const listeners = this.listenerCount('stats_update');
+      this.debugLog(`[SubscriptionService] Emitting stats_update(${source}) to ${listeners} listener(s)`);
       this.emit('stats_update', source);
 
       // Clear any pending trailing emit since we just emitted
@@ -205,14 +256,18 @@ class SubscriptionService extends EventEmitter {
     } else if (!this.pendingEmit.has(source)) {
       // Schedule a trailing emit to send latest data after throttle window
       const delay = this.emitThrottleMs - elapsed;
+      this.debugLog(`[SubscriptionService] Throttling ${source}, trailing emit in ${delay}ms`);
       const timer = setTimeout(() => {
         this.pendingEmit.delete(source);
         this.lastEmitTime.set(source, Date.now());
+        const listeners = this.listenerCount('stats_update');
+        this.debugLog(`[SubscriptionService] Trailing emit stats_update(${source}) to ${listeners} listener(s)`);
         this.emit('stats_update', source);
       }, delay);
       this.pendingEmit.set(source, timer);
+    } else {
+      this.debugLog(`[SubscriptionService] Throttled ${source} (pending emit already scheduled)`);
     }
-    // If already have a pending emit scheduled, do nothing - it will send latest data
   }
 
   private scheduleReconnect(): void {

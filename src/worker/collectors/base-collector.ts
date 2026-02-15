@@ -26,7 +26,8 @@ export abstract class BaseCollector implements AsyncDisposable {
   private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveErrors = 0;
   private lastWriteTime = new Map<string, number>();
-  private _debugLogging = false;
+  private _dockerDebugLogging = false;
+  private _dbFlushDebugLogging = false;
 
   constructor(
     protected readonly db: DatabaseClient,
@@ -57,6 +58,7 @@ export abstract class BaseCollector implements AsyncDisposable {
    */
   async run(): Promise<void> {
     console.log(`[${this.name}] Starting collection`);
+    let cycleCount = 0;
 
     while (!this.signal.aborted) {
       try {
@@ -66,11 +68,20 @@ export abstract class BaseCollector implements AsyncDisposable {
           continue;
         }
 
+        cycleCount++;
+        this.debugLog(`[${this.name}] Starting collection cycle #${cycleCount}`);
+        const t0 = performance.now();
+
         await this.collectOnce();
+
+        const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
 
         // Stream ended without error and we're not aborted — reconnect
         if (!this.signal.aborted) {
-          this.debugLog(`[${this.name}] Stream ended unexpectedly, reconnecting...`);
+          this.debugLog(
+            `[${this.name}] collectOnce() returned after ${elapsed}s` +
+            ` (cycle #${cycleCount}), reconnecting in ${RECONNECT_DELAY_MS}ms...`
+          );
           this.consecutiveErrors = 0;
           await abortableSleep(RECONNECT_DELAY_MS, this.signal);
         }
@@ -83,8 +94,13 @@ export abstract class BaseCollector implements AsyncDisposable {
         const exponent = Math.min(this.consecutiveErrors, MAX_BACKOFF_EXPONENT);
         const backoffMs = Math.min(BASE_BACKOFF_MS * Math.pow(2, exponent), MAX_BACKOFF_MS);
 
-        console.error(`[${this.name}] Collection error:`, err);
-        console.log(`[${this.name}] Retrying in ${backoffMs}ms (attempt ${this.consecutiveErrors})...`);
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const errCode = (err as any)?.code || 'unknown';
+        console.error(
+          `[${this.name}] Collection error (cycle #${cycleCount}):` +
+          ` code=${errCode} message=${errMsg}`
+        );
+        this.debugLog(`[${this.name}] Retrying in ${backoffMs}ms (attempt ${this.consecutiveErrors})...`);
 
         try {
           await abortableSleep(backoffMs, this.signal);
@@ -95,7 +111,7 @@ export abstract class BaseCollector implements AsyncDisposable {
     }
 
     await this.flushBatch();
-    console.log(`[${this.name}] Stopped gracefully`);
+    console.log(`[${this.name}] Stopped gracefully after ${cycleCount} cycles`);
   }
 
   /** Signal this collector to stop. */
@@ -135,7 +151,7 @@ export abstract class BaseCollector implements AsyncDisposable {
     const count = this.batch.length;
     try {
       await this.repository.insertRawStats(this.batch);
-      this.debugLog(`[${this.name}] Flushed ${count} rows`);
+      this.dbDebugLog(`[${this.name}] Flushed ${count} rows`);
       this.batch = [];
     } catch (err) {
       console.error(`[${this.name}] Failed to flush batch:`, err);
@@ -167,14 +183,26 @@ export abstract class BaseCollector implements AsyncDisposable {
     return true;
   }
 
-  /** Enable or disable debug logging at runtime via the developer settings */
-  set debugLogging(enabled: boolean) {
-    this._debugLogging = enabled;
+  /** Enable or disable Docker debug logging at runtime via developer settings */
+  set dockerDebugLogging(enabled: boolean) {
+    this._dockerDebugLogging = enabled;
   }
 
-  /** Log a message only when debug logging is enabled */
+  /** Enable or disable database flush debug logging at runtime via developer settings */
+  set dbFlushDebugLogging(enabled: boolean) {
+    this._dbFlushDebugLogging = enabled;
+  }
+
+  /** Log a message only when Docker debug logging is enabled */
   protected debugLog(message: string): void {
-    if (this._debugLogging) {
+    if (this._dockerDebugLogging) {
+      console.log(message);
+    }
+  }
+
+  /** Log a message only when database flush debug logging is enabled */
+  protected dbDebugLog(message: string): void {
+    if (this._dbFlushDebugLogging) {
       console.log(message);
     }
   }

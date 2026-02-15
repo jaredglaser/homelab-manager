@@ -9,6 +9,7 @@ export class DockerClient implements StreamingClient {
   readonly id: string;
   private docker: Dockerode;
   private connected: boolean = false;
+  private _debugLogging = false;
 
   constructor(config: { host: string; port: number; protocol?: 'ssh' | 'http' | 'https' }) {
     this.id = `docker://${config.host}:${config.port}`;
@@ -19,18 +20,37 @@ export class DockerClient implements StreamingClient {
     });
   }
 
+  set debugLogging(enabled: boolean) {
+    this._debugLogging = enabled;
+  }
+
+  private debugLog(message: string): void {
+    if (this._debugLogging) {
+      console.log(message);
+    }
+  }
+
   /**
    * Test connection to Docker daemon
    */
   async connect(): Promise<void> {
+    const t0 = performance.now();
+    this.debugLog(`[DockerClient] Connecting to ${this.id}...`);
     try {
       // Test connection by pinging Docker daemon
-      await this.docker.ping();
+      const pingResult = await this.docker.ping();
+      const elapsed = (performance.now() - t0).toFixed(0);
       this.connected = true;
-      console.log(`[DockerClient] Connected to ${this.id}`);
+      this.debugLog(`[DockerClient] Connected to ${this.id} (ping=${elapsed}ms, response=${pingResult})`);
     } catch (err) {
+      const elapsed = (performance.now() - t0).toFixed(0);
       this.connected = false;
-      console.error(`[DockerClient] Connection failed:`, err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errCode = (err as any)?.code || 'unknown';
+      console.error(
+        `[DockerClient] Connection to ${this.id} failed after ${elapsed}ms:` +
+        ` code=${errCode} message=${errMsg}`
+      );
       throw err;
     }
   }
@@ -51,7 +71,7 @@ export class DockerClient implements StreamingClient {
   }
 
   async close(): Promise<void> {
-    console.log(`[DockerClient] Closing connection: ${this.id}`);
+    this.debugLog(`[DockerClient] Closing connection: ${this.id} (was connected=${this.connected})`);
     // Dockerode doesn't need explicit cleanup
     // It uses HTTP connections which are handled by Node's http module
     this.connected = false;
@@ -64,6 +84,21 @@ export class DockerClient implements StreamingClient {
  */
 class DockerConnectionManager {
   private connections = new Map<string, DockerClient>();
+  private _debugLogging = false;
+
+  set debugLogging(enabled: boolean) {
+    this._debugLogging = enabled;
+    // Propagate to all existing clients
+    for (const client of this.connections.values()) {
+      client.debugLogging = enabled;
+    }
+  }
+
+  private debugLog(message: string): void {
+    if (this._debugLogging) {
+      console.log(message);
+    }
+  }
 
   /**
    * Get or create a Docker client for the given config
@@ -72,14 +107,23 @@ class DockerConnectionManager {
   async getClient(config: { host: string; port: number; protocol?: 'ssh' | 'http' | 'https' }): Promise<DockerClient> {
     const key = `${config.host}:${config.port}`;
 
-    let client = this.connections.get(key);
+    const existing = this.connections.get(key);
 
-    if (!client || !client.isConnected()) {
-      console.log(`[DockerConnectionManager] Creating new connection: ${key}`);
-      client = new DockerClient(config);
-      await client.connect();
-      this.connections.set(key, client);
+    if (existing && existing.isConnected()) {
+      this.debugLog(`[DockerConnectionManager] Reusing existing connection: ${key}`);
+      return existing;
     }
+
+    if (existing) {
+      this.debugLog(`[DockerConnectionManager] Existing connection ${key} is disconnected, creating new`);
+    } else {
+      this.debugLog(`[DockerConnectionManager] No existing connection for ${key}, creating new`);
+    }
+
+    const client = new DockerClient(config);
+    client.debugLogging = this._debugLogging;
+    await client.connect();
+    this.connections.set(key, client);
 
     return client;
   }
@@ -99,7 +143,7 @@ class DockerConnectionManager {
    * Close all connections
    */
   async closeAll(): Promise<void> {
-    console.log('[DockerConnectionManager] Closing all connections');
+    this.debugLog(`[DockerConnectionManager] Closing all connections (${this.connections.size} active)`);
     const promises = Array.from(this.connections.values()).map(client => client.close());
     await Promise.all(promises);
     this.connections.clear();

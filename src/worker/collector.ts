@@ -92,17 +92,26 @@ async function main() {
         process.exit(0);
       }
 
-      // Read initial debug logging setting and LISTEN for changes
+      // Read initial debug logging settings and LISTEN for changes
       const settingsRepo = new SettingsRepository(db.getPool());
-      const applyDebugSetting = (value: string | null) => {
+      const debugSettingKeys = ['developer/dockerDebugLogging', 'developer/dbFlushDebugLogging'] as const;
+
+      const applyDebugSetting = (key: string, value: string | null) => {
         const enabled = value === 'true';
-        for (const c of allCollectors) c.debugLogging = enabled;
+        if (key === 'developer/dockerDebugLogging') {
+          for (const c of allCollectors) c.dockerDebugLogging = enabled;
+          dockerConnectionManager.debugLogging = enabled;
+        } else if (key === 'developer/dbFlushDebugLogging') {
+          for (const c of allCollectors) c.dbFlushDebugLogging = enabled;
+        }
       };
 
       try {
-        applyDebugSetting(await settingsRepo.get('developer/workerDebugLogging'));
+        for (const key of debugSettingKeys) {
+          applyDebugSetting(key, await settingsRepo.get(key));
+        }
       } catch {
-        // DB read failed — keep default (off)
+        // DB read failed — keep defaults (off)
       }
 
       const listenClient = new Client({
@@ -116,9 +125,9 @@ async function main() {
       await listenClient.query('LISTEN settings_change');
 
       listenClient.on('notification', async (msg) => {
-        if (msg.payload === 'developer/workerDebugLogging') {
+        if (msg.payload && debugSettingKeys.includes(msg.payload as any)) {
           try {
-            applyDebugSetting(await settingsRepo.get('developer/workerDebugLogging'));
+            applyDebugSetting(msg.payload, await settingsRepo.get(msg.payload));
           } catch {
             // DB read failed — keep current value
           }

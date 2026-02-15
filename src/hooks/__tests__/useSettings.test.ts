@@ -339,43 +339,79 @@ if (isCI) {
     });
 
     describe('developer settings', () => {
-        it('should default workerDebugLogging to false', async () => {
+        it('should default dockerDebugLogging to false', async () => {
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
-                expect(result.current.developer.workerDebugLogging).toBe(false);
+                expect(result.current.developer.dockerDebugLogging).toBe(false);
             });
         });
 
-        it('should load workerDebugLogging from database', async () => {
+        it('should default dbFlushDebugLogging to false', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.dbFlushDebugLogging).toBe(false);
+            });
+        });
+
+        it('should load dockerDebugLogging from database', async () => {
             mockGetAllSettings.mockImplementation(() =>
                 Promise.resolve({
-                    'developer/workerDebugLogging': 'true',
+                    'developer/dockerDebugLogging': 'true',
                 })
             );
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
-                expect(result.current.developer.workerDebugLogging).toBe(true);
+                expect(result.current.developer.dockerDebugLogging).toBe(true);
             });
         });
 
-        it('should update workerDebugLogging state', async () => {
+        it('should load dbFlushDebugLogging from database', async () => {
+            mockGetAllSettings.mockImplementation(() =>
+                Promise.resolve({
+                    'developer/dbFlushDebugLogging': 'true',
+                })
+            );
+
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
-                expect(result.current.developer.workerDebugLogging).toBe(false);
+                expect(result.current.developer.dbFlushDebugLogging).toBe(true);
+            });
+        });
+
+        it('should update dockerDebugLogging state', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.dockerDebugLogging).toBe(false);
             });
 
             act(() => {
-                result.current.setWorkerDebugLogging(true);
+                result.current.setDockerDebugLogging(true);
             });
 
-            expect(result.current.developer.workerDebugLogging).toBe(true);
+            expect(result.current.developer.dockerDebugLogging).toBe(true);
         });
 
-        it('should persist workerDebugLogging to database', async () => {
+        it('should update dbFlushDebugLogging state', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.dbFlushDebugLogging).toBe(false);
+            });
+
+            act(() => {
+                result.current.setDbFlushDebugLogging(true);
+            });
+
+            expect(result.current.developer.dbFlushDebugLogging).toBe(true);
+        });
+
+        it('should persist dockerDebugLogging to database', async () => {
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
@@ -383,12 +419,84 @@ if (isCI) {
             });
 
             act(() => {
-                result.current.setWorkerDebugLogging(true);
+                result.current.setDockerDebugLogging(true);
             });
 
             await waitFor(() => {
                 expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'developer/workerDebugLogging', value: 'true' },
+                    data: { key: 'developer/dockerDebugLogging', value: 'true' },
+                });
+            });
+        });
+
+        it('should persist dbFlushDebugLogging to database', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current).toBeDefined();
+            });
+
+            act(() => {
+                result.current.setDbFlushDebugLogging(true);
+            });
+
+            await waitFor(() => {
+                expect(mockUpdateSetting).toHaveBeenCalledWith({
+                    data: { key: 'developer/dbFlushDebugLogging', value: 'true' },
+                });
+            });
+        });
+
+        it('should default sseDebugLogging to false', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.sseDebugLogging).toBe(false);
+            });
+        });
+
+        it('should load sseDebugLogging from database', async () => {
+            mockGetAllSettings.mockImplementation(() =>
+                Promise.resolve({
+                    'developer/sseDebugLogging': 'true',
+                })
+            );
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.sseDebugLogging).toBe(true);
+            });
+        });
+
+        it('should update sseDebugLogging state', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current.developer.sseDebugLogging).toBe(false);
+            });
+
+            act(() => {
+                result.current.setSseDebugLogging(true);
+            });
+
+            expect(result.current.developer.sseDebugLogging).toBe(true);
+        });
+
+        it('should persist sseDebugLogging to database', async () => {
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            await waitFor(() => {
+                expect(result.current).toBeDefined();
+            });
+
+            act(() => {
+                result.current.setSseDebugLogging(true);
+            });
+
+            await waitFor(() => {
+                expect(mockUpdateSetting).toHaveBeenCalledWith({
+                    data: { key: 'developer/sseDebugLogging', value: 'true' },
                 });
             });
         });

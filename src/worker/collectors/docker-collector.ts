@@ -50,6 +50,8 @@ export class DockerCollector extends BaseCollector {
   protected async collectOnce(): Promise<void> {
     const t0 = performance.now();
 
+    this.debugLog(`[${this.name}] Starting collection cycle`);
+
     const dockerClient = await dockerConnectionManager.getClient({
       host: this.hostConfig.host,
       port: this.hostConfig.port,
@@ -62,7 +64,7 @@ export class DockerCollector extends BaseCollector {
     const tList = performance.now();
 
     if (containers.length === 0) {
-      console.log(`[${this.name}] No running containers found, waiting...`);
+      this.debugLog(`[${this.name}] No running containers found, waiting...`);
       return;
     }
 
@@ -92,15 +94,25 @@ export class DockerCollector extends BaseCollector {
 
     const streams: any[] = [];
     const containerStreams = containers.map(info => this.streamContainerStats(docker, info, streams));
+    let statsReceived = 0;
+    let statsWritten = 0;
 
     try {
       for await (const stats of mergeAsyncIterables(containerStreams)) {
         if (this.signal.aborted) break;
+        statsReceived++;
         const entity = `${this.hostConfig.name}/${stats.id}`;
         if (!this.shouldWrite(entity)) continue;
+        statsWritten++;
         await this.addToBatch(toRawStatRows(stats, this.hostConfig.name));
       }
     } finally {
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      this.debugLog(
+        `[${this.name}] Collection cycle ended after ${elapsed}s` +
+        ` (received=${statsReceived} written=${statsWritten}` +
+        ` streams=${streams.length} aborted=${this.signal.aborted})`
+      );
       streams.forEach(stream => {
         if (stream && typeof stream.destroy === 'function') {
           stream.destroy();
@@ -118,14 +130,21 @@ export class DockerCollector extends BaseCollector {
     streams: any[],
   ): AsyncGenerator<ContainerStatsWithRates> {
     const containerName = containerInfo.Names[0]?.replace(/^\//, '') || containerInfo.Id.substring(0, 12);
+    const shortId = containerInfo.Id.substring(0, 12);
+    let eventsReceived = 0;
 
     try {
+      this.debugLog(`[${this.name}] Opening stats stream for ${containerName} (${shortId})`);
+      const t0 = performance.now();
       const container = docker.getContainer(containerInfo.Id);
       const statsStream = await container.stats({ stream: true });
       streams.push(statsStream);
+      const elapsed = (performance.now() - t0).toFixed(0);
+      this.debugLog(`[${this.name}] Stats stream opened for ${containerName} (${elapsed}ms)`);
 
       for await (const stats of streamToAsyncIterator<Dockerode.ContainerStats>(statsStream)) {
         if (this.signal.aborted) break;
+        eventsReceived++;
 
         yield this.calculator.calculate(containerInfo.Id, {
           containerId: containerInfo.Id,
@@ -133,10 +152,19 @@ export class DockerCollector extends BaseCollector {
           stats,
         });
       }
-      console.error(`[${this.name}] Stream ended for ${containerName}`);
+      this.debugLog(
+        `[${this.name}] Stream ended normally for ${containerName} (${shortId})` +
+        ` after ${eventsReceived} events, aborted=${this.signal.aborted}`
+      );
     } catch (err) {
-      const code = (err as any)?.code || 'unknown';
-      console.error(`[${this.name}] Stream error for ${containerName}: ${code}`);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const errCode = (err as any)?.code || 'unknown';
+      const errStatusCode = (err as any)?.statusCode || 'none';
+      console.error(
+        `[${this.name}] Stream error for ${containerName} (${shortId}):` +
+        ` code=${errCode} statusCode=${errStatusCode} message=${errMsg}` +
+        ` (after ${eventsReceived} events)`
+      );
     }
   }
 }

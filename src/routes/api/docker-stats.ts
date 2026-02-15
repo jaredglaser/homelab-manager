@@ -16,6 +16,13 @@ export const Route = createFileRoute('/api/docker-stats')({
 
         const encoder = new TextEncoder();
         let closed = false;
+        let eventsSent = 0;
+
+        const debugLog = (message: string) => {
+          if (subscriptionService.isDebugLogging) {
+            console.log(message);
+          }
+        };
 
         const stream = new ReadableStream({
           start(controller) {
@@ -24,13 +31,16 @@ export const Route = createFileRoute('/api/docker-stats')({
               try {
                 const message = `data: ${JSON.stringify(data)}\n\n`;
                 controller.enqueue(encoder.encode(message));
+                eventsSent++;
               } catch {
+                debugLog(`[SSE:docker-stats] Enqueue failed after ${eventsSent} events`);
                 closed = true;
               }
             };
 
             // Send initial data immediately
             const initialStats = statsCache.getDocker();
+            debugLog(`[SSE:docker-stats] Client connected, sending ${initialStats.length} initial stats`);
             sendData(initialStats);
 
             // Listen for updates
@@ -45,6 +55,7 @@ export const Route = createFileRoute('/api/docker-stats')({
 
             // Handle client disconnect via abort signal
             request.signal.addEventListener('abort', () => {
+              debugLog(`[SSE:docker-stats] Client disconnected after ${eventsSent} events`);
               closed = true;
               subscriptionService.removeListener('stats_update', handler);
               try {

@@ -18,7 +18,7 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { general, docker, zfs, retention, developer, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal, setRetention, setWorkerDebugLogging } = useSettings();
+  const { general, docker, zfs, retention, developer, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
 
   return (
     <div className="w-full p-6">
@@ -162,18 +162,44 @@ function SettingsContent() {
 
         <Card variant="outlined">
           <Typography level="title-lg" className="mb-4">Developer</Typography>
-          <FormControl orientation="horizontal" className="justify-between">
-            <div>
-              <FormLabel>Worker Debug Logging</FormLabel>
-              <Typography level="body-xs" className="text-neutral-500">
-                Log batch flush counts and connection timing in the worker container
-              </Typography>
-            </div>
-            <Switch
-              checked={developer.workerDebugLogging}
-              onChange={(e) => setWorkerDebugLogging(e.target.checked)}
-            />
-          </FormControl>
+          <div className="flex flex-col gap-4">
+            <FormControl orientation="horizontal" className="justify-between">
+              <div>
+                <FormLabel>Docker Debug Logging</FormLabel>
+                <Typography level="body-xs" className="text-neutral-500">
+                  Log connection lifecycle, stream events, and collection timing
+                </Typography>
+              </div>
+              <Switch
+                checked={developer.dockerDebugLogging}
+                onChange={(e) => setDockerDebugLogging(e.target.checked)}
+              />
+            </FormControl>
+            <FormControl orientation="horizontal" className="justify-between">
+              <div>
+                <FormLabel>Database Flush Logging</FormLabel>
+                <Typography level="body-xs" className="text-neutral-500">
+                  Log batch flush counts and database write timing
+                </Typography>
+              </div>
+              <Switch
+                checked={developer.dbFlushDebugLogging}
+                onChange={(e) => setDbFlushDebugLogging(e.target.checked)}
+              />
+            </FormControl>
+            <FormControl orientation="horizontal" className="justify-between">
+              <div>
+                <FormLabel>SSE Pipeline Logging</FormLabel>
+                <Typography level="body-xs" className="text-neutral-500">
+                  Log NOTIFY reception, cache updates, and SSE event emission
+                </Typography>
+              </div>
+              <Switch
+                checked={developer.sseDebugLogging}
+                onChange={(e) => setSseDebugLogging(e.target.checked)}
+              />
+            </FormControl>
+          </div>
         </Card>
       </div>
     </div>

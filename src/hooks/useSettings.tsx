@@ -35,7 +35,9 @@ export interface Settings {
     hourAggDays: number;
   };
   developer: {
-    workerDebugLogging: boolean;
+    dockerDebugLogging: boolean;
+    dbFlushDebugLogging: boolean;
+    sseDebugLogging: boolean;
   };
 }
 
@@ -55,7 +57,9 @@ interface SettingsContextValue extends Settings {
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
   setRetention: (key: keyof Settings['retention'], value: number) => void;
-  setWorkerDebugLogging: (value: boolean) => void;
+  setDockerDebugLogging: (value: boolean) => void;
+  setDbFlushDebugLogging: (value: boolean) => void;
+  setSseDebugLogging: (value: boolean) => void;
 }
 
 const DEFAULT_DECIMAL_SETTINGS: DecimalSettings = {
@@ -90,7 +94,9 @@ const DEFAULT_SETTINGS: Settings = {
     hourAggDays: 30,
   },
   developer: {
-    workerDebugLogging: false,
+    dockerDebugLogging: false,
+    dbFlushDebugLogging: false,
+    sseDebugLogging: false,
   },
 };
 
@@ -154,7 +160,9 @@ function parseSettings(raw: Record<string, string>): Settings {
       hourAggDays: parseIntSetting(raw['retention/hourAggDays'], DEFAULT_SETTINGS.retention.hourAggDays),
     },
     developer: {
-      workerDebugLogging: parseBool(raw['developer/workerDebugLogging'], DEFAULT_SETTINGS.developer.workerDebugLogging),
+      dockerDebugLogging: parseBool(raw['developer/dockerDebugLogging'], DEFAULT_SETTINGS.developer.dockerDebugLogging),
+      dbFlushDebugLogging: parseBool(raw['developer/dbFlushDebugLogging'], DEFAULT_SETTINGS.developer.dbFlushDebugLogging),
+      sseDebugLogging: parseBool(raw['developer/sseDebugLogging'], DEFAULT_SETTINGS.developer.sseDebugLogging),
     },
   };
 }
@@ -385,12 +393,32 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const setWorkerDebugLogging = useCallback((value: boolean) => {
+  const setDockerDebugLogging = useCallback((value: boolean) => {
     setSettings(prev => ({
       ...prev,
-      developer: { ...prev.developer, workerDebugLogging: value },
+      developer: { ...prev.developer, dockerDebugLogging: value },
     }));
-    updateSetting({ data: { key: 'developer/workerDebugLogging', value: String(value) } }).catch(() => {
+    updateSetting({ data: { key: 'developer/dockerDebugLogging', value: String(value) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
+  const setDbFlushDebugLogging = useCallback((value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      developer: { ...prev.developer, dbFlushDebugLogging: value },
+    }));
+    updateSetting({ data: { key: 'developer/dbFlushDebugLogging', value: String(value) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
+  const setSseDebugLogging = useCallback((value: boolean) => {
+    setSettings(prev => ({
+      ...prev,
+      developer: { ...prev.developer, sseDebugLogging: value },
+    }));
+    updateSetting({ data: { key: 'developer/sseDebugLogging', value: String(value) } }).catch(() => {
       // Fire-and-forget
     });
   }, []);
@@ -414,7 +442,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setDockerDecimal,
         setZfsDecimal,
         setRetention,
-        setWorkerDebugLogging,
+        setDockerDebugLogging,
+        setDbFlushDebugLogging,
+        setSseDebugLogging,
       }}
     >
       {children}

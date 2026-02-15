@@ -1,23 +1,18 @@
 # Dockerfile for homelab-manager
-# Multi-stage build: base (worker/cleanup/dev) and production (web)
+# Multi-stage build: deps (dev), base (worker/cleanup), production (web)
 
-# Base stage - shared dependencies and source
-FROM oven/bun:1 AS base
-
+# Dependencies only — used for dev containers (source mounted via volume)
+FROM oven/bun:1 AS deps
 WORKDIR /app
-
-# Copy dependency files
 COPY package.json bun.lock ./
-
-# Install dependencies
 RUN bun install --frozen-lockfile
-
-# Copy source code
-COPY . .
-
 EXPOSE 3000
 
-# Production stage - builds the web app for serving
+# Source stage — includes source code (worker/cleanup in production)
+FROM deps AS base
+COPY . .
+
+# Production stage — builds the web app for serving
 FROM base AS production
 
 ENV NODE_ENV=production

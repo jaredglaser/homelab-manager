@@ -238,9 +238,9 @@ describe('BaseCollector', () => {
       await collector[Symbol.asyncDispose]();
     });
 
-    it('should emit debug logs when enabled', async () => {
+    it('should emit debug logs when docker debug logging is enabled', async () => {
       const collector = new TestCollector(db as any, config);
-      collector.debugLogging = true;
+      collector.dockerDebugLogging = true;
       const logged: string[] = [];
       console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
 
@@ -251,10 +251,10 @@ describe('BaseCollector', () => {
       await collector[Symbol.asyncDispose]();
     });
 
-    it('should stop emitting debug logs when disabled', async () => {
+    it('should stop emitting debug logs when docker debug logging is disabled', async () => {
       const collector = new TestCollector(db as any, config);
-      collector.debugLogging = true;
-      collector.debugLogging = false;
+      collector.dockerDebugLogging = true;
+      collector.dockerDebugLogging = false;
       const logged: string[] = [];
       console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
 

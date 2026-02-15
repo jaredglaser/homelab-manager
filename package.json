@@ -13,10 +13,10 @@
     "test:coverage:check": "node scripts/check-coverage.js",
     "worker": "bun src/worker/collector.ts",
     "cleanup": "bun src/worker/cleanup.ts",
-    "dev:docker:up": "docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml logs -f",
+    "dev:docker:up": "docker compose -f docker-compose.dev.yml up -d --build && docker compose -f docker-compose.dev.yml logs -f",
     "dev:docker:down": "docker compose -f docker-compose.dev.yml down",
-    "dev:docker:restart": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml up -d",
-    "dev:docker:rebuild": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml build --no-cache",
+    "dev:docker:restart": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml up -d --build",
+    "dev:docker:rebuild": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml build --no-cache && docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml logs -f",
     "dev:docker:wipe": "docker compose -f docker-compose.dev.yml down -v",
     "icons:download": "bun scripts/download-icons.ts"
   },
