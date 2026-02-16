@@ -1,7 +1,21 @@
-import { memo, useId } from 'react';
+import { memo, useRef, useEffect } from 'react';
+import {
+  createChart,
+  AreaSeries,
+  ColorType,
+  CrosshairMode,
+  type IChartApi,
+  type ISeriesApi,
+  type UTCTimestamp,
+} from 'lightweight-charts';
+
+export interface SparklineDataPoint {
+  time: number; // Unix timestamp in ms
+  value: number;
+}
 
 interface SparklineChartProps {
-  data: number[];
+  data: SparklineDataPoint[];
   color: string;
   height?: number;
   width?: number;
@@ -13,8 +27,6 @@ function getCssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
-const PADDING = 2;
-
 export default memo(function SparklineChart({
   data,
   color,
@@ -22,47 +34,94 @@ export default memo(function SparklineChart({
   width = 60,
   className,
 }: SparklineChartProps) {
-  const rawId = useId();
-  const gradientId = `spark${rawId.replace(/:/g, '')}`;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
 
-  const lineColor = getCssVar(color);
-  const drawWidth = width - PADDING * 2;
-  const drawHeight = height - PADDING * 2;
-  const max = Math.max(Math.max(...data) * 1.1, 1);
-  const bottom = height - PADDING;
+  // Create chart once on mount
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
 
-  // Build SVG coordinate points
-  const len = data.length;
-  const points = data.map((v, i) => {
-    const x = PADDING + (len === 1 ? drawWidth / 2 : (i / (len - 1)) * drawWidth);
-    const y = PADDING + drawHeight - (v / max) * drawHeight;
-    return [x, y] as const;
-  });
+    const chart = createChart(container, {
+      width,
+      height,
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: 'transparent',
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { visible: false },
+      },
+      crosshair: {
+        mode: CrosshairMode.Hidden,
+        vertLine: { visible: false },
+        horzLine: { visible: false },
+      },
+      timeScale: {
+        visible: false,
+        borderVisible: false,
+      },
+      rightPriceScale: {
+        visible: false,
+        borderVisible: false,
+      },
+      leftPriceScale: {
+        visible: false,
+        borderVisible: false,
+      },
+      handleScroll: false,
+      handleScale: false,
+      kineticScroll: { mouse: false, touch: false },
+      autoSize: false,
+    });
 
-  const lineD = points.map(([x, y], i) =>
-    `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-  ).join('');
+    const lineColor = getCssVar(color);
+    const topColor = getCssVar(`${color}-area-start`);
+    const bottomColor = getCssVar(`${color}-area-end`);
 
-  // Close the path along the bottom edge for the area fill
-  const areaD = len > 0
-    ? `${lineD}L${(PADDING + drawWidth).toFixed(1)},${bottom}L${PADDING},${bottom}Z`
-    : '';
+    const series = chart.addSeries(AreaSeries, {
+      lineColor,
+      topColor,
+      bottomColor,
+      lineWidth: 1,
+      crosshairMarkerVisible: false,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
 
-  const areaStart = getCssVar(`${color}-area-start`);
-  const areaEnd = getCssVar(`${color}-area-end`);
+    chartRef.current = chart;
+    seriesRef.current = series;
+
+    return () => {
+      chartRef.current = null;
+      seriesRef.current = null;
+      chart.remove();
+    };
+  }, [width, height, color]);
+
+  // Update data using real-time update API
+  useEffect(() => {
+    const series = seriesRef.current;
+    const chart = chartRef.current;
+    if (!series || !chart || data.length === 0) return;
+
+    const chartData = data.map((d) => ({
+      time: Math.floor(d.time / 1000) as UTCTimestamp,
+      value: d.value,
+    }));
+
+    series.setData(chartData);
+    chart.timeScale().fitContent();
+  }, [data]);
 
   return (
-    <div className={className} style={{ contain: 'strict', height, width }}>
-      <svg width={width} height={height}>
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={areaStart} />
-            <stop offset="1" stopColor={areaEnd} />
-          </linearGradient>
-        </defs>
-        {areaD && <path d={areaD} fill={`url(#${gradientId})`} />}
-        {lineD && <path d={lineD} fill="none" stroke={lineColor} strokeWidth={1.5} />}
-      </svg>
-    </div>
+    <div
+      ref={containerRef}
+      className={className}
+      style={{ contain: 'strict', height, width }}
+    />
   );
 });

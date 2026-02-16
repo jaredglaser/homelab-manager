@@ -40,16 +40,16 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
     enabled: needsChartData,
   });
 
-  // Memoize sparkline arrays to avoid recreating on every render
+  // Memoize sparkline data with timestamps for TradingView charts
   const sparklines = useMemo(() => {
     const points = dataPoints.slice(-15);
     return {
-      cpu: points.map((d) => d.cpuPercent),
-      memory: points.map((d) => d.memoryPercent),
-      blockRead: points.map((d) => d.blockIoReadBytesPerSec),
-      blockWrite: points.map((d) => d.blockIoWriteBytesPerSec),
-      networkRx: points.map((d) => d.networkRxBytesPerSec),
-      networkTx: points.map((d) => d.networkTxBytesPerSec),
+      cpu: points.map((d) => ({ time: d.timestamp, value: d.cpuPercent })),
+      memory: points.map((d) => ({ time: d.timestamp, value: d.memoryPercent })),
+      blockRead: points.map((d) => ({ time: d.timestamp, value: d.blockIoReadBytesPerSec })),
+      blockWrite: points.map((d) => ({ time: d.timestamp, value: d.blockIoWriteBytesPerSec })),
+      networkRx: points.map((d) => ({ time: d.timestamp, value: d.networkRxBytesPerSec })),
+      networkTx: points.map((d) => ({ time: d.timestamp, value: d.networkTxBytesPerSec })),
     };
   }, [dataPoints]);
 
