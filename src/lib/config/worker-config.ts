@@ -8,6 +8,9 @@ const WorkerConfigSchema = z.object({
   zfs: z.object({
     enabled: z.boolean(),
   }),
+  proxmox: z.object({
+    enabled: z.boolean(),
+  }),
   collection: z.object({
     interval: z.number().int().min(100).max(60000),
   }),
@@ -34,6 +37,9 @@ export function loadWorkerConfig(): WorkerConfig {
     },
     zfs: {
       enabled: process.env.WORKER_ZFS_ENABLED !== 'false',
+    },
+    proxmox: {
+      enabled: process.env.WORKER_PROXMOX_ENABLED !== 'false',
     },
     collection: {
       interval: parseInt(process.env.WORKER_COLLECTION_INTERVAL_MS || '5000', 10),

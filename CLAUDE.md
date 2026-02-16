@@ -30,7 +30,7 @@
 - **Routing:** TanStack Router (file-based, auto-generated `routeTree.gen.ts`)
 - **State:** TanStack Query (QueryClient singleton in `__root.tsx`)
 - **Streaming:** Server-Sent Events (SSE) via TanStack Router server routes (`src/routes/api/`)
-- **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL)
+- **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL), proxmox-api (Proxmox VE API)
 - **Database:** PostgreSQL 16 (generic EAV time-series schema with progressive downsampling)
 - **Background Worker:** Standalone Bun process for continuous data collection
 - **Validation:** Zod
@@ -52,7 +52,7 @@ bun run test:coverage:check # Run tests and enforce 93% coverage threshold
 
 ### Background Worker & Database
 ```bash
-bun worker                  # Run background collector (Docker + ZFS stats)
+bun worker                  # Run background collector (Docker + ZFS + Proxmox stats)
 bun cleanup                 # Run daily downsampling/cleanup job
 ```
 
@@ -80,6 +80,7 @@ src/
 ├── components/
 │   ├── shared-table/        # MetricValue (shared infrastructure)
 │   ├── docker/              # Docker-specific components (CSS Grid + useWindowVirtualizer)
+│   ├── proxmox/             # Proxmox-specific components (cluster table, IP overview, replication)
 │   ├── zfs/                 # ZFS-specific components (CSS Grid + useWindowVirtualizer)
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
 ├── hooks/                   # Custom hooks (useSSE, useStreamingData, etc.)
@@ -89,26 +90,26 @@ src/
 │   ├── __tests__/           # Unit tests (*.test.ts)
 │   ├── cache/               # Stats cache singleton (shared across connections)
 │   ├── clients/             # Connection managers (Docker, SSH, Database)
-│   ├── config/              # Configuration loaders (database, worker)
+│   ├── config/              # Configuration loaders (database, worker, proxmox)
 │   ├── database/
 │   │   ├── repositories/    # Data access layer (generic StatsRepository)
 │   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler
 │   │   └── migrate.ts       # Database migration runner
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
-│   ├── transformers/        # DB rows → domain objects (Docker, ZFS)
-│   ├── utils/               # Rate calculators, hierarchy builders
+│   ├── transformers/        # DB rows → domain objects (Docker, ZFS, Proxmox)
+│   ├── utils/               # Rate calculators, hierarchy builders, IP utilities
 │   ├── streaming/types.ts   # Core interfaces
 │   └── server-init.ts       # Server-side shutdown handlers
 ├── worker/
-│   ├── collectors/          # Background collectors (Docker, ZFS)
+│   ├── collectors/          # Background collectors (Docker, ZFS, Proxmox)
 │   ├── collector.ts         # Worker entry point
 │   └── cleanup.ts           # Daily downsampling script
-├── types/                   # Domain types (docker.ts, zfs.ts)
+├── types/                   # Domain types (docker.ts, zfs.ts, proxmox.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/
-    ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts)
-    └── [index, zfs, settings].tsx  # Page routes
+    ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts, proxmox-stats.ts)
+    └── [index, zfs, proxmox, settings].tsx  # Page routes
 
 migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 ```
@@ -200,7 +201,7 @@ Rate calculators:
 ### PostgreSQL Persistence & Background Workers
 The frontend reads stats from the database via PostgreSQL LISTEN/NOTIFY:
 ```
-Worker → Docker/ZFS APIs → stats_raw INSERT → NOTIFY stats_update
+Worker → Docker/ZFS/Proxmox APIs → stats_raw INSERT → NOTIFY stats_update
                                                       ↓
 Browser → Server (SSE) ← LISTEN stats_update → Cache Update → yield stats
 ```
@@ -235,16 +236,22 @@ Adding a new data source requires only a new collector — no schema changes nee
   - Vdev: `"tank/mirror-0"` (indent 2)
   - Disk: `"tank/mirror-0/sda"` (indent 4+)
   - Enables visibility filtering: collapsed pool skips `tank/*` entities
+- **Proxmox entity paths**: Entity names encode hierarchy for node/guest relationships
+  - Node: `"pve1"` (top-level node)
+  - QEMU VM: `"pve1/qemu/100"` (VM with VMID 100 on pve1)
+  - LXC Container: `"pve1/lxc/101"` (container with VMID 101 on pve1)
+  - Enables grouping guests under their parent nodes
+- **Proxmox IP analysis**: Extracts IP addresses from LXC net configs and QEMU guest agent, groups by /24 subnet, finds next available IP
 - **Stale data warning**: If no NOTIFY received for 30+ seconds, UI shows warning (TanStack Query with refetchInterval)
 
 **Key files**:
-- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — TanStack Router server routes with proper disconnect handling)
+- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts, proxmox-stats.ts — TanStack Router server routes with proper disconnect handling)
 - **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useStreamingData.ts` (SSE + state + stale detection)
 - **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
 - Repository: `src/lib/database/repositories/stats-repository.ts` (generic, caches dimension IDs, NOTIFY after insert)
 - Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, batch management, backoff)
-- Collectors: `src/worker/collectors/` (Docker, ZFS — extend `BaseCollector`)
+- Collectors: `src/worker/collectors/` (Docker, ZFS, Proxmox — extend `BaseCollector`)
 - Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
 - Migrations: `migrations/*.sql` (generic schema + downsampling functions)
 - Cleanup: `src/worker/cleanup.ts` (daily downsampling job)
@@ -256,11 +263,13 @@ Adding a new data source requires only a new collector — no schema changes nee
 **Environment variables**:
 - `POSTGRES_*`: Database connection config
 - `WORKER_*`: Worker behavior config (enabled, batch size, intervals)
+- `PROXMOX_*`: Proxmox VE connection config (host, port, token ID, token secret, self-signed certs)
 
 ### Components
 - Shared infrastructure: `src/components/shared-table/` (MetricValue)
-- Domain components: own directories (`docker/`, `zfs/`)
-- Both Docker and ZFS tables use CSS Grid + `useWindowVirtualizer` with flat row models
+- Domain components: own directories (`docker/`, `zfs/`, `proxmox/`)
+- Docker and ZFS tables use CSS Grid + `useWindowVirtualizer` with flat row models
+- Proxmox cluster table uses CSS Grid + `useWindowVirtualizer` with node/guest hierarchy
 - `useStreamingData` hook handles SSE connection + state + stale detection for both tables
 
 ### Styling
@@ -278,7 +287,7 @@ Adding a new data source requires only a new collector — no schema changes nee
 - SSE connection management handled automatically by the browser's EventSource API
 
 ### Types
-- Domain types: `src/types/` (e.g., `docker.ts`, `zfs.ts`)
+- Domain types: `src/types/` (e.g., `docker.ts`, `zfs.ts`, `proxmox.ts`)
 - Streaming infrastructure: `src/lib/streaming/types.ts`
 
 ### Testing

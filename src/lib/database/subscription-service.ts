@@ -6,11 +6,12 @@ import { SettingsRepository } from '@/lib/database/repositories/settings-reposit
 import { statsCache } from '@/lib/cache/stats-cache';
 import { transformDockerStats } from '@/lib/transformers/docker-transformer';
 import { transformZFSStats } from '@/lib/transformers/zfs-transformer';
+import { transformProxmoxStats } from '@/lib/transformers/proxmox-transformer';
 import { databaseConnectionManager, type DatabaseConfig } from '@/lib/clients/database-client';
 
 /** Events emitted by the subscription service */
 export interface SubscriptionServiceEvents {
-  stats_update: (source: 'docker' | 'zfs') => void;
+  stats_update: (source: 'docker' | 'zfs' | 'proxmox') => void;
   error: (error: Error) => void;
   connected: () => void;
   disconnected: () => void;
@@ -134,7 +135,7 @@ class SubscriptionService extends EventEmitter {
     // Handle notifications
     this.client.on('notification', async msg => {
       if (msg.channel === 'stats_update') {
-        const source = msg.payload as 'docker' | 'zfs';
+        const source = msg.payload as 'docker' | 'zfs' | 'proxmox';
         this.debugLog(`[SubscriptionService] NOTIFY received: source=${source}`);
         await this.handleNotification(source);
       } else if (msg.channel === 'settings_change' && msg.payload === 'developer/sseDebugLogging') {
@@ -191,12 +192,19 @@ class SubscriptionService extends EventEmitter {
       const zfsRows = await this.repository.getLatestStats({ sourceName: 'zfs' });
       statsCache.updateZFS(transformZFSStats(zfsRows));
       console.log(`[SubscriptionService] Loaded ${zfsRows.length} ZFS stat rows into cache`);
+
+      // Load Proxmox stats with metadata
+      const proxmoxRows = await this.repository.getLatestStats({ sourceName: 'proxmox' });
+      const proxmoxEntities = [...new Set(proxmoxRows.map(r => r.entity))];
+      const proxmoxMetadata = await this.repository.getEntityMetadata('proxmox', proxmoxEntities);
+      statsCache.updateProxmox(transformProxmoxStats(proxmoxRows, proxmoxMetadata));
+      console.log(`[SubscriptionService] Loaded ${proxmoxRows.length} Proxmox stat rows into cache`);
     } catch (err) {
       console.error('[SubscriptionService] Failed to load initial data:', err);
     }
   }
 
-  private async handleNotification(source: 'docker' | 'zfs'): Promise<void> {
+  private async handleNotification(source: 'docker' | 'zfs' | 'proxmox'): Promise<void> {
     if (!this.repository) {
       this.debugLog(`[SubscriptionService] handleNotification(${source}): no repository, skipping`);
       return;
@@ -214,6 +222,10 @@ class SubscriptionService extends EventEmitter {
         statsCache.updateDocker(transformDockerStats(rows, metadata));
       } else if (source === 'zfs') {
         statsCache.updateZFS(transformZFSStats(rows));
+      } else if (source === 'proxmox') {
+        const entities = [...new Set(rows.map(r => r.entity))];
+        const metadata = await this.repository.getEntityMetadata('proxmox', entities);
+        statsCache.updateProxmox(transformProxmoxStats(rows, metadata));
       }
       const tCache = performance.now();
 
@@ -235,7 +247,7 @@ class SubscriptionService extends EventEmitter {
    * Ensures UI updates happen at a consistent pace (~1/sec) even when
    * notifications arrive rapidly from multiple containers.
    */
-  private throttledEmit(source: 'docker' | 'zfs'): void {
+  private throttledEmit(source: 'docker' | 'zfs' | 'proxmox'): void {
     const now = Date.now();
     const lastEmit = this.lastEmitTime.get(source) ?? 0;
     const elapsed = now - lastEmit;

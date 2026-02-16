@@ -29,6 +29,7 @@ function createMockConfig(overrides?: Partial<any>) {
     enabled: true,
     docker: { enabled: true },
     zfs: { enabled: true },
+    proxmox: { enabled: true },
     collection: { interval: 1000 },
     batch: { size: 10, timeout: 5000 },
     ...overrides,

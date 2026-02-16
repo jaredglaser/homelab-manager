@@ -1,6 +1,7 @@
 import type { DockerStatsFromDB } from '@/lib/transformers/docker-transformer';
 import type { ZFSStatsFromDB } from '@/lib/transformers/zfs-transformer';
 import { filterVisibleZFSStats, sortZFSStats } from '@/lib/transformers/zfs-transformer';
+import type { ProxmoxStatsFromDB } from '@/lib/transformers/proxmox-transformer';
 
 /** Remove entries entirely after 5 minutes of no fresh data */
 const STALE_EXPIRY_MS = 5 * 60 * 1000;
@@ -18,11 +19,16 @@ const STALE_GRACE_MS = 15_000;
 class StatsCache {
   private docker: Map<string, DockerStatsFromDB> = new Map();
   private zfs: Map<string, ZFSStatsFromDB> = new Map();
+  private proxmox: Map<string, ProxmoxStatsFromDB> = new Map();
   private lastDockerUpdate: Date | null = null;
   private lastZFSUpdate: Date | null = null;
+  private lastProxmoxUpdate: Date | null = null;
 
   /** Tracks when each Docker container was last seen in fresh query results */
   private dockerLastSeen: Map<string, number> = new Map();
+
+  /** Tracks when each Proxmox entity was last seen in fresh query results */
+  private proxmoxLastSeen: Map<string, number> = new Map();
 
   /**
    * Merge fresh Docker stats into the cache.
@@ -74,6 +80,38 @@ class StatsCache {
   }
 
   /**
+   * Merge fresh Proxmox stats into the cache.
+   * Same stale-tracking pattern as Docker.
+   */
+  updateProxmox(freshStats: Map<string, ProxmoxStatsFromDB>): void {
+    const now = Date.now();
+    const merged = new Map<string, ProxmoxStatsFromDB>();
+
+    for (const [id, stat] of freshStats) {
+      merged.set(id, { ...stat, stale: false });
+      this.proxmoxLastSeen.set(id, now);
+    }
+
+    for (const [id, oldStat] of this.proxmox) {
+      if (!freshStats.has(id)) {
+        const lastSeen = this.proxmoxLastSeen.get(id) ?? 0;
+        const sinceSeen = now - lastSeen;
+
+        if (sinceSeen >= STALE_EXPIRY_MS) {
+          this.proxmoxLastSeen.delete(id);
+        } else if (sinceSeen >= STALE_GRACE_MS) {
+          merged.set(id, { ...oldStat, stale: true });
+        } else {
+          merged.set(id, { ...oldStat, stale: false });
+        }
+      }
+    }
+
+    this.proxmox = merged;
+    this.lastProxmoxUpdate = new Date();
+  }
+
+  /**
    * Get all Docker stats, optionally filtered by entity IDs
    */
   getDocker(entities?: string[]): DockerStatsFromDB[] {
@@ -101,6 +139,13 @@ class StatsCache {
   }
 
   /**
+   * Get all Proxmox stats
+   */
+  getProxmox(): ProxmoxStatsFromDB[] {
+    return Array.from(this.proxmox.values());
+  }
+
+  /**
    * Get the full ZFS stats map (for internal use by subscription service)
    */
   getAllZFS(): Map<string, ZFSStatsFromDB> {
@@ -112,6 +157,13 @@ class StatsCache {
    */
   getAllDocker(): Map<string, DockerStatsFromDB> {
     return this.docker;
+  }
+
+  /**
+   * Get the full Proxmox stats map (for internal use by subscription service)
+   */
+  getAllProxmox(): Map<string, ProxmoxStatsFromDB> {
+    return this.proxmox;
   }
 
   /**
@@ -131,19 +183,28 @@ class StatsCache {
   }
 
   /**
+   * Check if Proxmox data is stale (no update for more than 30 seconds)
+   */
+  isProxmoxStale(): boolean {
+    if (!this.lastProxmoxUpdate) return true;
+    return Date.now() - this.lastProxmoxUpdate.getTime() > 30000;
+  }
+
+  /**
    * Check if any data is stale
    */
   isStale(): boolean {
-    return this.isDockerStale() || this.isZFSStale();
+    return this.isDockerStale() || this.isZFSStale() || this.isProxmoxStale();
   }
 
   /**
    * Get last update timestamps
    */
-  getLastUpdateTimes(): { docker: Date | null; zfs: Date | null } {
+  getLastUpdateTimes(): { docker: Date | null; zfs: Date | null; proxmox: Date | null } {
     return {
       docker: this.lastDockerUpdate,
       zfs: this.lastZFSUpdate,
+      proxmox: this.lastProxmoxUpdate,
     };
   }
 
@@ -153,9 +214,12 @@ class StatsCache {
   clear(): void {
     this.docker.clear();
     this.zfs.clear();
+    this.proxmox.clear();
     this.dockerLastSeen.clear();
+    this.proxmoxLastSeen.clear();
     this.lastDockerUpdate = null;
     this.lastZFSUpdate = null;
+    this.lastProxmoxUpdate = null;
   }
 }
 

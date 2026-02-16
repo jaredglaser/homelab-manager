@@ -2,6 +2,7 @@ import { Client } from 'pg';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
+import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadDockerConfig } from '@/lib/config/docker-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
@@ -10,6 +11,7 @@ import { SettingsRepository } from '@/lib/database/repositories/settings-reposit
 import type { BaseCollector } from './collectors/base-collector';
 import { DockerCollector } from './collectors/docker-collector';
 import { ZFSCollector } from './collectors/zfs-collector';
+import { ProxmoxCollector } from './collectors/proxmox-collector';
 
 /**
  * Background worker entry point
@@ -31,6 +33,7 @@ async function main() {
       database: `${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
       docker: workerConfig.docker.enabled,
       zfs: workerConfig.zfs.enabled,
+      proxmox: workerConfig.proxmox.enabled,
       collectionInterval: `${workerConfig.collection.interval}ms`,
       batchTimeout: `${workerConfig.batch.timeout}ms`,
     });
@@ -85,6 +88,15 @@ async function main() {
         runners.push(collector.run());
       } else {
         console.log('[Worker] ZFS collector disabled');
+      }
+
+      if (workerConfig.proxmox.enabled) {
+        console.log('[Worker] Starting Proxmox collector');
+        const collector = stack.use(new ProxmoxCollector(db, workerConfig, shutdownController));
+        allCollectors.push(collector);
+        runners.push(collector.run());
+      } else {
+        console.log('[Worker] Proxmox collector disabled');
       }
 
       if (runners.length === 0) {
@@ -152,6 +164,7 @@ async function main() {
       databaseConnectionManager.closeAll(),
       dockerConnectionManager.closeAll(),
       sshConnectionManager.closeAll(),
+      proxmoxConnectionManager.closeAll(),
     ]);
 
     console.log('[Worker] Shutdown complete');
