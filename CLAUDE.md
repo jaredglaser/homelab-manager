@@ -30,8 +30,9 @@
 - **Routing:** TanStack Router (file-based, auto-generated `routeTree.gen.ts`)
 - **State:** TanStack Query (QueryClient singleton in `__root.tsx`)
 - **Streaming:** Server-Sent Events (SSE) via TanStack Router server routes (`src/routes/api/`)
-- **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL)
-- **Database:** PostgreSQL 16 (generic EAV time-series schema with progressive downsampling)
+- **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL), @influxdata/influxdb-client (InfluxDB)
+- **Time-Series Database:** InfluxDB 2.x (stats storage with native retention policies)
+- **Relational Database:** PostgreSQL 16 (settings + entity metadata only)
 - **Background Worker:** Standalone Bun process for continuous data collection
 - **Validation:** Zod
 - **Testing:** Bun test (`bun:test`)
@@ -50,10 +51,9 @@ bun run test:coverage       # Run tests with coverage report
 bun run test:coverage:check # Run tests and enforce 93% coverage threshold
 ```
 
-### Background Worker & Database
+### Background Worker
 ```bash
 bun worker                  # Run background collector (Docker + ZFS stats)
-bun cleanup                 # Run daily downsampling/cleanup job
 ```
 
 ### Docker Compose (Production)
@@ -88,11 +88,11 @@ src/
 ├── lib/
 │   ├── __tests__/           # Unit tests (*.test.ts)
 │   ├── cache/               # Stats cache singleton (shared across connections)
-│   ├── clients/             # Connection managers (Docker, SSH, Database)
-│   ├── config/              # Configuration loaders (database, worker)
+│   ├── clients/             # Connection managers (Docker, SSH, Database, InfluxDB)
+│   ├── config/              # Configuration loaders (database, worker, influxdb)
 │   ├── database/
-│   │   ├── repositories/    # Data access layer (generic StatsRepository)
-│   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler
+│   │   ├── repositories/    # Data access layer (InfluxStatsRepository, EntityMetadataRepository)
+│   │   ├── subscription-service.ts  # InfluxDB polling + PG LISTEN for settings
 │   │   └── migrate.ts       # Database migration runner
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
@@ -102,15 +102,14 @@ src/
 │   └── server-init.ts       # Server-side shutdown handlers
 ├── worker/
 │   ├── collectors/          # Background collectors (Docker, ZFS)
-│   ├── collector.ts         # Worker entry point
-│   └── cleanup.ts           # Daily downsampling script
+│   └── collector.ts         # Worker entry point
 ├── types/                   # Domain types (docker.ts, zfs.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/
     ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts)
     └── [index, zfs, settings].tsx  # Page routes
 
-migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
+migrations/                  # SQL migrations (settings + entity metadata only)
 ```
 
 ## Architecture Patterns
@@ -127,9 +126,9 @@ migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 - Data flow: SSE endpoint → `useStreamingData` hook → CSS Grid + `useWindowVirtualizer`
 - **Note**: SSE is a workaround because TanStack Start's streaming server functions don't close quickly enough when rapidly switching between tabs — the abort signal doesn't propagate reliably. Once this is fixed upstream, I plan to migrate back to native streaming (see roadmap).
 - **Frontend reads from database** (not direct API/SSH connections):
-  - Worker collects stats → writes to PostgreSQL → sends `NOTIFY stats_update`
-  - Server maintains LISTEN connection → updates shared cache on notification
-  - SSE endpoints stream from cache when notified
+  - Worker collects stats → writes to InfluxDB
+  - Server polls InfluxDB every 1s → updates shared cache on change
+  - SSE endpoints stream from cache when updated
   - Multiple browser tabs share the same server-side cache
 - **SSE endpoints use `createFileRoute` with `server.handlers`**:
   ```typescript
@@ -197,19 +196,26 @@ Rate calculators:
 - Must implement `RateCalculator<TInput, TOutput>` interface (`src/lib/streaming/types.ts`)
 - Use class-based calculators (not module-level functions)
 
-### PostgreSQL Persistence & Background Workers
-The frontend reads stats from the database via PostgreSQL LISTEN/NOTIFY:
+### Data Storage & Background Workers
+Time-series stats are stored in **InfluxDB 2.x**. Settings and entity metadata remain in **PostgreSQL**.
+
+The frontend reads stats via polling-based subscription:
 ```
-Worker → Docker/ZFS APIs → stats_raw INSERT → NOTIFY stats_update
+Worker → Docker/ZFS APIs → InfluxDB write (via InfluxStatsRepository)
                                                       ↓
-Browser → Server (SSE) ← LISTEN stats_update → Cache Update → yield stats
+Browser → Server (SSE) ← Poll InfluxDB (1s) → Cache Update → yield stats
 ```
 
-**Database schema** (generic EAV model):
-- `stat_source` — dimension table (e.g., 'docker', 'zfs')
-- `stat_type` — metric types scoped to source (e.g., 'cpu_percent', 'read_ops_per_sec')
-- `stats_raw` — raw measurements (timestamp, source_id, type_id, entity, value)
-- `stats_agg` — aggregated measurements (period_start, period_end, min/avg/max, sample_count, granularity)
+**InfluxDB data model**:
+- Measurement: `stats`
+- Tags: `source` (docker/zfs), `type` (cpu_percent, read_ops_per_sec, etc.), `entity`
+- Fields: `value` (float)
+- Timestamp: millisecond precision
+- Retention handled natively by InfluxDB bucket retention policies
+
+**PostgreSQL tables** (settings + metadata only):
+- `settings` — key-value store for application settings
+- `entity_metadata` — per-entity key-value metadata (display names, icons, labels)
 
 Adding a new data source requires only a new collector — no schema changes needed.
 
@@ -217,44 +223,46 @@ Adding a new data source requires only a new collector — no schema changes nee
 - **Background worker**: Standalone Bun process (`bun worker`)
 - **Collectors**: Class-based, extend `BaseCollector` (implements `AsyncDisposable`)
   - `BaseCollector` handles: collection loop, batch management, exponential backoff, graceful shutdown
+  - Constructor: `(db, influxRepo, config, abortController?)`
   - Subclasses implement: `name`, `collectOnce()`, `isConfigured()`
   - Uses `AbortController` for cancellable sleeps and instant shutdown
   - Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
+- **Dual repositories**: `InfluxStatsRepository` (time-series writes/queries) + `EntityMetadataRepository` (PG metadata)
 - **Persistent rate calculators**: Never cleared (unlike request-scoped calculators)
-- **Batch writes**: Accumulate stats then write to DB via `StatsRepository`
+- **Batch writes**: Accumulate stats then write to InfluxDB via `InfluxStatsRepository`
 - **Collectors convert** domain objects into `RawStatRow[]` (source, type, entity, value)
 - **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
-- **Progressive downsampling**: 4-tier retention strategy
-  - 0-7 days: Raw data (1-second granularity)
-  - 7-14 days: Minute aggregates (min/avg/max)
-  - 14-30 days: Hour aggregates (min/avg/max)
-  - 30+ days: Daily aggregates (min/avg/max) - infinite retention
+- **Subscription service**: Polls InfluxDB every 1s for latest stats, compares timestamps to detect changes, emits `stats_update` events. PostgreSQL LISTEN used only for `settings_change` notifications.
 - **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
 - **ZFS hierarchical entity paths**: Entity names encode hierarchy for filtering
   - Pool: `"tank"` (indent 0)
   - Vdev: `"tank/mirror-0"` (indent 2)
   - Disk: `"tank/mirror-0/sda"` (indent 4+)
   - Enables visibility filtering: collapsed pool skips `tank/*` entities
-- **Stale data warning**: If no NOTIFY received for 30+ seconds, UI shows warning (TanStack Query with refetchInterval)
+- **Stale data warning**: If no poll update received for 30+ seconds, UI shows warning (TanStack Query with refetchInterval)
 
 **Key files**:
 - **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — TanStack Router server routes with proper disconnect handling)
 - **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useStreamingData.ts` (SSE + state + stale detection)
 - **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
-- Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
-- Repository: `src/lib/database/repositories/stats-repository.ts` (generic, caches dimension IDs, NOTIFY after insert)
+- PG connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
+- InfluxDB connection: `src/lib/clients/influxdb-client.ts` (InfluxDB client wrapper + connection manager)
+- InfluxDB config: `src/lib/config/influxdb-config.ts` (env-based config with Zod validation)
+- Stats repository: `src/lib/database/repositories/influx-stats-repository.ts` (InfluxDB writes + Flux queries)
+- Metadata repository: `src/lib/database/repositories/entity-metadata-repository.ts` (PG entity metadata CRUD)
+- Stats types: `src/lib/database/repositories/stats-repository.ts` (shared `RawStatRow` / `LatestStatRow` interfaces)
 - Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, batch management, backoff)
 - Collectors: `src/worker/collectors/` (Docker, ZFS — extend `BaseCollector`)
 - Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
-- Migrations: `migrations/*.sql` (generic schema + downsampling functions)
-- Cleanup: `src/worker/cleanup.ts` (daily downsampling job)
+- Migrations: `migrations/*.sql` (settings + entity metadata tables only)
 - **Stats cache**: `src/lib/cache/stats-cache.ts` (singleton, shared across frontend connections)
-- **Subscription service**: `src/lib/database/subscription-service.ts` (LISTEN handler, updates cache on NOTIFY)
+- **Subscription service**: `src/lib/database/subscription-service.ts` (InfluxDB polling + PG LISTEN for settings)
 - **Transformers**: `src/lib/transformers/` (convert DB rows to domain objects)
 - **Server init**: `src/lib/server-init.ts` (graceful shutdown handlers)
 
 **Environment variables**:
-- `POSTGRES_*`: Database connection config
+- `INFLUXDB_*`: InfluxDB connection config (URL, token, org, bucket, retention)
+- `POSTGRES_*`: PostgreSQL connection config (settings + metadata)
 - `WORKER_*`: Worker behavior config (enabled, batch size, intervals)
 
 ### Components
@@ -345,7 +353,7 @@ Adding a new data source requires only a new collector — no schema changes nee
 - Test files outside `__tests__/` folders
 - `console.log` in committed code
 - Logging sensitive data
-- Static imports of server-only modules (pg, subscription-service, stats-cache) in server function files — use dynamic `await import()` inside handlers
+- Static imports of server-only modules (pg, influxdb-client, subscription-service, stats-cache) in server function files — use dynamic `await import()` inside handlers
 
 ## Quick Reference
 

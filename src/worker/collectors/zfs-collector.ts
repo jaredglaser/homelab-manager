@@ -1,5 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
+import type { InfluxStatsRepository } from '@/lib/database/repositories/influx-stats-repository';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { ZFSRateCalculator } from '@/lib/utils/zfs-rate-calculator';
 import type { RawStatRow } from '@/lib/database/repositories/stats-repository';
@@ -80,8 +81,8 @@ export class ZFSCollector extends BaseCollector {
   readonly name = 'ZFSCollector';
   private readonly calculator = new ZFSRateCalculator();
 
-  constructor(db: DatabaseClient, config: WorkerConfig, abortController?: AbortController) {
-    super(db, config, abortController);
+  constructor(db: DatabaseClient, influxRepo: InfluxStatsRepository, config: WorkerConfig, abortController?: AbortController) {
+    super(db, influxRepo, config, abortController);
   }
 
   protected isConfigured(): boolean {

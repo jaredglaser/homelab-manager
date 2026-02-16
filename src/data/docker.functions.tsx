@@ -46,17 +46,21 @@ export const getHistoricalDockerChartData = createServerFn()
   .inputValidator(getHistoricalDockerChartDataSchema)
   .handler(async ({ data }): Promise<ContainerChartDataPoint[]> => {
     try {
-      const { databaseConnectionManager } = await import(
-        '@/lib/clients/database-client'
+      const { influxConnectionManager } = await import(
+        '@/lib/clients/influxdb-client'
       );
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { StatsRepository } = await import(
-        '@/lib/database/repositories/stats-repository'
+      const { loadInfluxDBConfig } = await import('@/lib/config/influxdb-config');
+      const { InfluxStatsRepository } = await import(
+        '@/lib/database/repositories/influx-stats-repository'
       );
 
-      const config = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(config);
-      const repo = new StatsRepository(dbClient.getPool());
+      const influxConfig = loadInfluxDBConfig();
+      const influxClient = await influxConnectionManager.getClient(influxConfig);
+      const repo = new InfluxStatsRepository(
+        influxClient.getClient(),
+        influxClient.getOrg(),
+        influxClient.getBucket(),
+      );
 
       const now = new Date();
       const startTime = new Date(now.getTime() - data.seconds * 1000);
@@ -154,11 +158,13 @@ export const updateContainerIcon = createServerFn()
   .handler(async ({ data }): Promise<void> => {
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+    const { EntityMetadataRepository } = await import(
+      '@/lib/database/repositories/entity-metadata-repository'
+    );
 
     const config = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(config);
-    const repo = new StatsRepository(dbClient.getPool());
+    const repo = new EntityMetadataRepository(dbClient.getPool());
 
     await repo.upsertEntityMetadata('docker', data.entityId, 'icon', data.iconSlug);
   });

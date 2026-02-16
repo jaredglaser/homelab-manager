@@ -1,6 +1,7 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { DockerHostConfig } from '@/lib/config/docker-config';
+import type { InfluxStatsRepository } from '@/lib/database/repositories/influx-stats-repository';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { DockerRateCalculator, type ContainerStatsWithRates } from '@/lib/rate-calculator';
 import type { RawStatRow } from '@/lib/database/repositories/stats-repository';
@@ -34,11 +35,12 @@ export class DockerCollector extends BaseCollector {
 
   constructor(
     db: DatabaseClient,
+    influxRepo: InfluxStatsRepository,
     config: WorkerConfig,
     hostConfig: DockerHostConfig,
     abortController?: AbortController
   ) {
-    super(db, config, abortController);
+    super(db, influxRepo, config, abortController);
     this.hostConfig = hostConfig;
     this.name = `DockerCollector[${hostConfig.name}]`;
   }
@@ -76,8 +78,8 @@ export class DockerCollector extends BaseCollector {
       const known = this.knownContainers.get(containerInfo.Id);
 
       if (!known || known.name !== containerName || known.image !== containerInfo.Image) {
-        await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', containerName);
-        await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', containerInfo.Image);
+        await this.metadataRepo.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', containerName);
+        await this.metadataRepo.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', containerInfo.Image);
         this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image });
         metadataUpdates++;
       }

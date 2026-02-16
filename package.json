@@ -24,6 +24,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@fontsource/inter": "^5.2.8",
+    "@influxdata/influxdb-client": "^1.35.0",
     "@mui/joy": "^5.0.0-beta.52",
     "@mui/material": "^7.3.8",
     "@tailwindcss/vite": "^4.1.18",

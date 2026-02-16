@@ -6,6 +6,12 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: "false"
 
+x-influxdb-env: &influxdb-env
+  INFLUXDB_URL: http://influxdb:8086
+  INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+  INFLUXDB_ORG: ${INFLUXDB_ORG}
+  INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+
 x-docker-env: &docker-env
   DOCKER_HOST_1: ${DOCKER_HOST_1}
   DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1}
@@ -33,9 +39,37 @@ x-shared-dev: &shared-dev
   depends_on:
     postgres:
       condition: service_healthy
+    influxdb:
+      condition: service_healthy
 
 services:
-  # PostgreSQL database
+  # InfluxDB time-series database
+  influxdb:
+    image: influxdb:2
+    container_name: homelab-influxdb
+    mem_limit: 512m
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_INIT_USERNAME:-homelab}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_INIT_PASSWORD:-changeme123}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET}
+      DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUXDB_RETENTION:-30d}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN}
+    ports:
+      - "${INFLUXDB_PORT:-8086}:8086"
+    volumes:
+      - influxdata-dev:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - homelab-network
+
+  # PostgreSQL database (settings + entity metadata)
   postgres:
     image: postgres:16-alpine
     container_name: homelab-db
@@ -57,14 +91,14 @@ services:
     networks:
       - homelab-network
 
-  # Background worker (collects stats and persists to DB)
+  # Background worker (collects stats and persists to InfluxDB)
   worker:
     <<: *shared-dev
     container_name: homelab-worker
     mem_limit: 512m
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env]
+      <<: [*postgres-env, *influxdb-env, *docker-env, *zfs-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
       WORKER_ENABLED: ${WORKER_ENABLED}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
@@ -82,19 +116,11 @@ services:
     ports:
       - "${WEB_PORT}:3000"
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env]
-
-  # Daily cleanup job (downsampling)
-  cleanup:
-    <<: *shared-dev
-    container_name: homelab-cleanup
-    mem_limit: 256m
-    command: sh -c "while true; do sleep 3600 && bun run cleanup; done"
-    environment:
-      <<: *postgres-env
+      <<: [*postgres-env, *influxdb-env, *docker-env, *zfs-env]
 
 volumes:
   node_modules:
+  influxdata-dev:
   pgdata-dev:
 
 networks:

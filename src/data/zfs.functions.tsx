@@ -18,17 +18,21 @@ export interface HistoricalPoolData {
 export const getHistoricalZFSChartData = createServerFn().handler(
   async (): Promise<HistoricalPoolData[]> => {
     try {
-      const { databaseConnectionManager } = await import(
-        '@/lib/clients/database-client'
+      const { influxConnectionManager } = await import(
+        '@/lib/clients/influxdb-client'
       );
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { StatsRepository } = await import(
-        '@/lib/database/repositories/stats-repository'
+      const { loadInfluxDBConfig } = await import('@/lib/config/influxdb-config');
+      const { InfluxStatsRepository } = await import(
+        '@/lib/database/repositories/influx-stats-repository'
       );
 
-      const config = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(config);
-      const repo = new StatsRepository(dbClient.getPool());
+      const influxConfig = loadInfluxDBConfig();
+      const influxClient = await influxConnectionManager.getClient(influxConfig);
+      const repo = new InfluxStatsRepository(
+        influxClient.getClient(),
+        influxClient.getOrg(),
+        influxClient.getBucket(),
+      );
 
       const now = new Date();
       const sixtySecondsAgo = new Date(now.getTime() - 60000);

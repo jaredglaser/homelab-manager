@@ -1,6 +1,8 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import { StatsRepository, type RawStatRow } from '@/lib/database/repositories/stats-repository';
+import type { InfluxStatsRepository } from '@/lib/database/repositories/influx-stats-repository';
+import { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
+import type { RawStatRow } from '@/lib/database/repositories/stats-repository';
 import { abortableSleep, isAbortError } from '@/lib/utils/abortable-sleep';
 
 const MAX_BACKOFF_EXPONENT = 5; // max 32s
@@ -12,13 +14,16 @@ const RECONNECT_DELAY_MS = 1_000;
  * Abstract base class for background stats collectors.
  * Implements AsyncDisposable for deterministic cleanup via `await using`.
  *
+ * Uses InfluxDB for time-series writes and PostgreSQL for entity metadata.
+ *
  * Subclasses implement:
  * - `name` — human-readable label for logging
  * - `collectOnce()` — single collection cycle (connect, stream, batch)
  * - `isConfigured()` — whether required env vars are present
  */
 export abstract class BaseCollector implements AsyncDisposable {
-  protected readonly repository: StatsRepository;
+  protected readonly statsRepo: InfluxStatsRepository;
+  protected readonly metadataRepo: EntityMetadataRepository;
   protected readonly abortController: AbortController;
   protected readonly signal: AbortSignal;
 
@@ -31,10 +36,12 @@ export abstract class BaseCollector implements AsyncDisposable {
 
   constructor(
     protected readonly db: DatabaseClient,
+    protected readonly influxRepo: InfluxStatsRepository,
     protected readonly config: WorkerConfig,
     abortController?: AbortController,
   ) {
-    this.repository = new StatsRepository(db.getPool());
+    this.statsRepo = influxRepo;
+    this.metadataRepo = new EntityMetadataRepository(db.getPool());
     this.abortController = abortController ?? new AbortController();
     this.signal = this.abortController.signal;
   }
@@ -150,8 +157,8 @@ export abstract class BaseCollector implements AsyncDisposable {
 
     const count = this.batch.length;
     try {
-      await this.repository.insertRawStats(this.batch);
-      this.dbDebugLog(`[${this.name}] Flushed ${count} rows`);
+      await this.statsRepo.insertRawStats(this.batch);
+      this.dbDebugLog(`[${this.name}] Flushed ${count} rows to InfluxDB`);
       this.batch = [];
     } catch (err) {
       console.error(`[${this.name}] Failed to flush batch:`, err);

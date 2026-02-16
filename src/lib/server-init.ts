@@ -1,5 +1,6 @@
 import { subscriptionService } from '@/lib/database/subscription-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
+import { influxConnectionManager } from '@/lib/clients/influxdb-client';
 
 let initialized = false;
 
@@ -15,11 +16,12 @@ export function initServer(): void {
     console.log('[Server] Shutdown signal received, cleaning up...');
 
     try {
-      // Stop the subscription service (closes LISTEN connection)
+      // Stop the subscription service (stops InfluxDB polling + closes PG LISTEN)
       await subscriptionService.stop();
 
-      // Close database connection pool
+      // Close database connections
       await databaseConnectionManager.closeAll();
+      await influxConnectionManager.closeAll();
 
       console.log('[Server] Cleanup complete');
       process.exit(0);

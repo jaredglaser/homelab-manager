@@ -1,25 +1,31 @@
 import { Client } from 'pg';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
+import { influxConnectionManager } from '@/lib/clients/influxdb-client';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
+import { loadInfluxDBConfig } from '@/lib/config/influxdb-config';
 import { loadDockerConfig } from '@/lib/config/docker-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { runMigrations } from '@/lib/database/migrate';
+import { InfluxStatsRepository } from '@/lib/database/repositories/influx-stats-repository';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { DockerCollector } from './collectors/docker-collector';
 import { ZFSCollector } from './collectors/zfs-collector';
 
 /**
- * Background worker entry point
- * Orchestrates Docker and ZFS collectors, runs migrations, handles graceful shutdown
+ * Background worker entry point.
+ * Orchestrates Docker and ZFS collectors, runs migrations, handles graceful shutdown.
+ *
+ * Uses InfluxDB for time-series data and PostgreSQL for settings/metadata.
  */
 async function main() {
   console.log('[Worker] Starting homelab-manager background collector');
 
   try {
     const dbConfig = loadDatabaseConfig();
+    const influxConfig = loadInfluxDBConfig();
     const workerConfig = loadWorkerConfig();
 
     if (!workerConfig.enabled) {
@@ -29,17 +35,28 @@ async function main() {
 
     console.log('[Worker] Configuration loaded:', {
       database: `${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
+      influxdb: `${influxConfig.url}/${influxConfig.org}/${influxConfig.bucket}`,
       docker: workerConfig.docker.enabled,
       zfs: workerConfig.zfs.enabled,
       collectionInterval: `${workerConfig.collection.interval}ms`,
       batchTimeout: `${workerConfig.batch.timeout}ms`,
     });
 
+    // Connect to PostgreSQL (settings + entity metadata)
     console.log('[Worker] Connecting to PostgreSQL...');
     const db = await databaseConnectionManager.getClient(dbConfig);
 
     console.log('[Worker] Running database migrations...');
     await runMigrations(db);
+
+    // Connect to InfluxDB (time-series data)
+    console.log('[Worker] Connecting to InfluxDB...');
+    const influxClient = await influxConnectionManager.getClient(influxConfig);
+    const influxRepo = new InfluxStatsRepository(
+      influxClient.getClient(),
+      influxClient.getOrg(),
+      influxClient.getBucket(),
+    );
 
     // Shared AbortController — SIGTERM aborts all collectors instantly
     const shutdownController = new AbortController();
@@ -68,7 +85,7 @@ async function main() {
           for (const hostConfig of dockerConfig.hosts) {
             console.log(`[Worker] Starting Docker collector for ${hostConfig.name}`);
             const collector = stack.use(
-              new DockerCollector(db, workerConfig, hostConfig, shutdownController)
+              new DockerCollector(db, influxRepo, workerConfig, hostConfig, shutdownController)
             );
             allCollectors.push(collector);
             runners.push(collector.run());
@@ -80,7 +97,7 @@ async function main() {
 
       if (workerConfig.zfs.enabled) {
         console.log('[Worker] Starting ZFS collector');
-        const collector = stack.use(new ZFSCollector(db, workerConfig, shutdownController));
+        const collector = stack.use(new ZFSCollector(db, influxRepo, workerConfig, shutdownController));
         allCollectors.push(collector);
         runners.push(collector.run());
       } else {
@@ -149,7 +166,9 @@ async function main() {
 
     console.log('[Worker] Closing connections...');
     await Promise.all([
+      influxRepo.close(),
       databaseConnectionManager.closeAll(),
+      influxConnectionManager.closeAll(),
       dockerConnectionManager.closeAll(),
       sshConnectionManager.closeAll(),
     ]);

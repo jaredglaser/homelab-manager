@@ -4,9 +4,17 @@ import type { RawStatRow } from '@/lib/database/repositories/stats-repository';
 
 // --- Mocks ---
 
-mock.module('@/lib/database/repositories/stats-repository', () => ({
-  StatsRepository: class {
+mock.module('@/lib/database/repositories/influx-stats-repository', () => ({
+  InfluxStatsRepository: class {
     insertRawStats = mock(async () => {});
+    close = mock(async () => {});
+  },
+}));
+
+mock.module('@/lib/database/repositories/entity-metadata-repository', () => ({
+  EntityMetadataRepository: class {
+    upsertEntityMetadata = mock(async () => {});
+    getEntityMetadata = mock(async () => new Map());
   },
 }));
 
@@ -20,6 +28,13 @@ function createMockDb() {
     getPool: () => ({} as any),
     connect: mock(async () => {}),
     isConnected: () => true,
+    close: mock(async () => {}),
+  };
+}
+
+function createMockInfluxRepo() {
+  return {
+    insertRawStats: mock(async () => {}),
     close: mock(async () => {}),
   };
 }
@@ -70,10 +85,12 @@ class TestCollector extends BaseCollector {
 
 describe('BaseCollector', () => {
   let db: ReturnType<typeof createMockDb>;
+  let influxRepo: ReturnType<typeof createMockInfluxRepo>;
   let config: ReturnType<typeof createMockConfig>;
 
   beforeEach(() => {
     db = createMockDb();
+    influxRepo = createMockInfluxRepo();
     config = createMockConfig();
     // Suppress console output during tests
     console.log = mock(() => {});
@@ -88,7 +105,7 @@ describe('BaseCollector', () => {
   describe('lifecycle', () => {
     it('should stop when abort signal fires', async () => {
       const controller = new AbortController();
-      const collector = new TestCollector(db as any, config, controller);
+      const collector = new TestCollector(db as any, influxRepo as any, config, controller);
 
       let collectCount = 0;
       collector.collectOnceFn = async () => {
@@ -102,7 +119,7 @@ describe('BaseCollector', () => {
     });
 
     it('should stop when stop() is called', async () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
 
       collector.collectOnceFn = async () => {
         collector.stop();
@@ -113,7 +130,7 @@ describe('BaseCollector', () => {
     });
 
     it('should implement AsyncDisposable', async () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       expect(Symbol.asyncDispose in collector).toBe(true);
 
       await collector[Symbol.asyncDispose]();
@@ -121,7 +138,7 @@ describe('BaseCollector', () => {
     });
 
     it('should handle dispose being called multiple times', async () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       await collector[Symbol.asyncDispose]();
       await collector[Symbol.asyncDispose](); // Should not throw
     });
@@ -130,7 +147,7 @@ describe('BaseCollector', () => {
   describe('error recovery', () => {
     it('should retry on errors and abort cancels the backoff sleep', async () => {
       const controller = new AbortController();
-      const collector = new TestCollector(db as any, config, controller);
+      const collector = new TestCollector(db as any, influxRepo as any, config, controller);
 
       let callCount = 0;
       collector.collectOnceFn = async () => {
@@ -151,7 +168,7 @@ describe('BaseCollector', () => {
 
     it('should wait when not configured and abort cancels the wait', async () => {
       const controller = new AbortController();
-      const collector = new TestCollector(db as any, config, controller);
+      const collector = new TestCollector(db as any, influxRepo as any, config, controller);
 
       let configCheckCount = 0;
       collector.isConfiguredFn = () => {
@@ -169,7 +186,7 @@ describe('BaseCollector', () => {
 
   describe('batch management', () => {
     it('should accumulate stats in batch', async () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       const rows: RawStatRow[] = [
         { timestamp: new Date(), source: 'test', type: 'metric1', entity: 'e1', value: 42 },
       ];
@@ -181,7 +198,7 @@ describe('BaseCollector', () => {
 
     it('should flush when batch size is reached', async () => {
       const smallBatchConfig = createMockConfig({ batch: { size: 2, timeout: 60000 } });
-      const collector = new TestCollector(db as any, smallBatchConfig);
+      const collector = new TestCollector(db as any, influxRepo as any, smallBatchConfig);
 
       const rows: RawStatRow[] = [
         { timestamp: new Date(), source: 'test', type: 'metric1', entity: 'e1', value: 1 },
@@ -197,25 +214,25 @@ describe('BaseCollector', () => {
 
   describe('write throttling', () => {
     it('should allow first write for an entity', () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       expect(collector.testShouldWrite('entity-1')).toBe(true);
     });
 
     it('should throttle writes within collection interval', () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       expect(collector.testShouldWrite('entity-1')).toBe(true);
       expect(collector.testShouldWrite('entity-1')).toBe(false);
     });
 
     it('should allow writes for different entities independently', () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       expect(collector.testShouldWrite('entity-1')).toBe(true);
       expect(collector.testShouldWrite('entity-2')).toBe(true);
     });
 
     it('should allow writes after interval elapses', async () => {
       const shortIntervalConfig = createMockConfig({ collection: { interval: 50 } });
-      const collector = new TestCollector(db as any, shortIntervalConfig);
+      const collector = new TestCollector(db as any, influxRepo as any, shortIntervalConfig);
 
       expect(collector.testShouldWrite('entity-1')).toBe(true);
       expect(collector.testShouldWrite('entity-1')).toBe(false);
@@ -227,7 +244,7 @@ describe('BaseCollector', () => {
 
   describe('debug logging', () => {
     it('should not emit debug logs by default', async () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       const logged: string[] = [];
       console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
 
@@ -239,7 +256,7 @@ describe('BaseCollector', () => {
     });
 
     it('should emit debug logs when docker debug logging is enabled', async () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       collector.dockerDebugLogging = true;
       const logged: string[] = [];
       console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
@@ -252,7 +269,7 @@ describe('BaseCollector', () => {
     });
 
     it('should stop emitting debug logs when docker debug logging is disabled', async () => {
-      const collector = new TestCollector(db as any, config);
+      const collector = new TestCollector(db as any, influxRepo as any, config);
       collector.dockerDebugLogging = true;
       collector.dockerDebugLogging = false;
       const logged: string[] = [];
