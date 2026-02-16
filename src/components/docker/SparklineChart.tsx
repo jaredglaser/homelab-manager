@@ -20,6 +20,8 @@ interface SparklineChartProps {
   height?: number;
   width?: number;
   className?: string;
+  /** Minimum y-axis range. Prevents tiny fluctuations from filling the chart. */
+  minRange?: number;
 }
 
 function getCssVar(name: string): string {
@@ -33,10 +35,13 @@ export default memo(function SparklineChart({
   height = 24,
   width = 60,
   className,
+  minRange = 0,
 }: SparklineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+  const minRangeRef = useRef(minRange);
+  minRangeRef.current = minRange;
 
   // Create chart once on mount
   useEffect(() => {
@@ -67,6 +72,7 @@ export default memo(function SparklineChart({
       rightPriceScale: {
         visible: false,
         borderVisible: false,
+        autoScale: true,
       },
       leftPriceScale: {
         visible: false,
@@ -90,6 +96,14 @@ export default memo(function SparklineChart({
       crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: false,
+      autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
+        const res = original();
+        if (res) {
+          res.priceRange.minValue = 0;
+          res.priceRange.maxValue = Math.max(res.priceRange.maxValue, minRangeRef.current);
+        }
+        return res;
+      },
     });
 
     chartRef.current = chart;
@@ -108,8 +122,10 @@ export default memo(function SparklineChart({
     const chart = chartRef.current;
     if (!series || !chart || data.length === 0) return;
 
-    const chartData = data.map((d) => ({
-      time: Math.floor(d.time / 1000) as UTCTimestamp,
+    // Time scale is hidden so the raw values don't matter, only ordering.
+    const sorted = [...data].sort((a, b) => a.time - b.time);
+    const chartData = sorted.map((d) => ({
+      time: d.time as UTCTimestamp,
       value: d.value,
     }));
 

@@ -120,7 +120,7 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
-            sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" minRange={5} className="hidden lg:block" />}
           />
         </div>
         <div className="pr-16">
@@ -128,7 +128,7 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
-            sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" minRange={5} className="hidden lg:block" />}
           />
         </div>
         <div className="pr-16">
