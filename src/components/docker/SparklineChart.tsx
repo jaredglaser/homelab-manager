@@ -125,7 +125,7 @@ export default memo(function SparklineChart({
     // Time scale is hidden so the raw values don't matter, only ordering.
     const sorted = [...data].sort((a, b) => a.time - b.time);
     const chartData = sorted.map((d) => ({
-      time: d.time as UTCTimestamp,
+      time: Math.floor(d.time / 1000) as UTCTimestamp,
       value: d.value,
     }));
 
