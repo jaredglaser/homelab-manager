@@ -31,8 +31,8 @@ export function rowToDockerStats(
       blockIoWriteBytesPerSec: row.block_io_write_bytes_per_sec ?? 0,
     },
     memory_stats: {
-      usage: row.memory_usage ?? 0,
-      limit: row.memory_limit ?? 0,
+      usage: Number(row.memory_usage ?? 0),
+      limit: Number(row.memory_limit ?? 0),
     },
   };
 }

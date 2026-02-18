@@ -33,8 +33,8 @@ export function rowToZFSStats(row: ZFSStatsRow): ZFSIOStatWithRates {
     indent: row.indent,
     timestamp: new Date(row.time).getTime(),
     capacity: {
-      alloc: row.capacity_alloc ?? 0,
-      free: row.capacity_free ?? 0,
+      alloc: Number(row.capacity_alloc ?? 0),
+      free: Number(row.capacity_free ?? 0),
     },
     operations: {
       read: row.read_ops_per_sec ?? 0,
