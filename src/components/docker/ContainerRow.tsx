@@ -1,10 +1,9 @@
 import { memo, useMemo, useState } from 'react';
 import { ChevronRight, Settings } from 'lucide-react';
-import type { DockerStatsFromDB } from '@/types/docker';
+import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
 import { MetricValue } from '../shared-table';
 import { useSettings } from '@/hooks/useSettings';
-import { useContainerChartData } from '@/hooks/useContainerChartData';
 import ContainerChartsCard from './ContainerChartsCard';
 import SparklineChart from './SparklineChart';
 import IconPickerDialog from './IconPickerDialog';
@@ -12,11 +11,23 @@ import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
 import { DOCKER_GRID } from './ContainerTable';
 
-interface ContainerRowProps {
-  container: DockerStatsFromDB;
+/** Chart data point derived from wide rows */
+interface ChartDataPoint {
+  timestamp: number;
+  cpuPercent: number;
+  memoryPercent: number;
+  blockIoReadBytesPerSec: number;
+  blockIoWriteBytesPerSec: number;
+  networkRxBytesPerSec: number;
+  networkTxBytesPerSec: number;
 }
 
-export default memo(function ContainerRow({ container }: ContainerRowProps) {
+interface ContainerRowProps {
+  container: DockerStatsFromDB;
+  chartData: DockerStatsRow[];
+}
+
+export default memo(function ContainerRow({ container, chartData }: ContainerRowProps) {
   const { docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
   const { rates } = container;
   const { decimals, showSparklines } = docker;
@@ -31,14 +42,18 @@ export default memo(function ContainerRow({ container }: ContainerRowProps) {
     await updateContainerIcon({ data: { entityId: container.id, iconSlug } });
   };
 
-  // Only fetch chart data if sparklines are enabled or row is expanded
-  const needsChartData = showSparklines || expanded;
-  const { dataPoints } = useContainerChartData({
-    containerId: container.id,
-    currentStats: rates,
-    seconds: expanded ? 60 : 15,
-    enabled: needsChartData,
-  });
+  // Convert wide rows to chart data points
+  const dataPoints = useMemo<ChartDataPoint[]>(() => {
+    return chartData.map((row) => ({
+      timestamp: new Date(row.time).getTime(),
+      cpuPercent: row.cpu_percent ?? 0,
+      memoryPercent: row.memory_percent ?? 0,
+      blockIoReadBytesPerSec: row.block_io_read_bytes_per_sec ?? 0,
+      blockIoWriteBytesPerSec: row.block_io_write_bytes_per_sec ?? 0,
+      networkRxBytesPerSec: row.network_rx_bytes_per_sec ?? 0,
+      networkTxBytesPerSec: row.network_tx_bytes_per_sec ?? 0,
+    }));
+  }, [chartData]);
 
   // Memoize sparkline arrays to avoid recreating on every render
   const sparklines = useMemo(() => {

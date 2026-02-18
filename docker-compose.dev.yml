@@ -37,9 +37,10 @@ x-shared-dev: &shared-dev
 services:
   # PostgreSQL database
   postgres:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:latest-pg16
     container_name: homelab-db
     mem_limit: 256m
+    command: postgres -c synchronous_commit=off
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -70,8 +71,6 @@ services:
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
-      WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE}
-      WORKER_BATCH_TIMEOUT_MS: ${WORKER_BATCH_TIMEOUT_MS}
 
   # Web server (development with HMR)
   web:
@@ -83,15 +82,6 @@ services:
       - "${WEB_PORT}:3000"
     environment:
       <<: [*postgres-env, *docker-env, *zfs-env]
-
-  # Daily cleanup job (downsampling)
-  cleanup:
-    <<: *shared-dev
-    container_name: homelab-cleanup
-    mem_limit: 256m
-    command: sh -c "while true; do sleep 3600 && bun run cleanup; done"
-    environment:
-      <<: *postgres-env
 
 volumes:
   node_modules:

@@ -1,12 +1,10 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { Alert, Box, Chip, CircularProgress, Sheet, Tooltip, Typography } from '@mui/joy';
 import { AlertTriangle, ChevronRight } from 'lucide-react';
-import type { PoolStats, VdevStats, ZFSHierarchy, ZFSIOStatWithRates } from '@/types/zfs';
-import type { ZFSStatsFromDB } from '@/lib/transformers/zfs-transformer';
-import { buildHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
+import type { PoolStats, VdevStats, ZFSHierarchy, ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
+import { buildHierarchy, rowToZFSStats } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytes, formatAsPercent } from '@/formatters/metrics';
-import { useStreamingData } from '@/hooks/useStreamingData';
 import { useSettings } from '@/hooks/useSettings';
 
 type ZFSFlatRow =
@@ -19,20 +17,33 @@ const OVERSCAN = 10;
 
 const ZFS_GRID = 'grid grid-cols-[30%_14%_11%_11%_11%_11%_12%] min-w-[800px]';
 
-export default function ZFSPoolsTable() {
+interface ZFSPoolsTableProps {
+  latestByEntity: Map<string, ZFSStatsRow>;
+  hasData: boolean;
+  isConnected: boolean;
+  error: Error | null;
+  isStale: boolean;
+}
+
+export default function ZFSPoolsTable({
+  latestByEntity,
+  hasData,
+  isConnected,
+  error,
+  isStale,
+}: ZFSPoolsTableProps) {
   const { isPoolExpanded, isVdevExpanded } = useSettings();
 
-  const transform = useCallback(
-    (raw: ZFSStatsFromDB[]) => buildHierarchy(raw),
-    [],
-  );
-
-  const { state: hierarchy, hasData, isConnected, error, isStale } = useStreamingData<ZFSStatsFromDB[], ZFSHierarchy>({
-    url: '/api/zfs-stats',
-    transform,
-    initialState: new Map(),
-    staleKey: 'zfs',
-  });
+  // Convert latest rows to ZFSIOStatWithRates and build hierarchy
+  const hierarchy = useMemo<ZFSHierarchy>(() => {
+    const stats: ZFSIOStatWithRates[] = [];
+    for (const row of latestByEntity.values()) {
+      stats.push(rowToZFSStats(row));
+    }
+    // Sort by entity path so buildHierarchy can process sequentially
+    stats.sort((a, b) => a.id.localeCompare(b.id));
+    return buildHierarchy(stats);
+  }, [latestByEntity]);
 
   const flatRows = useMemo<ZFSFlatRow[]>(() => {
     const rows: ZFSFlatRow[] = [];

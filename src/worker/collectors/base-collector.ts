@@ -1,6 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import { StatsRepository, type RawStatRow } from '@/lib/database/repositories/stats-repository';
+import { StatsRepository } from '@/lib/database/repositories/stats-repository';
 import { abortableSleep, isAbortError } from '@/lib/utils/abortable-sleep';
 
 const MAX_BACKOFF_EXPONENT = 5; // max 32s
@@ -14,7 +14,7 @@ const RECONNECT_DELAY_MS = 1_000;
  *
  * Subclasses implement:
  * - `name` — human-readable label for logging
- * - `collectOnce()` — single collection cycle (connect, stream, batch)
+ * - `collectOnce()` — single collection cycle (connect, stream, write)
  * - `isConfigured()` — whether required env vars are present
  */
 export abstract class BaseCollector implements AsyncDisposable {
@@ -22,10 +22,7 @@ export abstract class BaseCollector implements AsyncDisposable {
   protected readonly abortController: AbortController;
   protected readonly signal: AbortSignal;
 
-  private batch: RawStatRow[] = [];
-  private batchTimer: ReturnType<typeof setTimeout> | null = null;
   private consecutiveErrors = 0;
-  private lastWriteTime = new Map<string, number>();
   private _dockerDebugLogging = false;
   private _dbFlushDebugLogging = false;
 
@@ -44,7 +41,7 @@ export abstract class BaseCollector implements AsyncDisposable {
   /**
    * Run a single collection cycle. Implementations should:
    * - Connect to the data source
-   * - Stream data, calling `addToBatch()` for each batch of rows
+   * - Stream data, writing rows directly via repository
    * - Check `this.signal.aborted` periodically
    */
   protected abstract collectOnce(): Promise<void>;
@@ -110,7 +107,6 @@ export abstract class BaseCollector implements AsyncDisposable {
       }
     }
 
-    await this.flushBatch();
     console.log(`[${this.name}] Stopped gracefully after ${cycleCount} cycles`);
   }
 
@@ -123,64 +119,11 @@ export abstract class BaseCollector implements AsyncDisposable {
 
   async [Symbol.asyncDispose](): Promise<void> {
     this.stop();
-    if (this.batchTimer) {
-      clearTimeout(this.batchTimer);
-      this.batchTimer = null;
-    }
-    await this.flushBatch();
-  }
-
-  // --- Batch management ---
-
-  protected addToBatch(rows: RawStatRow[]): void {
-    this.batch.push(...rows);
-
-    if (!this.batchTimer) {
-      this.batchTimer = setTimeout(() => {
-        this.batchTimer = null;
-        this.flushBatch().catch(err => {
-          console.error(`[${this.name}] Error in batch timeout flush:`, err);
-        });
-      }, this.config.batch.timeout);
-    }
-  }
-
-  private async flushBatch(): Promise<void> {
-    if (this.batch.length === 0) return;
-
-    const count = this.batch.length;
-    try {
-      await this.repository.insertRawStats(this.batch);
-      this.dbDebugLog(`[${this.name}] Flushed ${count} rows`);
-      this.batch = [];
-    } catch (err) {
-      console.error(`[${this.name}] Failed to flush batch:`, err);
-      this.batch = []; // Drop to avoid memory buildup
-    }
-
-    if (this.batchTimer) {
-      clearTimeout(this.batchTimer);
-      this.batchTimer = null;
-    }
   }
 
   /** Reset the error counter after a successful connection */
   protected resetBackoff(): void {
     this.consecutiveErrors = 0;
-  }
-
-  /**
-   * Throttle writes per entity based on collection.interval config.
-   * Returns true if enough time has elapsed since the last write for this entity.
-   * Streams still run at native speed (rate calculators stay accurate),
-   * but only 1-in-N samples is persisted to the database.
-   */
-  protected shouldWrite(entity: string): boolean {
-    const now = Date.now();
-    const lastWrite = this.lastWriteTime.get(entity) ?? 0;
-    if (now - lastWrite < this.config.collection.interval) return false;
-    this.lastWriteTime.set(entity, now);
-    return true;
   }
 
   /** Enable or disable Docker debug logging at runtime via developer settings */

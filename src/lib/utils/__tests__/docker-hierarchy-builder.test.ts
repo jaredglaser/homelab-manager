@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { buildDockerHierarchy } from '../docker-hierarchy-builder';
-import type { DockerStatsFromDB } from '@/lib/transformers/docker-transformer';
+import { buildDockerHierarchy, rowToDockerStats } from '../docker-hierarchy-builder';
+import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 
 describe('buildDockerHierarchy', () => {
   // Helper to create mock Docker stats
@@ -234,6 +234,86 @@ describe('buildDockerHierarchy', () => {
       expect(getNames(hierarchy1)).toEqual(['apple', 'mango', 'zebra']);
       expect(getNames(hierarchy2)).toEqual(['apple', 'mango', 'zebra']);
       expect(getNames(hierarchy3)).toEqual(['apple', 'mango', 'zebra']);
+    });
+  });
+
+  describe('rowToDockerStats', () => {
+    function createMockRow(overrides?: Partial<DockerStatsRow>): DockerStatsRow {
+      return {
+        time: '2024-01-01T00:00:00Z',
+        host: 'host1',
+        container_id: 'abc123def456',
+        container_name: 'nginx',
+        image: 'nginx:latest',
+        cpu_percent: 25.5,
+        memory_usage: 1073741824,
+        memory_limit: 2147483648,
+        memory_percent: 50,
+        network_rx_bytes_per_sec: 1000,
+        network_tx_bytes_per_sec: 500,
+        block_io_read_bytes_per_sec: 2000,
+        block_io_write_bytes_per_sec: 1000,
+        ...overrides,
+      };
+    }
+
+    it('should convert a DockerStatsRow to DockerStatsFromDB', () => {
+      const row = createMockRow();
+      const result = rowToDockerStats(row);
+
+      expect(result.id).toBe('host1/abc123def456');
+      expect(result.name).toBe('nginx');
+      expect(result.image).toBe('nginx:latest');
+      expect(result.icon).toBeNull();
+      expect(result.stale).toBe(false);
+      expect(result.rates.cpuPercent).toBe(25.5);
+      expect(result.rates.memoryPercent).toBe(50);
+      expect(result.memory_stats.usage).toBe(1073741824);
+      expect(result.memory_stats.limit).toBe(2147483648);
+    });
+
+    it('should use container_id prefix when container_name is null', () => {
+      const row = createMockRow({ container_name: null });
+      const result = rowToDockerStats(row);
+
+      expect(result.name).toBe('abc123def456'.substring(0, 12));
+    });
+
+    it('should use provided icon', () => {
+      const row = createMockRow();
+      const result = rowToDockerStats(row, 'nginx.svg');
+
+      expect(result.icon).toBe('nginx.svg');
+    });
+
+    it('should default null metrics to 0', () => {
+      const row = createMockRow({
+        cpu_percent: null,
+        memory_percent: null,
+        memory_usage: null,
+        memory_limit: null,
+        network_rx_bytes_per_sec: null,
+        network_tx_bytes_per_sec: null,
+        block_io_read_bytes_per_sec: null,
+        block_io_write_bytes_per_sec: null,
+      });
+      const result = rowToDockerStats(row);
+
+      expect(result.rates.cpuPercent).toBe(0);
+      expect(result.rates.memoryPercent).toBe(0);
+      expect(result.rates.networkRxBytesPerSec).toBe(0);
+      expect(result.rates.networkTxBytesPerSec).toBe(0);
+      expect(result.rates.blockIoReadBytesPerSec).toBe(0);
+      expect(result.rates.blockIoWriteBytesPerSec).toBe(0);
+      expect(result.memory_stats.usage).toBe(0);
+      expect(result.memory_stats.limit).toBe(0);
+    });
+
+    it('should handle empty image string', () => {
+      const row = createMockRow({ image: null });
+      const result = rowToDockerStats(row);
+
+      expect(result.image).toBe('');
     });
   });
 

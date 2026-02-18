@@ -11,6 +11,48 @@ export interface DockerContainer {
 
 export type { ContainerStatsWithRates } from '../lib/rate-calculator';
 
+/** Wide row from docker_stats hypertable */
+export interface DockerStatsRow {
+  time: string | Date;
+  host: string;
+  container_id: string;
+  container_name: string | null;
+  image: string | null;
+  cpu_percent: number | null;
+  memory_usage: number | null;
+  memory_limit: number | null;
+  memory_percent: number | null;
+  network_rx_bytes_per_sec: number | null;
+  network_tx_bytes_per_sec: number | null;
+  block_io_read_bytes_per_sec: number | null;
+  block_io_write_bytes_per_sec: number | null;
+}
+
+/**
+ * Docker stats reconstructed from wide table rows.
+ * Contains only the fields the frontend needs.
+ */
+export interface DockerStatsFromDB {
+  id: string;
+  name: string;
+  image: string;
+  icon: string | null;
+  stale: boolean;
+  timestamp: Date;
+  rates: {
+    cpuPercent: number;
+    memoryPercent: number;
+    networkRxBytesPerSec: number;
+    networkTxBytesPerSec: number;
+    blockIoReadBytesPerSec: number;
+    blockIoWriteBytesPerSec: number;
+  };
+  memory_stats: {
+    usage: number;
+    limit: number;
+  };
+}
+
 /**
  * Common interface for container stats that works with both
  * direct streaming (ContainerStatsWithRates) and database-backed streaming (DockerStatsFromDB)
@@ -27,9 +69,6 @@ export interface ContainerStatsDisplay {
     blockIoWriteBytesPerSec: number;
   };
 }
-
-// Re-export the DB type for convenience
-export type { DockerStatsFromDB } from '../lib/transformers/docker-transformer';
 
 /**
  * Hierarchical data structures for multi-host Docker dashboard
@@ -51,7 +90,7 @@ export interface HostAggregatedStats {
 
 /** Container stats within a host */
 export interface ContainerStats {
-  data: import('../lib/transformers/docker-transformer').DockerStatsFromDB;
+  data: DockerStatsFromDB;
 }
 
 /** Docker host with its containers */

@@ -69,6 +69,8 @@ function calculateCleanYAxis(maxValue: number, isPercent: boolean = false): YAxi
   return { max, interval };
 }
 
+const WINDOW_MS = 60_000;
+
 function getChartOption(
   dataPoints: DataPoint[],
   colorVar: string,
@@ -76,16 +78,15 @@ function getChartOption(
   isPercent: boolean,
   use12HourTime: boolean
 ): EChartsOption {
-  const timestamps = dataPoints.map((d) =>
-    new Date(d.timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: use12HourTime,
-    })
-  );
+  const now = Date.now();
+  const windowStart = now - WINDOW_MS;
+  const timeValuePairs = dataPoints.map((d) => [d.timestamp, d.value] as [number, number]);
   const values = dataPoints.map((d) => d.value);
 
+  // Extend line to the left edge so only the right side changes
+  if (timeValuePairs.length > 0 && timeValuePairs[0][0] > windowStart) {
+    timeValuePairs.unshift([windowStart, timeValuePairs[0][1]]);
+  }
   const maxValue = Math.max(...values, 0);
   const { max: yAxisMax, interval: yAxisInterval } = calculateCleanYAxis(maxValue, isPercent);
 
@@ -96,6 +97,13 @@ function getChartOption(
   const borderColor = getCssVar('--chart-border');
   const tooltipBg = getCssVar('--chart-tooltip-bg');
   const tooltipText = getCssVar('--chart-tooltip-text');
+
+  const timeFormatOpts: Intl.DateTimeFormatOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: use12HourTime,
+  };
 
   return {
     animation: false,
@@ -115,25 +123,29 @@ function getChartOption(
       },
       formatter: (params: unknown) => {
         const paramArray = params as {
-          axisValue: string;
-          value: number;
+          value: [number, number];
         }[];
-        const time = paramArray[0]?.axisValue || '';
-        const value = paramArray[0]?.value ?? 0;
-        return `${time}<br/>${formatValue(value)}`;
+        const ts = paramArray[0]?.value?.[0];
+        const val = paramArray[0]?.value?.[1] ?? 0;
+        const time = ts ? new Date(ts).toLocaleTimeString([], timeFormatOpts) : '';
+        return `${time}<br/>${formatValue(val)}`;
       },
     },
     xAxis: {
-      type: 'category',
-      data: timestamps,
-      boundaryGap: false,
+      type: 'time',
+      min: now - WINDOW_MS,
+      max: now,
+      splitNumber: 4,
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
         show: true,
         color: textMuted,
         fontSize: 9,
-        interval: 14, // Show roughly every 15 seconds (every 15th label)
+        formatter: (value: number) => {
+          const d = new Date(value);
+          return `${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+        },
       },
       splitLine: { show: false },
     },
@@ -161,7 +173,7 @@ function getChartOption(
         type: 'line',
         smooth: true,
         showSymbol: false,
-        data: values,
+        data: timeValuePairs,
         lineStyle: { color: lineColor, width: 2 },
         areaStyle: {
           color: {

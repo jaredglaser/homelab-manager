@@ -1,9 +1,41 @@
 import type {
+  DockerStatsRow,
   DockerStatsFromDB,
   DockerHierarchy,
   HostAggregatedStats,
   ContainerStats,
 } from '@/types/docker';
+
+/**
+ * Convert a wide DockerStatsRow to DockerStatsFromDB for UI consumption.
+ * Metadata (icon) is resolved separately.
+ */
+export function rowToDockerStats(
+  row: DockerStatsRow,
+  icon: string | null = null,
+): DockerStatsFromDB {
+  const entityId = `${row.host}/${row.container_id}`;
+  return {
+    id: entityId,
+    name: row.container_name || row.container_id.substring(0, 12),
+    image: row.image || '',
+    icon,
+    stale: false,
+    timestamp: new Date(row.time),
+    rates: {
+      cpuPercent: row.cpu_percent ?? 0,
+      memoryPercent: row.memory_percent ?? 0,
+      networkRxBytesPerSec: row.network_rx_bytes_per_sec ?? 0,
+      networkTxBytesPerSec: row.network_tx_bytes_per_sec ?? 0,
+      blockIoReadBytesPerSec: row.block_io_read_bytes_per_sec ?? 0,
+      blockIoWriteBytesPerSec: row.block_io_write_bytes_per_sec ?? 0,
+    },
+    memory_stats: {
+      usage: row.memory_usage ?? 0,
+      limit: row.memory_limit ?? 0,
+    },
+  };
+}
 
 /**
  * Parse entity path to extract host and container ID

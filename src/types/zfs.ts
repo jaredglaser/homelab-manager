@@ -54,6 +54,22 @@ export interface ZFSIOStatWithRates extends ZFSIOStatRaw {
   };
 }
 
+/** Wide row from zfs_stats hypertable */
+export interface ZFSStatsRow {
+  time: string | Date;
+  pool: string;
+  entity: string;
+  entity_type: string; // 'pool', 'vdev', 'disk'
+  indent: number;
+  capacity_alloc: number | null;
+  capacity_free: number | null;
+  read_ops_per_sec: number | null;
+  write_ops_per_sec: number | null;
+  read_bytes_per_sec: number | null;
+  write_bytes_per_sec: number | null;
+  utilization_percent: number | null;
+}
+
 /**
  * Configuration for ZFS monitoring
  */

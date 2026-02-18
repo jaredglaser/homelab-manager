@@ -1,18 +1,17 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useSettings } from '@/hooks/useSettings';
-import { useStreamingData } from '@/hooks/useStreamingData';
 import { Alert, Box, Chip, CircularProgress, Sheet, Typography } from '@mui/joy';
 import { AlertTriangle, ChevronRight, Server, WifiOff } from 'lucide-react';
-import type { DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
-import { buildDockerHierarchy } from '@/lib/utils/docker-hierarchy-builder';
+import type { DockerStatsRow, DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
+import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import { MetricValue } from '../shared-table';
 import ContainerRow from './ContainerRow';
 
 type FlatRow =
   | { type: 'host'; host: HostStats; totalHosts: number }
-  | { type: 'container'; container: DockerStatsFromDB };
+  | { type: 'container'; container: DockerStatsFromDB; chartData: DockerStatsRow[] };
 
 const ROW_HEIGHT_ESTIMATE = 41;
 const EXPANDED_ROW_HEIGHT_ESTIMATE = 350;
@@ -20,35 +19,67 @@ const OVERSCAN = 10;
 
 export const DOCKER_GRID = 'grid grid-cols-[20%_repeat(6,1fr)] min-w-[800px]';
 
-export default function ContainerTable() {
+interface ContainerTableProps {
+  latestByEntity: Map<string, DockerStatsRow>;
+  rows: DockerStatsRow[];
+  hasData: boolean;
+  isConnected: boolean;
+  error: Error | null;
+  isStale: boolean;
+}
+
+export default function ContainerTable({
+  latestByEntity,
+  rows,
+  hasData,
+  isConnected,
+  error,
+  isStale,
+}: ContainerTableProps) {
   const { docker, isHostExpanded, isContainerExpanded } = useSettings();
 
-  const transform = useCallback(
-    (stats: DockerStatsFromDB[]) => buildDockerHierarchy(stats),
-    [],
-  );
+  // Convert latest rows to DockerStatsFromDB and build hierarchy
+  const hierarchy = useMemo<DockerHierarchy>(() => {
+    const stats: DockerStatsFromDB[] = [];
+    for (const row of latestByEntity.values()) {
+      stats.push(rowToDockerStats(row));
+    }
+    return buildDockerHierarchy(stats);
+  }, [latestByEntity]);
 
-  const { state: hierarchy, hasData, isConnected, error, isStale } = useStreamingData<DockerStatsFromDB[], DockerHierarchy>({
-    url: '/api/docker-stats',
-    transform,
-    initialState: new Map(),
-    staleKey: 'docker',
-  });
+  // Build per-entity chart data index
+  const chartDataByEntity = useMemo(() => {
+    const map = new Map<string, DockerStatsRow[]>();
+    for (const row of rows) {
+      const entity = `${row.host}/${row.container_id}`;
+      let arr = map.get(entity);
+      if (!arr) {
+        arr = [];
+        map.set(entity, arr);
+      }
+      arr.push(row);
+    }
+    return map;
+  }, [rows]);
 
   // Flatten hierarchy into a single virtual row list
   const flatRows = useMemo<FlatRow[]>(() => {
-    const rows: FlatRow[] = [];
+    const result: FlatRow[] = [];
     const totalHosts = hierarchy.size;
     for (const host of hierarchy.values()) {
-      rows.push({ type: 'host', host, totalHosts });
+      result.push({ type: 'host', host, totalHosts });
       if (isHostExpanded(host.hostName, totalHosts)) {
         for (const container of host.containers.values()) {
-          rows.push({ type: 'container', container: container.data });
+          result.push({
+            type: 'container',
+            container: container.data,
+            chartData: chartDataByEntity.get(container.data.id) ?? [],
+          });
         }
       }
     }
-    return rows;
-  }, [hierarchy, isHostExpanded]);
+    return result;
+  }, [hierarchy, isHostExpanded, chartDataByEntity]);
 
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -148,7 +179,7 @@ export default function ContainerTable() {
                     {row.type === 'host' ? (
                       <HostRow host={row.host} totalHosts={row.totalHosts} />
                     ) : (
-                      <ContainerRow container={row.container} />
+                      <ContainerRow container={row.container} chartData={row.chartData} />
                     )}
                   </div>
                 );

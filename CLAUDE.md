@@ -16,7 +16,7 @@
 1. **Styling**: TailwindCSS ONLY. Never use `sx` props, inline `style`, or create `.css` files (exception: `theme.ts`).
 2. **Imports**: Always use `@/` for src files (e.g., `@/components/Header`). Use relative paths only within `__tests__/` for test imports.
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly.
-4. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useStreamingData` hook → CSS Grid + `useWindowVirtualizer`. Server handles client disconnect via `request.signal`.
+4. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Server handles client disconnect via `request.signal`.
 5. **File Creation**: PREFER editing existing files over creating new ones. Only create files when genuinely necessary.
 6. **Testing**: Tests in `__tests__/` folders co-located with source. Use `bun:test` imports.
 7. **No Logging**: No `console.log` in committed code. Only `console.error` for actual errors.
@@ -31,7 +31,7 @@
 - **State:** TanStack Query (QueryClient singleton in `__root.tsx`)
 - **Streaming:** Server-Sent Events (SSE) via TanStack Router server routes (`src/routes/api/`)
 - **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL)
-- **Database:** PostgreSQL 16 (generic EAV time-series schema with progressive downsampling)
+- **Database:** TimescaleDB (PostgreSQL 16 with wide hypertables, automatic compression & retention)
 - **Background Worker:** Standalone Bun process for continuous data collection
 - **Validation:** Zod
 - **Testing:** Bun test (`bun:test`)
@@ -50,10 +50,9 @@ bun run test:coverage       # Run tests with coverage report
 bun run test:coverage:check # Run tests and enforce 93% coverage threshold
 ```
 
-### Background Worker & Database
+### Background Worker
 ```bash
 bun worker                  # Run background collector (Docker + ZFS stats)
-bun cleanup                 # Run daily downsampling/cleanup job
 ```
 
 ### Docker Compose (Production)
@@ -82,28 +81,25 @@ src/
 │   ├── docker/              # Docker-specific components (CSS Grid + useWindowVirtualizer)
 │   ├── zfs/                 # ZFS-specific components (CSS Grid + useWindowVirtualizer)
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
-├── hooks/                   # Custom hooks (useSSE, useStreamingData, etc.)
+├── hooks/                   # Custom hooks (useSSE, useTimeSeriesStream, useSettings, etc.)
 ├── data/                    # Server functions (*.functions.tsx) - non-streaming DB queries
 ├── middleware/              # Connection injection (Docker, SSH, Database)
 ├── lib/
 │   ├── __tests__/           # Unit tests (*.test.ts)
-│   ├── cache/               # Stats cache singleton (shared across connections)
 │   ├── clients/             # Connection managers (Docker, SSH, Database)
 │   ├── config/              # Configuration loaders (database, worker)
 │   ├── database/
-│   │   ├── repositories/    # Data access layer (generic StatsRepository)
-│   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler
+│   │   ├── repositories/    # Data access layer (StatsRepository for wide tables)
+│   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler (NotifyService)
 │   │   └── migrate.ts       # Database migration runner
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
-│   ├── transformers/        # DB rows → domain objects (Docker, ZFS)
-│   ├── utils/               # Rate calculators, hierarchy builders
+│   ├── utils/               # Rate calculators, hierarchy builders, row converters
 │   ├── streaming/types.ts   # Core interfaces
 │   └── server-init.ts       # Server-side shutdown handlers
 ├── worker/
 │   ├── collectors/          # Background collectors (Docker, ZFS)
-│   ├── collector.ts         # Worker entry point
-│   └── cleanup.ts           # Daily downsampling script
+│   └── collector.ts         # Worker entry point
 ├── types/                   # Domain types (docker.ts, zfs.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/
@@ -124,144 +120,105 @@ migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 ### Server Functions & SSE Streaming
 - Non-streaming server logic: `createServerFn()` from `@tanstack/react-start`
 - **Real-time streaming**: SSE via TanStack Router server routes in `src/routes/api/`
-- Data flow: SSE endpoint → `useStreamingData` hook → CSS Grid + `useWindowVirtualizer`
+- Data flow: SSE endpoint → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`
 - **Note**: SSE is a workaround because TanStack Start's streaming server functions don't close quickly enough when rapidly switching between tabs — the abort signal doesn't propagate reliably. Once this is fixed upstream, I plan to migrate back to native streaming (see roadmap).
 - **Frontend reads from database** (not direct API/SSH connections):
-  - Worker collects stats → writes to PostgreSQL → sends `NOTIFY stats_update`
-  - Server maintains LISTEN connection → updates shared cache on notification
-  - SSE endpoints stream from cache when notified
-  - Multiple browser tabs share the same server-side cache
+  - Worker collects stats → INSERT wide rows → `pg_notify('stats_update', source)`
+  - Server maintains LISTEN connection via lightweight NotifyService
+  - SSE endpoints subscribe to NotifyService events → query DB for new rows → push to client
+  - Frontend preloads 60s of history via REST, then merges SSE updates
 - **SSE endpoints use `createFileRoute` with `server.handlers`**:
   ```typescript
-  // src/routes/api/docker-stats.ts
-  import { createFileRoute } from '@tanstack/react-router';
-
-  export const Route = createFileRoute('/api/docker-stats')({
-    server: {
-      handlers: {
-        GET: async ({ request }) => {
-          const { subscriptionService } = await import('@/lib/database/subscription-service');
-          const { statsCache } = await import('@/lib/cache/stats-cache');
-
-          await subscriptionService.start();
-
-          let closed = false;
-          const stream = new ReadableStream({
-            start(controller) {
-              const handler = (source: string) => {
-                if (source === 'docker' && !closed) {
-                  sendData(statsCache.getDocker());
-                }
-              };
-              subscriptionService.on('stats_update', handler);
-
-              // Clean up on client disconnect via abort signal
-              request.signal.addEventListener('abort', () => {
-                closed = true;
-                subscriptionService.removeListener('stats_update', handler);
-                controller.close();
-              });
-            },
-          });
-
-          return new Response(stream, {
-            headers: {
-              'Content-Type': 'text/event-stream',
-              'Cache-Control': 'no-cache',
-              Connection: 'keep-alive',
-            },
-          });
-        },
-      },
-    },
-  });
+  // src/routes/api/docker-stats.ts — NOTIFY-driven SSE push
+  GET handler:
+    1. Start notifyService (idempotent)
+    2. Track lastSentTime
+    3. Subscribe to notifyService 'stats_update' event
+    4. On event (payload === 'docker'):
+       a. Query: SELECT * FROM docker_stats WHERE time > $lastSentTime
+       b. If rows found: send via SSE, update lastSentTime
+    5. On request.signal abort: unsubscribe, close controller
   ```
 - **IMPORTANT: Use dynamic imports for server-only modules** in SSE endpoints:
   ```typescript
   // BAD - gets bundled into client
-  import { subscriptionService } from '@/lib/database/subscription-service';
+  import { notifyService } from '@/lib/database/subscription-service';
 
   // GOOD - only loaded on server at runtime
-  const { subscriptionService } = await import('@/lib/database/subscription-service');
+  const { notifyService } = await import('@/lib/database/subscription-service');
   ```
 
 ### SSE Data Sources (Virtualized Tables)
 Both Docker and ZFS tables use the same pattern:
 1. Create SSE route in `src/routes/api/` using `createFileRoute` with `server.handlers`
-2. Use `useStreamingData` hook with a `transform` function to convert raw SSE data to hierarchy state
-3. Flatten the hierarchy into a `FlatRow[]` discriminated union (respecting expansion state)
-4. Render with CSS Grid columns + `useWindowVirtualizer` (page-scroll virtualization)
-5. Row components are div-based (not `<table>/<tr>/<td>`) for virtualizer compatibility
+2. Page route uses `useTimeSeriesStream` hook (preload + SSE merge + time-windowed buffer)
+3. Pass `latestByEntity` (Map) and `rows` (sorted array) as props to table/chart components
+4. Table component converts wide rows to domain objects, flattens to `FlatRow[]` discriminated union
+5. Render with CSS Grid columns + `useWindowVirtualizer` (page-scroll virtualization)
+6. Row components are div-based (not `<table>/<tr>/<td>`) for virtualizer compatibility
 
 Rate calculators:
 - Must implement `RateCalculator<TInput, TOutput>` interface (`src/lib/streaming/types.ts`)
 - Use class-based calculators (not module-level functions)
 
-### PostgreSQL Persistence & Background Workers
+### TimescaleDB Persistence & Background Workers
 The frontend reads stats from the database via PostgreSQL LISTEN/NOTIFY:
 ```
-Worker → Docker/ZFS APIs → stats_raw INSERT → NOTIFY stats_update
+Worker → Docker/ZFS APIs → INSERT wide rows → NOTIFY stats_update
                                                       ↓
-Browser → Server (SSE) ← LISTEN stats_update → Cache Update → yield stats
+Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
 ```
 
-**Database schema** (generic EAV model):
-- `stat_source` — dimension table (e.g., 'docker', 'zfs')
-- `stat_type` — metric types scoped to source (e.g., 'cpu_percent', 'read_ops_per_sec')
-- `stats_raw` — raw measurements (timestamp, source_id, type_id, entity, value)
-- `stats_agg` — aggregated measurements (period_start, period_end, min/avg/max, sample_count, granularity)
-
-Adding a new data source requires only a new collector — no schema changes needed.
+**Database schema** (TimescaleDB wide tables):
+- `docker_stats` — hypertable: time, host, container_id, container_name, image, cpu_percent, memory_usage, memory_limit, memory_percent, network_rx/tx, block_io_read/write
+- `zfs_stats` — hypertable: time, pool, entity, entity_type, indent, capacity_alloc/free, read/write_ops_per_sec, read/write_bytes_per_sec, utilization_percent
+- `entity_metadata` — key-value metadata per entity (icons, labels)
+- `settings` — application settings
+- **Compression**: Automatic after 1 hour (segmented by host/container or pool/entity)
+- **Retention**: Automatic deletion after 7 days (handled by TimescaleDB policies)
 
 **Architecture**:
 - **Background worker**: Standalone Bun process (`bun worker`)
 - **Collectors**: Class-based, extend `BaseCollector` (implements `AsyncDisposable`)
-  - `BaseCollector` handles: collection loop, batch management, exponential backoff, graceful shutdown
+  - `BaseCollector` handles: collection loop, exponential backoff, graceful shutdown
   - Subclasses implement: `name`, `collectOnce()`, `isConfigured()`
   - Uses `AbortController` for cancellable sleeps and instant shutdown
   - Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
+- **Collectors write directly**: No batching/throttling. Produce wide `DockerStatsRow[]`/`ZFSStatsRow[]` and INSERT immediately
 - **Persistent rate calculators**: Never cleared (unlike request-scoped calculators)
-- **Batch writes**: Accumulate stats then write to DB via `StatsRepository`
-- **Collectors convert** domain objects into `RawStatRow[]` (source, type, entity, value)
 - **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
-- **Progressive downsampling**: 4-tier retention strategy
-  - 0-7 days: Raw data (1-second granularity)
-  - 7-14 days: Minute aggregates (min/avg/max)
-  - 14-30 days: Hour aggregates (min/avg/max)
-  - 30+ days: Daily aggregates (min/avg/max) - infinite retention
 - **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
 - **ZFS hierarchical entity paths**: Entity names encode hierarchy for filtering
   - Pool: `"tank"` (indent 0)
   - Vdev: `"tank/mirror-0"` (indent 2)
   - Disk: `"tank/mirror-0/sda"` (indent 4+)
   - Enables visibility filtering: collapsed pool skips `tank/*` entities
-- **Stale data warning**: If no NOTIFY received for 30+ seconds, UI shows warning (TanStack Query with refetchInterval)
+- **Stale data warning**: If no SSE data received for 30+ seconds, UI shows warning via `useTimeSeriesStream`
 
 **Key files**:
-- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — TanStack Router server routes with proper disconnect handling)
-- **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useStreamingData.ts` (SSE + state + stale detection)
+- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — NOTIFY-driven, query DB on event)
+- **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useTimeSeriesStream.ts` (preload + SSE merge + stale detection)
 - **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
-- Repository: `src/lib/database/repositories/stats-repository.ts` (generic, caches dimension IDs, NOTIFY after insert)
-- Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, batch management, backoff)
+- Repository: `src/lib/database/repositories/stats-repository.ts` (wide table inserts/queries, NOTIFY after insert)
+- Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, backoff)
 - Collectors: `src/worker/collectors/` (Docker, ZFS — extend `BaseCollector`)
+- Row converters: `src/lib/utils/docker-hierarchy-builder.ts` (`rowToDockerStats`), `src/lib/utils/zfs-hierarchy-builder.ts` (`rowToZFSStats`)
 - Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
-- Migrations: `migrations/*.sql` (generic schema + downsampling functions)
-- Cleanup: `src/worker/cleanup.ts` (daily downsampling job)
-- **Stats cache**: `src/lib/cache/stats-cache.ts` (singleton, shared across frontend connections)
-- **Subscription service**: `src/lib/database/subscription-service.ts` (LISTEN handler, updates cache on NOTIFY)
-- **Transformers**: `src/lib/transformers/` (convert DB rows to domain objects)
+- Migrations: `migrations/*.sql` (settings table + TimescaleDB wide tables)
+- **NotifyService**: `src/lib/database/subscription-service.ts` (lightweight LISTEN handler, thin event bus)
 - **Server init**: `src/lib/server-init.ts` (graceful shutdown handlers)
 
 **Environment variables**:
 - `POSTGRES_*`: Database connection config
-- `WORKER_*`: Worker behavior config (enabled, batch size, intervals)
+- `WORKER_*`: Worker behavior config (enabled, collection interval)
 
 ### Components
 - Shared infrastructure: `src/components/shared-table/` (MetricValue)
 - Domain components: own directories (`docker/`, `zfs/`)
 - Both Docker and ZFS tables use CSS Grid + `useWindowVirtualizer` with flat row models
-- `useStreamingData` hook handles SSE connection + state + stale detection for both tables
+- Page routes use `useTimeSeriesStream` hook, pass data as props to table components
+- Table components convert wide rows to domain objects via `rowToDockerStats`/`rowToZFSStats`
 
 ### Styling
 - **TailwindCSS only** for all layout and styling
@@ -273,7 +230,7 @@ Adding a new data source requires only a new collector — no schema changes nee
 
 ### State Management
 - `QueryClient` is a singleton in `__root.tsx` — never create per-route
-- Use `useStreamingData` hook for SSE-backed streaming tables (wraps `useSSE` + state + stale detection)
+- Use `useTimeSeriesStream` hook for SSE-backed streaming data (preload + SSE merge + time-windowed buffer + stale detection)
 - Use `useSSE` hook directly only for non-table SSE consumers
 - SSE connection management handled automatically by the browser's EventSource API
 
@@ -345,7 +302,7 @@ Adding a new data source requires only a new collector — no schema changes nee
 - Test files outside `__tests__/` folders
 - `console.log` in committed code
 - Logging sensitive data
-- Static imports of server-only modules (pg, subscription-service, stats-cache) in server function files — use dynamic `await import()` inside handlers
+- Static imports of server-only modules (pg, subscription-service) in server function files — use dynamic `await import()` inside handlers
 
 ## Quick Reference
 
@@ -354,8 +311,8 @@ Adding a new data source requires only a new collector — no schema changes nee
 | Style component | TailwindCSS classes |
 | Server logic (non-streaming) | `createServerFn()` + middleware |
 | Real-time streaming | SSE route in `src/routes/api/` |
-| Consume SSE stream | `useStreamingData` hook (tables) or `useSSE` hook (other) |
-| New streaming table | CSS Grid + `useWindowVirtualizer` + `useStreamingData` |
+| Consume SSE stream | `useTimeSeriesStream` hook (tables) or `useSSE` hook (other) |
+| New streaming table | CSS Grid + `useWindowVirtualizer` + `useTimeSeriesStream` |
 | Import from src | `@/path/to/file` |
 | Test file location | `__tests__/filename.test.ts` |
 | Run tests | `bun test` |

@@ -32,7 +32,6 @@ async function main() {
       docker: workerConfig.docker.enabled,
       zfs: workerConfig.zfs.enabled,
       collectionInterval: `${workerConfig.collection.interval}ms`,
-      batchTimeout: `${workerConfig.batch.timeout}ms`,
     });
 
     console.log('[Worker] Connecting to PostgreSQL...');
@@ -145,7 +144,7 @@ async function main() {
       console.log(`[Worker] ${runners.length} collector(s) started, running...`);
       await Promise.all(runners);
     }
-    // AsyncDisposableStack disposes here — flushes batches, cleans up
+    // AsyncDisposableStack disposes here — cleans up
 
     console.log('[Worker] Closing connections...');
     await Promise.all([

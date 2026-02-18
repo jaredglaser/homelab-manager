@@ -4,25 +4,30 @@ export const Route = createFileRoute('/api/zfs-stats')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        // Dynamic imports to avoid bundling server-only code
         await import('@/lib/server-init');
-        const { subscriptionService } = await import(
+        const { notifyService } = await import(
           '@/lib/database/subscription-service'
         );
-        const { statsCache } = await import('@/lib/cache/stats-cache');
+        const { databaseConnectionManager } = await import(
+          '@/lib/clients/database-client'
+        );
+        const { loadDatabaseConfig } = await import(
+          '@/lib/config/database-config'
+        );
+        const { StatsRepository } = await import(
+          '@/lib/database/repositories/stats-repository'
+        );
 
-        // Ensure subscription service is running
-        await subscriptionService.start();
+        await notifyService.start();
+
+        const config = loadDatabaseConfig();
+        const dbClient = await databaseConnectionManager.getClient(config);
+        const repo = new StatsRepository(dbClient.getPool());
 
         const encoder = new TextEncoder();
         let closed = false;
         let eventsSent = 0;
-
-        const debugLog = (message: string) => {
-          if (subscriptionService.isDebugLogging) {
-            console.log(message);
-          }
-        };
+        let lastSentTime = new Date(Date.now() - 1000);
 
         const stream = new ReadableStream({
           start(controller) {
@@ -33,31 +38,28 @@ export const Route = createFileRoute('/api/zfs-stats')({
                 controller.enqueue(encoder.encode(message));
                 eventsSent++;
               } catch {
-                debugLog(`[SSE:zfs-stats] Enqueue failed after ${eventsSent} events`);
                 closed = true;
               }
             };
 
-            // Send initial data immediately
-            const initialStats = statsCache.getZFS();
-            debugLog(`[SSE:zfs-stats] Client connected, sending ${initialStats.length} initial stats`);
-            sendData(initialStats);
-
-            // Listen for updates
-            const handler = (source: string) => {
-              if (source === 'zfs' && !closed) {
-                const stats = statsCache.getZFS();
-                sendData(stats);
+            const handler = async (payload: string) => {
+              if (payload !== 'zfs' || closed) return;
+              try {
+                const rows = await repo.getZFSStatsSince(lastSentTime);
+                if (rows.length > 0) {
+                  lastSentTime = new Date(rows[rows.length - 1].time as string);
+                  sendData(rows);
+                }
+              } catch {
+                // Query failed — skip this cycle
               }
             };
 
-            subscriptionService.on('stats_update', handler);
+            notifyService.on('stats_update', handler);
 
-            // Handle client disconnect via abort signal
             request.signal.addEventListener('abort', () => {
-              debugLog(`[SSE:zfs-stats] Client disconnected after ${eventsSent} events`);
               closed = true;
-              subscriptionService.removeListener('stats_update', handler);
+              notifyService.removeListener('stats_update', handler);
               try {
                 controller.close();
               } catch {

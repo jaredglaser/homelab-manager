@@ -1,14 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { BaseCollector } from '../base-collector';
-import type { RawStatRow } from '@/lib/database/repositories/stats-repository';
-
-// --- Mocks ---
-
-mock.module('@/lib/database/repositories/stats-repository', () => ({
-  StatsRepository: class {
-    insertRawStats = mock(async () => {});
-  },
-}));
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
@@ -30,7 +21,6 @@ function createMockConfig(overrides?: Partial<any>) {
     docker: { enabled: true },
     zfs: { enabled: true },
     collection: { interval: 1000 },
-    batch: { size: 10, timeout: 5000 },
     ...overrides,
   };
 }
@@ -50,17 +40,16 @@ class TestCollector extends BaseCollector {
     return this.isConfiguredFn();
   }
 
-  // Expose protected methods for testing
-  async testAddToBatch(rows: RawStatRow[]) {
-    return this.addToBatch(rows);
-  }
-
-  testShouldWrite(entity: string) {
-    return this.shouldWrite(entity);
-  }
-
   testDebugLog(message: string) {
     this.debugLog(message);
+  }
+
+  testDbDebugLog(message: string) {
+    this.dbDebugLog(message);
+  }
+
+  testResetBackoff() {
+    this.resetBackoff();
   }
 
   getSignal(): AbortSignal {
@@ -167,64 +156,6 @@ describe('BaseCollector', () => {
     });
   });
 
-  describe('batch management', () => {
-    it('should accumulate stats in batch', async () => {
-      const collector = new TestCollector(db as any, config);
-      const rows: RawStatRow[] = [
-        { timestamp: new Date(), source: 'test', type: 'metric1', entity: 'e1', value: 42 },
-      ];
-
-      await collector.testAddToBatch(rows);
-      // Batch is internal — we verify through dispose flushing
-      await collector[Symbol.asyncDispose]();
-    });
-
-    it('should flush when batch size is reached', async () => {
-      const smallBatchConfig = createMockConfig({ batch: { size: 2, timeout: 60000 } });
-      const collector = new TestCollector(db as any, smallBatchConfig);
-
-      const rows: RawStatRow[] = [
-        { timestamp: new Date(), source: 'test', type: 'metric1', entity: 'e1', value: 1 },
-        { timestamp: new Date(), source: 'test', type: 'metric2', entity: 'e1', value: 2 },
-      ];
-
-      await collector.testAddToBatch(rows);
-      // The batch should have been flushed since size >= 2
-      // Dispose should have nothing to flush
-      await collector[Symbol.asyncDispose]();
-    });
-  });
-
-  describe('write throttling', () => {
-    it('should allow first write for an entity', () => {
-      const collector = new TestCollector(db as any, config);
-      expect(collector.testShouldWrite('entity-1')).toBe(true);
-    });
-
-    it('should throttle writes within collection interval', () => {
-      const collector = new TestCollector(db as any, config);
-      expect(collector.testShouldWrite('entity-1')).toBe(true);
-      expect(collector.testShouldWrite('entity-1')).toBe(false);
-    });
-
-    it('should allow writes for different entities independently', () => {
-      const collector = new TestCollector(db as any, config);
-      expect(collector.testShouldWrite('entity-1')).toBe(true);
-      expect(collector.testShouldWrite('entity-2')).toBe(true);
-    });
-
-    it('should allow writes after interval elapses', async () => {
-      const shortIntervalConfig = createMockConfig({ collection: { interval: 50 } });
-      const collector = new TestCollector(db as any, shortIntervalConfig);
-
-      expect(collector.testShouldWrite('entity-1')).toBe(true);
-      expect(collector.testShouldWrite('entity-1')).toBe(false);
-
-      await new Promise(resolve => setTimeout(resolve, 60));
-      expect(collector.testShouldWrite('entity-1')).toBe(true);
-    });
-  });
-
   describe('debug logging', () => {
     it('should not emit debug logs by default', async () => {
       const collector = new TestCollector(db as any, config);
@@ -262,6 +193,40 @@ describe('BaseCollector', () => {
 
       expect(logged).not.toContain('[TestCollector] Debug message');
 
+      await collector[Symbol.asyncDispose]();
+    });
+
+    it('should not emit db debug logs by default', async () => {
+      const collector = new TestCollector(db as any, config);
+      const logged: string[] = [];
+      console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
+
+      collector.testDbDebugLog('[TestCollector] DB flush');
+
+      expect(logged).not.toContain('[TestCollector] DB flush');
+
+      await collector[Symbol.asyncDispose]();
+    });
+
+    it('should emit db debug logs when db flush debug logging is enabled', async () => {
+      const collector = new TestCollector(db as any, config);
+      collector.dbFlushDebugLogging = true;
+      const logged: string[] = [];
+      console.log = (...args: unknown[]) => { logged.push(String(args[0])); };
+
+      collector.testDbDebugLog('[TestCollector] DB flush');
+
+      expect(logged).toContain('[TestCollector] DB flush');
+
+      await collector[Symbol.asyncDispose]();
+    });
+  });
+
+  describe('resetBackoff', () => {
+    it('should reset the consecutive error counter', async () => {
+      const collector = new TestCollector(db as any, config);
+      // Just verify it doesn't throw
+      collector.testResetBackoff();
       await collector[Symbol.asyncDispose]();
     });
   });

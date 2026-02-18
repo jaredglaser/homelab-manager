@@ -1,7 +1,11 @@
 import { Sheet, Typography } from '@mui/joy';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import type { TimeSeriesDataPoint } from '@/hooks/useTimeSeriesBuffer';
+interface TimeSeriesDataPoint {
+  timestamp: number;
+  readBytesPerSec: number;
+  writeBytesPerSec: number;
+}
 import { formatBytes } from '@/formatters/metrics';
 import { useSettings } from '@/hooks/useSettings';
 
@@ -90,20 +94,26 @@ function calculateCleanYAxis(maxValue: number): YAxisConfig {
   };
 }
 
-function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolean): EChartsOption {
-  const timestamps = dataPoints.map((d) =>
-    new Date(d.timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: use12HourTime,
-    })
-  );
-  const readData = dataPoints.map((d) => d.readBytesPerSec);
-  const writeData = dataPoints.map((d) => d.writeBytesPerSec);
+const WINDOW_MS = 60_000;
 
-  // Calculate clean y-axis max and interval from the data
-  const maxValue = Math.max(...readData, ...writeData, 0);
+function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolean): EChartsOption {
+  const now = Date.now();
+  const windowStart = now - WINDOW_MS;
+  const readPairs = dataPoints.map((d) => [d.timestamp, d.readBytesPerSec] as [number, number]);
+  const writePairs = dataPoints.map((d) => [d.timestamp, d.writeBytesPerSec] as [number, number]);
+
+  // Extend lines to the left edge so only the right side changes
+  if (readPairs.length > 0 && readPairs[0][0] > windowStart) {
+    readPairs.unshift([windowStart, readPairs[0][1]]);
+  }
+  if (writePairs.length > 0 && writePairs[0][0] > windowStart) {
+    writePairs.unshift([windowStart, writePairs[0][1]]);
+  }
+  const maxValue = Math.max(
+    ...dataPoints.map((d) => d.readBytesPerSec),
+    ...dataPoints.map((d) => d.writeBytesPerSec),
+    0,
+  );
   const { max: yAxisMax, interval: yAxisInterval } = calculateCleanYAxis(maxValue);
 
   // Use chart CSS variables defined in App.css
@@ -117,6 +127,13 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
   const borderColor = getCssVar('--chart-border');
   const tooltipBg = getCssVar('--chart-tooltip-bg');
   const tooltipText = getCssVar('--chart-tooltip-text');
+
+  const timeFormatOpts: Intl.DateTimeFormatOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: use12HourTime,
+  };
 
   return {
     animation: false,
@@ -136,14 +153,14 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
       },
       formatter: (params: unknown) => {
         const paramArray = params as {
-          axisValue: string;
+          value: [number, number];
           marker: string;
           seriesName: string;
-          value: number;
         }[];
-        const time = paramArray[0]?.axisValue || '';
+        const ts = paramArray[0]?.value?.[0];
+        const time = ts ? new Date(ts).toLocaleTimeString([], timeFormatOpts) : '';
         const lines = paramArray.map(
-          (p) => `${p.marker} ${p.seriesName}: ${formatBytes(p.value, true)}`
+          (p) => `${p.marker} ${p.seriesName}: ${formatBytes(p.value[1], true)}`
         );
         return `${time}<br/>${lines.join('<br/>')}`;
       },
@@ -159,16 +176,20 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
       itemHeight: 8,
     },
     xAxis: {
-      type: 'category',
-      data: timestamps,
-      boundaryGap: false,
+      type: 'time',
+      min: now - WINDOW_MS,
+      max: now,
+      splitNumber: 4,
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
         show: true,
         color: textMuted,
         fontSize: 10,
-        interval: 14, // Show roughly every 15 seconds
+        formatter: (value: number) => {
+          const d = new Date(value);
+          return `${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+        },
       },
       splitLine: { show: false },
     },
@@ -197,7 +218,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
         type: 'line',
         smooth: true,
         showSymbol: false,
-        data: readData,
+        data: readPairs,
         lineStyle: { color: readColor, width: 2 },
         areaStyle: {
           color: {
@@ -218,7 +239,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
         type: 'line',
         smooth: true,
         showSymbol: false,
-        data: writeData,
+        data: writePairs,
         lineStyle: { color: writeColor, width: 2 },
         areaStyle: {
           color: {

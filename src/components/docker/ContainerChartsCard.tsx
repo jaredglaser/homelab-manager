@@ -2,7 +2,16 @@ import { memo, useMemo } from 'react';
 import { Sheet } from '@mui/joy';
 import { formatAsPercent, formatBytes, formatBitsSIUnits } from '@/formatters/metrics';
 import ContainerMetricChart from './ContainerMetricChart';
-import type { ContainerChartDataPoint } from '@/data/docker.functions';
+
+interface ContainerChartDataPoint {
+  timestamp: number;
+  cpuPercent: number;
+  memoryPercent: number;
+  blockIoReadBytesPerSec: number;
+  blockIoWriteBytesPerSec: number;
+  networkRxBytesPerSec: number;
+  networkTxBytesPerSec: number;
+}
 
 interface ContainerChartsCardProps {
   dataPoints: ContainerChartDataPoint[];

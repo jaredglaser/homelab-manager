@@ -2,35 +2,20 @@ import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { DockerHostConfig } from '@/lib/config/docker-config';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
-import { DockerRateCalculator, type ContainerStatsWithRates } from '@/lib/rate-calculator';
-import type { RawStatRow } from '@/lib/database/repositories/stats-repository';
+import { DockerRateCalculator } from '@/lib/rate-calculator';
+import type { DockerStatsRow } from '@/types/docker';
 import { streamToAsyncIterator, mergeAsyncIterables } from '@/lib/stream-utils';
 import type Dockerode from 'dockerode';
 import { BaseCollector } from './base-collector';
 
 const DOCKER_SOURCE = 'docker';
 
-function toRawStatRows(stat: ContainerStatsWithRates, hostName: string): RawStatRow[] {
-  const timestamp = new Date();
-  const entity = `${hostName}/${stat.id}`;
-
-  return [
-    { timestamp, source: DOCKER_SOURCE, type: 'cpu_percent', entity, value: stat.rates.cpuPercent },
-    { timestamp, source: DOCKER_SOURCE, type: 'memory_usage', entity, value: stat.memory_stats?.usage || 0 },
-    { timestamp, source: DOCKER_SOURCE, type: 'memory_limit', entity, value: stat.memory_stats?.limit || 0 },
-    { timestamp, source: DOCKER_SOURCE, type: 'memory_percent', entity, value: stat.rates.memoryPercent },
-    { timestamp, source: DOCKER_SOURCE, type: 'network_rx_bytes_per_sec', entity, value: stat.rates.networkRxBytesPerSec },
-    { timestamp, source: DOCKER_SOURCE, type: 'network_tx_bytes_per_sec', entity, value: stat.rates.networkTxBytesPerSec },
-    { timestamp, source: DOCKER_SOURCE, type: 'block_io_read_bytes_per_sec', entity, value: stat.rates.blockIoReadBytesPerSec },
-    { timestamp, source: DOCKER_SOURCE, type: 'block_io_write_bytes_per_sec', entity, value: stat.rates.blockIoWriteBytesPerSec },
-  ];
-}
-
 export class DockerCollector extends BaseCollector {
   readonly name: string;
   private readonly calculator = new DockerRateCalculator();
   private readonly hostConfig: DockerHostConfig;
   private knownContainers = new Map<string, { name: string; image: string }>();
+  private lastWriteTime = new Map<string, number>();
 
   constructor(
     db: DatabaseClient,
@@ -45,6 +30,18 @@ export class DockerCollector extends BaseCollector {
 
   protected isConfigured(): boolean {
     return !!this.hostConfig.host;
+  }
+
+  /**
+   * Throttle writes per entity based on collection.interval config.
+   * Returns true if enough time has elapsed since the last write for this entity.
+   */
+  private shouldWrite(entity: string): boolean {
+    const now = Date.now();
+    const lastWrite = this.lastWriteTime.get(entity) ?? 0;
+    if (now - lastWrite < this.config.collection.interval) return false;
+    this.lastWriteTime.set(entity, now);
+    return true;
   }
 
   protected async collectOnce(): Promise<void> {
@@ -96,6 +93,8 @@ export class DockerCollector extends BaseCollector {
     const containerStreams = containers.map(info => this.streamContainerStats(docker, info, streams));
     let statsReceived = 0;
     let statsWritten = 0;
+    const batch: DockerStatsRow[] = [];
+    let lastFlushTime = Date.now();
 
     try {
       for await (const stats of mergeAsyncIterables(containerStreams)) {
@@ -104,7 +103,38 @@ export class DockerCollector extends BaseCollector {
         const entity = `${this.hostConfig.name}/${stats.id}`;
         if (!this.shouldWrite(entity)) continue;
         statsWritten++;
-        await this.addToBatch(toRawStatRows(stats, this.hostConfig.name));
+
+        const containerName = containerInfo(containers, stats.id);
+        batch.push({
+          time: new Date(),
+          host: this.hostConfig.name,
+          container_id: stats.id,
+          container_name: containerName,
+          image: this.knownContainers.get(stats.id)?.image ?? null,
+          cpu_percent: stats.rates.cpuPercent,
+          memory_usage: stats.memory_stats?.usage || 0,
+          memory_limit: stats.memory_stats?.limit || 0,
+          memory_percent: stats.rates.memoryPercent,
+          network_rx_bytes_per_sec: stats.rates.networkRxBytesPerSec,
+          network_tx_bytes_per_sec: stats.rates.networkTxBytesPerSec,
+          block_io_read_bytes_per_sec: stats.rates.blockIoReadBytesPerSec,
+          block_io_write_bytes_per_sec: stats.rates.blockIoWriteBytesPerSec,
+        });
+
+        // Flush when all containers have reported or interval has elapsed
+        const now = Date.now();
+        if (batch.length >= containers.length || now - lastFlushTime >= this.config.collection.interval) {
+          await this.repository.insertDockerStats(batch);
+          this.dbDebugLog(`[${this.name}] Wrote ${batch.length} docker rows`);
+          batch.length = 0;
+          lastFlushTime = now;
+        }
+      }
+
+      // Flush remaining rows on stream end
+      if (batch.length > 0) {
+        await this.repository.insertDockerStats(batch);
+        this.dbDebugLog(`[${this.name}] Wrote ${batch.length} docker rows (final)`);
       }
     } finally {
       const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
@@ -128,7 +158,7 @@ export class DockerCollector extends BaseCollector {
     docker: Dockerode,
     containerInfo: Dockerode.ContainerInfo,
     streams: any[],
-  ): AsyncGenerator<ContainerStatsWithRates> {
+  ): AsyncGenerator<import('@/lib/rate-calculator').ContainerStatsWithRates> {
     const containerName = containerInfo.Names[0]?.replace(/^\//, '') || containerInfo.Id.substring(0, 12);
     const shortId = containerInfo.Id.substring(0, 12);
     let eventsReceived = 0;
@@ -167,4 +197,10 @@ export class DockerCollector extends BaseCollector {
       );
     }
   }
+}
+
+/** Find container name by ID from the container list */
+function containerInfo(containers: Dockerode.ContainerInfo[], id: string): string {
+  const info = containers.find(c => c.Id === id);
+  return info?.Names[0]?.replace(/^\//, '') || id.substring(0, 12);
 }

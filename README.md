@@ -16,8 +16,8 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 - **Docker Dashboard** (`/`) — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX) with inline sparkline charts
 - **Container Icons** — Auto-resolved icons from Docker image names with manual override via an icon picker (powered by [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons))
 - **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics collected via SSH and streamed from the database
-- **PostgreSQL Persistence** — Background worker continuously collects stats with progressive downsampling (raw → minute → hour → day aggregates) for infinite retention
-- **Docker Compose Deployment** — Full stack with PostgreSQL, web server, background worker, and daily cleanup job (builds from source, no pre-built image)
+- **TimescaleDB Persistence** — Background worker continuously collects stats into wide hypertables with automatic compression (after 1 hour) and retention (7 days)
+- **Docker Compose Deployment** — Full stack with TimescaleDB, web server, and background worker (builds from source, no pre-built image)
 - **Live-Updating UI** — Server-Sent Events (SSE) stream data continuously to the client with no polling
 - **Virtualized Tables** — CSS Grid layouts with page-scroll virtualization (`useWindowVirtualizer`) for efficient rendering of large container/pool lists
 - **Per-Entity Stale Detection** — When a host or container stops reporting, rows stay visible with amber highlighting and a connection warning icon instead of disappearing
@@ -37,6 +37,7 @@ This project is built on the **TanStack ecosystem** as its core framework:
 | **UI** | [MUI Joy UI](https://mui.com/joy-ui/getting-started/) + [TailwindCSS](https://tailwindcss.com) | Component library and utility-first styling |
 | **Docker** | [Dockerode](https://github.com/apocas/dockerode) | Docker Engine API client |
 | **SSH** | [ssh2](https://github.com/mscdex/ssh2) | SSH client for remote command execution |
+| **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and retention for time-series data |
 | **Validation** | [Zod](https://zod.dev) | Schema validation |
 | **Language** | TypeScript + React 19 | Type-safe UI development |
 
@@ -50,12 +51,12 @@ graph TD
 
     subgraph TanStack_Start["TanStack Start Server"]
         SSE["SSE Endpoints<br/>(server routes)"]
-        SubSvc["Subscription Service<br/>(LISTEN handler)"]
-        Cache["Stats Cache<br/>(shared singleton)"]
+        NotifySvc["NotifyService<br/>(LISTEN handler)"]
     end
 
-    subgraph Database["PostgreSQL"]
-        StatsRaw["stats_raw table"]
+    subgraph Database["TimescaleDB"]
+        DockerTable["docker_stats hypertable"]
+        ZFSTable["zfs_stats hypertable"]
         Notify["NOTIFY stats_update"]
     end
 
@@ -69,19 +70,19 @@ graph TD
     end
 
     Browser <-->|"SSE streaming"| SSE
-    SSE --> Cache
-    SubSvc -->|"On NOTIFY"| Cache
-    Notify --> SubSvc
-    StatsRaw --> Notify
-    Collectors -->|"Batch INSERT"| StatsRaw
+    SSE -->|"Query new rows"| DockerTable
+    SSE -->|"Query new rows"| ZFSTable
+    NotifySvc -->|"On NOTIFY"| SSE
+    Notify --> NotifySvc
+    Collectors -->|"INSERT + NOTIFY"| DockerTable
+    Collectors -->|"INSERT + NOTIFY"| ZFSTable
     Collectors --> DockerHost
     Collectors --> ZFSHost
 ```
 
 The frontend reads stats from the database, not directly from Docker/ZFS APIs. This enables:
-- **Multiple browser tabs** share the same server-side cache
 - **Real-time updates** via PostgreSQL LISTEN/NOTIFY (no polling)
-- **Visibility filtering** for ZFS (only stream data for expanded pools/vdevs)
+- **Direct DB queries** on each notification — no intermediate cache layer
 - **Stale data detection** at both global (30+ second warning) and per-entity levels (amber highlighting for individual hosts/containers)
 
 ### Data Streaming Pipeline
@@ -96,33 +97,31 @@ flowchart LR
     RS["Raw Stream<br/>(JSON / text)"]
     PA["Parser<br/>(structured data)"]
     RC["Rate Calculator<br/>(deltas & metrics)"]
-    Batch["Batch Writer"]
-    DB["PostgreSQL<br/>+ NOTIFY"]
+    DB["TimescaleDB<br/>INSERT + NOTIFY"]
 
-    CL --> RS --> PA --> RC --> Batch --> DB
+    CL --> RS --> PA --> RC --> DB
 ```
 
 **Stage 2: Real-Time Streaming (Server → Browser)**
 
 ```mermaid
 flowchart LR
-    DB["PostgreSQL<br/>LISTEN"]
-    SubSvc["Subscription Service"]
-    Cache["Stats Cache<br/>(merge with staleness)"]
-    SSE["SSE Endpoint<br/>(server route)"]
-    Hook["useStreamingData<br/>(hook)"]
+    DB["TimescaleDB<br/>LISTEN"]
+    NotifySvc["NotifyService<br/>(event bus)"]
+    SSE["SSE Endpoint<br/>(query DB)"]
+    Hook["useTimeSeriesStream<br/>(hook)"]
     Table["Virtualized Table<br/>(CSS Grid)"]
 
-    DB -->|"NOTIFY"| SubSvc --> Cache --> SSE --> Hook --> Table
+    DB -->|"NOTIFY"| NotifySvc --> SSE -->|"New rows"| Hook --> Table
 ```
 
 **How it works:**
 
 1. **Background worker** continuously collects stats from Docker/ZFS APIs
-2. Stats are **batch inserted** into PostgreSQL with `NOTIFY stats_update`
-3. **Subscription service** maintains a `LISTEN` connection, updates the **shared cache** on each notification (merging with existing data; missing entities are marked stale rather than removed)
-4. **SSE endpoints** stream stats from the cache when notified (filtered by visibility for ZFS)
-5. The **`useStreamingData` hook** consumes the SSE stream, transforms raw data into a hierarchy, and tracks global stale state
+2. Stats are **inserted** into TimescaleDB wide hypertables with `NOTIFY stats_update`
+3. **NotifyService** maintains a `LISTEN` connection and re-emits notifications as events (thin event bus, no caching or transformation)
+4. **SSE endpoints** query the database for new rows since `lastSentTime` on each notification, then push results to the client
+5. The **`useTimeSeriesStream` hook** preloads 60s of history via REST, then merges SSE updates into a time-windowed buffer with stale detection
 6. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
 
 ## Getting Started
@@ -160,7 +159,7 @@ ZFS_SSH_PASSWORD="your-password"     # Password-based auth
 #### Option 1: Docker Compose (Recommended)
 
 ```bash
-# Start the full stack (PostgreSQL, web server, background worker)
+# Start the full stack (TimescaleDB, web server, background worker)
 docker compose up -d
 
 # View logs
@@ -174,16 +173,16 @@ Access the UI at http://localhost:3000
 
 #### Option 2: Local Development
 
-**With Docker Compose (recommended)** — includes PostgreSQL, worker, and hot reload:
+**With Docker Compose (recommended)** — includes TimescaleDB, worker, and hot reload:
 
 ```bash
 bun install             # Install dependencies
-bun dev:docker:up       # Start PostgreSQL + worker with HMR
+bun dev:docker:up       # Start TimescaleDB + worker with HMR
 bun dev:docker:down     # Stop dev services
 bun dev:docker:restart  # Restart dev services
 ```
 
-**Without Docker Compose** — requires external PostgreSQL:
+**Without Docker Compose** — requires external TimescaleDB:
 
 ```bash
 bun install             # Install dependencies
@@ -239,9 +238,7 @@ src/
 │       └── MetricValue.tsx          # Formatted metric display (value + unit + optional sparkline)
 ├── hooks/
 │   ├── useSSE.ts                    # EventSource-based SSE consumer
-│   ├── useStreamingData.ts          # SSE + state transform + global stale detection
-│   ├── useContainerChartData.ts     # Time-series chart data for containers
-│   ├── useTimeSeriesBuffer.ts       # Rolling time-series data buffer
+│   ├── useTimeSeriesStream.ts       # Preload + SSE merge + time-windowed buffer + stale detection
 │   └── useSettings.tsx              # User preferences (expansion state, display modes, decimals)
 ├── data/
 │   ├── docker.functions.tsx         # Docker server functions (active containers, icon updates)
@@ -252,30 +249,24 @@ src/
 │   └── ssh-middleware.ts            # SSH client injection
 ├── lib/
 │   ├── __tests__/                   # Unit tests
-│   ├── cache/
-│   │   └── stats-cache.ts           # Singleton stats cache (merge-on-update with per-entity staleness)
 │   ├── clients/                     # Connection managers (Docker, SSH, Database)
 │   ├── config/                      # Configuration loaders (database, worker)
 │   ├── database/
 │   │   ├── repositories/            # Data access layer (StatsRepository, SettingsRepository)
-│   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler
+│   │   ├── subscription-service.ts  # NotifyService — lightweight LISTEN/NOTIFY event bus
 │   │   └── migrate.ts               # Database migration runner
 │   ├── parsers/                     # Stream parsers (ZFS iostat, text lines)
 │   ├── test/                        # Test utilities and helpers
-│   ├── transformers/                # DB rows → domain objects
-│   │   ├── docker-transformer.ts    # DB rows → Docker stats (with stale flag)
-│   │   └── zfs-transformer.ts       # DB rows → ZFS stats (with hierarchy)
 │   ├── utils/
-│   │   ├── docker-hierarchy-builder.ts  # Flat stats → host/container hierarchy
-│   │   ├── zfs-hierarchy-builder.ts     # Flat stats → pool/vdev/disk hierarchy
+│   │   ├── docker-hierarchy-builder.ts  # Wide rows → domain objects + host/container hierarchy
+│   │   ├── zfs-hierarchy-builder.ts     # Wide rows → domain objects + pool/vdev/disk hierarchy
 │   │   ├── icon-resolver.ts             # Auto-resolve icons from Docker image names
 │   │   └── available-icons.ts           # Icon slug registry (dashboard-icons)
 │   ├── streaming/types.ts           # Core interfaces (StreamingClient, RateCalculator)
 │   └── server-init.ts               # Server-side shutdown handlers
 ├── worker/
 │   ├── collectors/                  # Background collectors (Docker, ZFS)
-│   ├── collector.ts                 # Worker entry point
-│   └── cleanup.ts                   # Daily downsampling script
+│   └── collector.ts                 # Worker entry point
 ├── types/                           # Domain types (Docker, ZFS)
 ├── formatters/metrics.ts            # Number formatting (%, bytes, bits)
 ├── routes/
@@ -289,14 +280,14 @@ src/
 └── theme.ts                         # MUI Joy theme config
 
 public/icons/                        # SVG icons from homarr-labs/dashboard-icons
-migrations/                          # SQL migrations (schema + downsampling functions)
+migrations/                          # SQL migrations (settings + TimescaleDB wide tables)
 ```
 
 ## Roadmap
 
-- [x] **PostgreSQL persistence** — background worker collects stats with progressive downsampling (second → minute → hour → day aggregates)
-- [x] **Docker Compose deployment** — multi-container setup with PostgreSQL, web server, and background worker
-- [x] **Database-backed streaming** — frontend reads from PostgreSQL via LISTEN/NOTIFY instead of direct API/SSH connections; shared cache across browser tabs
+- [x] **TimescaleDB persistence** — background worker collects stats into wide hypertables with automatic compression and 7-day retention
+- [x] **Docker Compose deployment** — multi-container setup with TimescaleDB, web server, and background worker
+- [x] **Database-backed streaming** — frontend reads from TimescaleDB via LISTEN/NOTIFY instead of direct API/SSH connections; SSE endpoints query DB directly on each notification
 - [ ] **Return to TanStack Start streaming server functions** — currently using SSE as a workaround because streaming server functions don't close quickly enough when rapidly switching between tabs; once TanStack Start's abort signal propagation is more reliable, migrate back to the native streaming pattern
 - [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
 - [ ] **Proxmox API integration** — VM and LXC container management and statistics

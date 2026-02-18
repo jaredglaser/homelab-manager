@@ -1,36 +1,49 @@
-import { useCallback } from 'react';
-import { CircularProgress, Sheet, Typography } from '@mui/joy';
-import { useTimeSeriesBuffer } from '@/hooks/useTimeSeriesBuffer';
-import { getHistoricalZFSChartData } from '@/data/zfs.functions';
+import { useMemo } from 'react';
+import { Sheet, Typography } from '@mui/joy';
+import type { ZFSStatsRow } from '@/types/zfs';
 import ZFSPoolSpeedChart from './ZFSPoolSpeedChart';
 
-export default function ZFSPoolSpeedCharts() {
-  const fetchInitialData = useCallback(() => getHistoricalZFSChartData(), []);
+interface TimeSeriesDataPoint {
+  timestamp: number;
+  readBytesPerSec: number;
+  writeBytesPerSec: number;
+}
 
-  const { poolsData, isConnected, error } = useTimeSeriesBuffer({
-    sseUrl: '/api/zfs-stats',
-    fetchInitialData,
-  });
+interface PoolTimeSeriesData {
+  poolName: string;
+  dataPoints: TimeSeriesDataPoint[];
+}
 
-  if (error && poolsData.size === 0) {
-    return (
-      <Sheet variant="outlined" className="mt-6 rounded-sm p-4">
-        <Typography color="danger">
-          Error connecting to ZFS stats: {error.message}
-        </Typography>
-      </Sheet>
-    );
-  }
+interface ZFSPoolSpeedChartsProps {
+  rows: ZFSStatsRow[];
+}
 
-  if (!isConnected && poolsData.size === 0) {
-    return (
-      <Sheet variant="outlined" className="mt-6 flex justify-center rounded-sm p-4">
-        <CircularProgress />
-      </Sheet>
-    );
-  }
+export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
+  const pools = useMemo<PoolTimeSeriesData[]>(() => {
+    // Filter to pool-level entities only (no '/' in entity path)
+    const poolRows = rows.filter((r) => !r.entity.includes('/'));
 
-  const pools = Array.from(poolsData.values());
+    // Group by pool name
+    const poolMap = new Map<string, TimeSeriesDataPoint[]>();
+    for (const row of poolRows) {
+      let points = poolMap.get(row.pool);
+      if (!points) {
+        points = [];
+        poolMap.set(row.pool, points);
+      }
+      points.push({
+        timestamp: new Date(row.time).getTime(),
+        readBytesPerSec: row.read_bytes_per_sec ?? 0,
+        writeBytesPerSec: row.write_bytes_per_sec ?? 0,
+      });
+    }
+
+    const result: PoolTimeSeriesData[] = [];
+    for (const [poolName, dataPoints] of poolMap) {
+      result.push({ poolName, dataPoints });
+    }
+    return result;
+  }, [rows]);
 
   if (pools.length === 0) {
     return null;

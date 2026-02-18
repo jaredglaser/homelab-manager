@@ -1,4 +1,4 @@
-import { subscriptionService } from '@/lib/database/subscription-service';
+import { notifyService } from '@/lib/database/subscription-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 
 let initialized = false;
@@ -15,10 +15,7 @@ export function initServer(): void {
     console.log('[Server] Shutdown signal received, cleaning up...');
 
     try {
-      // Stop the subscription service (closes LISTEN connection)
-      await subscriptionService.stop();
-
-      // Close database connection pool
+      await notifyService.stop();
       await databaseConnectionManager.closeAll();
 
       console.log('[Server] Cleanup complete');

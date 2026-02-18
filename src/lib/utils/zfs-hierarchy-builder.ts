@@ -1,4 +1,4 @@
-import type { ZFSIOStatWithRates, ZFSHierarchy, PoolStats, VdevStats, DiskStats } from '../../types/zfs';
+import type { ZFSIOStatWithRates, ZFSStatsRow, ZFSHierarchy, PoolStats, VdevStats, DiskStats } from '../../types/zfs';
 
 /**
  * Detects the hierarchy level based on indentation from zpool iostat -vvv output
@@ -10,6 +10,49 @@ function detectHierarchyLevel(indent: number): 'pool' | 'vdev' | 'disk' {
   if (indent <= 0) return 'pool';
   if (indent <= 2) return 'vdev';
   return 'disk';
+}
+
+/**
+ * Determines the name from an entity path.
+ * - "poolname" → "poolname"
+ * - "poolname/vdevname" → "vdevname"
+ * - "poolname/vdevname/diskname" → "diskname"
+ */
+function nameFromEntity(entity: string): string {
+  const parts = entity.split('/');
+  return parts[parts.length - 1];
+}
+
+/**
+ * Convert a ZFSStatsRow (wide table row) to ZFSIOStatWithRates for UI consumption.
+ */
+export function rowToZFSStats(row: ZFSStatsRow): ZFSIOStatWithRates {
+  return {
+    id: row.entity,
+    name: nameFromEntity(row.entity),
+    indent: row.indent,
+    timestamp: new Date(row.time).getTime(),
+    capacity: {
+      alloc: row.capacity_alloc ?? 0,
+      free: row.capacity_free ?? 0,
+    },
+    operations: {
+      read: row.read_ops_per_sec ?? 0,
+      write: row.write_ops_per_sec ?? 0,
+    },
+    bandwidth: {
+      read: row.read_bytes_per_sec ?? 0,
+      write: row.write_bytes_per_sec ?? 0,
+    },
+    total: { readOps: 0, writeOps: 0, readBytes: 0, writeBytes: 0 },
+    rates: {
+      readOpsPerSec: row.read_ops_per_sec ?? 0,
+      writeOpsPerSec: row.write_ops_per_sec ?? 0,
+      readBytesPerSec: row.read_bytes_per_sec ?? 0,
+      writeBytesPerSec: row.write_bytes_per_sec ?? 0,
+      utilizationPercent: row.utilization_percent ?? 0,
+    },
+  };
 }
 
 /**

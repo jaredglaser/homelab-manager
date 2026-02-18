@@ -11,10 +11,6 @@ const WorkerConfigSchema = z.object({
   collection: z.object({
     interval: z.number().int().min(100).max(60000),
   }),
-  batch: z.object({
-    size: z.number().int().min(1).max(1000),
-    timeout: z.number().int().min(1000).max(60000),
-  }),
 });
 
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
@@ -37,10 +33,6 @@ export function loadWorkerConfig(): WorkerConfig {
     },
     collection: {
       interval: parseInt(process.env.WORKER_COLLECTION_INTERVAL_MS || '5000', 10),
-    },
-    batch: {
-      size: parseInt(process.env.WORKER_BATCH_SIZE || '10', 10),
-      timeout: parseInt(process.env.WORKER_BATCH_TIMEOUT_MS || '1000', 10),
     },
   };
 

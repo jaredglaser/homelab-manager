@@ -1,8 +1,12 @@
+import { useCallback } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import AppShell from '../components/AppShell'
 import ZFSPoolsTable from '../components/zfs/ZFSPoolsTable'
 import ZFSPoolSpeedCharts from '../components/zfs/ZFSPoolSpeedCharts'
 import PageHeader from '@/components/PageHeader'
+import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
+import { getHistoricalZFSStats } from '@/data/zfs.functions'
+import type { ZFSStatsRow } from '@/types/zfs'
 
 export const Route = createFileRoute('/zfs')({
   ssr: false,
@@ -10,12 +14,31 @@ export const Route = createFileRoute('/zfs')({
 })
 
 function ZFSPage() {
+  const preloadFn = useCallback(
+    () => getHistoricalZFSStats({ data: { seconds: 60 } }),
+    [],
+  )
+
+  const stream = useTimeSeriesStream<ZFSStatsRow>({
+    sseUrl: '/api/zfs-stats',
+    preloadFn,
+    getKey: (row) => `${new Date(row.time).getTime()}_${row.entity}`,
+    getTime: (row) => new Date(row.time).getTime(),
+    getEntity: (row) => row.entity,
+  })
+
   return (
     <AppShell>
       <div className="w-full p-6">
         <PageHeader title="ZFS Pools Dashboard" />
-        <ZFSPoolsTable />
-        <ZFSPoolSpeedCharts />
+        <ZFSPoolsTable
+          latestByEntity={stream.latestByEntity}
+          hasData={stream.hasData}
+          isConnected={stream.isConnected}
+          error={stream.error}
+          isStale={stream.isStale}
+        />
+        <ZFSPoolSpeedCharts rows={stream.rows} />
       </div>
     </AppShell>
   )

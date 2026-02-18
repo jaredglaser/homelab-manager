@@ -1,6 +1,6 @@
 import { describe, it, expect, spyOn } from 'bun:test';
-import { buildHierarchy } from '../zfs-hierarchy-builder';
-import type { ZFSIOStatWithRates } from '@/types/zfs';
+import { buildHierarchy, rowToZFSStats } from '../zfs-hierarchy-builder';
+import type { ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
 
 describe('buildHierarchy', () => {
   // Helper to create mock ZFS stats
@@ -328,6 +328,91 @@ describe('buildHierarchy', () => {
     expect(mirror1.disks.size).toBe(1);
     expect(mirror1.disks.has('sdb')).toBe(true);
     expect(mirror1.disks.has('sda')).toBe(false);
+  });
+
+  describe('rowToZFSStats', () => {
+    function createMockRow(overrides?: Partial<ZFSStatsRow>): ZFSStatsRow {
+      return {
+        time: '2024-01-01T00:00:00Z',
+        pool: 'tank',
+        entity: 'tank',
+        entity_type: 'pool',
+        indent: 0,
+        capacity_alloc: 1000000,
+        capacity_free: 2000000,
+        read_ops_per_sec: 10,
+        write_ops_per_sec: 5,
+        read_bytes_per_sec: 1024,
+        write_bytes_per_sec: 512,
+        utilization_percent: 33.3,
+        ...overrides,
+      };
+    }
+
+    it('should convert a ZFSStatsRow to ZFSIOStatWithRates', () => {
+      const row = createMockRow();
+      const result = rowToZFSStats(row);
+
+      expect(result.id).toBe('tank');
+      expect(result.name).toBe('tank');
+      expect(result.indent).toBe(0);
+      expect(result.capacity.alloc).toBe(1000000);
+      expect(result.capacity.free).toBe(2000000);
+      expect(result.operations.read).toBe(10);
+      expect(result.operations.write).toBe(5);
+      expect(result.bandwidth.read).toBe(1024);
+      expect(result.bandwidth.write).toBe(512);
+      expect(result.rates.readOpsPerSec).toBe(10);
+      expect(result.rates.writeBytesPerSec).toBe(512);
+      expect(result.rates.utilizationPercent).toBe(33.3);
+    });
+
+    it('should extract name from entity path', () => {
+      const row = createMockRow({ entity: 'tank/mirror-0' });
+      const result = rowToZFSStats(row);
+
+      expect(result.id).toBe('tank/mirror-0');
+      expect(result.name).toBe('mirror-0');
+    });
+
+    it('should extract disk name from deep entity path', () => {
+      const row = createMockRow({ entity: 'tank/mirror-0/sda' });
+      const result = rowToZFSStats(row);
+
+      expect(result.name).toBe('sda');
+    });
+
+    it('should default null metrics to 0', () => {
+      const row = createMockRow({
+        capacity_alloc: null,
+        capacity_free: null,
+        read_ops_per_sec: null,
+        write_ops_per_sec: null,
+        read_bytes_per_sec: null,
+        write_bytes_per_sec: null,
+        utilization_percent: null,
+      });
+      const result = rowToZFSStats(row);
+
+      expect(result.capacity.alloc).toBe(0);
+      expect(result.capacity.free).toBe(0);
+      expect(result.operations.read).toBe(0);
+      expect(result.operations.write).toBe(0);
+      expect(result.bandwidth.read).toBe(0);
+      expect(result.bandwidth.write).toBe(0);
+      expect(result.rates.readOpsPerSec).toBe(0);
+      expect(result.rates.utilizationPercent).toBe(0);
+    });
+
+    it('should set total fields to 0', () => {
+      const row = createMockRow();
+      const result = rowToZFSStats(row);
+
+      expect(result.total.readOps).toBe(0);
+      expect(result.total.writeOps).toBe(0);
+      expect(result.total.readBytes).toBe(0);
+      expect(result.total.writeBytes).toBe(0);
+    });
   });
 
   it('should handle vdev names with special characters', () => {
