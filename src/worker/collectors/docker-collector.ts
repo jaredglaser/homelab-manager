@@ -39,7 +39,14 @@ export class DockerCollector extends BaseCollector {
   private shouldWrite(entity: string): boolean {
     const now = Date.now();
     const lastWrite = this.lastWriteTime.get(entity) ?? 0;
-    if (now - lastWrite < this.config.collection.interval) return false;
+    const elapsed = now - lastWrite;
+    if (elapsed < this.config.collection.interval) {
+      this.debugLog(
+        `[${this.name}] shouldWrite SKIP ${entity.split('/').pop()?.substring(0, 12)}` +
+        ` (${elapsed}ms since last, interval=${this.config.collection.interval}ms)`
+      );
+      return false;
+    }
     this.lastWriteTime.set(entity, now);
     return true;
   }
@@ -100,6 +107,10 @@ export class DockerCollector extends BaseCollector {
       for await (const stats of mergeAsyncIterables(containerStreams)) {
         if (this.signal.aborted) break;
         statsReceived++;
+        this.debugLog(
+          `[${this.name}] Stats event #${statsReceived} from ${stats.id.substring(0, 12)}` +
+          ` cpu=${stats.rates.cpuPercent.toFixed(1)}% mem=${stats.rates.memoryPercent.toFixed(1)}%`
+        );
         const entity = `${this.hostConfig.name}/${stats.id}`;
         if (!this.shouldWrite(entity)) continue;
         statsWritten++;
@@ -123,9 +134,21 @@ export class DockerCollector extends BaseCollector {
 
         // Flush when all containers have reported or interval has elapsed
         const now = Date.now();
-        if (batch.length >= containers.length || now - lastFlushTime >= this.config.collection.interval) {
+        const timeSinceFlush = now - lastFlushTime;
+        const shouldFlush = batch.length >= containers.length || timeSinceFlush >= this.config.collection.interval;
+        this.debugLog(
+          `[${this.name}] Batch: ${batch.length}/${containers.length} containers` +
+          ` timeSinceFlush=${timeSinceFlush}ms flush=${shouldFlush}`
+        );
+        if (shouldFlush) {
+          const containerIds = batch.map(r => r.container_id.substring(0, 12));
+          this.debugLog(
+            `[${this.name}] FLUSHING ${batch.length} rows: [${containerIds.join(', ')}]`
+          );
+          const t0Flush = performance.now();
           await this.repository.insertDockerStats(batch);
-          this.dbDebugLog(`[${this.name}] Wrote ${batch.length} docker rows`);
+          const flushMs = (performance.now() - t0Flush).toFixed(0);
+          this.dbDebugLog(`[${this.name}] Wrote ${batch.length} docker rows (${flushMs}ms, notify sent)`);
           batch.length = 0;
           lastFlushTime = now;
         }

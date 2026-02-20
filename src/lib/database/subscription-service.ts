@@ -72,7 +72,6 @@ class NotifyService extends EventEmitter {
     await this.client.connect();
     await this.client.query('LISTEN stats_update');
     await this.client.query('LISTEN settings_change');
-    console.log('[NotifyService] Connected and listening');
   }
 
   private scheduleReconnect(): void {

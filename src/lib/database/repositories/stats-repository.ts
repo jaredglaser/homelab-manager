@@ -39,7 +39,7 @@ export class StatsRepository {
         blockWrite.push(row.block_io_write_bytes_per_sec);
       }
 
-      await this.pool.query(
+      const result = await this.pool.query(
         `INSERT INTO docker_stats (
           time, host, container_id, container_name, image,
           cpu_percent, memory_usage, memory_limit, memory_percent,
@@ -50,7 +50,8 @@ export class StatsRepository {
           $1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[],
           $6::float8[], $7::bigint[], $8::bigint[], $9::float8[],
           $10::float8[], $11::float8[], $12::float8[], $13::float8[]
-        )`,
+        )
+        RETURNING seq`,
         [
           times, hosts, containerIds, containerNames, images,
           cpuPercents, memoryUsages, memoryLimits, memoryPercents,
@@ -58,7 +59,11 @@ export class StatsRepository {
         ]
       );
 
-      await this.pool.query("SELECT pg_notify('stats_update', 'docker')");
+      const maxSeq = result.rows[result.rows.length - 1].seq;
+      await this.pool.query(
+        `SELECT pg_notify('stats_update', $1)`,
+        [JSON.stringify({ source: 'docker', maxSeq: String(maxSeq) })]
+      );
     } catch (err) {
       console.error('[StatsRepository] Failed to insert docker stats:', err);
       throw err;
@@ -97,7 +102,7 @@ export class StatsRepository {
         utilizations.push(row.utilization_percent);
       }
 
-      await this.pool.query(
+      const result = await this.pool.query(
         `INSERT INTO zfs_stats (
           time, pool, entity, entity_type, indent,
           capacity_alloc, capacity_free,
@@ -111,7 +116,8 @@ export class StatsRepository {
           $8::float8[], $9::float8[],
           $10::float8[], $11::float8[],
           $12::float8[]
-        )`,
+        )
+        RETURNING seq`,
         [
           times, pools, entities, entityTypes, indents,
           capacityAllocs, capacityFrees,
@@ -121,27 +127,45 @@ export class StatsRepository {
         ]
       );
 
-      await this.pool.query("SELECT pg_notify('stats_update', 'zfs')");
+      const maxSeq = result.rows[result.rows.length - 1].seq;
+      await this.pool.query(
+        `SELECT pg_notify('stats_update', $1)`,
+        [JSON.stringify({ source: 'zfs', maxSeq: String(maxSeq) })]
+      );
     } catch (err) {
       console.error('[StatsRepository] Failed to insert zfs stats:', err);
       throw err;
     }
   }
 
-  async getDockerStatsSince(since: Date): Promise<DockerStatsRow[]> {
+  async getDockerStatsSinceSeq(sinceSeq: string): Promise<DockerStatsRow[]> {
     const result = await this.pool.query(
-      `SELECT * FROM docker_stats WHERE time > $1 ORDER BY time ASC`,
-      [since]
+      `SELECT * FROM docker_stats WHERE seq > $1 ORDER BY seq ASC`,
+      [sinceSeq]
     );
     return result.rows;
   }
 
-  async getZFSStatsSince(since: Date): Promise<ZFSStatsRow[]> {
+  async getZFSStatsSinceSeq(sinceSeq: string): Promise<ZFSStatsRow[]> {
     const result = await this.pool.query(
-      `SELECT * FROM zfs_stats WHERE time > $1 ORDER BY time ASC`,
-      [since]
+      `SELECT * FROM zfs_stats WHERE seq > $1 ORDER BY seq ASC`,
+      [sinceSeq]
     );
     return result.rows;
+  }
+
+  async getMaxDockerSeq(): Promise<string> {
+    const result = await this.pool.query(
+      `SELECT COALESCE(MAX(seq), 0) as max_seq FROM docker_stats`
+    );
+    return String(result.rows[0].max_seq);
+  }
+
+  async getMaxZFSSeq(): Promise<string> {
+    const result = await this.pool.query(
+      `SELECT COALESCE(MAX(seq), 0) as max_seq FROM zfs_stats`
+    );
+    return String(result.rows[0].max_seq);
   }
 
   async getDockerStatsHistory(seconds: number): Promise<DockerStatsRow[]> {

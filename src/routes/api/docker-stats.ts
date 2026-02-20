@@ -26,8 +26,8 @@ export const Route = createFileRoute('/api/docker-stats')({
 
         const encoder = new TextEncoder();
         let closed = false;
-        let eventsSent = 0;
-        let lastSentTime = new Date(Date.now() - 1000);
+        // Initialize cursor to current max seq so we only send new rows
+        let lastSeq = await repo.getMaxDockerSeq();
 
         const stream = new ReadableStream({
           start(controller) {
@@ -36,22 +36,51 @@ export const Route = createFileRoute('/api/docker-stats')({
               try {
                 const message = `data: ${JSON.stringify(data)}\n\n`;
                 controller.enqueue(encoder.encode(message));
-                eventsSent++;
               } catch {
                 closed = true;
               }
             };
 
-            const handler = async (payload: string) => {
-              if (payload !== 'docker' || closed) return;
+            // Serialize handler execution: only one query runs at a time,
+            // with a pending flag to coalesce rapid NOTIFYs
+            let processing = false;
+            let pending = false;
+
+            const processOnce = async () => {
               try {
-                const rows = await repo.getDockerStatsSince(lastSentTime);
+                const rows = await repo.getDockerStatsSinceSeq(lastSeq);
                 if (rows.length > 0) {
-                  lastSentTime = new Date(rows[rows.length - 1].time as string);
+                  lastSeq = String((rows[rows.length - 1] as any).seq);
                   sendData(rows);
                 }
               } catch {
                 // Query failed — skip this cycle
+              }
+            };
+
+            const handler = async (payload: string) => {
+              if (closed) return;
+              try {
+                const parsed = JSON.parse(payload);
+                if (parsed.source !== 'docker') return;
+              } catch {
+                // Legacy plain-text payload — ignore
+                return;
+              }
+              if (processing) {
+                pending = true;
+                return;
+              }
+              processing = true;
+              try {
+                await processOnce();
+                // Drain any NOTIFYs that arrived while we were processing
+                while (pending && !closed) {
+                  pending = false;
+                  await processOnce();
+                }
+              } finally {
+                processing = false;
               }
             };
 

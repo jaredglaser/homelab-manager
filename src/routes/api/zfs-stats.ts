@@ -26,8 +26,7 @@ export const Route = createFileRoute('/api/zfs-stats')({
 
         const encoder = new TextEncoder();
         let closed = false;
-        let eventsSent = 0;
-        let lastSentTime = new Date(Date.now() - 1000);
+        let lastSeq = await repo.getMaxZFSSeq();
 
         const stream = new ReadableStream({
           start(controller) {
@@ -36,22 +35,47 @@ export const Route = createFileRoute('/api/zfs-stats')({
               try {
                 const message = `data: ${JSON.stringify(data)}\n\n`;
                 controller.enqueue(encoder.encode(message));
-                eventsSent++;
               } catch {
                 closed = true;
               }
             };
 
-            const handler = async (payload: string) => {
-              if (payload !== 'zfs' || closed) return;
+            let processing = false;
+            let pending = false;
+
+            const processOnce = async () => {
               try {
-                const rows = await repo.getZFSStatsSince(lastSentTime);
+                const rows = await repo.getZFSStatsSinceSeq(lastSeq);
                 if (rows.length > 0) {
-                  lastSentTime = new Date(rows[rows.length - 1].time as string);
+                  lastSeq = String((rows[rows.length - 1] as any).seq);
                   sendData(rows);
                 }
               } catch {
                 // Query failed — skip this cycle
+              }
+            };
+
+            const handler = async (payload: string) => {
+              if (closed) return;
+              try {
+                const parsed = JSON.parse(payload);
+                if (parsed.source !== 'zfs') return;
+              } catch {
+                return;
+              }
+              if (processing) {
+                pending = true;
+                return;
+              }
+              processing = true;
+              try {
+                await processOnce();
+                while (pending && !closed) {
+                  pending = false;
+                  await processOnce();
+                }
+              } finally {
+                processing = false;
               }
             };
 
