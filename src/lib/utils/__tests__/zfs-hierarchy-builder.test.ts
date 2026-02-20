@@ -1,5 +1,5 @@
 import { describe, it, expect, spyOn } from 'bun:test';
-import { buildHierarchy, rowToZFSStats } from '../zfs-hierarchy-builder';
+import { buildHierarchy, buildZFSHostHierarchy, rowToZFSStats } from '../zfs-hierarchy-builder';
 import type { ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
 
 describe('buildHierarchy', () => {
@@ -334,6 +334,7 @@ describe('buildHierarchy', () => {
     function createMockRow(overrides?: Partial<ZFSStatsRow>): ZFSStatsRow {
       return {
         time: '2024-01-01T00:00:00Z',
+        host: '',
         pool: 'tank',
         entity: 'tank',
         entity_type: 'pool',
@@ -367,11 +368,25 @@ describe('buildHierarchy', () => {
       expect(result.rates.utilizationPercent).toBe(33.3);
     });
 
+    it('should prefix id with host when host is present', () => {
+      const row = createMockRow({ host: 'server1' });
+      const result = rowToZFSStats(row);
+
+      expect(result.id).toBe('server1/tank');
+      expect(result.name).toBe('tank');
+    });
+
+    it('should use entity as id when host is empty', () => {
+      const row = createMockRow({ host: '' });
+      const result = rowToZFSStats(row);
+
+      expect(result.id).toBe('tank');
+    });
+
     it('should extract name from entity path', () => {
       const row = createMockRow({ entity: 'tank/mirror-0' });
       const result = rowToZFSStats(row);
 
-      expect(result.id).toBe('tank/mirror-0');
       expect(result.name).toBe('mirror-0');
     });
 
@@ -379,6 +394,14 @@ describe('buildHierarchy', () => {
       const row = createMockRow({ entity: 'tank/mirror-0/sda' });
       const result = rowToZFSStats(row);
 
+      expect(result.name).toBe('sda');
+    });
+
+    it('should prefix deep entity path with host', () => {
+      const row = createMockRow({ host: 'server1', entity: 'tank/mirror-0/sda' });
+      const result = rowToZFSStats(row);
+
+      expect(result.id).toBe('server1/tank/mirror-0/sda');
       expect(result.name).toBe('sda');
     });
 
@@ -432,5 +455,143 @@ describe('buildHierarchy', () => {
     expect(pool.vdevs.has('raidz1-0')).toBe(true);
     expect(pool.vdevs.has('raidz2-data-0')).toBe(true);
     expect(pool.vdevs.has('spare-1')).toBe(true);
+  });
+});
+
+describe('buildZFSHostHierarchy', () => {
+  function createMockRow(overrides?: Partial<ZFSStatsRow>): ZFSStatsRow {
+    return {
+      time: '2024-01-01T00:00:00Z',
+      host: 'server1',
+      pool: 'tank',
+      entity: 'tank',
+      entity_type: 'pool',
+      indent: 0,
+      capacity_alloc: 1000000,
+      capacity_free: 2000000,
+      read_ops_per_sec: 10,
+      write_ops_per_sec: 5,
+      read_bytes_per_sec: 1024,
+      write_bytes_per_sec: 512,
+      utilization_percent: 33.3,
+      ...overrides,
+    };
+  }
+
+  it('should group rows by host', () => {
+    const rows = [
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank' }),
+      createMockRow({ host: 'server2', pool: 'backup', entity: 'backup' }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+
+    expect(hierarchy.size).toBe(2);
+    expect(hierarchy.has('server1')).toBe(true);
+    expect(hierarchy.has('server2')).toBe(true);
+  });
+
+  it('should build pool hierarchy within each host', () => {
+    const rows = [
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank', indent: 0 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server2', pool: 'backup', entity: 'backup', indent: 0 }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+
+    const server1 = hierarchy.get('server1')!;
+    expect(server1.pools.size).toBe(1);
+    expect(server1.pools.has('tank')).toBe(true);
+
+    const server2 = hierarchy.get('server2')!;
+    expect(server2.pools.size).toBe(1);
+    expect(server2.pools.has('backup')).toBe(true);
+  });
+
+  it('should calculate host aggregates from pools', () => {
+    const rows = [
+      createMockRow({
+        host: 'server1',
+        pool: 'tank',
+        entity: 'tank',
+        capacity_alloc: 1000,
+        capacity_free: 2000,
+        read_ops_per_sec: 10,
+        write_ops_per_sec: 5,
+        read_bytes_per_sec: 100,
+        write_bytes_per_sec: 50,
+      }),
+      createMockRow({
+        host: 'server1',
+        pool: 'backup',
+        entity: 'backup',
+        capacity_alloc: 3000,
+        capacity_free: 4000,
+        read_ops_per_sec: 20,
+        write_ops_per_sec: 15,
+        read_bytes_per_sec: 200,
+        write_bytes_per_sec: 150,
+      }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+    const server1 = hierarchy.get('server1')!;
+
+    expect(server1.aggregated.capacityAlloc).toBe(4000);
+    expect(server1.aggregated.capacityFree).toBe(6000);
+    expect(server1.aggregated.readOpsPerSec).toBe(30);
+    expect(server1.aggregated.writeOpsPerSec).toBe(20);
+    expect(server1.aggregated.readBytesPerSec).toBe(300);
+    expect(server1.aggregated.writeBytesPerSec).toBe(200);
+    expect(server1.aggregated.poolCount).toBe(2);
+  });
+
+  it('should sort hosts alphabetically', () => {
+    const rows = [
+      createMockRow({ host: 'zeta', pool: 'tank', entity: 'tank' }),
+      createMockRow({ host: 'alpha', pool: 'tank', entity: 'tank' }),
+      createMockRow({ host: 'beta', pool: 'tank', entity: 'tank' }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+    const hostNames = Array.from(hierarchy.keys());
+
+    expect(hostNames).toEqual(['alpha', 'beta', 'zeta']);
+  });
+
+  it('should handle empty rows', () => {
+    const hierarchy = buildZFSHostHierarchy([]);
+    expect(hierarchy.size).toBe(0);
+  });
+
+  it('should handle rows with empty host', () => {
+    const rows = [
+      createMockRow({ host: '', pool: 'tank', entity: 'tank' }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+
+    expect(hierarchy.size).toBe(1);
+    expect(hierarchy.has('')).toBe(true);
+  });
+
+  it('should handle multiple pools per host with full hierarchy', () => {
+    const rows = [
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank', indent: 0 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sda', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'backup', entity: 'backup', indent: 0 }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+    const server1 = hierarchy.get('server1')!;
+
+    expect(server1.pools.size).toBe(2);
+    expect(server1.aggregated.poolCount).toBe(2);
+
+    const tank = server1.pools.get('tank')!;
+    expect(tank.vdevs.size).toBe(1);
+    expect(tank.vdevs.get('mirror-0')!.disks.size).toBe(1);
   });
 });

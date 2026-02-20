@@ -173,6 +173,7 @@ describe('StatsRepository', () => {
       const rows = [
         {
           time: new Date('2024-01-01'),
+          host: 'server1',
           pool: 'tank',
           entity: 'tank',
           entity_type: 'pool',
@@ -206,6 +207,7 @@ describe('StatsRepository', () => {
 
       await expect(repo.insertZFSStats([{
         time: new Date(),
+        host: 'server1',
         pool: 'tank',
         entity: 'tank',
         entity_type: 'pool',

@@ -23,6 +23,7 @@ export interface Settings {
     decimals: DecimalSettings;
   };
   zfs: {
+    expandedHosts: Set<string>;
     expandedPools: Set<string>;
     expandedVdevs: Set<string>;
     decimals: {
@@ -50,6 +51,8 @@ interface SettingsContextValue extends Settings {
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   toggleContainerExpanded: (containerId: string) => void;
   isContainerExpanded: (containerId: string) => boolean;
+  toggleZfsHostExpanded: (hostName: string) => void;
+  isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
   togglePoolExpanded: (poolName: string) => void;
   isPoolExpanded: (poolName: string, totalPools: number) => boolean;
   toggleVdevExpanded: (vdevId: string) => void;
@@ -82,6 +85,7 @@ const DEFAULT_SETTINGS: Settings = {
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
   },
   zfs: {
+    expandedHosts: new Set(),
     expandedPools: new Set(),
     expandedVdevs: new Set(),
     decimals: {
@@ -148,6 +152,7 @@ function parseSettings(raw: Record<string, string>): Settings {
       },
     },
     zfs: {
+      expandedHosts: parseExpandedSet(raw['zfs/expandedHosts']),
       expandedPools: parseExpandedSet(raw['zfs/expandedPools']),
       expandedVdevs: parseExpandedSet(raw['zfs/expandedVdevs']),
       decimals: {
@@ -287,6 +292,39 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       return settings.docker.expandedContainers.has(containerId);
     },
     [settings.docker.expandedContainers]
+  );
+
+  const toggleZfsHostExpanded = useCallback((hostName: string) => {
+    setSettings(prev => {
+      const newExpanded = new Set(prev.zfs.expandedHosts);
+      if (newExpanded.has(hostName)) {
+        newExpanded.delete(hostName);
+      } else {
+        newExpanded.add(hostName);
+      }
+
+      updateSetting({
+        data: {
+          key: 'zfs/expandedHosts',
+          value: JSON.stringify(Array.from(newExpanded)),
+        },
+      }).catch(() => {
+        // Fire-and-forget
+      });
+
+      return {
+        ...prev,
+        zfs: { ...prev.zfs, expandedHosts: newExpanded },
+      };
+    });
+  }, []);
+
+  const isZfsHostExpanded = useCallback(
+    (hostName: string, totalHosts: number): boolean => {
+      if (totalHosts === 1) return true;
+      return settings.zfs.expandedHosts.has(hostName);
+    },
+    [settings.zfs.expandedHosts]
   );
 
   const togglePoolExpanded = useCallback((poolName: string) => {
@@ -435,6 +473,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isHostExpanded,
         toggleContainerExpanded,
         isContainerExpanded,
+        toggleZfsHostExpanded,
+        isZfsHostExpanded,
         togglePoolExpanded,
         isPoolExpanded,
         toggleVdevExpanded,

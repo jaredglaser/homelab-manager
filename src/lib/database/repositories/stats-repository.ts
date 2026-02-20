@@ -75,6 +75,7 @@ export class StatsRepository {
 
     try {
       const times: (string | Date)[] = [];
+      const hosts: string[] = [];
       const pools: string[] = [];
       const entities: string[] = [];
       const entityTypes: string[] = [];
@@ -89,6 +90,7 @@ export class StatsRepository {
 
       for (const row of rows) {
         times.push(row.time);
+        hosts.push(row.host);
         pools.push(row.pool);
         entities.push(row.entity);
         entityTypes.push(row.entity_type);
@@ -104,22 +106,22 @@ export class StatsRepository {
 
       const result = await this.pool.query(
         `INSERT INTO zfs_stats (
-          time, pool, entity, entity_type, indent,
+          time, host, pool, entity, entity_type, indent,
           capacity_alloc, capacity_free,
           read_ops_per_sec, write_ops_per_sec,
           read_bytes_per_sec, write_bytes_per_sec,
           utilization_percent
         )
         SELECT * FROM unnest(
-          $1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::int[],
-          $6::bigint[], $7::bigint[],
-          $8::float8[], $9::float8[],
-          $10::float8[], $11::float8[],
-          $12::float8[]
+          $1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::int[],
+          $7::bigint[], $8::bigint[],
+          $9::float8[], $10::float8[],
+          $11::float8[], $12::float8[],
+          $13::float8[]
         )
         RETURNING seq`,
         [
-          times, pools, entities, entityTypes, indents,
+          times, hosts, pools, entities, entityTypes, indents,
           capacityAllocs, capacityFrees,
           readOps, writeOps,
           readBytes, writeBytes,
