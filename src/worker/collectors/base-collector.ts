@@ -6,7 +6,6 @@ import { abortableSleep, isAbortError } from '@/lib/utils/abortable-sleep';
 const MAX_BACKOFF_EXPONENT = 5; // max 32s
 const MAX_BACKOFF_MS = 30_000;
 const BASE_BACKOFF_MS = 500;
-const RECONNECT_DELAY_MS = 1_000;
 
 /**
  * Abstract base class for background stats collectors.
@@ -39,12 +38,13 @@ export abstract class BaseCollector implements AsyncDisposable {
   abstract readonly name: string;
 
   /**
-   * Run a single collection cycle. Implementations should:
+   * Run collection until aborted or error. Implementations should:
    * - Connect to the data source
-   * - Stream data, writing rows directly via repository
+   * - Stream data continuously, writing rows via repository
    * - Check `this.signal.aborted` periodically
+   * - Only return when aborted, error, or refresh needed (e.g., container changes)
    */
-  protected abstract collectOnce(): Promise<void>;
+  protected abstract collect(): Promise<void>;
 
   /** Check if required environment variables are configured */
   protected abstract isConfigured(): boolean;
@@ -61,7 +61,7 @@ export abstract class BaseCollector implements AsyncDisposable {
       try {
         if (!this.isConfigured()) {
           console.error(`[${this.name}] Configuration incomplete, waiting...`);
-          await abortableSleep(RECONNECT_DELAY_MS, this.signal);
+          await abortableSleep(5000, this.signal);
           continue;
         }
 
@@ -69,18 +69,17 @@ export abstract class BaseCollector implements AsyncDisposable {
         this.debugLog(`[${this.name}] Starting collection cycle #${cycleCount}`);
         const t0 = performance.now();
 
-        await this.collectOnce();
+        await this.collect();
 
         const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
 
-        // Stream ended without error and we're not aborted — reconnect
+        // Collection ended (container changes, error, or aborted) — reconnect immediately
         if (!this.signal.aborted) {
           this.debugLog(
-            `[${this.name}] collectOnce() returned after ${elapsed}s` +
-            ` (cycle #${cycleCount}), reconnecting in ${RECONNECT_DELAY_MS}ms...`
+            `[${this.name}] Collection ended after ${elapsed}s` +
+            ` (cycle #${cycleCount}), reconnecting immediately...`
           );
           this.consecutiveErrors = 0;
-          await abortableSleep(RECONNECT_DELAY_MS, this.signal);
         }
       } catch (err) {
         if (isAbortError(err) || this.signal.aborted) {

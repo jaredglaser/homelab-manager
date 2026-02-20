@@ -51,10 +51,9 @@ export class DockerCollector extends BaseCollector {
     return true;
   }
 
-  protected async collectOnce(): Promise<void> {
+  protected async collect(): Promise<void> {
     const t0 = performance.now();
-
-    this.debugLog(`[${this.name}] Starting collection cycle`);
+    this.debugLog(`[${this.name}] Starting continuous collection (streams will stay open)`);
 
     const dockerClient = await dockerConnectionManager.getClient({
       host: this.hostConfig.host,
@@ -64,15 +63,16 @@ export class DockerCollector extends BaseCollector {
     const tConnect = performance.now();
 
     const docker = dockerClient.getDocker();
-    const containers = await docker.listContainers({ all: false });
+    let containers = await docker.listContainers({ all: false });
     const tList = performance.now();
 
     if (containers.length === 0) {
-      this.debugLog(`[${this.name}] No running containers found, waiting...`);
+      this.debugLog(`[${this.name}] No running containers found, will retry...`);
+      await dockerClient.close();
       return;
     }
 
-    // Only upsert metadata for containers we haven't seen or that changed
+    // Upsert metadata for all containers
     let metadataUpdates = 0;
     for (const containerInfo of containers) {
       const containerName = containerInfo.Names[0]?.replace(/^\//, '') || containerInfo.Id.substring(0, 12);
@@ -89,7 +89,7 @@ export class DockerCollector extends BaseCollector {
     const tMeta = performance.now();
 
     this.debugLog(
-      `[${this.name}] Monitoring ${containers.length} containers` +
+      `[${this.name}] Starting streams for ${containers.length} containers` +
       ` (connect=${(tConnect - t0).toFixed(0)}ms` +
       ` list=${(tList - tConnect).toFixed(0)}ms` +
       ` metadata=${(tMeta - tList).toFixed(0)}ms/${metadataUpdates} updated)`
@@ -100,18 +100,20 @@ export class DockerCollector extends BaseCollector {
     const containerStreams = containers.map(info => this.streamContainerStats(docker, info, streams));
     let statsReceived = 0;
     let statsWritten = 0;
+    let flushCount = 0;
     const batch: DockerStatsRow[] = [];
     let lastFlushTime = Date.now();
+    let lastContainerCheckTime = Date.now();
+    const CONTAINER_REFRESH_INTERVAL_MS = 60_000; // Check for new/stopped containers every 60s
 
     try {
+      // Keep collecting stats until aborted
       for await (const stats of mergeAsyncIterables(containerStreams)) {
         if (this.signal.aborted) break;
+
         statsReceived++;
-        this.debugLog(
-          `[${this.name}] Stats event #${statsReceived} from ${stats.id.substring(0, 12)}` +
-          ` cpu=${stats.rates.cpuPercent.toFixed(1)}% mem=${stats.rates.memoryPercent.toFixed(1)}%`
-        );
         const entity = `${this.hostConfig.name}/${stats.id}`;
+
         if (!this.shouldWrite(entity)) continue;
         statsWritten++;
 
@@ -132,47 +134,66 @@ export class DockerCollector extends BaseCollector {
           block_io_write_bytes_per_sec: stats.rates.blockIoWriteBytesPerSec,
         });
 
-        // Flush when all containers have reported or interval has elapsed
+        // Flush based on interval (not container count, for consistent timing)
         const now = Date.now();
         const timeSinceFlush = now - lastFlushTime;
-        const shouldFlush = batch.length >= containers.length || timeSinceFlush >= this.config.collection.interval;
-        this.debugLog(
-          `[${this.name}] Batch: ${batch.length}/${containers.length} containers` +
-          ` timeSinceFlush=${timeSinceFlush}ms flush=${shouldFlush}`
-        );
-        if (shouldFlush) {
-          const containerIds = batch.map(r => r.container_id.substring(0, 12));
-          this.debugLog(
-            `[${this.name}] FLUSHING ${batch.length} rows: [${containerIds.join(', ')}]`
-          );
+
+        if (timeSinceFlush >= this.config.collection.interval) {
+          flushCount++;
           const t0Flush = performance.now();
           await this.repository.insertDockerStats(batch);
           const flushMs = (performance.now() - t0Flush).toFixed(0);
-          this.dbDebugLog(`[${this.name}] Wrote ${batch.length} docker rows (${flushMs}ms, notify sent)`);
+          this.dbDebugLog(
+            `[${this.name}] Flush #${flushCount}: wrote ${batch.length} rows in ${flushMs}ms` +
+            ` (${statsReceived} received, ${statsWritten} written)`
+          );
           batch.length = 0;
           lastFlushTime = now;
         }
+
+        // Periodically check for new/stopped containers (every 60s)
+        const timeSinceContainerCheck = now - lastContainerCheckTime;
+        if (timeSinceContainerCheck >= CONTAINER_REFRESH_INTERVAL_MS) {
+          const currentContainers = await docker.listContainers({ all: false });
+          const currentIds = new Set(currentContainers.map(c => c.Id));
+          const previousIds = new Set(containers.map(c => c.Id));
+
+          const added = currentContainers.filter(c => !previousIds.has(c.Id));
+          const removed = containers.filter(c => !currentIds.has(c.Id));
+
+          if (added.length > 0 || removed.length > 0) {
+            this.debugLog(
+              `[${this.name}] Container changes detected: +${added.length} added, -${removed.length} removed` +
+              ` (will reconnect to refresh streams)`
+            );
+            // Exit to reconnect with fresh container list
+            break;
+          }
+
+          lastContainerCheckTime = now;
+        }
       }
 
-      // Flush remaining rows on stream end
+      // Flush any remaining rows
       if (batch.length > 0) {
         await this.repository.insertDockerStats(batch);
-        this.dbDebugLog(`[${this.name}] Wrote ${batch.length} docker rows (final)`);
+        this.dbDebugLog(`[${this.name}] Final flush: wrote ${batch.length} rows`);
       }
     } finally {
       const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
       this.debugLog(
-        `[${this.name}] Collection cycle ended after ${elapsed}s` +
-        ` (received=${statsReceived} written=${statsWritten}` +
-        ` streams=${streams.length} aborted=${this.signal.aborted})`
+        `[${this.name}] Collection ended after ${elapsed}s` +
+        ` (${statsReceived} stats received, ${statsWritten} written, ${flushCount} flushes,` +
+        ` aborted=${this.signal.aborted})`
       );
+
+      // Clean up streams
       streams.forEach(stream => {
         if (stream && typeof stream.destroy === 'function') {
           stream.destroy();
         }
       });
-      // Mark connection as disconnected so the connection manager
-      // forces a fresh connection + ping on the next retry
+
       await dockerClient.close();
     }
   }

@@ -29,11 +29,11 @@ function createMockConfig(overrides?: Partial<any>) {
 
 class TestCollector extends BaseCollector {
   readonly name = 'TestCollector';
-  collectOnceFn: () => Promise<void> = async () => {};
+  collectFn: () => Promise<void> = async () => {};
   isConfiguredFn: () => boolean = () => true;
 
-  protected async collectOnce(): Promise<void> {
-    return this.collectOnceFn();
+  protected async collect(): Promise<void> {
+    return this.collectFn();
   }
 
   protected isConfigured(): boolean {
@@ -80,7 +80,7 @@ describe('BaseCollector', () => {
       const collector = new TestCollector(db as any, config, controller);
 
       let collectCount = 0;
-      collector.collectOnceFn = async () => {
+      collector.collectFn = async () => {
         collectCount++;
         // Abort after first collection
         controller.abort(new DOMException('Shutdown', 'AbortError'));
@@ -93,7 +93,7 @@ describe('BaseCollector', () => {
     it('should stop when stop() is called', async () => {
       const collector = new TestCollector(db as any, config);
 
-      collector.collectOnceFn = async () => {
+      collector.collectFn = async () => {
         collector.stop();
       };
 
@@ -122,7 +122,7 @@ describe('BaseCollector', () => {
       const collector = new TestCollector(db as any, config, controller);
 
       let callCount = 0;
-      collector.collectOnceFn = async () => {
+      collector.collectFn = async () => {
         callCount++;
         if (callCount === 1) {
           throw new Error('Connection failed');

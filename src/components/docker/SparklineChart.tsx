@@ -61,6 +61,7 @@ export default memo(function SparklineChart({
       rightEdgeTimeRef.current = latestTimestamp;
 
       if (hasNewData) {
+        console.log(`[SparklineChart] New data detected, sparkline updating at ${new Date().toISOString()}, data points: ${data.length}, latest timestamp: ${new Date(latestTimestamp).toISOString()}`);
         lineProgressRef.current = 0; // Animate line to new point
       }
     }

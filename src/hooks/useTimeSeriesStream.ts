@@ -76,13 +76,24 @@ export function useTimeSeriesStream<TRow>({
 
   // Flush pending rows into buffer on a fixed interval
   useEffect(() => {
+    console.log(`[useTimeSeriesStream] Setting up flush interval with ${RENDER_INTERVAL_MS}ms interval`);
+    let lastIntervalTime = Date.now();
+
     const id = setInterval(() => {
+      const now = Date.now();
+      const intervalElapsed = now - lastIntervalTime;
+      lastIntervalTime = now;
+
       const pending = pendingRef.current;
-      if (pending.length === 0) return;
+      if (pending.length === 0) {
+        // Interval is firing correctly, just no data to flush yet
+        return;
+      }
       pendingRef.current = [];
 
-      const now = Date.now();
       const cutoff = now - windowSeconds * 1000;
+
+      console.log(`[useTimeSeriesStream] Flushing ${pending.length} pending rows to buffer at ${new Date(now).toISOString()} (interval fired ${intervalElapsed}ms ago)`);
 
       setBuffer((prev) => {
         const next = new Map(prev);
@@ -102,7 +113,10 @@ export function useTimeSeriesStream<TRow>({
       setHasData(true);
       setLastDataTime(now);
     }, RENDER_INTERVAL_MS);
-    return () => clearInterval(id);
+    return () => {
+      console.log('[useTimeSeriesStream] Cleaning up flush interval');
+      clearInterval(id);
+    };
   }, [windowSeconds]);
 
   const { isConnected, error } = useSSE<TRow[]>({

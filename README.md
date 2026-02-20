@@ -16,7 +16,7 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 - **Docker Dashboard** (`/`) — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX) with inline sparkline charts
 - **Container Icons** — Auto-resolved icons from Docker image names with manual override via an icon picker (powered by [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons))
 - **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics collected via SSH and streamed from the database
-- **TimescaleDB Persistence** — Background worker continuously collects stats into wide hypertables with automatic compression (after 1 hour) and retention (7 days)
+- **TimescaleDB Persistence** — Background worker continuously collects stats every 1 second into wide hypertables with automatic compression (after 1 hour) and retention (7 days)
 - **Docker Compose Deployment** — Full stack with TimescaleDB, web server, and background worker (builds from source, no pre-built image)
 - **Live-Updating UI** — Server-Sent Events (SSE) stream data continuously to the client with no polling
 - **Virtualized Tables** — CSS Grid layouts with page-scroll virtualization (`useWindowVirtualizer`) for efficient rendering of large container/pool lists
@@ -117,12 +117,14 @@ flowchart LR
 
 **How it works:**
 
-1. **Background worker** continuously collects stats from Docker/ZFS APIs
-2. Stats are **inserted** into TimescaleDB wide hypertables with `NOTIFY stats_update`
-3. **NotifyService** maintains a `LISTEN` connection and re-emits notifications as events (thin event bus, no caching or transformation)
-4. **SSE endpoints** query the database for new rows since `lastSentTime` on each notification, then push results to the client
-5. The **`useTimeSeriesStream` hook** preloads 60s of history via REST, then merges SSE updates into a time-windowed buffer with stale detection
-6. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
+1. **Background worker** continuously collects stats from Docker/ZFS APIs every 1 second
+2. **Docker collector** keeps stats streams open continuously, flushing every second and only reconnecting on container changes or errors
+3. **ZFS collector** streams `zpool iostat` continuously, flushing on each cycle boundary
+4. Stats are **inserted** into TimescaleDB wide hypertables with `NOTIFY stats_update`
+5. **NotifyService** maintains a `LISTEN` connection and re-emits notifications as events (thin event bus, no caching or transformation)
+6. **SSE endpoints** query the database for new rows since `lastSentTime` on each notification, then push results to the client
+7. The **`useTimeSeriesStream` hook** preloads 60s of history via REST, then merges SSE updates into a time-windowed buffer with stale detection
+8. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
 
 ## Getting Started
 

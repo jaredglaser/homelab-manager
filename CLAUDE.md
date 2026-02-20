@@ -181,10 +181,13 @@ Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
 - **Background worker**: Standalone Bun process (`bun worker`)
 - **Collectors**: Class-based, extend `BaseCollector` (implements `AsyncDisposable`)
   - `BaseCollector` handles: collection loop, exponential backoff, graceful shutdown
-  - Subclasses implement: `name`, `collectOnce()`, `isConfigured()`
+  - Subclasses implement: `name`, `collect()` (runs continuously until aborted/error), `isConfigured()`
+  - Docker collector keeps stats streams open continuously, flushes every 1 second, reconnects only on container changes or errors
+  - ZFS collector streams `zpool iostat` continuously, flushes on each cycle boundary
   - Uses `AbortController` for cancellable sleeps and instant shutdown
   - Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
-- **Collectors write directly**: No batching/throttling. Produce wide `DockerStatsRow[]`/`ZFSStatsRow[]` and INSERT immediately
+- **Collection frequency**: Configured via `WORKER_COLLECTION_INTERVAL_MS` (default 1000ms/1 second)
+- **Collectors write directly**: Wide `DockerStatsRow[]`/`ZFSStatsRow[]` → INSERT → `NOTIFY stats_update`
 - **Persistent rate calculators**: Never cleared (unlike request-scoped calculators)
 - **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
 - **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
