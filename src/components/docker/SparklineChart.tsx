@@ -1,7 +1,12 @@
-import { memo, useId } from 'react';
+import { memo, useEffect, useRef } from 'react';
+
+interface TimeSeriesPoint {
+  timestamp: number;
+  value: number;
+}
 
 interface SparklineChartProps {
-  data: number[];
+  data: TimeSeriesPoint[];
   color: string;
   height?: number;
   width?: number;
@@ -14,6 +19,8 @@ function getCssVar(name: string): string {
 }
 
 const PADDING = 2;
+const TIME_WINDOW_MS = 30000; // 30 seconds
+const MAX_DECAY = 0.97;
 
 export default memo(function SparklineChart({
   data,
@@ -22,47 +29,160 @@ export default memo(function SparklineChart({
   width = 60,
   className,
 }: SparklineChartProps) {
-  const rawId = useId();
-  const gradientId = `spark${rawId.replace(/:/g, '')}`;
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animFrameRef = useRef(0);
+  const smoothMaxRef = useRef(0);
+  const dataRef = useRef(data);
+  const lastDataHashRef = useRef('');
+  const lineProgressRef = useRef(1);
+  const lineColorRef = useRef('');
+  const areaStartColorRef = useRef('');
+  const areaEndColorRef = useRef('');
+  const rightEdgeTimeRef = useRef(0); // Fixed right edge timestamp
 
-  const lineColor = getCssVar(color);
   const drawWidth = width - PADDING * 2;
   const drawHeight = height - PADDING * 2;
-  const max = Math.max(Math.max(...data) * 1.1, 1);
-  const bottom = height - PADDING;
 
-  // Build SVG coordinate points
-  const len = data.length;
-  const points = data.map((v, i) => {
-    const x = PADDING + (len === 1 ? drawWidth / 2 : (i / (len - 1)) * drawWidth);
-    const y = PADDING + drawHeight - (v / max) * drawHeight;
-    return [x, y] as const;
-  });
+  // Update refs when data or color changes
+  useEffect(() => {
+    const dataHash = data.map(d => `${d.timestamp}:${d.value.toFixed(2)}`).join(',');
+    const hasNewData = dataHash !== lastDataHashRef.current && lastDataHashRef.current !== '';
+    lastDataHashRef.current = dataHash;
 
-  const lineD = points.map(([x, y], i) =>
-    `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-  ).join('');
+    dataRef.current = data;
 
-  // Close the path along the bottom edge for the area fill
-  const areaD = len > 0
-    ? `${lineD}L${(PADDING + drawWidth).toFixed(1)},${bottom}L${PADDING},${bottom}Z`
-    : '';
+    lineColorRef.current = getCssVar(color);
+    areaStartColorRef.current = getCssVar(`${color}-area-start`);
+    areaEndColorRef.current = getCssVar(`${color}-area-end`);
 
-  const areaStart = getCssVar(`${color}-area-start`);
-  const areaEnd = getCssVar(`${color}-area-end`);
+    // When new data arrives, update right edge to latest timestamp
+    if (data.length > 0) {
+      const latestTimestamp = data[data.length - 1].timestamp;
+      rightEdgeTimeRef.current = latestTimestamp;
+
+      if (hasNewData) {
+        lineProgressRef.current = 0; // Animate line to new point
+      }
+    }
+
+    // Stable max with decay
+    if (data.length > 0) {
+      const rawMax = Math.max(Math.max(...data.map(d => d.value)) * 1.1, 1);
+      smoothMaxRef.current =
+        smoothMaxRef.current === 0
+          ? rawMax
+          : Math.max(rawMax, smoothMaxRef.current * MAX_DECAY);
+    }
+  }, [data, color]);
+
+  // Canvas setup and animation loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+
+    let lastFrameTime = performance.now();
+
+    const render = (now: number) => {
+      animFrameRef.current = requestAnimationFrame(render);
+
+      const delta = now - lastFrameTime;
+      lastFrameTime = now;
+
+      // Animate line progress
+      const lineProgressPerMs = 1 / 150;
+      lineProgressRef.current = Math.min(1, lineProgressRef.current + lineProgressPerMs * delta);
+
+      const lineProgress = lineProgressRef.current;
+      const currentData = dataRef.current;
+      const max = smoothMaxRef.current;
+      const currentRightEdge = rightEdgeTimeRef.current;
+
+      ctx.clearRect(0, 0, width, height);
+
+      if (currentData.length === 0 || currentRightEdge === 0) return;
+
+      // Natural scrolling: as real time progresses, right edge stays at a fixed timestamp,
+      // so the time window effectively scrolls left relative to "now"
+      const timeNow = Date.now();
+      const timeSinceLatest = timeNow - currentRightEdge;
+
+      // Right edge position: latest data timestamp, adjusted for time passed
+      const visualRightEdge = currentRightEdge + timeSinceLatest;
+      const leftEdgeTime = visualRightEdge - TIME_WINDOW_MS;
+
+      // Convert timestamp to X coordinate
+      const timeToX = (timestamp: number) => {
+        const timeOffset = timestamp - leftEdgeTime;
+        const fraction = timeOffset / TIME_WINDOW_MS;
+        return PADDING + fraction * drawWidth;
+      };
+
+      // Build points
+      const points = currentData.map((d) => {
+        const x = timeToX(d.timestamp);
+        const y = PADDING + drawHeight - (d.value / max) * drawHeight;
+        return [x, y] as const;
+      });
+
+      const bottom = height - PADDING;
+
+      if (points.length === 0) return;
+
+      // Draw gradient area
+      const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
+      gradient.addColorStop(0, areaStartColorRef.current);
+      gradient.addColorStop(1, areaEndColorRef.current);
+
+      ctx.beginPath();
+      ctx.moveTo(points[0][0], points[0][1]);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i][0], points[i][1]);
+      }
+      ctx.lineTo(points[points.length - 1][0], bottom);
+      ctx.lineTo(points[0][0], bottom);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Draw line with partial last segment
+      ctx.beginPath();
+      ctx.moveTo(points[0][0], points[0][1]);
+
+      for (let i = 1; i < points.length; i++) {
+        if (i === points.length - 1 && lineProgress < 1) {
+          const prevPt = points[i - 1];
+          const currPt = points[i];
+          const lerpX = prevPt[0] + (currPt[0] - prevPt[0]) * lineProgress;
+          const lerpY = prevPt[1] + (currPt[1] - prevPt[1]) * lineProgress;
+          ctx.lineTo(lerpX, lerpY);
+        } else {
+          ctx.lineTo(points[i][0], points[i][1]);
+        }
+      }
+
+      ctx.strokeStyle = lineColorRef.current;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+
+    animFrameRef.current = requestAnimationFrame(render);
+
+    return () => {
+      cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [width, height, drawWidth, drawHeight]);
 
   return (
     <div className={className} style={{ contain: 'strict', height, width }}>
-      <svg width={width} height={height}>
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor={areaStart} />
-            <stop offset="1" stopColor={areaEnd} />
-          </linearGradient>
-        </defs>
-        {areaD && <path d={areaD} fill={`url(#${gradientId})`} />}
-        {lineD && <path d={lineD} fill="none" stroke={lineColor} strokeWidth={1.5} />}
-      </svg>
+      <canvas ref={canvasRef} style={{ width, height, display: 'block' }} />
     </div>
   );
 });

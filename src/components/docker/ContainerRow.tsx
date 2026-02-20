@@ -56,15 +56,31 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
   }, [chartData]);
 
   // Memoize sparkline arrays to avoid recreating on every render
+  // Keep last 30 seconds of data for time-based sparklines
+  // Use the latest data point's timestamp as the reference, not Date.now()
   const sparklines = useMemo(() => {
-    const points = dataPoints.slice(-15);
+    if (dataPoints.length === 0) {
+      return {
+        cpu: [],
+        memory: [],
+        blockRead: [],
+        blockWrite: [],
+        networkRx: [],
+        networkTx: [],
+      };
+    }
+
+    const latestTimestamp = dataPoints[dataPoints.length - 1].timestamp;
+    const thirtySecondsAgo = latestTimestamp - 30000;
+    const points = dataPoints.filter((d) => d.timestamp >= thirtySecondsAgo);
+
     return {
-      cpu: points.map((d) => d.cpuPercent),
-      memory: points.map((d) => d.memoryPercent),
-      blockRead: points.map((d) => d.blockIoReadBytesPerSec),
-      blockWrite: points.map((d) => d.blockIoWriteBytesPerSec),
-      networkRx: points.map((d) => d.networkRxBytesPerSec),
-      networkTx: points.map((d) => d.networkTxBytesPerSec),
+      cpu: points.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
+      memory: points.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent })),
+      blockRead: points.map((d) => ({ timestamp: d.timestamp, value: d.blockIoReadBytesPerSec })),
+      blockWrite: points.map((d) => ({ timestamp: d.timestamp, value: d.blockIoWriteBytesPerSec })),
+      networkRx: points.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
+      networkTx: points.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
     };
   }, [dataPoints]);
 
