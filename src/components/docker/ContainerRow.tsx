@@ -1,5 +1,6 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo, useState, useEffect } from 'react';
 import { ChevronRight, Settings } from 'lucide-react';
+import Tooltip from '@mui/joy/Tooltip';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
 import { MetricValue } from '../shared-table';
@@ -35,12 +36,27 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
 
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
+  const [isPulsing, setIsPulsing] = useState(false);
 
   const iconUrl = getIconUrl(container.icon, container.image);
 
   const handleIconSelect = async (iconSlug: string) => {
     await updateContainerIcon({ data: { entityId: container.id, iconSlug } });
   };
+
+  // Get last update timestamp from most recent chart data
+  const lastUpdated = chartData.length > 0 ? new Date(chartData[chartData.length - 1].time) : undefined;
+  const lastUpdatedRef = useMemo(() => ({ current: lastUpdated }), []);
+
+  // Detect when container stats update and trigger pulse animation
+  useEffect(() => {
+    if (lastUpdated && lastUpdatedRef.current !== lastUpdated) {
+      lastUpdatedRef.current = lastUpdated;
+      setIsPulsing(true);
+      const timer = setTimeout(() => setIsPulsing(false), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [lastUpdated, lastUpdatedRef]);
 
   // Convert wide rows to chart data points
   const dataPoints = useMemo<ChartDataPoint[]>(() => {
@@ -127,6 +143,29 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
               size={16}
               className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
             />
+
+            {/* Container update indicator - pulses when stats update */}
+            <Tooltip
+              title={lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'No data yet'}
+              placement="top"
+              arrow
+            >
+              <div className="relative w-2 h-2 flex-shrink-0">
+                <div
+                  className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
+                    isPulsing ? 'opacity-100 animate-ping' : 'opacity-0'
+                  }`}
+                  style={{ backgroundColor: 'var(--chart-cpu)' }}
+                />
+                <div
+                  className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
+                    isPulsing ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={{ backgroundColor: 'var(--chart-cpu)' }}
+                />
+              </div>
+            </Tooltip>
+
             <img
               src={iconError ? FALLBACK_ICON_URL : iconUrl}
               alt=""
@@ -151,6 +190,8 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
+            color="cpu"
+            isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden lg:block" />}
           />
         </div>
@@ -159,6 +200,8 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
+            color="memory"
+            isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden lg:block" />}
           />
         </div>
@@ -167,6 +210,8 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
             hasDecimals={decimals.diskSpeed}
+            color="read"
+            isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden lg:block" />}
           />
         </div>
@@ -175,6 +220,8 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}
             hasDecimals={decimals.diskSpeed}
+            color="write"
+            isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden lg:block" />}
           />
         </div>
@@ -183,6 +230,8 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.networkRx.value}
             unit={metricParts.networkRx.unit}
             hasDecimals={decimals.networkSpeed}
+            color="read"
+            isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden lg:block" />}
           />
         </div>
@@ -191,6 +240,8 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.networkTx.value}
             unit={metricParts.networkTx.unit}
             hasDecimals={decimals.networkSpeed}
+            color="write"
+            isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden lg:block" />}
           />
         </div>

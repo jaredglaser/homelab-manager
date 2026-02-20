@@ -35,6 +35,7 @@ export default memo(function SparklineChart({
   const dataRef = useRef(data);
   const lastDataHashRef = useRef('');
   const lineProgressRef = useRef(1);
+  const pulseProgressRef = useRef(1); // 0 = just started, 1 = done
   const lineColorRef = useRef('');
   const areaStartColorRef = useRef('');
   const areaEndColorRef = useRef('');
@@ -63,6 +64,7 @@ export default memo(function SparklineChart({
       if (hasNewData) {
         console.log(`[SparklineChart] New data detected, sparkline updating at ${new Date().toISOString()}, data points: ${data.length}, latest timestamp: ${new Date(latestTimestamp).toISOString()}`);
         lineProgressRef.current = 0; // Animate line to new point
+        pulseProgressRef.current = 0; // Start pulse animation
       }
     }
 
@@ -101,7 +103,12 @@ export default memo(function SparklineChart({
       const lineProgressPerMs = 1 / 150;
       lineProgressRef.current = Math.min(1, lineProgressRef.current + lineProgressPerMs * delta);
 
+      // Animate pulse (1200ms duration for smooth, less distracting appearance)
+      const pulseProgressPerMs = 1 / 1200;
+      pulseProgressRef.current = Math.min(1, pulseProgressRef.current + pulseProgressPerMs * delta);
+
       const lineProgress = lineProgressRef.current;
+      const pulseProgress = pulseProgressRef.current;
       const currentData = dataRef.current;
       const max = smoothMaxRef.current;
       const currentRightEdge = rightEdgeTimeRef.current;
@@ -172,6 +179,44 @@ export default memo(function SparklineChart({
       ctx.strokeStyle = lineColorRef.current;
       ctx.lineWidth = 1.5;
       ctx.stroke();
+
+      // Draw persistent dot at the latest point with fade out/in animation on new data
+      if (points.length > 0) {
+        const lastPoint = points[points.length - 1];
+        const baseOpacity = 0.3; // Baseline visibility at 30% opacity
+        const radius = 2; // Constant size
+
+        let opacity: number;
+
+        if (pulseProgress < 1) {
+          // Animating - fade out and back in
+          // Split animation into: fade out (0-0.3), fade in (0.3-0.7), settle to baseline (0.7-1.0)
+          if (pulseProgress < 0.3) {
+            // Fade out phase: baseline → 0
+            const fadeOutProgress = pulseProgress / 0.3;
+            opacity = baseOpacity * (1 - fadeOutProgress);
+          } else if (pulseProgress < 0.7) {
+            // Fade in phase: 0 → peak (0.6)
+            const fadeInProgress = (pulseProgress - 0.3) / 0.4;
+            const peakOpacity = 0.6;
+            opacity = fadeInProgress * peakOpacity;
+          } else {
+            // Settle phase: peak → baseline
+            const settleProgress = (pulseProgress - 0.7) / 0.3;
+            const peakOpacity = 0.6;
+            opacity = peakOpacity - settleProgress * (peakOpacity - baseOpacity);
+          }
+        } else {
+          // Not animating - show at baseline
+          opacity = baseOpacity;
+        }
+
+        // Draw the persistent dot
+        ctx.beginPath();
+        ctx.arc(lastPoint[0], lastPoint[1], radius, 0, Math.PI * 2);
+        ctx.fillStyle = lineColorRef.current.replace(/rgb\((.+)\)/, `rgba($1, ${Math.max(0, opacity)})`);
+        ctx.fill();
+      }
     };
 
     animFrameRef.current = requestAnimationFrame(render);

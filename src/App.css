@@ -45,3 +45,56 @@
   --chart-tooltip-bg: #1e293b; /* slate-800 */
   --chart-tooltip-text: #f1f5f9; /* slate-100 */
 }
+
+/* Metric value glow animations */
+@keyframes glow-cpu {
+  0%, 100% {
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    text-shadow: 0 0 8px var(--chart-cpu), 0 0 12px var(--chart-cpu);
+  }
+}
+
+@keyframes glow-memory {
+  0%, 100% {
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    text-shadow: 0 0 8px var(--chart-memory), 0 0 12px var(--chart-memory);
+  }
+}
+
+@keyframes glow-read {
+  0%, 100% {
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    text-shadow: 0 0 8px var(--chart-read), 0 0 12px var(--chart-read);
+  }
+}
+
+@keyframes glow-write {
+  0%, 100% {
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    text-shadow: 0 0 8px var(--chart-write), 0 0 12px var(--chart-write);
+  }
+}
+
+.metric-value-glow-cpu {
+  animation: glow-cpu 0.6s ease-out;
+}
+
+.metric-value-glow-memory {
+  animation: glow-memory 0.6s ease-out;
+}
+
+.metric-value-glow-read {
+  animation: glow-read 0.6s ease-out;
+}
+
+.metric-value-glow-write {
+  animation: glow-write 0.6s ease-out;
+}
