@@ -304,7 +304,7 @@ function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number 
   return (
     <div
       onClick={handleClick}
-      className={`${ZFS_GRID} items-center ${
+      className={`${ZFS_GRID} items-center bg-[var(--joy-palette-background-level1)] border-t border-neutral-200 dark:border-neutral-700 ${
         hasPools && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
       }`}
     >
