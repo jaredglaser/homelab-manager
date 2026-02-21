@@ -82,7 +82,7 @@ export default function ZFSPoolsTable({
 
         if (!expandable) continue;
 
-        const expanded = isPoolExpanded(pool.data.name, totalPools);
+        const expanded = isPoolExpanded(pool.data.id, totalPools);
         if (!expanded) continue;
 
         if (isSingleVdevMultiDisk) {
