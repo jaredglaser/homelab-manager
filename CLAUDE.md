@@ -80,6 +80,7 @@ src/
 │   ├── shared-table/        # MetricValue (shared infrastructure)
 │   ├── docker/              # Docker-specific components (CSS Grid + useWindowVirtualizer)
 │   ├── zfs/                 # ZFS-specific components (CSS Grid + useWindowVirtualizer)
+│   ├── proxmox/             # Proxmox components (ClusterSummaryCards, NodeTable, GuestTable, StorageTable)
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
 ├── hooks/                   # Custom hooks (useSSE, useTimeSeriesStream, useSettings, etc.)
 ├── data/                    # Server functions (*.functions.tsx) - non-streaming DB queries
@@ -100,11 +101,11 @@ src/
 ├── worker/
 │   ├── collectors/          # Background collectors (Docker, ZFS)
 │   └── collector.ts         # Worker entry point
-├── types/                   # Domain types (docker.ts, zfs.ts)
+├── types/                   # Domain types (docker.ts, zfs.ts, proxmox.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/
     ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts)
-    └── [index, zfs, settings].tsx  # Page routes
+    └── [index, zfs, proxmox, settings].tsx  # Page routes
 
 migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 ```
@@ -213,12 +214,39 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 **Environment variables**:
 - `POSTGRES_*`: Database connection config
 - `WORKER_*`: Worker behavior config (enabled, collection interval)
+- `PROXMOX_*`: Proxmox VE API connection config
+
+### Proxmox VE Integration (REST API)
+Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE for real-time streaming), Proxmox uses **direct REST API polling** via server functions + TanStack Query:
+- **No background worker** — data is fetched on-demand from the Proxmox API
+- **No database persistence** — cluster overview is queried fresh each request
+- **Polling** — TanStack Query `refetchInterval` (10s) for near-real-time updates
+- **Native fetch** — thin client using `fetch()` with API token auth (no npm dependency)
+- **Self-signed certs** — handled via Bun's `tls.rejectUnauthorized: false` option
+
+**Data flow**: Browser → TanStack Query (10s poll) → `createServerFn()` → `ProxmoxClient.getClusterOverview()` → Proxmox REST API
+
+**Key files**:
+- Types: `src/types/proxmox.ts` (API response types + cluster overview aggregate)
+- Config: `src/lib/config/proxmox-config.ts` (Zod-validated env var loader)
+- Client: `src/lib/clients/proxmox-client.ts` (native fetch client + connection manager singleton)
+- Server functions: `src/data/proxmox.functions.tsx` (cluster overview + connection test)
+- Dashboard: `src/routes/proxmox.tsx` (page route with TanStack Query polling)
+- Components: `src/components/proxmox/` (ClusterSummaryCards, NodeTable, GuestTable, StorageTable)
+
+**Environment variables**:
+- `PROXMOX_HOST`: Proxmox VE hostname or IP
+- `PROXMOX_PORT`: API port (default: 8006)
+- `PROXMOX_TOKEN_ID`: API token ID (format: `USER@REALM!TOKENID`)
+- `PROXMOX_TOKEN_SECRET`: API token secret (UUID)
+- `PROXMOX_ALLOW_SELF_SIGNED`: Allow self-signed certs (default: true)
 
 ### Components
 - Shared infrastructure: `src/components/shared-table/` (MetricValue)
-- Domain components: own directories (`docker/`, `zfs/`)
+- Domain components: own directories (`docker/`, `zfs/`, `proxmox/`)
 - Both Docker and ZFS tables use CSS Grid + `useWindowVirtualizer` with flat row models
-- Page routes use `useTimeSeriesStream` hook, pass data as props to table components
+- Proxmox tables use CSS Grid without virtualization (snapshot data, not streaming)
+- Page routes use `useTimeSeriesStream` hook (Docker/ZFS) or TanStack Query polling (Proxmox)
 - Table components convert wide rows to domain objects via `rowToDockerStats`/`rowToZFSStats`
 
 ### Styling
