@@ -53,8 +53,8 @@ interface SettingsContextValue extends Settings {
   isContainerExpanded: (containerId: string) => boolean;
   toggleZfsHostExpanded: (hostName: string) => void;
   isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
-  togglePoolExpanded: (poolName: string) => void;
-  isPoolExpanded: (poolName: string, totalPools: number) => boolean;
+  togglePoolExpanded: (poolId: string) => void;
+  isPoolExpanded: (poolId: string, totalPools: number) => boolean;
   toggleVdevExpanded: (vdevId: string) => void;
   isVdevExpanded: (vdevId: string) => boolean;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
@@ -327,13 +327,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [settings.zfs.expandedHosts]
   );
 
-  const togglePoolExpanded = useCallback((poolName: string) => {
+  const togglePoolExpanded = useCallback((poolId: string) => {
     setSettings(prev => {
       const newExpanded = new Set(prev.zfs.expandedPools);
-      if (newExpanded.has(poolName)) {
-        newExpanded.delete(poolName);
+      if (newExpanded.has(poolId)) {
+        newExpanded.delete(poolId);
       } else {
-        newExpanded.add(poolName);
+        newExpanded.add(poolId);
       }
 
       // Persist to DB
@@ -354,11 +354,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isPoolExpanded = useCallback(
-    (poolName: string, totalPools: number): boolean => {
+    (poolId: string, totalPools: number): boolean => {
       // If only one pool, always expanded
       if (totalPools === 1) return true;
       // Otherwise check the stored state (default collapsed)
-      return settings.zfs.expandedPools.has(poolName);
+      return settings.zfs.expandedPools.has(poolId);
     },
     [settings.zfs.expandedPools]
   );
