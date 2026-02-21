@@ -8,6 +8,17 @@ const ZFSHostConfigSchema = z.object({
   password: z.string().optional(),
   privateKeyPath: z.string().optional(),
   passphrase: z.string().optional(),
+}).refine(
+  (cfg) => cfg.password !== undefined || cfg.privateKeyPath !== undefined,
+  { message: 'Either password or privateKeyPath must be provided' }
+);
+  host: z.string(),
+  port: z.number().int().min(1).max(65535),
+  name: z.string(),
+  username: z.string(),
+  password: z.string().optional(),
+  privateKeyPath: z.string().optional(),
+  passphrase: z.string().optional(),
 });
 
 export type ZFSHostConfig = z.infer<typeof ZFSHostConfigSchema>;
