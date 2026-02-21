@@ -166,8 +166,77 @@ function calculateHostAggregates(pools: ZFSHierarchy): ZFSHostAggregatedStats {
 }
 
 /**
+ * Build hierarchical structure from ZFS stats rows using entity paths for placement.
+ * Uses entity path depth and prefix matching to determine parent-child relationships,
+ * so the result is correct regardless of row order.
+ *
+ * Entity path depth determines level:
+ *   depth 0 (no '/'):   pool — e.g. "tank"
+ *   depth 1 (one '/'):  vdev — e.g. "tank/mirror-0"
+ *   depth 2+ (2+ '/'):  disk — e.g. "tank/mirror-0/sda"
+ *
+ * @param rows - Flat array of ZFS stats rows for a single host
+ * @returns Hierarchical Map structure: pools -> vdevs -> disks
+ */
+function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
+  const hierarchy: ZFSHierarchy = new Map();
+  const poolByEntity = new Map<string, PoolStats>();
+  const vdevByEntity = new Map<string, VdevStats>();
+
+  // Pass 1: pools — entity has no '/'
+  for (const row of rows) {
+    if (row.entity.includes('/')) continue;
+    const stat = rowToZFSStats(row);
+    const pool: PoolStats = { data: stat, vdevs: new Map(), individualDisks: new Map() };
+    hierarchy.set(stat.name, pool);
+    poolByEntity.set(row.entity, pool);
+  }
+
+  // Pass 2: vdevs — entity has exactly one '/'
+  for (const row of rows) {
+    const firstSlash = row.entity.indexOf('/');
+    if (firstSlash === -1) continue; // pool, already handled
+    if (row.entity.indexOf('/', firstSlash + 1) !== -1) continue; // disk (depth 2+)
+    const parentEntity = row.entity.substring(0, firstSlash);
+    const pool = poolByEntity.get(parentEntity);
+    if (!pool) {
+      console.warn('[buildHierarchyFromRows] Found vdev without pool:', row.entity);
+      continue;
+    }
+    const stat = rowToZFSStats(row);
+    const vdev: VdevStats = { data: stat, disks: new Map() };
+    pool.vdevs.set(stat.name, vdev);
+    vdevByEntity.set(row.entity, vdev);
+  }
+
+  // Pass 3: disks — entity has two or more '/'
+  for (const row of rows) {
+    const firstSlash = row.entity.indexOf('/');
+    if (firstSlash === -1) continue; // pool
+    if (row.entity.indexOf('/', firstSlash + 1) === -1) continue; // vdev
+    const parentEntity = row.entity.substring(0, row.entity.lastIndexOf('/'));
+    const stat = rowToZFSStats(row);
+    const diskStats: DiskStats = { data: stat };
+    const vdev = vdevByEntity.get(parentEntity);
+    if (vdev) {
+      vdev.disks.set(stat.name, diskStats);
+    } else {
+      const pool = poolByEntity.get(parentEntity);
+      if (pool) {
+        pool.individualDisks.set(stat.name, diskStats);
+      } else {
+        console.warn('[buildHierarchyFromRows] Found disk without parent:', row.entity);
+      }
+    }
+  }
+
+  return hierarchy;
+}
+
+/**
  * Build multi-host ZFS hierarchy from flat array of ZFS stats rows.
- * Groups by host first, then builds pool -> vdev -> disk hierarchy within each host.
+ * Groups by host first, then builds pool -> vdev -> disk hierarchy within each host
+ * using entity paths for order-independent placement.
  *
  * @param rows - Flat array of ZFS stats rows from the database
  * @returns Multi-host hierarchical structure: hosts -> pools -> vdevs -> disks
@@ -188,11 +257,8 @@ export function buildZFSHostHierarchy(rows: ZFSStatsRow[]): ZFSHostHierarchy {
   const hierarchy: ZFSHostHierarchy = new Map();
 
   for (const [hostName, hostRows] of rowsByHost) {
-    // Convert rows to stats and sort by entity path
-    const stats: ZFSIOStatWithRates[] = hostRows.map(r => rowToZFSStats(r));
-    stats.sort((a, b) => a.id.localeCompare(b.id));
-
-    const pools = buildHierarchy(stats);
+    // Build pool hierarchy using entity paths for order-independent placement
+    const pools = buildHierarchyFromRows(hostRows);
 
     const hostStats: ZFSHostStats = {
       hostName,

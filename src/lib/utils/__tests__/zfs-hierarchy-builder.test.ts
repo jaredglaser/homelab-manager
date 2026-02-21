@@ -594,4 +594,70 @@ describe('buildZFSHostHierarchy', () => {
     expect(tank.vdevs.size).toBe(1);
     expect(tank.vdevs.get('mirror-0')!.disks.size).toBe(1);
   });
+
+  it('should build correct hierarchy regardless of row order (disks before vdevs before pools)', () => {
+    // Rows in reverse depth order to verify order-independence
+    const rows = [
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sda', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank', indent: 0 }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+    const server1 = hierarchy.get('server1')!;
+
+    expect(server1.pools.size).toBe(1);
+    const tank = server1.pools.get('tank')!;
+    expect(tank.vdevs.size).toBe(1);
+    expect(tank.vdevs.get('mirror-0')!.disks.size).toBe(1);
+    expect(tank.vdevs.get('mirror-0')!.disks.has('sda')).toBe(true);
+  });
+
+  it('should attach disks to correct vdevs using entity paths with two mirrors', () => {
+    const rows = [
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank', indent: 0 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sda', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sdb', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-1', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-1/sdc', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-1/sdd', entity_type: 'disk', indent: 4 }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+    const tank = hierarchy.get('server1')!.pools.get('tank')!;
+
+    expect(tank.vdevs.size).toBe(2);
+    const mirror0 = tank.vdevs.get('mirror-0')!;
+    expect(mirror0.disks.size).toBe(2);
+    expect(mirror0.disks.has('sda')).toBe(true);
+    expect(mirror0.disks.has('sdb')).toBe(true);
+
+    const mirror1 = tank.vdevs.get('mirror-1')!;
+    expect(mirror1.disks.size).toBe(2);
+    expect(mirror1.disks.has('sdc')).toBe(true);
+    expect(mirror1.disks.has('sdd')).toBe(true);
+  });
+
+  it('should attach disks to correct vdevs even when rows arrive in shuffled order', () => {
+    // Shuffled: mirror-1 disks before mirror-0 disks, vdevs interleaved
+    const rows = [
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-1/sdc', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank', indent: 0 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sda', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-1', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sdb', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-1/sdd', entity_type: 'disk', indent: 4 }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+    const tank = hierarchy.get('server1')!.pools.get('tank')!;
+
+    expect(tank.vdevs.size).toBe(2);
+    expect(tank.vdevs.get('mirror-0')!.disks.has('sda')).toBe(true);
+    expect(tank.vdevs.get('mirror-0')!.disks.has('sdb')).toBe(true);
+    expect(tank.vdevs.get('mirror-1')!.disks.has('sdc')).toBe(true);
+    expect(tank.vdevs.get('mirror-1')!.disks.has('sdd')).toBe(true);
+  });
 });
