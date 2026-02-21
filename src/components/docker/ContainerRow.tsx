@@ -145,7 +145,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
         }`}
       >
-        <div className="px-3 py-2 pl-8">
+        <div className="px-3 py-2">
           <div className="flex items-center gap-2">
             <ChevronRight
               size={16}
@@ -191,7 +191,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             </button>
           </div>
         </div>
-        <div className="pr-16">
+        <div>
           <MetricValue
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
@@ -201,7 +201,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden lg:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div>
           <MetricValue
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
@@ -211,7 +211,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden lg:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div >
           <MetricValue
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
@@ -221,7 +221,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden lg:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div >
           <MetricValue
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}
@@ -231,7 +231,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden lg:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div>
           <MetricValue
             value={metricParts.networkRx.value}
             unit={metricParts.networkRx.unit}
@@ -241,7 +241,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden lg:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div>
           <MetricValue
             value={metricParts.networkTx.value}
             unit={metricParts.networkTx.unit}

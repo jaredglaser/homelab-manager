@@ -247,22 +247,22 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
           </Chip>
         )}
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} />
       </div>
     </div>

@@ -221,12 +221,7 @@ function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
     if (vdev) {
       vdev.disks.set(stat.name, diskStats);
     } else {
-      const pool = poolByEntity.get(parentEntity);
-      if (pool) {
-        pool.individualDisks.set(stat.name, diskStats);
-      } else {
         console.warn('[buildHierarchyFromRows] Found disk without parent:', row.entity);
-      }
     }
   }
 

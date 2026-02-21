@@ -236,8 +236,8 @@ function ZFSMetrics({ data, showCapacity = true }: { data: ZFSIOStatWithRates; s
   return (
     <>
       <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {showCapacity && data.capacity.alloc > 0
-          ? formatBytes(data.capacity.alloc, false)
+        {showCapacity && data.capacity.alloc + data.capacity.free > 0
+          ? formatBytes(data.capacity.alloc + data.capacity.free, false)
           : '\u2014'}
       </div>
       <div className="px-3 py-2 text-right tabular-nums text-sm">
@@ -267,7 +267,7 @@ function HostAggregateMetrics({ host }: { host: ZFSHostStats }) {
   return (
     <>
       <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {a.capacityAlloc > 0 ? formatBytes(a.capacityAlloc, false) : '\u2014'}
+        {a.capacityAlloc + a.capacityFree > 0 ? formatBytes(a.capacityAlloc + a.capacityFree, false) : '\u2014'}
       </div>
       <div className="px-3 py-2 text-right tabular-nums text-sm">
         {a.readOpsPerSec.toFixed(0)}
