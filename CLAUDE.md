@@ -88,7 +88,7 @@ src/
 ├── lib/
 │   ├── __tests__/           # Unit tests (*.test.ts)
 │   ├── clients/             # Connection managers (Docker, SSH, Database)
-│   ├── config/              # Configuration loaders (database, worker)
+│   ├── config/              # Configuration loaders (database, worker, zfs)
 │   ├── database/
 │   │   ├── repositories/    # Data access layer (StatsRepository for wide tables)
 │   │   ├── subscription-service.ts  # Shared poll broadcast service (StatsPollService)
@@ -171,10 +171,10 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 
 **Database schema** (TimescaleDB wide tables):
 - `docker_stats` — hypertable: time, host, container_id, container_name, image, cpu_percent, memory_usage, memory_limit, memory_percent, network_rx/tx, block_io_read/write
-- `zfs_stats` — hypertable: time, pool, entity, entity_type, indent, capacity_alloc/free, read/write_ops_per_sec, read/write_bytes_per_sec, utilization_percent
+- `zfs_stats` — hypertable: time, host, pool, entity, entity_type, indent, capacity_alloc/free, read/write_ops_per_sec, read/write_bytes_per_sec, utilization_percent
 - `entity_metadata` — key-value metadata per entity (icons, labels)
 - `settings` — application settings
-- **Compression**: Automatic after 1 hour (segmented by host/container or pool/entity)
+- **Compression**: Automatic after 1 hour (segmented by host/container or host/pool/entity)
 - **Retention**: Automatic deletion after 7 days (handled by TimescaleDB policies)
 
 **Architecture**:
@@ -191,10 +191,16 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 - **Persistent rate calculators**: Never cleared (unlike request-scoped calculators)
 - **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
 - **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
+- **ZFS multi-host support**: One ZFS collector per configured host, matching Docker pattern
+  - Configuration: numbered env vars (`ZFS_HOST_1`, `ZFS_HOST_USER_1`, etc.)
+  - Config loader: `src/lib/config/zfs-config.ts` (Zod-validated)
+  - UI hierarchy: hosts → pools → vdevs → disks (host row shown only when multiple hosts configured)
+  - Host expansion state persisted to database settings
 - **ZFS hierarchical entity paths**: Entity names encode hierarchy for filtering
   - Pool: `"tank"` (indent 0)
   - Vdev: `"tank/mirror-0"` (indent 2)
   - Disk: `"tank/mirror-0/sda"` (indent 4+)
+  - Multi-host entity IDs are prefixed with host name: `"server1/tank/mirror-0/sda"`
   - Enables visibility filtering: collapsed pool skips `tank/*` entities
 - **Stale data warning**: If no SSE data received for 30+ seconds, UI shows warning via `useTimeSeriesStream`
 
@@ -206,7 +212,8 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 - Repository: `src/lib/database/repositories/stats-repository.ts` (wide table inserts/queries, NOTIFY after insert)
 - Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, backoff)
 - Collectors: `src/worker/collectors/` (Docker, ZFS — extend `BaseCollector`)
-- Row converters: `src/lib/utils/docker-hierarchy-builder.ts` (`rowToDockerStats`), `src/lib/utils/zfs-hierarchy-builder.ts` (`rowToZFSStats`)
+- Row converters: `src/lib/utils/docker-hierarchy-builder.ts` (`rowToDockerStats`), `src/lib/utils/zfs-hierarchy-builder.ts` (`rowToZFSStats`, `buildZFSHostHierarchy`)
+- ZFS config: `src/lib/config/zfs-config.ts` (multi-host configuration loader)
 - Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
 - Migrations: `migrations/*.sql` (settings table + TimescaleDB wide tables)
 - **StatsPollService**: `src/lib/database/subscription-service.ts` (shared 1s poll, broadcasts to SSE subscribers)
@@ -216,6 +223,7 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 **Environment variables**:
 - `POSTGRES_*`: Database connection config
 - `WORKER_*`: Worker behavior config (enabled, collection interval)
+- `ZFS_HOST_*`: ZFS config (`ZFS_HOST_1`, `ZFS_HOST_PORT_1`, `ZFS_HOST_NAME_1`, `ZFS_HOST_USER_1`, `ZFS_HOST_KEY_PATH_1`, etc.)
 - `PROXMOX_*`: Proxmox VE API connection config
 
 ### Proxmox VE Integration (REST API + SSE Broadcast)

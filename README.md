@@ -142,17 +142,17 @@ A `.env` file is **required** in the project root. Create one based on `.env.exa
 DOCKER_HOST_1="192.168.1.100"        # Docker host IP or hostname
 DOCKER_HOST_PORT_1="2375"            # Docker API port
 
-# ZFS SSH Configuration
-ZFS_SSH_HOST="192.168.1.101"         # ZFS host IP or hostname
-ZFS_SSH_PORT="22"                    # SSH port
-ZFS_SSH_USER="root"                  # SSH username
+# ZFS Configuration (supports multiple hosts)
+ZFS_HOST_1="192.168.1.101"          # ZFS host IP or hostname
+ZFS_HOST_PORT_1="22"                # SSH port
+ZFS_HOST_USER_1="root"              # SSH username
 
 # Authentication — use ONE of the following:
-ZFS_SSH_PASSWORD="your-password"     # Password-based auth
+ZFS_HOST_PASSWORD_1="your-password" # Password-based auth
 
 # OR use key-based auth (recommended):
-# ZFS_SSH_KEY_PATH="/path/to/private/key"
-# ZFS_SSH_KEY_PASSPHRASE="optional-passphrase"
+# ZFS_HOST_KEY_PATH_1="/path/to/private/key"
+# ZFS_HOST_KEY_PASSPHRASE_1="optional-passphrase"
 ```
 
 ### Run Locally

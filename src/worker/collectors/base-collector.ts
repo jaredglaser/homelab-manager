@@ -13,8 +13,7 @@ const BASE_BACKOFF_MS = 500;
  *
  * Subclasses implement:
  * - `name` — human-readable label for logging
- * - `collectOnce()` — single collection cycle (connect, stream, write)
- * - `isConfigured()` — whether required env vars are present
+ * - `collect()` — single collection cycle (connect, stream, write)
  */
 export abstract class BaseCollector implements AsyncDisposable {
   protected readonly repository: StatsRepository;
@@ -46,9 +45,6 @@ export abstract class BaseCollector implements AsyncDisposable {
    */
   protected abstract collect(): Promise<void>;
 
-  /** Check if required environment variables are configured */
-  protected abstract isConfigured(): boolean;
-
   /**
    * Main entry point. Runs the collection loop until aborted.
    * Handles reconnection with exponential backoff on errors.
@@ -59,12 +55,6 @@ export abstract class BaseCollector implements AsyncDisposable {
 
     while (!this.signal.aborted) {
       try {
-        if (!this.isConfigured()) {
-          console.error(`[${this.name}] Configuration incomplete, waiting...`);
-          await abortableSleep(5000, this.signal);
-          continue;
-        }
-
         cycleCount++;
         this.debugLog(`[${this.name}] Starting collection cycle #${cycleCount}`);
         const t0 = performance.now();

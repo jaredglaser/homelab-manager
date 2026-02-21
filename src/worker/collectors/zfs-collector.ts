@@ -1,5 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
+import type { ZFSHostConfig } from '@/lib/config/zfs-config';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { ZFSRateCalculator } from '@/lib/utils/zfs-rate-calculator';
 import { streamTextLines } from '@/lib/parsers/text-parser';
@@ -64,9 +65,10 @@ function buildEntityPath(stat: ZFSIOStatWithRates, ctx: HierarchyContext): { pat
   }
 }
 
-function toZFSStatsRow(stat: ZFSIOStatWithRates, entityPath: string, pool: string, entityType: string): ZFSStatsRow {
+function toZFSStatsRow(stat: ZFSIOStatWithRates, host: string, entityPath: string, pool: string, entityType: string): ZFSStatsRow {
   return {
     time: new Date(stat.timestamp),
+    host,
     pool,
     entity: entityPath,
     entity_type: entityType,
@@ -82,28 +84,36 @@ function toZFSStatsRow(stat: ZFSIOStatWithRates, entityPath: string, pool: strin
 }
 
 export class ZFSCollector extends BaseCollector {
-  readonly name = 'ZFSCollector';
+  readonly name: string;
   private readonly calculator = new ZFSRateCalculator();
+  private readonly hostConfig: ZFSHostConfig;
 
-  constructor(db: DatabaseClient, config: WorkerConfig, abortController?: AbortController) {
+  constructor(db: DatabaseClient, config: WorkerConfig, hostConfig: ZFSHostConfig, abortController?: AbortController) {
     super(db, config, abortController);
-  }
-
-  protected isConfigured(): boolean {
-    return !!(process.env.ZFS_SSH_HOST && process.env.ZFS_SSH_USER);
+    this.hostConfig = hostConfig;
+    this.name = `ZFSCollector[${hostConfig.name}]`;
   }
 
   protected async collect(): Promise<void> {
+    if (!this.hostConfig.privateKeyPath && !this.hostConfig.password) {
+      console.error(
+        `[${this.name}] No SSH credentials configured for host ${this.hostConfig.host}: ` +
+          `set ZFS_HOST_KEY_PATH_N or ZFS_HOST_PASSWORD_N`
+      );
+      throw new Error(`No SSH credentials configured for host ${this.hostConfig.host}`);
+    }
+
     const sshClient = await sshConnectionManager.getClient({
-      id: 'ssh-worker-zfs',
+      id: `ssh-worker-zfs-${this.hostConfig.host}:${this.hostConfig.port}`,
       type: 'ssh',
-      host: process.env.ZFS_SSH_HOST!,
-      port: parseInt(process.env.ZFS_SSH_PORT || '22', 10),
+      host: this.hostConfig.host,
+      port: this.hostConfig.port,
       auth: {
-        type: process.env.ZFS_SSH_KEY_PATH ? 'privateKey' : 'password',
-        username: process.env.ZFS_SSH_USER!,
-        ...(process.env.ZFS_SSH_KEY_PATH && { privateKeyPath: process.env.ZFS_SSH_KEY_PATH }),
-        ...(process.env.ZFS_SSH_PASSWORD && { password: process.env.ZFS_SSH_PASSWORD }),
+        type: this.hostConfig.privateKeyPath ? 'privateKey' : 'password',
+        username: this.hostConfig.username,
+        ...(this.hostConfig.privateKeyPath && { privateKeyPath: this.hostConfig.privateKeyPath }),
+        ...(this.hostConfig.passphrase && { passphrase: this.hostConfig.passphrase }),
+        ...(this.hostConfig.password && { password: this.hostConfig.password }),
       },
     });
 
@@ -145,7 +155,7 @@ export class ZFSCollector extends BaseCollector {
       const { path: entityPath, pool, entityType, ctx: newCtx } = buildEntityPath(statsWithRates, hierarchyCtx);
       hierarchyCtx = newCtx;
 
-      currentCycle.push(toZFSStatsRow(statsWithRates, entityPath, pool, entityType));
+      currentCycle.push(toZFSStatsRow(statsWithRates, this.hostConfig.name, entityPath, pool, entityType));
     }
 
     // Write final cycle

@@ -1,4 +1,14 @@
-import type { ZFSIOStatWithRates, ZFSStatsRow, ZFSHierarchy, PoolStats, VdevStats, DiskStats } from '../../types/zfs';
+import type {
+  ZFSIOStatWithRates,
+  ZFSStatsRow,
+  ZFSHierarchy,
+  ZFSHostHierarchy,
+  ZFSHostStats,
+  ZFSHostAggregatedStats,
+  PoolStats,
+  VdevStats,
+  DiskStats,
+} from '../../types/zfs';
 
 /**
  * Detects the hierarchy level based on indentation from zpool iostat -vvv output
@@ -25,10 +35,12 @@ function nameFromEntity(entity: string): string {
 
 /**
  * Convert a ZFSStatsRow (wide table row) to ZFSIOStatWithRates for UI consumption.
+ * The id uses the host-prefixed entity path for multi-host deduplication.
  */
 export function rowToZFSStats(row: ZFSStatsRow): ZFSIOStatWithRates {
+  const id = row.host ? `${row.host}/${row.entity}` : row.entity;
   return {
-    id: row.entity,
+    id,
     name: nameFromEntity(row.entity),
     indent: row.indent,
     timestamp: new Date(row.time).getTime(),
@@ -120,4 +132,142 @@ export function buildHierarchy(stats: ZFSIOStatWithRates[]): ZFSHierarchy {
   }
 
   return hierarchy;
+}
+
+/**
+ * Calculate aggregated stats for a ZFS host from its pools
+ */
+function calculateHostAggregates(pools: ZFSHierarchy): ZFSHostAggregatedStats {
+  let capacityAlloc = 0;
+  let capacityFree = 0;
+  let readOpsPerSec = 0;
+  let writeOpsPerSec = 0;
+  let readBytesPerSec = 0;
+  let writeBytesPerSec = 0;
+
+  for (const pool of pools.values()) {
+    capacityAlloc += pool.data.capacity.alloc;
+    capacityFree += pool.data.capacity.free;
+    readOpsPerSec += pool.data.rates.readOpsPerSec;
+    writeOpsPerSec += pool.data.rates.writeOpsPerSec;
+    readBytesPerSec += pool.data.rates.readBytesPerSec;
+    writeBytesPerSec += pool.data.rates.writeBytesPerSec;
+  }
+
+  return {
+    capacityAlloc,
+    capacityFree,
+    readOpsPerSec,
+    writeOpsPerSec,
+    readBytesPerSec,
+    writeBytesPerSec,
+    poolCount: pools.size,
+  };
+}
+
+/**
+ * Build hierarchical structure from ZFS stats rows using entity paths for placement.
+ * Uses entity path depth and prefix matching to determine parent-child relationships,
+ * so the result is correct regardless of row order.
+ *
+ * Entity path depth determines level:
+ *   depth 0 (no '/'):   pool — e.g. "tank"
+ *   depth 1 (one '/'):  vdev — e.g. "tank/mirror-0"
+ *   depth 2+ (2+ '/'):  disk — e.g. "tank/mirror-0/sda"
+ *
+ * @param rows - Flat array of ZFS stats rows for a single host
+ * @returns Hierarchical Map structure: pools -> vdevs -> disks
+ */
+function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
+  const hierarchy: ZFSHierarchy = new Map();
+  const poolByEntity = new Map<string, PoolStats>();
+  const vdevByEntity = new Map<string, VdevStats>();
+
+  // Pass 1: pools — entity has no '/'
+  for (const row of rows) {
+    if (row.entity.includes('/')) continue;
+    const stat = rowToZFSStats(row);
+    const pool: PoolStats = { data: stat, vdevs: new Map(), individualDisks: new Map() };
+    hierarchy.set(stat.name, pool);
+    poolByEntity.set(row.entity, pool);
+  }
+
+  // Pass 2: vdevs — entity has exactly one '/'
+  for (const row of rows) {
+    const firstSlash = row.entity.indexOf('/');
+    if (firstSlash === -1) continue; // pool, already handled
+    if (row.entity.indexOf('/', firstSlash + 1) !== -1) continue; // disk (depth 2+)
+    const parentEntity = row.entity.substring(0, firstSlash);
+    const pool = poolByEntity.get(parentEntity);
+    if (!pool) {
+      console.warn('[buildHierarchyFromRows] Found vdev without pool:', row.entity);
+      continue;
+    }
+    const stat = rowToZFSStats(row);
+    const vdev: VdevStats = { data: stat, disks: new Map() };
+    pool.vdevs.set(stat.name, vdev);
+    vdevByEntity.set(row.entity, vdev);
+  }
+
+  // Pass 3: disks — entity has two or more '/'
+  for (const row of rows) {
+    const firstSlash = row.entity.indexOf('/');
+    if (firstSlash === -1) continue; // pool
+    if (row.entity.indexOf('/', firstSlash + 1) === -1) continue; // vdev
+    const parentEntity = row.entity.substring(0, row.entity.lastIndexOf('/'));
+    const stat = rowToZFSStats(row);
+    const diskStats: DiskStats = { data: stat };
+    const vdev = vdevByEntity.get(parentEntity);
+    if (vdev) {
+      vdev.disks.set(stat.name, diskStats);
+    } else {
+        console.warn('[buildHierarchyFromRows] Found disk without parent:', row.entity);
+    }
+  }
+
+  return hierarchy;
+}
+
+/**
+ * Build multi-host ZFS hierarchy from flat array of ZFS stats rows.
+ * Groups by host first, then builds pool -> vdev -> disk hierarchy within each host
+ * using entity paths for order-independent placement.
+ *
+ * @param rows - Flat array of ZFS stats rows from the database
+ * @returns Multi-host hierarchical structure: hosts -> pools -> vdevs -> disks
+ */
+export function buildZFSHostHierarchy(rows: ZFSStatsRow[]): ZFSHostHierarchy {
+  // Group rows by host
+  const rowsByHost = new Map<string, ZFSStatsRow[]>();
+  for (const row of rows) {
+    const hostName = row.host || '';
+    let hostRows = rowsByHost.get(hostName);
+    if (!hostRows) {
+      hostRows = [];
+      rowsByHost.set(hostName, hostRows);
+    }
+    hostRows.push(row);
+  }
+
+  const hierarchy: ZFSHostHierarchy = new Map();
+
+  for (const [hostName, hostRows] of rowsByHost) {
+    // Build pool hierarchy using entity paths for order-independent placement
+    const pools = buildHierarchyFromRows(hostRows);
+
+    const hostStats: ZFSHostStats = {
+      hostName,
+      aggregated: calculateHostAggregates(pools),
+      pools,
+    };
+
+    hierarchy.set(hostName, hostStats);
+  }
+
+  // Sort hosts alphabetically
+  const sorted: ZFSHostHierarchy = new Map(
+    [...hierarchy.entries()].sort(([a], [b]) => a.localeCompare(b))
+  );
+
+  return sorted;
 }
