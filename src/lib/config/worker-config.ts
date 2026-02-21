@@ -32,7 +32,7 @@ export function loadWorkerConfig(): WorkerConfig {
       enabled: process.env.WORKER_ZFS_ENABLED !== 'false',
     },
     collection: {
-      interval: parseInt(process.env.WORKER_COLLECTION_INTERVAL_MS || '5000', 10),
+      interval: parseInt(process.env.WORKER_COLLECTION_INTERVAL_MS || '1000', 10),
     },
   };
 

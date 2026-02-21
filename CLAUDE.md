@@ -90,7 +90,7 @@ src/
 │   ├── config/              # Configuration loaders (database, worker)
 │   ├── database/
 │   │   ├── repositories/    # Data access layer (StatsRepository for wide tables)
-│   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler (NotifyService)
+│   │   ├── subscription-service.ts  # Shared poll broadcast service (StatsPollService)
 │   │   └── migrate.ts       # Database migration runner
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
@@ -123,29 +123,27 @@ migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 - Data flow: SSE endpoint → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`
 - **Note**: SSE is a workaround because TanStack Start's streaming server functions don't close quickly enough when rapidly switching between tabs — the abort signal doesn't propagate reliably. Once this is fixed upstream, I plan to migrate back to native streaming (see roadmap).
 - **Frontend reads from database** (not direct API/SSH connections):
-  - Worker collects stats → INSERT wide rows → `pg_notify('stats_update', source)`
-  - Server maintains LISTEN connection via lightweight NotifyService
-  - SSE endpoints subscribe to NotifyService events → query DB for new rows → push to client
+  - Worker collects stats → INSERT wide rows into TimescaleDB
+  - Server runs a shared `StatsPollService` that polls DB every 1s per source (docker, zfs)
+  - Multiple SSE clients subscribe to the same poll — only 1 query/sec per source regardless of client count
   - Frontend preloads 60s of history via REST, then merges SSE updates
 - **SSE endpoints use `createFileRoute` with `server.handlers`**:
   ```typescript
-  // src/routes/api/docker-stats.ts — NOTIFY-driven SSE push
+  // src/routes/api/docker-stats.ts — shared poll broadcast
   GET handler:
-    1. Start notifyService (idempotent)
-    2. Track lastSentTime
-    3. Subscribe to notifyService 'stats_update' event
-    4. On event (payload === 'docker'):
-       a. Query: SELECT * FROM docker_stats WHERE time > $lastSentTime
-       b. If rows found: send via SSE, update lastSentTime
+    1. Import server-init + statsPollService (dynamic imports)
+    2. Create ReadableStream
+    3. Subscribe to statsPollService('docker', callback)
+    4. Callback sends rows as SSE data
     5. On request.signal abort: unsubscribe, close controller
   ```
 - **IMPORTANT: Use dynamic imports for server-only modules** in SSE endpoints:
   ```typescript
   // BAD - gets bundled into client
-  import { notifyService } from '@/lib/database/subscription-service';
+  import { statsPollService } from '@/lib/database/subscription-service';
 
   // GOOD - only loaded on server at runtime
-  const { notifyService } = await import('@/lib/database/subscription-service');
+  const { statsPollService } = await import('@/lib/database/subscription-service');
   ```
 
 ### SSE Data Sources (Virtualized Tables)
@@ -162,11 +160,11 @@ Rate calculators:
 - Use class-based calculators (not module-level functions)
 
 ### TimescaleDB Persistence & Background Workers
-The frontend reads stats from the database via PostgreSQL LISTEN/NOTIFY:
+The frontend reads stats from the database via shared server-side polling:
 ```
-Worker → Docker/ZFS APIs → INSERT wide rows → NOTIFY stats_update
-                                                      ↓
-Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
+Worker → Docker/ZFS APIs → INSERT wide rows → TimescaleDB
+                                                    ↓
+Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast to all clients
 ```
 
 **Database schema** (TimescaleDB wide tables):
@@ -187,7 +185,7 @@ Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
   - Uses `AbortController` for cancellable sleeps and instant shutdown
   - Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
 - **Collection frequency**: Configured via `WORKER_COLLECTION_INTERVAL_MS` (default 1000ms/1 second)
-- **Collectors write directly**: Wide `DockerStatsRow[]`/`ZFSStatsRow[]` → INSERT → `NOTIFY stats_update`
+- **Collectors write directly**: Wide `DockerStatsRow[]`/`ZFSStatsRow[]` → INSERT into TimescaleDB
 - **Persistent rate calculators**: Never cleared (unlike request-scoped calculators)
 - **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
 - **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
@@ -199,7 +197,7 @@ Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
 - **Stale data warning**: If no SSE data received for 30+ seconds, UI shows warning via `useTimeSeriesStream`
 
 **Key files**:
-- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — NOTIFY-driven, query DB on event)
+- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — subscribe to StatsPollService)
 - **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useTimeSeriesStream.ts` (preload + SSE merge + stale detection)
 - **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
@@ -209,7 +207,7 @@ Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
 - Row converters: `src/lib/utils/docker-hierarchy-builder.ts` (`rowToDockerStats`), `src/lib/utils/zfs-hierarchy-builder.ts` (`rowToZFSStats`)
 - Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
 - Migrations: `migrations/*.sql` (settings table + TimescaleDB wide tables)
-- **NotifyService**: `src/lib/database/subscription-service.ts` (lightweight LISTEN handler, thin event bus)
+- **StatsPollService**: `src/lib/database/subscription-service.ts` (shared 1s poll, broadcasts to SSE subscribers)
 - **Server init**: `src/lib/server-init.ts` (graceful shutdown handlers)
 
 **Environment variables**:
@@ -305,7 +303,7 @@ Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
 - Test files outside `__tests__/` folders
 - `console.log` in committed code
 - Logging sensitive data
-- Static imports of server-only modules (pg, subscription-service) in server function files — use dynamic `await import()` inside handlers
+- Static imports of server-only modules (pg, subscription-service, database-client) in server function files — use dynamic `await import()` inside handlers
 
 ## Quick Reference
 

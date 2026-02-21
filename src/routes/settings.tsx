@@ -27,13 +27,16 @@ function SettingsContent() {
       <div className="flex flex-col gap-4 max-w-2xl">
         <Card variant="outlined">
           <Typography level="title-lg" className="mb-4">General</Typography>
-          <FormControl orientation="horizontal" className="justify-between">
-            <FormLabel>Use 12-hour time format</FormLabel>
-            <Switch
-              checked={general.use12HourTime}
-              onChange={(e) => setUse12HourTime(e.target.checked)}
-            />
-          </FormControl>
+          <div className="flex flex-col gap-6">
+            <FormControl orientation="horizontal" className="justify-between">
+              <FormLabel>Use 12-hour time format</FormLabel>
+              <Switch
+                checked={general.use12HourTime}
+                onChange={(e) => setUse12HourTime(e.target.checked)}
+              />
+            </FormControl>
+
+          </div>
         </Card>
 
         <Card variant="outlined">

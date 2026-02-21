@@ -3,7 +3,6 @@ import { useSSE } from './useSSE';
 
 const STALE_THRESHOLD_MS = 30000;
 const STALE_CHECK_INTERVAL_MS = 5000;
-const RENDER_INTERVAL_MS = 1000;
 
 interface UseTimeSeriesStreamOptions<TRow> {
   sseUrl: string;
@@ -12,6 +11,7 @@ interface UseTimeSeriesStreamOptions<TRow> {
   getTime: (row: TRow) => number;
   getEntity: (row: TRow) => string;
   windowSeconds?: number; // default 60
+  debug?: boolean;
 }
 
 interface UseTimeSeriesStreamResult<TRow> {
@@ -26,6 +26,7 @@ interface UseTimeSeriesStreamResult<TRow> {
 /**
  * Unified hook: preloads historical data, then merges SSE updates.
  * Maintains a time-windowed buffer and a latest-per-entity map.
+ * Server controls the update cadence (1s poll); each SSE message = one render.
  */
 export function useTimeSeriesStream<TRow>({
   sseUrl,
@@ -34,24 +35,36 @@ export function useTimeSeriesStream<TRow>({
   getTime,
   getEntity,
   windowSeconds = 60,
+  debug = false,
 }: UseTimeSeriesStreamOptions<TRow>): UseTimeSeriesStreamResult<TRow> {
   const [buffer, setBuffer] = useState<Map<string, TRow>>(new Map());
   const [hasData, setHasData] = useState(false);
   const [lastDataTime, setLastDataTime] = useState<number | null>(null);
   const preloadedRef = useRef(false);
 
+  // Keep refs up to date for use in callbacks
+  const getKeyRef = useRef(getKey);
+  const getTimeRef = useRef(getTime);
+  getKeyRef.current = getKey;
+  getTimeRef.current = getTime;
+
   // Preload historical data on mount
   useEffect(() => {
     if (preloadedRef.current) return;
     preloadedRef.current = true;
 
+    if (debug) console.log('[useTimeSeriesStream] Starting preload...');
     preloadFn()
       .then((rows) => {
-        if (rows.length === 0) return;
+        if (rows.length === 0) {
+          if (debug) console.log('[useTimeSeriesStream] Preload complete: 0 rows');
+          return;
+        }
+        if (debug) console.log(`[useTimeSeriesStream] Preload complete: ${rows.length} rows`);
         setBuffer((prev) => {
           const next = new Map(prev);
           for (const row of rows) {
-            next.set(getKey(row), row);
+            next.set(getKeyRef.current(row), row);
           }
           return next;
         });
@@ -61,67 +74,37 @@ export function useTimeSeriesStream<TRow>({
       .catch((err) => {
         console.error('[useTimeSeriesStream] Failed to preload:', err);
       });
-  }, [preloadFn, getKey]);
+  }, [preloadFn, debug]);
 
-  // Accumulate incoming SSE rows without triggering renders
-  const pendingRef = useRef<TRow[]>([]);
-  const getKeyRef = useRef(getKey);
-  const getTimeRef = useRef(getTime);
-  getKeyRef.current = getKey;
-  getTimeRef.current = getTime;
-
+  // Each SSE message directly updates state — server controls the cadence
   const handleData = useCallback((incoming: TRow[]) => {
-    pendingRef.current.push(...incoming);
-  }, []);
+    if (debug) {
+      console.log(`[useTimeSeriesStream] Received ${incoming.length} rows, rendering`);
+    }
 
-  // Flush pending rows into buffer on a fixed interval
-  useEffect(() => {
-    console.log(`[useTimeSeriesStream] Setting up flush interval with ${RENDER_INTERVAL_MS}ms interval`);
-    let lastIntervalTime = Date.now();
+    const now = Date.now();
+    const cutoff = now - windowSeconds * 1000;
 
-    const id = setInterval(() => {
-      const now = Date.now();
-      const intervalElapsed = now - lastIntervalTime;
-      lastIntervalTime = now;
-
-      const pending = pendingRef.current;
-      if (pending.length === 0) {
-        // Interval is firing correctly, just no data to flush yet
-        return;
+    setBuffer((prev) => {
+      const next = new Map(prev);
+      for (const row of incoming) {
+        next.set(getKeyRef.current(row), row);
       }
-      pendingRef.current = [];
-
-      const cutoff = now - windowSeconds * 1000;
-
-      console.log(`[useTimeSeriesStream] Flushing ${pending.length} pending rows to buffer at ${new Date(now).toISOString()} (interval fired ${intervalElapsed}ms ago)`);
-
-      setBuffer((prev) => {
-        const next = new Map(prev);
-
-        for (const row of pending) {
-          next.set(getKeyRef.current(row), row);
+      for (const [key, row] of next) {
+        if (getTimeRef.current(row) < cutoff) {
+          next.delete(key);
         }
-
-        for (const [key, row] of next) {
-          if (getTimeRef.current(row) < cutoff) {
-            next.delete(key);
-          }
-        }
-
-        return next;
-      });
-      setHasData(true);
-      setLastDataTime(now);
-    }, RENDER_INTERVAL_MS);
-    return () => {
-      console.log('[useTimeSeriesStream] Cleaning up flush interval');
-      clearInterval(id);
-    };
-  }, [windowSeconds]);
+      }
+      return next;
+    });
+    setHasData(true);
+    setLastDataTime(now);
+  }, [windowSeconds, debug]);
 
   const { isConnected, error } = useSSE<TRow[]>({
     url: sseUrl,
     onData: handleData,
+    debug,
   });
 
   // Derive sorted rows and latestByEntity from buffer

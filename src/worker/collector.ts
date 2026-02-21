@@ -40,6 +40,8 @@ async function main() {
     console.log('[Worker] Running database migrations...');
     await runMigrations(db);
 
+    const settingsRepo = new SettingsRepository(db.getPool());
+
     // Shared AbortController — SIGTERM aborts all collectors instantly
     const shutdownController = new AbortController();
 
@@ -92,7 +94,6 @@ async function main() {
       }
 
       // Read initial debug logging settings and LISTEN for changes
-      const settingsRepo = new SettingsRepository(db.getPool());
       const debugSettingKeys = ['developer/dockerDebugLogging', 'developer/dbFlushDebugLogging'] as const;
 
       const applyDebugSetting = (key: string, value: string | null) => {

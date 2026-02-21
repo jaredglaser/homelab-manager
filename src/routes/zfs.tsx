@@ -14,6 +14,14 @@ export const Route = createFileRoute('/zfs')({
 })
 
 function ZFSPage() {
+  return (
+    <AppShell>
+      <ZFSPageContent />
+    </AppShell>
+  )
+}
+
+function ZFSPageContent() {
   const preloadFn = useCallback(
     () => getHistoricalZFSStats({ data: { seconds: 60 } }),
     [],
@@ -28,18 +36,16 @@ function ZFSPage() {
   })
 
   return (
-    <AppShell>
-      <div className="w-full p-6">
-        <PageHeader title="ZFS Pools Dashboard" />
-        <ZFSPoolsTable
-          latestByEntity={stream.latestByEntity}
-          hasData={stream.hasData}
-          isConnected={stream.isConnected}
-          error={stream.error}
-          isStale={stream.isStale}
-        />
-        <ZFSPoolSpeedCharts rows={stream.rows} />
-      </div>
-    </AppShell>
+    <div className="w-full p-6">
+      <PageHeader title="ZFS Pools Dashboard" />
+      <ZFSPoolsTable
+        latestByEntity={stream.latestByEntity}
+        hasData={stream.hasData}
+        isConnected={stream.isConnected}
+        error={stream.error}
+        isStale={stream.isStale}
+      />
+      <ZFSPoolSpeedCharts rows={stream.rows} />
+    </div>
   )
 }

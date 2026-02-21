@@ -15,7 +15,6 @@ export class DockerCollector extends BaseCollector {
   private readonly calculator = new DockerRateCalculator();
   private readonly hostConfig: DockerHostConfig;
   private knownContainers = new Map<string, { name: string; image: string }>();
-  private lastWriteTime = new Map<string, number>();
 
   constructor(
     db: DatabaseClient,
@@ -30,25 +29,6 @@ export class DockerCollector extends BaseCollector {
 
   protected isConfigured(): boolean {
     return !!this.hostConfig.host;
-  }
-
-  /**
-   * Throttle writes per entity based on collection.interval config.
-   * Returns true if enough time has elapsed since the last write for this entity.
-   */
-  private shouldWrite(entity: string): boolean {
-    const now = Date.now();
-    const lastWrite = this.lastWriteTime.get(entity) ?? 0;
-    const elapsed = now - lastWrite;
-    if (elapsed < this.config.collection.interval) {
-      this.debugLog(
-        `[${this.name}] shouldWrite SKIP ${entity.split('/').pop()?.substring(0, 12)}` +
-        ` (${elapsed}ms since last, interval=${this.config.collection.interval}ms)`
-      );
-      return false;
-    }
-    this.lastWriteTime.set(entity, now);
-    return true;
   }
 
   protected async collect(): Promise<void> {
@@ -100,25 +80,19 @@ export class DockerCollector extends BaseCollector {
     const containerStreams = containers.map(info => this.streamContainerStats(docker, info, streams));
     let statsReceived = 0;
     let statsWritten = 0;
-    let flushCount = 0;
-    const batch: DockerStatsRow[] = [];
-    let lastFlushTime = Date.now();
     let lastContainerCheckTime = Date.now();
     const CONTAINER_REFRESH_INTERVAL_MS = 60_000; // Check for new/stopped containers every 60s
 
     try {
-      // Keep collecting stats until aborted
+      // Keep collecting stats until aborted - stream inserts directly to database
       for await (const stats of mergeAsyncIterables(containerStreams)) {
         if (this.signal.aborted) break;
 
         statsReceived++;
-        const entity = `${this.hostConfig.name}/${stats.id}`;
-
-        if (!this.shouldWrite(entity)) continue;
         statsWritten++;
 
         const containerName = containerInfo(containers, stats.id);
-        batch.push({
+        const row: DockerStatsRow = {
           time: new Date(),
           host: this.hostConfig.name,
           container_id: stats.id,
@@ -132,26 +106,18 @@ export class DockerCollector extends BaseCollector {
           network_tx_bytes_per_sec: stats.rates.networkTxBytesPerSec,
           block_io_read_bytes_per_sec: stats.rates.blockIoReadBytesPerSec,
           block_io_write_bytes_per_sec: stats.rates.blockIoWriteBytesPerSec,
-        });
+        };
 
-        // Flush based on interval (not container count, for consistent timing)
-        const now = Date.now();
-        const timeSinceFlush = now - lastFlushTime;
-
-        if (timeSinceFlush >= this.config.collection.interval) {
-          flushCount++;
-          const t0Flush = performance.now();
-          await this.repository.insertDockerStats(batch);
-          const flushMs = (performance.now() - t0Flush).toFixed(0);
-          this.dbDebugLog(
-            `[${this.name}] Flush #${flushCount}: wrote ${batch.length} rows in ${flushMs}ms` +
-            ` (${statsReceived} received, ${statsWritten} written)`
-          );
-          batch.length = 0;
-          lastFlushTime = now;
-        }
+        // Write immediately to database (no batching)
+        const t0Write = performance.now();
+        await this.repository.insertDockerStats([row]);
+        const writeMs = (performance.now() - t0Write).toFixed(1);
+        this.dbDebugLog(
+          `[${this.name}] Wrote stat for ${containerName} in ${writeMs}ms (total: ${statsWritten})`
+        );
 
         // Periodically check for new/stopped containers (every 60s)
+        const now = Date.now();
         const timeSinceContainerCheck = now - lastContainerCheckTime;
         if (timeSinceContainerCheck >= CONTAINER_REFRESH_INTERVAL_MS) {
           const currentContainers = await docker.listContainers({ all: false });
@@ -173,17 +139,11 @@ export class DockerCollector extends BaseCollector {
           lastContainerCheckTime = now;
         }
       }
-
-      // Flush any remaining rows
-      if (batch.length > 0) {
-        await this.repository.insertDockerStats(batch);
-        this.dbDebugLog(`[${this.name}] Final flush: wrote ${batch.length} rows`);
-      }
     } finally {
       const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
       this.debugLog(
         `[${this.name}] Collection ended after ${elapsed}s` +
-        ` (${statsReceived} stats received, ${statsWritten} written, ${flushCount} flushes,` +
+        ` (${statsReceived} stats received, ${statsWritten} written,` +
         ` aborted=${this.signal.aborted})`
       );
 
