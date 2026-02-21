@@ -100,7 +100,7 @@ export class ZFSCollector extends BaseCollector {
 
   protected async collect(): Promise<void> {
     const sshClient = await sshConnectionManager.getClient({
-      id: `ssh-worker-zfs-${this.hostConfig.name}`,
+      id: `ssh-worker-zfs-${this.hostConfig.host}:${this.hostConfig.port}`,
       type: 'ssh',
       host: this.hostConfig.host,
       port: this.hostConfig.port,
