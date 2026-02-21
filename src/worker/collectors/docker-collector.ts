@@ -27,10 +27,6 @@ export class DockerCollector extends BaseCollector {
     this.name = `DockerCollector[${hostConfig.name}]`;
   }
 
-  protected isConfigured(): boolean {
-    return !!this.hostConfig.host;
-  }
-
   protected async collect(): Promise<void> {
     const t0 = performance.now();
     this.debugLog(`[${this.name}] Starting continuous collection (streams will stay open)`);

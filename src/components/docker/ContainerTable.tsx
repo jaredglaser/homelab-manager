@@ -222,9 +222,9 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
   return (
     <div
       onClick={handleClick}
-      className={`${DOCKER_GRID} items-center ${
+      className={`${DOCKER_GRID} items-center border-t border-neutral-200 dark:border-neutral-700 ${
         hasContainers && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
-      } ${host.isStale ? 'bg-amber-500/10' : ''}`}
+      } ${host.isStale ? 'bg-amber-500/10' : 'bg-[var(--joy-palette-background-level1)]'}`}
     >
       <div className="px-3 py-2 flex items-center gap-2">
         {hasContainers && totalHosts > 1 && (
@@ -247,22 +247,22 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
           </Chip>
         )}
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} />
       </div>
-      <div className="pr-16">
+      <div>
         <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} />
       </div>
     </div>

@@ -226,7 +226,7 @@ export default memo(function SparklineChart({
   }, [width, height, drawWidth, drawHeight]);
 
   return (
-    <div className={className} style={{ contain: 'strict', height, width }}>
+    <div className={`flex-shrink-0 ${className ?? ''}`} style={{ contain: 'strict', height, width }}>
       <canvas ref={canvasRef} style={{ width, height, display: 'block' }} />
     </div>
   );
