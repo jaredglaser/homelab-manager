@@ -96,6 +96,7 @@ src/
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
 │   ├── utils/               # Rate calculators, hierarchy builders, row converters
+│   ├── proxmox/             # Proxmox poll service (ProxmoxPollService)
 │   ├── streaming/types.ts   # Core interfaces
 │   └── server-init.ts       # Server-side shutdown handlers
 ├── worker/
@@ -198,7 +199,7 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 - **Stale data warning**: If no SSE data received for 30+ seconds, UI shows warning via `useTimeSeriesStream`
 
 **Key files**:
-- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — subscribe to StatsPollService)
+- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — subscribe to StatsPollService; proxmox-overview.ts — subscribe to ProxmoxPollService)
 - **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useTimeSeriesStream.ts` (preload + SSE merge + stale detection)
 - **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
@@ -209,6 +210,7 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 - Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
 - Migrations: `migrations/*.sql` (settings table + TimescaleDB wide tables)
 - **StatsPollService**: `src/lib/database/subscription-service.ts` (shared 1s poll, broadcasts to SSE subscribers)
+- **ProxmoxPollService**: `src/lib/proxmox/proxmox-poll-service.ts` (shared 10s API poll, broadcasts snapshot to SSE subscribers)
 - **Server init**: `src/lib/server-init.ts` (graceful shutdown handlers)
 
 **Environment variables**:
@@ -216,22 +218,25 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 - `WORKER_*`: Worker behavior config (enabled, collection interval)
 - `PROXMOX_*`: Proxmox VE API connection config
 
-### Proxmox VE Integration (REST API)
-Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE for real-time streaming), Proxmox uses **direct REST API polling** via server functions + TanStack Query:
-- **No background worker** — data is fetched on-demand from the Proxmox API
-- **No database persistence** — cluster overview is queried fresh each request
-- **Polling** — TanStack Query `refetchInterval` (10s) for near-real-time updates
+### Proxmox VE Integration (REST API + SSE Broadcast)
+Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox uses **server-side shared polling** of the Proxmox REST API with SSE broadcast:
+- **No background worker** — `ProxmoxPollService` runs server-side, auto-starts on first SSE subscriber
+- **No database persistence** — cluster overview is fetched fresh from the API each poll cycle
+- **Shared poll** — one `setInterval(10s)` polls the API regardless of how many clients are connected
+- **SSE broadcast** — all connected clients receive the same snapshot via Server-Sent Events
 - **Native fetch** — thin client using `fetch()` with API token auth (no npm dependency)
 - **Self-signed certs** — handled via Bun's `tls.rejectUnauthorized: false` option
 
-**Data flow**: Browser → TanStack Query (10s poll) → `createServerFn()` → `ProxmoxClient.getClusterOverview()` → Proxmox REST API
+**Data flow**: `ProxmoxPollService` (10s poll) → `ProxmoxClient.getClusterOverview()` → Proxmox REST API → SSE broadcast → Browser (`useSSE` hook)
 
 **Key files**:
 - Types: `src/types/proxmox.ts` (API response types + cluster overview aggregate)
 - Config: `src/lib/config/proxmox-config.ts` (Zod-validated env var loader)
 - Client: `src/lib/clients/proxmox-client.ts` (native fetch client + connection manager singleton)
-- Server functions: `src/data/proxmox.functions.tsx` (cluster overview + connection test)
-- Dashboard: `src/routes/proxmox.tsx` (page route with TanStack Query polling)
+- Poll service: `src/lib/proxmox/proxmox-poll-service.ts` (shared poll + SSE broadcast singleton)
+- SSE endpoint: `src/routes/api/proxmox-overview.ts` (SSE server route)
+- Server functions: `src/data/proxmox.functions.tsx` (connection test only)
+- Dashboard: `src/routes/proxmox.tsx` (page route with `useSSE` hook)
 - Components: `src/components/proxmox/` (ClusterSummaryCards, NodeTable, GuestTable, StorageTable)
 
 **Environment variables**:
@@ -246,7 +251,7 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE for real-tim
 - Domain components: own directories (`docker/`, `zfs/`, `proxmox/`)
 - Both Docker and ZFS tables use CSS Grid + `useWindowVirtualizer` with flat row models
 - Proxmox tables use CSS Grid without virtualization (snapshot data, not streaming)
-- Page routes use `useTimeSeriesStream` hook (Docker/ZFS) or TanStack Query polling (Proxmox)
+- Page routes use `useTimeSeriesStream` hook (Docker/ZFS) or `useSSE` hook (Proxmox)
 - Table components convert wide rows to domain objects via `rowToDockerStats`/`rowToZFSStats`
 
 ### Styling
@@ -260,7 +265,7 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE for real-tim
 ### State Management
 - `QueryClient` is a singleton in `__root.tsx` — never create per-route
 - Use `useTimeSeriesStream` hook for SSE-backed streaming data (preload + SSE merge + time-windowed buffer + stale detection)
-- Use `useSSE` hook directly only for non-table SSE consumers
+- Use `useSSE` hook directly for non-time-series SSE consumers (e.g., Proxmox snapshot data)
 - SSE connection management handled automatically by the browser's EventSource API
 
 ### Types

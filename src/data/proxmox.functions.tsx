@@ -1,33 +1,4 @@
 import { createServerFn } from '@tanstack/react-start';
-import type { ProxmoxClusterOverview } from '@/types/proxmox';
-
-/**
- * Fetch the complete Proxmox cluster overview.
- * Returns nodes, VMs, containers, storage, and aggregate totals.
- */
-export const getProxmoxClusterOverview = createServerFn()
-  .handler(async (): Promise<ProxmoxClusterOverview | null> => {
-    try {
-      const { isProxmoxConfigured, loadProxmoxConfig } = await import(
-        '@/lib/config/proxmox-config'
-      );
-
-      if (!isProxmoxConfigured()) {
-        return null;
-      }
-
-      const { proxmoxConnectionManager } = await import(
-        '@/lib/clients/proxmox-client'
-      );
-
-      const config = loadProxmoxConfig();
-      const client = proxmoxConnectionManager.getClient(config);
-      return await client.getClusterOverview();
-    } catch (err) {
-      console.error('[getProxmoxClusterOverview] Failed:', err);
-      return null;
-    }
-  });
 
 /**
  * Test the Proxmox API connection.
