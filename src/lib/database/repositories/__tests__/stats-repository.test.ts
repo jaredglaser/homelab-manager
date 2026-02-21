@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { StatsRepository } from '../stats-repository';
 
 interface QueryCall {
@@ -36,16 +36,19 @@ function createMockPool() {
   };
 }
 
-// Suppress console.error during error tests
-const originalConsoleError = console.error;
-
 describe('StatsRepository', () => {
   let mockPool: ReturnType<typeof createMockPool>;
   let repo: StatsRepository;
+  let consoleErrorSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     mockPool = createMockPool();
     repo = new StatsRepository(mockPool.pool);
+    consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
   });
 
   describe('insertDockerStats', () => {
@@ -140,7 +143,6 @@ describe('StatsRepository', () => {
     });
 
     it('should propagate errors', async () => {
-      console.error = () => {};
       mockPool.setError(new Error('DB error'));
 
       await expect(repo.insertDockerStats([{
@@ -158,8 +160,6 @@ describe('StatsRepository', () => {
         block_io_read_bytes_per_sec: null,
         block_io_write_bytes_per_sec: null,
       }])).rejects.toThrow('DB error');
-
-      console.error = originalConsoleError;
     });
   });
 
@@ -202,7 +202,6 @@ describe('StatsRepository', () => {
     });
 
     it('should propagate errors', async () => {
-      console.error = () => {};
       mockPool.setError(new Error('ZFS DB error'));
 
       await expect(repo.insertZFSStats([{
@@ -220,8 +219,6 @@ describe('StatsRepository', () => {
         write_bytes_per_sec: null,
         utilization_percent: null,
       }])).rejects.toThrow('ZFS DB error');
-
-      console.error = originalConsoleError;
     });
   });
 

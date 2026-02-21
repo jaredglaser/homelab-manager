@@ -126,14 +126,9 @@ describe('BaseCollector', () => {
         controller.abort(new DOMException('Done', 'AbortError'));
       };
 
-      // Abort during the backoff sleep if it takes too long
-      setTimeout(() => controller.abort(new DOMException('Timeout', 'AbortError')), 1500);
-
       await collector.run();
-      expect(callCount).toBeGreaterThanOrEqual(1);
+      expect(callCount).toBe(2);
     });
-
-
   });
 
   describe('debug logging', () => {
