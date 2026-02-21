@@ -94,10 +94,6 @@ export class ZFSCollector extends BaseCollector {
     this.name = `ZFSCollector[${hostConfig.name}]`;
   }
 
-  protected isConfigured(): boolean {
-    return !!this.hostConfig.host;
-  }
-
   protected async collect(): Promise<void> {
     if (!this.hostConfig.privateKeyPath && !this.hostConfig.password) {
       console.error(
