@@ -84,7 +84,6 @@ function toZFSStatsRow(stat: ZFSIOStatWithRates, entityPath: string, pool: strin
 export class ZFSCollector extends BaseCollector {
   readonly name = 'ZFSCollector';
   private readonly calculator = new ZFSRateCalculator();
-  private lastWriteTime = 0;
 
   constructor(db: DatabaseClient, config: WorkerConfig, abortController?: AbortController) {
     super(db, config, abortController);
@@ -92,13 +91,6 @@ export class ZFSCollector extends BaseCollector {
 
   protected isConfigured(): boolean {
     return !!(process.env.ZFS_SSH_HOST && process.env.ZFS_SSH_USER);
-  }
-
-  private shouldWrite(): boolean {
-    const now = Date.now();
-    if (now - this.lastWriteTime < this.config.collection.interval) return false;
-    this.lastWriteTime = now;
-    return true;
   }
 
   protected async collect(): Promise<void> {
@@ -133,9 +125,12 @@ export class ZFSCollector extends BaseCollector {
         line.includes('operations') &&
         line.includes('bandwidth')
       ) {
-        if (currentCycle.length > 0 && this.shouldWrite()) {
+        // Write complete cycle immediately (no throttling)
+        if (currentCycle.length > 0) {
+          const t0Write = performance.now();
           await this.repository.insertZFSStats(currentCycle);
-          this.dbDebugLog(`[${this.name}] Wrote ${currentCycle.length} zfs rows`);
+          const writeMs = (performance.now() - t0Write).toFixed(1);
+          this.dbDebugLog(`[${this.name}] Wrote ${currentCycle.length} ZFS rows in ${writeMs}ms`);
         }
         currentCycle = [];
         hierarchyCtx = { currentPool: null, currentVdev: null };
@@ -153,10 +148,10 @@ export class ZFSCollector extends BaseCollector {
       currentCycle.push(toZFSStatsRow(statsWithRates, entityPath, pool, entityType));
     }
 
-    // Flush final cycle
-    if (currentCycle.length > 0 && this.shouldWrite()) {
+    // Write final cycle
+    if (currentCycle.length > 0) {
       await this.repository.insertZFSStats(currentCycle);
-      this.dbDebugLog(`[${this.name}] Wrote ${currentCycle.length} zfs rows (final)`);
+      this.dbDebugLog(`[${this.name}] Wrote ${currentCycle.length} ZFS rows (final)`);
     }
   }
 }

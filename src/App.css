@@ -24,6 +24,8 @@
   --chart-border: #e2e8f0; /* slate-200 */
   --chart-tooltip-bg: #ffffff; /* white */
   --chart-tooltip-text: #1e293b; /* slate-800 */
+  --indicator-active: #22c55e; /* green-500 */
+  --indicator-late: #f59e0b; /* amber-500 */
 }
 
 /* Chart colors - dark mode */
@@ -44,6 +46,8 @@
   --chart-border: #334155; /* slate-700 */
   --chart-tooltip-bg: #1e293b; /* slate-800 */
   --chart-tooltip-text: #f1f5f9; /* slate-100 */
+  --indicator-active: #4ade80; /* green-400 */
+  --indicator-late: #fbbf24; /* amber-400 */
 }
 
 /* Metric value glow animations */

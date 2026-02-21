@@ -8,6 +8,7 @@ import { getHistoricalDockerStats } from '@/data/docker.functions'
 import { useSettings } from '@/hooks/useSettings'
 import type { DockerStatsRow } from '@/types/docker'
 
+
 export const Route = createFileRoute('/')({ ssr: false, component: DockerPage })
 
 function DockerPage() {
@@ -19,7 +20,7 @@ function DockerPage() {
 }
 
 function DockerPageContent() {
-  const { general } = useSettings()
+  const { developer } = useSettings()
 
   const preloadFn = useCallback(
     () => getHistoricalDockerStats({ data: { seconds: 60 } }),
@@ -32,7 +33,7 @@ function DockerPageContent() {
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
     getTime: (row) => new Date(row.time).getTime(),
     getEntity: (row) => `${row.host}/${row.container_id}`,
-    updateIntervalMs: general.updateIntervalMs,
+    debug: developer.sseDebugLogging,
   })
 
   return (

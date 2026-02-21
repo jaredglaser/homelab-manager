@@ -13,7 +13,6 @@ export interface DecimalSettings {
 export interface Settings {
   general: {
     use12HourTime: boolean;
-    updateIntervalMs: number;
   };
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
@@ -44,7 +43,6 @@ export interface Settings {
 
 interface SettingsContextValue extends Settings {
   setUse12HourTime: (value: boolean) => void;
-  setUpdateInterval: (value: number) => void;
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
   setShowSparklines: (value: boolean) => void;
   setUseAbbreviatedUnits: (value: boolean) => void;
@@ -74,7 +72,6 @@ const DEFAULT_DECIMAL_SETTINGS: DecimalSettings = {
 const DEFAULT_SETTINGS: Settings = {
   general: {
     use12HourTime: true,
-    updateIntervalMs: 1000,
   },
   docker: {
     memoryDisplayMode: 'percentage',
@@ -134,7 +131,6 @@ function parseSettings(raw: Record<string, string>): Settings {
   return {
     general: {
       use12HourTime: parseBool(raw['general/use12HourTime'], DEFAULT_SETTINGS.general.use12HourTime),
-      updateIntervalMs: parseIntSetting(raw['general/updateIntervalMs'], DEFAULT_SETTINGS.general.updateIntervalMs),
     },
     docker: {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
@@ -190,16 +186,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       general: { ...prev.general, use12HourTime: value },
     }));
     updateSetting({ data: { key: 'general/use12HourTime', value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
-
-  const setUpdateInterval = useCallback((value: number) => {
-    setSettings(prev => ({
-      ...prev,
-      general: { ...prev.general, updateIntervalMs: value },
-    }));
-    updateSetting({ data: { key: 'general/updateIntervalMs', value: String(value) } }).catch(() => {
       // Fire-and-forget
     });
   }, []);
@@ -442,7 +428,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       value={{
         ...settings,
         setUse12HourTime,
-        setUpdateInterval,
         setMemoryDisplayMode,
         setShowSparklines,
         setUseAbbreviatedUnits,

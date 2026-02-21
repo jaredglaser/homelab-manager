@@ -1,119 +1,106 @@
-import { Client, type ClientConfig } from 'pg';
-import { EventEmitter } from 'events';
+import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
+import { StatsRepository } from '@/lib/database/repositories/stats-repository';
+
+type StatsSource = 'docker' | 'zfs';
+type StatsCallback = (rows: unknown[]) => void;
 
 /**
- * Minimal NOTIFY/LISTEN service.
- * Maintains a dedicated PostgreSQL connection that listens for notifications
- * and re-emits them as EventEmitter events.
+ * Shared poll service that runs one setInterval per source (docker, zfs)
+ * and broadcasts results to all subscribed SSE clients.
+ *
+ * Auto-starts polling when the first subscriber joins for a source,
+ * auto-stops when the last subscriber leaves.
  */
-class NotifyService extends EventEmitter {
-  private client: Client | null = null;
-  private isRunning = false;
-  private startPromise: Promise<void> | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectAttempts = 0;
-  private readonly maxReconnectAttempts = 10;
-  private readonly baseReconnectDelay = 1000;
+class StatsPollService {
+  private subscribers = new Map<StatsSource, Set<StatsCallback>>();
+  private intervals = new Map<StatsSource, ReturnType<typeof setInterval>>();
+  private lastSeq = new Map<StatsSource, string>();
+  private repo: StatsRepository | null = null;
 
-  /**
-   * Start the notify service. Safe to call multiple times (idempotent).
-   */
-  async start(): Promise<void> {
-    if (this.isRunning) return;
-    if (this.startPromise) return this.startPromise;
-
-    this.startPromise = this.doStart();
-    try {
-      await this.startPromise;
-    } finally {
-      this.startPromise = null;
+  private async getRepo(): Promise<StatsRepository> {
+    if (!this.repo) {
+      const config = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(config);
+      this.repo = new StatsRepository(dbClient.getPool());
     }
+    return this.repo;
   }
 
-  private async doStart(): Promise<void> {
-    await this.connect();
-    this.isRunning = true;
-    this.reconnectAttempts = 0;
-  }
+  subscribe(source: StatsSource, callback: StatsCallback): () => void {
+    let subs = this.subscribers.get(source);
+    if (!subs) {
+      subs = new Set();
+      this.subscribers.set(source, subs);
+    }
+    subs.add(callback);
 
-  private async connect(): Promise<void> {
-    const config = loadDatabaseConfig();
+    if (subs.size === 1) {
+      this.startPolling(source);
+    }
 
-    const clientConfig: ClientConfig = {
-      host: config.host,
-      port: config.port,
-      database: config.database,
-      user: config.user,
-      password: config.password,
+    return () => {
+      subs!.delete(callback);
+      if (subs!.size === 0) {
+        this.stopPolling(source);
+        this.subscribers.delete(source);
+      }
     };
-
-    if (config.ssl) {
-      clientConfig.ssl = { rejectUnauthorized: false };
-    }
-
-    this.client = new Client(clientConfig);
-
-    this.client.on('error', (err) => {
-      console.error('[NotifyService] Client error:', err);
-      this.scheduleReconnect();
-    });
-
-    this.client.on('end', () => {
-      if (this.isRunning) {
-        this.scheduleReconnect();
-      }
-    });
-
-    this.client.on('notification', (msg) => {
-      this.emit(msg.channel, msg.payload);
-    });
-
-    await this.client.connect();
-    await this.client.query('LISTEN stats_update');
-    await this.client.query('LISTEN settings_change');
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[NotifyService] Max reconnect attempts reached');
-      this.isRunning = false;
-      return;
+  private async startPolling(source: StatsSource): Promise<void> {
+    try {
+      const repo = await this.getRepo();
+      const seq = source === 'docker'
+        ? await repo.getMaxDockerSeq()
+        : await repo.getMaxZFSSeq();
+      this.lastSeq.set(source, seq);
+    } catch {
+      this.lastSeq.set(source, '0');
     }
 
-    const delay = Math.min(
-      this.baseReconnectDelay * Math.pow(2, this.reconnectAttempts),
-      30000
-    );
+    const intervalId = setInterval(async () => {
+      const subs = this.subscribers.get(source);
+      if (!subs || subs.size === 0) return;
 
-    this.reconnectTimer = setTimeout(async () => {
-      this.reconnectTimer = null;
-      this.reconnectAttempts++;
       try {
-        if (this.client) {
-          try { await this.client.end(); } catch { /* ignore */ }
-          this.client = null;
+        const repo = await this.getRepo();
+        const lastSeq = this.lastSeq.get(source) ?? '0';
+
+        const rows = source === 'docker'
+          ? await repo.getDockerStatsSinceSeq(lastSeq)
+          : await repo.getZFSStatsSinceSeq(lastSeq);
+
+        if (rows.length > 0) {
+          this.lastSeq.set(source, String((rows[rows.length - 1] as any).seq));
+          for (const cb of subs) {
+            cb(rows);
+          }
         }
-        await this.connect();
-        this.reconnectAttempts = 0;
       } catch {
-        this.scheduleReconnect();
+        // Query failed — skip this cycle
       }
-    }, delay);
+    }, 1000);
+
+    this.intervals.set(source, intervalId);
+  }
+
+  private stopPolling(source: StatsSource): void {
+    const intervalId = this.intervals.get(source);
+    if (intervalId) {
+      clearInterval(intervalId);
+      this.intervals.delete(source);
+    }
+    this.lastSeq.delete(source);
   }
 
   async stop(): Promise<void> {
-    this.isRunning = false;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+    for (const source of this.intervals.keys()) {
+      this.stopPolling(source);
     }
-    if (this.client) {
-      try { await this.client.end(); } catch { /* ignore */ }
-      this.client = null;
-    }
+    this.subscribers.clear();
+    this.repo = null;
   }
 }
 
-export const notifyService = new NotifyService();
+export const statsPollService = new StatsPollService();

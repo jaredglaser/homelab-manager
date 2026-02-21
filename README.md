@@ -18,7 +18,7 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 - **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics collected via SSH and streamed from the database
 - **TimescaleDB Persistence** — Background worker continuously collects stats every 1 second into wide hypertables with automatic compression (after 1 hour) and retention (7 days)
 - **Docker Compose Deployment** — Full stack with TimescaleDB, web server, and background worker (builds from source, no pre-built image)
-- **Live-Updating UI** — Server-Sent Events (SSE) stream data continuously to the client with no polling
+- **Live-Updating UI** — Server-Sent Events (SSE) stream data continuously to the client; a shared poll service ensures only 1 DB query/sec per source regardless of how many browser tabs are open
 - **Virtualized Tables** — CSS Grid layouts with page-scroll virtualization (`useWindowVirtualizer`) for efficient rendering of large container/pool lists
 - **Per-Entity Stale Detection** — When a host or container stops reporting, rows stay visible with amber highlighting and a connection warning icon instead of disappearing
 
@@ -51,13 +51,12 @@ graph TD
 
     subgraph TanStack_Start["TanStack Start Server"]
         SSE["SSE Endpoints<br/>(server routes)"]
-        NotifySvc["NotifyService<br/>(LISTEN handler)"]
+        PollSvc["StatsPollService<br/>(shared 1s poll)"]
     end
 
     subgraph Database["TimescaleDB"]
         DockerTable["docker_stats hypertable"]
         ZFSTable["zfs_stats hypertable"]
-        Notify["NOTIFY stats_update"]
     end
 
     subgraph Worker["Background Worker"]
@@ -70,19 +69,18 @@ graph TD
     end
 
     Browser <-->|"SSE streaming"| SSE
-    SSE -->|"Query new rows"| DockerTable
-    SSE -->|"Query new rows"| ZFSTable
-    NotifySvc -->|"On NOTIFY"| SSE
-    Notify --> NotifySvc
-    Collectors -->|"INSERT + NOTIFY"| DockerTable
-    Collectors -->|"INSERT + NOTIFY"| ZFSTable
+    SSE -->|"Subscribe"| PollSvc
+    PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| DockerTable
+    PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| ZFSTable
+    Collectors -->|"INSERT"| DockerTable
+    Collectors -->|"INSERT"| ZFSTable
     Collectors --> DockerHost
     Collectors --> ZFSHost
 ```
 
 The frontend reads stats from the database, not directly from Docker/ZFS APIs. This enables:
-- **Real-time updates** via PostgreSQL LISTEN/NOTIFY (no polling)
-- **Direct DB queries** on each notification — no intermediate cache layer
+- **Shared polling** — `StatsPollService` runs 1 query/sec per source, broadcasting results to all SSE clients
+- **Direct DB queries** with seq-based cursors — no intermediate cache layer
 - **Stale data detection** at both global (30+ second warning) and per-entity levels (amber highlighting for individual hosts/containers)
 
 ### Data Streaming Pipeline
@@ -106,13 +104,14 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    DB["TimescaleDB<br/>LISTEN"]
-    NotifySvc["NotifyService<br/>(event bus)"]
-    SSE["SSE Endpoint<br/>(query DB)"]
+    DB["TimescaleDB"]
+    PollSvc["StatsPollService<br/>(1s shared poll)"]
+    SSE["SSE Endpoints<br/>(subscribers)"]
     Hook["useTimeSeriesStream<br/>(hook)"]
     Table["Virtualized Table<br/>(CSS Grid)"]
 
-    DB -->|"NOTIFY"| NotifySvc --> SSE -->|"New rows"| Hook --> Table
+    PollSvc -->|"Poll every 1s"| DB
+    DB -->|"New rows"| PollSvc -->|"Broadcast"| SSE -->|"SSE push"| Hook --> Table
 ```
 
 **How it works:**
@@ -120,9 +119,9 @@ flowchart LR
 1. **Background worker** continuously collects stats from Docker/ZFS APIs every 1 second
 2. **Docker collector** keeps stats streams open continuously, flushing every second and only reconnecting on container changes or errors
 3. **ZFS collector** streams `zpool iostat` continuously, flushing on each cycle boundary
-4. Stats are **inserted** into TimescaleDB wide hypertables with `NOTIFY stats_update`
-5. **NotifyService** maintains a `LISTEN` connection and re-emits notifications as events (thin event bus, no caching or transformation)
-6. **SSE endpoints** query the database for new rows since `lastSentTime` on each notification, then push results to the client
+4. Stats are **inserted** into TimescaleDB wide hypertables
+5. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs), querying for new rows using seq-based cursors and broadcasting results to all subscribed SSE endpoints
+6. **SSE endpoints** subscribe to the poll service; multiple browser tabs share the same poll — only 1 DB query/sec per source
 7. The **`useTimeSeriesStream` hook** preloads 60s of history via REST, then merges SSE updates into a time-windowed buffer with stale detection
 8. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
 
@@ -255,7 +254,7 @@ src/
 │   ├── config/                      # Configuration loaders (database, worker)
 │   ├── database/
 │   │   ├── repositories/            # Data access layer (StatsRepository, SettingsRepository)
-│   │   ├── subscription-service.ts  # NotifyService — lightweight LISTEN/NOTIFY event bus
+│   │   ├── subscription-service.ts  # StatsPollService — shared 1s poll, broadcasts to SSE clients
 │   │   └── migrate.ts               # Database migration runner
 │   ├── parsers/                     # Stream parsers (ZFS iostat, text lines)
 │   ├── test/                        # Test utilities and helpers
@@ -289,7 +288,7 @@ migrations/                          # SQL migrations (settings + TimescaleDB wi
 
 - [x] **TimescaleDB persistence** — background worker collects stats into wide hypertables with automatic compression and 7-day retention
 - [x] **Docker Compose deployment** — multi-container setup with TimescaleDB, web server, and background worker
-- [x] **Database-backed streaming** — frontend reads from TimescaleDB via LISTEN/NOTIFY instead of direct API/SSH connections; SSE endpoints query DB directly on each notification
+- [x] **Database-backed streaming** — frontend reads from TimescaleDB via shared server-side polling instead of direct API/SSH connections; a `StatsPollService` runs 1 query/sec per source and broadcasts to all SSE clients
 - [ ] **Return to TanStack Start streaming server functions** — currently using SSE as a workaround because streaming server functions don't close quickly enough when rapidly switching between tabs; once TanStack Start's abort signal propagation is more reliable, migrate back to the native streaming pattern
 - [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
 - [ ] **Proxmox API integration** — VM and LXC container management and statistics

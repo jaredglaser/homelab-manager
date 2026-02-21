@@ -18,7 +18,7 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
+  const { general, docker, zfs, retention, developer, setUse12HourTime, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
 
   return (
     <div className="w-full p-6">
@@ -36,23 +36,6 @@ function SettingsContent() {
               />
             </FormControl>
 
-            <div>
-              <div className="flex justify-between items-baseline mb-1">
-                <FormLabel>Update Interval</FormLabel>
-                <Typography level="body-sm" className="font-mono">{formatUpdateInterval(general.updateIntervalMs)}</Typography>
-              </div>
-              <Typography level="body-xs" className="text-neutral-500 mb-3">
-                Controls how frequently stats are collected and displayed (requires worker restart)
-              </Typography>
-              <Slider
-                value={general.updateIntervalMs}
-                onChange={(_e, v) => setUpdateInterval(v as number)}
-                min={100}
-                max={60000}
-                step={null}
-                marks={UPDATE_INTERVAL_MARKS}
-              />
-            </div>
           </div>
         </Card>
 
@@ -234,18 +217,6 @@ function formatDecimalLabel(key: keyof DecimalSettings): string {
     networkSpeed: 'Network Speed',
   };
   return labels[key];
-}
-
-// --- Update interval slider marks and formatter ---
-
-const UPDATE_INTERVAL_MARKS = [100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000].map(v => ({ value: v }));
-
-function formatUpdateInterval(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = seconds / 60;
-  return `${minutes}min`;
 }
 
 // --- Retention slider marks and formatters ---
