@@ -340,12 +340,12 @@ function PoolRow({
   badge?: { label: string; tooltip?: string };
 }) {
   const { isPoolExpanded, togglePoolExpanded } = useSettings();
-  const expanded = isPoolExpanded(pool.data.name, totalPools);
+  const expanded = isPoolExpanded(pool.data.id, totalPools);
   const canToggle = expandable && totalPools > 1;
 
   const handleClick = () => {
     if (canToggle) {
-      togglePoolExpanded(pool.data.name);
+      togglePoolExpanded(pool.data.id);
     }
   };
 

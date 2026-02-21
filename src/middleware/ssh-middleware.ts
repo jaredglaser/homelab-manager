@@ -64,26 +64,3 @@ export function createSSHMiddlewareFromEnv(envPrefix: string) {
 
   return createSSHMiddleware(config);
 }
-
-/**
- * ZFS SSH middleware with lazy initialization
- * Only creates the SSH client when actually invoked on the server
- */
-export const zfsSSHMiddleware = createMiddleware().server(async ({ next }) => {
-  // Lazy initialization - create SSH client on demand within server context
-  const sshClient = await sshConnectionManager.getClient({
-    id: 'ssh-ZFS_SSH',
-    type: 'ssh',
-    host: process.env.ZFS_SSH_HOST!,
-    port: parseInt(process.env.ZFS_SSH_PORT || '22'),
-    auth: {
-      type: process.env.ZFS_SSH_KEY_PATH ? 'privateKey' : 'password',
-      username: process.env.ZFS_SSH_USER || 'root',
-      ...(process.env.ZFS_SSH_KEY_PATH && { privateKeyPath: process.env.ZFS_SSH_KEY_PATH }),
-      ...(process.env.ZFS_SSH_KEY_PASSPHRASE && { passphrase: process.env.ZFS_SSH_KEY_PASSPHRASE }),
-      ...(process.env.ZFS_SSH_PASSWORD && { password: process.env.ZFS_SSH_PASSWORD }),
-    },
-  });
-
-  return next({ context: { ssh: sshClient } });
-});

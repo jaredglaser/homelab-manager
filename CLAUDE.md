@@ -190,7 +190,7 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 - **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
 - **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
 - **ZFS multi-host support**: One ZFS collector per configured host, matching Docker pattern
-  - Configuration: numbered env vars (`ZFS_HOST_1`, `ZFS_HOST_USER_1`, etc.) with legacy single-host fallback (`ZFS_SSH_HOST`)
+  - Configuration: numbered env vars (`ZFS_HOST_1`, `ZFS_HOST_USER_1`, etc.)
   - Config loader: `src/lib/config/zfs-config.ts` (Zod-validated)
   - UI hierarchy: hosts → pools → vdevs → disks (host row shown only when multiple hosts configured)
   - Host expansion state persisted to database settings
@@ -220,8 +220,7 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 **Environment variables**:
 - `POSTGRES_*`: Database connection config
 - `WORKER_*`: Worker behavior config (enabled, collection interval)
-- `ZFS_HOST_*`: Multi-host ZFS config (`ZFS_HOST_1`, `ZFS_HOST_PORT_1`, `ZFS_HOST_NAME_1`, `ZFS_HOST_USER_1`, `ZFS_HOST_KEY_PATH_1`, etc.)
-- `ZFS_SSH_*`: Legacy single-host ZFS config (fallback when no numbered hosts configured)
+- `ZFS_HOST_*`: ZFS config (`ZFS_HOST_1`, `ZFS_HOST_PORT_1`, `ZFS_HOST_NAME_1`, `ZFS_HOST_USER_1`, `ZFS_HOST_KEY_PATH_1`, etc.)
 
 ### Components
 - Shared infrastructure: `src/components/shared-table/` (MetricValue)
