@@ -5,11 +5,22 @@ import ContainerTable from '../components/docker/ContainerTable'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { getHistoricalDockerStats } from '@/data/docker.functions'
+import { useSettings } from '@/hooks/useSettings'
 import type { DockerStatsRow } from '@/types/docker'
 
 export const Route = createFileRoute('/')({ ssr: false, component: DockerPage })
 
 function DockerPage() {
+  return (
+    <AppShell>
+      <DockerPageContent />
+    </AppShell>
+  )
+}
+
+function DockerPageContent() {
+  const { general } = useSettings()
+
   const preloadFn = useCallback(
     () => getHistoricalDockerStats({ data: { seconds: 60 } }),
     [],
@@ -21,21 +32,20 @@ function DockerPage() {
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
     getTime: (row) => new Date(row.time).getTime(),
     getEntity: (row) => `${row.host}/${row.container_id}`,
+    updateIntervalMs: general.updateIntervalMs,
   })
 
   return (
-    <AppShell>
-      <div className="w-full p-6">
-        <PageHeader title="Docker Containers Dashboard" />
-        <ContainerTable
-          latestByEntity={stream.latestByEntity}
-          rows={stream.rows}
-          hasData={stream.hasData}
-          isConnected={stream.isConnected}
-          error={stream.error}
-          isStale={stream.isStale}
-        />
-      </div>
-    </AppShell>
+    <div className="w-full p-6">
+      <PageHeader title="Docker Containers Dashboard" />
+      <ContainerTable
+        latestByEntity={stream.latestByEntity}
+        rows={stream.rows}
+        hasData={stream.hasData}
+        isConnected={stream.isConnected}
+        error={stream.error}
+        isStale={stream.isStale}
+      />
+    </div>
   )
 }

@@ -3,7 +3,6 @@ import { useSSE } from './useSSE';
 
 const STALE_THRESHOLD_MS = 30000;
 const STALE_CHECK_INTERVAL_MS = 5000;
-const RENDER_INTERVAL_MS = 1000;
 
 interface UseTimeSeriesStreamOptions<TRow> {
   sseUrl: string;
@@ -12,6 +11,7 @@ interface UseTimeSeriesStreamOptions<TRow> {
   getTime: (row: TRow) => number;
   getEntity: (row: TRow) => string;
   windowSeconds?: number; // default 60
+  updateIntervalMs?: number; // default 1000
 }
 
 interface UseTimeSeriesStreamResult<TRow> {
@@ -34,6 +34,7 @@ export function useTimeSeriesStream<TRow>({
   getTime,
   getEntity,
   windowSeconds = 60,
+  updateIntervalMs = 1000,
 }: UseTimeSeriesStreamOptions<TRow>): UseTimeSeriesStreamResult<TRow> {
   const [buffer, setBuffer] = useState<Map<string, TRow>>(new Map());
   const [hasData, setHasData] = useState(false);
@@ -76,7 +77,7 @@ export function useTimeSeriesStream<TRow>({
 
   // Flush pending rows into buffer on a fixed interval
   useEffect(() => {
-    console.log(`[useTimeSeriesStream] Setting up flush interval with ${RENDER_INTERVAL_MS}ms interval`);
+    console.log(`[useTimeSeriesStream] Setting up flush interval with ${updateIntervalMs}ms interval`);
     let lastIntervalTime = Date.now();
 
     const id = setInterval(() => {
@@ -112,12 +113,12 @@ export function useTimeSeriesStream<TRow>({
       });
       setHasData(true);
       setLastDataTime(now);
-    }, RENDER_INTERVAL_MS);
+    }, updateIntervalMs);
     return () => {
       console.log('[useTimeSeriesStream] Cleaning up flush interval');
       clearInterval(id);
     };
-  }, [windowSeconds]);
+  }, [windowSeconds, updateIntervalMs]);
 
   const { isConnected, error } = useSSE<TRow[]>({
     url: sseUrl,

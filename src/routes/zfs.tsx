@@ -6,6 +6,7 @@ import ZFSPoolSpeedCharts from '../components/zfs/ZFSPoolSpeedCharts'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { getHistoricalZFSStats } from '@/data/zfs.functions'
+import { useSettings } from '@/hooks/useSettings'
 import type { ZFSStatsRow } from '@/types/zfs'
 
 export const Route = createFileRoute('/zfs')({
@@ -14,6 +15,16 @@ export const Route = createFileRoute('/zfs')({
 })
 
 function ZFSPage() {
+  return (
+    <AppShell>
+      <ZFSPageContent />
+    </AppShell>
+  )
+}
+
+function ZFSPageContent() {
+  const { general } = useSettings()
+
   const preloadFn = useCallback(
     () => getHistoricalZFSStats({ data: { seconds: 60 } }),
     [],
@@ -25,21 +36,20 @@ function ZFSPage() {
     getKey: (row) => `${new Date(row.time).getTime()}_${row.entity}`,
     getTime: (row) => new Date(row.time).getTime(),
     getEntity: (row) => row.entity,
+    updateIntervalMs: general.updateIntervalMs,
   })
 
   return (
-    <AppShell>
-      <div className="w-full p-6">
-        <PageHeader title="ZFS Pools Dashboard" />
-        <ZFSPoolsTable
-          latestByEntity={stream.latestByEntity}
-          hasData={stream.hasData}
-          isConnected={stream.isConnected}
-          error={stream.error}
-          isStale={stream.isStale}
-        />
-        <ZFSPoolSpeedCharts rows={stream.rows} />
-      </div>
-    </AppShell>
+    <div className="w-full p-6">
+      <PageHeader title="ZFS Pools Dashboard" />
+      <ZFSPoolsTable
+        latestByEntity={stream.latestByEntity}
+        hasData={stream.hasData}
+        isConnected={stream.isConnected}
+        error={stream.error}
+        isStale={stream.isStale}
+      />
+      <ZFSPoolSpeedCharts rows={stream.rows} />
+    </div>
   )
 }

@@ -40,6 +40,22 @@ async function main() {
     console.log('[Worker] Running database migrations...');
     await runMigrations(db);
 
+    // Read update interval from database settings (overrides env var)
+    const settingsRepo = new SettingsRepository(db.getPool());
+    try {
+      const updateIntervalSetting = await settingsRepo.get('general/updateIntervalMs');
+      if (updateIntervalSetting !== null) {
+        const parsedInterval = parseInt(updateIntervalSetting, 10);
+        if (Number.isFinite(parsedInterval) && parsedInterval >= 100 && parsedInterval <= 60000) {
+          workerConfig.collection.interval = parsedInterval;
+          console.log(`[Worker] Using update interval from database: ${parsedInterval}ms`);
+        }
+      }
+    } catch {
+      // DB read failed or setting doesn't exist — use env var/default
+      console.log(`[Worker] Using update interval from config: ${workerConfig.collection.interval}ms`);
+    }
+
     // Shared AbortController — SIGTERM aborts all collectors instantly
     const shutdownController = new AbortController();
 
@@ -92,7 +108,7 @@ async function main() {
       }
 
       // Read initial debug logging settings and LISTEN for changes
-      const settingsRepo = new SettingsRepository(db.getPool());
+      // (settingsRepo already initialized above for reading update interval)
       const debugSettingKeys = ['developer/dockerDebugLogging', 'developer/dbFlushDebugLogging'] as const;
 
       const applyDebugSetting = (key: string, value: string | null) => {
