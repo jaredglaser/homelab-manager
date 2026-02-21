@@ -30,14 +30,9 @@ function createMockConfig(overrides?: Partial<any>) {
 class TestCollector extends BaseCollector {
   readonly name = 'TestCollector';
   collectFn: () => Promise<void> = async () => {};
-  isConfiguredFn: () => boolean = () => true;
 
   protected async collect(): Promise<void> {
     return this.collectFn();
-  }
-
-  protected isConfigured(): boolean {
-    return this.isConfiguredFn();
   }
 
   testDebugLog(message: string) {
@@ -132,28 +127,13 @@ describe('BaseCollector', () => {
       };
 
       // Abort during the backoff sleep if it takes too long
-      setTimeout(() => controller.abort(new DOMException('Timeout', 'AbortError')), 3000);
+      setTimeout(() => controller.abort(new DOMException('Timeout', 'AbortError')), 1500);
 
       await collector.run();
       expect(callCount).toBeGreaterThanOrEqual(1);
     });
 
-    it('should wait when not configured and abort cancels the wait', async () => {
-      const controller = new AbortController();
-      const collector = new TestCollector(db as any, config, controller);
 
-      let configCheckCount = 0;
-      collector.isConfiguredFn = () => {
-        configCheckCount++;
-        return false;
-      };
-
-      // Abort shortly after first config check triggers the sleep
-      setTimeout(() => controller.abort(new DOMException('Done', 'AbortError')), 100);
-
-      await collector.run();
-      expect(configCheckCount).toBeGreaterThanOrEqual(1);
-    });
   });
 
   describe('debug logging', () => {
