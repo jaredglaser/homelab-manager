@@ -12,14 +12,6 @@ const ZFSHostConfigSchema = z.object({
   (cfg) => cfg.password !== undefined || cfg.privateKeyPath !== undefined,
   { message: 'Either password or privateKeyPath must be provided' }
 );
-  host: z.string(),
-  port: z.number().int().min(1).max(65535),
-  name: z.string(),
-  username: z.string(),
-  password: z.string().optional(),
-  privateKeyPath: z.string().optional(),
-  passphrase: z.string().optional(),
-});
 
 export type ZFSHostConfig = z.infer<typeof ZFSHostConfigSchema>;
 
@@ -60,7 +52,6 @@ export function loadZFSConfig(): ZFSConfig {
         else break;
       }
 
-      const username = process.env[`ZFS_HOST_USER_${i}`];
       const username = process.env[`ZFS_HOST_USER_${i}`];
       if (!username) {
         console.error(`[ZFSConfig] ZFS_HOST_${i} is set but ZFS_HOST_USER_${i} is missing — skipping host ${host}`);
