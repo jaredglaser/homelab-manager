@@ -99,6 +99,14 @@ export class ZFSCollector extends BaseCollector {
   }
 
   protected async collect(): Promise<void> {
+    if (!this.hostConfig.privateKeyPath && !this.hostConfig.password) {
+      console.error(
+        `[${this.name}] No SSH credentials configured for host ${this.hostConfig.host}: ` +
+          `set ZFS_HOST_KEY_PATH_N or ZFS_HOST_PASSWORD_N`
+      );
+      throw new Error(`No SSH credentials configured for host ${this.hostConfig.host}`);
+    }
+
     const sshClient = await sshConnectionManager.getClient({
       id: `ssh-worker-zfs-${this.hostConfig.host}:${this.hostConfig.port}`,
       type: 'ssh',
