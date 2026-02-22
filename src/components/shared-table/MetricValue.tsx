@@ -73,11 +73,11 @@ export const MetricValue = memo(function MetricValue({
     <div className="flex items-center justify-end gap-2">
       {sparkline || sparklinePlaceholder}
 
-      <span className={`${valueWidth} text-right tabular-nums transition-opacity duration-200 ${glowClass} ${staleClass}`}>
+      <span className={`${valueWidth} flex-shrink-0 text-right tabular-nums transition-opacity duration-200 ${glowClass} ${staleClass}`}>
         {value}
       </span>
 
-      <span className={`${unitWidth} text-left text-xs font-mono text-neutral-500 dark:text-neutral-400 transition-opacity duration-200 ${staleClass}`}>
+      <span className={`${unitWidth} min-w-0 text-left text-xs font-mono text-neutral-500 dark:text-neutral-400 transition-opacity duration-200 ${staleClass}`}>
         {displayUnit}
       </span>
     </div>

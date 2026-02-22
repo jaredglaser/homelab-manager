@@ -3,13 +3,13 @@ import { Sheet, Typography, IconButton, Chip, LinearProgress } from '@mui/joy'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { ProxmoxClusterOverview, ProxmoxStorage } from '@/types/proxmox'
 import { formatBytes, formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
-import { MetricValue } from '@/components/shared-table'
+import { MetricValue, MetricHeader } from '@/components/shared-table'
 
 // Shared grid templates for consistent column alignment
 // VM/Container: VMID (0.5fr) + Name (2fr) + Status (0.6fr) + CPU (0.8fr) + Memory (1fr) + Net In (0.8fr) + Net Out (0.8fr)
-const VM_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)] min-w-[800px]'
+const VM_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] min-w-[800px]'
 // Storage: Aligns with VM columns, Usage spans Net In + Net Out for larger progress bar
-const STORAGE_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.6fr)] min-w-[800px]'
+const STORAGE_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,2fr)] min-w-[800px]'
 
 interface ProxmoxHostViewProps {
   overview: ProxmoxClusterOverview
@@ -43,16 +43,16 @@ function VMTable({ vms }: { vms: GuestRow[] }) {
   const sorted = [...vms].sort((a, b) => a.vmid - b.vmid)
 
   return (
-    <Sheet variant="outlined" className="rounded-sm overflow-hidden">
+    <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
       {/* Column headers */}
       <div className={`${VM_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
         <div className="px-3 py-2 font-semibold text-sm">VMID</div>
         <div className="px-3 py-2 font-semibold text-sm">Name</div>
         <div className="px-3 py-2 font-semibold text-sm">Status</div>
-        <div className="px-3 py-2 font-semibold text-sm text-right">CPU</div>
-        <div className="px-3 py-2 font-semibold text-sm text-right">Memory</div>
-        <div className="px-3 py-2 font-semibold text-sm text-right">Net In</div>
-        <div className="px-3 py-2 font-semibold text-sm text-right">Net Out</div>
+        <div className="px-3 py-2"><MetricHeader>CPU</MetricHeader></div>
+        <div className="px-3 py-2"><MetricHeader>Memory</MetricHeader></div>
+        <div className="px-3 py-2"><MetricHeader>Net In</MetricHeader></div>
+        <div className="px-3 py-2"><MetricHeader>Net Out</MetricHeader></div>
       </div>
 
       {/* Data rows */}
@@ -116,15 +116,15 @@ function StorageTable({ storages }: { storages: ProxmoxStorage[] }) {
   const sorted = [...storages].sort((a, b) => a.storage.localeCompare(b.storage))
 
   return (
-    <Sheet variant="outlined" className="rounded-sm overflow-hidden">
+    <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
       {/* Column headers */}
       <div className={`${STORAGE_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
         <div className="px-3 py-2 font-semibold text-sm">Name</div>
         <div className="px-3 py-2 font-semibold text-sm">Type</div>
         <div className="px-3 py-2 font-semibold text-sm">Status</div>
-        <div className="px-3 py-2 font-semibold text-sm text-right">Used</div>
-        <div className="px-3 py-2 font-semibold text-sm text-right">Available</div>
-        <div className="px-3 py-2 font-semibold text-sm text-right">Usage</div>
+        <div className="px-3 py-2"><MetricHeader>Used</MetricHeader></div>
+        <div className="px-3 py-2"><MetricHeader>Available</MetricHeader></div>
+        <div className="px-3 py-2"><MetricHeader>Usage</MetricHeader></div>
       </div>
 
       {/* Data rows */}

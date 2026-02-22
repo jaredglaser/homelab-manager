@@ -160,7 +160,7 @@ export default function ZFSPoolsTable({
           Data is stale. Background worker may not be running.
         </Alert>
       )}
-      <Sheet variant="outlined" className="rounded-sm overflow-hidden">
+      <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
         {/* Column headers */}
         <div className={`${ZFS_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
           <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">
