@@ -17,7 +17,7 @@ const ROW_HEIGHT_ESTIMATE = 41;
 const EXPANDED_ROW_HEIGHT_ESTIMATE = 350;
 const OVERSCAN = 10;
 
-export const DOCKER_GRID = 'grid grid-cols-[20%_repeat(6,1fr)] min-w-[1100px]';
+export const DOCKER_GRID = 'grid grid-cols-[minmax(300px,20%)_repeat(6,minmax(0,1fr))] min-w-[600px]';
 
 interface ContainerTableProps {
   latestByEntity: Map<string, DockerStatsRow>;
@@ -137,6 +137,8 @@ export default function ContainerTable({
         </Alert>
       )}
       <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
+        {/* Shared min-w container ensures header and virtualizer body resolve to the same width */}
+        <div className="min-w-[600px]">
         {/* Column headers */}
         <div className={`${DOCKER_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
           <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Host / Container</div>
@@ -186,6 +188,7 @@ export default function ContainerTable({
               })}
             </div>
           </div>
+        </div>
         </div>
       </Sheet>
     </Box>

@@ -63,7 +63,7 @@ export const MetricValue = memo(function MetricValue({
   // Reserve space for sparkline when enabled (even if not passed) to keep columns aligned
   // SparklineChart dimensions: width=60px, height=24px, hidden on smaller screens via lg:block
   const sparklinePlaceholder = showSparklines && !sparkline ? (
-    <div className="hidden lg:block flex-shrink-0" style={{ width: 60, height: 24 }} />
+    <div className="hidden min-[1280px]:block flex-shrink-0" style={{ width: 60, height: 24 }} />
   ) : null;
 
   const glowClass = color && isGlowing ? `metric-value-glow-${color}` : '';

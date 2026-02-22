@@ -16,10 +16,10 @@ export const MetricHeader = memo(function MetricHeader({ children }: { children:
   return (
     <div className="flex items-center justify-end gap-2">
       {showSparklines && (
-        <div className="hidden lg:block flex-shrink-0" style={{ width: 60 }} />
+        <div className="hidden min-[1280px]:block flex-shrink-0" style={{ width: 60 }} />
       )}
       <span className="flex-shrink-0 font-semibold text-sm whitespace-nowrap">{children}</span>
-      <span className={`${unitWidth} flex-shrink-0`} />
+      <span className={`${unitWidth} min-w-0`} />
     </div>
   );
 });

@@ -198,7 +198,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             hasDecimals={decimals.cpu}
             color="cpu"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden min-[1428px]:block" />}
           />
         </div>
         <div>
@@ -208,7 +208,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             hasDecimals={decimals.memory}
             color="memory"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden min-[1428px]:block" />}
           />
         </div>
         <div >
@@ -218,7 +218,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             hasDecimals={decimals.diskSpeed}
             color="read"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden min-[1428px]:block" />}
           />
         </div>
         <div >
@@ -228,7 +228,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             hasDecimals={decimals.diskSpeed}
             color="write"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden min-[1428px]:block" />}
           />
         </div>
         <div>
@@ -238,7 +238,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             hasDecimals={decimals.networkSpeed}
             color="read"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden min-[1428px]:block" />}
           />
         </div>
         <div>
@@ -248,7 +248,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             hasDecimals={decimals.networkSpeed}
             color="write"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden min-[1428px]:block" />}
           />
         </div>
       </div>

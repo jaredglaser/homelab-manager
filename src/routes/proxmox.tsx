@@ -143,11 +143,11 @@ function ProxmoxPageContent() {
   return (
     <div className="w-full p-6">
       <div className="flex items-center justify-between mb-6">
+        <PageHeader title="Proxmox Dashboard" />
         <div className="flex items-center gap-3">
-          <PageHeader title="Proxmox Dashboard" />
           <UpdateIndicator lastUpdate={lastUpdate} expectedInterval={proxmox.updateInterval} />
+          <IntervalToggle interval={proxmox.updateInterval} onIntervalChange={setProxmoxUpdateInterval} />
         </div>
-        <IntervalToggle interval={proxmox.updateInterval} onIntervalChange={setProxmoxUpdateInterval} />
       </div>
       <ProxmoxContent onUpdate={setLastUpdate} />
     </div>
