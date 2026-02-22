@@ -131,7 +131,11 @@ export function buildHierarchy(stats: ZFSIOStatWithRates[]): ZFSHierarchy {
     }
   }
 
-  return hierarchy;
+  // Sort pools alphabetically for stable render order
+  const sorted: ZFSHierarchy = new Map(
+    [...hierarchy.entries()].sort(([a], [b]) => a.localeCompare(b))
+  );
+  return sorted;
 }
 
 /**

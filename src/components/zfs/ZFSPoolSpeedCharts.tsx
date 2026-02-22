@@ -47,6 +47,7 @@ export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
     for (const [poolName, dataPoints] of poolMap) {
       result.push({ poolName, dataPoints });
     }
+    result.sort((a, b) => a.poolName.localeCompare(b.poolName));
     return result;
   }, [rows]);
 

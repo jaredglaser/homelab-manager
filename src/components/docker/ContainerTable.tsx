@@ -6,7 +6,7 @@ import { AlertTriangle, ChevronRight, Server, WifiOff } from 'lucide-react';
 import type { DockerStatsRow, DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
 import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
-import { MetricValue } from '../shared-table';
+import { MetricValue, MetricHeader } from '../shared-table';
 import ContainerRow from './ContainerRow';
 
 type FlatRow =
@@ -17,7 +17,7 @@ const ROW_HEIGHT_ESTIMATE = 41;
 const EXPANDED_ROW_HEIGHT_ESTIMATE = 350;
 const OVERSCAN = 10;
 
-export const DOCKER_GRID = 'grid grid-cols-[20%_repeat(6,1fr)] min-w-[800px]';
+export const DOCKER_GRID = 'grid grid-cols-[minmax(300px,20%)_repeat(6,minmax(0,1fr))] min-w-[600px]';
 
 interface ContainerTableProps {
   latestByEntity: Map<string, DockerStatsRow>;
@@ -136,16 +136,18 @@ export default function ContainerTable({
           Data is stale. Background worker may not be running.
         </Alert>
       )}
-      <Sheet variant="outlined" className="rounded-sm overflow-hidden">
+      <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
+        {/* Shared min-w container ensures header and virtualizer body resolve to the same width */}
+        <div className="min-w-[600px]">
         {/* Column headers */}
         <div className={`${DOCKER_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
           <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Host / Container</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">CPU</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">{memLabel}</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Disk Read</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Disk Write</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Net RX</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right pr-16 whitespace-nowrap">Net TX</div>
+          <div className="py-2"><MetricHeader>CPU</MetricHeader></div>
+          <div className="py-2"><MetricHeader>{memLabel}</MetricHeader></div>
+          <div className="py-2"><MetricHeader>Disk Read</MetricHeader></div>
+          <div className="py-2"><MetricHeader>Disk Write</MetricHeader></div>
+          <div className="py-2"><MetricHeader>Net RX</MetricHeader></div>
+          <div className="py-2"><MetricHeader>Net TX</MetricHeader></div>
         </div>
 
         {/* Virtualized body */}
@@ -186,6 +188,7 @@ export default function ContainerTable({
               })}
             </div>
           </div>
+        </div>
         </div>
       </Sheet>
     </Box>

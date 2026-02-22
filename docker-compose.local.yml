@@ -1,3 +1,11 @@
+# Docker Compose configuration for hybrid local development
+# This runs only postgres + worker in Docker, while web app runs locally with `bun dev`
+#
+# Usage:
+#   bun run dev:local:up    # Start postgres + worker
+#   bun dev                 # Run web app locally (separate terminal)
+#   bun run dev:local:down  # Stop services
+
 x-postgres-env: &postgres-env
   POSTGRES_HOST: postgres
   POSTGRES_PORT: 5432
@@ -7,15 +15,15 @@ x-postgres-env: &postgres-env
   POSTGRES_SSL: "false"
 
 x-docker-env: &docker-env
-  DOCKER_HOST_1: ${DOCKER_HOST_1:-}
-  DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1:-2375}
-  DOCKER_HOST_NAME_1: ${DOCKER_HOST_NAME_1:-}
-  DOCKER_HOST_2: ${DOCKER_HOST_2:-}
-  DOCKER_HOST_PORT_2: ${DOCKER_HOST_PORT_2:-2375}
-  DOCKER_HOST_NAME_2: ${DOCKER_HOST_NAME_2:-}
-  DOCKER_HOST_3: ${DOCKER_HOST_3:-}
-  DOCKER_HOST_PORT_3: ${DOCKER_HOST_PORT_3:-2375}
-  DOCKER_HOST_NAME_3: ${DOCKER_HOST_NAME_3:-}
+  DOCKER_HOST_1: ${DOCKER_HOST_1}
+  DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1}
+  DOCKER_HOST_NAME_1: ${DOCKER_HOST_NAME_1}
+  DOCKER_HOST_2: ${DOCKER_HOST_2}
+  DOCKER_HOST_PORT_2: ${DOCKER_HOST_PORT_2}
+  DOCKER_HOST_NAME_2: ${DOCKER_HOST_NAME_2}
+  DOCKER_HOST_3: ${DOCKER_HOST_3}
+  DOCKER_HOST_PORT_3: ${DOCKER_HOST_PORT_3}
+  DOCKER_HOST_NAME_3: ${DOCKER_HOST_NAME_3}
 
 x-zfs-env: &zfs-env
   ZFS_HOST_1: ${ZFS_HOST_1:-}
@@ -40,18 +48,14 @@ x-zfs-env: &zfs-env
   ZFS_HOST_KEY_PATH_3: ${ZFS_HOST_KEY_PATH_3:-}
   ZFS_HOST_KEY_PASSPHRASE_3: ${ZFS_HOST_KEY_PASSPHRASE_3:-}
 
-x-proxmox-env: &proxmox-env
-  PROXMOX_HOST: ${PROXMOX_HOST:-}
-  PROXMOX_PORT: ${PROXMOX_PORT:-8006}
-  PROXMOX_TOKEN_ID: ${PROXMOX_TOKEN_ID:-}
-  PROXMOX_TOKEN_SECRET: ${PROXMOX_TOKEN_SECRET:-}
-  PROXMOX_ALLOW_SELF_SIGNED: ${PROXMOX_ALLOW_SELF_SIGNED:-true}
-
-x-shared: &shared
+x-worker-dev: &worker-dev
   build:
     context: .
     dockerfile: Dockerfile
-    target: base
+    target: deps
+  volumes:
+    - .:/app
+    - node_modules:/app/node_modules
   extra_hosts:
     - "host.docker.internal:host-gateway"
   restart: unless-stopped
@@ -65,7 +69,8 @@ services:
   # PostgreSQL database
   postgres:
     image: timescale/timescaledb:latest-pg16
-    container_name: homelab-db
+    container_name: homelab-db-local
+    mem_limit: 256m
     command: postgres -c synchronous_commit=off
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -74,7 +79,7 @@ services:
     ports:
       - "${POSTGRES_PORT}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata-local:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
@@ -86,8 +91,9 @@ services:
 
   # Background worker (collects stats and persists to DB)
   worker:
-    <<: *shared
-    container_name: homelab-worker
+    <<: *worker-dev
+    container_name: homelab-worker-local
+    mem_limit: 512m
     command: bun src/worker/collector.ts
     environment:
       <<: [*postgres-env, *docker-env, *zfs-env]
@@ -97,33 +103,9 @@ services:
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
 
-  # Web server (production build)
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
-    container_name: homelab-web
-    ports:
-      - "${WEB_PORT}:3000"
-    environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
-      NODE_ENV: production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
-    networks:
-      - homelab-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-
 volumes:
-  pgdata:
+  node_modules:
+  pgdata-local:
 
 networks:
   homelab-network:

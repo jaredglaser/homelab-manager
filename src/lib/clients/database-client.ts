@@ -48,7 +48,6 @@ export class DatabaseClient implements StreamingClient {
       await client.query('SELECT 1');
       client.release();
       this.connected = true;
-      console.log(`[DatabaseClient] Connected to ${this.id}`);
     } catch (err) {
       this.connected = false;
       console.error(`[DatabaseClient] Connection failed:`, err);
@@ -71,7 +70,6 @@ export class DatabaseClient implements StreamingClient {
   }
 
   async close(): Promise<void> {
-    console.log(`[DatabaseClient] Closing connection: ${this.id}`);
     await this.pool.end();
     this.connected = false;
   }
@@ -94,7 +92,6 @@ class DatabaseConnectionManager {
     let client = this.connections.get(key);
 
     if (!client || !client.isConnected()) {
-      console.log(`[DatabaseConnectionManager] Creating new connection: ${key}`);
       client = new DatabaseClient(config);
       await client.connect();
       this.connections.set(key, client);
@@ -118,7 +115,6 @@ class DatabaseConnectionManager {
    * Close all connections
    */
   async closeAll(): Promise<void> {
-    console.log('[DatabaseConnectionManager] Closing all connections');
     const promises = Array.from(this.connections.values()).map(c => c.close());
     await Promise.all(promises);
     this.connections.clear();
