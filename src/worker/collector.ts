@@ -4,6 +4,7 @@ import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadDockerConfig } from '@/lib/config/docker-config';
+import { loadZFSConfig } from '@/lib/config/zfs-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
@@ -94,10 +95,22 @@ async function main() {
       }
 
       if (workerConfig.zfs.enabled) {
-        console.log('[Worker] Starting ZFS collector');
-        const collector = stack.use(new ZFSCollector(db, workerConfig, shutdownController));
-        allCollectors.push(collector);
-        runners.push(collector.run());
+        const zfsConfig = loadZFSConfig();
+
+        if (zfsConfig.hosts.length === 0) {
+          console.log('[Worker] ZFS enabled but no hosts configured');
+        } else {
+          console.log(`[Worker] Starting ${zfsConfig.hosts.length} ZFS collector(s)`);
+
+          for (const hostConfig of zfsConfig.hosts) {
+            console.log(`[Worker] Starting ZFS collector for ${hostConfig.name}`);
+            const collector = stack.use(
+              new ZFSCollector(db, workerConfig, hostConfig, shutdownController)
+            );
+            allCollectors.push(collector);
+            runners.push(collector.run());
+          }
+        }
       } else {
         console.log('[Worker] ZFS collector disabled');
       }
@@ -108,7 +121,6 @@ async function main() {
       }
 
       // Read initial debug logging settings and LISTEN for changes
-      // (settingsRepo already initialized above for reading update interval)
       const debugSettingKeys = ['developer/dockerDebugLogging', 'developer/dbFlushDebugLogging'] as const;
 
       const applyDebugSetting = (key: string, value: string | null) => {

@@ -23,13 +23,18 @@ export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
     // Filter to pool-level entities only (no '/' in entity path)
     const poolRows = rows.filter((r) => !r.entity.includes('/'));
 
-    // Group by pool name
+    // Check if there are multiple hosts
+    const hosts = new Set(poolRows.map(r => r.host));
+    const multiHost = hosts.size > 1;
+
+    // Group by host/pool (or just pool for single host)
     const poolMap = new Map<string, TimeSeriesDataPoint[]>();
     for (const row of poolRows) {
-      let points = poolMap.get(row.pool);
+      const key = multiHost && row.host ? `${row.host}/${row.pool}` : row.pool;
+      let points = poolMap.get(key);
       if (!points) {
         points = [];
-        poolMap.set(row.pool, points);
+        poolMap.set(key, points);
       }
       points.push({
         timestamp: new Date(row.time).getTime(),
@@ -42,6 +47,7 @@ export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
     for (const [poolName, dataPoints] of poolMap) {
       result.push({ poolName, dataPoints });
     }
+    result.sort((a, b) => a.poolName.localeCompare(b.poolName));
     return result;
   }, [rows]);
 

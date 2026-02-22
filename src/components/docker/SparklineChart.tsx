@@ -62,7 +62,6 @@ export default memo(function SparklineChart({
       rightEdgeTimeRef.current = latestTimestamp;
 
       if (hasNewData) {
-        console.log(`[SparklineChart] New data detected, sparkline updating at ${new Date().toISOString()}, data points: ${data.length}, latest timestamp: ${new Date(latestTimestamp).toISOString()}`);
         lineProgressRef.current = 0; // Animate line to new point
         pulseProgressRef.current = 0; // Start pulse animation
       }
@@ -227,7 +226,7 @@ export default memo(function SparklineChart({
   }, [width, height, drawWidth, drawHeight]);
 
   return (
-    <div className={className} style={{ contain: 'strict', height, width }}>
+    <div className={`flex-shrink-0 ${className ?? ''}`} style={{ contain: 'strict', height, width }}>
       <canvas ref={canvasRef} style={{ width, height, display: 'block' }} />
     </div>
   );

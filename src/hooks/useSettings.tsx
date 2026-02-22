@@ -10,25 +10,31 @@ export interface DecimalSettings {
   networkSpeed: boolean;
 }
 
+export type ProxmoxUpdateInterval = 1000 | 10000;
+
 export interface Settings {
   general: {
     use12HourTime: boolean;
     updateIntervalMs: number;
+    showSparklines: boolean;
+    useAbbreviatedUnits: boolean;
   };
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
-    showSparklines: boolean;
-    useAbbreviatedUnits: boolean;
     expandedHosts: Set<string>;
     expandedContainers: Set<string>;
     decimals: DecimalSettings;
   };
   zfs: {
+    expandedHosts: Set<string>;
     expandedPools: Set<string>;
     expandedVdevs: Set<string>;
     decimals: {
       diskSpeed: boolean;
     };
+  };
+  proxmox: {
+    updateInterval: ProxmoxUpdateInterval;
   };
   retention: {
     rawDataHours: number;
@@ -52,12 +58,15 @@ interface SettingsContextValue extends Settings {
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   toggleContainerExpanded: (containerId: string) => void;
   isContainerExpanded: (containerId: string) => boolean;
-  togglePoolExpanded: (poolName: string) => void;
-  isPoolExpanded: (poolName: string, totalPools: number) => boolean;
+  toggleZfsHostExpanded: (hostName: string) => void;
+  isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
+  togglePoolExpanded: (poolId: string) => void;
+  isPoolExpanded: (poolId: string, totalPools: number) => boolean;
   toggleVdevExpanded: (vdevId: string) => void;
   isVdevExpanded: (vdevId: string) => boolean;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
+  setProxmoxUpdateInterval: (interval: ProxmoxUpdateInterval) => void;
   setRetention: (key: keyof Settings['retention'], value: number) => void;
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
@@ -75,21 +84,25 @@ const DEFAULT_SETTINGS: Settings = {
   general: {
     use12HourTime: true,
     updateIntervalMs: 1000,
-  },
-  docker: {
-    memoryDisplayMode: 'percentage',
     showSparklines: true,
     useAbbreviatedUnits: false,
+  },
+  docker: {
+    memoryDisplayMode: 'bytes',
     expandedHosts: new Set(),
     expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
   },
   zfs: {
+    expandedHosts: new Set(),
     expandedPools: new Set(),
     expandedVdevs: new Set(),
     decimals: {
       diskSpeed: false,
     },
+  },
+  proxmox: {
+    updateInterval: 10000,
   },
   retention: {
     rawDataHours: 1,
@@ -129,19 +142,24 @@ function parseIntSetting(raw: string | undefined, defaultValue: number): number 
   return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
+function parseProxmoxUpdateInterval(raw: string | undefined): ProxmoxUpdateInterval {
+  const parsed = parseIntSetting(raw, DEFAULT_SETTINGS.proxmox.updateInterval);
+  return parsed === 1000 || parsed === 10000 ? parsed : DEFAULT_SETTINGS.proxmox.updateInterval;
+}
+
 function parseSettings(raw: Record<string, string>): Settings {
   const memMode = raw['docker/memoryDisplayMode'];
   return {
     general: {
       use12HourTime: parseBool(raw['general/use12HourTime'], DEFAULT_SETTINGS.general.use12HourTime),
       updateIntervalMs: parseIntSetting(raw['general/updateIntervalMs'], DEFAULT_SETTINGS.general.updateIntervalMs),
+      showSparklines: parseBool(raw['general/showSparklines'], DEFAULT_SETTINGS.general.showSparklines),
+      useAbbreviatedUnits: parseBool(raw['general/useAbbreviatedUnits'], DEFAULT_SETTINGS.general.useAbbreviatedUnits),
     },
     docker: {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
-      showSparklines: parseBool(raw['docker/showSparklines'], DEFAULT_SETTINGS.docker.showSparklines),
-      useAbbreviatedUnits: parseBool(raw['docker/useAbbreviatedUnits'], DEFAULT_SETTINGS.docker.useAbbreviatedUnits),
       expandedHosts: parseExpandedSet(raw['docker/expandedHosts']),
       expandedContainers: parseExpandedSet(raw['docker/expandedContainers']),
       decimals: {
@@ -152,11 +170,15 @@ function parseSettings(raw: Record<string, string>): Settings {
       },
     },
     zfs: {
+      expandedHosts: parseExpandedSet(raw['zfs/expandedHosts']),
       expandedPools: parseExpandedSet(raw['zfs/expandedPools']),
       expandedVdevs: parseExpandedSet(raw['zfs/expandedVdevs']),
       decimals: {
         diskSpeed: parseBool(raw['zfs/decimals/diskSpeed'], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
       },
+    },
+    proxmox: {
+      updateInterval: parseProxmoxUpdateInterval(raw['proxmox/updateInterval']),
     },
     retention: {
       rawDataHours: parseIntSetting(raw['retention/rawDataHours'], DEFAULT_SETTINGS.retention.rawDataHours),
@@ -177,6 +199,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
+    // TODO: Proactively write all default settings to the database on first load
+    // This would eliminate the need for fallback defaults in server-side code (e.g., proxmox-poll-service.ts)
+    // and ensure all clients start with the same persisted values
     getAllSettings().then(raw => {
       setSettings(parseSettings(raw));
     }).catch(() => {
@@ -217,9 +242,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setShowSparklines = useCallback((value: boolean) => {
     setSettings(prev => ({
       ...prev,
-      docker: { ...prev.docker, showSparklines: value },
+      general: { ...prev.general, showSparklines: value },
     }));
-    updateSetting({ data: { key: 'docker/showSparklines', value: String(value) } }).catch(() => {
+    updateSetting({ data: { key: 'general/showSparklines', value: String(value) } }).catch(() => {
       // Fire-and-forget
     });
   }, []);
@@ -227,9 +252,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setUseAbbreviatedUnits = useCallback((value: boolean) => {
     setSettings(prev => ({
       ...prev,
-      docker: { ...prev.docker, useAbbreviatedUnits: value },
+      general: { ...prev.general, useAbbreviatedUnits: value },
     }));
-    updateSetting({ data: { key: 'docker/useAbbreviatedUnits', value: String(value) } }).catch(() => {
+    updateSetting({ data: { key: 'general/useAbbreviatedUnits', value: String(value) } }).catch(() => {
       // Fire-and-forget
     });
   }, []);
@@ -303,13 +328,46 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     [settings.docker.expandedContainers]
   );
 
-  const togglePoolExpanded = useCallback((poolName: string) => {
+  const toggleZfsHostExpanded = useCallback((hostName: string) => {
+    setSettings(prev => {
+      const newExpanded = new Set(prev.zfs.expandedHosts);
+      if (newExpanded.has(hostName)) {
+        newExpanded.delete(hostName);
+      } else {
+        newExpanded.add(hostName);
+      }
+
+      updateSetting({
+        data: {
+          key: 'zfs/expandedHosts',
+          value: JSON.stringify(Array.from(newExpanded)),
+        },
+      }).catch(() => {
+        // Fire-and-forget
+      });
+
+      return {
+        ...prev,
+        zfs: { ...prev.zfs, expandedHosts: newExpanded },
+      };
+    });
+  }, []);
+
+  const isZfsHostExpanded = useCallback(
+    (hostName: string, totalHosts: number): boolean => {
+      if (totalHosts === 1) return true;
+      return settings.zfs.expandedHosts.has(hostName);
+    },
+    [settings.zfs.expandedHosts]
+  );
+
+  const togglePoolExpanded = useCallback((poolId: string) => {
     setSettings(prev => {
       const newExpanded = new Set(prev.zfs.expandedPools);
-      if (newExpanded.has(poolName)) {
-        newExpanded.delete(poolName);
+      if (newExpanded.has(poolId)) {
+        newExpanded.delete(poolId);
       } else {
-        newExpanded.add(poolName);
+        newExpanded.add(poolId);
       }
 
       // Persist to DB
@@ -330,11 +388,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isPoolExpanded = useCallback(
-    (poolName: string, totalPools: number): boolean => {
+    (poolId: string, totalPools: number): boolean => {
       // If only one pool, always expanded
       if (totalPools === 1) return true;
       // Otherwise check the stored state (default collapsed)
-      return settings.zfs.expandedPools.has(poolName);
+      return settings.zfs.expandedPools.has(poolId);
     },
     [settings.zfs.expandedPools]
   );
@@ -397,6 +455,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setProxmoxUpdateInterval = useCallback((interval: ProxmoxUpdateInterval) => {
+    setSettings(prev => ({
+      ...prev,
+      proxmox: { ...prev.proxmox, updateInterval: interval },
+    }));
+    updateSetting({ data: { key: 'proxmox/updateInterval', value: String(interval) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
   const setRetention = useCallback((key: keyof Settings['retention'], value: number) => {
     setSettings(prev => ({
       ...prev,
@@ -450,12 +518,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isHostExpanded,
         toggleContainerExpanded,
         isContainerExpanded,
+        toggleZfsHostExpanded,
+        isZfsHostExpanded,
         togglePoolExpanded,
         isPoolExpanded,
         toggleVdevExpanded,
         isVdevExpanded,
         setDockerDecimal,
         setZfsDecimal,
+        setProxmoxUpdateInterval,
         setRetention,
         setDockerDebugLogging,
         setDbFlushDebugLogging,

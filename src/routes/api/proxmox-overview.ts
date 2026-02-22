@@ -1,12 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-export const Route = createFileRoute('/api/docker-stats')({
+export const Route = createFileRoute('/api/proxmox-overview')({
   server: {
     handlers: {
       GET: async ({ request }) => {
         await import('@/lib/server-init');
-        const { statsPollService } = await import(
-          '@/lib/database/subscription-service'
+        const { proxmoxPollService } = await import(
+          '@/lib/proxmox/proxmox-poll-service'
         );
 
         const encoder = new TextEncoder();
@@ -14,17 +14,17 @@ export const Route = createFileRoute('/api/docker-stats')({
 
         const stream = new ReadableStream({
           start(controller) {
-            const sendData = (rows: unknown[]) => {
+            const sendData = (overview: unknown) => {
               if (closed) return;
               try {
-                const message = `data: ${JSON.stringify(rows)}\n\n`;
+                const message = `data: ${JSON.stringify(overview)}\n\n`;
                 controller.enqueue(encoder.encode(message));
               } catch {
                 closed = true;
               }
             };
 
-            const unsubscribe = statsPollService.subscribe('docker', sendData);
+            const unsubscribe = proxmoxPollService.subscribe(sendData);
 
             request.signal.addEventListener('abort', () => {
               closed = true;

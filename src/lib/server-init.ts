@@ -1,4 +1,5 @@
-import { notifyService } from '@/lib/database/subscription-service';
+import { statsPollService } from '@/lib/database/subscription-service';
+import { proxmoxPollService } from '@/lib/proxmox/proxmox-poll-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 
 let initialized = false;
@@ -15,7 +16,8 @@ export function initServer(): void {
     console.log('[Server] Shutdown signal received, cleaning up...');
 
     try {
-      await notifyService.stop();
+      await statsPollService.stop();
+      await proxmoxPollService.stop();
       await databaseConnectionManager.closeAll();
 
       console.log('[Server] Cleanup complete');

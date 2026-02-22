@@ -5,6 +5,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 interface UseSSEOptions<T> {
   url: string;
   onData: (data: T) => void;
+  debug?: boolean;
 }
 
 interface UseSSEResult {
@@ -15,12 +16,15 @@ interface UseSSEResult {
 export function useSSE<T>({
   url,
   onData,
+  debug = false,
 }: UseSSEOptions<T>): UseSSEResult {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onDataRef = useRef(onData);
   const reconnectAttemptsRef = useRef(0);
+  const messageCountRef = useRef(0);
+  const lastMessageTimeRef = useRef(0);
 
   // Keep onData ref up to date
   onDataRef.current = onData;
@@ -31,6 +35,7 @@ export function useSSE<T>({
     const connect = () => {
       if (!mounted) return;
 
+      if (debug) console.log(`[useSSE] Connecting to ${url}`);
       const eventSource = new EventSource(url);
       eventSourceRef.current = eventSource;
 
@@ -39,13 +44,30 @@ export function useSSE<T>({
           setIsConnected(true);
           setError(null);
           reconnectAttemptsRef.current = 0;
+          if (debug) console.log('[useSSE] Connected');
         }
       };
 
       eventSource.onmessage = (event) => {
         if (mounted) {
           try {
+            const now = performance.now();
+            const timeSinceLastMessage = lastMessageTimeRef.current > 0
+              ? now - lastMessageTimeRef.current
+              : 0;
+            lastMessageTimeRef.current = now;
+            messageCountRef.current++;
+
             const data = JSON.parse(event.data) as T;
+            const rowCount = Array.isArray(data) ? data.length : 1;
+
+            if (debug) {
+              console.log(
+                `[useSSE] Message #${messageCountRef.current}: ${rowCount} rows ` +
+                `(${timeSinceLastMessage > 0 ? `${timeSinceLastMessage.toFixed(0)}ms since last` : 'first message'})`
+              );
+            }
+
             onDataRef.current(data);
           } catch (err) {
             console.error('[useSSE] Failed to parse message:', err);
@@ -57,6 +79,10 @@ export function useSSE<T>({
         if (mounted) {
           setIsConnected(false);
           reconnectAttemptsRef.current++;
+
+          if (debug) {
+            console.warn(`[useSSE] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+          }
 
           // Set error after multiple failed reconnection attempts
           if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
@@ -71,11 +97,12 @@ export function useSSE<T>({
     return () => {
       mounted = false;
       if (eventSourceRef.current) {
+        if (debug) console.log('[useSSE] Closing connection');
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }
     };
-  }, [url]);
+  }, [url, debug]);
 
   return { isConnected, error };
 }

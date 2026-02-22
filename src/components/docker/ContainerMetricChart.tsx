@@ -56,8 +56,8 @@ function calculateCleanYAxis(maxValue: number, isPercent: boolean = false): YAxi
     return isPercent ? { max: 100, interval: 20 } : { max: 100, interval: 20 };
   }
 
-  if (isPercent) {
-    // For percentages, cap at 100%
+  if (isPercent && maxValue <= 100) {
+    // For percentages that fit within 100%, cap there for a clean axis
     const effectiveMax = Math.min(maxValue * 1.1, 100);
     const interval = findNiceInterval(effectiveMax);
     const max = Math.min(Math.ceil(effectiveMax / interval) * interval, 100);

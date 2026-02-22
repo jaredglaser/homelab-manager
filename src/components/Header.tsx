@@ -12,6 +12,9 @@ export default function Header() {
           <Link to="/zfs">ZFS</Link>
         </span>
         <span className="px-1 font-bold">
+          <Link to="/proxmox">Proxmox</Link>
+        </span>
+        <span className="px-1 font-bold">
           <Link to="/settings">Settings</Link>
         </span>
       </nav>

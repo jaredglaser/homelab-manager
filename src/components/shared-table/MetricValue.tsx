@@ -31,8 +31,8 @@ export const MetricValue = memo(function MetricValue({
   color,
   isStale = false,
 }: MetricValueProps) {
-  const { docker } = useSettings();
-  const { useAbbreviatedUnits, showSparklines } = docker;
+  const { general } = useSettings();
+  const { useAbbreviatedUnits, showSparklines } = general;
   const previousValueRef = useRef<string>(value);
   const [isGlowing, setIsGlowing] = useState(false);
 
@@ -63,7 +63,7 @@ export const MetricValue = memo(function MetricValue({
   // Reserve space for sparkline when enabled (even if not passed) to keep columns aligned
   // SparklineChart dimensions: width=60px, height=24px, hidden on smaller screens via lg:block
   const sparklinePlaceholder = showSparklines && !sparkline ? (
-    <div className="hidden lg:block flex-shrink-0" style={{ width: 60, height: 24 }} />
+    <div className="hidden min-[1280px]:block flex-shrink-0" style={{ width: 60, height: 24 }} />
   ) : null;
 
   const glowClass = color && isGlowing ? `metric-value-glow-${color}` : '';
@@ -73,11 +73,11 @@ export const MetricValue = memo(function MetricValue({
     <div className="flex items-center justify-end gap-2">
       {sparkline || sparklinePlaceholder}
 
-      <span className={`${valueWidth} text-right tabular-nums transition-opacity duration-200 ${glowClass} ${staleClass}`}>
+      <span className={`${valueWidth} flex-shrink-0 text-right tabular-nums transition-opacity duration-200 ${glowClass} ${staleClass}`}>
         {value}
       </span>
 
-      <span className={`${unitWidth} text-left text-xs font-mono text-neutral-500 dark:text-neutral-400 transition-opacity duration-200 ${staleClass}`}>
+      <span className={`${unitWidth} min-w-0 text-left text-xs font-mono text-neutral-500 dark:text-neutral-400 transition-opacity duration-200 ${staleClass}`}>
         {displayUnit}
       </span>
     </div>

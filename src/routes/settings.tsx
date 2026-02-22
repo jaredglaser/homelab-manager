@@ -53,6 +53,22 @@ function SettingsContent() {
                 marks={UPDATE_INTERVAL_MARKS}
               />
             </div>
+            <FormControl orientation="horizontal" className="justify-between">
+              <FormLabel>Show Sparklines</FormLabel>
+              <Switch
+                checked={general.showSparklines}
+                onChange={(e) => setShowSparklines(e.target.checked)}
+              />
+            </FormControl>
+
+            <FormControl orientation="horizontal" className="justify-between">
+              <FormLabel>Use Abbreviated Units</FormLabel>
+              <Switch
+                checked={general.useAbbreviatedUnits}
+                onChange={(e) => setUseAbbreviatedUnits(e.target.checked)}
+              />
+            </FormControl>
+
           </div>
         </Card>
 
@@ -70,22 +86,6 @@ function SettingsContent() {
                 <Option value="percentage">Percentage (%)</Option>
                 <Option value="bytes">Bytes (B, KiB, MiB, GiB)</Option>
               </Select>
-            </FormControl>
-
-            <FormControl orientation="horizontal" className="justify-between">
-              <FormLabel>Show Sparklines</FormLabel>
-              <Switch
-                checked={docker.showSparklines}
-                onChange={(e) => setShowSparklines(e.target.checked)}
-              />
-            </FormControl>
-
-            <FormControl orientation="horizontal" className="justify-between">
-              <FormLabel>Use Abbreviated Units</FormLabel>
-              <Switch
-                checked={docker.useAbbreviatedUnits}
-                onChange={(e) => setUseAbbreviatedUnits(e.target.checked)}
-              />
             </FormControl>
 
             <div>

@@ -37,39 +37,96 @@
 - **Testing:** Bun test (`bun:test`)
 - **Deployment:** Docker Compose (multi-container setup)
 
+## Development Modes
+
+This project supports three development workflows:
+
+### 1. **Local Development (Recommended)** - Hybrid Docker/Local
+Best for active web app development. Database and worker run in Docker while the web app runs locally with native Bun for optimal HMR performance and debugging.
+
+**Advantages:**
+- ✅ Fastest HMR (native Bun, no container overhead)
+- ✅ Easier debugging (native debugger, better stack traces)
+- ✅ Better IDE integration (no volume mount delays)
+- ✅ Lower resource usage (only 2 containers)
+
+**When to use:** Daily development, rapid iteration on UI/features
+
+### 2. **Docker Development** - Full Containerized
+All services run in Docker containers with HMR via volume mounts. Use this to test in a production-like environment.
+
+**Advantages:**
+- ✅ Production-like environment
+- ✅ Isolated from host system
+- ✅ Consistent across team members
+
+**When to use:** Testing deployment, debugging container-specific issues, CI/CD pipeline validation
+
+### 3. **Fully Local Development** - All Services Local
+Advanced workflow running all services directly on the host. Requires local PostgreSQL installation.
+
+**When to use:** Deep database debugging, development without Docker
+
 ## Commands
 
-### Development
+### Development (Local - Recommended)
 ```bash
-bun dev                     # Dev server (port 3000)
+# Terminal 1: Start Docker services (postgres + worker)
+bun run dev:local:up        # Start database and worker in Docker
+
+# Terminal 2: Run web app locally
+bun dev                     # Start web server on port 3000 with HMR
+
+# Management commands
+bun run dev:local:down      # Stop Docker services
+bun run dev:local:restart   # Restart Docker services
+bun run dev:local:rebuild   # Rebuild and restart Docker services
+bun run dev:local:wipe      # Remove all data (fresh database)
+bun run dev:local:logs      # View all Docker logs
+bun run dev:local:logs:worker   # View worker logs only
+bun run dev:local:logs:db   # View database logs only
+```
+
+**Quick Start:**
+1. `bun run dev:local:up` (wait for "healthy" status)
+2. `bun dev` (in a new terminal)
+3. Open http://localhost:3000
+
+### Development (Full Docker with HMR)
+```bash
+bun dev:docker:up           # Start all services in Docker (includes web with HMR)
+bun dev:docker:down         # Stop all Docker services
+bun dev:docker:restart      # Restart all services
+bun dev:docker:rebuild      # Full rebuild of all containers
+bun dev:docker:wipe         # Remove all data (fresh database)
+```
+
+### Testing & Type Checking
+```bash
 bun run typecheck           # Run TypeScript type checking
-bun build                   # Production build (runs typecheck first)
 bun test                    # Run all tests
 bun test --watch            # Watch mode
 bun run test:coverage       # Run tests with coverage report
 bun run test:coverage:check # Run tests and enforce 93% coverage threshold
 ```
 
-### Background Worker
+### Production Build
 ```bash
-bun worker                  # Run background collector (Docker + ZFS stats)
+bun build                   # Production build (runs typecheck first)
+```
+
+### Background Worker (Standalone)
+```bash
+bun worker                  # Run background collector locally (requires local PostgreSQL)
 ```
 
 ### Docker Compose (Production)
 ```bash
-docker compose up -d          # Start all services
-docker compose down && docker compose up -d  # Restart with fresh database
-docker compose logs -f web    # View web server logs
-docker compose logs -f worker # View background worker logs
-docker compose ps             # View service status
-```
-
-### Docker Compose (Development - HMR)
-```bash
-bun dev:docker:up             # Start with HMR + volume mounts
-bun dev:docker:down           # Stop dev services
-bun dev:docker:restart        # Restart dev services (down && up)
-docker compose -f docker-compose.dev.yml logs -f web  # View dev web logs
+docker compose up -d        # Start all services in production mode
+docker compose down         # Stop all services
+docker compose logs -f web  # View web server logs
+docker compose logs -f worker  # View background worker logs
+docker compose ps           # View service status
 ```
 
 ## File Organization
@@ -80,6 +137,7 @@ src/
 │   ├── shared-table/        # MetricValue (shared infrastructure)
 │   ├── docker/              # Docker-specific components (CSS Grid + useWindowVirtualizer)
 │   ├── zfs/                 # ZFS-specific components (CSS Grid + useWindowVirtualizer)
+│   ├── proxmox/             # Proxmox components (ClusterSummaryCards, NodeTable, GuestTable, StorageTable)
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
 ├── hooks/                   # Custom hooks (useSSE, useTimeSeriesStream, useSettings, etc.)
 ├── data/                    # Server functions (*.functions.tsx) - non-streaming DB queries
@@ -87,24 +145,25 @@ src/
 ├── lib/
 │   ├── __tests__/           # Unit tests (*.test.ts)
 │   ├── clients/             # Connection managers (Docker, SSH, Database)
-│   ├── config/              # Configuration loaders (database, worker)
+│   ├── config/              # Configuration loaders (database, worker, zfs)
 │   ├── database/
 │   │   ├── repositories/    # Data access layer (StatsRepository for wide tables)
-│   │   ├── subscription-service.ts  # PostgreSQL LISTEN/NOTIFY handler (NotifyService)
+│   │   ├── subscription-service.ts  # Shared poll broadcast service (StatsPollService)
 │   │   └── migrate.ts       # Database migration runner
 │   ├── parsers/             # Stream parsers
 │   ├── test/                # Test utilities (NOT in __tests__)
 │   ├── utils/               # Rate calculators, hierarchy builders, row converters
+│   ├── proxmox/             # Proxmox poll service (ProxmoxPollService)
 │   ├── streaming/types.ts   # Core interfaces
 │   └── server-init.ts       # Server-side shutdown handlers
 ├── worker/
 │   ├── collectors/          # Background collectors (Docker, ZFS)
 │   └── collector.ts         # Worker entry point
-├── types/                   # Domain types (docker.ts, zfs.ts)
+├── types/                   # Domain types (docker.ts, zfs.ts, proxmox.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/
     ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts)
-    └── [index, zfs, settings].tsx  # Page routes
+    └── [index, zfs, proxmox, settings].tsx  # Page routes
 
 migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 ```
@@ -123,29 +182,27 @@ migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
 - Data flow: SSE endpoint → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`
 - **Note**: SSE is a workaround because TanStack Start's streaming server functions don't close quickly enough when rapidly switching between tabs — the abort signal doesn't propagate reliably. Once this is fixed upstream, I plan to migrate back to native streaming (see roadmap).
 - **Frontend reads from database** (not direct API/SSH connections):
-  - Worker collects stats → INSERT wide rows → `pg_notify('stats_update', source)`
-  - Server maintains LISTEN connection via lightweight NotifyService
-  - SSE endpoints subscribe to NotifyService events → query DB for new rows → push to client
+  - Worker collects stats → INSERT wide rows into TimescaleDB
+  - Server runs a shared `StatsPollService` that polls DB every 1s per source (docker, zfs)
+  - Multiple SSE clients subscribe to the same poll — only 1 query/sec per source regardless of client count
   - Frontend preloads 60s of history via REST, then merges SSE updates
 - **SSE endpoints use `createFileRoute` with `server.handlers`**:
   ```typescript
-  // src/routes/api/docker-stats.ts — NOTIFY-driven SSE push
+  // src/routes/api/docker-stats.ts — shared poll broadcast
   GET handler:
-    1. Start notifyService (idempotent)
-    2. Track lastSentTime
-    3. Subscribe to notifyService 'stats_update' event
-    4. On event (payload === 'docker'):
-       a. Query: SELECT * FROM docker_stats WHERE time > $lastSentTime
-       b. If rows found: send via SSE, update lastSentTime
+    1. Import server-init + statsPollService (dynamic imports)
+    2. Create ReadableStream
+    3. Subscribe to statsPollService('docker', callback)
+    4. Callback sends rows as SSE data
     5. On request.signal abort: unsubscribe, close controller
   ```
 - **IMPORTANT: Use dynamic imports for server-only modules** in SSE endpoints:
   ```typescript
   // BAD - gets bundled into client
-  import { notifyService } from '@/lib/database/subscription-service';
+  import { statsPollService } from '@/lib/database/subscription-service';
 
   // GOOD - only loaded on server at runtime
-  const { notifyService } = await import('@/lib/database/subscription-service');
+  const { statsPollService } = await import('@/lib/database/subscription-service');
   ```
 
 ### SSE Data Sources (Virtualized Tables)
@@ -162,19 +219,19 @@ Rate calculators:
 - Use class-based calculators (not module-level functions)
 
 ### TimescaleDB Persistence & Background Workers
-The frontend reads stats from the database via PostgreSQL LISTEN/NOTIFY:
+The frontend reads stats from the database via shared server-side polling:
 ```
-Worker → Docker/ZFS APIs → INSERT wide rows → NOTIFY stats_update
-                                                      ↓
-Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
+Worker → Docker/ZFS APIs → INSERT wide rows → TimescaleDB
+                                                    ↓
+Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast to all clients
 ```
 
 **Database schema** (TimescaleDB wide tables):
 - `docker_stats` — hypertable: time, host, container_id, container_name, image, cpu_percent, memory_usage, memory_limit, memory_percent, network_rx/tx, block_io_read/write
-- `zfs_stats` — hypertable: time, pool, entity, entity_type, indent, capacity_alloc/free, read/write_ops_per_sec, read/write_bytes_per_sec, utilization_percent
+- `zfs_stats` — hypertable: time, host, pool, entity, entity_type, indent, capacity_alloc/free, read/write_ops_per_sec, read/write_bytes_per_sec, utilization_percent
 - `entity_metadata` — key-value metadata per entity (icons, labels)
 - `settings` — application settings
-- **Compression**: Automatic after 1 hour (segmented by host/container or pool/entity)
+- **Compression**: Automatic after 1 hour (segmented by host/container or host/pool/entity)
 - **Retention**: Automatic deletion after 7 days (handled by TimescaleDB policies)
 
 **Architecture**:
@@ -187,40 +244,82 @@ Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
   - Uses `AbortController` for cancellable sleeps and instant shutdown
   - Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
 - **Collection frequency**: Configured via `WORKER_COLLECTION_INTERVAL_MS` (default 1000ms/1 second)
-- **Collectors write directly**: Wide `DockerStatsRow[]`/`ZFSStatsRow[]` → INSERT → `NOTIFY stats_update`
+- **Collectors write directly**: Wide `DockerStatsRow[]`/`ZFSStatsRow[]` → INSERT into TimescaleDB
 - **Persistent rate calculators**: Never cleared (unlike request-scoped calculators)
 - **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
 - **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
+- **ZFS multi-host support**: One ZFS collector per configured host, matching Docker pattern
+  - Configuration: numbered env vars (`ZFS_HOST_1`, `ZFS_HOST_USER_1`, etc.)
+  - Config loader: `src/lib/config/zfs-config.ts` (Zod-validated)
+  - UI hierarchy: hosts → pools → vdevs → disks (host row shown only when multiple hosts configured)
+  - Host expansion state persisted to database settings
 - **ZFS hierarchical entity paths**: Entity names encode hierarchy for filtering
   - Pool: `"tank"` (indent 0)
   - Vdev: `"tank/mirror-0"` (indent 2)
   - Disk: `"tank/mirror-0/sda"` (indent 4+)
+  - Multi-host entity IDs are prefixed with host name: `"server1/tank/mirror-0/sda"`
   - Enables visibility filtering: collapsed pool skips `tank/*` entities
 - **Stale data warning**: If no SSE data received for 30+ seconds, UI shows warning via `useTimeSeriesStream`
 
 **Key files**:
-- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — NOTIFY-driven, query DB on event)
+- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — subscribe to StatsPollService; proxmox-overview.ts — subscribe to ProxmoxPollService)
 - **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useTimeSeriesStream.ts` (preload + SSE merge + stale detection)
 - **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
 - Repository: `src/lib/database/repositories/stats-repository.ts` (wide table inserts/queries, NOTIFY after insert)
 - Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, backoff)
 - Collectors: `src/worker/collectors/` (Docker, ZFS — extend `BaseCollector`)
-- Row converters: `src/lib/utils/docker-hierarchy-builder.ts` (`rowToDockerStats`), `src/lib/utils/zfs-hierarchy-builder.ts` (`rowToZFSStats`)
+- Row converters: `src/lib/utils/docker-hierarchy-builder.ts` (`rowToDockerStats`), `src/lib/utils/zfs-hierarchy-builder.ts` (`rowToZFSStats`, `buildZFSHostHierarchy`)
+- ZFS config: `src/lib/config/zfs-config.ts` (multi-host configuration loader)
 - Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
 - Migrations: `migrations/*.sql` (settings table + TimescaleDB wide tables)
-- **NotifyService**: `src/lib/database/subscription-service.ts` (lightweight LISTEN handler, thin event bus)
+- **StatsPollService**: `src/lib/database/subscription-service.ts` (shared 1s poll, broadcasts to SSE subscribers)
+- **ProxmoxPollService**: `src/lib/proxmox/proxmox-poll-service.ts` (shared 10s API poll, broadcasts snapshot to SSE subscribers)
 - **Server init**: `src/lib/server-init.ts` (graceful shutdown handlers)
 
 **Environment variables**:
 - `POSTGRES_*`: Database connection config
+  - `.env` sets `POSTGRES_HOST=localhost` (used by local web app)
+  - Docker services override to `postgres` (internal DNS) in compose files
+  - No additional configuration needed for hybrid development
 - `WORKER_*`: Worker behavior config (enabled, collection interval)
+- `ZFS_HOST_*`: ZFS config (`ZFS_HOST_1`, `ZFS_HOST_PORT_1`, `ZFS_HOST_NAME_1`, `ZFS_HOST_USER_1`, `ZFS_HOST_KEY_PATH_1`, etc.)
+- `PROXMOX_*`: Proxmox VE API connection config
+
+### Proxmox VE Integration (REST API + SSE Broadcast)
+Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox uses **server-side shared polling** of the Proxmox REST API with SSE broadcast:
+- **No background worker** — `ProxmoxPollService` runs server-side, auto-starts on first SSE subscriber
+- **No database persistence** — cluster overview is fetched fresh from the API each poll cycle
+- **Shared poll** — one `setInterval(10s)` polls the API regardless of how many clients are connected
+- **SSE broadcast** — all connected clients receive the same snapshot via Server-Sent Events
+- **Native fetch** — thin client using `fetch()` with API token auth (no npm dependency)
+- **Self-signed certs** — handled via Bun's `tls.rejectUnauthorized: false` option
+
+**Data flow**: `ProxmoxPollService` (10s poll) → `ProxmoxClient.getClusterOverview()` → Proxmox REST API → SSE broadcast → Browser (`useSSE` hook)
+
+**Key files**:
+- Types: `src/types/proxmox.ts` (API response types + cluster overview aggregate)
+- Config: `src/lib/config/proxmox-config.ts` (Zod-validated env var loader)
+- Client: `src/lib/clients/proxmox-client.ts` (native fetch client + connection manager singleton)
+- Poll service: `src/lib/proxmox/proxmox-poll-service.ts` (shared poll + SSE broadcast singleton)
+- SSE endpoint: `src/routes/api/proxmox-overview.ts` (SSE server route)
+- Server functions: `src/data/proxmox.functions.tsx` (connection test only)
+- Dashboard: `src/routes/proxmox.tsx` (page route with `useSSE` hook)
+- Components: `src/components/proxmox/` (ClusterSummaryCards, NodeTable, GuestTable, StorageTable)
+
+**Environment variables**:
+- `PROXMOX_HOST`: Proxmox VE hostname or IP
+- `PROXMOX_PORT`: API port (default: 8006)
+- `PROXMOX_TOKEN_ID`: API token ID (format: `USER@REALM!TOKENID`)
+- `PROXMOX_TOKEN_SECRET`: API token secret (UUID)
+- `PROXMOX_ALLOW_SELF_SIGNED`: Allow self-signed certs (default: true)
 
 ### Components
 - Shared infrastructure: `src/components/shared-table/` (MetricValue)
-- Domain components: own directories (`docker/`, `zfs/`)
+- Domain components: own directories (`docker/`, `zfs/`, `proxmox/`)
 - Both Docker and ZFS tables use CSS Grid + `useWindowVirtualizer` with flat row models
-- Page routes use `useTimeSeriesStream` hook, pass data as props to table components
+- Proxmox tables use CSS Grid without virtualization (snapshot data, not streaming)
+- Page routes use `useTimeSeriesStream` hook (Docker/ZFS) or `useSSE` hook (Proxmox)
 - Table components convert wide rows to domain objects via `rowToDockerStats`/`rowToZFSStats`
 
 ### Styling
@@ -234,7 +333,7 @@ Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
 ### State Management
 - `QueryClient` is a singleton in `__root.tsx` — never create per-route
 - Use `useTimeSeriesStream` hook for SSE-backed streaming data (preload + SSE merge + time-windowed buffer + stale detection)
-- Use `useSSE` hook directly only for non-table SSE consumers
+- Use `useSSE` hook directly for non-time-series SSE consumers (e.g., Proxmox snapshot data)
 - SSE connection management handled automatically by the browser's EventSource API
 
 ### Types
@@ -305,7 +404,7 @@ Browser → Server (SSE) ← LISTEN stats_update → Query DB → Push new rows
 - Test files outside `__tests__/` folders
 - `console.log` in committed code
 - Logging sensitive data
-- Static imports of server-only modules (pg, subscription-service) in server function files — use dynamic `await import()` inside handlers
+- Static imports of server-only modules (pg, subscription-service, database-client) in server function files — use dynamic `await import()` inside handlers
 
 ## Quick Reference
 

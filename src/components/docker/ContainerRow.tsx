@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useEffect } from 'react';
+import { memo, useMemo, useRef, useState, useEffect } from 'react';
 import { ChevronRight, Settings } from 'lucide-react';
 import Tooltip from '@mui/joy/Tooltip';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
@@ -29,14 +29,16 @@ interface ContainerRowProps {
 }
 
 export default memo(function ContainerRow({ container, chartData }: ContainerRowProps) {
-  const { docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
+  const { general, docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
   const { rates } = container;
-  const { decimals, showSparklines } = docker;
+  const { decimals } = docker;
+  const { showSparklines } = general;
   const expanded = isContainerExpanded(container.id);
 
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
   const [isPulsing, setIsPulsing] = useState(false);
+  const [isLate, setIsLate] = useState(false);
 
   const iconUrl = getIconUrl(container.icon, container.image);
 
@@ -46,17 +48,23 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
 
   // Get last update timestamp from most recent chart data
   const lastUpdated = chartData.length > 0 ? new Date(chartData[chartData.length - 1].time) : undefined;
-  const lastUpdatedRef = useMemo(() => ({ current: lastUpdated }), []);
+  const lastUpdatedMs = lastUpdated?.getTime() ?? 0;
+  const lastUpdatedMsRef = useRef(lastUpdatedMs);
 
   // Detect when container stats update and trigger pulse animation
   useEffect(() => {
-    if (lastUpdated && lastUpdatedRef.current !== lastUpdated) {
-      lastUpdatedRef.current = lastUpdated;
+    if (lastUpdatedMs > 0 && lastUpdatedMs !== lastUpdatedMsRef.current) {
+      lastUpdatedMsRef.current = lastUpdatedMs;
       setIsPulsing(true);
-      const timer = setTimeout(() => setIsPulsing(false), 1000);
-      return () => clearTimeout(timer);
+      setIsLate(false);
+      const pulseTimer = setTimeout(() => setIsPulsing(false), 1000);
+      const lateTimer = setTimeout(() => setIsLate(true), 2000);
+      return () => {
+        clearTimeout(pulseTimer);
+        clearTimeout(lateTimer);
+      };
     }
-  }, [lastUpdated, lastUpdatedRef]);
+  }, [lastUpdatedMs]);
 
   // Convert wide rows to chart data points
   const dataPoints = useMemo<ChartDataPoint[]>(() => {
@@ -87,8 +95,9 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
     }
 
     const latestTimestamp = dataPoints[dataPoints.length - 1].timestamp;
-    const thirtySecondsAgo = latestTimestamp - 30000;
-    const points = dataPoints.filter((d) => d.timestamp >= thirtySecondsAgo);
+    // Keep 5s of extra buffer before the 30s window so the line always extends past the left edge
+    const cutoff = latestTimestamp - 35000;
+    const points = dataPoints.filter((d) => d.timestamp >= cutoff);
 
     return {
       cpu: points.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
@@ -137,7 +146,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
         }`}
       >
-        <div className="px-3 py-2 pl-8">
+        <div className="px-3 py-2">
           <div className="flex items-center gap-2">
             <ChevronRight
               size={16}
@@ -155,13 +164,11 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
                   className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
                     isPulsing ? 'opacity-100 animate-ping' : 'opacity-0'
                   }`}
-                  style={{ backgroundColor: 'var(--chart-cpu)' }}
+                  style={{ backgroundColor: isLate ? 'var(--indicator-late)' : 'var(--indicator-active)' }}
                 />
                 <div
-                  className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
-                    isPulsing ? 'opacity-100' : 'opacity-0'
-                  }`}
-                  style={{ backgroundColor: 'var(--chart-cpu)' }}
+                  className="absolute inset-0 rounded-full transition-colors duration-300"
+                  style={{ backgroundColor: isLate ? 'var(--indicator-late)' : 'var(--indicator-active)' }}
                 />
               </div>
             </Tooltip>
@@ -185,64 +192,64 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             </button>
           </div>
         </div>
-        <div className="pr-16">
+        <div>
           <MetricValue
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
             color="cpu"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden min-[1428px]:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div>
           <MetricValue
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
             color="memory"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden min-[1428px]:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div >
           <MetricValue
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
             hasDecimals={decimals.diskSpeed}
             color="read"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden min-[1428px]:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div >
           <MetricValue
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}
             hasDecimals={decimals.diskSpeed}
             color="write"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden min-[1428px]:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div>
           <MetricValue
             value={metricParts.networkRx.value}
             unit={metricParts.networkRx.unit}
             hasDecimals={decimals.networkSpeed}
             color="read"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden min-[1428px]:block" />}
           />
         </div>
-        <div className="pr-16">
+        <div>
           <MetricValue
             value={metricParts.networkTx.value}
             unit={metricParts.networkTx.unit}
             hasDecimals={decimals.networkSpeed}
             color="write"
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden lg:block" />}
+            sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden min-[1428px]:block" />}
           />
         </div>
       </div>

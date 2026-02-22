@@ -33,9 +33,9 @@ function ZFSPageContent() {
   const stream = useTimeSeriesStream<ZFSStatsRow>({
     sseUrl: '/api/zfs-stats',
     preloadFn,
-    getKey: (row) => `${new Date(row.time).getTime()}_${row.entity}`,
+    getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.entity}`,
     getTime: (row) => new Date(row.time).getTime(),
-    getEntity: (row) => row.entity,
+    getEntity: (row) => row.host ? `${row.host}/${row.entity}` : row.entity,
     updateIntervalMs: general.updateIntervalMs,
   })
 

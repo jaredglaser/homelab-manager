@@ -57,6 +57,7 @@ export interface ZFSIOStatWithRates extends ZFSIOStatRaw {
 /** Wide row from zfs_stats hypertable */
 export interface ZFSStatsRow {
   time: string | Date;
+  host: string;
   pool: string;
   entity: string;
   entity_type: string; // 'pool', 'vdev', 'disk'
@@ -126,3 +127,28 @@ export interface PoolStats {
 
 /** Complete ZFS hierarchy: pools -> vdevs -> disks */
 export type ZFSHierarchy = Map<string, PoolStats>;
+
+/**
+ * Multi-host ZFS hierarchy types
+ */
+
+/** Aggregated stats for a ZFS host (summed from pools) */
+export interface ZFSHostAggregatedStats {
+  capacityAlloc: number;
+  capacityFree: number;
+  readOpsPerSec: number;
+  writeOpsPerSec: number;
+  readBytesPerSec: number;
+  writeBytesPerSec: number;
+  poolCount: number;
+}
+
+/** ZFS host with its pool hierarchy */
+export interface ZFSHostStats {
+  hostName: string;
+  aggregated: ZFSHostAggregatedStats;
+  pools: ZFSHierarchy;
+}
+
+/** Complete multi-host ZFS hierarchy: hosts -> pools -> vdevs -> disks */
+export type ZFSHostHierarchy = Map<string, ZFSHostStats>;

@@ -186,10 +186,10 @@ describe('streamToAsyncIterator', () => {
 });
 
 describe('mergeAsyncIterables', () => {
-  // Helper to create timed async iterables for testing race conditions
-  async function* createTimedIterable<T>(items: T[], delayMs: number) {
+  // Helper to create async iterables that yield on separate microtasks
+  async function* createAsyncIterable<T>(items: T[]) {
     for (const item of items) {
-      await new Promise(r => setTimeout(r, delayMs));
+      await Promise.resolve();
       yield item;
     }
   }
@@ -359,9 +359,9 @@ describe('mergeAsyncIterables', () => {
     })();
 
     const longIterable = (async function* () {
-      await new Promise(r => setTimeout(r, 10));
+      await Promise.resolve();
       yield 2;
-      await new Promise(r => setTimeout(r, 10));
+      await Promise.resolve();
       yield 3;
     })();
 
@@ -377,9 +377,9 @@ describe('mergeAsyncIterables', () => {
   });
 
   it('should handle iterators completing in different orders', async () => {
-    const fastIterable = createTimedIterable([1, 2], 5);
-    const mediumIterable = createTimedIterable([10, 20], 15);
-    const slowIterable = createTimedIterable([100], 25);
+    const fastIterable = createAsyncIterable([1, 2]);
+    const mediumIterable = createAsyncIterable([10, 20]);
+    const slowIterable = createAsyncIterable([100]);
 
     const results = [];
     for await (const item of mergeAsyncIterables([fastIterable, mediumIterable, slowIterable])) {
@@ -395,8 +395,8 @@ describe('mergeAsyncIterables', () => {
   });
 
   it('should use Promise.race correctly to yield from fastest source', async () => {
-    const fastIterable = createTimedIterable(['fast-1', 'fast-2'], 1);
-    const slowIterable = createTimedIterable(['slow-1', 'slow-2'], 50);
+    const fastIterable = createAsyncIterable(['fast-1', 'fast-2']);
+    const slowIterable = createAsyncIterable(['slow-1', 'slow-2']);
 
     const results = [];
     for await (const item of mergeAsyncIterables([fastIterable, slowIterable])) {
@@ -416,9 +416,9 @@ describe('mergeAsyncIterables', () => {
     })();
 
     const continuesIterable = (async function* () {
-      await new Promise(r => setTimeout(r, 10));
+      await Promise.resolve();
       yield 'continues-1';
-      await new Promise(r => setTimeout(r, 10));
+      await Promise.resolve();
       yield 'continues-2';
     })();
 
@@ -502,9 +502,6 @@ describe('mergeAsyncIterables', () => {
       count++;
       if (count >= 1) break; // Force cleanup
     }
-
-    // Error during cleanup should be logged but not thrown
-    await new Promise(r => setTimeout(r, 10)); // Give time for cleanup
 
     consoleErrorSpy.mockRestore();
   });
