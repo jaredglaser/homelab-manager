@@ -1,3 +1,4 @@
+import { Agent } from 'undici';
 import type { ProxmoxConfig } from '../config/proxmox-config';
 import type {
   ProxmoxResponse,
@@ -10,6 +11,10 @@ import type {
   ProxmoxClusterOverview,
 } from '../../types/proxmox';
 
+interface UndiciRequestInit extends RequestInit {
+  dispatcher?: Agent;
+}
+
 /**
  * Proxmox VE API client using native fetch
  *
@@ -19,7 +24,7 @@ import type {
 export class ProxmoxClient {
   private baseUrl: string;
   private authHeader: string;
-  private fetchOptions: RequestInit;
+  private fetchOptions: UndiciRequestInit;
 
   constructor(config: ProxmoxConfig) {
     this.baseUrl = `https://${config.host}:${config.port}/api2/json`;
@@ -27,10 +32,12 @@ export class ProxmoxClient {
     this.fetchOptions = {};
 
     if (config.allowSelfSignedCerts) {
-      // Bun supports tls options on fetch
-      (this.fetchOptions as Record<string, unknown>).tls = {
-        rejectUnauthorized: false,
-      };
+      // Use undici Agent to disable cert verification for self-signed certificates
+      this.fetchOptions.dispatcher = new Agent({
+        connect: {
+          rejectUnauthorized: false,
+        },
+      });
     }
   }
 

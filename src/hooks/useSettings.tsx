@@ -10,6 +10,8 @@ export interface DecimalSettings {
   networkSpeed: boolean;
 }
 
+export type ProxmoxUpdateInterval = 1000 | 10000;
+
 export interface Settings {
   general: {
     use12HourTime: boolean;
@@ -29,6 +31,9 @@ export interface Settings {
     decimals: {
       diskSpeed: boolean;
     };
+  };
+  proxmox: {
+    updateInterval: ProxmoxUpdateInterval;
   };
   retention: {
     rawDataHours: number;
@@ -59,6 +64,7 @@ interface SettingsContextValue extends Settings {
   isVdevExpanded: (vdevId: string) => boolean;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
+  setProxmoxUpdateInterval: (interval: ProxmoxUpdateInterval) => void;
   setRetention: (key: keyof Settings['retention'], value: number) => void;
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
@@ -77,7 +83,7 @@ const DEFAULT_SETTINGS: Settings = {
     use12HourTime: true,
   },
   docker: {
-    memoryDisplayMode: 'percentage',
+    memoryDisplayMode: 'bytes',
     showSparklines: true,
     useAbbreviatedUnits: false,
     expandedHosts: new Set(),
@@ -91,6 +97,9 @@ const DEFAULT_SETTINGS: Settings = {
     decimals: {
       diskSpeed: false,
     },
+  },
+  proxmox: {
+    updateInterval: 10000,
   },
   retention: {
     rawDataHours: 1,
@@ -130,6 +139,11 @@ function parseIntSetting(raw: string | undefined, defaultValue: number): number 
   return Number.isFinite(parsed) ? parsed : defaultValue;
 }
 
+function parseProxmoxUpdateInterval(raw: string | undefined): ProxmoxUpdateInterval {
+  const parsed = parseIntSetting(raw, DEFAULT_SETTINGS.proxmox.updateInterval);
+  return parsed === 1000 || parsed === 10000 ? parsed : DEFAULT_SETTINGS.proxmox.updateInterval;
+}
+
 function parseSettings(raw: Record<string, string>): Settings {
   const memMode = raw['docker/memoryDisplayMode'];
   return {
@@ -159,6 +173,9 @@ function parseSettings(raw: Record<string, string>): Settings {
         diskSpeed: parseBool(raw['zfs/decimals/diskSpeed'], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
       },
     },
+    proxmox: {
+      updateInterval: parseProxmoxUpdateInterval(raw['proxmox/updateInterval']),
+    },
     retention: {
       rawDataHours: parseIntSetting(raw['retention/rawDataHours'], DEFAULT_SETTINGS.retention.rawDataHours),
       minuteAggDays: parseIntSetting(raw['retention/minuteAggDays'], DEFAULT_SETTINGS.retention.minuteAggDays),
@@ -178,6 +195,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
+    // TODO: Proactively write all default settings to the database on first load
+    // This would eliminate the need for fallback defaults in server-side code (e.g., proxmox-poll-service.ts)
+    // and ensure all clients start with the same persisted values
     getAllSettings().then(raw => {
       setSettings(parseSettings(raw));
     }).catch(() => {
@@ -421,6 +441,16 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setProxmoxUpdateInterval = useCallback((interval: ProxmoxUpdateInterval) => {
+    setSettings(prev => ({
+      ...prev,
+      proxmox: { ...prev.proxmox, updateInterval: interval },
+    }));
+    updateSetting({ data: { key: 'proxmox/updateInterval', value: String(interval) } }).catch(() => {
+      // Fire-and-forget
+    });
+  }, []);
+
   const setRetention = useCallback((key: keyof Settings['retention'], value: number) => {
     setSettings(prev => ({
       ...prev,
@@ -481,6 +511,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         isVdevExpanded,
         setDockerDecimal,
         setZfsDecimal,
+        setProxmoxUpdateInterval,
         setRetention,
         setDockerDebugLogging,
         setDbFlushDebugLogging,

@@ -37,39 +37,96 @@
 - **Testing:** Bun test (`bun:test`)
 - **Deployment:** Docker Compose (multi-container setup)
 
+## Development Modes
+
+This project supports three development workflows:
+
+### 1. **Local Development (Recommended)** - Hybrid Docker/Local
+Best for active web app development. Database and worker run in Docker while the web app runs locally with native Bun for optimal HMR performance and debugging.
+
+**Advantages:**
+- ✅ Fastest HMR (native Bun, no container overhead)
+- ✅ Easier debugging (native debugger, better stack traces)
+- ✅ Better IDE integration (no volume mount delays)
+- ✅ Lower resource usage (only 2 containers)
+
+**When to use:** Daily development, rapid iteration on UI/features
+
+### 2. **Docker Development** - Full Containerized
+All services run in Docker containers with HMR via volume mounts. Use this to test in a production-like environment.
+
+**Advantages:**
+- ✅ Production-like environment
+- ✅ Isolated from host system
+- ✅ Consistent across team members
+
+**When to use:** Testing deployment, debugging container-specific issues, CI/CD pipeline validation
+
+### 3. **Fully Local Development** - All Services Local
+Advanced workflow running all services directly on the host. Requires local PostgreSQL installation.
+
+**When to use:** Deep database debugging, development without Docker
+
 ## Commands
 
-### Development
+### Development (Local - Recommended)
 ```bash
-bun dev                     # Dev server (port 3000)
+# Terminal 1: Start Docker services (postgres + worker)
+bun run dev:local:up        # Start database and worker in Docker
+
+# Terminal 2: Run web app locally
+bun dev                     # Start web server on port 3000 with HMR
+
+# Management commands
+bun run dev:local:down      # Stop Docker services
+bun run dev:local:restart   # Restart Docker services
+bun run dev:local:rebuild   # Rebuild and restart Docker services
+bun run dev:local:wipe      # Remove all data (fresh database)
+bun run dev:local:logs      # View all Docker logs
+bun run dev:local:logs:worker   # View worker logs only
+bun run dev:local:logs:db   # View database logs only
+```
+
+**Quick Start:**
+1. `bun run dev:local:up` (wait for "healthy" status)
+2. `bun dev` (in a new terminal)
+3. Open http://localhost:3000
+
+### Development (Full Docker with HMR)
+```bash
+bun dev:docker:up           # Start all services in Docker (includes web with HMR)
+bun dev:docker:down         # Stop all Docker services
+bun dev:docker:restart      # Restart all services
+bun dev:docker:rebuild      # Full rebuild of all containers
+bun dev:docker:wipe         # Remove all data (fresh database)
+```
+
+### Testing & Type Checking
+```bash
 bun run typecheck           # Run TypeScript type checking
-bun build                   # Production build (runs typecheck first)
 bun test                    # Run all tests
 bun test --watch            # Watch mode
 bun run test:coverage       # Run tests with coverage report
 bun run test:coverage:check # Run tests and enforce 93% coverage threshold
 ```
 
-### Background Worker
+### Production Build
 ```bash
-bun worker                  # Run background collector (Docker + ZFS stats)
+bun build                   # Production build (runs typecheck first)
+```
+
+### Background Worker (Standalone)
+```bash
+bun worker                  # Run background collector locally (requires local PostgreSQL)
 ```
 
 ### Docker Compose (Production)
 ```bash
-docker compose up -d          # Start all services
-docker compose down && docker compose up -d  # Restart with fresh database
-docker compose logs -f web    # View web server logs
-docker compose logs -f worker # View background worker logs
-docker compose ps             # View service status
-```
-
-### Docker Compose (Development - HMR)
-```bash
-bun dev:docker:up             # Start with HMR + volume mounts
-bun dev:docker:down           # Stop dev services
-bun dev:docker:restart        # Restart dev services (down && up)
-docker compose -f docker-compose.dev.yml logs -f web  # View dev web logs
+docker compose up -d        # Start all services in production mode
+docker compose down         # Stop all services
+docker compose logs -f web  # View web server logs
+docker compose logs -f worker  # View background worker logs
+docker compose ps           # View service status
 ```
 
 ## File Organization
@@ -222,6 +279,9 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 
 **Environment variables**:
 - `POSTGRES_*`: Database connection config
+  - `.env` sets `POSTGRES_HOST=localhost` (used by local web app)
+  - Docker services override to `postgres` (internal DNS) in compose files
+  - No additional configuration needed for hybrid development
 - `WORKER_*`: Worker behavior config (enabled, collection interval)
 - `ZFS_HOST_*`: ZFS config (`ZFS_HOST_1`, `ZFS_HOST_PORT_1`, `ZFS_HOST_NAME_1`, `ZFS_HOST_USER_1`, `ZFS_HOST_KEY_PATH_1`, etc.)
 - `PROXMOX_*`: Proxmox VE API connection config
