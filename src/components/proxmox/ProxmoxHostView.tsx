@@ -1,15 +1,13 @@
 import { useState } from 'react'
-import { Sheet, Typography, IconButton, Chip, LinearProgress } from '@mui/joy'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Sheet, Chip, LinearProgress } from '@mui/joy'
+import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, ProxmoxStorage } from '@/types/proxmox'
 import { formatBytes, formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
 import { MetricValue, MetricHeader } from '@/components/shared-table'
 
-// Shared grid templates for consistent column alignment
-// VM/Container: VMID (0.5fr) + Name (2fr) + Status (0.6fr) + CPU (0.8fr) + Memory (1fr) + Net In (0.8fr) + Net Out (0.8fr)
-const VM_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] min-w-[800px]'
-// Storage: Aligns with VM columns, Usage spans Net In + Net Out for larger progress bar
+const GUEST_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] min-w-[800px]'
 const STORAGE_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,2fr)] min-w-[800px]'
+const BORDER = 'border-t border-neutral-200 dark:border-neutral-700'
 
 interface ProxmoxHostViewProps {
   overview: ProxmoxClusterOverview
@@ -37,163 +35,212 @@ function formatUptime(seconds: number): string {
   return `${minutes}m`
 }
 
-function VMTable({ vms }: { vms: GuestRow[] }) {
-  if (vms.length === 0) return null
-
-  const sorted = [...vms].sort((a, b) => a.vmid - b.vmid)
+function GuestSection({
+  label,
+  guests,
+  expanded,
+  onToggle,
+}: {
+  label: string
+  guests: GuestRow[]
+  expanded: boolean
+  onToggle: () => void
+}) {
+  const sorted = [...guests].sort((a, b) => a.vmid - b.vmid)
 
   return (
-    <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
-      {/* Column headers */}
-      <div className={`${VM_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
-        <div className="px-3 py-2 font-semibold text-sm">VMID</div>
-        <div className="px-3 py-2 font-semibold text-sm">Name</div>
-        <div className="px-3 py-2 font-semibold text-sm">Status</div>
-        <div className="px-3 py-2"><MetricHeader>CPU</MetricHeader></div>
-        <div className="px-3 py-2"><MetricHeader>Memory</MetricHeader></div>
-        <div className="px-3 py-2"><MetricHeader>Net In</MetricHeader></div>
-        <div className="px-3 py-2"><MetricHeader>Net Out</MetricHeader></div>
+    <>
+      {/* Section header row */}
+      <div
+        onClick={onToggle}
+        className={`flex items-center gap-2 pl-10 pr-4 py-2 cursor-pointer ${BORDER} bg-[var(--joy-palette-background-level1)]`}
+      >
+        <ChevronRight
+          size={16}
+          className={`transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span className="font-semibold text-sm">
+          {label} ({guests.length})
+        </span>
       </div>
 
-      {/* Data rows */}
-      {sorted.map((vm) => {
-          const cpuParts = formatAsPercentParts(vm.cpu, true)
-          const memParts = formatAsPercentParts(vm.maxmem > 0 ? vm.mem / vm.maxmem : 0, true)
-          const netInParts = formatBytesParts(vm.netin, false, false)
-          const netOutParts = formatBytesParts(vm.netout, false, false)
+      {expanded && (
+        <>
+          {/* Column headers */}
+          <div className={`${GUEST_GRID} ${BORDER}`}>
+            <div className="px-3 py-2 font-semibold text-sm">VMID</div>
+            <div className="px-3 py-2 font-semibold text-sm">Name</div>
+            <div className="px-3 py-2 font-semibold text-sm">Status</div>
+            <div className="py-2"><MetricHeader>CPU</MetricHeader></div>
+            <div className="py-2"><MetricHeader>Memory</MetricHeader></div>
+            <div className="py-2"><MetricHeader>Net In</MetricHeader></div>
+            <div className="py-2"><MetricHeader>Net Out</MetricHeader></div>
+          </div>
 
-          return (
-            <div key={vm.vmid} className={`${VM_GRID} border-t border-neutral-200 dark:border-neutral-700`}>
-              <div className="px-3 py-2 font-mono text-sm">{vm.vmid}</div>
-              <div className="px-3 py-2 font-medium truncate">{vm.name}</div>
-              <div className="px-3 py-2">
-                <Chip
-                  size="sm"
-                  variant="soft"
-                  color={vm.status === 'running' ? 'success' : 'neutral'}
-                >
-                  {vm.status}
-                </Chip>
+          {/* Data rows */}
+          {sorted.map((vm) => {
+            const cpuParts = formatAsPercentParts(vm.cpu, true)
+            const memParts = formatAsPercentParts(vm.maxmem > 0 ? vm.mem / vm.maxmem : 0, true)
+            const netInParts = formatBytesParts(vm.netin, false, false)
+            const netOutParts = formatBytesParts(vm.netout, false, false)
+
+            return (
+              <div key={vm.vmid} className={`${GUEST_GRID} items-center ${BORDER} hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] transition-[background-color,box-shadow] duration-150`}>
+                <div className="px-3 py-2 font-mono text-sm">{vm.vmid}</div>
+                <div className="px-3 py-2 font-medium truncate">{vm.name}</div>
+                <div className="px-3 py-2">
+                  <Chip
+                    size="sm"
+                    variant="soft"
+                    color={vm.status === 'running' ? 'success' : 'neutral'}
+                  >
+                    {vm.status}
+                  </Chip>
+                </div>
+                <div>
+                  {vm.status === 'running' ? (
+                    <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals color="cpu" />
+                  ) : (
+                    <span className="text-right block px-3">-</span>
+                  )}
+                </div>
+                <div>
+                  {vm.status === 'running' ? (
+                    <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals color="memory" />
+                  ) : (
+                    <span className="text-right block px-3">{formatBytes(vm.maxmem, false, false)}</span>
+                  )}
+                </div>
+                <div>
+                  {vm.status === 'running' ? (
+                    <MetricValue value={netInParts.value} unit={netInParts.unit} />
+                  ) : (
+                    <span className="text-right block px-3">-</span>
+                  )}
+                </div>
+                <div>
+                  {vm.status === 'running' ? (
+                    <MetricValue value={netOutParts.value} unit={netOutParts.unit} />
+                  ) : (
+                    <span className="text-right block px-3">-</span>
+                  )}
+                </div>
               </div>
-              <div className="px-3 py-2">
-                {vm.status === 'running' ? (
-                  <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals color="cpu" />
-                ) : (
-                  <span className="text-right block">-</span>
-                )}
-              </div>
-              <div className="px-3 py-2">
-                {vm.status === 'running' ? (
-                  <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals color="memory" />
-                ) : (
-                  <span className="text-right block">{formatBytes(vm.maxmem, false, false)}</span>
-                )}
-              </div>
-              <div className="px-3 py-2">
-                {vm.status === 'running' ? (
-                  <MetricValue value={netInParts.value} unit={netInParts.unit} />
-                ) : (
-                  <span className="text-right block">-</span>
-                )}
-              </div>
-              <div className="px-3 py-2">
-                {vm.status === 'running' ? (
-                  <MetricValue value={netOutParts.value} unit={netOutParts.unit} />
-                ) : (
-                  <span className="text-right block">-</span>
-                )}
-              </div>
-            </div>
-          )
-        })}
-    </Sheet>
+            )
+          })}
+        </>
+      )}
+    </>
   )
 }
 
-function StorageTable({ storages }: { storages: ProxmoxStorage[] }) {
-  if (storages.length === 0) return null
-
+function StorageSection({
+  storages,
+  expanded,
+  onToggle,
+}: {
+  storages: ProxmoxStorage[]
+  expanded: boolean
+  onToggle: () => void
+}) {
   const sorted = [...storages].sort((a, b) => a.storage.localeCompare(b.storage))
 
   return (
-    <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
-      {/* Column headers */}
-      <div className={`${STORAGE_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
-        <div className="px-3 py-2 font-semibold text-sm">Name</div>
-        <div className="px-3 py-2 font-semibold text-sm">Type</div>
-        <div className="px-3 py-2 font-semibold text-sm">Status</div>
-        <div className="px-3 py-2"><MetricHeader>Used</MetricHeader></div>
-        <div className="px-3 py-2"><MetricHeader>Available</MetricHeader></div>
-        <div className="px-3 py-2"><MetricHeader>Usage</MetricHeader></div>
+    <>
+      {/* Section header row */}
+      <div
+        onClick={onToggle}
+        className={`flex items-center gap-2 pl-10 pr-4 py-2 cursor-pointer ${BORDER} bg-[var(--joy-palette-background-level1)]`}
+      >
+        <ChevronRight
+          size={16}
+          className={`transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span className="font-semibold text-sm">
+          Storage ({storages.length})
+        </span>
       </div>
 
-      {/* Data rows */}
-      {sorted.map((s) => {
-          const usedParts = formatBytesParts(s.used, false, false)
-          const availParts = formatBytesParts(s.avail, false, false)
-          const usageParts = formatAsPercentParts(s.used_fraction, true)
+      {expanded && (
+        <>
+          {/* Column headers */}
+          <div className={`${STORAGE_GRID} ${BORDER}`}>
+            <div className="px-3 py-2 font-semibold text-sm">Name</div>
+            <div className="px-3 py-2 font-semibold text-sm">Type</div>
+            <div className="px-3 py-2 font-semibold text-sm">Status</div>
+            <div className="py-2"><MetricHeader>Used</MetricHeader></div>
+            <div className="py-2"><MetricHeader>Available</MetricHeader></div>
+            <div className="py-2"><MetricHeader>Usage</MetricHeader></div>
+          </div>
 
-          return (
-            <div key={s.storage} className={`${STORAGE_GRID} border-t border-neutral-200 dark:border-neutral-700`}>
-              <div className="px-3 py-2 font-medium">{s.storage}</div>
-              <div className="px-3 py-2 text-sm">{s.type}</div>
-              <div className="px-3 py-2">
-                <Chip
-                  size="sm"
-                  variant="soft"
-                  color={s.active ? 'success' : 'neutral'}
-                >
-                  {s.active ? 'active' : 'inactive'}
-                </Chip>
+          {/* Data rows */}
+          {sorted.map((s) => {
+            const usedParts = formatBytesParts(s.used, false, false)
+            const availParts = formatBytesParts(s.avail, false, false)
+            const usageParts = formatAsPercentParts(s.used_fraction, true)
+
+            return (
+              <div key={s.storage} className={`${STORAGE_GRID} items-center ${BORDER} hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] transition-[background-color,box-shadow] duration-150`}>
+                <div className="px-3 py-2 font-medium">{s.storage}</div>
+                <div className="px-3 py-2 text-sm">{s.type}</div>
+                <div className="px-3 py-2">
+                  <Chip
+                    size="sm"
+                    variant="soft"
+                    color={s.active ? 'success' : 'neutral'}
+                  >
+                    {s.active ? 'active' : 'inactive'}
+                  </Chip>
+                </div>
+                <div>
+                  {s.total > 0 ? (
+                    <MetricValue value={usedParts.value} unit={usedParts.unit} />
+                  ) : (
+                    <span className="text-right block px-3">-</span>
+                  )}
+                </div>
+                <div>
+                  {s.total > 0 ? (
+                    <MetricValue value={availParts.value} unit={availParts.unit} />
+                  ) : (
+                    <span className="text-right block px-3">-</span>
+                  )}
+                </div>
+                <div>
+                  {s.total > 0 ? (
+                    <MetricValue
+                      value={usageParts.value}
+                      unit={usageParts.unit}
+                      hasDecimals
+                      sparkline={
+                        <LinearProgress
+                          determinate
+                          value={Math.min(s.used_fraction * 100, 100)}
+                          color={
+                            s.used_fraction > 0.9
+                              ? 'danger'
+                              : s.used_fraction > 0.7
+                                ? 'warning'
+                                : 'success'
+                          }
+                          className="max-w-70"
+                        />
+                      }
+                    />
+                  ) : (
+                    <span className="text-right block px-3">-</span>
+                  )}
+                </div>
               </div>
-              <div className="px-3 py-2">
-                {s.total > 0 ? (
-                  <MetricValue value={usedParts.value} unit={usedParts.unit} />
-                ) : (
-                  <span className="text-right block">-</span>
-                )}
-              </div>
-              <div className="px-3 py-2">
-                {s.total > 0 ? (
-                  <MetricValue value={availParts.value} unit={availParts.unit} />
-                ) : (
-                  <span className="text-right block">-</span>
-                )}
-              </div>
-              <div className="px-3 py-2">
-                {s.total > 0 ? (
-                  <MetricValue
-                    value={usageParts.value}
-                    unit={usageParts.unit}
-                    hasDecimals
-                    sparkline={
-                      <LinearProgress
-                        determinate
-                        value={Math.min(s.used_fraction * 100, 100)}
-                        color={
-                          s.used_fraction > 0.9
-                            ? 'danger'
-                            : s.used_fraction > 0.7
-                              ? 'warning'
-                              : 'success'
-                        }
-                        className="max-w-70"
-                      />
-                    }
-                  />
-                ) : (
-                  <span className="text-right block">-</span>
-                )}
-              </div>
-            </div>
-          )
-        })}
-    </Sheet>
+            )
+          })}
+        </>
+      )}
+    </>
   )
 }
 
 export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
-  // Initialize all hosts and sections as expanded using lazy initializers
   const [expandedHosts, setExpandedHosts] = useState<Set<string>>(() =>
     new Set(overview.nodes.map(n => n.node))
   )
@@ -246,17 +293,13 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
     storageByNode.get(storage.node)!.push(storage)
   }
 
-  // Sort nodes alphabetically
   const sortedNodes = [...overview.nodes].sort((a, b) => a.node.localeCompare(b.node))
 
   const toggleHost = (node: string) => {
     setExpandedHosts(prev => {
       const next = new Set(prev)
-      if (next.has(node)) {
-        next.delete(node)
-      } else {
-        next.add(node)
-      }
+      if (next.has(node)) next.delete(node)
+      else next.add(node)
       return next
     })
   }
@@ -264,18 +307,15 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
   const toggleSection = (key: string) => {
     setExpandedSections(prev => {
       const next = new Set(prev)
-      if (next.has(key)) {
-        next.delete(key)
-      } else {
-        next.add(key)
-      }
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
       return next
     })
   }
 
   return (
-    <div className="space-y-4">
-      {sortedNodes.map((node) => {
+    <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
+      {sortedNodes.map((node, nodeIdx) => {
         const vms = vmsByNode.get(node.node) || []
         const containers = containersByNode.get(node.node) || []
         const storages = storageByNode.get(node.node) || []
@@ -286,168 +326,70 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
         const diskPercent = node.maxdisk > 0 ? ((node.disk / node.maxdisk) * 100).toFixed(1) : '0'
 
         return (
-          <div key={node.node} className="space-y-3">
-            {/* Host Header */}
-            <Sheet
-              variant="soft"
-              className="rounded-lg cursor-pointer hover:bg-opacity-80 transition-colors"
+          <div key={node.node}>
+            {/* Host accordion row */}
+            <div
               onClick={() => toggleHost(node.node)}
+              className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer bg-[var(--joy-palette-background-level1)] ${
+                nodeIdx > 0 ? BORDER : ''
+              }`}
             >
-              <div className="flex items-center gap-3 px-4 py-3">
-                <IconButton
-                  size="sm"
-                  variant="plain"
-                  color="neutral"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    toggleHost(node.node)
-                  }}
-                >
-                  {isHostExpanded ? (
-                    <ChevronDown size={20} />
-                  ) : (
-                    <ChevronRight size={20} />
-                  )}
-                </IconButton>
-                <div className="flex items-center gap-4 flex-1">
-                  <Typography level="title-md" className="font-semibold">
-                    {node.node}
-                  </Typography>
-                  <Chip
-                    size="sm"
-                    variant="soft"
-                    color={node.status === 'online' ? 'success' : 'danger'}
-                  >
-                    {node.status}
-                  </Chip>
-                </div>
-                <div className="flex items-center gap-4 text-sm font-mono">
-                  <span>CPU: {cpuPercent}%</span>
-                  <span>Mem: {memPercent}%</span>
-                  <span>Disk: {diskPercent}%</span>
-                  <span className="text-neutral-500">{node.status === 'online' ? formatUptime(node.uptime) : '-'}</span>
-                </div>
+              <ChevronRight
+                size={18}
+                className={`transition-transform duration-200 flex-shrink-0 ${isHostExpanded ? 'rotate-90' : ''}`}
+              />
+              <Server size={18} className="flex-shrink-0" />
+              <span className="font-bold">{node.node}</span>
+              <Chip
+                size="sm"
+                variant="soft"
+                color={node.status === 'online' ? 'success' : 'danger'}
+              >
+                {node.status}
+              </Chip>
+              <div className="ml-auto flex items-center gap-4 text-sm font-mono">
+                <span>CPU: {cpuPercent}%</span>
+                <span>Mem: {memPercent}%</span>
+                <span>Disk: {diskPercent}%</span>
+                <span className="text-neutral-500">
+                  {node.status === 'online' ? formatUptime(node.uptime) : '-'}
+                </span>
               </div>
-            </Sheet>
+            </div>
 
-            {/* Host Sections */}
+            {/* Expanded sections */}
             {isHostExpanded && (
-              <div className="ml-8 space-y-3">
-                {/* Virtual Machines */}
+              <>
                 {vms.length > 0 && (
-                  <div>
-                    <Sheet
-                      variant="soft"
-                      className="rounded-sm cursor-pointer hover:bg-opacity-80 transition-colors"
-                      onClick={() => toggleSection(`${node.node}-vm`)}
-                    >
-                      <div className="flex items-center gap-2 px-3 py-2">
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          color="neutral"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleSection(`${node.node}-vm`)
-                          }}
-                        >
-                          {expandedSections.has(`${node.node}-vm`) ? (
-                            <ChevronDown size={16} />
-                          ) : (
-                            <ChevronRight size={16} />
-                          )}
-                        </IconButton>
-                        <Typography level="title-sm" className="font-semibold">
-                          Virtual Machines ({vms.length})
-                        </Typography>
-                      </div>
-                    </Sheet>
-                    {expandedSections.has(`${node.node}-vm`) && (
-                      <div className="mt-2">
-                        <VMTable vms={vms} />
-                      </div>
-                    )}
-                  </div>
+                  <GuestSection
+                    label="Virtual Machines"
+                    guests={vms}
+                    expanded={expandedSections.has(`${node.node}-vm`)}
+                    onToggle={() => toggleSection(`${node.node}-vm`)}
+                  />
                 )}
 
-                {/* LXC Containers */}
                 {containers.length > 0 && (
-                  <div>
-                    <Sheet
-                      variant="soft"
-                      className="rounded-sm cursor-pointer hover:bg-opacity-80 transition-colors"
-                      onClick={() => toggleSection(`${node.node}-ct`)}
-                    >
-                      <div className="flex items-center gap-2 px-3 py-2">
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          color="neutral"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleSection(`${node.node}-ct`)
-                          }}
-                        >
-                          {expandedSections.has(`${node.node}-ct`) ? (
-                            <ChevronDown size={16} />
-                          ) : (
-                            <ChevronRight size={16} />
-                          )}
-                        </IconButton>
-                        <Typography level="title-sm" className="font-semibold">
-                          LXC Containers ({containers.length})
-                        </Typography>
-                      </div>
-                    </Sheet>
-                    {expandedSections.has(`${node.node}-ct`) && (
-                      <div className="mt-2">
-                        <VMTable vms={containers} />
-                      </div>
-                    )}
-                  </div>
+                  <GuestSection
+                    label="LXC Containers"
+                    guests={containers}
+                    expanded={expandedSections.has(`${node.node}-ct`)}
+                    onToggle={() => toggleSection(`${node.node}-ct`)}
+                  />
                 )}
 
-                {/* Storage */}
                 {storages.length > 0 && (
-                  <div>
-                    <Sheet
-                      variant="soft"
-                      className="rounded-sm cursor-pointer hover:bg-opacity-80 transition-colors"
-                      onClick={() => toggleSection(`${node.node}-storage`)}
-                    >
-                      <div className="flex items-center gap-2 px-3 py-2">
-                        <IconButton
-                          size="sm"
-                          variant="plain"
-                          color="neutral"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleSection(`${node.node}-storage`)
-                          }}
-                        >
-                          {expandedSections.has(`${node.node}-storage`) ? (
-                            <ChevronDown size={16} />
-                          ) : (
-                            <ChevronRight size={16} />
-                          )}
-                        </IconButton>
-                        <Typography level="title-sm" className="font-semibold">
-                          Storage ({storages.length})
-                        </Typography>
-                      </div>
-                    </Sheet>
-                    {expandedSections.has(`${node.node}-storage`) && (
-                      <div className="mt-2">
-                        <StorageTable storages={storages} />
-                      </div>
-                    )}
-                  </div>
+                  <StorageSection
+                    storages={storages}
+                    expanded={expandedSections.has(`${node.node}-storage`)}
+                    onToggle={() => toggleSection(`${node.node}-storage`)}
+                  />
                 )}
-              </div>
+              </>
             )}
           </div>
         )
       })}
-    </div>
+    </Sheet>
   )
 }
