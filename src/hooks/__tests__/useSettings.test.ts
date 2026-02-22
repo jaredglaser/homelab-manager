@@ -46,7 +46,7 @@ if (isCI) {
             });
 
             expect(result.current.docker.useAbbreviatedUnits).toBe(false);
-            expect(result.current.docker.memoryDisplayMode).toBe('percentage');
+            expect(result.current.docker.memoryDisplayMode).toBe('bytes');
             expect(result.current.general.use12HourTime).toBe(true);
         });
 
@@ -143,14 +143,14 @@ if (isCI) {
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
-                expect(result.current.docker.memoryDisplayMode).toBe('percentage');
+                expect(result.current.docker.memoryDisplayMode).toBe('bytes');
             });
 
             act(() => {
-                result.current.setMemoryDisplayMode('bytes');
+                result.current.setMemoryDisplayMode('percentage');
             });
 
-            expect(result.current.docker.memoryDisplayMode).toBe('bytes');
+            expect(result.current.docker.memoryDisplayMode).toBe('percentage');
         });
 
         it('should persist memoryDisplayMode to database', async () => {
@@ -161,12 +161,12 @@ if (isCI) {
             });
 
             act(() => {
-                result.current.setMemoryDisplayMode('bytes');
+                result.current.setMemoryDisplayMode('percentage');
             });
 
             await waitFor(() => {
                 expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'docker/memoryDisplayMode', value: 'bytes' },
+                    data: { key: 'docker/memoryDisplayMode', value: 'percentage' },
                 });
             });
         });
@@ -562,7 +562,7 @@ if (isCI) {
 
             await waitFor(() => {
                 // Should fall back to default
-                expect(result.current.docker.memoryDisplayMode).toBe('percentage');
+                expect(result.current.docker.memoryDisplayMode).toBe('bytes');
             });
         });
     });
