@@ -15,11 +15,11 @@ export type ProxmoxUpdateInterval = 1000 | 10000;
 export interface Settings {
   general: {
     use12HourTime: boolean;
+    showSparklines: boolean;
+    useAbbreviatedUnits: boolean;
   };
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
-    showSparklines: boolean;
-    useAbbreviatedUnits: boolean;
     expandedHosts: Set<string>;
     expandedContainers: Set<string>;
     decimals: DecimalSettings;
@@ -81,11 +81,11 @@ const DEFAULT_DECIMAL_SETTINGS: DecimalSettings = {
 const DEFAULT_SETTINGS: Settings = {
   general: {
     use12HourTime: true,
+    showSparklines: true,
+    useAbbreviatedUnits: false,
   },
   docker: {
     memoryDisplayMode: 'bytes',
-    showSparklines: true,
-    useAbbreviatedUnits: false,
     expandedHosts: new Set(),
     expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
@@ -149,13 +149,13 @@ function parseSettings(raw: Record<string, string>): Settings {
   return {
     general: {
       use12HourTime: parseBool(raw['general/use12HourTime'], DEFAULT_SETTINGS.general.use12HourTime),
+      showSparklines: parseBool(raw['general/showSparklines'], DEFAULT_SETTINGS.general.showSparklines),
+      useAbbreviatedUnits: parseBool(raw['general/useAbbreviatedUnits'], DEFAULT_SETTINGS.general.useAbbreviatedUnits),
     },
     docker: {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
-      showSparklines: parseBool(raw['docker/showSparklines'], DEFAULT_SETTINGS.docker.showSparklines),
-      useAbbreviatedUnits: parseBool(raw['docker/useAbbreviatedUnits'], DEFAULT_SETTINGS.docker.useAbbreviatedUnits),
       expandedHosts: parseExpandedSet(raw['docker/expandedHosts']),
       expandedContainers: parseExpandedSet(raw['docker/expandedContainers']),
       decimals: {
@@ -228,9 +228,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setShowSparklines = useCallback((value: boolean) => {
     setSettings(prev => ({
       ...prev,
-      docker: { ...prev.docker, showSparklines: value },
+      general: { ...prev.general, showSparklines: value },
     }));
-    updateSetting({ data: { key: 'docker/showSparklines', value: String(value) } }).catch(() => {
+    updateSetting({ data: { key: 'general/showSparklines', value: String(value) } }).catch(() => {
       // Fire-and-forget
     });
   }, []);
@@ -238,9 +238,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const setUseAbbreviatedUnits = useCallback((value: boolean) => {
     setSettings(prev => ({
       ...prev,
-      docker: { ...prev.docker, useAbbreviatedUnits: value },
+      general: { ...prev.general, useAbbreviatedUnits: value },
     }));
-    updateSetting({ data: { key: 'docker/useAbbreviatedUnits', value: String(value) } }).catch(() => {
+    updateSetting({ data: { key: 'general/useAbbreviatedUnits', value: String(value) } }).catch(() => {
       // Fire-and-forget
     });
   }, []);

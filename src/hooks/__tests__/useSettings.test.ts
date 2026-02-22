@@ -42,10 +42,10 @@ if (isCI) {
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
-                expect(result.current.docker.showSparklines).toBe(true);
+                expect(result.current.general.showSparklines).toBe(true);
             });
 
-            expect(result.current.docker.useAbbreviatedUnits).toBe(false);
+            expect(result.current.general.useAbbreviatedUnits).toBe(false);
             expect(result.current.docker.memoryDisplayMode).toBe('bytes');
             expect(result.current.general.use12HourTime).toBe(true);
         });
@@ -53,8 +53,8 @@ if (isCI) {
         it('should load settings from database', async () => {
             mockGetAllSettings.mockImplementation(() =>
                 Promise.resolve({
-                    'docker/useAbbreviatedUnits': 'true',
-                    'docker/showSparklines': 'false',
+                    'general/useAbbreviatedUnits': 'true',
+                    'general/showSparklines': 'false',
                     'general/use12HourTime': 'false',
                 })
             );
@@ -62,10 +62,10 @@ if (isCI) {
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
-                expect(result.current.docker.useAbbreviatedUnits).toBe(true);
+                expect(result.current.general.useAbbreviatedUnits).toBe(true);
             });
 
-            expect(result.current.docker.showSparklines).toBe(false);
+            expect(result.current.general.showSparklines).toBe(false);
             expect(result.current.general.use12HourTime).toBe(false);
         });
     });
@@ -75,14 +75,14 @@ if (isCI) {
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
-                expect(result.current.docker.useAbbreviatedUnits).toBe(false);
+                expect(result.current.general.useAbbreviatedUnits).toBe(false);
             });
 
             act(() => {
                 result.current.setUseAbbreviatedUnits(true);
             });
 
-            expect(result.current.docker.useAbbreviatedUnits).toBe(true);
+            expect(result.current.general.useAbbreviatedUnits).toBe(true);
         });
 
         it('should persist useAbbreviatedUnits to database', async () => {
@@ -98,7 +98,7 @@ if (isCI) {
 
             await waitFor(() => {
                 expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'docker/useAbbreviatedUnits', value: 'true' },
+                    data: { key: 'general/useAbbreviatedUnits', value: 'true' },
                 });
             });
         });
@@ -109,14 +109,14 @@ if (isCI) {
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             await waitFor(() => {
-                expect(result.current.docker.showSparklines).toBe(true);
+                expect(result.current.general.showSparklines).toBe(true);
             });
 
             act(() => {
                 result.current.setShowSparklines(false);
             });
 
-            expect(result.current.docker.showSparklines).toBe(false);
+            expect(result.current.general.showSparklines).toBe(false);
         });
 
         it('should persist showSparklines to database', async () => {
@@ -132,7 +132,7 @@ if (isCI) {
 
             await waitFor(() => {
                 expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'docker/showSparklines', value: 'false' },
+                    data: { key: 'general/showSparklines', value: 'false' },
                 });
             });
         });
@@ -333,7 +333,7 @@ if (isCI) {
 
             // Should still have defaults even after error
             await waitFor(() => {
-                expect(result.current.docker.showSparklines).toBe(true);
+                expect(result.current.general.showSparklines).toBe(true);
             });
         });
     });

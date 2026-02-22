@@ -42,6 +42,7 @@ class ProxmoxPollService {
   private intervalId: ReturnType<typeof setInterval> | null = null;
   private lastOverview: ProxmoxClusterOverview | null = null;
   private listenerClient: PoolClient | null = null;
+  private stopped = true;
 
   subscribe(callback: ProxmoxCallback): () => void {
     this.subscribers.add(callback);
@@ -67,10 +68,14 @@ class ProxmoxPollService {
   }
 
   private async startPolling(): Promise<void> {
+    this.stopped = false;
+
     // Fetch immediately, then on interval
     this.poll();
 
     const interval = await getUpdateInterval();
+    if (this.stopped) return;
+
     this.intervalId = setInterval(() => {
       this.poll();
     }, interval);
@@ -88,7 +93,15 @@ class ProxmoxPollService {
       const client = await databaseConnectionManager.getClient(config);
       const pool = client.getPool();
 
-      this.listenerClient = await pool.connect();
+      const poolClient = await pool.connect();
+
+      // Check if we were stopped while awaiting the connection
+      if (this.stopped) {
+        poolClient.release();
+        return;
+      }
+
+      this.listenerClient = poolClient;
 
       this.listenerClient.on('notification', (msg) => {
         if (msg.channel === 'settings_change' && msg.payload === 'proxmox/updateInterval') {
@@ -147,6 +160,7 @@ class ProxmoxPollService {
   }
 
   private stopPolling(): void {
+    this.stopped = true;
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;

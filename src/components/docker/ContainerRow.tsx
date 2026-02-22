@@ -29,9 +29,10 @@ interface ContainerRowProps {
 }
 
 export default memo(function ContainerRow({ container, chartData }: ContainerRowProps) {
-  const { docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
+  const { general, docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
   const { rates } = container;
-  const { decimals, showSparklines } = docker;
+  const { decimals } = docker;
+  const { showSparklines } = general;
   const expanded = isContainerExpanded(container.id);
 
   const [iconPickerOpen, setIconPickerOpen] = useState(false);

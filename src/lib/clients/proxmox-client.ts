@@ -4,7 +4,6 @@ import type {
   ProxmoxResponse,
   ProxmoxNode,
   ProxmoxClusterStatus,
-  ProxmoxResource,
   ProxmoxVM,
   ProxmoxContainer,
   ProxmoxStorage,
@@ -81,14 +80,6 @@ export class ProxmoxClient {
    */
   async getClusterStatus(): Promise<ProxmoxClusterStatus[]> {
     return this.get<ProxmoxClusterStatus[]>('/cluster/status');
-  }
-
-  /**
-   * Get all cluster resources (nodes, VMs, containers, storage)
-   */
-  async getClusterResources(type?: string): Promise<ProxmoxResource[]> {
-    const path = type ? `/cluster/resources?type=${type}` : '/cluster/resources';
-    return this.get<ProxmoxResource[]>(path);
   }
 
   /**

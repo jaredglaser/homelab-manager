@@ -9,8 +9,8 @@ import { useSettings } from '@/hooks/useSettings';
  * text width. Tables use overflow-x-auto so nothing needs to shrink.
  */
 export const MetricHeader = memo(function MetricHeader({ children }: { children: ReactNode }) {
-  const { docker } = useSettings();
-  const { useAbbreviatedUnits, showSparklines } = docker;
+  const { general } = useSettings();
+  const { useAbbreviatedUnits, showSparklines } = general;
   const unitWidth = useAbbreviatedUnits ? 'w-[2.5rem]' : 'w-[3.5rem]';
 
   return (

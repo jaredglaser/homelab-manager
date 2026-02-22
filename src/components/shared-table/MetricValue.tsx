@@ -31,8 +31,8 @@ export const MetricValue = memo(function MetricValue({
   color,
   isStale = false,
 }: MetricValueProps) {
-  const { docker } = useSettings();
-  const { useAbbreviatedUnits, showSparklines } = docker;
+  const { general } = useSettings();
+  const { useAbbreviatedUnits, showSparklines } = general;
   const previousValueRef = useRef<string>(value);
   const [isGlowing, setIsGlowing] = useState(false);
 

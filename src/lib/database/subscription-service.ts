@@ -17,6 +17,7 @@ class StatsPollService {
   private intervals = new Map<StatsSource, ReturnType<typeof setInterval>>();
   private lastSeq = new Map<StatsSource, string>();
   private repo: StatsRepository | null = null;
+  private stoppedSources = new Set<StatsSource>();
 
   private async getRepo(): Promise<StatsRepository> {
     if (!this.repo) {
@@ -49,6 +50,8 @@ class StatsPollService {
   }
 
   private async startPolling(source: StatsSource): Promise<void> {
+    this.stoppedSources.delete(source);
+
     try {
       const repo = await this.getRepo();
       const seq = source === 'docker'
@@ -58,6 +61,9 @@ class StatsPollService {
     } catch {
       this.lastSeq.set(source, '0');
     }
+
+    // Check if we were stopped while awaiting
+    if (this.stoppedSources.has(source)) return;
 
     const intervalId = setInterval(async () => {
       const subs = this.subscribers.get(source);
@@ -86,6 +92,7 @@ class StatsPollService {
   }
 
   private stopPolling(source: StatsSource): void {
+    this.stoppedSources.add(source);
     const intervalId = this.intervals.get(source);
     if (intervalId) {
       clearInterval(intervalId);
