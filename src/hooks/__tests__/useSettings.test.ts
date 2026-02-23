@@ -9,74 +9,72 @@ if (isCI) {
     });
 } else {
     // Only import testing libraries when not in CI
-    const { waitFor, renderHook, act } = await import('@testing-library/react');
+    const { renderHook, act, waitFor } = await import('@testing-library/react');
     const { createElement } = await import('react');
     type ReactNode = import('react').ReactNode;
 
     // Mock the settings functions
-    const mockGetAllSettings = mock(() => Promise.resolve({}));
     const mockUpdateSetting = mock(() => Promise.resolve());
 
     mock.module('@/data/settings.functions', () => ({
-        getAllSettings: mockGetAllSettings,
         updateSetting: mockUpdateSetting,
     }));
 
     // Import after mocking
-    const { SettingsProvider, useSettings } = await import('../useSettings');
+    const { useSettings } = await import('../useSettings');
+    const { rawSettingsAtom } = await import('../settingsAtom');
+    const { toastsAtom } = await import('../toastAtom');
+    const { createStore, Provider } = await import('jotai');
 
-    // Use createElement instead of JSX to avoid React 19 jsx-dev-runtime issues
-    function wrapper({ children }: { children: ReactNode }) {
-        return createElement(SettingsProvider, null, children);
+    function createWrapper(initialRaw: Record<string, string> = {}) {
+        const store = createStore();
+        if (Object.keys(initialRaw).length > 0) {
+            store.set(rawSettingsAtom, initialRaw);
+        }
+        return {
+            store,
+            wrapper: ({ children }: { children: ReactNode }) =>
+                createElement(Provider, { store } as Record<string, unknown>, children),
+        };
     }
 
     beforeEach(() => {
-        mockGetAllSettings.mockClear();
         mockUpdateSetting.mockClear();
-        mockGetAllSettings.mockImplementation(() => Promise.resolve({}));
         mockUpdateSetting.mockImplementation(() => Promise.resolve());
     });
 
     describe('initialization', () => {
-        it('should provide default settings on mount', async () => {
+        it('should provide default settings on mount', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.general.showSparklines).toBe(true);
-            });
-
+            expect(result.current.general.showSparklines).toBe(true);
             expect(result.current.general.useAbbreviatedUnits).toBe(false);
             expect(result.current.docker.memoryDisplayMode).toBe('bytes');
             expect(result.current.general.use12HourTime).toBe(true);
         });
 
-        it('should load settings from database', async () => {
-            mockGetAllSettings.mockImplementation(() =>
-                Promise.resolve({
-                    'general/useAbbreviatedUnits': 'true',
-                    'general/showSparklines': 'false',
-                    'general/use12HourTime': 'false',
-                })
-            );
+        it('should derive settings from raw atom values', () => {
+            const { wrapper } = createWrapper({
+                'general/useAbbreviatedUnits': 'true',
+                'general/showSparklines': 'false',
+                'general/use12HourTime': 'false',
+            });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.general.useAbbreviatedUnits).toBe(true);
-            });
-
+            expect(result.current.general.useAbbreviatedUnits).toBe(true);
             expect(result.current.general.showSparklines).toBe(false);
             expect(result.current.general.use12HourTime).toBe(false);
         });
     });
 
     describe('setUseAbbreviatedUnits', () => {
-        it('should update useAbbreviatedUnits state', async () => {
+        it('should update useAbbreviatedUnits state', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.general.useAbbreviatedUnits).toBe(false);
-            });
+            expect(result.current.general.useAbbreviatedUnits).toBe(false);
 
             act(() => {
                 result.current.setUseAbbreviatedUnits(true);
@@ -85,32 +83,26 @@ if (isCI) {
             expect(result.current.general.useAbbreviatedUnits).toBe(true);
         });
 
-        it('should persist useAbbreviatedUnits to database', async () => {
+        it('should persist useAbbreviatedUnits to database', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             act(() => {
                 result.current.setUseAbbreviatedUnits(true);
             });
 
-            await waitFor(() => {
-                expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'general/useAbbreviatedUnits', value: 'true' },
-                });
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'general/useAbbreviatedUnits', value: 'true' },
             });
         });
     });
 
     describe('setShowSparklines', () => {
-        it('should update showSparklines state', async () => {
+        it('should update showSparklines state', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.general.showSparklines).toBe(true);
-            });
+            expect(result.current.general.showSparklines).toBe(true);
 
             act(() => {
                 result.current.setShowSparklines(false);
@@ -119,32 +111,26 @@ if (isCI) {
             expect(result.current.general.showSparklines).toBe(false);
         });
 
-        it('should persist showSparklines to database', async () => {
+        it('should persist showSparklines to database', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             act(() => {
                 result.current.setShowSparklines(false);
             });
 
-            await waitFor(() => {
-                expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'general/showSparklines', value: 'false' },
-                });
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'general/showSparklines', value: 'false' },
             });
         });
     });
 
     describe('setMemoryDisplayMode', () => {
-        it('should update memoryDisplayMode state', async () => {
+        it('should update memoryDisplayMode state', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.docker.memoryDisplayMode).toBe('bytes');
-            });
+            expect(result.current.docker.memoryDisplayMode).toBe('bytes');
 
             act(() => {
                 result.current.setMemoryDisplayMode('percentage');
@@ -153,32 +139,26 @@ if (isCI) {
             expect(result.current.docker.memoryDisplayMode).toBe('percentage');
         });
 
-        it('should persist memoryDisplayMode to database', async () => {
+        it('should persist memoryDisplayMode to database', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             act(() => {
                 result.current.setMemoryDisplayMode('percentage');
             });
 
-            await waitFor(() => {
-                expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'docker/memoryDisplayMode', value: 'percentage' },
-                });
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'docker/memoryDisplayMode', value: 'percentage' },
             });
         });
     });
 
     describe('setUse12HourTime', () => {
-        it('should update use12HourTime state', async () => {
+        it('should update use12HourTime state', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.general.use12HourTime).toBe(true);
-            });
+            expect(result.current.general.use12HourTime).toBe(true);
 
             act(() => {
                 result.current.setUse12HourTime(false);
@@ -189,12 +169,11 @@ if (isCI) {
     });
 
     describe('setDockerDecimal', () => {
-        it('should update decimal settings', async () => {
+        it('should update decimal settings', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.docker.decimals.cpu).toBe(false);
-            });
+            expect(result.current.docker.decimals.cpu).toBe(false);
 
             act(() => {
                 result.current.setDockerDecimal('cpu', true);
@@ -203,32 +182,26 @@ if (isCI) {
             expect(result.current.docker.decimals.cpu).toBe(true);
         });
 
-        it('should persist decimal settings to database', async () => {
+        it('should persist decimal settings to database', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             act(() => {
                 result.current.setDockerDecimal('networkSpeed', true);
             });
 
-            await waitFor(() => {
-                expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'docker/decimals/networkSpeed', value: 'true' },
-                });
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'docker/decimals/networkSpeed', value: 'true' },
             });
         });
     });
 
     describe('container expansion', () => {
-        it('should toggle container expanded state', async () => {
+        it('should toggle container expanded state', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.isContainerExpanded('container-1')).toBe(false);
-            });
+            expect(result.current.isContainerExpanded('container-1')).toBe(false);
 
             act(() => {
                 result.current.toggleContainerExpanded('container-1');
@@ -245,22 +218,18 @@ if (isCI) {
     });
 
     describe('host expansion', () => {
-        it('should return true for single host', async () => {
+        it('should return true for single host', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             expect(result.current.isHostExpanded('host-1', 1)).toBe(true);
         });
 
-        it('should toggle host expanded state for multiple hosts', async () => {
+        it('should toggle host expanded state for multiple hosts', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.isHostExpanded('host-1', 2)).toBe(false);
-            });
+            expect(result.current.isHostExpanded('host-1', 2)).toBe(false);
 
             act(() => {
                 result.current.toggleHostExpanded('host-1');
@@ -278,22 +247,18 @@ if (isCI) {
     });
 
     describe('pool expansion', () => {
-        it('should return true for single pool', async () => {
+        it('should return true for single pool', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             expect(result.current.isPoolExpanded('tank', 1)).toBe(true);
         });
 
-        it('should toggle pool expanded state for multiple pools', async () => {
+        it('should toggle pool expanded state for multiple pools', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.isPoolExpanded('tank', 2)).toBe(false);
-            });
+            expect(result.current.isPoolExpanded('tank', 2)).toBe(false);
 
             act(() => {
                 result.current.togglePoolExpanded('tank');
@@ -304,12 +269,11 @@ if (isCI) {
     });
 
     describe('ZFS decimal settings', () => {
-        it('should update ZFS decimal settings', async () => {
+        it('should update ZFS decimal settings', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.zfs.decimals.diskSpeed).toBe(false);
-            });
+            expect(result.current.zfs.decimals.diskSpeed).toBe(false);
 
             act(() => {
                 result.current.setZfsDecimal('diskSpeed', true);
@@ -319,76 +283,46 @@ if (isCI) {
         });
     });
 
-    describe('error handling', () => {
-        it('should throw error when used outside provider', () => {
-            expect(() => {
-                renderHook(() => useSettings());
-            }).toThrow('useSettings must be used within a SettingsProvider');
-        });
-
-        it('should use defaults when database fetch fails', async () => {
-            mockGetAllSettings.mockImplementation(() => Promise.reject(new Error('DB error')));
-
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            // Should still have defaults even after error
-            await waitFor(() => {
-                expect(result.current.general.showSparklines).toBe(true);
-            });
-        });
-    });
-
     describe('developer settings', () => {
-        it('should default dockerDebugLogging to false', async () => {
+        it('should default dockerDebugLogging to false', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.dockerDebugLogging).toBe(false);
-            });
+            expect(result.current.developer.dockerDebugLogging).toBe(false);
         });
 
-        it('should default dbFlushDebugLogging to false', async () => {
+        it('should default dbFlushDebugLogging to false', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.dbFlushDebugLogging).toBe(false);
-            });
+            expect(result.current.developer.dbFlushDebugLogging).toBe(false);
         });
 
-        it('should load dockerDebugLogging from database', async () => {
-            mockGetAllSettings.mockImplementation(() =>
-                Promise.resolve({
-                    'developer/dockerDebugLogging': 'true',
-                })
-            );
+        it('should derive dockerDebugLogging from raw atom', () => {
+            const { wrapper } = createWrapper({
+                'developer/dockerDebugLogging': 'true',
+            });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.dockerDebugLogging).toBe(true);
-            });
+            expect(result.current.developer.dockerDebugLogging).toBe(true);
         });
 
-        it('should load dbFlushDebugLogging from database', async () => {
-            mockGetAllSettings.mockImplementation(() =>
-                Promise.resolve({
-                    'developer/dbFlushDebugLogging': 'true',
-                })
-            );
+        it('should derive dbFlushDebugLogging from raw atom', () => {
+            const { wrapper } = createWrapper({
+                'developer/dbFlushDebugLogging': 'true',
+            });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.dbFlushDebugLogging).toBe(true);
-            });
+            expect(result.current.developer.dbFlushDebugLogging).toBe(true);
         });
 
-        it('should update dockerDebugLogging state', async () => {
+        it('should update dockerDebugLogging state', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.dockerDebugLogging).toBe(false);
-            });
+            expect(result.current.developer.dockerDebugLogging).toBe(false);
 
             act(() => {
                 result.current.setDockerDebugLogging(true);
@@ -397,12 +331,11 @@ if (isCI) {
             expect(result.current.developer.dockerDebugLogging).toBe(true);
         });
 
-        it('should update dbFlushDebugLogging state', async () => {
+        it('should update dbFlushDebugLogging state', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.dbFlushDebugLogging).toBe(false);
-            });
+            expect(result.current.developer.dbFlushDebugLogging).toBe(false);
 
             act(() => {
                 result.current.setDbFlushDebugLogging(true);
@@ -411,70 +344,54 @@ if (isCI) {
             expect(result.current.developer.dbFlushDebugLogging).toBe(true);
         });
 
-        it('should persist dockerDebugLogging to database', async () => {
+        it('should persist dockerDebugLogging to database', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             act(() => {
                 result.current.setDockerDebugLogging(true);
             });
 
-            await waitFor(() => {
-                expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'developer/dockerDebugLogging', value: 'true' },
-                });
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'developer/dockerDebugLogging', value: 'true' },
             });
         });
 
-        it('should persist dbFlushDebugLogging to database', async () => {
+        it('should persist dbFlushDebugLogging to database', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             act(() => {
                 result.current.setDbFlushDebugLogging(true);
             });
 
-            await waitFor(() => {
-                expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'developer/dbFlushDebugLogging', value: 'true' },
-                });
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'developer/dbFlushDebugLogging', value: 'true' },
             });
         });
 
-        it('should default sseDebugLogging to false', async () => {
+        it('should default sseDebugLogging to false', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.sseDebugLogging).toBe(false);
-            });
+            expect(result.current.developer.sseDebugLogging).toBe(false);
         });
 
-        it('should load sseDebugLogging from database', async () => {
-            mockGetAllSettings.mockImplementation(() =>
-                Promise.resolve({
-                    'developer/sseDebugLogging': 'true',
-                })
-            );
+        it('should derive sseDebugLogging from raw atom', () => {
+            const { wrapper } = createWrapper({
+                'developer/sseDebugLogging': 'true',
+            });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.sseDebugLogging).toBe(true);
-            });
+            expect(result.current.developer.sseDebugLogging).toBe(true);
         });
 
-        it('should update sseDebugLogging state', async () => {
+        it('should update sseDebugLogging state', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.developer.sseDebugLogging).toBe(false);
-            });
+            expect(result.current.developer.sseDebugLogging).toBe(false);
 
             act(() => {
                 result.current.setSseDebugLogging(true);
@@ -483,87 +400,163 @@ if (isCI) {
             expect(result.current.developer.sseDebugLogging).toBe(true);
         });
 
-        it('should persist sseDebugLogging to database', async () => {
+        it('should persist sseDebugLogging to database', () => {
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             act(() => {
                 result.current.setSseDebugLogging(true);
             });
 
-            await waitFor(() => {
-                expect(mockUpdateSetting).toHaveBeenCalledWith({
-                    data: { key: 'developer/sseDebugLogging', value: 'true' },
-                });
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'developer/sseDebugLogging', value: 'true' },
             });
         });
     });
 
-    describe('parsing settings from database', () => {
-        it('should parse expanded hosts from JSON', async () => {
-            mockGetAllSettings.mockImplementation(() =>
-                Promise.resolve({
-                    'docker/expandedHosts': '["host-1", "host-2"]',
-                })
-            );
+    describe('parsing settings from raw atom', () => {
+        it('should parse expanded hosts from JSON', () => {
+            const { wrapper } = createWrapper({
+                'docker/expandedHosts': '["host-1", "host-2"]',
+            });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.isHostExpanded('host-1', 3)).toBe(true);
-            });
-
+            expect(result.current.isHostExpanded('host-1', 3)).toBe(true);
             expect(result.current.isHostExpanded('host-2', 3)).toBe(true);
             expect(result.current.isHostExpanded('host-3', 3)).toBe(false);
         });
 
-        it('should parse expanded containers from JSON', async () => {
-            mockGetAllSettings.mockImplementation(() =>
-                Promise.resolve({
-                    'docker/expandedContainers': '["container-1"]',
-                })
-            );
+        it('should parse expanded containers from JSON', () => {
+            const { wrapper } = createWrapper({
+                'docker/expandedContainers': '["container-1"]',
+            });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                expect(result.current.isContainerExpanded('container-1')).toBe(true);
-            });
+            expect(result.current.isContainerExpanded('container-1')).toBe(true);
         });
 
-        it('should handle invalid JSON gracefully', async () => {
-            mockGetAllSettings.mockImplementation(() =>
-                Promise.resolve({
-                    'docker/expandedHosts': 'not-valid-json',
-                })
-            );
+        it('should handle invalid JSON gracefully', () => {
+            const { wrapper } = createWrapper({
+                'docker/expandedHosts': 'not-valid-json',
+            });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
-
-            await waitFor(() => {
-                expect(result.current).toBeDefined();
-            });
 
             // Should default to empty set
             expect(result.current.isHostExpanded('host-1', 2)).toBe(false);
         });
 
-        it('should handle invalid memory display mode', async () => {
-            mockGetAllSettings.mockImplementation(() =>
-                Promise.resolve({
-                    'docker/memoryDisplayMode': 'invalid',
-                })
-            );
+        it('should handle invalid memory display mode', () => {
+            const { wrapper } = createWrapper({
+                'docker/memoryDisplayMode': 'invalid',
+            });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            await waitFor(() => {
-                // Should fall back to default
-                expect(result.current.docker.memoryDisplayMode).toBe('bytes');
+            // Should fall back to default
+            expect(result.current.docker.memoryDisplayMode).toBe('bytes');
+        });
+    });
+
+    describe('rollback on persist failure', () => {
+        it('should roll back a simple setting on failure', async () => {
+            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
+
+            const { wrapper, store } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.general.showSparklines).toBe(true);
+
+            act(() => {
+                result.current.setShowSparklines(false);
             });
+
+            // Optimistically updated
+            expect(result.current.general.showSparklines).toBe(false);
+
+            // Wait for rollback
+            await waitFor(() => {
+                expect(result.current.general.showSparklines).toBe(true);
+            });
+
+            // Toast should be shown
+            const toasts = store.get(toastsAtom);
+            expect(toasts.length).toBeGreaterThan(0);
+            expect(toasts[0].message).toBe('Failed to save setting');
+        });
+
+        it('should roll back a toggle setting on failure', async () => {
+            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
+
+            const { wrapper, store } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isContainerExpanded('c1')).toBe(false);
+
+            act(() => {
+                result.current.toggleContainerExpanded('c1');
+            });
+
+            // Optimistically expanded
+            expect(result.current.isContainerExpanded('c1')).toBe(true);
+
+            // Wait for rollback
+            await waitFor(() => {
+                expect(result.current.isContainerExpanded('c1')).toBe(false);
+            });
+
+            const toasts = store.get(toastsAtom);
+            expect(toasts.length).toBeGreaterThan(0);
+        });
+
+        it('should roll back to existing value when key was already set', async () => {
+            mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
+
+            const { wrapper } = createWrapper({
+                'general/showSparklines': 'false',
+            });
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.general.showSparklines).toBe(false);
+
+            act(() => {
+                result.current.setShowSparklines(true);
+            });
+
+            // Optimistically updated
+            expect(result.current.general.showSparklines).toBe(true);
+
+            // Should roll back to false (the original value)
+            await waitFor(() => {
+                expect(result.current.general.showSparklines).toBe(false);
+            });
+        });
+
+        it('should not roll back when persist succeeds', async () => {
+            mockUpdateSetting.mockImplementation(() => Promise.resolve());
+
+            const { wrapper, store } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setShowSparklines(false);
+            });
+
+            expect(result.current.general.showSparklines).toBe(false);
+
+            // Give the promise time to resolve
+            await act(async () => {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            });
+
+            // Still false — no rollback
+            expect(result.current.general.showSparklines).toBe(false);
+
+            // No toasts
+            const toasts = store.get(toastsAtom);
+            expect(toasts.length).toBe(0);
         });
     });
 }

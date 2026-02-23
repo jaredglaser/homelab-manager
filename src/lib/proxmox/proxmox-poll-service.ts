@@ -1,7 +1,7 @@
-import type { ProxmoxSSEPayload } from '@/types/proxmox';
+import type { ProxmoxClusterOverview } from '@/types/proxmox';
 import type { PoolClient } from 'pg';
 
-type ProxmoxCallback = (payload: ProxmoxSSEPayload) => void;
+type ProxmoxCallback = (overview: ProxmoxClusterOverview) => void;
 
 const DEFAULT_POLL_INTERVAL_MS = 10_000; // Default to 10 seconds
 
@@ -40,8 +40,7 @@ async function getUpdateInterval(): Promise<number> {
 class ProxmoxPollService {
   private subscribers = new Set<ProxmoxCallback>();
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  private lastPayload: ProxmoxSSEPayload | null = null;
-  private currentIntervalMs = DEFAULT_POLL_INTERVAL_MS;
+  private lastOverview: ProxmoxClusterOverview | null = null;
   private listenerClient: PoolClient | null = null;
   private stopped = true;
 
@@ -50,10 +49,10 @@ class ProxmoxPollService {
 
     const isFirstSubscriber = this.subscribers.size === 1;
 
-    // Send cached payload immediately, but only if we're not about to poll
+    // Send cached overview immediately, but only if we're not about to poll
     // (first subscriber triggers immediate poll in startPolling)
-    if (this.lastPayload && !isFirstSubscriber) {
-      callback(this.lastPayload);
+    if (this.lastOverview && !isFirstSubscriber) {
+      callback(this.lastOverview);
     }
 
     if (isFirstSubscriber) {
@@ -74,12 +73,12 @@ class ProxmoxPollService {
     // Fetch immediately, then on interval
     this.poll();
 
-    this.currentIntervalMs = await getUpdateInterval();
+    const interval = await getUpdateInterval();
     if (this.stopped) return;
 
     this.intervalId = setInterval(() => {
       this.poll();
-    }, this.currentIntervalMs);
+    }, interval);
 
     // Listen for settings changes to dynamically update interval
     await this.setupSettingsListener();
@@ -118,29 +117,15 @@ class ProxmoxPollService {
   }
 
   private async restartPolling(): Promise<void> {
-    // Stop current polling
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
 
-    // Start with new interval
-    this.currentIntervalMs = await getUpdateInterval();
+    const interval = await getUpdateInterval();
     this.intervalId = setInterval(() => {
       this.poll();
-    }, this.currentIntervalMs);
-
-    // Broadcast current data immediately with the new interval so all clients sync their UI
-    if (this.lastPayload) {
-      const updatedPayload: ProxmoxSSEPayload = {
-        ...this.lastPayload,
-        pollIntervalMs: this.currentIntervalMs,
-      };
-      this.lastPayload = updatedPayload;
-      for (const cb of this.subscribers) {
-        cb(updatedPayload);
-      }
-    }
+    }, interval);
   }
 
   private async poll(): Promise<void> {
@@ -160,15 +145,11 @@ class ProxmoxPollService {
       const config = loadProxmoxConfig();
       const client = proxmoxConnectionManager.getClient(config);
       const overview = await client.getClusterOverview();
-      const payload: ProxmoxSSEPayload = {
-        overview,
-        pollIntervalMs: this.currentIntervalMs,
-      };
 
-      this.lastPayload = payload;
+      this.lastOverview = overview;
 
       for (const cb of this.subscribers) {
-        cb(payload);
+        cb(overview);
       }
     } catch (error) {
       // API call failed — skip this cycle, clients keep last data
@@ -187,7 +168,7 @@ class ProxmoxPollService {
       this.listenerClient.release();
       this.listenerClient = null;
     }
-    this.lastPayload = null;
+    this.lastOverview = null;
   }
 
   async stop(): Promise<void> {

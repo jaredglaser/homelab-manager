@@ -1,21 +1,23 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ThemeProvider from './ThemeProvider'
 import Header from './Header'
-import { SettingsProvider } from '@/hooks/useSettings'
+import Toasts from './Toasts'
+import { useSettingsSync } from '@/hooks/useSettingsSync'
 
 const queryClient = new QueryClient()
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  useSettingsSync()
+
   return (
     <ThemeProvider>
-      <SettingsProvider>
-        <Header />
-        <QueryClientProvider client={queryClient}>
-          <div className="min-h-screen">
-            {children}
-          </div>
-        </QueryClientProvider>
-      </SettingsProvider>
+      <Header />
+      <QueryClientProvider client={queryClient}>
+        <div className="min-h-screen">
+          {children}
+        </div>
+      </QueryClientProvider>
+      <Toasts />
     </ThemeProvider>
   )
 }

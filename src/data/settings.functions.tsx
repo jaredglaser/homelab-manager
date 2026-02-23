@@ -13,13 +13,6 @@ async function getSettingsRepository() {
   return new SettingsRepository(client.getPool());
 }
 
-export const getAllSettings = createServerFn()
-  .handler(async (): Promise<Record<string, string>> => {
-    const repo = await getSettingsRepository();
-    const settings = await repo.getAll();
-    return Object.fromEntries(settings);
-  });
-
 const updateSettingSchema = z.object({
   key: z.string().min(1),
   value: z.string(),

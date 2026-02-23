@@ -28,7 +28,7 @@
 - **Language:** TypeScript (strict mode) + React 19
 - **UI:** MUI Joy UI (components) + TailwindCSS (styling)
 - **Routing:** TanStack Router (file-based, auto-generated `routeTree.gen.ts`)
-- **State:** TanStack Query (QueryClient singleton in `__root.tsx`)
+- **State:** Jotai (settings atoms) + TanStack Query (QueryClient singleton in `__root.tsx`)
 - **Streaming:** Server-Sent Events (SSE) via TanStack Router server routes (`src/routes/api/`)
 - **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL)
 - **Database:** TimescaleDB (PostgreSQL 16 with wide hypertables, automatic compression & retention)
@@ -139,7 +139,7 @@ src/
 │   ├── zfs/                 # ZFS-specific components (CSS Grid + useWindowVirtualizer)
 │   ├── proxmox/             # Proxmox components (ClusterSummaryCards, NodeTable, GuestTable, StorageTable)
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
-├── hooks/                   # Custom hooks (useSSE, useTimeSeriesStream, useSettings, etc.)
+├── hooks/                   # Custom hooks (useSSE, useTimeSeriesStream, useSettings, settingsAtom, useSettingsSync)
 ├── data/                    # Server functions (*.functions.tsx) - non-streaming DB queries
 ├── middleware/              # Connection injection (Docker, SSH, Database)
 ├── lib/
@@ -154,15 +154,16 @@ src/
 │   ├── test/                # Test utilities (NOT in __tests__)
 │   ├── utils/               # Rate calculators, hierarchy builders, row converters
 │   ├── proxmox/             # Proxmox poll service (ProxmoxPollService)
+│   ├── settings/            # Settings broadcast service (SettingsBroadcastService)
 │   ├── streaming/types.ts   # Core interfaces
 │   └── server-init.ts       # Server-side shutdown handlers
 ├── worker/
 │   ├── collectors/          # Background collectors (Docker, ZFS)
 │   └── collector.ts         # Worker entry point
-├── types/                   # Domain types (docker.ts, zfs.ts, proxmox.ts)
+├── types/                   # Domain types (docker.ts, zfs.ts, proxmox.ts, settings.ts)
 ├── formatters/              # Display formatting (metrics, numbers)
 └── routes/
-    ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts)
+    ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts, settings.ts)
     └── [index, zfs, proxmox, settings].tsx  # Page routes
 
 migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
@@ -262,8 +263,9 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 - **Stale data warning**: If no SSE data received for 30+ seconds, UI shows warning via `useTimeSeriesStream`
 
 **Key files**:
-- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — subscribe to StatsPollService; proxmox-overview.ts — subscribe to ProxmoxPollService)
-- **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useTimeSeriesStream.ts` (preload + SSE merge + stale detection)
+- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — subscribe to StatsPollService; proxmox-overview.ts — subscribe to ProxmoxPollService; settings.ts — subscribe to SettingsBroadcastService)
+- **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useTimeSeriesStream.ts` (preload + SSE merge + stale detection), `src/hooks/useSettingsSync.ts` (settings SSE → Jotai atom)
+- **Settings**: `src/hooks/settingsAtom.ts` (Jotai atoms + types + parsing), `src/hooks/useSettings.tsx` (consumer hook with setters), `src/lib/settings/settings-broadcast-service.ts` (server-side LISTEN + broadcast)
 - **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
 - Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
 - Repository: `src/lib/database/repositories/stats-repository.ts` (wide table inserts/queries, NOTIFY after insert)
@@ -331,13 +333,21 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox us
 - Never create `.css` files (exception: Joy UI theme in `theme.ts`)
 
 ### State Management
+- **Settings**: Jotai atoms (`rawSettingsAtom` + derived `settingsAtom`) synced via SSE (`/api/settings`)
+  - `rawSettingsAtom`: raw DB key-value pairs, `settingsAtom`: derived parsed `Settings` object
+  - `useSettings()` hook returns settings + setters (optimistic local update + fire-and-forget DB persist)
+  - `useSettingsSync()` hook (in AppShell) connects SSE stream to atom for cross-client sync
+  - `SettingsBroadcastService` (server-side) listens to PostgreSQL `NOTIFY settings_change` and broadcasts to all SSE clients
+  - On SSE connect/reconnect: full settings state sent as `init` message (handles startup + connection recovery)
+  - On setting change: `change` message with key+value broadcast to all clients
 - `QueryClient` is a singleton in `__root.tsx` — never create per-route
 - Use `useTimeSeriesStream` hook for SSE-backed streaming data (preload + SSE merge + time-windowed buffer + stale detection)
 - Use `useSSE` hook directly for non-time-series SSE consumers (e.g., Proxmox snapshot data)
 - SSE connection management handled automatically by the browser's EventSource API
 
 ### Types
-- Domain types: `src/types/` (e.g., `docker.ts`, `zfs.ts`)
+- Domain types: `src/types/` (e.g., `docker.ts`, `zfs.ts`, `settings.ts`)
+- Settings types & atoms: `src/hooks/settingsAtom.ts` (Settings interface, parsing, Jotai atoms)
 - Streaming infrastructure: `src/lib/streaming/types.ts`
 
 ### Testing

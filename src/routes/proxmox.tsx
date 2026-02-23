@@ -8,7 +8,7 @@ import ClusterSummaryCards from '@/components/proxmox/ClusterSummaryCards'
 import ProxmoxHostView from '@/components/proxmox/ProxmoxHostView'
 import { useSSE } from '@/hooks/useSSE'
 import { testProxmoxConnection } from '@/data/proxmox.functions'
-import type { ProxmoxClusterOverview, ProxmoxSSEPayload } from '@/types/proxmox'
+import type { ProxmoxClusterOverview } from '@/types/proxmox'
 import { useSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
 
 function IntervalToggle({
@@ -138,7 +138,7 @@ function ProxmoxPage() {
 
 function ProxmoxPageContent() {
   const [lastUpdate, setLastUpdate] = useState<number>(0)
-  const { proxmox, setProxmoxUpdateInterval, syncProxmoxUpdateInterval } = useSettings()
+  const { proxmox, setProxmoxUpdateInterval } = useSettings()
 
   return (
     <div className="w-full p-6">
@@ -149,32 +149,26 @@ function ProxmoxPageContent() {
           <IntervalToggle interval={proxmox.updateInterval} onIntervalChange={setProxmoxUpdateInterval} />
         </div>
       </div>
-      <ProxmoxContent onUpdate={setLastUpdate} onIntervalSync={syncProxmoxUpdateInterval} />
+      <ProxmoxContent onUpdate={setLastUpdate} />
     </div>
   )
 }
 
 function ProxmoxContent({
-  onUpdate,
-  onIntervalSync,
+  onUpdate
 }: {
   onUpdate: (timestamp: number) => void
-  onIntervalSync: (interval: ProxmoxUpdateInterval) => void
 }) {
   const [overview, setOverview] = useState<ProxmoxClusterOverview | null>(null)
   const [configured, setConfigured] = useState<boolean | null>(null)
 
-  const handleData = useCallback((data: ProxmoxSSEPayload) => {
-    setOverview(data.overview)
+  const handleData = useCallback((data: ProxmoxClusterOverview) => {
+    setOverview(data)
     setConfigured(true)
     onUpdate(Date.now())
-    // Sync interval from server so all browsers reflect the current setting
-    if (data.pollIntervalMs === 1000 || data.pollIntervalMs === 10000) {
-      onIntervalSync(data.pollIntervalMs)
-    }
-  }, [onUpdate, onIntervalSync])
+  }, [onUpdate])
 
-  const { isConnected, error } = useSSE<ProxmoxSSEPayload>({
+  const { isConnected, error } = useSSE<ProxmoxClusterOverview>({
     url: '/api/proxmox-overview',
     onData: handleData,
   })

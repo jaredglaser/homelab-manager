@@ -1,54 +1,21 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from 'react';
-import { getAllSettings, updateSetting } from '@/data/settings.functions';
+import { useCallback } from 'react';
+import { useAtomValue, useSetAtom } from 'jotai';
+import {
+  rawSettingsAtom,
+  settingsAtom,
+  parseExpandedSet,
+  type Settings,
+  type MemoryDisplayMode,
+  type DecimalSettings,
+  type ProxmoxUpdateInterval,
+} from './settingsAtom';
+import { useToast } from './toastAtom';
+import { updateSetting } from '@/data/settings.functions';
 
-export type MemoryDisplayMode = 'percentage' | 'bytes';
+// Re-export types for backward-compatible imports
+export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval } from './settingsAtom';
 
-export interface DecimalSettings {
-  cpu: boolean;
-  memory: boolean;
-  diskSpeed: boolean;
-  networkSpeed: boolean;
-}
-
-export type ProxmoxUpdateInterval = 1000 | 10000;
-
-export interface Settings {
-  general: {
-    use12HourTime: boolean;
-    updateIntervalMs: number;
-    showSparklines: boolean;
-    useAbbreviatedUnits: boolean;
-  };
-  docker: {
-    memoryDisplayMode: MemoryDisplayMode;
-    expandedHosts: Set<string>;
-    expandedContainers: Set<string>;
-    decimals: DecimalSettings;
-  };
-  zfs: {
-    expandedHosts: Set<string>;
-    expandedPools: Set<string>;
-    expandedVdevs: Set<string>;
-    decimals: {
-      diskSpeed: boolean;
-    };
-  };
-  proxmox: {
-    updateInterval: ProxmoxUpdateInterval;
-  };
-  retention: {
-    rawDataHours: number;
-    minuteAggDays: number;
-    hourAggDays: number;
-  };
-  developer: {
-    dockerDebugLogging: boolean;
-    dbFlushDebugLogging: boolean;
-    sseDebugLogging: boolean;
-  };
-}
-
-interface SettingsContextValue extends Settings {
+interface SettingsValue extends Settings {
   setUse12HourTime: (value: boolean) => void;
   setUpdateInterval: (value: number) => void;
   setMemoryDisplayMode: (mode: MemoryDisplayMode) => void;
@@ -67,260 +34,88 @@ interface SettingsContextValue extends Settings {
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
   setProxmoxUpdateInterval: (interval: ProxmoxUpdateInterval) => void;
-  syncProxmoxUpdateInterval: (interval: ProxmoxUpdateInterval) => void;
   setRetention: (key: keyof Settings['retention'], value: number) => void;
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
   setSseDebugLogging: (value: boolean) => void;
 }
 
-const DEFAULT_DECIMAL_SETTINGS: DecimalSettings = {
-  cpu: false,
-  memory: false,
-  diskSpeed: false,
-  networkSpeed: false,
-};
-
-const DEFAULT_SETTINGS: Settings = {
-  general: {
-    use12HourTime: true,
-    updateIntervalMs: 1000,
-    showSparklines: true,
-    useAbbreviatedUnits: false,
-  },
-  docker: {
-    memoryDisplayMode: 'bytes',
-    expandedHosts: new Set(),
-    expandedContainers: new Set(),
-    decimals: { ...DEFAULT_DECIMAL_SETTINGS },
-  },
-  zfs: {
-    expandedHosts: new Set(),
-    expandedPools: new Set(),
-    expandedVdevs: new Set(),
-    decimals: {
-      diskSpeed: false,
-    },
-  },
-  proxmox: {
-    updateInterval: 10000,
-  },
-  retention: {
-    rawDataHours: 1,
-    minuteAggDays: 3,
-    hourAggDays: 30,
-  },
-  developer: {
-    dockerDebugLogging: false,
-    dbFlushDebugLogging: false,
-    sseDebugLogging: false,
-  },
-};
-
-const VALID_MEMORY_MODES: readonly string[] = ['percentage', 'bytes'];
-
-function parseExpandedSet(raw: string | undefined): Set<string> {
-  if (!raw) return new Set();
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return new Set(parsed.filter((h): h is string => typeof h === 'string'));
-    }
-  } catch {
-    // Invalid JSON - return empty set
+function toggleInSet(raw: string | undefined, item: string): string {
+  const set = parseExpandedSet(raw);
+  if (set.has(item)) {
+    set.delete(item);
+  } else {
+    set.add(item);
   }
-  return new Set();
+  return JSON.stringify(Array.from(set));
 }
 
-function parseBool(raw: string | undefined, defaultValue: boolean): boolean {
-  if (raw === undefined) return defaultValue;
-  return raw === 'true';
-}
+export function useSettings(): SettingsValue {
+  const settings = useAtomValue(settingsAtom);
+  const setRaw = useSetAtom(rawSettingsAtom);
+  const { showToast } = useToast();
 
-function parseIntSetting(raw: string | undefined, defaultValue: number): number {
-  if (raw === undefined) return defaultValue;
-  const parsed = parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : defaultValue;
-}
+  const optimisticSet = useCallback(
+    (key: string, computeValue: (prev: string | undefined) => string) => {
+      let previousValue: string | undefined;
+      let newValue: string;
 
-function parseProxmoxUpdateInterval(raw: string | undefined): ProxmoxUpdateInterval {
-  const parsed = parseIntSetting(raw, DEFAULT_SETTINGS.proxmox.updateInterval);
-  return parsed === 1000 || parsed === 10000 ? parsed : DEFAULT_SETTINGS.proxmox.updateInterval;
-}
-
-function parseSettings(raw: Record<string, string>): Settings {
-  const memMode = raw['docker/memoryDisplayMode'];
-  return {
-    general: {
-      use12HourTime: parseBool(raw['general/use12HourTime'], DEFAULT_SETTINGS.general.use12HourTime),
-      updateIntervalMs: parseIntSetting(raw['general/updateIntervalMs'], DEFAULT_SETTINGS.general.updateIntervalMs),
-      showSparklines: parseBool(raw['general/showSparklines'], DEFAULT_SETTINGS.general.showSparklines),
-      useAbbreviatedUnits: parseBool(raw['general/useAbbreviatedUnits'], DEFAULT_SETTINGS.general.useAbbreviatedUnits),
-    },
-    docker: {
-      memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
-        ? (memMode as MemoryDisplayMode)
-        : DEFAULT_SETTINGS.docker.memoryDisplayMode,
-      expandedHosts: parseExpandedSet(raw['docker/expandedHosts']),
-      expandedContainers: parseExpandedSet(raw['docker/expandedContainers']),
-      decimals: {
-        cpu: parseBool(raw['docker/decimals/cpu'], DEFAULT_DECIMAL_SETTINGS.cpu),
-        memory: parseBool(raw['docker/decimals/memory'], DEFAULT_DECIMAL_SETTINGS.memory),
-        diskSpeed: parseBool(raw['docker/decimals/diskSpeed'], DEFAULT_DECIMAL_SETTINGS.diskSpeed),
-        networkSpeed: parseBool(raw['docker/decimals/networkSpeed'], DEFAULT_DECIMAL_SETTINGS.networkSpeed),
-      },
-    },
-    zfs: {
-      expandedHosts: parseExpandedSet(raw['zfs/expandedHosts']),
-      expandedPools: parseExpandedSet(raw['zfs/expandedPools']),
-      expandedVdevs: parseExpandedSet(raw['zfs/expandedVdevs']),
-      decimals: {
-        diskSpeed: parseBool(raw['zfs/decimals/diskSpeed'], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
-      },
-    },
-    proxmox: {
-      updateInterval: parseProxmoxUpdateInterval(raw['proxmox/updateInterval']),
-    },
-    retention: {
-      rawDataHours: parseIntSetting(raw['retention/rawDataHours'], DEFAULT_SETTINGS.retention.rawDataHours),
-      minuteAggDays: parseIntSetting(raw['retention/minuteAggDays'], DEFAULT_SETTINGS.retention.minuteAggDays),
-      hourAggDays: parseIntSetting(raw['retention/hourAggDays'], DEFAULT_SETTINGS.retention.hourAggDays),
-    },
-    developer: {
-      dockerDebugLogging: parseBool(raw['developer/dockerDebugLogging'], DEFAULT_SETTINGS.developer.dockerDebugLogging),
-      dbFlushDebugLogging: parseBool(raw['developer/dbFlushDebugLogging'], DEFAULT_SETTINGS.developer.dbFlushDebugLogging),
-      sseDebugLogging: parseBool(raw['developer/sseDebugLogging'], DEFAULT_SETTINGS.developer.sseDebugLogging),
-    },
-  };
-}
-
-const SettingsContext = createContext<SettingsContextValue | null>(null);
-
-export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-
-  useEffect(() => {
-    // TODO: Proactively write all default settings to the database on first load
-    // This would eliminate the need for fallback defaults in server-side code (e.g., proxmox-poll-service.ts)
-    // and ensure all clients start with the same persisted values
-    getAllSettings().then(raw => {
-      setSettings(parseSettings(raw));
-    }).catch(() => {
-      // DB unavailable — keep defaults
-    });
-  }, []);
-
-  const setUse12HourTime = useCallback((value: boolean) => {
-    setSettings(prev => ({
-      ...prev,
-      general: { ...prev.general, use12HourTime: value },
-    }));
-    updateSetting({ data: { key: 'general/use12HourTime', value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
-
-  const setUpdateInterval = useCallback((value: number) => {
-    setSettings(prev => ({
-      ...prev,
-      general: { ...prev.general, updateIntervalMs: value },
-    }));
-    updateSetting({ data: { key: 'general/updateIntervalMs', value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
-
-  const setMemoryDisplayMode = useCallback((mode: MemoryDisplayMode) => {
-    setSettings(prev => ({
-      ...prev,
-      docker: { ...prev.docker, memoryDisplayMode: mode },
-    }));
-    updateSetting({ data: { key: 'docker/memoryDisplayMode', value: mode } }).catch(() => {
-      // Fire-and-forget; optimistic update already applied
-    });
-  }, []);
-
-  const setShowSparklines = useCallback((value: boolean) => {
-    setSettings(prev => ({
-      ...prev,
-      general: { ...prev.general, showSparklines: value },
-    }));
-    updateSetting({ data: { key: 'general/showSparklines', value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
-
-  const setUseAbbreviatedUnits = useCallback((value: boolean) => {
-    setSettings(prev => ({
-      ...prev,
-      general: { ...prev.general, useAbbreviatedUnits: value },
-    }));
-    updateSetting({ data: { key: 'general/useAbbreviatedUnits', value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
-
-  const toggleHostExpanded = useCallback((hostName: string) => {
-    setSettings(prev => {
-      const newExpanded = new Set(prev.docker.expandedHosts);
-      if (newExpanded.has(hostName)) {
-        newExpanded.delete(hostName);
-      } else {
-        newExpanded.add(hostName);
-      }
-
-      // Persist to DB
-      updateSetting({
-        data: {
-          key: 'docker/expandedHosts',
-          value: JSON.stringify(Array.from(newExpanded)),
-        },
-      }).catch(() => {
-        // Fire-and-forget
+      setRaw(raw => {
+        previousValue = raw[key];
+        newValue = computeValue(previousValue);
+        return { ...raw, [key]: newValue };
       });
 
-      return {
-        ...prev,
-        docker: { ...prev.docker, expandedHosts: newExpanded },
-      };
-    });
-  }, []);
+      updateSetting({ data: { key, value: newValue! } }).catch(() => {
+        setRaw(current => {
+          if (previousValue === undefined) {
+            const next = { ...current };
+            delete next[key];
+            return next;
+          }
+          return { ...current, [key]: previousValue };
+        });
+        showToast('Failed to save setting');
+      });
+    },
+    [setRaw, showToast]
+  );
+
+  const setUse12HourTime = useCallback((value: boolean) => {
+    optimisticSet('general/use12HourTime', () => String(value));
+  }, [optimisticSet]);
+
+  const setUpdateInterval = useCallback((value: number) => {
+    optimisticSet('general/updateIntervalMs', () => String(value));
+  }, [optimisticSet]);
+
+  const setMemoryDisplayMode = useCallback((mode: MemoryDisplayMode) => {
+    optimisticSet('docker/memoryDisplayMode', () => mode);
+  }, [optimisticSet]);
+
+  const setShowSparklines = useCallback((value: boolean) => {
+    optimisticSet('general/showSparklines', () => String(value));
+  }, [optimisticSet]);
+
+  const setUseAbbreviatedUnits = useCallback((value: boolean) => {
+    optimisticSet('general/useAbbreviatedUnits', () => String(value));
+  }, [optimisticSet]);
+
+  const toggleHostExpanded = useCallback((hostName: string) => {
+    optimisticSet('docker/expandedHosts', prev => toggleInSet(prev, hostName));
+  }, [optimisticSet]);
 
   const isHostExpanded = useCallback(
     (hostName: string, totalHosts: number): boolean => {
-      // If only one host, always expanded
       if (totalHosts === 1) return true;
-      // Otherwise check the stored state (default collapsed)
       return settings.docker.expandedHosts.has(hostName);
     },
     [settings.docker.expandedHosts]
   );
 
   const toggleContainerExpanded = useCallback((containerId: string) => {
-    setSettings(prev => {
-      const newExpanded = new Set(prev.docker.expandedContainers);
-      if (newExpanded.has(containerId)) {
-        newExpanded.delete(containerId);
-      } else {
-        newExpanded.add(containerId);
-      }
-
-      // Persist to DB
-      updateSetting({
-        data: {
-          key: 'docker/expandedContainers',
-          value: JSON.stringify(Array.from(newExpanded)),
-        },
-      }).catch(() => {
-        // Fire-and-forget
-      });
-
-      return {
-        ...prev,
-        docker: { ...prev.docker, expandedContainers: newExpanded },
-      };
-    });
-  }, []);
+    optimisticSet('docker/expandedContainers', prev => toggleInSet(prev, containerId));
+  }, [optimisticSet]);
 
   const isContainerExpanded = useCallback(
     (containerId: string): boolean => {
@@ -330,29 +125,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const toggleZfsHostExpanded = useCallback((hostName: string) => {
-    setSettings(prev => {
-      const newExpanded = new Set(prev.zfs.expandedHosts);
-      if (newExpanded.has(hostName)) {
-        newExpanded.delete(hostName);
-      } else {
-        newExpanded.add(hostName);
-      }
-
-      updateSetting({
-        data: {
-          key: 'zfs/expandedHosts',
-          value: JSON.stringify(Array.from(newExpanded)),
-        },
-      }).catch(() => {
-        // Fire-and-forget
-      });
-
-      return {
-        ...prev,
-        zfs: { ...prev.zfs, expandedHosts: newExpanded },
-      };
-    });
-  }, []);
+    optimisticSet('zfs/expandedHosts', prev => toggleInSet(prev, hostName));
+  }, [optimisticSet]);
 
   const isZfsHostExpanded = useCallback(
     (hostName: string, totalHosts: number): boolean => {
@@ -363,65 +137,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const togglePoolExpanded = useCallback((poolId: string) => {
-    setSettings(prev => {
-      const newExpanded = new Set(prev.zfs.expandedPools);
-      if (newExpanded.has(poolId)) {
-        newExpanded.delete(poolId);
-      } else {
-        newExpanded.add(poolId);
-      }
-
-      // Persist to DB
-      updateSetting({
-        data: {
-          key: 'zfs/expandedPools',
-          value: JSON.stringify(Array.from(newExpanded)),
-        },
-      }).catch(() => {
-        // Fire-and-forget
-      });
-
-      return {
-        ...prev,
-        zfs: { ...prev.zfs, expandedPools: newExpanded },
-      };
-    });
-  }, []);
+    optimisticSet('zfs/expandedPools', prev => toggleInSet(prev, poolId));
+  }, [optimisticSet]);
 
   const isPoolExpanded = useCallback(
     (poolId: string, totalPools: number): boolean => {
-      // If only one pool, always expanded
       if (totalPools === 1) return true;
-      // Otherwise check the stored state (default collapsed)
       return settings.zfs.expandedPools.has(poolId);
     },
     [settings.zfs.expandedPools]
   );
 
   const toggleVdevExpanded = useCallback((vdevId: string) => {
-    setSettings(prev => {
-      const newExpanded = new Set(prev.zfs.expandedVdevs);
-      if (newExpanded.has(vdevId)) {
-        newExpanded.delete(vdevId);
-      } else {
-        newExpanded.add(vdevId);
-      }
-
-      updateSetting({
-        data: {
-          key: 'zfs/expandedVdevs',
-          value: JSON.stringify(Array.from(newExpanded)),
-        },
-      }).catch(() => {
-        // Fire-and-forget
-      });
-
-      return {
-        ...prev,
-        zfs: { ...prev.zfs, expandedVdevs: newExpanded },
-      };
-    });
-  }, []);
+    optimisticSet('zfs/expandedVdevs', prev => toggleInSet(prev, vdevId));
+  }, [optimisticSet]);
 
   const isVdevExpanded = useCallback(
     (vdevId: string): boolean => {
@@ -431,127 +160,56 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   );
 
   const setDockerDecimal = useCallback((key: keyof DecimalSettings, value: boolean) => {
-    setSettings(prev => ({
-      ...prev,
-      docker: {
-        ...prev.docker,
-        decimals: { ...prev.docker.decimals, [key]: value },
-      },
-    }));
-    updateSetting({ data: { key: `docker/decimals/${key}`, value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
+    optimisticSet(`docker/decimals/${key}`, () => String(value));
+  }, [optimisticSet]);
 
   const setZfsDecimal = useCallback((key: 'diskSpeed', value: boolean) => {
-    setSettings(prev => ({
-      ...prev,
-      zfs: {
-        ...prev.zfs,
-        decimals: { ...prev.zfs.decimals, [key]: value },
-      },
-    }));
-    updateSetting({ data: { key: `zfs/decimals/${key}`, value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
+    optimisticSet(`zfs/decimals/${key}`, () => String(value));
+  }, [optimisticSet]);
 
   const setProxmoxUpdateInterval = useCallback((interval: ProxmoxUpdateInterval) => {
-    setSettings(prev => ({
-      ...prev,
-      proxmox: { ...prev.proxmox, updateInterval: interval },
-    }));
-    updateSetting({ data: { key: 'proxmox/updateInterval', value: String(interval) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
-
-  // Sync-only: updates local state from server-broadcast interval (no DB write)
-  const syncProxmoxUpdateInterval = useCallback((interval: ProxmoxUpdateInterval) => {
-    setSettings(prev => {
-      if (prev.proxmox.updateInterval === interval) return prev;
-      return { ...prev, proxmox: { ...prev.proxmox, updateInterval: interval } };
-    });
-  }, []);
+    optimisticSet('proxmox/updateInterval', () => String(interval));
+  }, [optimisticSet]);
 
   const setRetention = useCallback((key: keyof Settings['retention'], value: number) => {
-    setSettings(prev => ({
-      ...prev,
-      retention: { ...prev.retention, [key]: value },
-    }));
-    updateSetting({ data: { key: `retention/${key}`, value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
+    optimisticSet(`retention/${key}`, () => String(value));
+  }, [optimisticSet]);
 
   const setDockerDebugLogging = useCallback((value: boolean) => {
-    setSettings(prev => ({
-      ...prev,
-      developer: { ...prev.developer, dockerDebugLogging: value },
-    }));
-    updateSetting({ data: { key: 'developer/dockerDebugLogging', value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
+    optimisticSet('developer/dockerDebugLogging', () => String(value));
+  }, [optimisticSet]);
 
   const setDbFlushDebugLogging = useCallback((value: boolean) => {
-    setSettings(prev => ({
-      ...prev,
-      developer: { ...prev.developer, dbFlushDebugLogging: value },
-    }));
-    updateSetting({ data: { key: 'developer/dbFlushDebugLogging', value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
+    optimisticSet('developer/dbFlushDebugLogging', () => String(value));
+  }, [optimisticSet]);
 
   const setSseDebugLogging = useCallback((value: boolean) => {
-    setSettings(prev => ({
-      ...prev,
-      developer: { ...prev.developer, sseDebugLogging: value },
-    }));
-    updateSetting({ data: { key: 'developer/sseDebugLogging', value: String(value) } }).catch(() => {
-      // Fire-and-forget
-    });
-  }, []);
+    optimisticSet('developer/sseDebugLogging', () => String(value));
+  }, [optimisticSet]);
 
-  return (
-    <SettingsContext.Provider
-      value={{
-        ...settings,
-        setUse12HourTime,
-        setUpdateInterval,
-        setMemoryDisplayMode,
-        setShowSparklines,
-        setUseAbbreviatedUnits,
-        toggleHostExpanded,
-        isHostExpanded,
-        toggleContainerExpanded,
-        isContainerExpanded,
-        toggleZfsHostExpanded,
-        isZfsHostExpanded,
-        togglePoolExpanded,
-        isPoolExpanded,
-        toggleVdevExpanded,
-        isVdevExpanded,
-        setDockerDecimal,
-        setZfsDecimal,
-        setProxmoxUpdateInterval,
-        syncProxmoxUpdateInterval,
-        setRetention,
-        setDockerDebugLogging,
-        setDbFlushDebugLogging,
-        setSseDebugLogging,
-      }}
-    >
-      {children}
-    </SettingsContext.Provider>
-  );
-}
-
-export function useSettings(): SettingsContextValue {
-  const ctx = useContext(SettingsContext);
-  if (!ctx) {
-    throw new Error('useSettings must be used within a SettingsProvider');
-  }
-  return ctx;
+  return {
+    ...settings,
+    setUse12HourTime,
+    setUpdateInterval,
+    setMemoryDisplayMode,
+    setShowSparklines,
+    setUseAbbreviatedUnits,
+    toggleHostExpanded,
+    isHostExpanded,
+    toggleContainerExpanded,
+    isContainerExpanded,
+    toggleZfsHostExpanded,
+    isZfsHostExpanded,
+    togglePoolExpanded,
+    isPoolExpanded,
+    toggleVdevExpanded,
+    isVdevExpanded,
+    setDockerDecimal,
+    setZfsDecimal,
+    setProxmoxUpdateInterval,
+    setRetention,
+    setDockerDebugLogging,
+    setDbFlushDebugLogging,
+    setSseDebugLogging,
+  };
 }
