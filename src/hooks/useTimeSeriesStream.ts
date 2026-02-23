@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSSE } from './useSSE';
 
 const STALE_THRESHOLD_MS = 30000;
@@ -123,19 +123,24 @@ export function useTimeSeriesStream<TRow>({
     debug,
   });
 
-  // Derive sorted rows and latestByEntity from buffer
-  const rows = Array.from(buffer.values()).sort(
-    (a, b) => getTime(a) - getTime(b),
+  // Derive sorted rows and latestByEntity from buffer (memoized to avoid
+  // recomputing on unrelated re-renders like isConnected/isStale changes)
+  const rows = useMemo(
+    () => Array.from(buffer.values()).sort((a, b) => getTime(a) - getTime(b)),
+    [buffer, getTime],
   );
 
-  const latestByEntity = new Map<string, TRow>();
-  for (const row of rows) {
-    const entity = getEntity(row);
-    const existing = latestByEntity.get(entity);
-    if (!existing || getTime(row) > getTime(existing)) {
-      latestByEntity.set(entity, row);
+  const latestByEntity = useMemo(() => {
+    const map = new Map<string, TRow>();
+    for (const row of rows) {
+      const entity = getEntity(row);
+      const existing = map.get(entity);
+      if (!existing || getTime(row) > getTime(existing)) {
+        map.set(entity, row);
+      }
     }
-  }
+    return map;
+  }, [rows, getEntity, getTime]);
 
   // Stale detection via interval
   const [isStale, setIsStale] = useState(false);

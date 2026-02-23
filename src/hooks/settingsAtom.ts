@@ -34,6 +34,8 @@ export interface Settings {
   };
   proxmox: {
     updateInterval: ProxmoxUpdateInterval;
+    expandedHosts: Set<string>;
+    expandedSections: Set<string>;
   };
   retention: {
     rawDataHours: number;
@@ -77,6 +79,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   proxmox: {
     updateInterval: 10000,
+    expandedHosts: new Set(),
+    expandedSections: new Set(),
   },
   retention: {
     rawDataHours: 1,
@@ -153,6 +157,8 @@ export function parseSettings(raw: Record<string, string>): Settings {
     },
     proxmox: {
       updateInterval: parseProxmoxUpdateInterval(raw['proxmox/updateInterval']),
+      expandedHosts: parseExpandedSet(raw['proxmox/expandedHosts']),
+      expandedSections: parseExpandedSet(raw['proxmox/expandedSections']),
     },
     retention: {
       rawDataHours: parseIntSetting(raw['retention/rawDataHours'], DEFAULT_SETTINGS.retention.rawDataHours),
@@ -172,3 +178,8 @@ export const rawSettingsAtom = atom<Record<string, string>>({});
 
 /** Derived parsed Settings object — recomputes when raw changes */
 export const settingsAtom = atom<Settings>((get) => parseSettings(get(rawSettingsAtom)));
+
+/** Transient Proxmox last-update timestamp — not persisted, used to decouple
+ *  the update indicator from the data-receiving component (avoids prop drilling
+ *  that would re-render the entire Proxmox page on every SSE message). */
+export const proxmoxLastUpdateAtom = atom<number>(0);

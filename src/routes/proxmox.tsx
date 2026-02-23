@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { Typography, CircularProgress, IconButton, Tooltip, Chip, Sheet } from '@mui/joy'
 import { Zap, Waves } from 'lucide-react'
+import { useAtomValue, useSetAtom } from 'jotai'
 import AppShell from '../components/AppShell'
 import PageHeader from '@/components/PageHeader'
 import ClusterSummaryCards from '@/components/proxmox/ClusterSummaryCards'
@@ -10,6 +11,7 @@ import { useSSE } from '@/hooks/useSSE'
 import { testProxmoxConnection } from '@/data/proxmox.functions'
 import type { ProxmoxClusterOverview } from '@/types/proxmox'
 import { useSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
+import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
 
 function IntervalToggle({
   interval,
@@ -68,13 +70,8 @@ function IntervalToggle({
   )
 }
 
-function UpdateIndicator({
-  lastUpdate,
-  expectedInterval
-}: {
-  lastUpdate: number
-  expectedInterval: number
-}) {
+function UpdateIndicator({ expectedInterval }: { expectedInterval: number }) {
+  const lastUpdate = useAtomValue(proxmoxLastUpdateAtom)
   const [isPulsing, setIsPulsing] = useState(false)
   const [isLate, setIsLate] = useState(false)
 
@@ -137,7 +134,6 @@ function ProxmoxPage() {
 }
 
 function ProxmoxPageContent() {
-  const [lastUpdate, setLastUpdate] = useState<number>(0)
   const { proxmox, setProxmoxUpdateInterval } = useSettings()
 
   return (
@@ -145,28 +141,25 @@ function ProxmoxPageContent() {
       <div className="flex items-center justify-between mb-6">
         <PageHeader title="Proxmox Dashboard" />
         <div className="flex items-center gap-3">
-          <UpdateIndicator lastUpdate={lastUpdate} expectedInterval={proxmox.updateInterval} />
+          <UpdateIndicator expectedInterval={proxmox.updateInterval} />
           <IntervalToggle interval={proxmox.updateInterval} onIntervalChange={setProxmoxUpdateInterval} />
         </div>
       </div>
-      <ProxmoxContent onUpdate={setLastUpdate} />
+      <ProxmoxContent />
     </div>
   )
 }
 
-function ProxmoxContent({
-  onUpdate
-}: {
-  onUpdate: (timestamp: number) => void
-}) {
+function ProxmoxContent() {
   const [overview, setOverview] = useState<ProxmoxClusterOverview | null>(null)
   const [configured, setConfigured] = useState<boolean | null>(null)
+  const setLastUpdate = useSetAtom(proxmoxLastUpdateAtom)
 
   const handleData = useCallback((data: ProxmoxClusterOverview) => {
     setOverview(data)
     setConfigured(true)
-    onUpdate(Date.now())
-  }, [onUpdate])
+    setLastUpdate(Date.now())
+  }, [setLastUpdate])
 
   const { isConnected, error } = useSSE<ProxmoxClusterOverview>({
     url: '/api/proxmox-overview',

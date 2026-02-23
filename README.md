@@ -16,9 +16,11 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 - **Docker Dashboard** (`/`) — Real-time streaming metrics for all running containers including CPU utilization, memory usage, block I/O (read/write), and network I/O (RX/TX) with inline sparkline charts
 - **Container Icons** — Auto-resolved icons from Docker image names with manual override via an icon picker (powered by [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons))
 - **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics collected via SSH and streamed from the database
+- **Proxmox Dashboard** (`/proxmox`) — Cluster overview with per-node CPU, memory, and disk metrics; collapsible host/VM/container/storage sections with live updates via shared server-side API polling
 - **TimescaleDB Persistence** — Background worker continuously collects stats every 1 second into wide hypertables with automatic compression (after 1 hour) and retention (7 days)
 - **Docker Compose Deployment** — Full stack with TimescaleDB, web server, and background worker (builds from source, no pre-built image)
 - **Live-Updating UI** — Server-Sent Events (SSE) stream data continuously to the client; a shared poll service ensures only 1 DB query/sec per source regardless of how many browser tabs are open
+- **Cross-Browser Settings Sync** — All user preferences (expansion state, display modes, update intervals) are persisted to the database and synced across browser tabs via a dedicated SSE channel
 - **Virtualized Tables** — CSS Grid layouts with page-scroll virtualization (`useWindowVirtualizer`) for efficient rendering of large container/pool lists
 - **Per-Entity Stale Detection** — When a host or container stops reporting, rows stay visible with amber highlighting and a connection warning icon instead of disappearing
 
@@ -39,6 +41,7 @@ This project is built on the **TanStack ecosystem** as its core framework:
 | **SSH** | [ssh2](https://github.com/mscdex/ssh2) | SSH client for remote command execution |
 | **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and retention for time-series data |
 | **Validation** | [Zod](https://zod.dev) | Schema validation |
+| **State** | [Jotai](https://jotai.org) | Atomic state management — settings atoms with optimistic updates and SSE sync |
 | **Language** | TypeScript + React 19 | Type-safe UI development |
 
 ## Architecture
@@ -235,14 +238,21 @@ src/
 │   │   ├── ZFSPoolsTable.tsx        # ZFS table (CSS Grid + useWindowVirtualizer)
 │   │   ├── ZFSPoolSpeedCharts.tsx   # Pool-level speed charts
 │   │   └── ZFSPoolSpeedChart.tsx    # Individual pool speed chart
+│   ├── proxmox/
+│   │   ├── ClusterSummaryCards.tsx   # Cluster-wide CPU/memory/storage summary
+│   │   └── ProxmoxHostView.tsx      # Per-node expandable sections (VMs, containers, storage)
 │   └── shared-table/
 │       └── MetricValue.tsx          # Formatted metric display (value + unit + optional sparkline)
 ├── hooks/
+│   ├── settingsAtom.ts              # Jotai atoms (rawSettings → derived settings), types, parsing
+│   ├── useSettings.tsx              # Consumer hook — settings + optimistic setters with rollback
+│   ├── useSettingsSync.ts           # SSE-to-atom bridge (syncs /api/settings → rawSettingsAtom)
 │   ├── useSSE.ts                    # EventSource-based SSE consumer
 │   ├── useTimeSeriesStream.ts       # Preload + SSE merge + time-windowed buffer + stale detection
-│   └── useSettings.tsx              # User preferences (expansion state, display modes, decimals)
+│   └── toastAtom.ts                 # Toast notification atom + useToast hook
 ├── data/
 │   ├── docker.functions.tsx         # Docker server functions (active containers, icon updates)
+│   ├── proxmox.functions.tsx        # Proxmox server functions (connection test)
 │   ├── settings.functions.tsx       # Settings server functions (get/update)
 │   └── zfs.functions.tsx            # ZFS server functions (active pools, stale check)
 ├── middleware/
@@ -256,6 +266,10 @@ src/
 │   │   ├── repositories/            # Data access layer (StatsRepository, SettingsRepository)
 │   │   ├── subscription-service.ts  # StatsPollService — shared 1s poll, broadcasts to SSE clients
 │   │   └── migrate.ts               # Database migration runner
+│   ├── proxmox/
+│   │   └── proxmox-poll-service.ts  # ProxmoxPollService — shared API poll + SSE broadcast
+│   ├── settings/
+│   │   └── settings-broadcast-service.ts  # PostgreSQL LISTEN + SSE broadcast for settings changes
 │   ├── parsers/                     # Stream parsers (ZFS iostat, text lines)
 │   ├── test/                        # Test utilities and helpers
 │   ├── utils/
@@ -274,8 +288,11 @@ src/
 │   ├── __root.tsx                   # HTML shell (SSR-safe, no MUI)
 │   ├── api/
 │   │   ├── docker-stats.ts          # Docker SSE endpoint
-│   │   └── zfs-stats.ts             # ZFS SSE endpoint
+│   │   ├── zfs-stats.ts             # ZFS SSE endpoint
+│   │   ├── proxmox-overview.ts      # Proxmox SSE endpoint
+│   │   └── settings.ts              # Settings SSE endpoint (cross-browser sync)
 │   ├── index.tsx                    # Docker page (/)
+│   ├── proxmox.tsx                  # Proxmox page (/proxmox)
 │   ├── settings.tsx                 # Settings page (/settings)
 │   └── zfs.tsx                      # ZFS page (/zfs)
 └── theme.ts                         # MUI Joy theme config
@@ -291,7 +308,7 @@ migrations/                          # SQL migrations (settings + TimescaleDB wi
 - [x] **Database-backed streaming** — frontend reads from TimescaleDB via shared server-side polling instead of direct API/SSH connections; a `StatsPollService` runs 1 query/sec per source and broadcasts to all SSE clients
 - [ ] **Return to TanStack Start streaming server functions** — currently using SSE as a workaround because streaming server functions don't close quickly enough when rapidly switching between tabs; once TanStack Start's abort signal propagation is more reliable, migrate back to the native streaming pattern
 - [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
-- [ ] **Proxmox API integration** — VM and LXC container management and statistics
+- [x] **Proxmox API integration** — cluster overview with per-node VM, container, and storage monitoring via REST API polling
 - [ ] **Authentication** — user login and access control using OIDC with first class Pocket ID support
 - [ ] **Pre-built Docker image** — publish to a container registry for one-step deployment without building from source
 - [ ] **Extensible service architecture** — plugin-like system for adding any service over SSH or HTTP

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useMemo } from 'react'
 import { Sheet, Chip, LinearProgress } from '@mui/joy'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, ProxmoxStorage } from '@/types/proxmox'
 import { formatBytes, formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
 import { MetricValue, MetricHeader } from '@/components/shared-table'
+import { useSettings } from '@/hooks/useSettings'
 
 const GUEST_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] min-w-[800px]'
 const STORAGE_GRID = 'grid grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,0.6fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,2fr)] min-w-[800px]'
@@ -241,77 +242,62 @@ function StorageSection({
 }
 
 export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
-  const [expandedHosts, setExpandedHosts] = useState<Set<string>>(() =>
-    new Set(overview.nodes.map(n => n.node))
-  )
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => {
-    const allSections = overview.nodes.flatMap(n => [
-      `${n.node}-vm`,
-      `${n.node}-ct`,
-      `${n.node}-storage`
-    ])
-    return new Set(allSections)
-  })
+  const {
+    isProxmoxHostExpanded,
+    toggleProxmoxHostExpanded,
+    isProxmoxSectionExpanded,
+    toggleProxmoxSectionExpanded,
+    proxmox: { expandedHosts, expandedSections },
+  } = useSettings()
 
-  // Group data by node
-  const vmsByNode = new Map<string, GuestRow[]>()
-  const containersByNode = new Map<string, GuestRow[]>()
-  const storageByNode = new Map<string, ProxmoxStorage[]>()
+  // On first render with no saved expansion state, default to all expanded
+  const hasExpansionState = expandedHosts.size > 0 || expandedSections.size > 0
 
-  for (const vm of overview.vms) {
-    if (!vmsByNode.has(vm.node)) vmsByNode.set(vm.node, [])
-    vmsByNode.get(vm.node)!.push({
-      vmid: vm.vmid,
-      name: vm.name,
-      status: vm.status,
-      cpu: vm.cpu,
-      cpus: vm.cpus,
-      mem: vm.mem,
-      maxmem: vm.maxmem,
-      netin: vm.netin,
-      netout: vm.netout,
-    })
-  }
+  // Group data by node (memoized to avoid recomputing on expansion toggles)
+  const { vmsByNode, containersByNode, storageByNode, sortedNodes } = useMemo(() => {
+    const vms = new Map<string, GuestRow[]>()
+    const cts = new Map<string, GuestRow[]>()
+    const storage = new Map<string, ProxmoxStorage[]>()
 
-  for (const ct of overview.containers) {
-    if (!containersByNode.has(ct.node)) containersByNode.set(ct.node, [])
-    containersByNode.get(ct.node)!.push({
-      vmid: ct.vmid,
-      name: ct.name,
-      status: ct.status,
-      cpu: ct.cpu,
-      cpus: ct.cpus,
-      mem: ct.mem,
-      maxmem: ct.maxmem,
-      netin: ct.netin,
-      netout: ct.netout,
-    })
-  }
+    for (const vm of overview.vms) {
+      if (!vms.has(vm.node)) vms.set(vm.node, [])
+      vms.get(vm.node)!.push({
+        vmid: vm.vmid,
+        name: vm.name,
+        status: vm.status,
+        cpu: vm.cpu,
+        cpus: vm.cpus,
+        mem: vm.mem,
+        maxmem: vm.maxmem,
+        netin: vm.netin,
+        netout: vm.netout,
+      })
+    }
 
-  for (const storage of overview.storages) {
-    if (!storageByNode.has(storage.node)) storageByNode.set(storage.node, [])
-    storageByNode.get(storage.node)!.push(storage)
-  }
+    for (const ct of overview.containers) {
+      if (!cts.has(ct.node)) cts.set(ct.node, [])
+      cts.get(ct.node)!.push({
+        vmid: ct.vmid,
+        name: ct.name,
+        status: ct.status,
+        cpu: ct.cpu,
+        cpus: ct.cpus,
+        mem: ct.mem,
+        maxmem: ct.maxmem,
+        netin: ct.netin,
+        netout: ct.netout,
+      })
+    }
 
-  const sortedNodes = [...overview.nodes].sort((a, b) => a.node.localeCompare(b.node))
+    for (const s of overview.storages) {
+      if (!storage.has(s.node)) storage.set(s.node, [])
+      storage.get(s.node)!.push(s)
+    }
 
-  const toggleHost = (node: string) => {
-    setExpandedHosts(prev => {
-      const next = new Set(prev)
-      if (next.has(node)) next.delete(node)
-      else next.add(node)
-      return next
-    })
-  }
+    const sorted = [...overview.nodes].sort((a, b) => a.node.localeCompare(b.node))
 
-  const toggleSection = (key: string) => {
-    setExpandedSections(prev => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+    return { vmsByNode: vms, containersByNode: cts, storageByNode: storage, sortedNodes: sorted }
+  }, [overview.vms, overview.containers, overview.storages, overview.nodes])
 
   return (
     <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
@@ -319,7 +305,7 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
         const vms = vmsByNode.get(node.node) || []
         const containers = containersByNode.get(node.node) || []
         const storages = storageByNode.get(node.node) || []
-        const isHostExpanded = expandedHosts.has(node.node)
+        const hostExpanded = hasExpansionState ? isProxmoxHostExpanded(node.node) : true
 
         const cpuPercent = (node.cpu * 100).toFixed(1)
         const memPercent = node.maxmem > 0 ? ((node.mem / node.maxmem) * 100).toFixed(1) : '0'
@@ -329,14 +315,14 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
           <div key={node.node}>
             {/* Host accordion row */}
             <div
-              onClick={() => toggleHost(node.node)}
+              onClick={() => toggleProxmoxHostExpanded(node.node)}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer bg-[var(--joy-palette-background-level1)] ${
                 nodeIdx > 0 ? BORDER : ''
               }`}
             >
               <ChevronRight
                 size={18}
-                className={`transition-transform duration-200 flex-shrink-0 ${isHostExpanded ? 'rotate-90' : ''}`}
+                className={`transition-transform duration-200 flex-shrink-0 ${hostExpanded ? 'rotate-90' : ''}`}
               />
               <Server size={18} className="flex-shrink-0" />
               <span className="font-bold">{node.node}</span>
@@ -358,14 +344,14 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
             </div>
 
             {/* Expanded sections */}
-            {isHostExpanded && (
+            {hostExpanded && (
               <>
                 {vms.length > 0 && (
                   <GuestSection
                     label="Virtual Machines"
                     guests={vms}
-                    expanded={expandedSections.has(`${node.node}-vm`)}
-                    onToggle={() => toggleSection(`${node.node}-vm`)}
+                    expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-vm`) : true}
+                    onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-vm`)}
                   />
                 )}
 
@@ -373,16 +359,16 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
                   <GuestSection
                     label="LXC Containers"
                     guests={containers}
-                    expanded={expandedSections.has(`${node.node}-ct`)}
-                    onToggle={() => toggleSection(`${node.node}-ct`)}
+                    expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-ct`) : true}
+                    onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-ct`)}
                   />
                 )}
 
                 {storages.length > 0 && (
                   <StorageSection
                     storages={storages}
-                    expanded={expandedSections.has(`${node.node}-storage`)}
-                    onToggle={() => toggleSection(`${node.node}-storage`)}
+                    expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-storage`) : true}
+                    onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-storage`)}
                   />
                 )}
               </>

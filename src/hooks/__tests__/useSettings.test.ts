@@ -268,6 +268,96 @@ if (isCI) {
         });
     });
 
+    describe('proxmox host expansion', () => {
+        it('should default to not expanded when no saved state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(false);
+        });
+
+        it('should toggle proxmox host expanded state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleProxmoxHostExpanded('pve1');
+            });
+
+            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(true);
+
+            act(() => {
+                result.current.toggleProxmoxHostExpanded('pve1');
+            });
+
+            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(false);
+        });
+
+        it('should persist proxmox host expansion to database', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleProxmoxHostExpanded('pve1');
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'proxmox/expandedHosts', value: '["pve1"]' },
+            });
+        });
+
+        it('should parse proxmox expanded hosts from JSON', () => {
+            const { wrapper } = createWrapper({
+                'proxmox/expandedHosts': '["pve1", "pve2"]',
+            });
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isProxmoxHostExpanded('pve1')).toBe(true);
+            expect(result.current.isProxmoxHostExpanded('pve2')).toBe(true);
+            expect(result.current.isProxmoxHostExpanded('pve3')).toBe(false);
+        });
+    });
+
+    describe('proxmox section expansion', () => {
+        it('should default to not expanded when no saved state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isProxmoxSectionExpanded('pve1-vm')).toBe(false);
+        });
+
+        it('should toggle proxmox section expanded state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleProxmoxSectionExpanded('pve1-vm');
+            });
+
+            expect(result.current.isProxmoxSectionExpanded('pve1-vm')).toBe(true);
+
+            act(() => {
+                result.current.toggleProxmoxSectionExpanded('pve1-vm');
+            });
+
+            expect(result.current.isProxmoxSectionExpanded('pve1-vm')).toBe(false);
+        });
+
+        it('should persist proxmox section expansion to database', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleProxmoxSectionExpanded('pve1-storage');
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: 'proxmox/expandedSections', value: '["pve1-storage"]' },
+            });
+        });
+    });
+
     describe('ZFS decimal settings', () => {
         it('should update ZFS decimal settings', () => {
             const { wrapper } = createWrapper();

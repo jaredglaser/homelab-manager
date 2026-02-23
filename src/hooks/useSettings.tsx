@@ -34,6 +34,10 @@ interface SettingsValue extends Settings {
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
   setProxmoxUpdateInterval: (interval: ProxmoxUpdateInterval) => void;
+  toggleProxmoxHostExpanded: (node: string) => void;
+  isProxmoxHostExpanded: (node: string) => boolean;
+  toggleProxmoxSectionExpanded: (key: string) => void;
+  isProxmoxSectionExpanded: (key: string) => boolean;
   setRetention: (key: keyof Settings['retention'], value: number) => void;
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
@@ -171,6 +175,28 @@ export function useSettings(): SettingsValue {
     optimisticSet('proxmox/updateInterval', () => String(interval));
   }, [optimisticSet]);
 
+  const toggleProxmoxHostExpanded = useCallback((node: string) => {
+    optimisticSet('proxmox/expandedHosts', prev => toggleInSet(prev, node));
+  }, [optimisticSet]);
+
+  const isProxmoxHostExpanded = useCallback(
+    (node: string): boolean => {
+      return settings.proxmox.expandedHosts.has(node);
+    },
+    [settings.proxmox.expandedHosts]
+  );
+
+  const toggleProxmoxSectionExpanded = useCallback((key: string) => {
+    optimisticSet('proxmox/expandedSections', prev => toggleInSet(prev, key));
+  }, [optimisticSet]);
+
+  const isProxmoxSectionExpanded = useCallback(
+    (key: string): boolean => {
+      return settings.proxmox.expandedSections.has(key);
+    },
+    [settings.proxmox.expandedSections]
+  );
+
   const setRetention = useCallback((key: keyof Settings['retention'], value: number) => {
     optimisticSet(`retention/${key}`, () => String(value));
   }, [optimisticSet]);
@@ -207,6 +233,10 @@ export function useSettings(): SettingsValue {
     setDockerDecimal,
     setZfsDecimal,
     setProxmoxUpdateInterval,
+    toggleProxmoxHostExpanded,
+    isProxmoxHostExpanded,
+    toggleProxmoxSectionExpanded,
+    isProxmoxSectionExpanded,
     setRetention,
     setDockerDebugLogging,
     setDbFlushDebugLogging,

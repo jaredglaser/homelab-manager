@@ -340,6 +340,8 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox us
   - `SettingsBroadcastService` (server-side) listens to PostgreSQL `NOTIFY settings_change` and broadcasts to all SSE clients
   - On SSE connect/reconnect: full settings state sent as `init` message (handles startup + connection recovery)
   - On setting change: `change` message with key+value broadcast to all clients
+  - Expansion state for all dashboards (Docker, ZFS, Proxmox) persisted + synced via settings atoms
+- **Transient UI atoms**: `proxmoxLastUpdateAtom` decouples the update indicator from data-receiving components (avoids prop drilling re-renders)
 - `QueryClient` is a singleton in `__root.tsx` — never create per-route
 - Use `useTimeSeriesStream` hook for SSE-backed streaming data (preload + SSE merge + time-windowed buffer + stale detection)
 - Use `useSSE` hook directly for non-time-series SSE consumers (e.g., Proxmox snapshot data)
