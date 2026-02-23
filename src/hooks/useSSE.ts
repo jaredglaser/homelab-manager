@@ -84,9 +84,12 @@ export function useSSE<T>({
             console.warn(`[useSSE] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
           }
 
-          // Set error after multiple failed reconnection attempts
+          // Close EventSource after multiple failed reconnection attempts
+          // (without this, the browser's built-in auto-reconnect retries forever)
           if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
             setError(new Error('Connection failed after multiple attempts'));
+            eventSource.close();
+            eventSourceRef.current = null;
           }
         }
       };

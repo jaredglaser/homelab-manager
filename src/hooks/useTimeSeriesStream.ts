@@ -44,11 +44,14 @@ export function useTimeSeriesStream<TRow>({
   const [lastDataTime, setLastDataTime] = useState<number | null>(null);
   const preloadedRef = useRef(false);
 
-  // Keep refs up to date for use in callbacks
+  // Keep refs up to date for use in callbacks and memoization
+  // (callers pass inline arrows — refs give stable identities for useMemo)
   const getKeyRef = useRef(getKey);
   const getTimeRef = useRef(getTime);
+  const getEntityRef = useRef(getEntity);
   getKeyRef.current = getKey;
   getTimeRef.current = getTime;
+  getEntityRef.current = getEntity;
 
   // Preload historical data on mount
   useEffect(() => {
@@ -86,7 +89,7 @@ export function useTimeSeriesStream<TRow>({
     if (debug) {
       console.log(`[useTimeSeriesStream] Received ${incoming.length} rows, queuing for next flush`);
     }
-    pendingRef.current = pendingRef.current.concat(incoming);
+    pendingRef.current.push(...incoming);
   }, [debug]);
 
   // Flush pending rows into buffer on a fixed interval
@@ -123,24 +126,25 @@ export function useTimeSeriesStream<TRow>({
     debug,
   });
 
-  // Derive sorted rows and latestByEntity from buffer (memoized to avoid
-  // recomputing on unrelated re-renders like isConnected/isStale changes)
+  // Derive sorted rows and latestByEntity from buffer
+  // Uses refs for callbacks so memos only recompute when buffer actually changes
+  // (callers pass inline arrows whose identity changes every render)
   const rows = useMemo(
-    () => Array.from(buffer.values()).sort((a, b) => getTime(a) - getTime(b)),
-    [buffer, getTime],
+    () => Array.from(buffer.values()).sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b)),
+    [buffer],
   );
 
   const latestByEntity = useMemo(() => {
     const map = new Map<string, TRow>();
     for (const row of rows) {
-      const entity = getEntity(row);
+      const entity = getEntityRef.current(row);
       const existing = map.get(entity);
-      if (!existing || getTime(row) > getTime(existing)) {
+      if (!existing || getTimeRef.current(row) > getTimeRef.current(existing)) {
         map.set(entity, row);
       }
     }
     return map;
-  }, [rows, getEntity, getTime]);
+  }, [rows]);
 
   // Stale detection via interval
   const [isStale, setIsStale] = useState(false);
