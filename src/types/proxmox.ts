@@ -130,6 +130,12 @@ export interface ProxmoxStorage {
   used_fraction: number;
 }
 
+/** SSE payload wrapping overview data with server-side poll metadata */
+export interface ProxmoxSSEPayload {
+  overview: ProxmoxClusterOverview;
+  pollIntervalMs: number;
+}
+
 /** Aggregated cluster overview for the dashboard */
 export interface ProxmoxClusterOverview {
   clusterName: string;

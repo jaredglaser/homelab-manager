@@ -67,6 +67,7 @@ interface SettingsContextValue extends Settings {
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
   setProxmoxUpdateInterval: (interval: ProxmoxUpdateInterval) => void;
+  syncProxmoxUpdateInterval: (interval: ProxmoxUpdateInterval) => void;
   setRetention: (key: keyof Settings['retention'], value: number) => void;
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
@@ -465,6 +466,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Sync-only: updates local state from server-broadcast interval (no DB write)
+  const syncProxmoxUpdateInterval = useCallback((interval: ProxmoxUpdateInterval) => {
+    setSettings(prev => {
+      if (prev.proxmox.updateInterval === interval) return prev;
+      return { ...prev, proxmox: { ...prev.proxmox, updateInterval: interval } };
+    });
+  }, []);
+
   const setRetention = useCallback((key: keyof Settings['retention'], value: number) => {
     setSettings(prev => ({
       ...prev,
@@ -527,6 +536,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setDockerDecimal,
         setZfsDecimal,
         setProxmoxUpdateInterval,
+        syncProxmoxUpdateInterval,
         setRetention,
         setDockerDebugLogging,
         setDbFlushDebugLogging,
