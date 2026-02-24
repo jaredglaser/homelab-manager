@@ -98,17 +98,9 @@ const WINDOW_MS = 60_000;
 
 function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolean): EChartsOption {
   const now = Date.now();
-  const windowStart = now - WINDOW_MS;
   const readPairs = dataPoints.map((d) => [d.timestamp, d.readBytesPerSec] as [number, number]);
   const writePairs = dataPoints.map((d) => [d.timestamp, d.writeBytesPerSec] as [number, number]);
 
-  // Extend lines to the left edge so only the right side changes
-  if (readPairs.length > 0 && readPairs[0][0] > windowStart) {
-    readPairs.unshift([windowStart, readPairs[0][1]]);
-  }
-  if (writePairs.length > 0 && writePairs[0][0] > windowStart) {
-    writePairs.unshift([windowStart, writePairs[0][1]]);
-  }
   const maxValue = Math.max(
     ...dataPoints.map((d) => d.readBytesPerSec),
     ...dataPoints.map((d) => d.writeBytesPerSec),

@@ -26,7 +26,7 @@ function ZFSPageContent() {
   const { general } = useSettings()
 
   const preloadFn = useCallback(
-    () => getHistoricalZFSStats({ data: { seconds: 60 } }),
+    () => getHistoricalZFSStats({ data: { seconds: 90 } }),
     [],
   )
 
@@ -36,6 +36,7 @@ function ZFSPageContent() {
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.entity}`,
     getTime: (row) => new Date(row.time).getTime(),
     getEntity: (row) => row.host ? `${row.host}/${row.entity}` : row.entity,
+    windowSeconds: 90,
     updateIntervalMs: general.updateIntervalMs,
   })
 
