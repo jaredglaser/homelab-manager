@@ -10,7 +10,9 @@ import type {
   ProxmoxClusterOverview,
 } from '../../types/proxmox';
 
-interface UndiciRequestInit extends RequestInit {
+// Covers both Bun's native fetch (`tls`) and Node.js-compat/undici fetch (`dispatcher`)
+interface CrossRuntimeRequestInit extends RequestInit {
+  tls?: { rejectUnauthorized?: boolean };
   dispatcher?: Agent;
 }
 
@@ -23,7 +25,7 @@ interface UndiciRequestInit extends RequestInit {
 export class ProxmoxClient {
   private baseUrl: string;
   private authHeader: string;
-  private fetchOptions: UndiciRequestInit;
+  private fetchOptions: CrossRuntimeRequestInit;
 
   constructor(config: ProxmoxConfig) {
     this.baseUrl = `https://${config.host}:${config.port}/api2/json`;
@@ -31,12 +33,11 @@ export class ProxmoxClient {
     this.fetchOptions = {};
 
     if (config.allowSelfSignedCerts) {
-      // Use undici Agent to disable cert verification for self-signed certificates
-      this.fetchOptions.dispatcher = new Agent({
-        connect: {
-          rejectUnauthorized: false,
-        },
-      });
+      // `tls` is Bun's native fetch option (used in production)
+      // `dispatcher` is the undici Agent option (used in Vite SSR dev mode via Node.js-compat fetch)
+      // Both are set so the correct one is picked up by whichever fetch implementation is active
+      this.fetchOptions.tls = { rejectUnauthorized: false };
+      this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
     }
   }
 
