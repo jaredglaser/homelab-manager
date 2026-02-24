@@ -1,4 +1,6 @@
 import { memo, useEffect, useRef } from 'react';
+import { resolveChartColors } from '@/lib/charts/css-vars';
+import { calculateCleanYAxis } from '@/lib/charts/y-axis';
 
 interface TimeSeriesPoint {
   timestamp: number;
@@ -11,11 +13,6 @@ interface SparklineChartProps {
   height?: number;
   width?: number;
   className?: string;
-}
-
-function getCssVar(name: string): string {
-  if (typeof document === 'undefined') return '';
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
 const PADDING = 2;
@@ -59,10 +56,11 @@ export default memo(function SparklineChart({
   useEffect(() => {
     dataRef.current = data;
 
-    const lineColor = getCssVar(color);
+    const colors = resolveChartColors(color);
+    const lineColor = colors.line;
     lineColorRef.current = lineColor;
-    areaStartColorRef.current = getCssVar(`${color}-area-start`);
-    areaEndColorRef.current = getCssVar(`${color}-area-end`);
+    areaStartColorRef.current = colors.areaStart;
+    areaEndColorRef.current = colors.areaEnd;
 
     // Extract rgb components once for dot opacity rendering (avoids per-frame regex)
     const rgbMatch = lineColor.match(/rgb\((.+)\)/);
@@ -89,17 +87,17 @@ export default memo(function SparklineChart({
       lastEndTimestampRef.current = latestTimestamp;
     }
 
-    // Stable max with decay
+    // Stable max with decay — use same y-axis scaling as ECharts for consistent visual representation
     if (data.length > 0) {
       let rawMax = 0;
       for (let i = 0; i < data.length; i++) {
         if (data[i].value > rawMax) rawMax = data[i].value;
       }
-      rawMax = Math.max(rawMax * 1.1, 1);
+      const { max: niceMax } = calculateCleanYAxis(rawMax, 'linear');
       smoothMaxRef.current =
         smoothMaxRef.current === 0
-          ? rawMax
-          : Math.max(rawMax, smoothMaxRef.current * MAX_DECAY);
+          ? niceMax
+          : Math.max(niceMax, smoothMaxRef.current * MAX_DECAY);
     }
   }, [data, color, height]);
 

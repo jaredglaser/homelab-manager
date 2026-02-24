@@ -1,98 +1,22 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { Sheet, Typography } from '@mui/joy';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import { formatBytes } from '@/formatters/metrics';
+import { useSettings } from '@/hooks/useSettings';
+import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
+import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
+import { calculateCleanYAxis } from '@/lib/charts/y-axis';
+
 interface TimeSeriesDataPoint {
   timestamp: number;
   readBytesPerSec: number;
   writeBytesPerSec: number;
 }
-import { formatBytes } from '@/formatters/metrics';
-import { useSettings } from '@/hooks/useSettings';
 
 interface ZFSPoolSpeedChartProps {
   poolName: string;
   dataPoints: TimeSeriesDataPoint[];
-}
-
-// Get CSS variable value from computed styles
-function getCssVar(name: string): string {
-  if (typeof document === 'undefined') return '';
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-// Unit thresholds in bytes
-const UNITS = [
-  { threshold: 1, divisor: 1 },
-  { threshold: 1024, divisor: 1024 },
-  { threshold: 1024 * 1024, divisor: 1024 * 1024 },
-  { threshold: 1024 * 1024 * 1024, divisor: 1024 * 1024 * 1024 },
-];
-
-// Nice intervals to choose from (will be scaled by magnitude)
-const NICE_INTERVALS = [1, 2, 5, 10, 20, 25, 50, 100];
-const TARGET_TICKS = 5;
-
-interface YAxisConfig {
-  max: number;
-  interval: number;
-}
-
-/**
- * Find a "nice" interval that gives us approximately the target number of ticks.
- */
-function findNiceInterval(range: number): number {
-  const roughInterval = range / TARGET_TICKS;
-
-  // Find the magnitude (power of 10)
-  const magnitude = Math.pow(10, Math.floor(Math.log10(roughInterval)));
-
-  // Normalize to find which nice interval fits best
-  const normalized = roughInterval / magnitude;
-
-  // Find the smallest nice interval that's >= normalized
-  for (const nice of NICE_INTERVALS) {
-    if (nice >= normalized) {
-      return nice * magnitude;
-    }
-  }
-
-  // Fallback to next magnitude
-  return magnitude * 10;
-}
-
-/**
- * Calculate clean y-axis max and interval values.
- * Targets ~5 ticks with clean interval values.
- */
-function calculateCleanYAxis(maxValue: number): YAxisConfig {
-  if (maxValue <= 0) {
-    return { max: 100, interval: 20 }; // Default when no data
-  }
-
-  // Find the appropriate unit for display
-  let unit = UNITS[0];
-  for (let i = UNITS.length - 1; i >= 0; i--) {
-    if (maxValue >= UNITS[i].threshold) {
-      unit = UNITS[i];
-      break;
-    }
-  }
-
-  // Work in the display unit for cleaner numbers
-  const valueInUnit = maxValue / unit.divisor;
-
-  // Find a nice interval
-  const intervalInUnit = findNiceInterval(valueInUnit);
-
-  // Calculate max as a multiple of the interval
-  const cleanMax = Math.ceil(valueInUnit / intervalInUnit) * intervalInUnit;
-
-  // Convert back to bytes
-  return {
-    max: cleanMax * unit.divisor,
-    interval: intervalInUnit * unit.divisor,
-  };
 }
 
 const WINDOW_MS = 60_000;
@@ -107,19 +31,11 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
     ...dataPoints.map((d) => d.writeBytesPerSec),
     0,
   );
-  const { max: yAxisMax, interval: yAxisInterval } = calculateCleanYAxis(maxValue);
+  const { max: yAxisMax, interval: yAxisInterval } = calculateCleanYAxis(maxValue, 'bytes');
 
-  // Use chart CSS variables defined in App.css
-  const readColor = getCssVar('--chart-read');
-  const readAreaStart = getCssVar('--chart-read-area-start');
-  const readAreaEnd = getCssVar('--chart-read-area-end');
-  const writeColor = getCssVar('--chart-write');
-  const writeAreaStart = getCssVar('--chart-write-area-start');
-  const writeAreaEnd = getCssVar('--chart-write-area-end');
-  const textMuted = getCssVar('--chart-text-muted');
-  const borderColor = getCssVar('--chart-border');
-  const tooltipBg = getCssVar('--chart-tooltip-bg');
-  const tooltipText = getCssVar('--chart-tooltip-text');
+  const readColors = resolveChartColors('--chart-read');
+  const writeColors = resolveChartColors('--chart-write');
+  const chrome = resolveChartChromeColors();
 
   const timeFormatOpts: Intl.DateTimeFormatOptions = {
     hour: '2-digit',
@@ -138,10 +54,10 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
     },
     tooltip: {
       trigger: 'axis',
-      backgroundColor: tooltipBg,
-      borderColor: borderColor,
+      backgroundColor: chrome.tooltipBg,
+      borderColor: chrome.border,
       textStyle: {
-        color: tooltipText,
+        color: chrome.tooltipText,
         fontSize: 12,
       },
       formatter: (params: unknown) => {
@@ -162,7 +78,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
       show: true,
       bottom: 0,
       textStyle: {
-        color: textMuted,
+        color: chrome.textMuted,
         fontSize: 11,
       },
       itemWidth: 12,
@@ -177,7 +93,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
       axisTick: { show: false },
       axisLabel: {
         show: true,
-        color: textMuted,
+        color: chrome.textMuted,
         fontSize: 10,
         formatter: (value: number) => {
           const d = new Date(value);
@@ -194,13 +110,13 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
-        color: textMuted,
+        color: chrome.textMuted,
         fontSize: 10,
         formatter: (value: number) => formatBytes(value, true, false),
       },
       splitLine: {
         lineStyle: {
-          color: borderColor,
+          color: chrome.border,
           type: 'dashed',
         },
       },
@@ -212,7 +128,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
         smooth: true,
         showSymbol: false,
         data: readPairs,
-        lineStyle: { color: readColor, width: 2 },
+        lineStyle: { color: readColors.line, width: 2 },
         areaStyle: {
           color: {
             type: 'linear',
@@ -221,8 +137,8 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: readAreaStart },
-              { offset: 1, color: readAreaEnd },
+              { offset: 0, color: readColors.areaStart },
+              { offset: 1, color: readColors.areaEnd },
             ],
           },
         },
@@ -233,7 +149,7 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
         smooth: true,
         showSymbol: false,
         data: writePairs,
-        lineStyle: { color: writeColor, width: 2 },
+        lineStyle: { color: writeColors.line, width: 2 },
         areaStyle: {
           color: {
             type: 'linear',
@@ -242,8 +158,8 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: writeAreaStart },
-              { offset: 1, color: writeAreaEnd },
+              { offset: 0, color: writeColors.areaStart },
+              { offset: 1, color: writeColors.areaEnd },
             ],
           },
         },
@@ -260,20 +176,7 @@ export default function ZFSPoolSpeedChart({
   const option = getChartOption(dataPoints, general.use12HourTime);
   const chartRef = useRef<ReactECharts>(null);
 
-  // Smooth-scroll the time axis every animation frame
-  useEffect(() => {
-    let rafId: number;
-    const tick = () => {
-      const instance = chartRef.current?.getEchartsInstance();
-      if (instance) {
-        const now = Date.now();
-        instance.setOption({ xAxis: { min: now - WINDOW_MS, max: now } });
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, []);
+  useEChartTimeScroll(chartRef, WINDOW_MS);
 
   return (
     <Sheet variant="outlined" className="rounded-sm p-4">

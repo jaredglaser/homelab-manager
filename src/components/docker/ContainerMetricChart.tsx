@@ -1,8 +1,11 @@
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { Sheet, Typography } from '@mui/joy';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useSettings } from '@/hooks/useSettings';
+import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
+import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
+import { calculateCleanYAxis } from '@/lib/charts/y-axis';
 
 interface DataPoint {
   timestamp: number;
@@ -14,59 +17,6 @@ interface ContainerMetricChartProps {
   dataPoints: DataPoint[];
   colorVar: string;
   formatValue: (value: number) => string;
-}
-
-// Get CSS variable value from computed styles
-function getCssVar(name: string): string {
-  if (typeof document === 'undefined') return '';
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-// Nice intervals to choose from (will be scaled by magnitude)
-const NICE_INTERVALS = [1, 2, 5, 10, 20, 25, 50, 100];
-const TARGET_TICKS = 5;
-
-interface YAxisConfig {
-  max: number;
-  interval: number;
-}
-
-/**
- * Find a "nice" interval that gives us approximately the target number of ticks.
- */
-function findNiceInterval(range: number): number {
-  const roughInterval = range / TARGET_TICKS;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(roughInterval)));
-  const normalized = roughInterval / magnitude;
-
-  for (const nice of NICE_INTERVALS) {
-    if (nice >= normalized) {
-      return nice * magnitude;
-    }
-  }
-
-  return magnitude * 10;
-}
-
-/**
- * Calculate clean y-axis max and interval values.
- */
-function calculateCleanYAxis(maxValue: number, isPercent: boolean = false): YAxisConfig {
-  if (maxValue <= 0) {
-    return isPercent ? { max: 100, interval: 20 } : { max: 100, interval: 20 };
-  }
-
-  if (isPercent && maxValue <= 100) {
-    // For percentages that fit within 100%, cap there for a clean axis
-    const effectiveMax = Math.min(maxValue * 1.1, 100);
-    const interval = findNiceInterval(effectiveMax);
-    const max = Math.min(Math.ceil(effectiveMax / interval) * interval, 100);
-    return { max, interval };
-  }
-
-  const interval = findNiceInterval(maxValue);
-  const max = Math.ceil(maxValue / interval) * interval;
-  return { max, interval };
 }
 
 const WINDOW_MS = 60_000;
@@ -83,15 +33,13 @@ function getChartOption(
   const values = dataPoints.map((d) => d.value);
 
   const maxValue = Math.max(...values, 0);
-  const { max: yAxisMax, interval: yAxisInterval } = calculateCleanYAxis(maxValue, isPercent);
+  const { max: yAxisMax, interval: yAxisInterval } = calculateCleanYAxis(
+    maxValue,
+    isPercent ? 'percent' : 'linear',
+  );
 
-  const lineColor = getCssVar(colorVar);
-  const areaStart = getCssVar(`${colorVar}-area-start`);
-  const areaEnd = getCssVar(`${colorVar}-area-end`);
-  const textMuted = getCssVar('--chart-text-muted');
-  const borderColor = getCssVar('--chart-border');
-  const tooltipBg = getCssVar('--chart-tooltip-bg');
-  const tooltipText = getCssVar('--chart-tooltip-text');
+  const seriesColors = resolveChartColors(colorVar);
+  const chrome = resolveChartChromeColors();
 
   const timeFormatOpts: Intl.DateTimeFormatOptions = {
     hour: '2-digit',
@@ -110,10 +58,10 @@ function getChartOption(
     },
     tooltip: {
       trigger: 'axis',
-      backgroundColor: tooltipBg,
-      borderColor: borderColor,
+      backgroundColor: chrome.tooltipBg,
+      borderColor: chrome.border,
       textStyle: {
-        color: tooltipText,
+        color: chrome.tooltipText,
         fontSize: 12,
       },
       formatter: (params: unknown) => {
@@ -135,7 +83,7 @@ function getChartOption(
       axisTick: { show: false },
       axisLabel: {
         show: true,
-        color: textMuted,
+        color: chrome.textMuted,
         fontSize: 9,
         formatter: (value: number) => {
           const d = new Date(value);
@@ -152,13 +100,13 @@ function getChartOption(
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
-        color: textMuted,
+        color: chrome.textMuted,
         fontSize: 9,
         formatter: (value: number) => formatValue(value),
       },
       splitLine: {
         lineStyle: {
-          color: borderColor,
+          color: chrome.border,
           type: 'dashed',
         },
       },
@@ -169,7 +117,7 @@ function getChartOption(
         smooth: true,
         showSymbol: false,
         data: timeValuePairs,
-        lineStyle: { color: lineColor, width: 2 },
+        lineStyle: { color: seriesColors.line, width: 2 },
         areaStyle: {
           color: {
             type: 'linear',
@@ -178,8 +126,8 @@ function getChartOption(
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: areaStart },
-              { offset: 1, color: areaEnd },
+              { offset: 0, color: seriesColors.areaStart },
+              { offset: 1, color: seriesColors.areaEnd },
             ],
           },
         },
@@ -202,20 +150,7 @@ export default memo(function ContainerMetricChart({
   );
   const chartRef = useRef<ReactECharts>(null);
 
-  // Smooth-scroll the time axis every animation frame
-  useEffect(() => {
-    let rafId: number;
-    const tick = () => {
-      const instance = chartRef.current?.getEchartsInstance();
-      if (instance) {
-        const now = Date.now();
-        instance.setOption({ xAxis: { min: now - WINDOW_MS, max: now } });
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, []);
+  useEChartTimeScroll(chartRef, WINDOW_MS);
 
   return (
     <Sheet variant="soft" className="rounded-sm p-3">
