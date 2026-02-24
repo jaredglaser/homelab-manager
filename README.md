@@ -4,6 +4,9 @@
 
 > A real-time monitoring dashboard for homelab infrastructure, built on TanStack Start.
 
+> [!NOTE]
+> **Want to run this yourself?** See the [self-hosting guide](self-hosting/README.md) for setup instructions using pre-built Docker images.
+
 > [!WARNING]
 > This project is a **work in progress**. Features are incomplete, APIs may change, and the codebase is under active development. See [Roadmap](#roadmap) for planned features.
 
