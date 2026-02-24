@@ -39,7 +39,7 @@ export default defineConfig({
     viteReact(),
   ],
   ssr: {
-    external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams'],
+    external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
   },
   preview: {
     host: true,
@@ -56,7 +56,7 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams'],
+      external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
       onwarn(warning, warn) {
         // Suppress "use client" directive warnings from MUI and other libraries
         if (warning.code === 'MODULE_LEVEL_DIRECTIVE' && warning.message.includes('"use client"')) {
