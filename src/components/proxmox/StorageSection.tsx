@@ -1,0 +1,106 @@
+import { Chip, LinearProgress } from '@mui/joy'
+import { ChevronRight } from 'lucide-react'
+import type { ProxmoxStorage } from '@/types/proxmox'
+import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
+import { MetricValue, MetricHeader } from '@/components/shared-table'
+import { STORAGE_GRID, BORDER, ROW_HOVER } from '@/components/proxmox/constants'
+
+const DASH_CELL = <span className="text-right block px-3">-</span>
+
+interface StorageSectionProps {
+  storages: ProxmoxStorage[]
+  expanded: boolean
+  onToggle: () => void
+}
+
+export function StorageSection({ storages, expanded, onToggle }: StorageSectionProps) {
+  const sorted = [...storages].sort((a, b) => a.storage.localeCompare(b.storage))
+
+  return (
+    <>
+      {/* Section header row */}
+      <div
+        onClick={onToggle}
+        className={`flex items-center gap-2 pl-10 pr-4 py-2 cursor-pointer ${BORDER} bg-[var(--joy-palette-background-level1)]`}
+      >
+        <ChevronRight
+          size={16}
+          className={`transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span className="font-semibold text-sm">
+          Storage ({storages.length})
+        </span>
+      </div>
+
+      {expanded && (
+        <>
+          {/* Column headers */}
+          <div className={`${STORAGE_GRID} ${BORDER}`}>
+            <div className="px-3 py-2 font-semibold text-sm">Name</div>
+            <div className="px-3 py-2 font-semibold text-sm">Type</div>
+            <div className="px-3 py-2 font-semibold text-sm">Status</div>
+            <div className="py-2"><MetricHeader>Used</MetricHeader></div>
+            <div className="py-2"><MetricHeader>Available</MetricHeader></div>
+            <div className="py-2"><MetricHeader>Usage</MetricHeader></div>
+          </div>
+
+          {/* Data rows */}
+          {sorted.map((s) => {
+            const usedParts = formatBytesParts(s.used, false, false)
+            const availParts = formatBytesParts(s.avail, false, false)
+            const usageParts = formatAsPercentParts(s.used_fraction, true)
+
+            return (
+              <div key={s.storage} className={`${STORAGE_GRID} items-center ${BORDER} ${ROW_HOVER}`}>
+                <div className="px-3 py-2 font-medium">{s.storage}</div>
+                <div className="px-3 py-2 text-sm">{s.type}</div>
+                <div className="px-3 py-2">
+                  <Chip
+                    size="sm"
+                    variant="soft"
+                    color={s.active ? 'success' : 'neutral'}
+                  >
+                    {s.active ? 'active' : 'inactive'}
+                  </Chip>
+                </div>
+                <div>
+                  {s.total > 0 ? (
+                    <MetricValue value={usedParts.value} unit={usedParts.unit} />
+                  ) : DASH_CELL}
+                </div>
+                <div>
+                  {s.total > 0 ? (
+                    <MetricValue value={availParts.value} unit={availParts.unit} />
+                  ) : DASH_CELL}
+                </div>
+                <div>
+                  {s.total > 0 ? (
+                    <MetricValue
+                      value={usageParts.value}
+                      unit={usageParts.unit}
+                      hasDecimals
+                      sparkline={
+                        <LinearProgress
+                          determinate
+                          value={Math.min(s.used_fraction * 100, 100)}
+                          color={
+                            s.used_fraction > 0.9
+                              ? 'danger'
+                              : s.used_fraction > 0.7
+                                ? 'warning'
+                                : 'success'
+                          }
+                          className="max-w-70"
+                        />
+                      }
+                    />
+                  ) : DASH_CELL}
+                </div>
+              </div>
+            )
+          })}
+        </>
+      )}
+    </>
+  )
+}

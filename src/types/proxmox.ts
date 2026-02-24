@@ -130,6 +130,22 @@ export interface ProxmoxStorage {
   used_fraction: number;
 }
 
+/**
+ * Flattened presentation row for a VM or LXC container, used in guest table rendering.
+ * Derived from ProxmoxVM / ProxmoxContainer with node context stripped.
+ */
+export type GuestRow = {
+  vmid: number
+  name: string
+  status: string
+  cpu: number
+  cpus: number
+  mem: number
+  maxmem: number
+  netin: number
+  netout: number
+}
+
 /** Aggregated cluster overview for the dashboard */
 export interface ProxmoxClusterOverview {
   clusterName: string;
