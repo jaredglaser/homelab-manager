@@ -1,0 +1,123 @@
+x-postgres-env: &postgres-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB}
+  POSTGRES_USER: ${POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  POSTGRES_SSL: "false"
+
+x-docker-env: &docker-env
+  DOCKER_HOST_1: ${DOCKER_HOST_1:-}
+  DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1:-2375}
+  DOCKER_HOST_NAME_1: ${DOCKER_HOST_NAME_1:-}
+  DOCKER_HOST_2: ${DOCKER_HOST_2:-}
+  DOCKER_HOST_PORT_2: ${DOCKER_HOST_PORT_2:-2375}
+  DOCKER_HOST_NAME_2: ${DOCKER_HOST_NAME_2:-}
+  DOCKER_HOST_3: ${DOCKER_HOST_3:-}
+  DOCKER_HOST_PORT_3: ${DOCKER_HOST_PORT_3:-2375}
+  DOCKER_HOST_NAME_3: ${DOCKER_HOST_NAME_3:-}
+
+x-zfs-env: &zfs-env
+  ZFS_HOST_1: ${ZFS_HOST_1:-}
+  ZFS_HOST_PORT_1: ${ZFS_HOST_PORT_1:-22}
+  ZFS_HOST_NAME_1: ${ZFS_HOST_NAME_1:-}
+  ZFS_HOST_USER_1: ${ZFS_HOST_USER_1:-}
+  ZFS_HOST_PASSWORD_1: ${ZFS_HOST_PASSWORD_1:-}
+  ZFS_HOST_KEY_PATH_1: ${ZFS_HOST_KEY_PATH_1:-}
+  ZFS_HOST_KEY_PASSPHRASE_1: ${ZFS_HOST_KEY_PASSPHRASE_1:-}
+  ZFS_HOST_2: ${ZFS_HOST_2:-}
+  ZFS_HOST_PORT_2: ${ZFS_HOST_PORT_2:-22}
+  ZFS_HOST_NAME_2: ${ZFS_HOST_NAME_2:-}
+  ZFS_HOST_USER_2: ${ZFS_HOST_USER_2:-}
+  ZFS_HOST_PASSWORD_2: ${ZFS_HOST_PASSWORD_2:-}
+  ZFS_HOST_KEY_PATH_2: ${ZFS_HOST_KEY_PATH_2:-}
+  ZFS_HOST_KEY_PASSPHRASE_2: ${ZFS_HOST_KEY_PASSPHRASE_2:-}
+  ZFS_HOST_3: ${ZFS_HOST_3:-}
+  ZFS_HOST_PORT_3: ${ZFS_HOST_PORT_3:-22}
+  ZFS_HOST_NAME_3: ${ZFS_HOST_NAME_3:-}
+  ZFS_HOST_USER_3: ${ZFS_HOST_USER_3:-}
+  ZFS_HOST_PASSWORD_3: ${ZFS_HOST_PASSWORD_3:-}
+  ZFS_HOST_KEY_PATH_3: ${ZFS_HOST_KEY_PATH_3:-}
+  ZFS_HOST_KEY_PASSPHRASE_3: ${ZFS_HOST_KEY_PASSPHRASE_3:-}
+
+x-proxmox-env: &proxmox-env
+  PROXMOX_HOST: ${PROXMOX_HOST:-}
+  PROXMOX_PORT: ${PROXMOX_PORT:-8006}
+  PROXMOX_TOKEN_ID: ${PROXMOX_TOKEN_ID:-}
+  PROXMOX_TOKEN_SECRET: ${PROXMOX_TOKEN_SECRET:-}
+  PROXMOX_ALLOW_SELF_SIGNED: ${PROXMOX_ALLOW_SELF_SIGNED:-true}
+
+services:
+  # PostgreSQL / TimescaleDB — persistent time-series database
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: homelab-db
+    command: postgres -c synchronous_commit=off
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - homelab-network
+
+  # Background worker — collects stats from Docker/ZFS hosts and writes to DB
+  worker:
+    image: ghcr.io/jaredglaser/homelab-manager-worker:latest
+    container_name: homelab-worker
+    command: bun src/worker/collector.ts
+    environment:
+      <<: [*postgres-env, *docker-env, *zfs-env]
+      POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
+      WORKER_ENABLED: ${WORKER_ENABLED:-true}
+      WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED:-true}
+      WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED:-false}
+      WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS:-1000}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - homelab-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Web server — serves the dashboard UI
+  web:
+    image: ghcr.io/jaredglaser/homelab-manager-web:latest
+    container_name: homelab-web
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      NODE_ENV: production
+      POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - homelab-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  pgdata:
+
+networks:
+  homelab-network:
+    driver: bridge
