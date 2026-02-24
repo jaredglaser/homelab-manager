@@ -150,6 +150,7 @@ export function useTimeSeriesStream<TRow>({
   const [isStale, setIsStale] = useState(false);
   useEffect(() => {
     if (!hasData) return;
+    setIsStale(false); // Clear stale immediately when new data arrives
     const id = setInterval(() => {
       setIsStale(lastDataTime !== null && Date.now() - lastDataTime > STALE_THRESHOLD_MS);
     }, STALE_CHECK_INTERVAL_MS);
