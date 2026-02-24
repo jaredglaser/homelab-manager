@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { Sheet, Typography } from '@mui/joy';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
@@ -79,14 +79,9 @@ function getChartOption(
   use12HourTime: boolean
 ): EChartsOption {
   const now = Date.now();
-  const windowStart = now - WINDOW_MS;
   const timeValuePairs = dataPoints.map((d) => [d.timestamp, d.value] as [number, number]);
   const values = dataPoints.map((d) => d.value);
 
-  // Extend line to the left edge so only the right side changes
-  if (timeValuePairs.length > 0 && timeValuePairs[0][0] > windowStart) {
-    timeValuePairs.unshift([windowStart, timeValuePairs[0][1]]);
-  }
   const maxValue = Math.max(...values, 0);
   const { max: yAxisMax, interval: yAxisInterval } = calculateCleanYAxis(maxValue, isPercent);
 
@@ -205,6 +200,22 @@ export default memo(function ContainerMetricChart({
     () => getChartOption(dataPoints, colorVar, formatValue, isPercent, general.use12HourTime),
     [dataPoints, colorVar, formatValue, isPercent, general.use12HourTime],
   );
+  const chartRef = useRef<ReactECharts>(null);
+
+  // Smooth-scroll the time axis every animation frame
+  useEffect(() => {
+    let rafId: number;
+    const tick = () => {
+      const instance = chartRef.current?.getEchartsInstance();
+      if (instance) {
+        const now = Date.now();
+        instance.setOption({ xAxis: { min: now - WINDOW_MS, max: now } });
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
 
   return (
     <Sheet variant="soft" className="rounded-sm p-3">
@@ -213,6 +224,7 @@ export default memo(function ContainerMetricChart({
       </Typography>
       <div className="h-32">
         <ReactECharts
+          ref={chartRef}
           option={option}
           style={{ height: '100%', width: '100%' }}
           opts={{ renderer: 'canvas' }}
