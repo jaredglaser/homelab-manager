@@ -29,9 +29,6 @@ Copy the template below into a `.env` file in the same directory and fill in you
 POSTGRES_DB=homelab
 POSTGRES_USER=homelab
 POSTGRES_PASSWORD=changeme   # change this
-
-# Web server port
-WEB_PORT=3000
 ```
 
 See [Configuration](#configuration) for all available options.
@@ -42,7 +39,7 @@ See [Configuration](#configuration) for all available options.
 docker compose up -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) (or whichever port you set).
+Open `http://<your-server-ip>:3000` (or whichever port you set via `WEB_PORT`).
 
 **4. Stop**
 
@@ -62,11 +59,11 @@ docker compose down -v
 
 | Service | Image | Description |
 |---------|-------|-------------|
-| `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (7-day retention, automatic compression) |
-| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector — polls Docker/ZFS hosts and writes to DB |
-| `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server |
+| `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (7-day retention, automatic compression). Runs with `synchronous_commit=off` — up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
+| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector — polls Docker and ZFS hosts, writes stats to TimescaleDB |
+| `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Also polls the Proxmox REST API on a 10-second interval server-side and broadcasts the results to all connected clients via SSE. |
 
-> **Note:** Images are published to [GitHub Container Registry](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web) on every push to `main`. Pin to a specific version tag (e.g., `v1.2.0`) for stable deployments.
+> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker)) on every push to `main`. The project is pre-release and not yet versioned — use `latest` for now and watch the changelog for breaking changes before pulling updates.
 
 ---
 
@@ -88,6 +85,14 @@ All configuration is done via environment variables in your `.env` file.
 |----------|---------|-------------|
 | `WEB_PORT` | `3000` | Host port for the dashboard |
 
+### Reverse Proxy
+
+Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular homelab choice — refer to its docs for setup.
+
+**Keep the dashboard on your LAN.** A reverse proxy does not change the security posture described in the warning above. Do not route this dashboard through a public-facing proxy.
+
+**Authentication layer:** Since the dashboard has no built-in auth, consider placing an auth middleware in front of it. [tinyauth](https://github.com/steveiliop56/tinyauth) paired with [Pocket ID](https://github.com/stonith404/pocket-id) (a lightweight OIDC/passkey provider built for homelabs) is a clean option: Pocket ID manages your identity store, tinyauth enforces login at the proxy layer, and the dashboard itself stays unchanged. Treat this as defense-in-depth on top of network isolation, not a replacement for it.
+
 ### Docker Monitoring
 
 Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_1`, `_2`, `_3`).
@@ -98,7 +103,7 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 | `DOCKER_HOST_PORT_1` | `2375` | Docker API port (TCP, no TLS) |
 | `DOCKER_HOST_NAME_1` | — | Display name shown in the dashboard |
 
-> **Docker host setup:** Enable TCP on the remote Docker daemon by adding `-H tcp://0.0.0.0:2375` to its startup flags. Keep this port firewalled — it has no authentication.
+> **Docker host setup:** Rather than exposing the raw Docker daemon socket over TCP, run a **Docker socket proxy** on each monitored host. A socket proxy (e.g., [`ghcr.io/tecnativa/docker-socket-proxy`](https://github.com/Tecnativa/docker-socket-proxy) or [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy)) binds to a TCP port and forwards only the API endpoints you allow — containers, stats, and similar read-only calls. Point `DOCKER_HOST_1` at the proxy's address and port. This is significantly safer than exposing the full daemon socket.
 
 ### ZFS Monitoring
 
@@ -110,11 +115,16 @@ Monitor ZFS pools over SSH. Each host is numbered (`_1`, `_2`, `_3`).
 | `ZFS_HOST_PORT_1` | `22` | SSH port |
 | `ZFS_HOST_NAME_1` | — | Display name shown in the dashboard |
 | `ZFS_HOST_USER_1` | — | SSH username |
-| `ZFS_HOST_KEY_PATH_1` | — | Path to SSH private key (recommended) |
+| `ZFS_HOST_KEY_PATH_1` | — | Path to SSH private key inside the container (see below) |
 | `ZFS_HOST_KEY_PASSPHRASE_1` | — | Passphrase for the private key (if encrypted) |
 | `ZFS_HOST_PASSWORD_1` | — | SSH password (alternative to key auth) |
 
-> **ZFS permissions:** The SSH user needs permission to run `zpool iostat`. Add the user to the `wheel`/`sudo` group or configure a targeted sudoers rule.
+> **SSH key setup:** Place your private key on the host running homelab-manager at `/mnt/appdata/homelab-manager/keys/`. The compose file bind-mounts this directory into the worker container at `/keys` (read-only). Reference the key as `/keys/<filename>` in `ZFS_HOST_KEY_PATH_1`. Create the directory first: `mkdir -p /mnt/appdata/homelab-manager/keys && chmod 700 /mnt/appdata/homelab-manager/keys`.
+>
+> **ZFS permissions:** The SSH user needs permission to run `zpool iostat`. A targeted sudoers rule is safer than adding the user to `wheel`:
+> ```
+> username ALL=(ALL) NOPASSWD: /usr/sbin/zpool iostat *
+> ```
 
 ### Proxmox VE Monitoring
 
@@ -148,9 +158,6 @@ POSTGRES_DB=homelab
 POSTGRES_USER=homelab
 POSTGRES_PASSWORD=a-strong-password-here
 
-# Web server
-WEB_PORT=3000
-
 # Docker host (add _2, _3 for additional hosts)
 DOCKER_HOST_1=192.168.1.10
 DOCKER_HOST_PORT_1=2375
@@ -161,7 +168,7 @@ ZFS_HOST_1=192.168.1.10
 ZFS_HOST_PORT_1=22
 ZFS_HOST_NAME_1=my-server
 ZFS_HOST_USER_1=admin
-ZFS_HOST_KEY_PATH_1=/run/secrets/zfs_ssh_key
+ZFS_HOST_KEY_PATH_1=/keys/zfs_id_ed25519
 
 # Proxmox VE
 PROXMOX_HOST=192.168.1.100
