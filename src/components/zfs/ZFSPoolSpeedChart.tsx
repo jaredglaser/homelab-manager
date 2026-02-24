@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Sheet, Typography } from '@mui/joy';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
@@ -257,6 +258,22 @@ export default function ZFSPoolSpeedChart({
 }: ZFSPoolSpeedChartProps) {
   const { general } = useSettings();
   const option = getChartOption(dataPoints, general.use12HourTime);
+  const chartRef = useRef<ReactECharts>(null);
+
+  // Smooth-scroll the time axis every animation frame
+  useEffect(() => {
+    let rafId: number;
+    const tick = () => {
+      const instance = chartRef.current?.getEchartsInstance();
+      if (instance) {
+        const now = Date.now();
+        instance.setOption({ xAxis: { min: now - WINDOW_MS, max: now } });
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
 
   return (
     <Sheet variant="outlined" className="rounded-sm p-4">
@@ -265,6 +282,7 @@ export default function ZFSPoolSpeedChart({
       </Typography>
       <div className="h-48">
         <ReactECharts
+          ref={chartRef}
           option={option}
           style={{ height: '100%', width: '100%' }}
           opts={{ renderer: 'canvas' }}
