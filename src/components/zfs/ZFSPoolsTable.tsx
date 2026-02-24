@@ -1,7 +1,8 @@
 import { useMemo, useRef } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { Alert, Box, Chip, CircularProgress, Sheet, Tooltip, Typography } from '@mui/joy';
-import { AlertTriangle, ChevronRight, Server } from 'lucide-react';
+import { Box, Chip, CircularProgress, Sheet, Tooltip, Typography } from '@mui/joy';
+import { ChevronRight, Server } from 'lucide-react';
+import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import type { PoolStats, VdevStats, ZFSHostHierarchy, ZFSHostStats, ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytes, formatAsPercent } from '@/formatters/metrics';
@@ -150,16 +151,7 @@ export default function ZFSPoolsTable({
 
   return (
     <Box className="w-full">
-      {isStale && (
-        <Alert
-          color="warning"
-          variant="soft"
-          startDecorator={<AlertTriangle size={18} />}
-          className="mb-3"
-        >
-          Data is stale. Background worker may not be running.
-        </Alert>
-      )}
+      <StaleDataAlert isStale={isStale} />
       <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
         {/* Column headers */}
         <div className={`${ZFS_GRID} border-b border-neutral-200 dark:border-neutral-700`}>

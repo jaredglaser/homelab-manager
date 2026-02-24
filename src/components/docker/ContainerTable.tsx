@@ -1,8 +1,9 @@
 import { useMemo, useRef } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useSettings } from '@/hooks/useSettings';
-import { Alert, Box, Chip, CircularProgress, Sheet, Typography } from '@mui/joy';
-import { AlertTriangle, ChevronRight, Server, WifiOff } from 'lucide-react';
+import { Box, Chip, CircularProgress, Sheet, Typography } from '@mui/joy';
+import { ChevronRight, Server, WifiOff } from 'lucide-react';
+import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import type { DockerStatsRow, DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
 import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
@@ -126,16 +127,7 @@ export default function ContainerTable({
 
   return (
     <Box className="w-full">
-      {isStale && (
-        <Alert
-          color="warning"
-          variant="soft"
-          startDecorator={<AlertTriangle size={18} />}
-          className="mb-3"
-        >
-          Data is stale. Background worker may not be running.
-        </Alert>
-      )}
+      <StaleDataAlert isStale={isStale} />
       <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
         {/* Shared min-w container ensures header and virtualizer body resolve to the same width */}
         <div className="min-w-[600px]">
