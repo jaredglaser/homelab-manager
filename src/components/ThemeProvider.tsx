@@ -4,7 +4,7 @@ import theme from '../theme';
 
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
   return (
-    <CssVarsProvider theme={theme}>
+    <CssVarsProvider theme={theme} defaultMode="dark">
       <CssBaseline />
       {children}
     </CssVarsProvider>

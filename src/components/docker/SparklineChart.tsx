@@ -46,8 +46,6 @@ export default memo(function SparklineChart({
   const gradientRef = useRef<CanvasGradient | null>(null);
   const gradientCtxRef = useRef<CanvasRenderingContext2D | null>(null);
 
-  // Cached rgba base string for dot color (avoids per-frame regex)
-  const dotColorBaseRef = useRef('');
 
   const drawWidth = width - PADDING * 2;
   const drawHeight = height - PADDING * 2;
@@ -61,10 +59,6 @@ export default memo(function SparklineChart({
     lineColorRef.current = lineColor;
     areaStartColorRef.current = colors.areaStart;
     areaEndColorRef.current = colors.areaEnd;
-
-    // Extract rgb components once for dot opacity rendering (avoids per-frame regex)
-    const rgbMatch = lineColor.match(/rgb\((.+)\)/);
-    dotColorBaseRef.current = rgbMatch ? rgbMatch[1] : '0,0,0';
 
     // Rebuild cached gradient when colors change
     const ctx = gradientCtxRef.current;
@@ -194,15 +188,18 @@ export default memo(function SparklineChart({
       const radius = 2;
 
       // Pulse brightens from peak to baseline (never fades out, so the dot stays visible)
-      const peakOpacity = 0.7;
+      const peakOpacity = 0.8;
       const opacity = pulseProgress < 1
         ? peakOpacity - (peakOpacity - baseOpacity) * pulseProgress
         : baseOpacity;
 
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, opacity);
       ctx.beginPath();
       ctx.arc(lastX, lastY, radius, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${dotColorBaseRef.current}, ${Math.max(0, opacity)})`;
+      ctx.fillStyle = lineColorRef.current;
       ctx.fill();
+      ctx.restore();
     };
 
     animFrameRef.current = requestAnimationFrame(render);
