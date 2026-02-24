@@ -1,16 +1,14 @@
-import { Client } from 'pg';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
-import { loadDockerConfig } from '@/lib/config/docker-config';
-import { loadZFSConfig } from '@/lib/config/zfs-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
+import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
-import type { BaseCollector } from './collectors/base-collector';
-import { DockerCollector } from './collectors/docker-collector';
-import { ZFSCollector } from './collectors/zfs-collector';
+import { createCollectors } from './collector-factory';
+import { resolveCollectionInterval } from './resolve-collection-interval';
+import { SettingsListener } from './settings-listener';
 
 /**
  * Background worker entry point
@@ -41,19 +39,13 @@ async function main() {
     console.log('[Worker] Running database migrations...');
     await runMigrations(db);
 
-    // Read update interval from database settings (overrides env var)
+    // Override collection interval from database if configured
     const settingsRepo = new SettingsRepository(db.getPool());
-    try {
-      const updateIntervalSetting = await settingsRepo.get('general/updateIntervalMs');
-      if (updateIntervalSetting !== null) {
-        const parsedInterval = parseInt(updateIntervalSetting, 10);
-        if (Number.isFinite(parsedInterval) && parsedInterval >= 100 && parsedInterval <= 60000) {
-          workerConfig.collection.interval = parsedInterval;
-          console.log(`[Worker] Using update interval from database: ${parsedInterval}ms`);
-        }
-      }
-    } catch {
-      // DB read failed or setting doesn't exist — use env var/default
+    const resolvedInterval = await resolveCollectionInterval(settingsRepo, workerConfig.collection.interval);
+    if (resolvedInterval !== workerConfig.collection.interval) {
+      workerConfig.collection.interval = resolvedInterval;
+      console.log(`[Worker] Using update interval from database: ${resolvedInterval}ms`);
+    } else {
       console.log(`[Worker] Using update interval from config: ${workerConfig.collection.interval}ms`);
     }
 
@@ -70,104 +62,33 @@ async function main() {
     // Use AsyncDisposableStack for automatic cleanup of optional collectors
     {
       await using stack = new AsyncDisposableStack();
-      const runners: Promise<void>[] = [];
-      const allCollectors: BaseCollector[] = [];
 
-      if (workerConfig.docker.enabled) {
-        const dockerConfig = loadDockerConfig();
-
-        if (dockerConfig.hosts.length === 0) {
-          console.log('[Worker] Docker enabled but no hosts configured');
-        } else {
-          console.log(`[Worker] Starting ${dockerConfig.hosts.length} Docker collector(s)`);
-
-          for (const hostConfig of dockerConfig.hosts) {
-            console.log(`[Worker] Starting Docker collector for ${hostConfig.name}`);
-            const collector = stack.use(
-              new DockerCollector(db, workerConfig, hostConfig, shutdownController)
-            );
-            allCollectors.push(collector);
-            runners.push(collector.run());
-          }
-        }
-      } else {
-        console.log('[Worker] Docker collector disabled');
-      }
-
-      if (workerConfig.zfs.enabled) {
-        const zfsConfig = loadZFSConfig();
-
-        if (zfsConfig.hosts.length === 0) {
-          console.log('[Worker] ZFS enabled but no hosts configured');
-        } else {
-          console.log(`[Worker] Starting ${zfsConfig.hosts.length} ZFS collector(s)`);
-
-          for (const hostConfig of zfsConfig.hosts) {
-            console.log(`[Worker] Starting ZFS collector for ${hostConfig.name}`);
-            const collector = stack.use(
-              new ZFSCollector(db, workerConfig, hostConfig, shutdownController)
-            );
-            allCollectors.push(collector);
-            runners.push(collector.run());
-          }
-        }
-      } else {
-        console.log('[Worker] ZFS collector disabled');
-      }
+      const { collectors, runners } = createCollectors(db, workerConfig, shutdownController, stack);
 
       if (runners.length === 0) {
         console.log('[Worker] No collectors enabled, exiting');
         process.exit(0);
       }
 
-      // Read initial debug logging settings and LISTEN for changes
-      const debugSettingKeys = ['developer/dockerDebugLogging', 'developer/dbFlushDebugLogging'] as const;
-
-      const applyDebugSetting = (key: string, value: string | null) => {
-        const enabled = value === 'true';
-        if (key === 'developer/dockerDebugLogging') {
-          for (const c of allCollectors) c.dockerDebugLogging = enabled;
-          dockerConnectionManager.debugLogging = enabled;
-        } else if (key === 'developer/dbFlushDebugLogging') {
-          for (const c of allCollectors) c.dbFlushDebugLogging = enabled;
-        }
-      };
-
-      try {
-        for (const key of debugSettingKeys) {
-          applyDebugSetting(key, await settingsRepo.get(key));
-        }
-      } catch {
-        // DB read failed — keep defaults (off)
-      }
-
-      const listenClient = new Client({
-        host: dbConfig.host,
-        port: dbConfig.port,
-        database: dbConfig.database,
-        user: dbConfig.user,
-        password: dbConfig.password,
-      });
-      await listenClient.connect();
-      await listenClient.query('LISTEN settings_change');
-
-      listenClient.on('notification', async (msg) => {
-        if (msg.payload && debugSettingKeys.includes(msg.payload as any)) {
-          try {
-            applyDebugSetting(msg.payload, await settingsRepo.get(msg.payload));
-          } catch {
-            // DB read failed — keep current value
-          }
-        }
-      });
-
-      listenClient.on('error', (err) => {
-        console.error('[Worker] Settings LISTEN connection error:', err);
-      });
-
-      shutdownController.signal.addEventListener('abort', () => {
-        listenClient.end().catch(() => {});
-      });
+      // Listen for debug logging setting changes and apply to all collectors
+      const settingsListener = stack.use(
+        new SettingsListener(
+          dbConfig,
+          settingsRepo,
+          [SETTINGS_KEYS.developer.dockerDebugLogging, SETTINGS_KEYS.developer.dbFlushDebugLogging],
+          (key, value) => {
+            const enabled = value === 'true';
+            if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
+              for (const c of collectors) c.dockerDebugLogging = enabled;
+              dockerConnectionManager.debugLogging = enabled;
+            } else if (key === SETTINGS_KEYS.developer.dbFlushDebugLogging) {
+              for (const c of collectors) c.dbFlushDebugLogging = enabled;
+            }
+          },
+          shutdownController.signal,
+        )
+      );
+      await settingsListener.start();
 
       console.log(`[Worker] ${runners.length} collector(s) started, running...`);
       await Promise.all(runners);

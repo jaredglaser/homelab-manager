@@ -1,4 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 // Skip in CI due to some kind of compat issue... TODO: Figure out root cause and re-enable tests in CI
 const isCI = process.env.CI === 'true';
@@ -56,9 +57,9 @@ if (isCI) {
 
         it('should derive settings from raw atom values', () => {
             const { wrapper } = createWrapper({
-                'general/useAbbreviatedUnits': 'true',
-                'general/showSparklines': 'false',
-                'general/use12HourTime': 'false',
+                [SETTINGS_KEYS.general.useAbbreviatedUnits]: 'true',
+                [SETTINGS_KEYS.general.showSparklines]: 'false',
+                [SETTINGS_KEYS.general.use12HourTime]: 'false',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -92,7 +93,7 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'general/useAbbreviatedUnits', value: 'true' },
+                data: { key: SETTINGS_KEYS.general.useAbbreviatedUnits, value: 'true' },
             });
         });
     });
@@ -120,7 +121,7 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'general/showSparklines', value: 'false' },
+                data: { key: SETTINGS_KEYS.general.showSparklines, value: 'false' },
             });
         });
     });
@@ -148,7 +149,7 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'docker/memoryDisplayMode', value: 'percentage' },
+                data: { key: SETTINGS_KEYS.docker.memoryDisplayMode, value: 'percentage' },
             });
         });
     });
@@ -191,7 +192,7 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'docker/decimals/networkSpeed', value: 'true' },
+                data: { key: SETTINGS_KEYS.docker.decimals.networkSpeed, value: 'true' },
             });
         });
     });
@@ -302,13 +303,13 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'proxmox/expandedHosts', value: '["pve1"]' },
+                data: { key: SETTINGS_KEYS.proxmox.expandedHosts, value: '["pve1"]' },
             });
         });
 
         it('should parse proxmox expanded hosts from JSON', () => {
             const { wrapper } = createWrapper({
-                'proxmox/expandedHosts': '["pve1", "pve2"]',
+                [SETTINGS_KEYS.proxmox.expandedHosts]: '["pve1", "pve2"]',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -353,7 +354,7 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'proxmox/expandedSections', value: '["pve1-storage"]' },
+                data: { key: SETTINGS_KEYS.proxmox.expandedSections, value: '["pve1-storage"]' },
             });
         });
     });
@@ -390,7 +391,7 @@ if (isCI) {
 
         it('should derive dockerDebugLogging from raw atom', () => {
             const { wrapper } = createWrapper({
-                'developer/dockerDebugLogging': 'true',
+                [SETTINGS_KEYS.developer.dockerDebugLogging]: 'true',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -400,7 +401,7 @@ if (isCI) {
 
         it('should derive dbFlushDebugLogging from raw atom', () => {
             const { wrapper } = createWrapper({
-                'developer/dbFlushDebugLogging': 'true',
+                [SETTINGS_KEYS.developer.dbFlushDebugLogging]: 'true',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -443,7 +444,7 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'developer/dockerDebugLogging', value: 'true' },
+                data: { key: SETTINGS_KEYS.developer.dockerDebugLogging, value: 'true' },
             });
         });
 
@@ -456,7 +457,7 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'developer/dbFlushDebugLogging', value: 'true' },
+                data: { key: SETTINGS_KEYS.developer.dbFlushDebugLogging, value: 'true' },
             });
         });
 
@@ -469,7 +470,7 @@ if (isCI) {
 
         it('should derive sseDebugLogging from raw atom', () => {
             const { wrapper } = createWrapper({
-                'developer/sseDebugLogging': 'true',
+                [SETTINGS_KEYS.developer.sseDebugLogging]: 'true',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -499,7 +500,7 @@ if (isCI) {
             });
 
             expect(mockUpdateSetting).toHaveBeenCalledWith({
-                data: { key: 'developer/sseDebugLogging', value: 'true' },
+                data: { key: SETTINGS_KEYS.developer.sseDebugLogging, value: 'true' },
             });
         });
     });
@@ -507,7 +508,7 @@ if (isCI) {
     describe('parsing settings from raw atom', () => {
         it('should parse expanded hosts from JSON', () => {
             const { wrapper } = createWrapper({
-                'docker/expandedHosts': '["host-1", "host-2"]',
+                [SETTINGS_KEYS.docker.expandedHosts]: '["host-1", "host-2"]',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -519,7 +520,7 @@ if (isCI) {
 
         it('should parse expanded containers from JSON', () => {
             const { wrapper } = createWrapper({
-                'docker/expandedContainers': '["container-1"]',
+                [SETTINGS_KEYS.docker.expandedContainers]: '["container-1"]',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -529,7 +530,7 @@ if (isCI) {
 
         it('should handle invalid JSON gracefully', () => {
             const { wrapper } = createWrapper({
-                'docker/expandedHosts': 'not-valid-json',
+                [SETTINGS_KEYS.docker.expandedHosts]: 'not-valid-json',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -540,7 +541,7 @@ if (isCI) {
 
         it('should handle invalid memory display mode', () => {
             const { wrapper } = createWrapper({
-                'docker/memoryDisplayMode': 'invalid',
+                [SETTINGS_KEYS.docker.memoryDisplayMode]: 'invalid',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
@@ -605,7 +606,7 @@ if (isCI) {
             mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
 
             const { wrapper } = createWrapper({
-                'general/showSparklines': 'false',
+                [SETTINGS_KEYS.general.showSparklines]: 'false',
             });
             const { result } = renderHook(() => useSettings(), { wrapper });
 

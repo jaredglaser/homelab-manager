@@ -11,6 +11,7 @@ import {
 } from './settingsAtom';
 import { useToast } from './toastAtom';
 import { updateSetting } from '@/data/settings.functions';
+import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 // Re-export types for backward-compatible imports
 export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval } from './settingsAtom';
@@ -86,27 +87,27 @@ export function useSettings(): SettingsValue {
   );
 
   const setUse12HourTime = useCallback((value: boolean) => {
-    optimisticSet('general/use12HourTime', () => String(value));
+    optimisticSet(SETTINGS_KEYS.general.use12HourTime, () => String(value));
   }, [optimisticSet]);
 
   const setUpdateInterval = useCallback((value: number) => {
-    optimisticSet('general/updateIntervalMs', () => String(value));
+    optimisticSet(SETTINGS_KEYS.general.updateIntervalMs, () => String(value));
   }, [optimisticSet]);
 
   const setMemoryDisplayMode = useCallback((mode: MemoryDisplayMode) => {
-    optimisticSet('docker/memoryDisplayMode', () => mode);
+    optimisticSet(SETTINGS_KEYS.docker.memoryDisplayMode, () => mode);
   }, [optimisticSet]);
 
   const setShowSparklines = useCallback((value: boolean) => {
-    optimisticSet('general/showSparklines', () => String(value));
+    optimisticSet(SETTINGS_KEYS.general.showSparklines, () => String(value));
   }, [optimisticSet]);
 
   const setUseAbbreviatedUnits = useCallback((value: boolean) => {
-    optimisticSet('general/useAbbreviatedUnits', () => String(value));
+    optimisticSet(SETTINGS_KEYS.general.useAbbreviatedUnits, () => String(value));
   }, [optimisticSet]);
 
   const toggleHostExpanded = useCallback((hostName: string) => {
-    optimisticSet('docker/expandedHosts', prev => toggleInSet(prev, hostName));
+    optimisticSet(SETTINGS_KEYS.docker.expandedHosts, prev => toggleInSet(prev, hostName));
   }, [optimisticSet]);
 
   const isHostExpanded = useCallback(
@@ -118,7 +119,7 @@ export function useSettings(): SettingsValue {
   );
 
   const toggleContainerExpanded = useCallback((containerId: string) => {
-    optimisticSet('docker/expandedContainers', prev => toggleInSet(prev, containerId));
+    optimisticSet(SETTINGS_KEYS.docker.expandedContainers, prev => toggleInSet(prev, containerId));
   }, [optimisticSet]);
 
   const isContainerExpanded = useCallback(
@@ -129,7 +130,7 @@ export function useSettings(): SettingsValue {
   );
 
   const toggleZfsHostExpanded = useCallback((hostName: string) => {
-    optimisticSet('zfs/expandedHosts', prev => toggleInSet(prev, hostName));
+    optimisticSet(SETTINGS_KEYS.zfs.expandedHosts, prev => toggleInSet(prev, hostName));
   }, [optimisticSet]);
 
   const isZfsHostExpanded = useCallback(
@@ -141,7 +142,7 @@ export function useSettings(): SettingsValue {
   );
 
   const togglePoolExpanded = useCallback((poolId: string) => {
-    optimisticSet('zfs/expandedPools', prev => toggleInSet(prev, poolId));
+    optimisticSet(SETTINGS_KEYS.zfs.expandedPools, prev => toggleInSet(prev, poolId));
   }, [optimisticSet]);
 
   const isPoolExpanded = useCallback(
@@ -153,7 +154,7 @@ export function useSettings(): SettingsValue {
   );
 
   const toggleVdevExpanded = useCallback((vdevId: string) => {
-    optimisticSet('zfs/expandedVdevs', prev => toggleInSet(prev, vdevId));
+    optimisticSet(SETTINGS_KEYS.zfs.expandedVdevs, prev => toggleInSet(prev, vdevId));
   }, [optimisticSet]);
 
   const isVdevExpanded = useCallback(
@@ -164,19 +165,19 @@ export function useSettings(): SettingsValue {
   );
 
   const setDockerDecimal = useCallback((key: keyof DecimalSettings, value: boolean) => {
-    optimisticSet(`docker/decimals/${key}`, () => String(value));
+    optimisticSet(SETTINGS_KEYS.docker.decimals[key], () => String(value));
   }, [optimisticSet]);
 
   const setZfsDecimal = useCallback((key: 'diskSpeed', value: boolean) => {
-    optimisticSet(`zfs/decimals/${key}`, () => String(value));
+    optimisticSet(SETTINGS_KEYS.zfs.decimals[key], () => String(value));
   }, [optimisticSet]);
 
   const setProxmoxUpdateInterval = useCallback((interval: ProxmoxUpdateInterval) => {
-    optimisticSet('proxmox/updateInterval', () => String(interval));
+    optimisticSet(SETTINGS_KEYS.proxmox.updateInterval, () => String(interval));
   }, [optimisticSet]);
 
   const toggleProxmoxHostExpanded = useCallback((node: string) => {
-    optimisticSet('proxmox/expandedHosts', prev => toggleInSet(prev, node));
+    optimisticSet(SETTINGS_KEYS.proxmox.expandedHosts, prev => toggleInSet(prev, node));
   }, [optimisticSet]);
 
   const isProxmoxHostExpanded = useCallback(
@@ -187,7 +188,7 @@ export function useSettings(): SettingsValue {
   );
 
   const toggleProxmoxSectionExpanded = useCallback((key: string) => {
-    optimisticSet('proxmox/expandedSections', prev => toggleInSet(prev, key));
+    optimisticSet(SETTINGS_KEYS.proxmox.expandedSections, prev => toggleInSet(prev, key));
   }, [optimisticSet]);
 
   const isProxmoxSectionExpanded = useCallback(
@@ -198,19 +199,19 @@ export function useSettings(): SettingsValue {
   );
 
   const setRetention = useCallback((key: keyof Settings['retention'], value: number) => {
-    optimisticSet(`retention/${key}`, () => String(value));
+    optimisticSet(SETTINGS_KEYS.retention[key], () => String(value));
   }, [optimisticSet]);
 
   const setDockerDebugLogging = useCallback((value: boolean) => {
-    optimisticSet('developer/dockerDebugLogging', () => String(value));
+    optimisticSet(SETTINGS_KEYS.developer.dockerDebugLogging, () => String(value));
   }, [optimisticSet]);
 
   const setDbFlushDebugLogging = useCallback((value: boolean) => {
-    optimisticSet('developer/dbFlushDebugLogging', () => String(value));
+    optimisticSet(SETTINGS_KEYS.developer.dbFlushDebugLogging, () => String(value));
   }, [optimisticSet]);
 
   const setSseDebugLogging = useCallback((value: boolean) => {
-    optimisticSet('developer/sseDebugLogging', () => String(value));
+    optimisticSet(SETTINGS_KEYS.developer.sseDebugLogging, () => String(value));
   }, [optimisticSet]);
 
   return {

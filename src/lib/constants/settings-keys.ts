@@ -1,0 +1,47 @@
+/**
+ * Canonical settings key constants.
+ * Every DB key used across frontend (settingsAtom, useSettings) and
+ * backend (worker, resolve-collection-interval) should be defined here.
+ */
+export const SETTINGS_KEYS = {
+  general: {
+    use12HourTime: 'general/use12HourTime',
+    updateIntervalMs: 'general/updateIntervalMs',
+    showSparklines: 'general/showSparklines',
+    useAbbreviatedUnits: 'general/useAbbreviatedUnits',
+  },
+  docker: {
+    memoryDisplayMode: 'docker/memoryDisplayMode',
+    expandedHosts: 'docker/expandedHosts',
+    expandedContainers: 'docker/expandedContainers',
+    decimals: {
+      cpu: 'docker/decimals/cpu',
+      memory: 'docker/decimals/memory',
+      diskSpeed: 'docker/decimals/diskSpeed',
+      networkSpeed: 'docker/decimals/networkSpeed',
+    },
+  },
+  zfs: {
+    expandedHosts: 'zfs/expandedHosts',
+    expandedPools: 'zfs/expandedPools',
+    expandedVdevs: 'zfs/expandedVdevs',
+    decimals: {
+      diskSpeed: 'zfs/decimals/diskSpeed',
+    },
+  },
+  proxmox: {
+    updateInterval: 'proxmox/updateInterval',
+    expandedHosts: 'proxmox/expandedHosts',
+    expandedSections: 'proxmox/expandedSections',
+  },
+  retention: {
+    rawDataHours: 'retention/rawDataHours',
+    minuteAggDays: 'retention/minuteAggDays',
+    hourAggDays: 'retention/hourAggDays',
+  },
+  developer: {
+    dockerDebugLogging: 'developer/dockerDebugLogging',
+    dbFlushDebugLogging: 'developer/dbFlushDebugLogging',
+    sseDebugLogging: 'developer/sseDebugLogging',
+  },
+} as const;

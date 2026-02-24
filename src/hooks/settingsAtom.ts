@@ -1,4 +1,5 @@
 import { atom } from 'jotai';
+import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 export type MemoryDisplayMode = 'percentage' | 'bytes';
 
@@ -126,49 +127,49 @@ function parseProxmoxUpdateInterval(raw: string | undefined): ProxmoxUpdateInter
 }
 
 export function parseSettings(raw: Record<string, string>): Settings {
-  const memMode = raw['docker/memoryDisplayMode'];
+  const memMode = raw[SETTINGS_KEYS.docker.memoryDisplayMode];
   return {
     general: {
-      use12HourTime: parseBool(raw['general/use12HourTime'], DEFAULT_SETTINGS.general.use12HourTime),
-      updateIntervalMs: parseIntSetting(raw['general/updateIntervalMs'], DEFAULT_SETTINGS.general.updateIntervalMs),
-      showSparklines: parseBool(raw['general/showSparklines'], DEFAULT_SETTINGS.general.showSparklines),
-      useAbbreviatedUnits: parseBool(raw['general/useAbbreviatedUnits'], DEFAULT_SETTINGS.general.useAbbreviatedUnits),
+      use12HourTime: parseBool(raw[SETTINGS_KEYS.general.use12HourTime], DEFAULT_SETTINGS.general.use12HourTime),
+      updateIntervalMs: parseIntSetting(raw[SETTINGS_KEYS.general.updateIntervalMs], DEFAULT_SETTINGS.general.updateIntervalMs),
+      showSparklines: parseBool(raw[SETTINGS_KEYS.general.showSparklines], DEFAULT_SETTINGS.general.showSparklines),
+      useAbbreviatedUnits: parseBool(raw[SETTINGS_KEYS.general.useAbbreviatedUnits], DEFAULT_SETTINGS.general.useAbbreviatedUnits),
     },
     docker: {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
-      expandedHosts: parseExpandedSet(raw['docker/expandedHosts']),
-      expandedContainers: parseExpandedSet(raw['docker/expandedContainers']),
+      expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedHosts]),
+      expandedContainers: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedContainers]),
       decimals: {
-        cpu: parseBool(raw['docker/decimals/cpu'], DEFAULT_DECIMAL_SETTINGS.cpu),
-        memory: parseBool(raw['docker/decimals/memory'], DEFAULT_DECIMAL_SETTINGS.memory),
-        diskSpeed: parseBool(raw['docker/decimals/diskSpeed'], DEFAULT_DECIMAL_SETTINGS.diskSpeed),
-        networkSpeed: parseBool(raw['docker/decimals/networkSpeed'], DEFAULT_DECIMAL_SETTINGS.networkSpeed),
+        cpu: parseBool(raw[SETTINGS_KEYS.docker.decimals.cpu], DEFAULT_DECIMAL_SETTINGS.cpu),
+        memory: parseBool(raw[SETTINGS_KEYS.docker.decimals.memory], DEFAULT_DECIMAL_SETTINGS.memory),
+        diskSpeed: parseBool(raw[SETTINGS_KEYS.docker.decimals.diskSpeed], DEFAULT_DECIMAL_SETTINGS.diskSpeed),
+        networkSpeed: parseBool(raw[SETTINGS_KEYS.docker.decimals.networkSpeed], DEFAULT_DECIMAL_SETTINGS.networkSpeed),
       },
     },
     zfs: {
-      expandedHosts: parseExpandedSet(raw['zfs/expandedHosts']),
-      expandedPools: parseExpandedSet(raw['zfs/expandedPools']),
-      expandedVdevs: parseExpandedSet(raw['zfs/expandedVdevs']),
+      expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.zfs.expandedHosts]),
+      expandedPools: parseExpandedSet(raw[SETTINGS_KEYS.zfs.expandedPools]),
+      expandedVdevs: parseExpandedSet(raw[SETTINGS_KEYS.zfs.expandedVdevs]),
       decimals: {
-        diskSpeed: parseBool(raw['zfs/decimals/diskSpeed'], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
+        diskSpeed: parseBool(raw[SETTINGS_KEYS.zfs.decimals.diskSpeed], DEFAULT_SETTINGS.zfs.decimals.diskSpeed),
       },
     },
     proxmox: {
-      updateInterval: parseProxmoxUpdateInterval(raw['proxmox/updateInterval']),
-      expandedHosts: parseExpandedSet(raw['proxmox/expandedHosts']),
-      expandedSections: parseExpandedSet(raw['proxmox/expandedSections']),
+      updateInterval: parseProxmoxUpdateInterval(raw[SETTINGS_KEYS.proxmox.updateInterval]),
+      expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.proxmox.expandedHosts]),
+      expandedSections: parseExpandedSet(raw[SETTINGS_KEYS.proxmox.expandedSections]),
     },
     retention: {
-      rawDataHours: parseIntSetting(raw['retention/rawDataHours'], DEFAULT_SETTINGS.retention.rawDataHours),
-      minuteAggDays: parseIntSetting(raw['retention/minuteAggDays'], DEFAULT_SETTINGS.retention.minuteAggDays),
-      hourAggDays: parseIntSetting(raw['retention/hourAggDays'], DEFAULT_SETTINGS.retention.hourAggDays),
+      rawDataHours: parseIntSetting(raw[SETTINGS_KEYS.retention.rawDataHours], DEFAULT_SETTINGS.retention.rawDataHours),
+      minuteAggDays: parseIntSetting(raw[SETTINGS_KEYS.retention.minuteAggDays], DEFAULT_SETTINGS.retention.minuteAggDays),
+      hourAggDays: parseIntSetting(raw[SETTINGS_KEYS.retention.hourAggDays], DEFAULT_SETTINGS.retention.hourAggDays),
     },
     developer: {
-      dockerDebugLogging: parseBool(raw['developer/dockerDebugLogging'], DEFAULT_SETTINGS.developer.dockerDebugLogging),
-      dbFlushDebugLogging: parseBool(raw['developer/dbFlushDebugLogging'], DEFAULT_SETTINGS.developer.dbFlushDebugLogging),
-      sseDebugLogging: parseBool(raw['developer/sseDebugLogging'], DEFAULT_SETTINGS.developer.sseDebugLogging),
+      dockerDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.dockerDebugLogging], DEFAULT_SETTINGS.developer.dockerDebugLogging),
+      dbFlushDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.dbFlushDebugLogging], DEFAULT_SETTINGS.developer.dbFlushDebugLogging),
+      sseDebugLogging: parseBool(raw[SETTINGS_KEYS.developer.sseDebugLogging], DEFAULT_SETTINGS.developer.sseDebugLogging),
     },
   };
 }
