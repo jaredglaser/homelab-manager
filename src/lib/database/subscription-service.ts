@@ -68,10 +68,16 @@ class StatsPollService {
 
         // Only broadcast rows newer than last poll — prevents broadcasting stale data
         // when the worker is down (which would break the 30s stale detection in the frontend)
-        const newRows = rows.filter(r => new Date(r.time as string).getTime() > last.getTime());
+        const toMs = (value: string | Date) => new Date(value).getTime();
+        const newRows = rows.filter(r => toMs(r.time as string | Date) > last.getTime());
 
         if (newRows.length > 0) {
-          this.lastPollTime.set(source, new Date());
+          // Advance cursor to max observed row time (not wall-clock) to avoid skipping late-committing rows
+          const maxSeenTime = rows.reduce(
+            (max, r) => Math.max(max, toMs(r.time as string | Date)),
+            last.getTime()
+          );
+          this.lastPollTime.set(source, new Date(maxSeenTime));
           for (const cb of subs) {
             cb(rows); // send all rows including 200ms overlap — frontend Map deduplicates
           }
