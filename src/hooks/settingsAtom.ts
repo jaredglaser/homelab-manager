@@ -153,10 +153,10 @@ export function parseSettings(raw: Record<string, string>): Settings {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
-      chartWindowSeconds: parseIntSetting(
+      chartWindowSeconds: Math.max(60, Math.min(1800, parseIntSetting(
         raw[SETTINGS_KEYS.docker.chartWindowSeconds],
         DEFAULT_SETTINGS.docker.chartWindowSeconds,
-      ),
+      ))),
       expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedHosts]),
       expandedContainers: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedContainers]),
       decimals: {
