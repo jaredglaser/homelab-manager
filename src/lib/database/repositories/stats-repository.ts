@@ -177,6 +177,20 @@ export class StatsRepository {
     );
   }
 
+  async getSourceIcons(source: string): Promise<Map<string, string>> {
+    const result = await this.pool.query(
+      `SELECT entity, value
+       FROM entity_metadata
+       WHERE source = $1 AND key = 'icon'`,
+      [source]
+    );
+    const icons = new Map<string, string>();
+    for (const row of result.rows as { entity: string; value: string }[]) {
+      icons.set(row.entity, row.value);
+    }
+    return icons;
+  }
+
   async getEntityMetadata(
     source: string,
     entities: string[]
