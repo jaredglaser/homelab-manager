@@ -102,9 +102,50 @@ export function useTimeSeriesStream<TRow>({
   getEntityRef.current = getEntity;
   preloadFnRef.current = preloadFn;
 
-  // Preload historical data on mount
+  // Atomic buffer refresh — re-fetches bucketed history and swaps the buffer in one state update.
+  // Declared before the preload effect so both the preload effect and later effects can reference it.
+  // Stored as a ref so effects always invoke the latest closure without recreating intervals.
+  const doRefreshRef = useRef<() => Promise<void>>(async () => {});
+  doRefreshRef.current = async () => {
+    let rows: TRow[];
+    try {
+      rows = await preloadFnRef.current();
+    } catch {
+      return; // silently ignore — next interval will retry
+    }
+    if (rows.length === 0) return;
+
+    const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
+    const preloadMaxTime = getTimeRef.current(sorted[sorted.length - 1]);
+
+    // Preserve SSE rows too recent to have been committed to the DB yet (typically last 1-5s).
+    // These sit beyond the preload snapshot and must be stitched in so the live tail is seamless.
+    const liveTail = sortedRef.current.filter(r => getTimeRef.current(r) > preloadMaxTime);
+    const merged = liveTail.length > 0 ? [...sorted, ...liveTail] : sorted;
+
+    // Atomically rebuild dedup set and swap the buffer — single setSortedRows call = one re-render
+    const newDedup = new Set<string>();
+    for (const row of merged) newDedup.add(getKeyRef.current(row));
+    dedupRef.current = newDedup;
+    sortedRef.current = merged;
+    setSortedRows(merged);
+
+    if (debug) {
+      console.log(
+        `[useTimeSeriesStream] Buffer refresh: ${sorted.length} bucketed + ${liveTail.length} live = ${merged.length} total`
+      );
+    }
+  };
+
+  // Preload historical data on mount; re-fetch when preloadFn changes (window size changed).
+  // When chartWindowSeconds changes via SSE from another window, preloadFn gets a new identity
+  // (its useCallback dep changed), triggering this effect to re-fetch the larger history range.
   useEffect(() => {
-    if (preloadedRef.current) return;
+    if (preloadedRef.current) {
+      // preloadFn changed after initial mount — window size changed, re-fetch history.
+      void doRefreshRef.current();
+      return;
+    }
     preloadedRef.current = true;
 
     if (debug) console.log('[useTimeSeriesStream] Starting preload...');
@@ -208,41 +249,6 @@ export function useTimeSeriesStream<TRow>({
     return () => clearInterval(id);
   }, [windowSeconds, updateIntervalMs]);
 
-  // Atomic buffer refresh — re-fetches bucketed history and swaps the buffer in one state update.
-  // Stored as a ref so the interval and window-change effects always invoke the latest closure
-  // (capturing current preloadFnRef, sortedRef, dedupRef, debug) without recreating the interval.
-  const doRefreshRef = useRef<() => Promise<void>>(async () => {});
-  doRefreshRef.current = async () => {
-    let rows: TRow[];
-    try {
-      rows = await preloadFnRef.current();
-    } catch {
-      return; // silently ignore — next interval will retry
-    }
-    if (rows.length === 0) return;
-
-    const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
-    const preloadMaxTime = getTimeRef.current(sorted[sorted.length - 1]);
-
-    // Preserve SSE rows too recent to have been committed to the DB yet (typically last 1-5s).
-    // These sit beyond the preload snapshot and must be stitched in so the live tail is seamless.
-    const liveTail = sortedRef.current.filter(r => getTimeRef.current(r) > preloadMaxTime);
-    const merged = liveTail.length > 0 ? [...sorted, ...liveTail] : sorted;
-
-    // Atomically rebuild dedup set and swap the buffer — single setSortedRows call = one re-render
-    const newDedup = new Set<string>();
-    for (const row of merged) newDedup.add(getKeyRef.current(row));
-    dedupRef.current = newDedup;
-    sortedRef.current = merged;
-    setSortedRows(merged);
-
-    if (debug) {
-      console.log(
-        `[useTimeSeriesStream] Buffer refresh: ${sorted.length} bucketed + ${liveTail.length} live = ${merged.length} total`
-      );
-    }
-  };
-
   // Periodic refresh: keeps the buffer bounded at ~preload size regardless of how long the
   // SSE stream has been running. Without this, a 30-min window accumulates ~1800 raw rows/container.
   useEffect(() => {
@@ -250,19 +256,6 @@ export function useTimeSeriesStream<TRow>({
     const id = setInterval(() => { void doRefreshRef.current(); }, refreshIntervalMs);
     return () => clearInterval(id);
   }, [refreshIntervalMs]);
-
-  // Window-change refresh: when windowSeconds changes (e.g. user adjusts the slider), immediately
-  // re-fetch bucketed history for the new range so the chart fills without waiting for the next
-  // periodic interval. Skips the initial mount — the preload effect handles that.
-  const windowChangeSeenRef = useRef(false);
-  useEffect(() => {
-    if (!windowChangeSeenRef.current) {
-      windowChangeSeenRef.current = true;
-      return;
-    }
-    if (!refreshIntervalMs) return;
-    void doRefreshRef.current();
-  }, [windowSeconds, refreshIntervalMs]);
 
   const onServiceError = useCallback(() => {
     setServiceError(new Error('Database unavailable'));

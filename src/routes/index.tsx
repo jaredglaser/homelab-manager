@@ -24,12 +24,18 @@ function DockerPage() {
  *
  * @returns The React element containing the page header and a container table populated with the latest and historical Docker metrics.
  */
+// Sparklines always show the last 35s (with 10s padding = 45s buffer).
+// The stream window must cover both the chart and sparkline requirements.
+const SPARKLINE_BUFFER_SECONDS = 45
+
 function DockerPageContent() {
   const { general, docker, developer } = useSettings()
 
+  const windowSeconds = Math.max(docker.chartWindowSeconds + 10, SPARKLINE_BUFFER_SECONDS)
+
   const preloadFn = useCallback(
-    () => getHistoricalDockerStats({ data: { seconds: docker.chartWindowSeconds + 10 } }),
-    [docker.chartWindowSeconds],
+    () => getHistoricalDockerStats({ data: { seconds: windowSeconds } }),
+    [windowSeconds],
   )
 
   const stream = useTimeSeriesStream<DockerStatsRow>({
@@ -38,7 +44,7 @@ function DockerPageContent() {
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
     getTime: (row) => new Date(row.time).getTime(),
     getEntity: (row) => `${row.host}/${row.container_id}`,
-    windowSeconds: docker.chartWindowSeconds + 10,
+    windowSeconds,
     updateIntervalMs: general.updateIntervalMs,
     refreshIntervalMs: 60_000,
     debug: developer.sseDebugLogging,
