@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import AppShell from '../components/AppShell'
 import { Card, FormControl, FormLabel, Option, Select, Slider, Switch, Typography } from '@mui/joy'
-import { useSettings, type MemoryDisplayMode, type DecimalSettings } from '@/hooks/useSettings'
+import { useSettings, type MemoryDisplayMode, type DecimalSettings, type LightPalette } from '@/hooks/useSettings'
 import PageHeader from '@/components/PageHeader'
 
 export const Route = createFileRoute('/settings')({
@@ -18,7 +18,7 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
+  const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setLightPalette, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
 
   return (
     <div className="w-full p-6">
@@ -67,6 +67,23 @@ function SettingsContent() {
                 checked={general.useAbbreviatedUnits}
                 onChange={(e) => setUseAbbreviatedUnits(e.target.checked)}
               />
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>Light Mode Palette</FormLabel>
+              <Typography level="body-xs" className="text-neutral-500 mb-2">
+                Background color palette used in light mode
+              </Typography>
+              <Select
+                value={general.lightPalette}
+                onChange={(_e, value) => { if (value) setLightPalette(value as LightPalette); }}
+              >
+                <Option value="cool-blue">Cool Blue</Option>
+                <Option value="dusty-rose">Dusty Rose</Option>
+                <Option value="forest-mist">Forest Mist</Option>
+                <Option value="soft-stone">Soft Stone</Option>
+                <Option value="warm-slate">Warm Slate</Option>
+              </Select>
             </FormControl>
 
           </div>

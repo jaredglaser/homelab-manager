@@ -179,7 +179,7 @@ export default function ZFSPoolSpeedChart({
   useEChartTimeScroll(chartRef, WINDOW_MS);
 
   return (
-    <Sheet variant="outlined" className="rounded-sm p-4">
+    <Sheet variant="soft" className="rounded-sm p-4">
       <Typography level="title-sm" className="mb-2">
         {poolName}
       </Typography>

@@ -8,13 +8,14 @@ import {
   type MemoryDisplayMode,
   type DecimalSettings,
   type ProxmoxUpdateInterval,
+  type LightPalette,
 } from './settingsAtom';
 import { useToast } from './toastAtom';
 import { updateSetting } from '@/data/settings.functions';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 // Re-export types for backward-compatible imports
-export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval } from './settingsAtom';
+export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval, LightPalette } from './settingsAtom';
 
 interface SettingsValue extends Settings {
   setUse12HourTime: (value: boolean) => void;
@@ -43,6 +44,7 @@ interface SettingsValue extends Settings {
   setDockerDebugLogging: (value: boolean) => void;
   setDbFlushDebugLogging: (value: boolean) => void;
   setSseDebugLogging: (value: boolean) => void;
+  setLightPalette: (palette: LightPalette) => void;
 }
 
 function toggleInSet(raw: string | undefined, item: string): string {
@@ -214,6 +216,10 @@ export function useSettings(): SettingsValue {
     optimisticSet(SETTINGS_KEYS.developer.sseDebugLogging, () => String(value));
   }, [optimisticSet]);
 
+  const setLightPalette = useCallback((palette: LightPalette) => {
+    optimisticSet(SETTINGS_KEYS.general.lightPalette, () => palette);
+  }, [optimisticSet]);
+
   return {
     ...settings,
     setUse12HourTime,
@@ -242,5 +248,6 @@ export function useSettings(): SettingsValue {
     setDockerDebugLogging,
     setDbFlushDebugLogging,
     setSseDebugLogging,
+    setLightPalette,
   };
 }

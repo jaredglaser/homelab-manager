@@ -87,7 +87,7 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
             {/* Host accordion row */}
             <div
               onClick={() => toggleProxmoxHostExpanded(node.node)}
-              className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer bg-[var(--joy-palette-background-level1)] ${
+              className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer bg-[var(--joy-palette-background-level2)] ${
                 nodeIdx > 0 ? BORDER : ''
               }`}
             >

@@ -9,6 +9,7 @@ export const SETTINGS_KEYS = {
     updateIntervalMs: 'general/updateIntervalMs',
     showSparklines: 'general/showSparklines',
     useAbbreviatedUnits: 'general/useAbbreviatedUnits',
+    lightPalette: 'general/lightPalette',
   },
   docker: {
     memoryDisplayMode: 'docker/memoryDisplayMode',

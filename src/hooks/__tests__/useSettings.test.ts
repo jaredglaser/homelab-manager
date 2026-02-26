@@ -154,6 +154,42 @@ if (isCI) {
         });
     });
 
+    describe('setLightPalette', () => {
+        it('should default lightPalette to "soft-stone"', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+            expect(result.current.general.lightPalette).toBe('soft-stone');
+        });
+
+        it('should update lightPalette state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => { result.current.setLightPalette('warm-slate'); });
+
+            expect(result.current.general.lightPalette).toBe('warm-slate');
+        });
+
+        it('should persist lightPalette to database', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => { result.current.setLightPalette('forest-mist'); });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: SETTINGS_KEYS.general.lightPalette, value: 'forest-mist' },
+            });
+        });
+
+        it('should fall back to "soft-stone" for an invalid palette value', () => {
+            const { wrapper } = createWrapper({
+                [SETTINGS_KEYS.general.lightPalette]: 'not-a-palette',
+            });
+            const { result } = renderHook(() => useSettings(), { wrapper });
+            expect(result.current.general.lightPalette).toBe('soft-stone');
+        });
+    });
+
     describe('setUse12HourTime', () => {
         it('should update use12HourTime state', () => {
             const { wrapper } = createWrapper();

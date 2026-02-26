@@ -3,6 +3,10 @@ import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 export type MemoryDisplayMode = 'percentage' | 'bytes';
 
+export type LightPalette = 'cool-blue' | 'warm-slate' | 'forest-mist' | 'soft-stone' | 'dusty-rose';
+
+const VALID_LIGHT_PALETTES: readonly string[] = ['cool-blue', 'warm-slate', 'forest-mist', 'soft-stone', 'dusty-rose'];
+
 export interface DecimalSettings {
   cpu: boolean;
   memory: boolean;
@@ -18,6 +22,7 @@ export interface Settings {
     updateIntervalMs: number;
     showSparklines: boolean;
     useAbbreviatedUnits: boolean;
+    lightPalette: LightPalette;
   };
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
@@ -63,6 +68,7 @@ export const DEFAULT_SETTINGS: Settings = {
     updateIntervalMs: 1000,
     showSparklines: true,
     useAbbreviatedUnits: false,
+    lightPalette: 'soft-stone' as LightPalette,
   },
   docker: {
     memoryDisplayMode: 'bytes',
@@ -96,6 +102,11 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const VALID_MEMORY_MODES: readonly string[] = ['percentage', 'bytes'];
+
+function parseLightPalette(raw: string | undefined): LightPalette {
+  if (raw !== undefined && VALID_LIGHT_PALETTES.includes(raw)) return raw as LightPalette;
+  return DEFAULT_SETTINGS.general.lightPalette;
+}
 
 export function parseExpandedSet(raw: string | undefined): Set<string> {
   if (!raw) return new Set();
@@ -134,6 +145,7 @@ export function parseSettings(raw: Record<string, string>): Settings {
       updateIntervalMs: parseIntSetting(raw[SETTINGS_KEYS.general.updateIntervalMs], DEFAULT_SETTINGS.general.updateIntervalMs),
       showSparklines: parseBool(raw[SETTINGS_KEYS.general.showSparklines], DEFAULT_SETTINGS.general.showSparklines),
       useAbbreviatedUnits: parseBool(raw[SETTINGS_KEYS.general.useAbbreviatedUnits], DEFAULT_SETTINGS.general.useAbbreviatedUnits),
+      lightPalette: parseLightPalette(raw[SETTINGS_KEYS.general.lightPalette]),
     },
     docker: {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
