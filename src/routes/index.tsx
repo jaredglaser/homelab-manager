@@ -23,7 +23,7 @@ function DockerPageContent() {
   const { general, developer } = useSettings()
 
   const preloadFn = useCallback(
-    () => getHistoricalDockerStats({ data: { seconds: 90 } }),
+    () => getHistoricalDockerStats({ data: { seconds: 310 } }),
     [],
   )
 
@@ -33,7 +33,7 @@ function DockerPageContent() {
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
     getTime: (row) => new Date(row.time).getTime(),
     getEntity: (row) => `${row.host}/${row.container_id}`,
-    windowSeconds: 90,
+    windowSeconds: 310,
     updateIntervalMs: general.updateIntervalMs,
     debug: developer.sseDebugLogging,
   })

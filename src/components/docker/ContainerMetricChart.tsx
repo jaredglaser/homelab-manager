@@ -19,7 +19,7 @@ interface ContainerMetricChartProps {
   formatValue: (value: number) => string;
 }
 
-const WINDOW_MS = 60_000;
+const WINDOW_MS = 300_000;
 
 function getChartOption(
   dataPoints: DataPoint[],
