@@ -24,7 +24,16 @@ export const Route = createFileRoute('/api/zfs-stats')({
               }
             };
 
-            const unsubscribe = statsPollService.subscribe('zfs', sendData);
+            const sendError = () => {
+              if (closed) return;
+              try {
+                controller.enqueue(encoder.encode(`event: stats_error\ndata: {}\n\n`));
+              } catch {
+                closed = true;
+              }
+            };
+
+            const unsubscribe = statsPollService.subscribe('zfs', sendData, sendError);
 
             request.signal.addEventListener('abort', () => {
               closed = true;

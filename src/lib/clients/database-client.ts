@@ -30,6 +30,7 @@ export class DatabaseClient implements StreamingClient {
       user: config.user,
       password: config.password,
       max: config.max || 10,
+      connectionTimeoutMillis: 5000,
     };
 
     if (config.ssl) {
@@ -37,6 +38,14 @@ export class DatabaseClient implements StreamingClient {
     }
 
     this.pool = new Pool(poolConfig);
+
+    // Mark as disconnected when idle pool connections are lost (e.g. DB container stops).
+    // Without this handler pg emits an unhandled error; with it, the next getClient()
+    // call sees isConnected()=false and creates a fresh connection.
+    this.pool.on('error', (err) => {
+      console.error('[DatabaseClient] Pool error on idle client:', err.message);
+      this.connected = false;
+    });
   }
 
   /**

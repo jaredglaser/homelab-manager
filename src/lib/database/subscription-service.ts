@@ -4,6 +4,10 @@ import { StatsRepository } from '@/lib/database/repositories/stats-repository';
 
 type StatsSource = 'docker' | 'zfs';
 type StatsCallback = (rows: unknown[]) => void;
+type StatsErrorCallback = () => void;
+
+const POLL_TIMEOUT_MS = 5000;
+const FAILURE_THRESHOLD = 3;
 
 /**
  * Shared poll service that runs one setInterval per source (docker, zfs)
@@ -14,8 +18,11 @@ type StatsCallback = (rows: unknown[]) => void;
  */
 class StatsPollService {
   private subscribers = new Map<StatsSource, Set<StatsCallback>>();
+  private errorCallbacks = new Map<StatsSource, Set<StatsErrorCallback>>();
   private intervals = new Map<StatsSource, ReturnType<typeof setInterval>>();
   private lastPollTime = new Map<StatsSource, Date>();
+  private consecutiveFailures = new Map<StatsSource, number>();
+  private errorSignalled = new Set<StatsSource>();
   private repo: StatsRepository | null = null;
   private stoppedSources = new Set<StatsSource>();
 
@@ -28,7 +35,7 @@ class StatsPollService {
     return this.repo;
   }
 
-  subscribe(source: StatsSource, callback: StatsCallback): () => void {
+  subscribe(source: StatsSource, callback: StatsCallback, onError?: StatsErrorCallback): () => void {
     let subs = this.subscribers.get(source);
     if (!subs) {
       subs = new Set();
@@ -36,12 +43,22 @@ class StatsPollService {
     }
     subs.add(callback);
 
+    if (onError) {
+      let errCbs = this.errorCallbacks.get(source);
+      if (!errCbs) {
+        errCbs = new Set();
+        this.errorCallbacks.set(source, errCbs);
+      }
+      errCbs.add(onError);
+    }
+
     if (subs.size === 1) {
       this.startPolling(source);
     }
 
     return () => {
       subs!.delete(callback);
+      if (onError) this.errorCallbacks.get(source)?.delete(onError);
       if (subs!.size === 0) {
         this.stopPolling(source);
         this.subscribers.delete(source);
@@ -62,9 +79,19 @@ class StatsPollService {
         const last = this.lastPollTime.get(source) ?? new Date();
         const since = new Date(last.getTime() - 200); // 200ms lookback for late-committing rows
 
-        const rows = source === 'docker'
-          ? await repo.getDockerStatsSince(since)
-          : await repo.getZFSStatsSince(since);
+        const rowsPromise = source === 'docker'
+          ? repo.getDockerStatsSince(since)
+          : repo.getZFSStatsSince(since);
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Poll timeout')), POLL_TIMEOUT_MS)
+        );
+
+        const rows = await Promise.race([rowsPromise, timeoutPromise]);
+
+        // Success — reset failure tracking
+        this.consecutiveFailures.set(source, 0);
+        this.errorSignalled.delete(source);
 
         // Only broadcast rows newer than last poll — prevents broadcasting stale data
         // when the worker is down (which would break the 30s stale detection in the frontend)
@@ -82,8 +109,19 @@ class StatsPollService {
             cb(rows); // send all rows including 200ms overlap — frontend Map deduplicates
           }
         }
-      } catch (err) {
-        console.error('StatsPollService.startPolling query failed:', err);
+      } catch {
+        // Query failed or timed out — track consecutive failures
+        const failures = (this.consecutiveFailures.get(source) ?? 0) + 1;
+        this.consecutiveFailures.set(source, failures);
+
+        // Signal error once per failure episode after hitting the threshold
+        if (failures >= FAILURE_THRESHOLD && !this.errorSignalled.has(source)) {
+          this.errorSignalled.add(source);
+          const errCbs = this.errorCallbacks.get(source);
+          if (errCbs) {
+            for (const cb of errCbs) cb();
+          }
+        }
       }
     }, 1000);
 
@@ -98,6 +136,9 @@ class StatsPollService {
       this.intervals.delete(source);
     }
     this.lastPollTime.delete(source);
+    this.consecutiveFailures.delete(source);
+    this.errorSignalled.delete(source);
+    this.errorCallbacks.delete(source);
   }
 
   async stop(): Promise<void> {
