@@ -25,18 +25,6 @@ interface UseTimeSeriesStreamResult<TRow> {
   isStale: boolean;
 }
 
-// Returns the index of the first element with getTime(el) >= cutoff (O(log n))
-function lowerBound<T>(arr: T[], cutoff: number, getTime: (item: T) => number): number {
-  let lo = 0;
-  let hi = arr.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (getTime(arr[mid]) < cutoff) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
 /**
  * Find the first index in a time-sorted array whose time is greater than or equal to a cutoff.
  *
