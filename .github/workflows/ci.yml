@@ -16,6 +16,17 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect dependency changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            dependencies:
+              - 'package.json'
+              - 'bun.lock'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -32,19 +43,20 @@ jobs:
           NODE_ENV: test
 
       - name: Check licenses
+        if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
         run: |
           bunx license-checker-rseidelsohn \
             --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
             --summary
 
       - name: Generate license report
-        if: success()
+        if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
         run: |
           bunx license-checker-rseidelsohn --json > license-report.json
           bunx license-checker-rseidelsohn --summary
 
       - name: Upload license report
-        if: success()
+        if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: license-report
