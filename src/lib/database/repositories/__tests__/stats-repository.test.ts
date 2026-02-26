@@ -9,7 +9,7 @@ interface QueryCall {
 function createMockPool() {
   const queries: QueryCall[] = [];
   const resultQueue: { rows: unknown[] }[] = [];
-  let defaultResult: { rows: unknown[] } = { rows: [{ seq: '1' }] };
+  let defaultResult: { rows: unknown[] } = { rows: [] };
   let shouldThrow: Error | null = null;
 
   return {
@@ -57,7 +57,7 @@ describe('StatsRepository', () => {
       expect(mockPool.queries).toHaveLength(0);
     });
 
-    it('should insert rows with RETURNING seq and send JSON NOTIFY', async () => {
+    it('should insert rows with correct parameters', async () => {
       const rows = [
         {
           time: new Date('2024-01-01'),
@@ -76,24 +76,13 @@ describe('StatsRepository', () => {
         },
       ];
 
-      mockPool.pushResult([{ seq: '42' }]);
-
       await repo.insertDockerStats(rows);
 
-      expect(mockPool.queries).toHaveLength(2);
-
-      // First call: INSERT with RETURNING seq
+      expect(mockPool.queries).toHaveLength(1);
       expect(mockPool.queries[0].sql).toContain('INSERT INTO docker_stats');
-      expect(mockPool.queries[0].sql).toContain('RETURNING seq');
       expect(mockPool.queries[0].params[0]).toEqual([new Date('2024-01-01')]);
       expect(mockPool.queries[0].params[1]).toEqual(['host1']);
       expect(mockPool.queries[0].params[2]).toEqual(['abc123']);
-
-      // Second call: NOTIFY with JSON payload
-      expect(mockPool.queries[1].sql).toContain("pg_notify('stats_update'");
-      const payload = JSON.parse(mockPool.queries[1].params[0] as string);
-      expect(payload.source).toBe('docker');
-      expect(payload.maxSeq).toBe('42');
     });
 
     it('should handle multiple rows', async () => {
@@ -130,16 +119,10 @@ describe('StatsRepository', () => {
         },
       ];
 
-      mockPool.pushResult([{ seq: '10' }, { seq: '11' }]);
-
       await repo.insertDockerStats(rows);
 
       expect(mockPool.queries[0].params[1]).toEqual(['host1', 'host1']);
       expect(mockPool.queries[0].params[2]).toEqual(['abc', 'def']);
-
-      // Should use max seq (last row) in NOTIFY
-      const payload = JSON.parse(mockPool.queries[1].params[0] as string);
-      expect(payload.maxSeq).toBe('11');
     });
 
     it('should propagate errors', async () => {
@@ -169,7 +152,7 @@ describe('StatsRepository', () => {
       expect(mockPool.queries).toHaveLength(0);
     });
 
-    it('should insert rows with RETURNING seq and send JSON NOTIFY', async () => {
+    it('should insert rows with correct parameters', async () => {
       const rows = [
         {
           time: new Date('2024-01-01'),
@@ -188,17 +171,10 @@ describe('StatsRepository', () => {
         },
       ];
 
-      mockPool.pushResult([{ seq: '99' }]);
-
       await repo.insertZFSStats(rows);
 
-      expect(mockPool.queries).toHaveLength(2);
+      expect(mockPool.queries).toHaveLength(1);
       expect(mockPool.queries[0].sql).toContain('INSERT INTO zfs_stats');
-      expect(mockPool.queries[0].sql).toContain('RETURNING seq');
-
-      const payload = JSON.parse(mockPool.queries[1].params[0] as string);
-      expect(payload.source).toBe('zfs');
-      expect(payload.maxSeq).toBe('99');
     });
 
     it('should propagate errors', async () => {
@@ -222,14 +198,15 @@ describe('StatsRepository', () => {
     });
   });
 
-  describe('getDockerStatsSinceSeq', () => {
-    it('should query with correct parameters', async () => {
-      await repo.getDockerStatsSinceSeq('100');
+  describe('getDockerStatsSince', () => {
+    it('should query with Date parameter', async () => {
+      const since = new Date('2024-01-01T00:00:00Z');
+      await repo.getDockerStatsSince(since);
 
       expect(mockPool.queries).toHaveLength(1);
       expect(mockPool.queries[0].sql).toContain('docker_stats');
-      expect(mockPool.queries[0].sql).toContain('seq > $1');
-      expect(mockPool.queries[0].params).toEqual(['100']);
+      expect(mockPool.queries[0].sql).toContain('time > $1');
+      expect(mockPool.queries[0].params).toEqual([since]);
     });
 
     it('should return rows from query result', async () => {
@@ -239,45 +216,24 @@ describe('StatsRepository', () => {
         cpu_percent: 10, memory_usage: 100, memory_limit: 200,
         memory_percent: 50, network_rx_bytes_per_sec: 0,
         network_tx_bytes_per_sec: 0, block_io_read_bytes_per_sec: 0,
-        block_io_write_bytes_per_sec: 0, seq: '101',
+        block_io_write_bytes_per_sec: 0,
       }];
       mockPool.pushResult(mockRows);
 
-      const result = await repo.getDockerStatsSinceSeq('100');
+      const result = await repo.getDockerStatsSince(new Date());
       expect(result).toEqual(mockRows);
     });
   });
 
-  describe('getZFSStatsSinceSeq', () => {
-    it('should query with correct parameters', async () => {
-      await repo.getZFSStatsSinceSeq('50');
+  describe('getZFSStatsSince', () => {
+    it('should query with Date parameter', async () => {
+      const since = new Date('2024-01-01T00:00:00Z');
+      await repo.getZFSStatsSince(since);
 
       expect(mockPool.queries).toHaveLength(1);
       expect(mockPool.queries[0].sql).toContain('zfs_stats');
-      expect(mockPool.queries[0].sql).toContain('seq > $1');
-      expect(mockPool.queries[0].params).toEqual(['50']);
-    });
-  });
-
-  describe('getMaxDockerSeq', () => {
-    it('should return max seq as string', async () => {
-      mockPool.pushResult([{ max_seq: '500' }]);
-      const result = await repo.getMaxDockerSeq();
-      expect(result).toBe('500');
-    });
-
-    it('should return 0 when table is empty', async () => {
-      mockPool.pushResult([{ max_seq: 0 }]);
-      const result = await repo.getMaxDockerSeq();
-      expect(result).toBe('0');
-    });
-  });
-
-  describe('getMaxZFSSeq', () => {
-    it('should return max seq as string', async () => {
-      mockPool.pushResult([{ max_seq: '250' }]);
-      const result = await repo.getMaxZFSSeq();
-      expect(result).toBe('250');
+      expect(mockPool.queries[0].sql).toContain('time > $1');
+      expect(mockPool.queries[0].params).toEqual([since]);
     });
   });
 

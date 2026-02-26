@@ -15,7 +15,7 @@ type StatsCallback = (rows: unknown[]) => void;
 class StatsPollService {
   private subscribers = new Map<StatsSource, Set<StatsCallback>>();
   private intervals = new Map<StatsSource, ReturnType<typeof setInterval>>();
-  private lastSeq = new Map<StatsSource, string>();
+  private lastPollTime = new Map<StatsSource, Date>();
   private repo: StatsRepository | null = null;
   private stoppedSources = new Set<StatsSource>();
 
@@ -49,21 +49,9 @@ class StatsPollService {
     };
   }
 
-  private async startPolling(source: StatsSource): Promise<void> {
+  private startPolling(source: StatsSource): void {
     this.stoppedSources.delete(source);
-
-    try {
-      const repo = await this.getRepo();
-      const seq = source === 'docker'
-        ? await repo.getMaxDockerSeq()
-        : await repo.getMaxZFSSeq();
-      this.lastSeq.set(source, seq);
-    } catch {
-      this.lastSeq.set(source, '0');
-    }
-
-    // Check if we were stopped while awaiting
-    if (this.stoppedSources.has(source)) return;
+    this.lastPollTime.set(source, new Date());
 
     const intervalId = setInterval(async () => {
       const subs = this.subscribers.get(source);
@@ -71,16 +59,21 @@ class StatsPollService {
 
       try {
         const repo = await this.getRepo();
-        const lastSeq = this.lastSeq.get(source) ?? '0';
+        const last = this.lastPollTime.get(source) ?? new Date();
+        const since = new Date(last.getTime() - 200); // 200ms lookback for late-committing rows
 
         const rows = source === 'docker'
-          ? await repo.getDockerStatsSinceSeq(lastSeq)
-          : await repo.getZFSStatsSinceSeq(lastSeq);
+          ? await repo.getDockerStatsSince(since)
+          : await repo.getZFSStatsSince(since);
 
-        if (rows.length > 0) {
-          this.lastSeq.set(source, String((rows[rows.length - 1] as any).seq));
+        // Only broadcast rows newer than last poll — prevents broadcasting stale data
+        // when the worker is down (which would break the 30s stale detection in the frontend)
+        const newRows = rows.filter(r => new Date(r.time as string).getTime() > last.getTime());
+
+        if (newRows.length > 0) {
+          this.lastPollTime.set(source, new Date());
           for (const cb of subs) {
-            cb(rows);
+            cb(rows); // send all rows including 200ms overlap — frontend Map deduplicates
           }
         }
       } catch {
@@ -98,7 +91,7 @@ class StatsPollService {
       clearInterval(intervalId);
       this.intervals.delete(source);
     }
-    this.lastSeq.delete(source);
+    this.lastPollTime.delete(source);
   }
 
   async stop(): Promise<void> {
