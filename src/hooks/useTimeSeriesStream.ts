@@ -62,11 +62,13 @@ export function useTimeSeriesStream<TRow>({
     preloadedRef.current = true;
 
     if (debug) console.log('[useTimeSeriesStream] Starting preload...');
-    const preloadTimeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Database unavailable')), PRELOAD_TIMEOUT_MS)
-    );
+    let preloadTimeoutId: ReturnType<typeof setTimeout>;
+    const preloadTimeout = new Promise<never>((_, reject) => {
+      preloadTimeoutId = setTimeout(() => reject(new Error('Database unavailable')), PRELOAD_TIMEOUT_MS);
+    });
     Promise.race([preloadFn(), preloadTimeout])
       .then((rows) => {
+        clearTimeout(preloadTimeoutId);
         if (rows.length === 0) {
           if (debug) console.log('[useTimeSeriesStream] Preload complete: 0 rows');
           return;
@@ -83,6 +85,7 @@ export function useTimeSeriesStream<TRow>({
         setLastDataTime(Date.now());
       })
       .catch((err) => {
+        clearTimeout(preloadTimeoutId);
         console.error('[useTimeSeriesStream] Failed to preload:', err);
         setPreloadError(err instanceof Error ? err : new Error(String(err)));
       });
