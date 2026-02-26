@@ -82,8 +82,8 @@ class StatsPollService {
             cb(rows); // send all rows including 200ms overlap — frontend Map deduplicates
           }
         }
-      } catch {
-        // Query failed — skip this cycle
+      } catch (err) {
+        console.error('StatsPollService.startPolling query failed:', err);
       }
     }, 1000);
 
