@@ -5,6 +5,7 @@ const MAX_RECONNECT_ATTEMPTS = 5;
 interface UseSSEOptions<T> {
   url: string;
   onData: (data: T) => void;
+  onServiceError?: () => void;
   debug?: boolean;
 }
 
@@ -16,18 +17,21 @@ interface UseSSEResult {
 export function useSSE<T>({
   url,
   onData,
+  onServiceError,
   debug = false,
 }: UseSSEOptions<T>): UseSSEResult {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const onDataRef = useRef(onData);
+  const onServiceErrorRef = useRef(onServiceError);
   const reconnectAttemptsRef = useRef(0);
   const messageCountRef = useRef(0);
   const lastMessageTimeRef = useRef(0);
 
-  // Keep onData ref up to date
+  // Keep callback refs up to date
   onDataRef.current = onData;
+  onServiceErrorRef.current = onServiceError;
 
   useEffect(() => {
     let mounted = true;
@@ -74,6 +78,10 @@ export function useSSE<T>({
           }
         }
       };
+
+      eventSource.addEventListener('stats_error', () => {
+        if (mounted) onServiceErrorRef.current?.();
+      });
 
       eventSource.onerror = () => {
         if (mounted) {

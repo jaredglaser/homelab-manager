@@ -24,7 +24,16 @@ export const Route = createFileRoute('/api/docker-stats')({
               }
             };
 
-            const unsubscribe = statsPollService.subscribe('docker', sendData);
+            const sendError = () => {
+              if (closed) return;
+              try {
+                controller.enqueue(encoder.encode(`event: stats_error\ndata: {}\n\n`));
+              } catch {
+                closed = true;
+              }
+            };
+
+            const unsubscribe = statsPollService.subscribe('docker', sendData, sendError);
 
             request.signal.addEventListener('abort', () => {
               closed = true;

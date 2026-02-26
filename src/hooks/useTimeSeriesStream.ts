@@ -3,6 +3,7 @@ import { useSSE } from './useSSE';
 
 const STALE_THRESHOLD_MS = 30000;
 const STALE_CHECK_INTERVAL_MS = 5000;
+const PRELOAD_TIMEOUT_MS = 8000;
 
 interface UseTimeSeriesStreamOptions<TRow> {
   sseUrl: string;
@@ -42,6 +43,8 @@ export function useTimeSeriesStream<TRow>({
   const [buffer, setBuffer] = useState<Map<string, TRow>>(new Map());
   const [hasData, setHasData] = useState(false);
   const [lastDataTime, setLastDataTime] = useState<number | null>(null);
+  const [preloadError, setPreloadError] = useState<Error | null>(null);
+  const [serviceError, setServiceError] = useState<Error | null>(null);
   const preloadedRef = useRef(false);
 
   // Keep refs up to date for use in callbacks and memoization
@@ -59,8 +62,13 @@ export function useTimeSeriesStream<TRow>({
     preloadedRef.current = true;
 
     if (debug) console.log('[useTimeSeriesStream] Starting preload...');
-    preloadFn()
+    let preloadTimeoutId: ReturnType<typeof setTimeout>;
+    const preloadTimeout = new Promise<never>((_, reject) => {
+      preloadTimeoutId = setTimeout(() => reject(new Error('Database unavailable')), PRELOAD_TIMEOUT_MS);
+    });
+    Promise.race([preloadFn(), preloadTimeout])
       .then((rows) => {
+        clearTimeout(preloadTimeoutId);
         if (rows.length === 0) {
           if (debug) console.log('[useTimeSeriesStream] Preload complete: 0 rows');
           return;
@@ -77,18 +85,22 @@ export function useTimeSeriesStream<TRow>({
         setLastDataTime(Date.now());
       })
       .catch((err) => {
+        clearTimeout(preloadTimeoutId);
         console.error('[useTimeSeriesStream] Failed to preload:', err);
+        setPreloadError(err instanceof Error ? err : new Error(String(err)));
       });
   }, [preloadFn, debug]);
 
   // Pending rows accumulated between flushes
   const pendingRef = useRef<TRow[]>([]);
 
-  // Each SSE message queues rows for the next flush
+  // Each SSE message queues rows for the next flush; also clears any prior errors (DB recovered)
   const handleData = useCallback((incoming: TRow[]) => {
     if (debug) {
       console.log(`[useTimeSeriesStream] Received ${incoming.length} rows, queuing for next flush`);
     }
+    setPreloadError(null);
+    setServiceError(null);
     pendingRef.current.push(...incoming);
   }, [debug]);
 
@@ -120,11 +132,18 @@ export function useTimeSeriesStream<TRow>({
     return () => clearInterval(id);
   }, [windowSeconds, updateIntervalMs]);
 
-  const { isConnected, error } = useSSE<TRow[]>({
+  const onServiceError = useCallback(() => {
+    setServiceError(new Error('Database unavailable'));
+  }, []);
+
+  const { isConnected, error: sseError } = useSSE<TRow[]>({
     url: sseUrl,
     onData: handleData,
+    onServiceError,
     debug,
   });
+
+  const error = sseError ?? serviceError ?? preloadError;
 
   // Derive sorted rows and latestByEntity from buffer
   // Uses refs for callbacks so memos only recompute when buffer actually changes
