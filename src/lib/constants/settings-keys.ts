@@ -13,6 +13,7 @@ export const SETTINGS_KEYS = {
   },
   docker: {
     memoryDisplayMode: 'docker/memoryDisplayMode',
+    chartWindowSeconds: 'docker/chartWindowSeconds',
     expandedHosts: 'docker/expandedHosts',
     expandedContainers: 'docker/expandedContainers',
     decimals: {

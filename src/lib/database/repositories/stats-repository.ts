@@ -143,11 +143,29 @@ export class StatsRepository {
   }
 
   async getDockerStatsHistory(seconds: number): Promise<DockerStatsRow[]> {
+    // Target ~300 data points per entity: bucket larger windows to avoid sending
+    // thousands of 1-second rows over the wire for windows like 30 minutes.
+    const bucketSeconds = Math.max(1, Math.ceil(seconds / 300));
     const result = await this.pool.query(
-      `SELECT * FROM docker_stats
+      `SELECT
+         time_bucket(make_interval(secs => $2), time) AS time,
+         host,
+         container_id,
+         last(container_name, time)              AS container_name,
+         last(image, time)                       AS image,
+         AVG(cpu_percent)                        AS cpu_percent,
+         AVG(memory_usage)                       AS memory_usage,
+         AVG(memory_limit)                       AS memory_limit,
+         AVG(memory_percent)                     AS memory_percent,
+         AVG(network_rx_bytes_per_sec)           AS network_rx_bytes_per_sec,
+         AVG(network_tx_bytes_per_sec)           AS network_tx_bytes_per_sec,
+         AVG(block_io_read_bytes_per_sec)        AS block_io_read_bytes_per_sec,
+         AVG(block_io_write_bytes_per_sec)       AS block_io_write_bytes_per_sec
+       FROM docker_stats
        WHERE time > NOW() - make_interval(secs => $1)
+       GROUP BY time_bucket(make_interval(secs => $2), time), host, container_id
        ORDER BY time ASC`,
-      [seconds]
+      [seconds, bucketSeconds]
     );
     return result.rows;
   }

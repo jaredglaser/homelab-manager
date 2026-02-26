@@ -18,7 +18,7 @@ function SettingsPage() {
 }
 
 function SettingsContent() {
-  const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setShowSparklines, setUseAbbreviatedUnits, setLightPalette, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
+  const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setChartWindowSeconds, setShowSparklines, setUseAbbreviatedUnits, setLightPalette, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
 
   return (
     <div className="w-full p-6">
@@ -104,6 +104,26 @@ function SettingsContent() {
                 <Option value="bytes">Bytes (B, KiB, MiB, GiB)</Option>
               </Select>
             </FormControl>
+
+            <div>
+              <div className="flex justify-between items-baseline mb-1">
+                <FormLabel>Chart Window</FormLabel>
+                <Typography level="body-sm" className="font-mono">
+                  {formatChartWindow(docker.chartWindowSeconds)}
+                </Typography>
+              </div>
+              <Typography level="body-xs" className="text-neutral-500 mb-3">
+                Time range shown in the expanded container metric charts
+              </Typography>
+              <Slider
+                value={docker.chartWindowSeconds}
+                onChange={(_e, v) => setChartWindowSeconds(v as number)}
+                min={60}
+                max={1800}
+                step={null}
+                marks={CHART_WINDOW_MARKS}
+              />
+            </div>
 
             <div>
               <Typography level="title-sm" className="mb-2">Show Decimal Places</Typography>
@@ -251,6 +271,16 @@ function formatDecimalLabel(key: keyof DecimalSettings): string {
     networkSpeed: 'Network Speed',
   };
   return labels[key];
+}
+
+// --- Chart window slider marks and formatter ---
+
+const CHART_WINDOW_MARKS = [60, 120, 300, 600, 900, 1800].map(v => ({ value: v }));
+
+function formatChartWindow(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = seconds / 60;
+  return `${minutes} min`;
 }
 
 // --- Update interval slider marks and formatter ---

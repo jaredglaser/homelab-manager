@@ -25,11 +25,11 @@ function DockerPage() {
  * @returns The React element containing the page header and a container table populated with the latest and historical Docker metrics.
  */
 function DockerPageContent() {
-  const { general, developer } = useSettings()
+  const { general, docker, developer } = useSettings()
 
   const preloadFn = useCallback(
-    () => getHistoricalDockerStats({ data: { seconds: 310 } }),
-    [],
+    () => getHistoricalDockerStats({ data: { seconds: docker.chartWindowSeconds + 10 } }),
+    [docker.chartWindowSeconds],
   )
 
   const stream = useTimeSeriesStream<DockerStatsRow>({
@@ -38,8 +38,9 @@ function DockerPageContent() {
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
     getTime: (row) => new Date(row.time).getTime(),
     getEntity: (row) => `${row.host}/${row.container_id}`,
-    windowSeconds: 310,
+    windowSeconds: docker.chartWindowSeconds + 10,
     updateIntervalMs: general.updateIntervalMs,
+    refreshIntervalMs: 60_000,
     debug: developer.sseDebugLogging,
   })
 
