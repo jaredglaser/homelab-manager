@@ -82,34 +82,58 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
     }));
   }, [chartData]);
 
-  // Memoize sparkline arrays to avoid recreating on every render
-  // Keep last 30 seconds of data for time-based sparklines
-  // Use the latest data point's timestamp as the reference, not Date.now()
-  const sparklines = useMemo(() => {
-    if (dataPoints.length === 0) {
-      return {
-        cpu: [],
-        memory: [],
-        blockRead: [],
-        blockWrite: [],
-        networkRx: [],
-        networkTx: [],
-      };
+  // Sparkline accumulator: isolates sparkline data from chart buffer re-fetches.
+  // Only accumulates NEW data points (by timestamp). When the chart window changes
+  // and the buffer is re-fetched with a different time_bucket resolution, re-bucketed
+  // data doesn't have newer timestamps than what we've already seen, so sparklines
+  // stay visually stable. After ~35s all initial bucketed data is evicted and replaced
+  // with raw 1s-resolution SSE data.
+  const sparkAccRef = useRef<ChartDataPoint[]>([]);
+  const sparkMaxTsRef = useRef(0);
+  const sparkSeededRef = useRef(false);
+
+  const [sparklines, setSparklines] = useState(() => ({
+    cpu: [] as { timestamp: number; value: number }[],
+    memory: [] as { timestamp: number; value: number }[],
+    blockRead: [] as { timestamp: number; value: number }[],
+    blockWrite: [] as { timestamp: number; value: number }[],
+    networkRx: [] as { timestamp: number; value: number }[],
+    networkTx: [] as { timestamp: number; value: number }[],
+  }));
+
+  useEffect(() => {
+    if (dataPoints.length === 0) return;
+
+    const latest = dataPoints[dataPoints.length - 1].timestamp;
+
+    if (!sparkSeededRef.current) {
+      // First data: seed with all points in the sparkline window
+      sparkSeededRef.current = true;
+      const cutoff = latest - 35000;
+      sparkAccRef.current = dataPoints.filter((d) => d.timestamp >= cutoff);
+      sparkMaxTsRef.current = latest;
+    } else if (latest > sparkMaxTsRef.current) {
+      // New data arrived: add only points newer than our tracked max
+      const newPoints = dataPoints.filter((d) => d.timestamp > sparkMaxTsRef.current);
+      const combined = [...sparkAccRef.current, ...newPoints];
+      // Evict points outside the sparkline window
+      const cutoff = latest - 35000;
+      sparkAccRef.current = combined.filter((d) => d.timestamp >= cutoff);
+      sparkMaxTsRef.current = latest;
+    } else {
+      // Buffer swap (re-bucketed data, same time range): skip update
+      return;
     }
 
-    const latestTimestamp = dataPoints[dataPoints.length - 1].timestamp;
-    // Keep 5s of extra buffer before the 30s window so the line always extends past the left edge
-    const cutoff = latestTimestamp - 35000;
-    const points = dataPoints.filter((d) => d.timestamp >= cutoff);
-
-    return {
+    const points = sparkAccRef.current;
+    setSparklines({
       cpu: points.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
       memory: points.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent })),
       blockRead: points.map((d) => ({ timestamp: d.timestamp, value: d.blockIoReadBytesPerSec })),
       blockWrite: points.map((d) => ({ timestamp: d.timestamp, value: d.blockIoWriteBytesPerSec })),
       networkRx: points.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
       networkTx: points.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
-    };
+    });
   }, [dataPoints]);
 
   // Memoize formatted metric parts

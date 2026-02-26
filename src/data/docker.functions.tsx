@@ -4,7 +4,7 @@ import type { DockerStatsRow } from '@/types/docker';
 
 const getHistoricalDockerStatsSchema = z.object({
   /** Number of seconds of historical data to fetch. Default: 60 */
-  seconds: z.number().optional().default(60),
+  seconds: z.number().min(1).max(3600).optional().default(60),
 });
 
 /**

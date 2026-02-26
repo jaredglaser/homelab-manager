@@ -33,6 +33,7 @@ interface SettingsValue extends Settings {
   isPoolExpanded: (poolId: string, totalPools: number) => boolean;
   toggleVdevExpanded: (vdevId: string) => void;
   isVdevExpanded: (vdevId: string) => boolean;
+  setChartWindowSeconds: (seconds: number) => void;
   setDockerDecimal: (key: keyof DecimalSettings, value: boolean) => void;
   setZfsDecimal: (key: 'diskSpeed', value: boolean) => void;
   setProxmoxUpdateInterval: (interval: ProxmoxUpdateInterval) => void;
@@ -166,6 +167,10 @@ export function useSettings(): SettingsValue {
     [settings.zfs.expandedVdevs]
   );
 
+  const setChartWindowSeconds = useCallback((seconds: number) => {
+    optimisticSet(SETTINGS_KEYS.docker.chartWindowSeconds, () => String(seconds));
+  }, [optimisticSet]);
+
   const setDockerDecimal = useCallback((key: keyof DecimalSettings, value: boolean) => {
     optimisticSet(SETTINGS_KEYS.docker.decimals[key], () => String(value));
   }, [optimisticSet]);
@@ -237,6 +242,7 @@ export function useSettings(): SettingsValue {
     isPoolExpanded,
     toggleVdevExpanded,
     isVdevExpanded,
+    setChartWindowSeconds,
     setDockerDecimal,
     setZfsDecimal,
     setProxmoxUpdateInterval,

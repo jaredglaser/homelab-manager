@@ -19,8 +19,6 @@ interface ContainerMetricChartProps {
   formatValue: (value: number) => string;
 }
 
-const WINDOW_MS = 300_000;
-
 /**
  * Builds an ECharts option for a smoothed time-series line chart of the provided data points.
  *
@@ -29,14 +27,16 @@ const WINDOW_MS = 300_000;
  * @param formatValue - Function that formats numeric y values for axis labels and the tooltip
  * @param isPercent - When true, y-axis scaling is calculated using a percent-oriented strategy
  * @param use12HourTime - When true, tooltip times are formatted using a 12-hour clock; otherwise a 24-hour clock is used
- * @returns An EChartsOption configured for a smoothed, symbol-less line series with gradient area fill, a time x-axis spanning now - WINDOW_MS to now, and a y-axis starting at 0 with a cleaned maximum and interval; tooltip shows localized time and the formatted value
+ * @param windowMs - Duration in milliseconds of the x-axis time window
+ * @returns An EChartsOption configured for a smoothed, symbol-less line series with gradient area fill, a time x-axis spanning now - windowMs to now, and a y-axis starting at 0 with a cleaned maximum and interval; tooltip shows localized time and the formatted value
  */
 function getChartOption(
   dataPoints: DataPoint[],
   colorVar: string,
   formatValue: (value: number) => string,
   isPercent: boolean,
-  use12HourTime: boolean
+  use12HourTime: boolean,
+  windowMs: number
 ): EChartsOption {
   const now = Date.now();
   const timeValuePairs = dataPoints.map((d) => [d.timestamp, d.value] as [number, number]);
@@ -86,7 +86,7 @@ function getChartOption(
     },
     xAxis: {
       type: 'time',
-      min: now - WINDOW_MS,
+      min: now - windowMs,
       max: now,
       splitNumber: 4,
       axisLine: { show: false },
@@ -152,15 +152,16 @@ export default memo(function ContainerMetricChart({
   colorVar,
   formatValue,
 }: ContainerMetricChartProps) {
-  const { general } = useSettings();
+  const { general, docker } = useSettings();
+  const windowMs = docker.chartWindowSeconds * 1000;
   const isPercent = title.includes('%');
   const option = useMemo(
-    () => getChartOption(dataPoints, colorVar, formatValue, isPercent, general.use12HourTime),
-    [dataPoints, colorVar, formatValue, isPercent, general.use12HourTime],
+    () => getChartOption(dataPoints, colorVar, formatValue, isPercent, general.use12HourTime, windowMs),
+    [dataPoints, colorVar, formatValue, isPercent, general.use12HourTime, windowMs],
   );
   const chartRef = useRef<ReactECharts>(null);
 
-  useEChartTimeScroll(chartRef, WINDOW_MS);
+  useEChartTimeScroll(chartRef, windowMs);
 
   return (
     <Sheet variant="soft" className="rounded-sm p-3">

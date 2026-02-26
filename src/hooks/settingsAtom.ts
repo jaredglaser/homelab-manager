@@ -26,6 +26,7 @@ export interface Settings {
   };
   docker: {
     memoryDisplayMode: MemoryDisplayMode;
+    chartWindowSeconds: number;
     expandedHosts: Set<string>;
     expandedContainers: Set<string>;
     decimals: DecimalSettings;
@@ -72,6 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   docker: {
     memoryDisplayMode: 'bytes',
+    chartWindowSeconds: 300,
     expandedHosts: new Set(),
     expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
@@ -151,6 +153,10 @@ export function parseSettings(raw: Record<string, string>): Settings {
       memoryDisplayMode: VALID_MEMORY_MODES.includes(memMode)
         ? (memMode as MemoryDisplayMode)
         : DEFAULT_SETTINGS.docker.memoryDisplayMode,
+      chartWindowSeconds: Math.max(60, Math.min(1800, parseIntSetting(
+        raw[SETTINGS_KEYS.docker.chartWindowSeconds],
+        DEFAULT_SETTINGS.docker.chartWindowSeconds,
+      ))),
       expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedHosts]),
       expandedContainers: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedContainers]),
       decimals: {
