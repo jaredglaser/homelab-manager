@@ -25,6 +25,18 @@ interface UseTimeSeriesStreamResult<TRow> {
   isStale: boolean;
 }
 
+// Returns the index of the first element with getTime(el) >= cutoff (O(log n))
+function lowerBound<T>(arr: T[], cutoff: number, getTime: (item: T) => number): number {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (getTime(arr[mid]) < cutoff) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 /**
  * Unified hook: preloads historical data, then merges SSE updates.
  * Maintains a time-windowed buffer and a latest-per-entity map.
@@ -40,7 +52,12 @@ export function useTimeSeriesStream<TRow>({
   updateIntervalMs = 1000,
   debug = false,
 }: UseTimeSeriesStreamOptions<TRow>): UseTimeSeriesStreamResult<TRow> {
-  const [buffer, setBuffer] = useState<Map<string, TRow>>(new Map());
+  // Primary sorted state — drives renders. sortedRef mirrors it for synchronous reads in the flush interval.
+  const [sortedRows, setSortedRows] = useState<TRow[]>([]);
+  const sortedRef = useRef<TRow[]>([]);
+  // Dedup set: O(1) key lookup prevents duplicate entries from preload/SSE overlap
+  const dedupRef = useRef<Set<string>>(new Set());
+
   const [hasData, setHasData] = useState(false);
   const [lastDataTime, setLastDataTime] = useState<number | null>(null);
   const [preloadError, setPreloadError] = useState<Error | null>(null);
@@ -74,13 +91,13 @@ export function useTimeSeriesStream<TRow>({
           return;
         }
         if (debug) console.log(`[useTimeSeriesStream] Preload complete: ${rows.length} rows`);
-        setBuffer((prev) => {
-          const next = new Map(prev);
-          for (const row of rows) {
-            next.set(getKeyRef.current(row), row);
-          }
-          return next;
-        });
+        const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
+        const dedup = dedupRef.current;
+        for (const row of sorted) {
+          dedup.add(getKeyRef.current(row));
+        }
+        sortedRef.current = sorted;
+        setSortedRows(sorted);
         setHasData(true);
         setLastDataTime(Date.now());
       })
@@ -104,7 +121,10 @@ export function useTimeSeriesStream<TRow>({
     pendingRef.current.push(...incoming);
   }, [debug]);
 
-  // Flush pending rows into buffer on a fixed interval
+  // Flush pending rows into the sorted array on a fixed interval.
+  // O(k log k + log n) per flush vs O(n log n) with full re-sort:
+  //   - new rows (k) are sorted among themselves and appended at the end
+  //   - expired rows are evicted from the front via binary search
   useEffect(() => {
     const id = setInterval(() => {
       const pending = pendingRef.current;
@@ -113,19 +133,46 @@ export function useTimeSeriesStream<TRow>({
 
       const now = Date.now();
       const cutoff = now - windowSeconds * 1000;
+      const dedup = dedupRef.current;
+      const sorted = sortedRef.current;
 
-      setBuffer((prev) => {
-        const next = new Map(prev);
-        for (const row of pending) {
-          next.set(getKeyRef.current(row), row);
+      // Filter to new unique rows only — skips preload/SSE overlap duplicates
+      const newRows: TRow[] = [];
+      for (const row of pending) {
+        const key = getKeyRef.current(row);
+        if (!dedup.has(key)) {
+          dedup.add(key);
+          newRows.push(row);
         }
-        for (const [key, row] of next) {
-          if (getTimeRef.current(row) < cutoff) {
-            next.delete(key);
-          }
-        }
-        return next;
-      });
+      }
+
+      // Sort the incoming batch (small — typically one per container per second)
+      newRows.sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
+
+      // Binary search for the eviction boundary — O(log n)
+      const cutoffIdx = lowerBound(sorted, cutoff, getTimeRef.current);
+
+      // Remove evicted keys from the dedup set
+      for (let i = 0; i < cutoffIdx; i++) {
+        dedup.delete(getKeyRef.current(sorted[i]));
+      }
+
+      // Build new array: surviving suffix + new rows
+      const hasCutoff = cutoffIdx > 0;
+      const hasNew = newRows.length > 0;
+      let next: TRow[];
+      if (!hasCutoff && !hasNew) {
+        next = sorted;
+      } else if (!hasCutoff) {
+        next = [...sorted, ...newRows];
+      } else if (!hasNew) {
+        next = sorted.slice(cutoffIdx);
+      } else {
+        next = [...sorted.slice(cutoffIdx), ...newRows];
+      }
+
+      sortedRef.current = next;
+      setSortedRows(next);
       setHasData(true);
       setLastDataTime(now);
     }, updateIntervalMs);
@@ -145,17 +192,9 @@ export function useTimeSeriesStream<TRow>({
 
   const error = sseError ?? serviceError ?? preloadError;
 
-  // Derive sorted rows and latestByEntity from buffer
-  // Uses refs for callbacks so memos only recompute when buffer actually changes
-  // (callers pass inline arrows whose identity changes every render)
-  const rows = useMemo(
-    () => Array.from(buffer.values()).sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b)),
-    [buffer],
-  );
-
   const latestByEntity = useMemo(() => {
     const map = new Map<string, TRow>();
-    for (const row of rows) {
+    for (const row of sortedRows) {
       const entity = getEntityRef.current(row);
       const existing = map.get(entity);
       if (!existing || getTimeRef.current(row) > getTimeRef.current(existing)) {
@@ -163,7 +202,7 @@ export function useTimeSeriesStream<TRow>({
       }
     }
     return map;
-  }, [rows]);
+  }, [sortedRows]);
 
   // Stale detection via interval
   const [isStale, setIsStale] = useState(false);
@@ -176,5 +215,5 @@ export function useTimeSeriesStream<TRow>({
     return () => clearInterval(id);
   }, [hasData, lastDataTime]);
 
-  return { rows, latestByEntity, isConnected, error, hasData, isStale };
+  return { rows: sortedRows, latestByEntity, isConnected, error, hasData, isStale };
 }
