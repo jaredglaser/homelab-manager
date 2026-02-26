@@ -1,4 +1,5 @@
 import { useMemo, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useSettings } from '@/hooks/useSettings';
 import { Box, Chip, CircularProgress, Sheet, Typography } from '@mui/joy';
@@ -9,6 +10,9 @@ import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hiera
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import { MetricValue, MetricHeader } from '../shared-table';
 import ContainerRow from './ContainerRow';
+import { getDockerEntityIcons } from '@/data/docker.functions';
+
+export const DOCKER_ENTITY_ICONS_QUERY_KEY = ['docker-entity-icons'] as const;
 
 type FlatRow =
   | { type: 'host'; host: HostStats; totalHosts: number }
@@ -39,14 +43,22 @@ export default function ContainerTable({
 }: ContainerTableProps) {
   const { docker, isHostExpanded, isContainerExpanded } = useSettings();
 
+  const { data: entityIcons } = useQuery({
+    queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
+    queryFn: () => getDockerEntityIcons(),
+    staleTime: Infinity,
+  });
+
   // Convert latest rows to DockerStatsFromDB and build hierarchy
   const hierarchy = useMemo<DockerHierarchy>(() => {
     const stats: DockerStatsFromDB[] = [];
     for (const row of latestByEntity.values()) {
-      stats.push(rowToDockerStats(row));
+      const entityId = `${row.host}/${row.container_id}`;
+      const icon = entityIcons?.[entityId] ?? null;
+      stats.push(rowToDockerStats(row, icon));
     }
     return buildDockerHierarchy(stats);
-  }, [latestByEntity]);
+  }, [latestByEntity, entityIcons]);
 
   // Build per-entity chart data index
   const chartDataByEntity = useMemo(() => {

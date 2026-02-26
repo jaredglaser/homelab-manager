@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useState, useEffect } from 'react';
 import { ChevronRight, Settings } from 'lucide-react';
 import Tooltip from '@mui/joy/Tooltip';
+import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
 import { MetricValue } from '../shared-table';
@@ -10,7 +11,7 @@ import SparklineChart from './SparklineChart';
 import IconPickerDialog from './IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
-import { DOCKER_GRID } from './ContainerTable';
+import { DOCKER_GRID, DOCKER_ENTITY_ICONS_QUERY_KEY } from './ContainerTable';
 
 /** Chart data point derived from wide rows */
 interface ChartDataPoint {
@@ -35,6 +36,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
   const { showSparklines } = general;
   const expanded = isContainerExpanded(container.id);
 
+  const queryClient = useQueryClient();
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
   const [isPulsing, setIsPulsing] = useState(false);
@@ -44,6 +46,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
 
   const handleIconSelect = async (iconSlug: string) => {
     await updateContainerIcon({ data: { entityId: container.id, iconSlug } });
+    await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
   };
 
   // Get last update timestamp from most recent chart data
