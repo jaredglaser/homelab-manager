@@ -19,11 +19,16 @@ function DockerPage() {
   )
 }
 
+/**
+ * Render the Docker Containers dashboard content and wire it to a live time-series stream of Docker stats.
+ *
+ * @returns The React element containing the page header and a container table populated with the latest and historical Docker metrics.
+ */
 function DockerPageContent() {
   const { general, developer } = useSettings()
 
   const preloadFn = useCallback(
-    () => getHistoricalDockerStats({ data: { seconds: 90 } }),
+    () => getHistoricalDockerStats({ data: { seconds: 310 } }),
     [],
   )
 
@@ -33,7 +38,7 @@ function DockerPageContent() {
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
     getTime: (row) => new Date(row.time).getTime(),
     getEntity: (row) => `${row.host}/${row.container_id}`,
-    windowSeconds: 90,
+    windowSeconds: 310,
     updateIntervalMs: general.updateIntervalMs,
     debug: developer.sseDebugLogging,
   })
