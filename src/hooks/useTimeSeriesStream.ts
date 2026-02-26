@@ -25,7 +25,16 @@ interface UseTimeSeriesStreamResult<TRow> {
   isStale: boolean;
 }
 
-// Returns the index of the first element with getTime(el) >= cutoff (O(log n))
+/**
+ * Find the first index in a time-sorted array whose time is greater than or equal to a cutoff.
+ *
+ * The input array must be sorted in ascending order according to `getTime`.
+ *
+ * @param arr - Array of items sorted by time
+ * @param cutoff - Time cutoff (inclusive)
+ * @param getTime - Function that returns the time value for an item
+ * @returns The index of the first element with `getTime(element) >= cutoff`; returns `arr.length` if no such element exists
+ */
 function lowerBound<T>(arr: T[], cutoff: number, getTime: (item: T) => number): number {
   let lo = 0;
   let hi = arr.length;
@@ -38,9 +47,24 @@ function lowerBound<T>(arr: T[], cutoff: number, getTime: (item: T) => number): 
 }
 
 /**
- * Unified hook: preloads historical data, then merges SSE updates.
- * Maintains a time-windowed buffer and a latest-per-entity map.
- * Server controls the update cadence (1s poll); each SSE message = one render.
+ * Provides a time-windowed stream of rows by preloading historical data and merging subsequent SSE updates.
+ *
+ * @param options - Configuration options for the stream
+ * @param options.sseUrl - Server-Sent Events URL to subscribe for incremental updates
+ * @param options.preloadFn - Function that resolves to an array of historical rows to seed the buffer
+ * @param options.getKey - Function that returns a unique key for a row
+ * @param options.getTime - Function that returns the timestamp (ms) for a row
+ * @param options.getEntity - Function that returns the entity identifier for a row (used to compute latest-per-entity)
+ * @param options.windowSeconds - Time window in seconds to retain rows (default: 60)
+ * @param options.updateIntervalMs - Interval in milliseconds to flush queued SSE rows into the buffer (default: 1000)
+ * @param options.debug - Enable debug logging
+ * @returns An object containing:
+ *  - `rows`: the current sorted array of rows within the time window,
+ *  - `latestByEntity`: a Map from entity id to the most recent row for that entity,
+ *  - `isConnected`: whether the SSE connection is active,
+ *  - `error`: the composed error from preload/SSE/service, or `null`,
+ *  - `hasData`: `true` if any rows have been received or preloaded,
+ *  - `isStale`: `true` if no new data has arrived recently (based on internal staleness thresholds)
  */
 export function useTimeSeriesStream<TRow>({
   sseUrl,

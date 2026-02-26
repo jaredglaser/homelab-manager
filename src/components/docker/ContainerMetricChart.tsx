@@ -21,6 +21,16 @@ interface ContainerMetricChartProps {
 
 const WINDOW_MS = 300_000;
 
+/**
+ * Builds an ECharts option for a smoothed time-series line chart of the provided data points.
+ *
+ * @param dataPoints - Array of data points where each item contains a numeric `timestamp` (milliseconds since epoch) and a numeric `value`
+ * @param colorVar - CSS color variable name used to derive the series and area colors
+ * @param formatValue - Function that formats numeric y values for axis labels and the tooltip
+ * @param isPercent - When true, y-axis scaling is calculated using a percent-oriented strategy
+ * @param use12HourTime - When true, tooltip times are formatted using a 12-hour clock; otherwise a 24-hour clock is used
+ * @returns An EChartsOption configured for a smoothed, symbol-less line series with gradient area fill, a time x-axis spanning now - WINDOW_MS to now, and a y-axis starting at 0 with a cleaned maximum and interval; tooltip shows localized time and the formatted value
+ */
 function getChartOption(
   dataPoints: DataPoint[],
   colorVar: string,

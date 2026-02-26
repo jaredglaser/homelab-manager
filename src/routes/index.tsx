@@ -19,6 +19,11 @@ function DockerPage() {
   )
 }
 
+/**
+ * Render the Docker Containers dashboard content and wire it to a live time-series stream of Docker stats.
+ *
+ * @returns The React element containing the page header and a container table populated with the latest and historical Docker metrics.
+ */
 function DockerPageContent() {
   const { general, developer } = useSettings()
 
