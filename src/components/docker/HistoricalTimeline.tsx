@@ -159,7 +159,10 @@ export default memo(function HistoricalTimeline({
 
   const onEvents = useMemo(() => ({
     datazoom: () => {
-      if (suppressZoomRef.current) return;
+      if (suppressZoomRef.current) {
+        suppressZoomRef.current = false;
+        return;
+      }
       const instance = chartRef.current?.getEchartsInstance();
       if (!instance) return;
       const opt = instance.getOption() as { dataZoom: { startValue: string | number; endValue: string | number }[] };
@@ -174,7 +177,7 @@ export default memo(function HistoricalTimeline({
   }), [onRangeChange]);
 
   // Preset: notify parent (triggers data refetch) + reset slider to full range
-  // Suppresses datazoom event to prevent stale old-range values from propagating
+  // suppressZoomRef is consumed (reset to false) by the datazoom handler above
   const handlePreset = useCallback((ms: number) => {
     onPresetChange(ms);
     suppressZoomRef.current = true;
@@ -182,7 +185,6 @@ export default memo(function HistoricalTimeline({
     if (instance) {
       instance.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
     }
-    suppressZoomRef.current = false;
   }, [onPresetChange]);
 
   // Find closest matching preset for highlight (tolerance handles URL-restored ranges)

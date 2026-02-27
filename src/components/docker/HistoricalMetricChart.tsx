@@ -66,7 +66,7 @@ function getChartOption(
   const timeValuePairs = dataPoints.map((d) => [d.timestamp, d.value] as [number, number]);
   const values = dataPoints.map((d) => d.value);
 
-  const maxValue = Math.max(...values, 0);
+  const maxValue = values.reduce((max, v) => (v > max ? v : max), 0);
   const { max: yAxisMax, interval: yAxisInterval } = calculateCleanYAxis(
     maxValue,
     isPercent ? 'percent' : 'linear',
