@@ -56,6 +56,80 @@ export const getDockerEntityIcons = createServerFn()
     }
   });
 
+const getContainerHistorySchema = z.object({
+  containerId: z.string().min(1),
+  host: z.string().optional(),
+  fromMs: z.number(),
+  toMs: z.number(),
+  targetPoints: z.number().min(1).max(5000).optional(),
+});
+
+export const getContainerHistory = createServerFn()
+  .inputValidator(getContainerHistorySchema)
+  .handler(async ({ data }): Promise<DockerStatsRow[]> => {
+    try {
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+
+      const config = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(config);
+      const repo = new StatsRepository(dbClient.getPool());
+
+      return await repo.getDockerStatsForContainer(
+        data.containerId,
+        data.host,
+        new Date(data.fromMs),
+        new Date(data.toMs),
+        data.targetPoints,
+      );
+    } catch (err) {
+      console.error('[getContainerHistory] Failed to fetch container history:', err);
+      return [];
+    }
+  });
+
+const getContainerInfoSchema = z.object({
+  containerId: z.string().min(1),
+  host: z.string().optional(),
+});
+
+export const getContainerInfo = createServerFn()
+  .inputValidator(getContainerInfoSchema)
+  .handler(async ({ data }): Promise<{
+    containerName: string;
+    image: string;
+    host: string;
+    icon: string | null;
+  } | null> => {
+    try {
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+
+      const config = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(config);
+      const repo = new StatsRepository(dbClient.getPool());
+
+      const info = await repo.getContainerInfo(data.containerId, data.host);
+      if (!info) return null;
+
+      const entityId = `${info.host}/${data.containerId}`;
+      const icons = await repo.getSourceIcons('docker');
+      const icon = icons.get(entityId) ?? null;
+
+      return {
+        containerName: info.container_name,
+        image: info.image,
+        host: info.host,
+        icon,
+      };
+    } catch (err) {
+      console.error('[getContainerInfo] Failed to fetch container info:', err);
+      return null;
+    }
+  });
+
 const updateContainerIconSchema = z.object({
   entityId: z.string().min(1),
   iconSlug: z.string().min(1),

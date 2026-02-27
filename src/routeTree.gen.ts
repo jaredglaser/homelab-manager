@@ -13,6 +13,7 @@ import { Route as ZfsRouteImport } from './routes/zfs'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ProxmoxRouteImport } from './routes/proxmox'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DockerContainerIdRouteImport } from './routes/docker.$containerId'
 import { Route as ApiZfsStatsRouteImport } from './routes/api/zfs-stats'
 import { Route as ApiSettingsRouteImport } from './routes/api/settings'
 import { Route as ApiProxmoxOverviewRouteImport } from './routes/api/proxmox-overview'
@@ -36,6 +37,11 @@ const ProxmoxRoute = ProxmoxRouteImport.update({
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DockerContainerIdRoute = DockerContainerIdRouteImport.update({
+  id: '/docker/$containerId',
+  path: '/docker/$containerId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiZfsStatsRoute = ApiZfsStatsRouteImport.update({
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/api/proxmox-overview': typeof ApiProxmoxOverviewRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/zfs-stats': typeof ApiZfsStatsRoute
+  '/docker/$containerId': typeof DockerContainerIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByTo {
   '/api/proxmox-overview': typeof ApiProxmoxOverviewRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/zfs-stats': typeof ApiZfsStatsRoute
+  '/docker/$containerId': typeof DockerContainerIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   '/api/proxmox-overview': typeof ApiProxmoxOverviewRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/zfs-stats': typeof ApiZfsStatsRoute
+  '/docker/$containerId': typeof DockerContainerIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +110,7 @@ export interface FileRouteTypes {
     | '/api/proxmox-overview'
     | '/api/settings'
     | '/api/zfs-stats'
+    | '/docker/$containerId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/api/proxmox-overview'
     | '/api/settings'
     | '/api/zfs-stats'
+    | '/docker/$containerId'
   id:
     | '__root__'
     | '/'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/api/proxmox-overview'
     | '/api/settings'
     | '/api/zfs-stats'
+    | '/docker/$containerId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +144,7 @@ export interface RootRouteChildren {
   ApiProxmoxOverviewRoute: typeof ApiProxmoxOverviewRoute
   ApiSettingsRoute: typeof ApiSettingsRoute
   ApiZfsStatsRoute: typeof ApiZfsStatsRoute
+  DockerContainerIdRoute: typeof DockerContainerIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -162,6 +175,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docker/$containerId': {
+      id: '/docker/$containerId'
+      path: '/docker/$containerId'
+      fullPath: '/docker/$containerId'
+      preLoaderRoute: typeof DockerContainerIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/zfs-stats': {
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiProxmoxOverviewRoute: ApiProxmoxOverviewRoute,
   ApiSettingsRoute: ApiSettingsRoute,
   ApiZfsStatsRoute: ApiZfsStatsRoute,
+  DockerContainerIdRoute: DockerContainerIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
