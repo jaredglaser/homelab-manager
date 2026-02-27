@@ -232,8 +232,8 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 - `zfs_stats` — hypertable: time, host, pool, entity, entity_type, indent, capacity_alloc/free, read/write_ops_per_sec, read/write_bytes_per_sec, utilization_percent
 - `entity_metadata` — key-value metadata per entity (icons, labels)
 - `settings` — application settings
-- **Compression**: Automatic after 1 hour (segmented by host/container or host/pool/entity)
-- **Retention**: Automatic deletion after 7 days (handled by TimescaleDB policies)
+- **Compression**: Automatic after 7 days (segmented by host/container or host/pool/entity)
+- **Retention**: Infinite (no automatic deletion; compression keeps storage manageable)
 
 **Architecture**:
 - **Background worker**: Standalone Bun process (`bun worker`)
