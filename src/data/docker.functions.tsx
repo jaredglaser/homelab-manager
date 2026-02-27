@@ -76,11 +76,14 @@ export const getContainerHistory = createServerFn()
       const dbClient = await databaseConnectionManager.getClient(config);
       const repo = new StatsRepository(dbClient.getPool());
 
+      const fromMs = Math.min(data.fromMs, data.toMs);
+      const toMs = Math.max(data.fromMs, data.toMs);
+
       return await repo.getDockerStatsForContainer(
         data.containerId,
         data.host,
-        new Date(data.fromMs),
-        new Date(data.toMs),
+        new Date(fromMs),
+        new Date(toMs),
         data.targetPoints,
       );
     } catch (err) {
@@ -115,12 +118,11 @@ export const getContainerInfo = createServerFn()
       if (!info) return null;
 
       const entityId = `${info.host}/${data.containerId}`;
-      const icons = await repo.getSourceIcons('docker');
-      const icon = icons.get(entityId) ?? null;
+      const icon = await repo.getEntityIcon('docker', entityId);
 
       return {
-        containerName: info.container_name,
-        image: info.image,
+        containerName: info.container_name ?? data.containerId.substring(0, 12),
+        image: info.image ?? '',
         host: info.host,
         icon,
       };

@@ -4,15 +4,15 @@ import { Link } from '@tanstack/react-router';
 import Tooltip from '@mui/joy/Tooltip';
 import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
-import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
-import { MetricValue } from '../shared-table';
+import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
+import { MetricValue } from '@/components/shared-table';
 import { useSettings } from '@/hooks/useSettings';
-import ContainerChartsCard from './ContainerChartsCard';
-import SparklineChart from './SparklineChart';
-import IconPickerDialog from './IconPickerDialog';
+import ContainerChartsCard from '@/components/docker/ContainerChartsCard';
+import SparklineChart from '@/components/docker/SparklineChart';
+import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
-import { DOCKER_GRID, DOCKER_ENTITY_ICONS_QUERY_KEY } from './ContainerTable';
+import { DOCKER_GRID, DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable';
 
 /** Chart data point derived from wide rows */
 interface ChartDataPoint {

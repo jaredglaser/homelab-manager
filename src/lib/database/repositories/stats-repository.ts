@@ -212,7 +212,7 @@ export class StatsRepository {
   async getContainerInfo(
     containerId: string,
     host?: string,
-  ): Promise<{ container_name: string; image: string; host: string } | null> {
+  ): Promise<{ container_name: string | null; image: string | null; host: string } | null> {
     const params: string[] = [containerId];
     const hostFilter = host ? `AND host = $${params.push(host)}` : '';
 
@@ -224,7 +224,13 @@ export class StatsRepository {
        LIMIT 1`,
       params
     );
-    return result.rows[0] ?? null;
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      container_name: row.container_name ?? null,
+      image: row.image ?? null,
+      host: row.host,
+    };
   }
 
   async getZFSStatsHistory(seconds: number): Promise<ZFSStatsRow[]> {
@@ -264,6 +270,16 @@ export class StatsRepository {
       icons.set(row.entity, row.value);
     }
     return icons;
+  }
+
+  async getEntityIcon(source: string, entityId: string): Promise<string | null> {
+    const result = await this.pool.query(
+      `SELECT value FROM entity_metadata
+       WHERE source = $1 AND entity = $2 AND key = 'icon'
+       LIMIT 1`,
+      [source, entityId]
+    );
+    return (result.rows[0] as { value: string } | undefined)?.value ?? null;
   }
 
   async getEntityMetadata(

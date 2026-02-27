@@ -5,9 +5,9 @@ import { Typography, CircularProgress } from '@mui/joy';
 import { ArrowLeft } from 'lucide-react';
 import { getContainerHistory, getContainerInfo } from '@/data/docker.functions';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
-import MetricCheckboxes, { type MetricType } from './MetricCheckboxes';
-import HistoricalChartsGrid from './HistoricalChartsGrid';
-import HistoricalTimeline from './HistoricalTimeline';
+import MetricCheckboxes, { type MetricType } from '@/components/docker/MetricCheckboxes';
+import HistoricalChartsGrid from '@/components/docker/HistoricalChartsGrid';
+import HistoricalTimeline from '@/components/docker/HistoricalTimeline';
 
 interface ContainerHistoryPageProps {
   containerId: string;

@@ -5,7 +5,7 @@ import type { EChartsOption } from 'echarts';
 import { useSettings } from '@/hooks/useSettings';
 import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
 import type { DockerStatsRow } from '@/types/docker';
-import type { MetricType } from './MetricCheckboxes';
+import type { MetricType } from '@/components/docker/MetricCheckboxes';
 
 interface HistoricalTimelineProps {
   timelineData: DockerStatsRow[];

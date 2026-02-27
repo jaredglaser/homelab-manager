@@ -1,8 +1,8 @@
 import { memo, useMemo } from 'react';
 import type { DockerStatsRow } from '@/types/docker';
 import { formatAsPercent, formatBytes, formatBitsSIUnits } from '@/formatters/metrics';
-import HistoricalMetricChart from './HistoricalMetricChart';
-import type { MetricType } from './MetricCheckboxes';
+import HistoricalMetricChart from '@/components/docker/HistoricalMetricChart';
+import type { MetricType } from '@/components/docker/MetricCheckboxes';
 
 interface HistoricalChartsGridProps {
   data: DockerStatsRow[];
