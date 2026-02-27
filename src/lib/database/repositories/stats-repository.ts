@@ -170,6 +170,69 @@ export class StatsRepository {
     return result.rows;
   }
 
+  async getDockerStatsForContainer(
+    containerId: string,
+    host: string | undefined,
+    from: Date,
+    to: Date,
+    targetPoints = 300,
+  ): Promise<DockerStatsRow[]> {
+    const durationSeconds = (to.getTime() - from.getTime()) / 1000;
+    const bucketSeconds = Math.max(1, Math.ceil(durationSeconds / targetPoints));
+
+    const params: (string | Date | number)[] = [from, to, bucketSeconds, containerId];
+    const hostFilter = host ? `AND host = $${params.push(host)}` : '';
+
+    const result = await this.pool.query(
+      `SELECT
+         time_bucket(make_interval(secs => $3), time) AS time,
+         host,
+         container_id,
+         last(container_name, time)              AS container_name,
+         last(image, time)                       AS image,
+         AVG(cpu_percent)                        AS cpu_percent,
+         AVG(memory_usage)                       AS memory_usage,
+         AVG(memory_limit)                       AS memory_limit,
+         AVG(memory_percent)                     AS memory_percent,
+         AVG(network_rx_bytes_per_sec)           AS network_rx_bytes_per_sec,
+         AVG(network_tx_bytes_per_sec)           AS network_tx_bytes_per_sec,
+         AVG(block_io_read_bytes_per_sec)        AS block_io_read_bytes_per_sec,
+         AVG(block_io_write_bytes_per_sec)       AS block_io_write_bytes_per_sec
+       FROM docker_stats
+       WHERE time >= $1 AND time <= $2
+         AND container_id = $4
+         ${hostFilter}
+       GROUP BY time_bucket(make_interval(secs => $3), time), host, container_id
+       ORDER BY time ASC`,
+      params
+    );
+    return result.rows;
+  }
+
+  async getContainerInfo(
+    containerId: string,
+    host?: string,
+  ): Promise<{ container_name: string | null; image: string | null; host: string } | null> {
+    const params: string[] = [containerId];
+    const hostFilter = host ? `AND host = $${params.push(host)}` : '';
+
+    const result = await this.pool.query(
+      `SELECT container_name, image, host
+       FROM docker_stats
+       WHERE container_id = $1 ${hostFilter}
+       ORDER BY time DESC
+       LIMIT 1`,
+      params
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      container_name: row.container_name ?? null,
+      image: row.image ?? null,
+      host: row.host,
+    };
+  }
+
   async getZFSStatsHistory(seconds: number): Promise<ZFSStatsRow[]> {
     const result = await this.pool.query(
       `SELECT * FROM zfs_stats
@@ -207,6 +270,16 @@ export class StatsRepository {
       icons.set(row.entity, row.value);
     }
     return icons;
+  }
+
+  async getEntityIcon(source: string, entityId: string): Promise<string | null> {
+    const result = await this.pool.query(
+      `SELECT value FROM entity_metadata
+       WHERE source = $1 AND entity = $2 AND key = 'icon'
+       LIMIT 1`,
+      [source, entityId]
+    );
+    return (result.rows[0] as { value: string } | undefined)?.value ?? null;
   }
 
   async getEntityMetadata(

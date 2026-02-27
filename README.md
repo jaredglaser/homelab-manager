@@ -20,7 +20,7 @@ Homelab Manager aims to be a **one-stop-shop dashboard** for managing Docker hos
 - **Container Icons** — Auto-resolved icons from Docker image names with manual override via an icon picker (powered by [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons))
 - **ZFS Dashboard** (`/zfs`) — Hierarchical view of ZFS pools, vdevs (mirror/raidz), and disks with capacity, IOPS, and bandwidth metrics collected via SSH and streamed from the database
 - **Proxmox Dashboard** (`/proxmox`) — Cluster overview with per-node CPU, memory, and disk metrics; collapsible host/VM/container/storage sections with live updates via shared server-side API polling
-- **TimescaleDB Persistence** — Background worker continuously collects stats every 1 second into wide hypertables with automatic compression (after 1 hour) and retention (7 days)
+- **TimescaleDB Persistence** — Background worker continuously collects stats every 1 second into wide hypertables with automatic compression (after 7 days) and indefinite retention
 - **Docker Compose Deployment** — Full stack with TimescaleDB, web server, and background worker (builds from source, no pre-built image)
 - **Live-Updating UI** — Server-Sent Events (SSE) stream data continuously to the client; a shared poll service ensures only 1 DB query/sec per source regardless of how many browser tabs are open
 - **Cross-Browser Settings Sync** — All user preferences (expansion state, display modes, update intervals) are persisted to the database and synced across browser tabs via a dedicated SSE channel
@@ -42,7 +42,7 @@ This project is built on the **TanStack ecosystem** as its core framework:
 | **UI** | [MUI Joy UI](https://mui.com/joy-ui/getting-started/) + [TailwindCSS](https://tailwindcss.com) | Component library and utility-first styling |
 | **Docker** | [Dockerode](https://github.com/apocas/dockerode) | Docker Engine API client |
 | **SSH** | [ssh2](https://github.com/mscdex/ssh2) | SSH client for remote command execution |
-| **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and retention for time-series data |
+| **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and indefinite retention for time-series data |
 | **Validation** | [Zod](https://zod.dev) | Schema validation |
 | **State** | [Jotai](https://jotai.org) | Atomic state management — settings atoms with optimistic updates and SSE sync |
 | **Language** | TypeScript + React 19 | Type-safe UI development |
@@ -306,11 +306,11 @@ migrations/                          # SQL migrations (settings + TimescaleDB wi
 
 ## Roadmap
 
-- [x] **TimescaleDB persistence** — background worker collects stats into wide hypertables with automatic compression and 7-day retention
+- [x] **TimescaleDB persistence** — background worker collects stats into wide hypertables with automatic compression and indefinite retention
 - [x] **Docker Compose deployment** — multi-container setup with TimescaleDB, web server, and background worker
 - [x] **Database-backed streaming** — frontend reads from TimescaleDB via shared server-side polling instead of direct API/SSH connections; a `StatsPollService` runs 1 query/sec per source and broadcasts to all SSE clients
 - [ ] **Return to TanStack Start streaming server functions** — currently using SSE as a workaround because streaming server functions don't close quickly enough when rapidly switching between tabs; once TanStack Start's abort signal propagation is more reliable, migrate back to the native streaming pattern
-- [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
+- [x] **Historical data UI** — per-container history page with time-bucketed charts, metric selection, and timeline navigation with range presets (1h–30d)
 - [x] **Proxmox API integration** — cluster overview with per-node VM, container, and storage monitoring via REST API polling
 - [ ] **Authentication** — user login and access control using OIDC with first class Pocket ID support
 - [ ] **Pre-built Docker image** — publish to a container registry for one-step deployment without building from source

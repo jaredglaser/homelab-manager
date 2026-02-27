@@ -311,4 +311,159 @@ describe('StatsRepository', () => {
       expect(result.get('host1/c2')!.get('icon')).toBe('redis.svg');
     });
   });
+
+  describe('getDockerStatsForContainer', () => {
+    it('should query with correct time range and container filter', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T00:05:00Z');
+
+      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('docker_stats');
+      expect(mockPool.queries[0].sql).toContain('time_bucket');
+      expect(mockPool.queries[0].sql).toContain('container_id = $4');
+      expect(mockPool.queries[0].params).toEqual([from, to, 1, 'abc123']);
+    });
+
+    it('should append host filter when host is provided', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T00:05:00Z');
+
+      await repo.getDockerStatsForContainer('abc123', 'server1', from, to);
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('host = $5');
+      expect(mockPool.queries[0].params).toEqual([from, to, 1, 'abc123', 'server1']);
+    });
+
+    it('should not include host filter when host is undefined', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T00:05:00Z');
+
+      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+
+      expect(mockPool.queries[0].sql).not.toContain('host = $5');
+      expect(mockPool.queries[0].params).toEqual([from, to, 1, 'abc123']);
+    });
+
+    it('should use 1s bucket for short windows (≤ 300s with default targetPoints)', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T00:05:00Z'); // 300s
+
+      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+
+      // 300s / 300 targetPoints = 1s bucket
+      expect(mockPool.queries[0].params[2]).toBe(1);
+    });
+
+    it('should compute larger buckets for longer time ranges', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T01:00:00Z'); // 3600s
+
+      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+
+      // 3600s / 300 targetPoints = 12s bucket
+      expect(mockPool.queries[0].params[2]).toBe(12);
+    });
+
+    it('should respect custom targetPoints', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T00:10:00Z'); // 600s
+
+      await repo.getDockerStatsForContainer('abc123', undefined, from, to, 100);
+
+      // 600s / 100 targetPoints = 6s bucket
+      expect(mockPool.queries[0].params[2]).toBe(6);
+    });
+
+    it('should return rows from query result', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T00:05:00Z');
+      const mockRows = [{
+        time: new Date(), host: 'h1', container_id: 'abc123',
+        container_name: 'nginx', image: 'nginx:latest',
+        cpu_percent: 10, memory_usage: 100, memory_limit: 200,
+        memory_percent: 50, network_rx_bytes_per_sec: 0,
+        network_tx_bytes_per_sec: 0, block_io_read_bytes_per_sec: 0,
+        block_io_write_bytes_per_sec: 0,
+      }];
+      mockPool.pushResult(mockRows);
+
+      const result = await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+      expect(result).toEqual(mockRows);
+    });
+  });
+
+  describe('getContainerInfo', () => {
+    it('should query with container_id filter', async () => {
+      await repo.getContainerInfo('abc123');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('container_id = $1');
+      expect(mockPool.queries[0].sql).toContain('ORDER BY time DESC');
+      expect(mockPool.queries[0].sql).toContain('LIMIT 1');
+      expect(mockPool.queries[0].params).toEqual(['abc123']);
+    });
+
+    it('should append host filter when host is provided', async () => {
+      await repo.getContainerInfo('abc123', 'server1');
+
+      expect(mockPool.queries[0].sql).toContain('host = $2');
+      expect(mockPool.queries[0].params).toEqual(['abc123', 'server1']);
+    });
+
+    it('should not include host filter when host is undefined', async () => {
+      await repo.getContainerInfo('abc123');
+
+      expect(mockPool.queries[0].sql).not.toContain('host = $2');
+      expect(mockPool.queries[0].params).toEqual(['abc123']);
+    });
+
+    it('should return container info when found', async () => {
+      const info = { container_name: 'nginx', image: 'nginx:latest', host: 'server1' };
+      mockPool.pushResult([info]);
+
+      const result = await repo.getContainerInfo('abc123');
+      expect(result).toEqual(info);
+    });
+
+    it('should return null when no rows found', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getContainerInfo('nonexistent');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getSourceIcons', () => {
+    it('should query with source and icon key filter', async () => {
+      await repo.getSourceIcons('docker');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('entity_metadata');
+      expect(mockPool.queries[0].sql).toContain("key = 'icon'");
+      expect(mockPool.queries[0].params).toEqual(['docker']);
+    });
+
+    it('should return a map of entity to icon value', async () => {
+      mockPool.pushResult([
+        { entity: 'host1/nginx', value: 'nginx.svg' },
+        { entity: 'host1/redis', value: 'redis.svg' },
+      ]);
+
+      const result = await repo.getSourceIcons('docker');
+
+      expect(result.size).toBe(2);
+      expect(result.get('host1/nginx')).toBe('nginx.svg');
+      expect(result.get('host1/redis')).toBe('redis.svg');
+    });
+
+    it('should return empty map when no icons exist', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getSourceIcons('docker');
+      expect(result.size).toBe(0);
+    });
+  });
 });

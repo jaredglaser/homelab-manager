@@ -1,17 +1,18 @@
 import { memo, useMemo, useRef, useState, useEffect } from 'react';
-import { ChevronRight, Settings } from 'lucide-react';
+import { ChevronRight, History, Settings } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import Tooltip from '@mui/joy/Tooltip';
 import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
-import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '../../formatters/metrics';
-import { MetricValue } from '../shared-table';
+import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
+import { MetricValue } from '@/components/shared-table';
 import { useSettings } from '@/hooks/useSettings';
-import ContainerChartsCard from './ContainerChartsCard';
-import SparklineChart from './SparklineChart';
-import IconPickerDialog from './IconPickerDialog';
+import ContainerChartsCard from '@/components/docker/ContainerChartsCard';
+import SparklineChart from '@/components/docker/SparklineChart';
+import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
-import { DOCKER_GRID, DOCKER_ENTITY_ICONS_QUERY_KEY } from './ContainerTable';
+import { DOCKER_GRID, DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable';
 
 /** Chart data point derived from wide rows */
 interface ChartDataPoint {
@@ -217,6 +218,16 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             >
               <Settings size={14} />
             </button>
+            <Link
+              to="/docker/$containerId"
+              params={{ containerId: container.id.split('/')[1] }}
+              search={{ host: container.id.split('/')[0], metrics: 'cpu,memory' }}
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+              className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-neutral-500/20"
+              aria-label="View container history"
+            >
+              <History size={14} />
+            </Link>
           </div>
         </div>
         <div>
