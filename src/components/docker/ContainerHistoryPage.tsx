@@ -17,6 +17,12 @@ interface ContainerHistoryPageProps {
   initialTo?: number;
 }
 
+/**
+ * Parse a comma-separated metrics string into a set of recognized metric keys.
+ *
+ * @param metricsStr - Comma-separated metric identifiers (e.g. "cpu,memory,networkRx")
+ * @returns A set containing the parsed `MetricType` values; if the input contains no valid metrics, returns a set with `cpu` and `memory`
+ */
 function parseMetrics(metricsStr: string): Set<MetricType> {
   const valid: MetricType[] = ['cpu', 'memory', 'blockRead', 'blockWrite', 'networkRx', 'networkTx'];
   const parsed = metricsStr.split(',').filter((m): m is MetricType => valid.includes(m as MetricType));
@@ -26,6 +32,18 @@ function parseMetrics(metricsStr: string): Set<MetricType> {
 const DEFAULT_RANGE_MS = 3_600_000; // 1 hour
 const CHART_DEBOUNCE_MS = 800;
 
+/**
+ * Page component that displays a container's historical metrics with a timeline, selectable metrics, and detailed charts.
+ *
+ * Renders a header with container info and metric controls, a chart area showing selected metrics for a debounced sub-range, and a sticky timeline for preset ranges and range selection. Fetches timeline and chart data, debounces slider updates, optionally auto-refreshes when the range includes "now", and keeps the URL search params synchronized with the current metrics and range.
+ *
+ * @param containerId - ID of the container to display
+ * @param host - Optional host identifier used for data requests
+ * @param initialMetrics - Comma-separated metrics string used to initialize selected metrics
+ * @param initialFrom - Optional initial start time (ms since epoch) for the visible range
+ * @param initialTo - Optional initial end time (ms since epoch) for the visible range
+ * @returns The rendered ContainerHistoryPage element
+ */
 export default function ContainerHistoryPage({
   containerId,
   host,
