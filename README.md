@@ -310,7 +310,7 @@ migrations/                          # SQL migrations (settings + TimescaleDB wi
 - [x] **Docker Compose deployment** — multi-container setup with TimescaleDB, web server, and background worker
 - [x] **Database-backed streaming** — frontend reads from TimescaleDB via shared server-side polling instead of direct API/SSH connections; a `StatsPollService` runs 1 query/sec per source and broadcasts to all SSE clients
 - [ ] **Return to TanStack Start streaming server functions** — currently using SSE as a workaround because streaming server functions don't close quickly enough when rapidly switching between tabs; once TanStack Start's abort signal propagation is more reliable, migrate back to the native streaming pattern
-- [ ] **Historical data UI** — charts and graphs for historical metrics with time-range selection
+- [x] **Historical data UI** — per-container history page with time-bucketed charts, metric selection, and timeline navigation with range presets (1h–30d)
 - [x] **Proxmox API integration** — cluster overview with per-node VM, container, and storage monitoring via REST API polling
 - [ ] **Authentication** — user login and access control using OIDC with first class Pocket ID support
 - [ ] **Pre-built Docker image** — publish to a container registry for one-step deployment without building from source
