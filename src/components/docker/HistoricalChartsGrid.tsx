@@ -57,6 +57,12 @@ const METRIC_CONFIGS: Record<MetricType, MetricConfig> = {
   },
 };
 
+/**
+ * Selects a Tailwind CSS grid-column class string based on the number of items to display.
+ *
+ * @param count - The number of metric charts to layout
+ * @returns `'grid-cols-1'` when `count` is 1; `'grid-cols-1 xl:grid-cols-2'` when `count` is 2 or greater
+ */
 function getGridClass(count: number): string {
   switch (count) {
     case 1: return 'grid-cols-1';

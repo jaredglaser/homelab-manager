@@ -35,6 +35,16 @@ const TIMELINE_METRICS: { key: MetricType; label: string; colorVar: string; extr
   { key: 'networkTx', label: 'Net TX', colorVar: '--chart-write', extract: (r) => r.network_tx_bytes_per_sec ?? 0 },
 ];
 
+/**
+ * Build an ECharts option object configured for a time-series timeline chart.
+ *
+ * Produces an option with a time x-axis (labels switch to month/day for ranges > 24h and respect `use12HourTime`), a hidden y-axis with minimum 0, two dataZoom controls (inside and external), and a single smoothed line series with gradient area fill and themed colors resolved from `colorVar`.
+ *
+ * @param seriesData - Array of `[timestamp, value]` pairs where `timestamp` is milliseconds since the Unix epoch and `value` is the metric value
+ * @param colorVar - CSS color variable name used to resolve line and area colors
+ * @param use12HourTime - If true, format time labels using a 12-hour clock; otherwise use 24-hour formatting
+ * @returns The configured `EChartsOption` for rendering the timeline series
+ */
 function getTimelineOption(
   seriesData: [number, number][],
   colorVar: string,

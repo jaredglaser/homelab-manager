@@ -20,6 +20,16 @@ interface HistoricalMetricChartProps {
   to: number;
 }
 
+/**
+ * Produce a formatted time label for an x-axis tick based on the total range.
+ *
+ * For ranges longer than 24 hours, returns a two-line label with a short month/day on the first line and a hours:minutes time on the second line; otherwise returns a time string including hours, minutes, and seconds. 
+ *
+ * @param value - Timestamp in milliseconds since the Unix epoch
+ * @param rangeMs - Total displayed time range in milliseconds used to decide label format
+ * @param use12Hour - Whether to format times using 12-hour clock (AM/PM) when applicable
+ * @returns The formatted time label string; for ranges > 24 hours this contains a newline separating date and time
+ */
 function formatTimeLabel(value: number, rangeMs: number, use12Hour: boolean): string {
   const d = new Date(value);
   if (rangeMs > 86_400_000) {
@@ -31,6 +41,18 @@ function formatTimeLabel(value: number, rangeMs: number, use12Hour: boolean): st
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: use12Hour });
 }
 
+/**
+ * Build an ECharts option object for rendering a time-series line chart with a smooth line and gradient area.
+ *
+ * @param dataPoints - Array of data points where each item contains a `timestamp` (milliseconds since epoch) and a numeric `value`
+ * @param colorVar - CSS color variable name used to resolve series colors
+ * @param formatValue - Function to format numeric y-axis and tooltip values into display strings
+ * @param isPercent - Whether the values represent percentages (affects y-axis scaling)
+ * @param use12HourTime - Whether to format time labels using 12-hour clock
+ * @param from - Minimum x-axis timestamp (milliseconds since epoch)
+ * @param to - Maximum x-axis timestamp (milliseconds since epoch)
+ * @returns An EChartsOption configured with time x-axis, computed y-axis max/interval, formatted tooltip, styled axes, and a single smooth line series with gradient area fill
+ */
 function getChartOption(
   dataPoints: DataPoint[],
   colorVar: string,
