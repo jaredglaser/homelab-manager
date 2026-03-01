@@ -67,11 +67,9 @@ describe('SSHClient', () => {
     const config = createSSHConfig();
     const client = new SSHClient(config);
 
-    // Get the internal SSH2 client and mock connect to fire ready
     const internalClient = (client as any).client;
 
     spyOn(internalClient, 'connect').mockImplementation(() => {
-      // Simulate the ready event after a short delay
       setTimeout(() => internalClient.emit('ready'), 10);
     });
 
@@ -97,10 +95,8 @@ describe('SSHClient', () => {
     const config = createSSHConfig();
     const client = new SSHClient(config);
 
-    // Force connected state
     (client as any).connected = true;
 
-    // Should return without doing anything
     await client.connect();
     expect(client.isConnected()).toBe(true);
   });
@@ -111,11 +107,50 @@ describe('SSHClient', () => {
     await expect(client.exec('ls')).rejects.toThrow('SSH client not connected');
   });
 
+  it('should execute command and return channel when connected', async () => {
+    const config = createSSHConfig();
+    const client = new SSHClient(config);
+    (client as any).connected = true;
+
+    const mockChannel = {
+      on: mock(function(this: any) { return this; }),
+      stderr: { on: mock(function(this: any) { return this; }) },
+      close: mock(() => {}),
+    };
+
+    const internalClient = (client as any).client;
+    spyOn(internalClient, 'exec').mockImplementation((_cmd: string, cb: any) => {
+      cb(null, mockChannel);
+    });
+
+    const stream = await client.exec('ls -la');
+    expect(stream).toBe(mockChannel as any);
+    expect(client.hasActiveChannels()).toBe(true);
+
+    spyOn(internalClient, 'end').mockImplementation(() => {});
+    await client.close();
+  });
+
+  it('should reject exec when internal exec errors', async () => {
+    const config = createSSHConfig();
+    const client = new SSHClient(config);
+    (client as any).connected = true;
+
+    const internalClient = (client as any).client;
+    spyOn(internalClient, 'exec').mockImplementation((_cmd: string, cb: any) => {
+      cb(new Error('exec failed'));
+    });
+
+    await expect(client.exec('ls')).rejects.toThrow('exec failed');
+
+    spyOn(internalClient, 'end').mockImplementation(() => {});
+    await client.close();
+  });
+
   it('should close connection and clear channels', async () => {
     const config = createSSHConfig();
     const client = new SSHClient(config);
 
-    // Force connected state
     (client as any).connected = true;
 
     const internalClient = (client as any).client;
@@ -124,6 +159,32 @@ describe('SSHClient', () => {
     await client.close();
 
     expect(client.isConnected()).toBe(false);
+    expect(client.hasActiveChannels()).toBe(false);
+  });
+
+  it('should close active channels on close', async () => {
+    const config = createSSHConfig();
+    const client = new SSHClient(config);
+    (client as any).connected = true;
+
+    const mockChannel = {
+      on: mock(function(this: any) { return this; }),
+      stderr: { on: mock(function(this: any) { return this; }) },
+      close: mock(() => {}),
+    };
+
+    const internalClient = (client as any).client;
+    spyOn(internalClient, 'exec').mockImplementation((_cmd: string, cb: any) => {
+      cb(null, mockChannel);
+    });
+
+    await client.exec('long-running-command');
+    expect(client.hasActiveChannels()).toBe(true);
+
+    spyOn(internalClient, 'end').mockImplementation(() => {});
+    await client.close();
+
+    expect(mockChannel.close).toHaveBeenCalled();
     expect(client.hasActiveChannels()).toBe(false);
   });
 
@@ -165,20 +226,22 @@ describe('SSHClient', () => {
       const originalSSHAuthSock = process.env.SSH_AUTH_SOCK;
       process.env.SSH_AUTH_SOCK = '/tmp/ssh-agent.sock';
 
-      const config = createSSHConfig({
-        auth: { type: 'agent', username: 'root' },
-      });
-      const client = new SSHClient(config);
-      const sshConfig = (client as any).buildSSHConfig();
+      try {
+        const config = createSSHConfig({
+          auth: { type: 'agent', username: 'root' },
+        });
+        const client = new SSHClient(config);
+        const sshConfig = (client as any).buildSSHConfig();
 
-      expect(sshConfig.agent).toBe('/tmp/ssh-agent.sock');
-      expect(sshConfig.password).toBeUndefined();
-      expect(sshConfig.privateKey).toBeUndefined();
-
-      if (originalSSHAuthSock !== undefined) {
-        process.env.SSH_AUTH_SOCK = originalSSHAuthSock;
-      } else {
-        delete process.env.SSH_AUTH_SOCK;
+        expect(sshConfig.agent).toBe('/tmp/ssh-agent.sock');
+        expect(sshConfig.password).toBeUndefined();
+        expect(sshConfig.privateKey).toBeUndefined();
+      } finally {
+        if (originalSSHAuthSock !== undefined) {
+          process.env.SSH_AUTH_SOCK = originalSSHAuthSock;
+        } else {
+          delete process.env.SSH_AUTH_SOCK;
+        }
       }
     });
 
@@ -201,10 +264,6 @@ describe('SSHClient', () => {
 });
 
 describe('SSHConnectionManager', () => {
-  // We test the singleton behavior indirectly via SSHClient since
-  // SSHConnectionManager constructor starts cleanup interval
-  // which is hard to test without real connections
-
   beforeEach(() => {
     console.log = mock(() => {});
     console.error = mock(() => {});
@@ -222,5 +281,72 @@ describe('SSHConnectionManager', () => {
     expect(typeof sshConnectionManager.closeAll).toBe('function');
     expect(typeof sshConnectionManager.closeConnection).toBe('function');
     expect(typeof sshConnectionManager.stopCleanup).toBe('function');
+  });
+
+  it('should reuse existing connected client', async () => {
+    const { sshConnectionManager } = await import('../ssh-client');
+
+    const config = createSSHConfig({ host: '10.0.0.80' });
+    const client = new SSHClient(config);
+    (client as any).connected = true;
+
+    // Inject client into manager's connection map
+    (sshConnectionManager as any).connections.set('root@10.0.0.80:22', client);
+
+    const returned = await sshConnectionManager.getClient(config);
+    expect(returned).toBe(client);
+
+    // Cleanup
+    (sshConnectionManager as any).connections.delete('root@10.0.0.80:22');
+  });
+
+  it('should close specific connection via closeConnection', async () => {
+    const { sshConnectionManager } = await import('../ssh-client');
+
+    const config = createSSHConfig({ host: '10.0.0.81' });
+    const client = new SSHClient(config);
+    (client as any).connected = true;
+
+    const internalClient = (client as any).client;
+    spyOn(internalClient, 'end').mockImplementation(() => {});
+
+    (sshConnectionManager as any).connections.set('root@10.0.0.81:22', client);
+
+    await sshConnectionManager.closeConnection('root@10.0.0.81:22');
+
+    expect(client.isConnected()).toBe(false);
+    expect((sshConnectionManager as any).connections.has('root@10.0.0.81:22')).toBe(false);
+  });
+
+  it('should handle closeConnection for non-existent key', async () => {
+    const { sshConnectionManager } = await import('../ssh-client');
+    await sshConnectionManager.closeConnection('nonexistent');
+  });
+
+  it('should close all connections and stop cleanup', async () => {
+    const { sshConnectionManager } = await import('../ssh-client');
+
+    const client1 = new SSHClient(createSSHConfig({ host: '10.0.0.82' }));
+    const client2 = new SSHClient(createSSHConfig({ host: '10.0.0.83' }));
+    (client1 as any).connected = true;
+    (client2 as any).connected = true;
+    spyOn((client1 as any).client, 'end').mockImplementation(() => {});
+    spyOn((client2 as any).client, 'end').mockImplementation(() => {});
+
+    (sshConnectionManager as any).connections.set('root@10.0.0.82:22', client1);
+    (sshConnectionManager as any).connections.set('root@10.0.0.83:22', client2);
+
+    await sshConnectionManager.closeAll();
+
+    expect(client1.isConnected()).toBe(false);
+    expect(client2.isConnected()).toBe(false);
+    expect((sshConnectionManager as any).connections.size).toBe(0);
+  });
+
+  it('should stopCleanup without error', async () => {
+    const { sshConnectionManager } = await import('../ssh-client');
+    // Should not throw even if called multiple times
+    sshConnectionManager.stopCleanup();
+    sshConnectionManager.stopCleanup();
   });
 });

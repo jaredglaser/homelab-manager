@@ -1,5 +1,7 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import { Readable } from 'stream';
 import { ZFSCollector } from '../zfs-collector';
+import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ZFSHostConfig } from '@/lib/config/zfs-config';
 
@@ -36,6 +38,18 @@ function createHostConfig(overrides?: Partial<ZFSHostConfig>): ZFSHostConfig {
     ...overrides,
   };
 }
+
+// Simulate zpool iostat -vvv output with pool, vdev, and disk hierarchy
+const IOSTAT_OUTPUT = [
+  '              capacity     operations     bandwidth',
+  'pool        alloc   free   read  write   read  write',
+  '----------  -----  -----  -----  -----  -----  -----',
+  'tank        1.81T  2.19T     10     20   100K   200K',
+  '  mirror-0      -      -      5     10    50K   100K',
+  '    sda         -      -      3      5    25K    50K',
+  '    sdb         -      -      2      5    25K    50K',
+  '              capacity     operations     bandwidth',
+].join('\n');
 
 describe('ZFSCollector', () => {
   beforeEach(() => {
@@ -94,7 +108,7 @@ describe('ZFSCollector', () => {
     });
   });
 
-  describe('collect() error handling', () => {
+  describe('collect()', () => {
     it('should throw when no SSH credentials configured', async () => {
       const db = createMockDb();
       const controller = new AbortController();
@@ -104,11 +118,99 @@ describe('ZFSCollector', () => {
       });
       const collector = new ZFSCollector(db as any, createMockConfig(), hostConfig, controller);
 
-      // Access protected collect via run() — it will catch the error and retry
-      // Instead, test the error directly
       await expect((collector as any).collect()).rejects.toThrow(
         'No SSH credentials configured for host 192.168.1.50',
       );
+
+      controller.abort();
+    });
+
+    it('should parse iostat output and write rows with correct hierarchy', async () => {
+      const db = createMockDb();
+      const controller = new AbortController();
+      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig(), controller);
+
+      // Mock the repository's insertZFSStats to capture written rows
+      const writtenRows: any[][] = [];
+      spyOn((collector as any).repository, 'insertZFSStats').mockImplementation(async (rows: any[]) => {
+        writtenRows.push(rows);
+      });
+
+      // Mock sshConnectionManager.getClient to return a fake SSH client
+      const mockStream = Readable.from(IOSTAT_OUTPUT);
+      const mockSSHClient = {
+        exec: mock(async () => mockStream),
+        isConnected: () => true,
+        close: mock(async () => {}),
+      };
+      spyOn(sshConnectionManager, 'getClient').mockResolvedValue(mockSSHClient as any);
+
+      await (collector as any).collect();
+
+      // The second header line triggers a flush of the first cycle
+      expect(writtenRows.length).toBe(1);
+      const rows = writtenRows[0];
+
+      // Should have 4 rows: pool + vdev + 2 disks
+      expect(rows.length).toBe(4);
+
+      // Pool row
+      expect(rows[0].entity).toBe('tank');
+      expect(rows[0].entity_type).toBe('pool');
+      expect(rows[0].pool).toBe('tank');
+      expect(rows[0].host).toBe('test-zfs');
+      expect(rows[0].indent).toBe(0);
+
+      // Vdev row
+      expect(rows[1].entity).toBe('tank/mirror-0');
+      expect(rows[1].entity_type).toBe('vdev');
+      expect(rows[1].pool).toBe('tank');
+      expect(rows[1].indent).toBe(2);
+
+      // Disk rows
+      expect(rows[2].entity).toBe('tank/mirror-0/sda');
+      expect(rows[2].entity_type).toBe('disk');
+      expect(rows[2].pool).toBe('tank');
+      expect(rows[2].indent).toBe(4);
+
+      expect(rows[3].entity).toBe('tank/mirror-0/sdb');
+      expect(rows[3].entity_type).toBe('disk');
+
+      controller.abort();
+    });
+
+    it('should write final cycle when stream ends without trailing header', async () => {
+      const db = createMockDb();
+      const controller = new AbortController();
+      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig(), controller);
+
+      const writtenRows: any[][] = [];
+      spyOn((collector as any).repository, 'insertZFSStats').mockImplementation(async (rows: any[]) => {
+        writtenRows.push(rows);
+      });
+
+      // Output without a trailing header — only the final-cycle write path
+      const output = [
+        '              capacity     operations     bandwidth',
+        'pool        alloc   free   read  write   read  write',
+        '----------  -----  -----  -----  -----  -----  -----',
+        'rpool       100G   900G      1      2    10K    20K',
+      ].join('\n');
+
+      const mockSSHClient = {
+        exec: mock(async () => Readable.from(output)),
+        isConnected: () => true,
+        close: mock(async () => {}),
+      };
+      spyOn(sshConnectionManager, 'getClient').mockResolvedValue(mockSSHClient as any);
+
+      await (collector as any).collect();
+
+      // Final cycle should be written
+      expect(writtenRows.length).toBe(1);
+      expect(writtenRows[0].length).toBe(1);
+      expect(writtenRows[0][0].entity).toBe('rpool');
+      expect(writtenRows[0][0].entity_type).toBe('pool');
 
       controller.abort();
     });
@@ -136,31 +238,5 @@ describe('ZFSCollector', () => {
 
       controller.abort();
     });
-  });
-});
-
-// Test the module-level helper functions used by ZFSCollector
-// These are not exported but we can test them indirectly or test the logic
-
-describe('ZFS hierarchy detection', () => {
-  // The functions detectHierarchyLevel, buildEntityPath, and toZFSStatsRow
-  // are module-private. We test them indirectly through the collector,
-  // but also replicate the logic here for unit coverage.
-
-  it('should identify hierarchy levels by indent', () => {
-    // Replicate detectHierarchyLevel logic
-    function detectHierarchyLevel(indent: number): 'pool' | 'vdev' | 'disk' {
-      if (indent <= 0) return 'pool';
-      if (indent <= 2) return 'vdev';
-      return 'disk';
-    }
-
-    expect(detectHierarchyLevel(0)).toBe('pool');
-    expect(detectHierarchyLevel(-1)).toBe('pool');
-    expect(detectHierarchyLevel(1)).toBe('vdev');
-    expect(detectHierarchyLevel(2)).toBe('vdev');
-    expect(detectHierarchyLevel(3)).toBe('disk');
-    expect(detectHierarchyLevel(4)).toBe('disk');
-    expect(detectHierarchyLevel(8)).toBe('disk');
   });
 });

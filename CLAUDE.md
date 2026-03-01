@@ -107,7 +107,7 @@ bun run typecheck           # Run TypeScript type checking
 bun test                    # Run all tests
 bun test --watch            # Watch mode
 bun run test:coverage       # Run tests with coverage report
-bun run test:coverage:check # Run tests and enforce 93% coverage threshold
+bun run test:coverage:check # Run tests and enforce 95%/99% coverage threshold
 ```
 
 ### Production Build
@@ -361,7 +361,7 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox us
 - Naming: `*.test.ts` or `*.test.tsx`
 - Test utilities: separate directories (e.g., `src/lib/test/`), NOT in `__tests__/`
 - Use `bun:test` imports: `import { describe, it, expect } from 'bun:test'`
-- **Coverage requirements:** 93% lines, 93% functions (automatically enforced by `bun test`)
+- **Coverage requirements:** 99% lines, 95% functions (automatically enforced by `bun test`)
 - `bun test` automatically checks coverage and fails if below threshold
 
 ### Imports

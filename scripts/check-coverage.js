@@ -11,8 +11,8 @@
 import { readFileSync } from 'fs';
 
 const THRESHOLDS = {
-  lines: 93,
-  functions: 93,
+  lines: 99,
+  functions: 95,
   // Note: Bun doesn't report branch coverage yet
 };
 

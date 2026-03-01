@@ -107,7 +107,7 @@ describe('streamParsedLines', () => {
         if (line.startsWith('HEADER:')) {
           return { headerValue: line.slice(7) };
         }
-        return undefined as unknown as Record<string, unknown>;
+        return undefined;
       },
       parseLine: (line, context) => {
         headers.push({ ...context?.headers });
@@ -147,7 +147,7 @@ describe('streamParsedLines', () => {
     const parser: StreamParser<string> = {
       parseHeader: () => {
         headerCallCount++;
-        return undefined as unknown as Record<string, unknown>;
+        return undefined;
       },
       parseLine: (line) => line,
     };
