@@ -13,7 +13,7 @@
 
 ## Critical Rules (Most Important)
 
-1. **Styling**: TailwindCSS ONLY. Never use `sx` props, inline `style`, or create `.css` files (exception: `theme.ts`).
+1. **Styling**: TailwindCSS ONLY. Never use MUI `sx` props or create `.css` files (exceptions: `App.css` for chart colors, `theme.ts` for MUI theme). Inline `style` is allowed only when Tailwind cannot express the value (virtualizer positioning, dynamic indent padding, computed transforms).
 2. **Imports**: Always use `@/` for src files (e.g., `@/components/Header`). Use relative paths only within `__tests__/` for test imports.
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly.
 4. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Server handles client disconnect via `request.signal`.
@@ -327,8 +327,14 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox us
 ### Styling
 - **TailwindCSS only** for all layout and styling
 - Never use MUI `sx` props (use Tailwind: `p-3` not `sx={{ p: 3 }}`)
-- Never use inline `style` attribute (exception: virtualizer positioning, dynamic indent padding)
-- Never create `.css` files (exception: `App.css` for chart colors, `theme.ts` for MUI theme)
+- Inline `style` attribute is allowed only when Tailwind cannot express the value (virtualizer positioning, dynamic indent padding, computed transforms)
+- Never create `.css` files (exceptions: `App.css` for chart colors/animations, `theme.ts` for MUI theme)
+- **MUI Material UI theme** (`src/theme.ts`):
+  - Uses `cssVariables` mode with `colorSchemeSelector: '[data-color-scheme="%s"]'`
+  - Custom `TypeBackground` properties (`chartBg`, `level1`, `level2`, `level3`, `popup`) via TypeScript module augmentation
+  - Reference theme colors in Tailwind: `bg-[var(--mui-palette-background-chartBg)]`
+  - **Paper background override**: MUI's emotion styles inject after Tailwind, so Paper's default `background-color` wins at equal specificity. Use Tailwind's `!` prefix to force override: `!bg-[var(--mui-palette-background-chartBg)]`
+  - Chart CSS variables (`--chart-cpu`, `--chart-memory`, etc.) defined in `App.css` with `[data-color-scheme="dark"]` selector for dark mode
 
 ### State Management
 - **Settings**: Jotai atoms (`rawSettingsAtom` + derived `settingsAtom`) synced via SSE (`/api/settings`)
@@ -402,7 +408,7 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox us
 ## Anti-Patterns (DO NOT)
 
 - MUI `sx` props for styling (use Tailwind)
-- Inline `style` attributes (use Tailwind)
+- Inline `style` attributes when Tailwind can express the same thing
 - Creating `.css` files (use Tailwind)
 - Manual edits to `routeTree.gen.ts` (auto-generated)
 - Adding `component` to root route (breaks SSR)

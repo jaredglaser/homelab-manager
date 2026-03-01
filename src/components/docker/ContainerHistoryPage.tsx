@@ -81,8 +81,9 @@ export default function ContainerHistoryPage({
 
   // ─── Stream 1: Timeline data for the current range ───
   // Query key includes absolute from/to so presets and custom ranges trigger refetch.
-  // Auto-refresh only when the range includes "now".
-  const timelineIncludesNow = timelineRange.to >= Date.now() - 30_000;
+  // Auto-refresh only when the range actually overlaps the current moment.
+  const currentTime = Date.now();
+  const timelineIncludesNow = timelineRange.from <= currentTime && timelineRange.to >= currentTime - 30_000;
   const timelineQuery = useQuery({
     queryKey: ['container-timeline', host, containerId, timelineRange.from, timelineRange.to],
     queryFn: () => getContainerHistory({
@@ -105,8 +106,8 @@ export default function ContainerHistoryPage({
     staleTime: 60_000,
   });
 
-  // Auto-refresh charts when the range includes "now" (within 30s)
-  const includesNow = debouncedRange.to >= Date.now() - 30_000;
+  // Auto-refresh charts when the range actually overlaps "now" (within 30s)
+  const includesNow = debouncedRange.from <= currentTime && debouncedRange.to >= currentTime - 30_000;
 
   // ─── Stream 2: Chart detail (debounced, fine-grained) ───
   const chartQuery = useQuery({

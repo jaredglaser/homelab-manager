@@ -109,6 +109,7 @@ export default function IconPickerDialog({
                   >
                     {row.map((slug) => (
                       <button
+                        type="button"
                         key={slug}
                         onClick={() => handleSelect(slug)}
                         className={`flex flex-col items-center p-2 rounded-md transition-colors hover:bg-blue-500/10 ${
