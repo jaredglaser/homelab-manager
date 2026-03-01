@@ -94,12 +94,15 @@ describe('DockerConnectionManager', () => {
     console.error = mock(() => {});
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Clear any injected connections to prevent singleton state leaking between tests
+    const { dockerConnectionManager } = await import('../docker-client');
+    (dockerConnectionManager as any).connections.clear();
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   });
 
-  it('should create and return a connected client via getClient', async () => {
+  it('should reuse existing connected client via getClient', async () => {
     const { dockerConnectionManager } = await import('../docker-client');
 
     // Create a client manually and inject it to test manager behavior
@@ -116,9 +119,6 @@ describe('DockerConnectionManager', () => {
     const returned = await dockerConnectionManager.getClient(config);
     expect(returned).toBe(client);
     expect(returned.isConnected()).toBe(true);
-
-    // Cleanup
-    await dockerConnectionManager.closeConnection('10.0.0.50:2375');
   });
 
   it('should close specific connection via closeConnection', async () => {
@@ -175,8 +175,5 @@ describe('DockerConnectionManager', () => {
 
     dockerConnectionManager.debugLogging = false;
     expect((client as any)._debugLogging).toBe(false);
-
-    // Cleanup
-    (dockerConnectionManager as any).connections.delete('10.0.0.55:2375');
   });
 });

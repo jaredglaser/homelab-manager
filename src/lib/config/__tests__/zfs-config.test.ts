@@ -4,25 +4,24 @@ import { loadZFSConfig } from '../zfs-config';
 // Suppress console.error from loadZFSConfig warnings
 const originalConsoleError = console.error;
 
+function clearZfsEnv() {
+  Object.keys(process.env).forEach((key) => {
+    if (key.startsWith('ZFS_HOST')) {
+      delete process.env[key];
+    }
+  });
+}
+
 describe('loadZFSConfig', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    // Clear all ZFS-related env vars before each test
-    Object.keys(process.env).forEach((key) => {
-      if (key.startsWith('ZFS_HOST')) {
-        delete process.env[key];
-      }
-    });
+    clearZfsEnv();
     console.error = mock(() => {});
   });
 
   afterEach(() => {
-    Object.keys(process.env).forEach((key) => {
-      if (key.startsWith('ZFS_HOST')) {
-        delete process.env[key];
-      }
-    });
+    clearZfsEnv();
     Object.assign(process.env, originalEnv);
     console.error = originalConsoleError;
   });

@@ -326,7 +326,7 @@ describe('SSHConnectionManager', () => {
     await sshConnectionManager.closeConnection('nonexistent');
   });
 
-  it('should close all connections and stop cleanup', async () => {
+  it('should close all connections', async () => {
     const { sshConnectionManager } = await import('../ssh-client');
 
     const client1 = new SSHClient(createSSHConfig({ host: '10.0.0.82' }));
