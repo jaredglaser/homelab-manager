@@ -57,7 +57,7 @@ For development setup, see the [Development Guide](docs/development.md).
 - [x] Historical data UI with time-bucketed charts
 - [x] Proxmox API integration
 - [ ] Authentication (OIDC with Pocket ID support)
-- [ ] Pre-built Docker image on a container registry
+- [x] Pre-built Docker image on a container registry
 - [ ] Extensible service architecture (plugin-like system for SSH/HTTP services)
 - [ ] Return to TanStack Start streaming server functions (pending upstream abort signal fix)
 
