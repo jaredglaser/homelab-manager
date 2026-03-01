@@ -5,6 +5,7 @@ import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { DockerRateCalculator } from '@/lib/rate-calculator';
 import type { DockerStatsRow } from '@/types/docker';
 import { streamToAsyncIterator, mergeAsyncIterables } from '@/lib/stream-utils';
+import { computeServiceKey } from '@/lib/utils/docker-hierarchy-builder';
 import type Dockerode from 'dockerode';
 import { BaseCollector } from './base-collector';
 
@@ -14,7 +15,7 @@ export class DockerCollector extends BaseCollector {
   readonly name: string;
   private readonly calculator = new DockerRateCalculator();
   private readonly hostConfig: DockerHostConfig;
-  private knownContainers = new Map<string, { name: string; image: string }>();
+  private knownContainers = new Map<string, { name: string; image: string; serviceKey: string }>();
 
   constructor(
     db: DatabaseClient,
@@ -53,12 +54,43 @@ export class DockerCollector extends BaseCollector {
     for (const containerInfo of containers) {
       const containerName = containerInfo.Names[0]?.replace(/^\//, '') || containerInfo.Id.substring(0, 12);
       const entityPath = `${this.hostConfig.name}/${containerInfo.Id}`;
+      const labels = containerInfo.Labels ?? {};
+      const composeService = labels['com.docker.compose.service'];
+      const serviceKey = computeServiceKey(labels, containerName);
       const known = this.knownContainers.get(containerInfo.Id);
 
-      if (!known || known.name !== containerName || known.image !== containerInfo.Image) {
+      if (!known || known.name !== containerName || known.image !== containerInfo.Image || known.serviceKey !== serviceKey) {
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', containerName);
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', containerInfo.Image);
-        this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image });
+        await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', serviceKey);
+        // When compose labels appear (or the service_key changes), migrate old name-only entries
+        // so history and icons accumulated before adding labels are linked to the new key.
+        // Icon is also copied from old entity to new so it survives the migration.
+        // Note: removing compose labels does NOT revert the service_key — the container
+        // retains its compose-based key until it is recreated without labels.
+        if (composeService && (!known || known.serviceKey !== serviceKey)) {
+          // Use the previously-known service_key as the old key (e.g. "plex-1" for a container
+          // whose name differs from the compose service label). Fall back to the container name
+          // when this is the first time the worker has seen this container.
+          const oldServiceKey = known?.serviceKey ?? containerName;
+          try {
+            await this.repository.migrateServiceKeyByName(
+              DOCKER_SOURCE, this.hostConfig.name, oldServiceKey, serviceKey,
+            );
+            await this.repository.migrateServiceIcon(
+              DOCKER_SOURCE,
+              `${this.hostConfig.name}/${oldServiceKey}`,
+              `${this.hostConfig.name}/${serviceKey}`,
+            );
+          } catch (err) {
+            console.error(`[${this.name}] Failed to migrate service key ${oldServiceKey} → ${serviceKey}:`, err);
+            // Preserve old serviceKey so the next cycle retries the migration
+            this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image, serviceKey: oldServiceKey });
+            metadataUpdates++;
+            continue;
+          }
+        }
+        this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image, serviceKey });
         metadataUpdates++;
       }
     }

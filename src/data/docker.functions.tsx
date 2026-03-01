@@ -34,11 +34,13 @@ export const getHistoricalDockerStats = createServerFn()
   });
 
 /**
- * Get all persisted icon slugs for Docker containers.
- * Returns a plain object mapping entity ID → icon slug.
+ * Get icon and service_key entity for each Docker container.
+ * Returns a plain object mapping container entity (host/container_id) →
+ * { iconSlug, serviceKeyEntity } for use in the live dashboard.
+ * Icons are stored under the service_key entity so they survive container recreation.
  */
 export const getDockerEntityIcons = createServerFn()
-  .handler(async (): Promise<Record<string, string>> => {
+  .handler(async (): Promise<Record<string, { iconSlug: string | null; serviceKeyEntity: string }>> => {
     try {
       const { databaseConnectionManager } = await import('@/lib/clients/database-client');
       const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -48,8 +50,8 @@ export const getDockerEntityIcons = createServerFn()
       const dbClient = await databaseConnectionManager.getClient(config);
       const repo = new StatsRepository(dbClient.getPool());
 
-      const iconsMap = await repo.getSourceIcons('docker');
-      return Object.fromEntries(iconsMap);
+      const metaMap = await repo.getDockerContainerMetadata('docker');
+      return Object.fromEntries(metaMap);
     } catch (err) {
       console.error('[getDockerEntityIcons] Failed to fetch entity icons:', err);
       return {};
@@ -79,8 +81,22 @@ export const getContainerHistory = createServerFn()
       const fromMs = Math.min(data.fromMs, data.toMs);
       const toMs = Math.max(data.fromMs, data.toMs);
 
+      // Fan out to all container IDs that share the same service_key on this host,
+      // so history is seamlessly unified across container recreations.
+      let containerIds: string[] = [data.containerId];
+      if (data.host) {
+        const serviceKey = await repo.getServiceKeyForEntity(
+          'docker',
+          `${data.host}/${data.containerId}`,
+        );
+        if (serviceKey) {
+          const linked = await repo.getContainerIdsByServiceKey('docker', data.host, serviceKey);
+          if (linked.length > 0) containerIds = linked;
+        }
+      }
+
       return await repo.getDockerStatsForContainer(
-        data.containerId,
+        containerIds,
         data.host,
         new Date(fromMs),
         new Date(toMs),
@@ -104,6 +120,7 @@ export const getContainerInfo = createServerFn()
     image: string;
     host: string;
     icon: string | null;
+    serviceKey: string | null;
   } | null> => {
     try {
       const { databaseConnectionManager } = await import('@/lib/clients/database-client');
@@ -117,14 +134,23 @@ export const getContainerInfo = createServerFn()
       const info = await repo.getContainerInfo(data.containerId, data.host);
       if (!info) return null;
 
-      const entityId = `${info.host}/${data.containerId}`;
-      const icon = await repo.getEntityIcon('docker', entityId);
+      const containerEntity = `${info.host}/${data.containerId}`;
+      const serviceKey = await repo.getServiceKeyForEntity('docker', containerEntity);
+      // Look up icon from the service_key entity so it persists across recreations.
+      // If no icon is found there, fall back to the container entity itself to preserve
+      // icons that were stored under the legacy host/container_id format.
+      const iconEntity = serviceKey ? `${info.host}/${serviceKey}` : containerEntity;
+      let icon = await repo.getEntityIcon('docker', iconEntity);
+      if (icon === null && iconEntity !== containerEntity) {
+        icon = await repo.getEntityIcon('docker', containerEntity);
+      }
 
       return {
         containerName: info.container_name ?? data.containerId.substring(0, 12),
         image: info.image ?? '',
         host: info.host,
         icon,
+        serviceKey,
       };
     } catch (err) {
       console.error('[getContainerInfo] Failed to fetch container info:', err);
@@ -133,13 +159,14 @@ export const getContainerInfo = createServerFn()
   });
 
 const updateContainerIconSchema = z.object({
-  entityId: z.string().min(1),
+  /** Service-key entity path (host/service_key) — icon is stored here so it survives recreation. */
+  serviceKeyEntity: z.string().min(1),
   iconSlug: z.string().min(1),
 });
 
 /**
- * Update the icon for a container.
- * Stores the icon slug in entity metadata for persistence.
+ * Update the icon for a container service.
+ * Stores the icon slug under the service_key entity so it persists across container recreations.
  */
 export const updateContainerIcon = createServerFn()
   .inputValidator(updateContainerIconSchema)
@@ -152,5 +179,5 @@ export const updateContainerIcon = createServerFn()
     const dbClient = await databaseConnectionManager.getClient(config);
     const repo = new StatsRepository(dbClient.getPool());
 
-    await repo.upsertEntityMetadata('docker', data.entityId, 'icon', data.iconSlug);
+    await repo.upsertEntityMetadata('docker', data.serviceKeyEntity, 'icon', data.iconSlug);
   });

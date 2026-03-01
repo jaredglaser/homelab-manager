@@ -7,16 +7,48 @@ import type {
 } from '@/types/docker';
 
 /**
- * Convert a wide DockerStatsRow to DockerStatsFromDB for UI consumption.
- * Metadata (icon) is resolved separately.
+ * Compute a stable service key for a Docker container.
+ *
+ * Prefers Docker Compose labels `com.docker.compose.project` and `com.docker.compose.service` when present.
+ * Any `/` characters in the label values are replaced with `-` to keep the single `/` delimiter unambiguous.
+ *
+ * @param labels - Optional map of Docker labels; used to derive `project/service` if both compose labels exist
+ * @param containerName - Fallback container name to use when compose labels are not available
+ * @returns The service key as `"{project}/{service}"` (slashes in labels sanitized) when both compose labels are present, otherwise `containerName`
+ */
+export function computeServiceKey(
+  labels: Record<string, string> | undefined,
+  containerName: string,
+): string {
+  const project = labels?.['com.docker.compose.project']?.replaceAll('/', '-');
+  const service = labels?.['com.docker.compose.service']?.replaceAll('/', '-');
+  return project && service ? `${project}/${service}` : containerName;
+}
+
+/**
+ * Converts a raw DockerStatsRow into a DockerStatsFromDB object tailored for UI consumption.
+ *
+ * @param row - The source wide-format Docker stats row.
+ * @param icon - Optional icon identifier to attach to the resulting entity.
+ * @param serviceKeyEntity - Optional stable service key to use; when omitted the entity id (`host/container_id`) is used.
+ * @returns A DockerStatsFromDB object with:
+ *  - `id` set to `host/container_id`,
+ *  - `serviceKeyEntity` set to the provided value or the derived `id`,
+ *  - `name` using `container_name` or the first 12 characters of `container_id`,
+ *  - numeric rate fields defaulted to `0` when missing,
+ *  - `memory_stats.usage` and `memory_stats.limit` coerced to numbers,
+ *  - `timestamp` created from `row.time`, and
+ *  - `stale` initialized to `false`.
  */
 export function rowToDockerStats(
   row: DockerStatsRow,
   icon: string | null = null,
+  serviceKeyEntity: string | null = null,
 ): DockerStatsFromDB {
   const entityId = `${row.host}/${row.container_id}`;
   return {
     id: entityId,
+    serviceKeyEntity: serviceKeyEntity ?? entityId,
     name: row.container_name || row.container_id.substring(0, 12),
     image: row.image || '',
     icon,

@@ -168,27 +168,32 @@ export class StatsRepository {
        ORDER BY time ASC`,
       [seconds, bucketSeconds]
     );
-    return result.rows;
+    return result.rows.map(toDockerStatsRow);
   }
 
+  /**
+   * Query historical stats for one or more container IDs, returning a unified time series.
+   * When multiple IDs are supplied (a service group), rows are merged by time bucket so
+   * the caller receives a single continuous series spanning all container incarnations.
+   */
   async getDockerStatsForContainer(
-    containerId: string,
+    containerIds: string[],
     host: string | undefined,
     from: Date,
     to: Date,
     targetPoints = 300,
   ): Promise<DockerStatsRow[]> {
-    // First, find the actual data extent so we bucket based on real data density
+    // Find the actual data extent so we bucket based on real data density
     // rather than the full requested range. This prevents low-resolution graphs
     // when the requested range exceeds the available data.
-    const boundsParams: (string | Date)[] = [from, to, containerId];
+    const boundsParams: (string | Date | string[])[] = [from, to, containerIds];
     const boundsHostFilter = host ? `AND host = $${boundsParams.push(host)}` : '';
 
     const boundsResult = await this.pool.query(
       `SELECT EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) AS actual_span_secs
        FROM docker_stats
        WHERE time >= $1 AND time <= $2
-         AND container_id = $3
+         AND container_id = ANY($3)
          ${boundsHostFilter}`,
       boundsParams
     );
@@ -200,14 +205,14 @@ export class StatsRepository {
       : requestedSpanSecs;
     const bucketSeconds = Math.max(1, Math.ceil(effectiveSpan / targetPoints));
 
-    const params: (string | Date | number)[] = [from, to, bucketSeconds, containerId];
+    const params: (string | Date | number | string[])[] = [from, to, bucketSeconds, containerIds];
     const hostFilter = host ? `AND host = $${params.push(host)}` : '';
 
     const result = await this.pool.query(
       `SELECT
          time_bucket(make_interval(secs => $3), time) AS time,
          host,
-         container_id,
+         last(container_id, time)                AS container_id,
          last(container_name, time)              AS container_name,
          last(image, time)                       AS image,
          AVG(cpu_percent)                        AS cpu_percent,
@@ -220,13 +225,13 @@ export class StatsRepository {
          AVG(block_io_write_bytes_per_sec)       AS block_io_write_bytes_per_sec
        FROM docker_stats
        WHERE time >= $1 AND time <= $2
-         AND container_id = $4
+         AND container_id = ANY($4)
          ${hostFilter}
-       GROUP BY time_bucket(make_interval(secs => $3), time), host, container_id
+       GROUP BY time_bucket(make_interval(secs => $3), time), host
        ORDER BY time ASC`,
       params
     );
-    return result.rows;
+    return result.rows.map(toDockerStatsRow);
   }
 
   async getContainerInfo(
@@ -423,6 +428,147 @@ export class StatsRepository {
     }
     return metadata;
   }
+
+  /** Look up the service_key value for a single entity. Returns null if not set. */
+  async getServiceKeyForEntity(source: string, entity: string): Promise<string | null> {
+    const result = await this.pool.query(
+      `SELECT value FROM entity_metadata
+       WHERE source = $1 AND entity = $2 AND key = 'service_key'
+       LIMIT 1`,
+      [source, entity]
+    );
+    return (result.rows[0] as { value: string } | undefined)?.value ?? null;
+  }
+
+  /**
+   * Return all container_ids (without host prefix) that share the given service_key on a host.
+   * Entity format is "host/container_id", so we strip the "host/" prefix from results.
+   */
+  async getContainerIdsByServiceKey(
+    source: string,
+    host: string,
+    serviceKey: string,
+  ): Promise<string[]> {
+    const result = await this.pool.query(
+      `SELECT SPLIT_PART(entity, '/', 2) AS container_id
+       FROM entity_metadata
+       WHERE source = $1 AND key = 'service_key' AND value = $3
+         AND SPLIT_PART(entity, '/', 1) = $2`,
+      [source, host, serviceKey]
+    );
+    return (result.rows as { container_id: string }[]).map(r => r.container_id);
+  }
+
+  /**
+   * Migrate all entity_metadata rows on a host where service_key = oldKey to newKey.
+   * Used when a container gains Docker Compose labels after previously using a name-only key.
+   * Idempotent — safe to call even if rows don't exist or are already updated.
+   */
+  async migrateServiceKeyByName(
+    source: string,
+    host: string,
+    oldKey: string,
+    newKey: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE entity_metadata
+       SET value = $4, updated_at = NOW()
+       WHERE source = $1 AND key = 'service_key' AND value = $3
+         AND SPLIT_PART(entity, '/', 1) = $2`,
+      [source, host, oldKey, newKey]
+    );
+  }
+
+  /**
+   * Copy the icon from one service_key entity to another.
+   * Used when a container gains Docker Compose labels — the icon stored under the
+   * old name-only entity (e.g. "myhost/plex") is copied to the new compose entity
+   * (e.g. "myhost/media-stack/plex") so it survives the migration.
+   * ON CONFLICT DO NOTHING preserves any icon the user already set on the new entity.
+   *
+   * NOTE: Removing compose labels from a container does NOT revert the service_key
+   * back to a name-only entry — the container retains the compose-based service_key
+   * and icon until the worker restarts or the container is recreated without labels.
+   */
+  async migrateServiceIcon(
+    source: string,
+    oldServiceKeyEntity: string,
+    newServiceKeyEntity: string,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO entity_metadata (source, entity, key, value, updated_at)
+       SELECT $1, $3, key, value, NOW()
+       FROM entity_metadata
+       WHERE source = $1 AND entity = $2 AND key = 'icon'
+       ON CONFLICT (source, entity, key) DO NOTHING`,
+      [source, oldServiceKeyEntity, newServiceKeyEntity]
+    );
+  }
+
+  /**
+   * Return per-container icon and service_key entity for the Docker dashboard.
+   * Icons are stored under the service_key entity (host/service_key) so they
+   * survive container recreation. The result is keyed by container entity (host/container_id)
+   * for easy lookup during hierarchy building.
+   */
+  async getDockerContainerMetadata(
+    source: string,
+  ): Promise<Map<string, { serviceKeyEntity: string; iconSlug: string | null }>> {
+    const result = await this.pool.query(
+      `SELECT
+         sk.entity                                                             AS container_entity,
+         SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value                     AS service_key_entity,
+         COALESCE(icon.value, legacy_icon.value)                               AS icon_slug
+       FROM entity_metadata sk
+       LEFT JOIN entity_metadata icon
+         ON  icon.source = sk.source
+         AND icon.key    = 'icon'
+         AND icon.entity = SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value
+       LEFT JOIN entity_metadata legacy_icon
+         ON  legacy_icon.source = sk.source
+         AND legacy_icon.key    = 'icon'
+         AND legacy_icon.entity = sk.entity
+       WHERE sk.source = $1 AND sk.key = 'service_key'`,
+      [source]
+    );
+
+    const meta = new Map<string, { serviceKeyEntity: string; iconSlug: string | null }>();
+    for (const row of result.rows as { container_entity: string; service_key_entity: string; icon_slug: string | null }[]) {
+      meta.set(row.container_entity, {
+        serviceKeyEntity: row.service_key_entity,
+        iconSlug: row.icon_slug ?? null,
+      });
+    }
+    return meta;
+  }
+}
+
+/**
+ * Convert a raw PostgreSQL result row into a DockerStatsRow, coercing numeric fields to JS numbers.
+ *
+ * Numeric and bigint-derived fields returned as strings from the database are converted to Number;
+ * missing or undefined values are mapped to `null`.
+ *
+ * @param row - Raw row returned by pg for a docker_stats query
+ * @returns A DockerStatsRow with numeric fields converted to numbers or `null` where absent
+ */
+function toDockerStatsRow(row: Record<string, unknown>): DockerStatsRow {
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    time: row.time as string | Date,
+    host: row.host as string,
+    container_id: row.container_id as string,
+    container_name: row.container_name as string | null,
+    image: row.image as string | null,
+    cpu_percent: n(row.cpu_percent),
+    memory_usage: n(row.memory_usage),
+    memory_limit: n(row.memory_limit),
+    memory_percent: n(row.memory_percent),
+    network_rx_bytes_per_sec: n(row.network_rx_bytes_per_sec),
+    network_tx_bytes_per_sec: n(row.network_tx_bytes_per_sec),
+    block_io_read_bytes_per_sec: n(row.block_io_read_bytes_per_sec),
+    block_io_write_bytes_per_sec: n(row.block_io_write_bytes_per_sec),
+  };
 }
 
 /** Convert a raw pg row to ProxmoxStatsRow, coercing BIGINT strings to numbers. */
