@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3000",
+    "dev:host": "vite dev --port 3000 --host",
     "typecheck": "tsc --noEmit",
     "build": "bun run typecheck && vite build",
     "preview": "vite preview",
