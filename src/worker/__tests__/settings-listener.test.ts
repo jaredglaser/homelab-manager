@@ -1,4 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import type { DatabaseConfig } from '@/lib/clients/database-client';
+import type { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { SettingsListener, type SettingChangeHandler } from '../settings-listener';
 
@@ -6,7 +8,7 @@ import { SettingsListener, type SettingChangeHandler } from '../settings-listene
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 
-function createMockDbConfig() {
+function createMockDbConfig(): DatabaseConfig {
   return {
     host: 'localhost',
     port: 5432,
@@ -19,9 +21,9 @@ function createMockDbConfig() {
 function createMockSettingsRepo(values: Record<string, string | null> = {}) {
   return {
     get: mock(async (key: string) => values[key] ?? null),
-    getAll: mock(async () => new Map()),
-    set: mock(async () => {}),
-  } as any;
+    getAll: mock(async () => new Map<string, string>()),
+    set: mock(async (_key: string, _value: string) => {}),
+  };
 }
 
 describe('SettingsListener', () => {
@@ -42,8 +44,8 @@ describe('SettingsListener', () => {
     const controller = new AbortController();
 
     const listener = new SettingsListener(
-      dbConfig as any,
-      repo,
+      dbConfig,
+      repo as unknown as SettingsRepository,
       [SETTINGS_KEYS.developer.dockerDebugLogging],
       handler,
       controller.signal,
@@ -62,8 +64,8 @@ describe('SettingsListener', () => {
     const controller = new AbortController();
 
     const listener = new SettingsListener(
-      dbConfig as any,
-      repo,
+      dbConfig,
+      repo as unknown as SettingsRepository,
       [SETTINGS_KEYS.developer.dockerDebugLogging],
       handler,
       controller.signal,
@@ -89,8 +91,8 @@ describe('SettingsListener', () => {
       const controller = new AbortController();
 
       const listener = new SettingsListener(
-        dbConfig as any,
-        repo,
+        dbConfig,
+        repo as unknown as SettingsRepository,
         watchKeys,
         handler,
         controller.signal,
@@ -125,8 +127,8 @@ describe('SettingsListener', () => {
       const controller = new AbortController();
 
       const listener = new SettingsListener(
-        dbConfig as any,
-        repo,
+        dbConfig,
+        repo as unknown as SettingsRepository,
         [SETTINGS_KEYS.developer.dockerDebugLogging],
         handler,
         controller.signal,
@@ -154,8 +156,8 @@ describe('SettingsListener', () => {
       const controller = new AbortController();
 
       const listener = new SettingsListener(
-        dbConfig as any,
-        repo,
+        dbConfig,
+        repo as unknown as SettingsRepository,
         [watchKey],
         handler,
         controller.signal,
@@ -199,8 +201,8 @@ describe('SettingsListener', () => {
       const controller = new AbortController();
 
       const listener = new SettingsListener(
-        dbConfig as any,
-        repo,
+        dbConfig,
+        repo as unknown as SettingsRepository,
         [watchKey],
         handler,
         controller.signal,
@@ -238,8 +240,8 @@ describe('SettingsListener', () => {
       const controller = new AbortController();
 
       const listener = new SettingsListener(
-        dbConfig as any,
-        repo,
+        dbConfig,
+        repo as unknown as SettingsRepository,
         [SETTINGS_KEYS.developer.dockerDebugLogging],
         handler,
         controller.signal,
@@ -275,8 +277,8 @@ describe('SettingsListener', () => {
       const controller = new AbortController();
 
       const listener = new SettingsListener(
-        dbConfig as any,
-        repo,
+        dbConfig,
+        repo as unknown as SettingsRepository,
         [SETTINGS_KEYS.developer.dockerDebugLogging],
         handler,
         controller.signal,

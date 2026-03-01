@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { SSHClient } from '../ssh-client';
 import type { SSHConnectionConfig } from '../../streaming/types';
 
@@ -27,7 +27,7 @@ describe('SSHClient', () => {
     console.error = mock(() => {});
   });
 
-  afterAll(() => {
+  afterEach(() => {
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   });
@@ -70,7 +70,7 @@ describe('SSHClient', () => {
     const internalClient = (client as any).client;
 
     spyOn(internalClient, 'connect').mockImplementation(() => {
-      setTimeout(() => internalClient.emit('ready'), 10);
+      process.nextTick(() => internalClient.emit('ready'));
     });
 
     await client.connect();
@@ -84,7 +84,7 @@ describe('SSHClient', () => {
 
     const internalClient = (client as any).client;
     spyOn(internalClient, 'connect').mockImplementation(() => {
-      setTimeout(() => internalClient.emit('error', new Error('Auth failed')), 10);
+      process.nextTick(() => internalClient.emit('error', new Error('Auth failed')));
     });
 
     await expect(client.connect()).rejects.toThrow('Auth failed');
@@ -269,7 +269,7 @@ describe('SSHConnectionManager', () => {
     console.error = mock(() => {});
   });
 
-  afterAll(() => {
+  afterEach(() => {
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   });

@@ -2,8 +2,10 @@ import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:te
 import { Readable } from 'stream';
 import { DockerCollector } from '../docker-collector';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
+import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { DockerHostConfig } from '@/lib/config/docker-config';
+import type { Pool } from 'pg';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
@@ -12,7 +14,7 @@ const originalConsoleError = console.error;
 function createMockDb() {
   return {
     id: 'test',
-    getPool: () => ({} as any),
+    getPool: () => ({}) as unknown as Pool,
     connect: mock(async () => {}),
     isConnected: () => true,
     close: mock(async () => {}),
@@ -73,6 +75,11 @@ describe('DockerCollector', () => {
   });
 
   afterEach(() => {
+    // Restore singleton spies to prevent cross-file pollution
+    if (dockerConnectionManager.getClient !== undefined) {
+      const spy = dockerConnectionManager.getClient as ReturnType<typeof spyOn>;
+      if ('mockRestore' in spy) spy.mockRestore();
+    }
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   });
@@ -81,7 +88,7 @@ describe('DockerCollector', () => {
     it('should set name from host config', () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new DockerCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       expect(collector.name).toBe('DockerCollector[test-host]');
 
@@ -92,7 +99,7 @@ describe('DockerCollector', () => {
       const db = createMockDb();
       const controller = new AbortController();
       const collector = new DockerCollector(
-        db as any,
+        db as unknown as DatabaseClient,
         createMockConfig(),
         createHostConfig({ name: 'my-docker-server' }),
         controller,
@@ -106,7 +113,7 @@ describe('DockerCollector', () => {
     it('should implement AsyncDisposable', async () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new DockerCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       expect(Symbol.asyncDispose in collector).toBe(true);
 
@@ -115,7 +122,7 @@ describe('DockerCollector', () => {
 
     it('should be stoppable', async () => {
       const db = createMockDb();
-      const collector = new DockerCollector(db as any, createMockConfig(), createHostConfig());
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig());
 
       collector.stop();
 
@@ -128,7 +135,7 @@ describe('DockerCollector', () => {
     it('should return early when no containers are running', async () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new DockerCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       const closeMock = mock(async () => {});
       const mockDockerClient = {
@@ -151,7 +158,7 @@ describe('DockerCollector', () => {
     it('should stream stats, upsert metadata, and write rows to repository', async () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new DockerCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       // Capture rows written to the repository
       const writtenRows: any[][] = [];
@@ -236,7 +243,7 @@ describe('DockerCollector', () => {
     it('should use shortened ID when container name is missing', async () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new DockerCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       const writtenRows: any[][] = [];
       spyOn((collector as any).repository, 'insertDockerStats').mockImplementation(async (rows: any[]) => {
@@ -279,7 +286,7 @@ describe('DockerCollector', () => {
     it('should support docker debug logging toggle', () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new DockerCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       // Should not throw
       collector.dockerDebugLogging = true;
@@ -291,7 +298,7 @@ describe('DockerCollector', () => {
     it('should support db flush debug logging toggle', () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new DockerCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       collector.dbFlushDebugLogging = true;
       collector.dbFlushDebugLogging = false;

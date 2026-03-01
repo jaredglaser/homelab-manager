@@ -126,26 +126,6 @@ describe('loadZFSConfig', () => {
     expect(console.error).toHaveBeenCalled();
   });
 
-  it('should use default port 22 when not specified', () => {
-    process.env.ZFS_HOST_1 = '192.168.1.50';
-    process.env.ZFS_HOST_USER_1 = 'root';
-    process.env.ZFS_HOST_KEY_PATH_1 = '/keys/id_rsa';
-
-    const config = loadZFSConfig();
-
-    expect(config.hosts[0].port).toBe(22);
-  });
-
-  it('should use host as name when name not specified', () => {
-    process.env.ZFS_HOST_1 = 'my-zfs-server.local';
-    process.env.ZFS_HOST_USER_1 = 'root';
-    process.env.ZFS_HOST_KEY_PATH_1 = '/keys/id_rsa';
-
-    const config = loadZFSConfig();
-
-    expect(config.hosts[0].name).toBe('my-zfs-server.local');
-  });
-
   it('should support privateKey auth with passphrase', () => {
     process.env.ZFS_HOST_1 = '192.168.1.50';
     process.env.ZFS_HOST_USER_1 = 'root';

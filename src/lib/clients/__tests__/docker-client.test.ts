@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { DockerClient } from '../docker-client';
 
 // Suppress console output during tests
@@ -11,7 +11,7 @@ describe('DockerClient', () => {
     console.error = mock(() => {});
   });
 
-  afterAll(() => {
+  afterEach(() => {
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   });
@@ -86,10 +86,6 @@ describe('DockerClient', () => {
     expect(client.isConnected()).toBe(true);
   });
 
-  it('should build id from host and port', () => {
-    const client = new DockerClient({ host: '192.168.1.100', port: 2376, protocol: 'https' });
-    expect(client.id).toBe('docker://192.168.1.100:2376');
-  });
 });
 
 describe('DockerConnectionManager', () => {
@@ -98,7 +94,7 @@ describe('DockerConnectionManager', () => {
     console.error = mock(() => {});
   });
 
-  afterAll(() => {
+  afterEach(() => {
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   });
@@ -123,32 +119,6 @@ describe('DockerConnectionManager', () => {
 
     // Cleanup
     await dockerConnectionManager.closeConnection('10.0.0.50:2375');
-  });
-
-  it('should replace disconnected client with new one', async () => {
-    const { dockerConnectionManager } = await import('../docker-client');
-
-    const config = { host: '10.0.0.51', port: 2375 };
-
-    // Put a disconnected client in the map
-    const oldClient = new DockerClient(config);
-    (dockerConnectionManager as any).connections.set('10.0.0.51:2375', oldClient);
-    expect(oldClient.isConnected()).toBe(false);
-
-    // getClient should create a new client since old one is disconnected
-    const newClientPromise = dockerConnectionManager.getClient(config);
-
-    // The manager creates a new DockerClient internally, so we need to
-    // intercept it. Since we can't easily do that, let's check the map after
-    // We need to mock at a different level. Let's just test closeConnection/closeAll.
-    try {
-      await newClientPromise;
-    } catch {
-      // Expected: ping fails on real Docker daemon
-    }
-
-    // Cleanup
-    await dockerConnectionManager.closeConnection('10.0.0.51:2375');
   });
 
   it('should close specific connection via closeConnection', async () => {

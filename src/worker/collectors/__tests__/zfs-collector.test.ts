@@ -2,8 +2,10 @@ import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:te
 import { Readable } from 'stream';
 import { ZFSCollector } from '../zfs-collector';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
+import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ZFSHostConfig } from '@/lib/config/zfs-config';
+import type { Pool } from 'pg';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
@@ -12,7 +14,7 @@ const originalConsoleError = console.error;
 function createMockDb() {
   return {
     id: 'test',
-    getPool: () => ({} as any),
+    getPool: () => ({}) as unknown as Pool,
     connect: mock(async () => {}),
     isConnected: () => true,
     close: mock(async () => {}),
@@ -58,6 +60,11 @@ describe('ZFSCollector', () => {
   });
 
   afterEach(() => {
+    // Restore singleton spies to prevent cross-file pollution
+    if (sshConnectionManager.getClient !== undefined) {
+      const spy = sshConnectionManager.getClient as ReturnType<typeof spyOn>;
+      if ('mockRestore' in spy) spy.mockRestore();
+    }
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   });
@@ -66,7 +73,7 @@ describe('ZFSCollector', () => {
     it('should set name from host config', () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new ZFSCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       expect(collector.name).toBe('ZFSCollector[test-zfs]');
 
@@ -77,7 +84,7 @@ describe('ZFSCollector', () => {
       const db = createMockDb();
       const controller = new AbortController();
       const collector = new ZFSCollector(
-        db as any,
+        db as unknown as DatabaseClient,
         createMockConfig(),
         createHostConfig({ name: 'nas-server' }),
         controller,
@@ -91,7 +98,7 @@ describe('ZFSCollector', () => {
     it('should implement AsyncDisposable', async () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new ZFSCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       expect(Symbol.asyncDispose in collector).toBe(true);
 
@@ -100,7 +107,7 @@ describe('ZFSCollector', () => {
 
     it('should be stoppable', async () => {
       const db = createMockDb();
-      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig());
+      const collector = new ZFSCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig());
 
       collector.stop();
 
@@ -116,7 +123,7 @@ describe('ZFSCollector', () => {
         privateKeyPath: undefined,
         password: undefined,
       });
-      const collector = new ZFSCollector(db as any, createMockConfig(), hostConfig, controller);
+      const collector = new ZFSCollector(db as unknown as DatabaseClient, createMockConfig(), hostConfig, controller);
 
       await expect((collector as any).collect()).rejects.toThrow(
         'No SSH credentials configured for host 192.168.1.50',
@@ -128,7 +135,7 @@ describe('ZFSCollector', () => {
     it('should parse iostat output and write rows with correct hierarchy', async () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new ZFSCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       // Mock the repository's insertZFSStats to capture written rows
       const writtenRows: any[][] = [];
@@ -182,7 +189,7 @@ describe('ZFSCollector', () => {
     it('should write final cycle when stream ends without trailing header', async () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new ZFSCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       const writtenRows: any[][] = [];
       spyOn((collector as any).repository, 'insertZFSStats').mockImplementation(async (rows: any[]) => {
@@ -217,10 +224,10 @@ describe('ZFSCollector', () => {
   });
 
   describe('debug logging', () => {
-    it('should support docker debug logging toggle', () => {
+    it('should support debug logging toggle', () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new ZFSCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       collector.dockerDebugLogging = true;
       collector.dockerDebugLogging = false;
@@ -231,7 +238,7 @@ describe('ZFSCollector', () => {
     it('should support db flush debug logging toggle', () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new ZFSCollector(db as any, createMockConfig(), createHostConfig(), controller);
+      const collector = new ZFSCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
       collector.dbFlushDebugLogging = true;
       collector.dbFlushDebugLogging = false;
