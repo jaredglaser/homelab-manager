@@ -1,7 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { lazy } from 'react'
 
-import appCss from '../styles.css?url'
 import '../App.css'
 import '@fontsource/inter/index.css'
 import '@fontsource/inter/600.css'
@@ -35,12 +34,6 @@ export const Route = createRootRoute({
       },
       {
         title: 'Homelab Manager',
-      },
-    ],
-    links: [
-      {
-        rel: 'stylesheet',
-        href: appCss,
       },
     ],
   }),

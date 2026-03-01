@@ -4,6 +4,7 @@
 
 - [Bun](https://bun.sh) (package manager and runtime)
 - A Docker host with the Docker API exposed (default port `2375`)
+  > **Security warning:** Port 2375 is the **unauthenticated** Docker API. Never expose it on a public network. Bind the API to `localhost` or a trusted subnet, or secure it with [TLS](https://docs.docker.com/engine/security/protect-access/#use-tls-https-to-protect-the-docker-daemon-socket) / SSH tunneling.
 - *(Optional)* A host running ZFS with SSH access for pool monitoring
 
 ## Environment Setup

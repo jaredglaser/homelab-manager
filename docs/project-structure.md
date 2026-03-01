@@ -1,6 +1,6 @@
 # Project Structure
 
-```
+```text
 src/
 ├── components/
 │   ├── AppShell.tsx                 # Shared layout (ThemeProvider, QueryClient, Header)
