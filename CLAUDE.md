@@ -9,63 +9,34 @@
 - Check if `README.md` and `CLAUDE.md` need updates (architecture changes, file organization, commands, testing, tech stack).
 - Run `bun run typecheck` to verify TypeScript types are correct.
 - Run tests with `bun test` after code changes.
-- Update documentation immediately if changes affect project structure or conventions.
 
-## Critical Rules (Most Important)
+## Critical Rules
 
-1. **Styling**: TailwindCSS ONLY. Never use MUI `sx` props or create `.css` files (exceptions: `App.css` for chart colors, `theme.ts` for MUI theme). Inline `style` is allowed only when Tailwind cannot express the value (virtualizer positioning, dynamic indent padding, computed transforms).
-2. **Imports**: Always use `@/` for src files (e.g., `@/components/Header`). Use relative paths only within `__tests__/` for test imports.
+1. **Styling**: TailwindCSS ONLY. Never use MUI `sx` props or create `.css` files (exceptions: `App.css` for chart colors/animations, `theme.ts` for MUI theme). Inline `style` only when Tailwind cannot express the value (virtualizer positioning, dynamic indent, computed transforms). Never use hardcoded hex colors — use theme CSS variables.
+2. **Imports**: Always use `@/` for src files (e.g., `@/components/Header`). Relative paths only within `__tests__/`. Never mix both in one file (except tests).
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly.
-4. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Server handles client disconnect via `request.signal`.
-5. **File Creation**: PREFER editing existing files over creating new ones. Only create files when genuinely necessary.
-6. **Testing**: Tests in `__tests__/` folders co-located with source. Use `bun:test` imports.
-7. **No Logging**: No `console.log` in committed code. Only `console.error` for actual errors.
+4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app.
+5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Server handles client disconnect via `request.signal`.
+6. **File Creation**: PREFER editing existing files over creating new ones. Only create files when genuinely necessary.
+7. **Testing**: Tests in `__tests__/` folders co-located with source. Use `bun:test` imports. 93% coverage threshold enforced.
+8. **No Logging**: No `console.log` in committed code. Only `console.error` for actual errors. Remove all debug logging before completing a task.
 
 ## Tech Stack
 
 - **Framework:** TanStack Start (SPA mode, SSR disabled)
-- **Runtime:** Bun (package manager, test runner, runtime)
-- **Language:** TypeScript (strict mode) + React 19
-- **UI:** MUI Material UI (components) + TailwindCSS (styling)
+- **Runtime:** Bun 1.3.6 (pinned in `.bun-version`; package manager, test runner, runtime)
+- **Language:** TypeScript (strict mode, `noUnusedLocals`, `noUnusedParameters`) + React 19
+- **UI:** MUI Material UI v7 (components) + TailwindCSS v4 (styling, via `@tailwindcss/vite` plugin — no config file)
 - **Routing:** TanStack Router (file-based, auto-generated `routeTree.gen.ts`)
-- **State:** Jotai (settings atoms) + TanStack Query (QueryClient singleton in `__root.tsx`)
+- **State:** Jotai (settings atoms) + TanStack Query (QueryClient singleton in `AppShell.tsx`)
 - **Streaming:** Server-Sent Events (SSE) via TanStack Router server routes (`src/routes/api/`)
-- **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL)
-- **Database:** TimescaleDB (PostgreSQL 16 with wide hypertables, automatic compression & retention)
+- **Charts:** Apache ECharts
+- **Clients:** Dockerode (Docker API), ssh2 (SSH), pg (PostgreSQL), native fetch (Proxmox)
+- **Database:** TimescaleDB (PostgreSQL 16 with wide hypertables, automatic compression)
 - **Background Worker:** Standalone Bun process for continuous data collection
 - **Validation:** Zod
-- **Testing:** Bun test (`bun:test`)
-- **Deployment:** Docker Compose (multi-container setup)
-
-## Development Modes
-
-This project supports three development workflows:
-
-### 1. **Local Development (Recommended)** - Hybrid Docker/Local
-Best for active web app development. Database and worker run in Docker while the web app runs locally with native Bun for optimal HMR performance and debugging.
-
-**Advantages:**
-- ✅ Fastest HMR (native Bun, no container overhead)
-- ✅ Easier debugging (native debugger, better stack traces)
-- ✅ Better IDE integration (no volume mount delays)
-- ✅ Lower resource usage (only 2 containers)
-
-**When to use:** Daily development, rapid iteration on UI/features
-
-### 2. **Docker Development** - Full Containerized
-All services run in Docker containers with HMR via volume mounts. Use this to test in a production-like environment.
-
-**Advantages:**
-- ✅ Production-like environment
-- ✅ Isolated from host system
-- ✅ Consistent across team members
-
-**When to use:** Testing deployment, debugging container-specific issues, CI/CD pipeline validation
-
-### 3. **Fully Local Development** - All Services Local
-Advanced workflow running all services directly on the host. Requires local PostgreSQL installation.
-
-**When to use:** Deep database debugging, development without Docker
+- **Testing:** Bun test (`bun:test`) with Happy-DOM + Testing Library
+- **Deployment:** Docker Compose (multi-container) → GHCR images via CI
 
 ## Commands
 
@@ -77,7 +48,7 @@ bun run dev:local:up        # Start database and worker in Docker
 # Terminal 2: Run web app locally
 bun dev                     # Start web server on port 3000 with HMR
 
-# Management commands
+# Management
 bun run dev:local:down      # Stop Docker services
 bun run dev:local:restart   # Restart Docker services
 bun run dev:local:rebuild   # Rebuild and restart Docker services
@@ -87,24 +58,18 @@ bun run dev:local:logs:worker   # View worker logs only
 bun run dev:local:logs:db   # View database logs only
 ```
 
-**Quick Start:**
-1. `bun run dev:local:up` (wait for "healthy" status)
-2. `bun dev` (in a new terminal)
-3. Open http://localhost:3000
-
 ### Development (Full Docker with HMR)
 ```bash
-bun dev:docker:up           # Start all services in Docker (includes web with HMR)
+bun dev:docker:up           # Start all services in Docker
 bun dev:docker:down         # Stop all Docker services
-bun dev:docker:restart      # Restart all services
 bun dev:docker:rebuild      # Full rebuild of all containers
 bun dev:docker:wipe         # Remove all data (fresh database)
 ```
 
-### Testing & Type Checking
+### Testing & Build
 ```bash
-bun run typecheck           # Run TypeScript type checking
-bun test                    # Run all tests
+bun run typecheck           # TypeScript type checking
+bun test                    # Run all tests (enforces 93% coverage)
 bun test --watch            # Watch mode
 bun run test:coverage       # Run tests with coverage report
 bun run test:coverage:check # Run tests and enforce 95%/99% coverage threshold
@@ -113,248 +78,150 @@ bun run test:coverage:check # Run tests and enforce 95%/99% coverage threshold
 ### Production Build
 ```bash
 bun build                   # Production build (runs typecheck first)
-```
-
-### Background Worker (Standalone)
-```bash
-bun worker                  # Run background collector locally (requires local PostgreSQL)
+bun worker                  # Run background collector locally
+bun icons:download          # Download dashboard icons from homarr-labs/dashboard-icons
 ```
 
 ### Docker Compose (Production)
 ```bash
-docker compose up -d        # Start all services in production mode
+docker compose up -d        # Start all services
 docker compose down         # Stop all services
 docker compose logs -f web  # View web server logs
-docker compose logs -f worker  # View background worker logs
-docker compose ps           # View service status
 ```
 
 ## File Organization
 
-```
+```text
 src/
 ├── components/
-│   ├── shared-table/        # MetricValue (shared infrastructure)
-│   ├── docker/              # Docker-specific components (CSS Grid + useWindowVirtualizer)
-│   ├── zfs/                 # ZFS-specific components (CSS Grid + useWindowVirtualizer)
-│   ├── proxmox/             # Proxmox components (ClusterSummaryCards, NodeTable, GuestTable, StorageTable)
+│   ├── shared-table/        # MetricValue, MetricHeader (shared column infrastructure)
+│   ├── docker/              # ContainerTable, ContainerRow, ContainerHistoryPage, charts
+│   ├── zfs/                 # ZFSPoolsTable, ZFSPoolSpeedCharts
+│   ├── proxmox/             # ClusterSummaryCards, ProxmoxHostView, GuestSection, StorageSection
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
-├── hooks/                   # Custom hooks (useSSE, useTimeSeriesStream, useSettings, settingsAtom, useSettingsSync)
+├── hooks/                   # useSSE, useTimeSeriesStream, useSettings, settingsAtom, useSettingsSync, toastAtom
 ├── data/                    # Server functions (*.functions.tsx) - non-streaming DB queries
-├── middleware/              # Connection injection (Docker, SSH, Database)
+├── middleware/              # Connection injection factories (Docker, SSH — env-based + config-based)
 ├── lib/
-│   ├── __tests__/           # Unit tests (*.test.ts)
-│   ├── clients/             # Connection managers (Docker, SSH, Database)
-│   ├── config/              # Configuration loaders (database, worker, zfs)
+│   ├── clients/             # Singleton connection managers (Docker, SSH, Database, Proxmox)
+│   ├── config/              # Zod-validated config loaders (database, docker, worker, zfs, proxmox)
+│   ├── constants/           # SETTINGS_KEYS (canonical DB key definitions used across frontend + backend)
+│   ├── charts/              # Chart utilities (css-vars.ts color resolution, y-axis.ts scaling)
 │   ├── database/
-│   │   ├── repositories/    # Data access layer (StatsRepository for wide tables)
-│   │   ├── subscription-service.ts  # Shared poll broadcast service (StatsPollService)
-│   │   └── migrate.ts       # Database migration runner
-│   ├── parsers/             # Stream parsers
-│   ├── test/                # Test utilities (NOT in __tests__)
-│   ├── utils/               # Rate calculators, hierarchy builders, row converters
-│   ├── proxmox/             # Proxmox poll service (ProxmoxPollService)
-│   ├── settings/            # Settings broadcast service (SettingsBroadcastService)
-│   ├── streaming/types.ts   # Core interfaces
-│   └── server-init.ts       # Server-side shutdown handlers
+│   │   ├── repositories/    # StatsRepository (wide table CRUD), SettingsRepository (KV + NOTIFY)
+│   │   ├── subscription-service.ts  # StatsPollService (shared 1s poll, broadcast to SSE clients)
+│   │   └── migrate.ts       # Sequential SQL migration runner
+│   ├── parsers/             # ZFSIOStatParser (indentation-based hierarchy detection)
+│   ├── proxmox/             # ProxmoxPollService (shared 10s API poll, SSE broadcast)
+│   ├── settings/            # SettingsBroadcastService (PostgreSQL LISTEN/NOTIFY → SSE)
+│   ├── streaming/types.ts   # Core interfaces (StreamingClient, StreamParser, RateCalculator)
+│   ├── test/                # Test utilities: Happy-DOM setup, Testing Library setup, stream helpers
+│   ├── utils/               # Hierarchy builders, rate calculators, row converters, abortable-sleep
+│   └── server-init.ts       # Idempotent server startup + graceful shutdown handlers
 ├── worker/
-│   ├── collectors/          # Background collectors (Docker, ZFS)
-│   └── collector.ts         # Worker entry point
+│   ├── collectors/          # BaseCollector (AsyncDisposable, backoff) + Docker/ZFS collectors
+│   └── collector.ts         # Worker entry point (AsyncDisposableStack, AbortController)
 ├── types/                   # Domain types (docker.ts, zfs.ts, proxmox.ts, settings.ts)
-├── formatters/              # Display formatting (metrics, numbers)
+├── formatters/              # Display formatting (binary units, SI units, percent — dual output: string + parts)
 └── routes/
-    ├── api/                 # SSE endpoints (docker-stats.ts, zfs-stats.ts, settings.ts)
-    └── [index, zfs, proxmox, settings].tsx  # Page routes
+    ├── api/                 # SSE endpoints (docker-stats, zfs-stats, proxmox-overview, settings)
+    └── [index, docker.$containerId, zfs, proxmox, settings].tsx
 
-migrations/                  # SQL migrations (001_initial_schema.sql, etc.)
+migrations/                  # Sequential SQL migrations (TimescaleDB hypertables, settings, compression)
+scripts/                     # check-coverage.js (93% enforcer), download-icons.ts
 ```
 
 ## Architecture Patterns
 
 ### Routing
 - **Never edit** `routeTree.gen.ts` (auto-generated by TanStack Router).
-- Root route (`__root.tsx`) has ONLY `shellComponent` (plain HTML). NO `component` prop — SSR breaks MUI.
-- Client-side layout lives in `AppShell.tsx`. Each route wraps content with `<AppShell>`.
+- Root route (`__root.tsx`) has ONLY `shellComponent` (plain HTML). NO `component` prop — adding MUI/React components here breaks SSR.
+- Client-side layout lives in `AppShell.tsx`. Each page route wraps content with `<AppShell>`.
 - All routes: `ssr: false` (SPA mode).
 
-### Server Functions & SSE Streaming
-- Non-streaming server logic: `createServerFn()` from `@tanstack/react-start`
-- **Real-time streaming**: SSE via TanStack Router server routes in `src/routes/api/`
-- Data flow: SSE endpoint → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`
-- **Note**: SSE is a workaround because TanStack Start's streaming server functions don't close quickly enough when rapidly switching between tabs — the abort signal doesn't propagate reliably. Once this is fixed upstream, I plan to migrate back to native streaming (see roadmap).
-- **Frontend reads from database** (not direct API/SSH connections):
-  - Worker collects stats → INSERT wide rows into TimescaleDB
-  - Server runs a shared `StatsPollService` that polls DB every 1s per source (docker, zfs)
-  - Multiple SSE clients subscribe to the same poll — only 1 query/sec per source regardless of client count
-  - Frontend preloads 60s of history via REST, then merges SSE updates
-- **SSE endpoints use `createFileRoute` with `server.handlers`**:
-  ```typescript
-  // src/routes/api/docker-stats.ts — shared poll broadcast
-  GET handler:
-    1. Import server-init + statsPollService (dynamic imports)
-    2. Create ReadableStream
-    3. Subscribe to statsPollService('docker', callback)
-    4. Callback sends rows as SSE data
-    5. On request.signal abort: unsubscribe, close controller
-  ```
-- **IMPORTANT: Use dynamic imports for server-only modules** in SSE endpoints:
-  ```typescript
-  // BAD - gets bundled into client
-  import { statsPollService } from '@/lib/database/subscription-service';
+### Data Flow
 
-  // GOOD - only loaded on server at runtime
-  const { statsPollService } = await import('@/lib/database/subscription-service');
-  ```
-
-### SSE Data Sources (Virtualized Tables)
-Both Docker and ZFS tables use the same pattern:
-1. Create SSE route in `src/routes/api/` using `createFileRoute` with `server.handlers`
-2. Page route uses `useTimeSeriesStream` hook (preload + SSE merge + time-windowed buffer)
-3. Pass `latestByEntity` (Map) and `rows` (sorted array) as props to table/chart components
-4. Table component converts wide rows to domain objects, flattens to `FlatRow[]` discriminated union
-5. Render with CSS Grid columns + `useWindowVirtualizer` (page-scroll virtualization)
-6. Row components are div-based (not `<table>/<tr>/<td>`) for virtualizer compatibility
-
-Rate calculators:
-- Must implement `RateCalculator<TInput, TOutput>` interface (`src/lib/streaming/types.ts`)
-- Use class-based calculators (not module-level functions)
-
-### TimescaleDB Persistence & Background Workers
-The frontend reads stats from the database via shared server-side polling:
-```
+```text
 Worker → Docker/ZFS APIs → INSERT wide rows → TimescaleDB
                                                     ↓
 Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast to all clients
 ```
+- **Frontend reads from database**, not direct API/SSH connections.
+- Worker collects stats → INSERT wide rows into TimescaleDB.
+- Server runs shared `StatsPollService` that polls DB every 1s per source — only 1 query/sec regardless of client count.
+- Frontend preloads history via REST server function, then merges SSE updates.
+- **Proxmox is different**: No worker, no database. `ProxmoxPollService` polls Proxmox REST API every 10s server-side, broadcasts snapshots via SSE.
 
-**Database schema** (TimescaleDB wide tables):
+### SSE Endpoints
+All SSE endpoints in `src/routes/api/` follow the same pattern:
+1. Use `createFileRoute` with `server.handlers.GET`
+2. Dynamic import server-init + poll service (prevents client bundling)
+3. Create `ReadableStream`, subscribe to poll service
+4. On `request.signal` abort: unsubscribe + close controller
+5. Track `closed` flag to prevent enqueue-after-close errors
+
+```typescript
+// ALWAYS use dynamic imports for server-only modules in SSE endpoints:
+// BAD - gets bundled into client
+import { statsPollService } from '@/lib/database/subscription-service';
+// GOOD - only loaded on server at runtime
+const { statsPollService } = await import('@/lib/database/subscription-service');
+```
+
+### Virtualized Tables (Docker & ZFS)
+1. Page route uses `useTimeSeriesStream` hook (preload + SSE merge + time-windowed buffer)
+2. Pass `latestByEntity` (Map) and `rows` (sorted array) to table component
+3. Table converts wide rows → domain objects → `FlatRow[]` discriminated union
+4. Render with CSS Grid columns + `useWindowVirtualizer` (page-scroll virtualization)
+5. Row components are div-based (not `<table>/<tr>/<td>`) for virtualizer compatibility
+
+### Database Schema (TimescaleDB)
 - `docker_stats` — hypertable: time, host, container_id, container_name, image, cpu_percent, memory_usage, memory_limit, memory_percent, network_rx/tx, block_io_read/write
 - `zfs_stats` — hypertable: time, host, pool, entity, entity_type, indent, capacity_alloc/free, read/write_ops_per_sec, read/write_bytes_per_sec, utilization_percent
 - `entity_metadata` — key-value metadata per entity (icons, labels)
-- `settings` — application settings
-- **Compression**: Automatic after 7 days (segmented by host/container or host/pool/entity)
-- **Retention**: Infinite (no automatic deletion; compression keeps storage manageable)
+- `settings` — application settings (key-value with `NOTIFY settings_change` trigger)
+- **Compression**: Automatic after 7 days (segmented by host/entity identifiers)
+- **Retention**: Infinite (compression keeps storage manageable at homelab scale)
 
-**Architecture**:
-- **Background worker**: Standalone Bun process (`bun worker`)
-- **Collectors**: Class-based, extend `BaseCollector` (implements `AsyncDisposable`)
-  - `BaseCollector` handles: collection loop, exponential backoff, graceful shutdown
-  - Subclasses implement: `name`, `collect()` (runs continuously until aborted/error), `isConfigured()`
-  - Docker collector keeps stats streams open continuously, flushes every 1 second, reconnects only on container changes or errors
-  - ZFS collector streams `zpool iostat` continuously, flushes on each cycle boundary
-  - Uses `AbortController` for cancellable sleeps and instant shutdown
-  - Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
-- **Collection frequency**: Configured via `WORKER_COLLECTION_INTERVAL_MS` (default 1000ms/1 second)
-- **Collectors write directly**: Wide `DockerStatsRow[]`/`ZFSStatsRow[]` → INSERT into TimescaleDB
-- **Persistent rate calculators**: Never cleared (unlike request-scoped calculators)
-- **Shutdown**: Single `AbortController` in worker entry point, SIGTERM aborts all collectors instantly
-- **Database is ephemeral** in dev: no persistent volume, `docker compose down && up` starts fresh
-- **ZFS multi-host support**: One ZFS collector per configured host, matching Docker pattern
-  - Configuration: numbered env vars (`ZFS_HOST_1`, `ZFS_HOST_USER_1`, etc.)
-  - Config loader: `src/lib/config/zfs-config.ts` (Zod-validated)
-  - UI hierarchy: hosts → pools → vdevs → disks (host row shown only when multiple hosts configured)
-  - Host expansion state persisted to database settings
-- **ZFS hierarchical entity paths**: Entity names encode hierarchy for filtering
-  - Pool: `"tank"` (indent 0)
-  - Vdev: `"tank/mirror-0"` (indent 2)
-  - Disk: `"tank/mirror-0/sda"` (indent 4+)
-  - Multi-host entity IDs are prefixed with host name: `"server1/tank/mirror-0/sda"`
-  - Enables visibility filtering: collapsed pool skips `tank/*` entities
-- **Stale data warning**: If no SSE data received for 30+ seconds, UI shows warning via `useTimeSeriesStream`
+### Background Worker
+- Standalone Bun process (`bun worker`), independent from web server
+- **Collectors** extend `BaseCollector` (implements `AsyncDisposable`): `name`, `collect()`, `isConfigured()`
+- `BaseCollector` handles: collection loop, exponential backoff (max 32s), graceful shutdown via `AbortController`
+- Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
+- Docker collector: keeps stats streams open continuously, flushes every 1s, reconnects on container changes
+- ZFS collector: streams `zpool iostat` continuously via SSH, flushes on cycle boundary
+- Rate calculators are persistent (never cleared, unlike request-scoped ones)
 
-**Key files**:
-- **SSE endpoints**: `src/routes/api/` (docker-stats.ts, zfs-stats.ts — subscribe to StatsPollService; proxmox-overview.ts — subscribe to ProxmoxPollService; settings.ts — subscribe to SettingsBroadcastService)
-- **SSE hooks**: `src/hooks/useSSE.ts` (EventSource consumer), `src/hooks/useTimeSeriesStream.ts` (preload + SSE merge + stale detection), `src/hooks/useSettingsSync.ts` (settings SSE → Jotai atom)
-- **Settings**: `src/hooks/settingsAtom.ts` (Jotai atoms + types + parsing), `src/hooks/useSettings.tsx` (consumer hook with setters), `src/lib/settings/settings-broadcast-service.ts` (server-side LISTEN + broadcast)
-- **Virtualized tables**: `src/components/docker/ContainerTable.tsx`, `src/components/zfs/ZFSPoolsTable.tsx` (CSS Grid + useWindowVirtualizer)
-- Connection: `src/lib/clients/database-client.ts` (follows Docker/SSH pattern)
-- Repository: `src/lib/database/repositories/stats-repository.ts` (wide table inserts/queries, NOTIFY after insert)
-- Base collector: `src/worker/collectors/base-collector.ts` (AsyncDisposable, backoff)
-- Collectors: `src/worker/collectors/` (Docker, ZFS — extend `BaseCollector`)
-- Row converters: `src/lib/utils/docker-hierarchy-builder.ts` (`rowToDockerStats`), `src/lib/utils/zfs-hierarchy-builder.ts` (`rowToZFSStats`, `buildZFSHostHierarchy`)
-- ZFS config: `src/lib/config/zfs-config.ts` (multi-host configuration loader)
-- Abortable sleep: `src/lib/utils/abortable-sleep.ts` (cancellable sleep utility)
-- Migrations: `migrations/*.sql` (settings table + TimescaleDB wide tables)
-- **StatsPollService**: `src/lib/database/subscription-service.ts` (shared 1s poll, broadcasts to SSE subscribers)
-- **ProxmoxPollService**: `src/lib/proxmox/proxmox-poll-service.ts` (shared 10s API poll, broadcasts snapshot to SSE subscribers)
-- **Server init**: `src/lib/server-init.ts` (graceful shutdown handlers)
+### Entity ID Convention
+- **Docker**: `${host}/${container_id}` (e.g., `192.168.1.10/abc123`)
+- **ZFS**: `${host}/${pool}/${vdev}/${disk}` with depth encoding hierarchy (e.g., `server1/tank/mirror-0/sda`)
+- **Always use entity IDs (with host prefix) for state keys**, never display names. Display names like "tank" are not unique across hosts.
+- ZFS hierarchy is encoded by indentation: 0=pool, 2=vdev, 4+=disk
 
-**Environment variables**:
-- `POSTGRES_*`: Database connection config
-  - `.env` sets `POSTGRES_HOST=localhost` (used by local web app)
-  - Docker services override to `postgres` (internal DNS) in compose files
-  - No additional configuration needed for hybrid development
-- `WORKER_*`: Worker behavior config (enabled, collection interval)
-- `ZFS_HOST_*`: ZFS config (`ZFS_HOST_1`, `ZFS_HOST_PORT_1`, `ZFS_HOST_NAME_1`, `ZFS_HOST_USER_1`, `ZFS_HOST_KEY_PATH_1`, etc.)
-- `PROXMOX_*`: Proxmox VE API connection config
-
-### Proxmox VE Integration (REST API + SSE Broadcast)
-Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox uses **server-side shared polling** of the Proxmox REST API with SSE broadcast:
-- **No background worker** — `ProxmoxPollService` runs server-side, auto-starts on first SSE subscriber
-- **No database persistence** — cluster overview is fetched fresh from the API each poll cycle
-- **Shared poll** — one `setInterval(10s)` polls the API regardless of how many clients are connected
-- **SSE broadcast** — all connected clients receive the same snapshot via Server-Sent Events
-- **Native fetch** — thin client using `fetch()` with API token auth (no npm dependency)
-- **Self-signed certs** — handled via Bun's `tls.rejectUnauthorized: false` option
-
-**Data flow**: `ProxmoxPollService` (10s poll) → `ProxmoxClient.getClusterOverview()` → Proxmox REST API → SSE broadcast → Browser (`useSSE` hook)
-
-**Key files**:
-- Types: `src/types/proxmox.ts` (API response types + cluster overview aggregate)
-- Config: `src/lib/config/proxmox-config.ts` (Zod-validated env var loader)
-- Client: `src/lib/clients/proxmox-client.ts` (native fetch client + connection manager singleton)
-- Poll service: `src/lib/proxmox/proxmox-poll-service.ts` (shared poll + SSE broadcast singleton)
-- SSE endpoint: `src/routes/api/proxmox-overview.ts` (SSE server route)
-- Server functions: `src/data/proxmox.functions.tsx` (connection test only)
-- Dashboard: `src/routes/proxmox.tsx` (page route with `useSSE` hook)
-- Components: `src/components/proxmox/` (ClusterSummaryCards, NodeTable, GuestTable, StorageTable)
-
-**Environment variables**:
-- `PROXMOX_HOST`: Proxmox VE hostname or IP
-- `PROXMOX_PORT`: API port (default: 8006)
-- `PROXMOX_TOKEN_ID`: API token ID (format: `USER@REALM!TOKENID`)
-- `PROXMOX_TOKEN_SECRET`: API token secret (UUID)
-- `PROXMOX_ALLOW_SELF_SIGNED`: Allow self-signed certs (default: true)
-
-### Components
-- Shared infrastructure: `src/components/shared-table/` (MetricValue)
-- Domain components: own directories (`docker/`, `zfs/`, `proxmox/`)
-- Both Docker and ZFS tables use CSS Grid + `useWindowVirtualizer` with flat row models
-- Proxmox tables use CSS Grid without virtualization (snapshot data, not streaming)
-- Page routes use `useTimeSeriesStream` hook (Docker/ZFS) or `useSSE` hook (Proxmox)
-- Table components convert wide rows to domain objects via `rowToDockerStats`/`rowToZFSStats`
+### Multi-Host Configuration
+- Docker and ZFS support numbered env vars: `DOCKER_HOST_1`, `DOCKER_HOST_2`, `ZFS_HOST_1`, `ZFS_HOST_2`, etc.
+- Config loaders in `src/lib/config/` validate with Zod and parse numbered groups
+- Host rows shown in UI only when multiple hosts are configured
+- Single-item collections always show expanded (no collapse button if only one host)
 
 ### Styling
-- **TailwindCSS only** for all layout and styling
-- Never use MUI `sx` props (use Tailwind: `p-3` not `sx={{ p: 3 }}`)
-- Inline `style` attribute is allowed only when Tailwind cannot express the value (virtualizer positioning, dynamic indent padding, computed transforms)
-- Never create `.css` files (exceptions: `App.css` for chart colors/animations, `theme.ts` for MUI theme)
-- **MUI Material UI theme** (`src/theme.ts`):
-  - Uses `cssVariables` mode with `colorSchemeSelector: '[data-color-scheme="%s"]'`
-  - Custom `TypeBackground` properties (`chartBg`, `level1`, `level2`, `level3`, `popup`) via TypeScript module augmentation
-  - Reference theme colors in Tailwind: `bg-[var(--mui-palette-background-chartBg)]`
-  - **Paper background override**: MUI's emotion styles inject after Tailwind, so Paper's default `background-color` wins at equal specificity. Use Tailwind's `!` prefix to force override: `!bg-[var(--mui-palette-background-chartBg)]`
-  - Chart CSS variables (`--chart-cpu`, `--chart-memory`, etc.) defined in `App.css` with `[data-color-scheme="dark"]` selector for dark mode
+- **TailwindCSS v4** via `@tailwindcss/vite` plugin (no `tailwind.config` file — configured in `App.css` with `@import "tailwindcss"`)
+- **MUI Material UI theme** (`src/theme.ts`): `cssVariables` mode with `colorSchemeSelector: '[data-color-scheme="%s"]'`
+- Custom background properties: `chartBg`, `level1`, `level2`, `level3`, `popup` (via TypeScript module augmentation on `TypeBackground`)
+- Reference theme colors in Tailwind: `bg-[var(--mui-palette-background-chartBg)]`
+- **MUI emotion specificity**: MUI's emotion styles inject after Tailwind at equal specificity. Use Tailwind's `!` prefix to force override: `!bg-[var(--mui-palette-background-chartBg)]`
+- Chart CSS variables (`--chart-cpu`, `--chart-memory`, `--chart-read`, `--chart-write` + area gradients) defined in `App.css`
+- Glow animations for value-change indicators also in `App.css`
 
 ### State Management
-- **Settings**: Jotai atoms (`rawSettingsAtom` + derived `settingsAtom`) synced via SSE (`/api/settings`)
-  - `rawSettingsAtom`: raw DB key-value pairs, `settingsAtom`: derived parsed `Settings` object
-  - `useSettings()` hook returns settings + setters (optimistic local update + fire-and-forget DB persist)
-  - `useSettingsSync()` hook (in AppShell) connects SSE stream to atom for cross-client sync
-  - `SettingsBroadcastService` (server-side) listens to PostgreSQL `NOTIFY settings_change` and broadcasts to all SSE clients
-  - On SSE connect/reconnect: full settings state sent as `init` message (handles startup + connection recovery)
-  - On setting change: `change` message with key+value broadcast to all clients
-  - Expansion state for all dashboards (Docker, ZFS, Proxmox) persisted + synced via settings atoms
-- **Transient UI atoms**: `proxmoxLastUpdateAtom` decouples the update indicator from data-receiving components (avoids prop drilling re-renders)
-- `QueryClient` is a singleton in `__root.tsx` — never create per-route
-- Use `useTimeSeriesStream` hook for SSE-backed streaming data (preload + SSE merge + time-windowed buffer + stale detection)
-- Use `useSSE` hook directly for non-time-series SSE consumers (e.g., Proxmox snapshot data)
-- SSE connection management handled automatically by the browser's EventSource API
-
-### Types
-- Domain types: `src/types/` (e.g., `docker.ts`, `zfs.ts`, `settings.ts`)
-- Settings types & atoms: `src/hooks/settingsAtom.ts` (Settings interface, parsing, Jotai atoms)
-- Streaming infrastructure: `src/lib/streaming/types.ts`
+- **Settings**: Jotai atoms (`rawSettingsAtom` → derived `settingsAtom`) synced via SSE (`/api/settings`)
+  - `useSettings()` hook: settings + optimistic setters (local update → fire-and-forget DB persist → rollback on error + toast)
+  - `useSettingsSync()` hook (in AppShell): SSE stream → Jotai atom bridge
+  - `SettingsBroadcastService`: PostgreSQL `NOTIFY settings_change` → SSE broadcast to all clients
+  - Settings keys defined in `src/lib/constants/settings-keys.ts` (canonical source used across frontend + backend)
+  - Expansion state for all dashboards persisted as JSON-serialized `Set<string>` arrays
+- **Transient atoms**: `proxmoxLastUpdateAtom` decouples update indicator from data components (avoids prop-drilling re-renders)
+- `QueryClient` is a singleton in `AppShell.tsx` — never create per-route
 
 ### Testing
 - Test files: `__tests__/` folders co-located with source
@@ -368,6 +235,54 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox us
 - **Always use `@/` for project imports**: `import { Header } from '@/components/Header'`
 - Relative paths OK for test imports in `__tests__/`: `import { foo } from '../foo'`
 - Never mix `@/` and relative in the same file (except tests)
+- Test files: `__tests__/` folders co-located with source, named `*.test.ts` or `*.test.tsx`
+- Test utilities: `src/lib/test/` (Happy-DOM setup, Testing Library setup, stream helpers) — NOT in `__tests__/`
+- Import from `bun:test`: `import { describe, it, expect, mock, beforeEach } from 'bun:test'`
+- Test preloads configured in `bunfig.toml`: Happy-DOM + Testing Library matchers
+- **Coverage**: 93% lines + 93% functions, enforced by `scripts/check-coverage.js` piped from `bun test --coverage`
+- **Avoid `mock.module()` for React or broadly-used modules** — it pollutes globally across concurrent test execution in `bun:test`. Use `renderHook` from Testing Library, dependency injection, or narrow-scope mocks instead.
+- Some hook tests skip in CI due to React 19 + Happy-DOM compatibility issues (guarded by `process.env.CI`)
+
+## Gotchas (Learned from Past Sessions)
+
+These are non-obvious pitfalls that have caused bugs or reverts in past sessions:
+
+1. **BIGINT string coercion**: PostgreSQL `BIGINT` columns return strings via node-postgres, not numbers. Always wrap with `Number()` in row converters. Without this, arithmetic becomes string concatenation.
+
+2. **Dynamic imports are mandatory**: Static imports of `pg`, `subscription-service`, `database-client`, or any server-only module in SSE endpoints or server function files leak into the client bundle. This breaks the app with `node:async_hooks` errors in the browser. Always use `await import()` inside handler functions.
+
+3. **Never add framework packages to `optimizeDeps.include`**: Adding `@tanstack/react-start` to Vite's `optimizeDeps.include` pulls `@tanstack/start-storage-context` (which uses `node:async_hooks`) into the client bundle.
+
+4. **Stable ordering from Maps**: Map iteration order is insertion-order, not sorted. Always sort data derived from Maps before rendering to prevent layout shift and confusing reordering of containers/pools between updates.
+
+5. **Entity IDs vs display names**: Use entity IDs (which include host prefix, e.g., `server1/tank`) for expansion state keys and all uniqueness checks. Using display names (e.g., `tank`) causes cross-host collisions where expanding a pool on one host expands the same-named pool on another.
+
+6. **PostgreSQL extended query protocol**: Parameterized queries (INSERT with `$1, $2`) use the extended query protocol which doesn't support multi-statement execution. INSERT and NOTIFY must be separate `client.query()` calls.
+
+7. **MUI emotion vs Tailwind specificity**: MUI's emotion-generated styles inject after Tailwind's styles in the DOM. At equal specificity, MUI wins. Use Tailwind's `!` prefix (e.g., `!bg-[var(...)]`) to override MUI defaults like Paper's `background-color`.
+
+8. **React.memo with streaming data**: Incorrect memoization can freeze streaming data updates. Be cautious with `React.memo` on components that receive frequently-changing props like `latestByEntity` or `rows`.
+
+9. **Layout shift in metric columns**: Dynamic number formatting (changing units like KB→MB, varying decimal places) causes column width instability. Use minimum widths with `ch` units in MetricValue to reserve space.
+
+10. **`mock.module()` test pollution**: `bun:test` runs tests concurrently. `mock.module()` on React or widely-imported modules (like component imports) pollutes globally, causing other test files to receive mocked versions. Prefer `renderHook`, spies on specific functions, or dependency injection.
+
+11. **Root route is SSR-only**: Putting MUI components or React hooks in `__root.tsx`'s `component` prop breaks SSR. Only `shellComponent` (plain HTML: `<HeadContent />`, `<Scripts />`) is safe. All client-side layout goes in `AppShell.tsx`.
+
+12. **Icon attribution**: Dashboard icons are from `homarr-labs/dashboard-icons` (NOT `walkxcode/dashboard-icons` — that's the old repo name that redirects).
+
+13. **Fix root causes, not symptoms**: When data appears wrong or the UI misbehaves, investigate the actual source of the bug rather than adding caching, memoization, or frontend workarounds. Past band-aid fixes were frequently reverted.
+
+## Environment Variables
+
+All env vars documented in `.env.example`. Key groups:
+- `POSTGRES_*`: Database connection (host, port, db, user, password, ssl, pool_size)
+- `DOCKER_HOST_N` / `DOCKER_HOST_PORT_N` / `DOCKER_HOST_NAME_N`: Multi-host Docker (numbered 1-3)
+- `ZFS_HOST_N` / `ZFS_HOST_PORT_N` / `ZFS_HOST_USER_N` / `ZFS_HOST_KEY_PATH_N`: Multi-host ZFS via SSH (numbered 1-3)
+- `PROXMOX_HOST` / `PROXMOX_PORT` / `PROXMOX_TOKEN_ID` / `PROXMOX_TOKEN_SECRET` / `PROXMOX_ALLOW_SELF_SIGNED`: Proxmox VE API
+- `WORKER_ENABLED` / `WORKER_DOCKER_ENABLED` / `WORKER_ZFS_ENABLED` / `WORKER_COLLECTION_INTERVAL_MS`: Worker config
+
+`.env` sets `POSTGRES_HOST=localhost` for local web dev; Docker services override to `postgres` (internal DNS) in compose files.
 
 ## Decision Frameworks
 
@@ -386,53 +301,55 @@ Unlike Docker/ZFS (which use background workers + TimescaleDB + SSE), Proxmox us
 ## CI/CD & Code Review
 
 ### Branch Protection
-- All changes to `main` must go through a pull request — direct pushes are blocked.
-- PRs require passing CI status checks (build, test, coverage, license) before merging.
-- PRs by `jaredglaser` or `claude[bot]` receive an automatic Claude code review when marked ready for review; use `@claude` mention for subsequent reviews.
+- All changes to `main` go through a pull request — direct pushes blocked.
+- PRs require passing CI (build, test, coverage, license check).
+- PRs by `jaredglaser` or `claude[bot]` get automatic Claude code review on `ready_for_review`.
 
 ### GitHub Actions Workflows
+
 | Workflow | File | Triggers |
 |----------|------|----------|
 | **CI** | `.github/workflows/ci.yml` | Push to `main`, PRs targeting `main` |
-| **Claude PR Review** | `.github/workflows/claude-code-review.yml` | PRs targeting `main` (ready_for_review only) |
-| **Claude Code** | `.github/workflows/claude.yml` | `@claude` mentions in issues, PR comments, and PR reviews |
+| **Claude PR Review** | `.github/workflows/claude-code-review.yml` | PRs targeting `main` (ready_for_review) |
+| **Claude Code** | `.github/workflows/claude.yml` | `@claude` mentions in issues/PRs |
 
-## Security & Best Practices
-
-- Never log environment variables or sensitive config
-- Validate all external input with Zod
-- Never commit debugging code (`console.log`)
-- Use `console.error` only for actual errors
-- Prefer type safety over runtime checks where possible
+CI publishes Docker images to GHCR: `ghcr.io/jaredglaser/homelab-manager-web` and `ghcr.io/jaredglaser/homelab-manager-worker`.
 
 ## Anti-Patterns (DO NOT)
 
-- MUI `sx` props for styling (use Tailwind)
-- Inline `style` attributes when Tailwind can express the same thing
-- Creating `.css` files (use Tailwind)
+- MUI `sx` props or hardcoded hex colors for styling (use Tailwind + theme CSS variables)
+- Creating `.css` files (use Tailwind; exceptions: `App.css`, `theme.ts`)
 - Manual edits to `routeTree.gen.ts` (auto-generated)
-- Adding `component` to root route (breaks SSR)
-- Creating QueryClient per route (singleton only)
-- Creating clients in server functions (use middleware)
-- Using TanStack Start streaming server functions (use SSE via `src/routes/api/` server routes instead — proper disconnect handling)
+- Adding `component` to root route (breaks SSR — use `shellComponent` only)
+- Creating QueryClient per route (singleton in `AppShell.tsx` only)
+- Creating clients directly in server functions (use middleware injection)
+- Static imports of server-only modules in SSE/server function files (use dynamic `await import()`)
+- Using TanStack Start streaming server functions for real-time data (use SSE routes — proper disconnect handling)
 - HTML `<table>/<tr>/<td>` for streaming tables (use CSS Grid divs + virtualizer)
-- Dashboard wrapper components
-- Test files outside `__tests__/` folders
-- `console.log` in committed code
-- Logging sensitive data
-- Static imports of server-only modules (pg, subscription-service, database-client) in server function files — use dynamic `await import()` inside handlers
+- `console.log` in committed code (use `console.error` for actual errors only)
+- `mock.module()` on React or broadly-used modules in tests (causes global pollution)
+- Adding `@tanstack/react-start` or similar framework packages to Vite `optimizeDeps.include`
+- Using display names instead of entity IDs for state keys
+- Dashboard wrapper components (layout goes in AppShell, content in page routes)
 
 ## Quick Reference
 
 | Need | Solution |
 |------|----------|
-| Style component | TailwindCSS classes |
+| Style component | TailwindCSS classes (never `sx` props) |
+| Override MUI default style | `!` prefix: `!bg-[var(--mui-palette-...)]` |
 | Server logic (non-streaming) | `createServerFn()` + middleware |
 | Real-time streaming | SSE route in `src/routes/api/` |
-| Consume SSE stream | `useTimeSeriesStream` hook (tables) or `useSSE` hook (other) |
+| Consume SSE (time-series) | `useTimeSeriesStream` hook |
+| Consume SSE (snapshot) | `useSSE` hook (e.g., Proxmox) |
 | New streaming table | CSS Grid + `useWindowVirtualizer` + `useTimeSeriesStream` |
+| Settings key constant | `src/lib/constants/settings-keys.ts` |
+| Chart color CSS variable | `App.css` (`--chart-cpu`, `--chart-memory`, etc.) |
+| Chart axis/color utilities | `src/lib/charts/` (css-vars.ts, y-axis.ts) |
 | Import from src | `@/path/to/file` |
-| Test file location | `__tests__/filename.test.ts` |
-| Run tests | `bun test` |
-| Check TypeScript types | `bun run typecheck` |
+| Test file location | `__tests__/filename.test.ts` (co-located) |
+| Test utilities | `src/lib/test/` (NOT in `__tests__/`) |
+| Run tests | `bun test` (93% coverage enforced) |
+| Type check | `bun run typecheck` |
 | Type validation | Zod schema |
+| BIGINT from PostgreSQL | Wrap with `Number()` in row converters |
