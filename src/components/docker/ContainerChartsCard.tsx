@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { Sheet } from '@mui/joy';
+import { Paper } from '@mui/material';
 import { formatAsPercent, formatBytes, formatBitsSIUnits } from '@/formatters/metrics';
 import ContainerMetricChart from './ContainerMetricChart';
 
@@ -39,7 +39,7 @@ export default memo(function ContainerChartsCard({
   }), [dataPoints]);
 
   return (
-    <Sheet variant="outlined" className="m-2 p-4 rounded-sm">
+    <Paper variant="outlined" className="m-2 p-4 rounded-sm">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         <ContainerMetricChart
           title="CPU %"
@@ -78,6 +78,6 @@ export default memo(function ContainerChartsCard({
           formatValue={formatNetworkTx}
         />
       </div>
-    </Sheet>
+    </Paper>
   );
 });

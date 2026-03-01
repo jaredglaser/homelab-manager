@@ -1,4 +1,4 @@
-import { Chip, LinearProgress } from '@mui/joy'
+import { Chip, LinearProgress } from '@mui/material'
 import { ChevronRight } from 'lucide-react'
 import type { ProxmoxStorage } from '@/types/proxmox'
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
@@ -21,7 +21,7 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
       {/* Section header row */}
       <div
         onClick={onToggle}
-        className={`flex items-center gap-2 pl-10 pr-4 py-2 cursor-pointer ${BORDER} bg-[var(--joy-palette-background-level1)]`}
+        className={`flex items-center gap-2 pl-10 pr-4 py-2 cursor-pointer ${BORDER} bg-[var(--mui-palette-background-level1)]`}
       >
         <ChevronRight
           size={16}
@@ -56,12 +56,11 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
                 <div className="px-3 py-2 text-sm">{s.type}</div>
                 <div className="px-3 py-2">
                   <Chip
-                    size="sm"
-                    variant="soft"
-                    color={s.active ? 'success' : 'neutral'}
-                  >
-                    {s.active ? 'active' : 'inactive'}
-                  </Chip>
+                    size="small"
+                    variant="filled"
+                    color={s.active ? 'success' : 'default'}
+                    label={s.active ? 'active' : 'inactive'}
+                  />
                 </div>
                 <div>
                   {s.total > 0 ? (
@@ -81,11 +80,11 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
                       hasDecimals
                       sparkline={
                         <LinearProgress
-                          determinate
+                          variant="determinate"
                           value={Math.min(s.used_fraction * 100, 100)}
                           color={
                             s.used_fraction > 0.9
-                              ? 'danger'
+                              ? 'error'
                               : s.used_fraction > 0.7
                                 ? 'warning'
                                 : 'success'

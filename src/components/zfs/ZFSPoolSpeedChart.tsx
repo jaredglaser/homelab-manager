@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Sheet, Typography } from '@mui/joy';
+import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { formatBytes } from '@/formatters/metrics';
@@ -179,8 +179,8 @@ export default function ZFSPoolSpeedChart({
   useEChartTimeScroll(chartRef, WINDOW_MS);
 
   return (
-    <Sheet variant="soft" className="rounded-sm p-4">
-      <Typography level="title-sm" className="mb-2">
+    <Paper elevation={0} className="rounded-sm p-4 !bg-[var(--mui-palette-background-chartBg)]">
+      <Typography variant="subtitle2" className="mb-2">
         {poolName}
       </Typography>
       <div className="h-48">
@@ -193,6 +193,6 @@ export default function ZFSPoolSpeedChart({
           lazyUpdate={true}
         />
       </div>
-    </Sheet>
+    </Paper>
   );
 }

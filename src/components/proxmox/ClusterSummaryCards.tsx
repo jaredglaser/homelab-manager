@@ -1,4 +1,4 @@
-import { Card, Typography } from '@mui/joy'
+import { Card, Typography } from '@mui/material'
 import type { ProxmoxClusterOverview } from '@/types/proxmox'
 import { formatBytes } from '@/formatters/metrics'
 
@@ -14,44 +14,44 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
 
   return (
     <div className="grid grid-cols-2 gap-4 mb-6 lg:grid-cols-4">
-      <Card variant="outlined">
-        <Typography level="body-xs" className="uppercase tracking-wide text-neutral-500">
+      <Card variant="outlined" className="p-4">
+        <Typography variant="caption" className="uppercase tracking-wide text-neutral-500">
           Cluster
         </Typography>
-        <Typography level="h3">{clusterName}</Typography>
-        <Typography level="body-sm">
+        <Typography variant="h5">{clusterName}</Typography>
+        <Typography variant="body2">
           {onlineNodes}/{nodes.length} nodes online
         </Typography>
       </Card>
 
-      <Card variant="outlined">
-        <Typography level="body-xs" className="uppercase tracking-wide text-neutral-500">
+      <Card variant="outlined" className="p-4">
+        <Typography variant="caption" className="uppercase tracking-wide text-neutral-500">
           CPU
         </Typography>
-        <Typography level="h3">{cpuPercent.toFixed(1)}%</Typography>
-        <Typography level="body-sm">
+        <Typography variant="h5">{cpuPercent.toFixed(1)}%</Typography>
+        <Typography variant="body2">
           {totals.usedCpu.toFixed(1)} / {totals.totalCpu} cores
         </Typography>
       </Card>
 
-      <Card variant="outlined">
-        <Typography level="body-xs" className="uppercase tracking-wide text-neutral-500">
+      <Card variant="outlined" className="p-4">
+        <Typography variant="caption" className="uppercase tracking-wide text-neutral-500">
           Memory
         </Typography>
-        <Typography level="h3">{memPercent.toFixed(1)}%</Typography>
-        <Typography level="body-sm">
+        <Typography variant="h5">{memPercent.toFixed(1)}%</Typography>
+        <Typography variant="body2">
           {formatBytes(totals.usedMemory, false)} / {formatBytes(totals.totalMemory, false)}
         </Typography>
       </Card>
 
-      <Card variant="outlined">
-        <Typography level="body-xs" className="uppercase tracking-wide text-neutral-500">
+      <Card variant="outlined" className="p-4">
+        <Typography variant="caption" className="uppercase tracking-wide text-neutral-500">
           Guests
         </Typography>
-        <Typography level="h3">
+        <Typography variant="h5">
           {totals.runningVMs + totals.runningContainers} running
         </Typography>
-        <Typography level="body-sm">
+        <Typography variant="body2">
           {totals.runningVMs} VMs, {totals.runningContainers} CTs
           {(totals.stoppedVMs + totals.stoppedContainers > 0) && (
             <> ({totals.stoppedVMs + totals.stoppedContainers} stopped)</>

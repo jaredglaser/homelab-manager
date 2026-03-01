@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Modal, ModalDialog, ModalClose, DialogTitle, DialogContent, Input } from '@mui/joy';
-import { Search } from 'lucide-react';
+import { Dialog, DialogTitle, DialogContent, IconButton, TextField, InputAdornment } from '@mui/material';
+import { Search, X } from 'lucide-react';
 import { AVAILABLE_ICONS } from '@/lib/utils/icon-resolver';
 
 const ICON_COLS = 7;
@@ -59,58 +59,74 @@ export default function IconPickerDialog({
   };
 
   return (
-    <Modal open={open} onClose={handleClose}>
-      <ModalDialog
-        aria-labelledby="icon-picker-title"
-        sx={{ width: 'min(90vw, 40rem)' }}
-      >
-        <ModalClose />
-        <DialogTitle id="icon-picker-title">Select Icon for {containerName}</DialogTitle>
-        <DialogContent>
-          <Input
-            placeholder="Search icons..."
-            startDecorator={<Search size={16} />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="mb-4"
-            autoFocus
-          />
-          <div ref={scrollRef} className="max-h-80 overflow-y-auto">
-            {filteredIcons.length === 0 ? (
-              <p className="text-center py-4 text-sm opacity-70">No icons found for &quot;{search}&quot;</p>
-            ) : (
-              <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-                {virtualizer.getVirtualItems().map((virtualRow) => {
-                  const row = iconRows[virtualRow.index];
-                  return (
-                    <div
-                      key={virtualRow.index}
-                      className="grid grid-cols-7 gap-2 absolute left-0 w-full"
-                      style={{
-                        height: virtualRow.size,
-                        transform: `translateY(${virtualRow.start}px)`,
-                      }}
-                    >
-                      {row.map((slug) => (
-                        <button
-                          key={slug}
-                          onClick={() => handleSelect(slug)}
-                          className={`flex flex-col items-center p-2 rounded-md transition-colors hover:bg-blue-500/10 ${
-                            currentIcon === slug ? 'bg-blue-500/20 ring-1 ring-blue-500' : ''
-                          }`}
-                        >
-                          <img src={`/icons/${slug}.svg`} alt={slug} className="w-8 h-8" />
-                          <span className="mt-1 text-xs truncate w-full text-center">{slug}</span>
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </ModalDialog>
-    </Modal>
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      maxWidth="sm"
+      fullWidth
+      aria-labelledby="icon-picker-title"
+    >
+      <DialogTitle id="icon-picker-title" className="flex items-center justify-between">
+        Select Icon for {containerName}
+        <IconButton onClick={handleClose} size="small" aria-label="Close">
+          <X size={18} />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>
+        <TextField
+          placeholder="Search icons..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="mb-4"
+          autoFocus
+          fullWidth
+          size="small"
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search size={16} />
+                </InputAdornment>
+              ),
+            },
+          }}
+        />
+        <div ref={scrollRef} className="max-h-80 overflow-y-auto">
+          {filteredIcons.length === 0 ? (
+            <p className="text-center py-4 text-sm opacity-70">No icons found for &quot;{search}&quot;</p>
+          ) : (
+            <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const row = iconRows[virtualRow.index];
+                return (
+                  <div
+                    key={virtualRow.index}
+                    className="grid grid-cols-7 gap-2 absolute left-0 w-full"
+                    style={{
+                      height: virtualRow.size,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    {row.map((slug) => (
+                      <button
+                        type="button"
+                        key={slug}
+                        onClick={() => handleSelect(slug)}
+                        className={`flex flex-col items-center p-2 rounded-md transition-colors hover:bg-blue-500/10 ${
+                          currentIcon === slug ? 'bg-blue-500/20 ring-1 ring-blue-500' : ''
+                        }`}
+                      >
+                        <img src={`/icons/${slug}.svg`} alt={slug} className="w-8 h-8" />
+                        <span className="mt-1 text-xs truncate w-full text-center">{slug}</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

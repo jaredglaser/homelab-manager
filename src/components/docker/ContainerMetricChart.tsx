@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef } from 'react';
-import { Sheet, Typography } from '@mui/joy';
+import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useSettings } from '@/hooks/useSettings';
@@ -164,8 +164,8 @@ export default memo(function ContainerMetricChart({
   useEChartTimeScroll(chartRef, windowMs);
 
   return (
-    <Sheet variant="soft" className="rounded-sm p-3">
-      <Typography level="body-sm" className="mb-1 font-medium">
+    <Paper elevation={0} className="rounded-sm p-3 !bg-[var(--mui-palette-background-chartBg)]">
+      <Typography variant="body2" className="mb-1 font-medium">
         {title}
       </Typography>
       <div className="h-32">
@@ -178,6 +178,6 @@ export default memo(function ContainerMetricChart({
           lazyUpdate={true}
         />
       </div>
-    </Sheet>
+    </Paper>
   );
 });
