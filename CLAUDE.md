@@ -145,6 +145,7 @@ Worker → Docker/ZFS/Proxmox APIs → INSERT wide rows → TimescaleDB
                                                             ↓
 Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast to all clients
 ```
+
 - **Frontend reads from database**, not direct API/SSH connections.
 - Worker collects stats → INSERT wide rows into TimescaleDB.
 - Server runs shared `StatsPollService` that polls DB every 1s per source — only 1 query/sec regardless of client count.

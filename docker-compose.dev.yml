@@ -105,7 +105,7 @@ services:
     ports:
       - "${WEB_PORT}:3000"
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      <<: *postgres-env
 
 volumes:
   node_modules:

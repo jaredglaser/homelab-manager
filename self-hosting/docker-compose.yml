@@ -104,7 +104,7 @@ services:
     ports:
       - "${WEB_PORT:-3000}:3000"
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      <<: *postgres-env
       NODE_ENV: production
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
     extra_hosts:

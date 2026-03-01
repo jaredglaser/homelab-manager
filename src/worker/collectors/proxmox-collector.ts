@@ -35,7 +35,7 @@ export class ProxmoxCollector extends BaseCollector {
   }
 
   set pollInterval(ms: number) {
-    this._pollIntervalMs = ms;
+    this._pollIntervalMs = Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_POLL_INTERVAL_MS;
     this._sleepAbortController?.abort();
   }
 

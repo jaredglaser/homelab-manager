@@ -180,10 +180,11 @@ function ProxmoxContent() {
   })
 
   // Update the last-update atom when new rows arrive
-  const prevRowCountRef = useRef(0)
+  const prevLastRowRef = useRef<ProxmoxStatsRow | null>(null)
   useEffect(() => {
-    if (stream.rows.length > 0 && stream.rows.length !== prevRowCountRef.current) {
-      prevRowCountRef.current = stream.rows.length
+    const lastRow = stream.rows[stream.rows.length - 1] ?? null
+    if (lastRow && lastRow !== prevLastRowRef.current) {
+      prevLastRowRef.current = lastRow
       setLastUpdate(Date.now())
     }
   }, [stream.rows, setLastUpdate])

@@ -28,13 +28,13 @@ describe('ProxmoxClient', () => {
     console.error = originalConsoleError;
   });
 
-  it('should construct with correct base URL', () => {
+  it('should construct with correct base URL', async () => {
     const client = new ProxmoxClient(createConfig());
     // Test via a request — the URL should contain the correct base
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ data: {} }), { status: 200 })
     );
-    client.testConnection();
+    await client.testConnection();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const callUrl = fetchSpy.mock.calls[0][0] as string;
     expect(callUrl).toContain('https://192.168.1.100:8006/api2/json');

@@ -56,7 +56,7 @@ async function main() {
     // Resolve Proxmox poll interval from DB settings (default 10s)
     let proxmoxPollIntervalMs = 10_000;
     try {
-      const raw = await settingsRepo.get('proxmox/updateInterval');
+      const raw = await settingsRepo.get(SETTINGS_KEYS.proxmox.updateInterval);
       const parsed = raw ? parseInt(raw, 10) : 10_000;
       if (parsed === 1000 || parsed === 10000) proxmoxPollIntervalMs = parsed;
     } catch {
@@ -92,7 +92,7 @@ async function main() {
           [
             SETTINGS_KEYS.developer.dockerDebugLogging,
             SETTINGS_KEYS.developer.dbFlushDebugLogging,
-            'proxmox/updateInterval',
+            SETTINGS_KEYS.proxmox.updateInterval,
           ],
           (key, value) => {
             if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
@@ -102,7 +102,7 @@ async function main() {
             } else if (key === SETTINGS_KEYS.developer.dbFlushDebugLogging) {
               const enabled = value === 'true';
               for (const c of collectors) c.dbFlushDebugLogging = enabled;
-            } else if (key === 'proxmox/updateInterval') {
+            } else if (key === SETTINGS_KEYS.proxmox.updateInterval) {
               const parsed = value ? parseInt(value, 10) : 10_000;
               const interval = (parsed === 1000 || parsed === 10000) ? parsed : 10_000;
               for (const c of collectors) {

@@ -349,7 +349,7 @@ export class StatsRepository {
       `SELECT * FROM proxmox_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
-    return result.rows;
+    return result.rows.map(toProxmoxStatsRow);
   }
 
   async getProxmoxStatsHistory(seconds: number): Promise<ProxmoxStatsRow[]> {
@@ -359,7 +359,7 @@ export class StatsRepository {
        ORDER BY time ASC`,
       [seconds]
     );
-    return result.rows;
+    return result.rows.map(toProxmoxStatsRow);
   }
 
   async upsertEntityMetadata(
@@ -423,4 +423,33 @@ export class StatsRepository {
     }
     return metadata;
   }
+}
+
+/** Convert a raw pg row to ProxmoxStatsRow, coercing BIGINT strings to numbers. */
+function toProxmoxStatsRow(row: Record<string, unknown>): ProxmoxStatsRow {
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    time: row.time as string | Date,
+    host: row.host as string,
+    entity_type: row.entity_type as ProxmoxStatsRow['entity_type'],
+    node: row.node as string | null,
+    entity_id: row.entity_id as string,
+    entity_name: row.entity_name as string | null,
+    status: row.status as string | null,
+    cpu: n(row.cpu),
+    max_cpu: n(row.max_cpu),
+    mem: n(row.mem),
+    max_mem: n(row.max_mem),
+    disk: n(row.disk),
+    max_disk: n(row.max_disk),
+    uptime: n(row.uptime),
+    vmid: n(row.vmid),
+    netin: n(row.netin),
+    netout: n(row.netout),
+    storage_type: row.storage_type as string | null,
+    storage_content: row.storage_content as string | null,
+    storage_avail: n(row.storage_avail),
+    storage_shared: row.storage_shared as boolean | null,
+    cluster_version: n(row.cluster_version),
+  };
 }
