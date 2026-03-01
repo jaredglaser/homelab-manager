@@ -26,6 +26,23 @@ function createMockSettingsRepo(values: Record<string, string | null> = {}) {
   };
 }
 
+/** Mock the internal pg.Client on a SettingsListener, with optional custom `on` handler */
+function setupPgClientMocks(
+  listener: SettingsListener,
+  onImpl?: (event: string, cb: any) => any,
+) {
+  const pgClient = (listener as any).client; // Access private for test
+  spyOn(pgClient, 'connect').mockResolvedValue(undefined);
+  spyOn(pgClient, 'query').mockResolvedValue({ rows: [] });
+  if (onImpl) {
+    spyOn(pgClient, 'on').mockImplementation(onImpl);
+  } else {
+    spyOn(pgClient, 'on').mockReturnValue(pgClient);
+  }
+  const endSpy = spyOn(pgClient, 'end').mockResolvedValue(undefined);
+  return { pgClient, endSpy };
+}
+
 describe('SettingsListener', () => {
   beforeEach(() => {
     console.log = mock(() => {});
@@ -98,12 +115,7 @@ describe('SettingsListener', () => {
         controller.signal,
       );
 
-      // Mock the internal pg.Client methods
-      const pgClient = (listener as any).client;
-      spyOn(pgClient, 'connect').mockResolvedValue(undefined);
-      spyOn(pgClient, 'query').mockResolvedValue({ rows: [] });
-      spyOn(pgClient, 'on').mockReturnValue(pgClient);
-      spyOn(pgClient, 'end').mockResolvedValue(undefined);
+      const { pgClient } = setupPgClientMocks(listener);
 
       await listener.start();
 
@@ -134,16 +146,12 @@ describe('SettingsListener', () => {
         controller.signal,
       );
 
-      const pgClient = (listener as any).client;
-      spyOn(pgClient, 'connect').mockResolvedValue(undefined);
-      spyOn(pgClient, 'query').mockResolvedValue({ rows: [] });
-      spyOn(pgClient, 'on').mockReturnValue(pgClient);
-      const endMock = spyOn(pgClient, 'end').mockResolvedValue(undefined);
+      const { endSpy } = setupPgClientMocks(listener);
 
       await listener.start();
       await listener[Symbol.asyncDispose]();
 
-      expect(endMock).toHaveBeenCalled();
+      expect(endSpy).toHaveBeenCalled();
 
       controller.abort();
     });
@@ -163,16 +171,11 @@ describe('SettingsListener', () => {
         controller.signal,
       );
 
-      // Capture the notification handler
       let notificationHandler: ((msg: any) => void) | undefined;
-      const pgClient = (listener as any).client;
-      spyOn(pgClient, 'connect').mockResolvedValue(undefined);
-      spyOn(pgClient, 'query').mockResolvedValue({ rows: [] });
-      spyOn(pgClient, 'on').mockImplementation((event: string, cb: any) => {
+      const { pgClient } = setupPgClientMocks(listener, (event: string, cb: any) => {
         if (event === 'notification') notificationHandler = cb;
         return pgClient;
       });
-      spyOn(pgClient, 'end').mockResolvedValue(undefined);
 
       await listener.start();
 
@@ -209,14 +212,10 @@ describe('SettingsListener', () => {
       );
 
       let notificationHandler: ((msg: any) => void) | undefined;
-      const pgClient = (listener as any).client;
-      spyOn(pgClient, 'connect').mockResolvedValue(undefined);
-      spyOn(pgClient, 'query').mockResolvedValue({ rows: [] });
-      spyOn(pgClient, 'on').mockImplementation((event: string, cb: any) => {
+      const { pgClient } = setupPgClientMocks(listener, (event: string, cb: any) => {
         if (event === 'notification') notificationHandler = cb;
         return pgClient;
       });
-      spyOn(pgClient, 'end').mockResolvedValue(undefined);
 
       await listener.start();
       (handler as any).mockClear();
@@ -248,14 +247,10 @@ describe('SettingsListener', () => {
       );
 
       let errorHandler: ((err: Error) => void) | undefined;
-      const pgClient = (listener as any).client;
-      spyOn(pgClient, 'connect').mockResolvedValue(undefined);
-      spyOn(pgClient, 'query').mockResolvedValue({ rows: [] });
-      spyOn(pgClient, 'on').mockImplementation((event: string, cb: any) => {
+      const { pgClient } = setupPgClientMocks(listener, (event: string, cb: any) => {
         if (event === 'error') errorHandler = cb;
         return pgClient;
       });
-      spyOn(pgClient, 'end').mockResolvedValue(undefined);
 
       await listener.start();
 
@@ -284,11 +279,7 @@ describe('SettingsListener', () => {
         controller.signal,
       );
 
-      const pgClient = (listener as any).client;
-      spyOn(pgClient, 'connect').mockResolvedValue(undefined);
-      spyOn(pgClient, 'query').mockResolvedValue({ rows: [] });
-      spyOn(pgClient, 'on').mockReturnValue(pgClient);
-      spyOn(pgClient, 'end').mockResolvedValue(undefined);
+      setupPgClientMocks(listener);
 
       // Should not throw despite repo error
       await expect(listener.start()).resolves.toBeUndefined();

@@ -82,8 +82,8 @@ describe('DockerClient', () => {
     client.debugLogging = false;
     await client.connect();
 
-    // Only debug logs should be suppressed; connect still happens
     expect(client.isConnected()).toBe(true);
+    expect(console.log).not.toHaveBeenCalled();
   });
 
 });

@@ -123,7 +123,10 @@ describe('loadZFSConfig', () => {
     const config = loadZFSConfig();
 
     expect(config.hosts.length).toBe(0);
-    expect(console.error).toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledTimes(1);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining('ZFS_HOST_USER_1 is missing'),
+    );
   });
 
   it('should support privateKey auth with passphrase', () => {

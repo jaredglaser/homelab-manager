@@ -269,7 +269,10 @@ describe('SSHConnectionManager', () => {
     console.error = mock(() => {});
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Clear any injected connections to prevent singleton state leaking between tests
+    const { sshConnectionManager } = await import('../ssh-client');
+    (sshConnectionManager as any).connections.clear();
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
   });
