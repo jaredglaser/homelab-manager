@@ -124,6 +124,13 @@ function ProxmoxPage() {
   )
 }
 
+/**
+ * Renders the Proxmox dashboard content including the header, update controls, and main content area.
+ *
+ * The header shows the page title, an update freshness indicator, and an interval toggle bound to settings.
+ *
+ * @returns The JSX element containing the Proxmox dashboard content.
+ */
 function ProxmoxPageContent() {
   const { proxmox, setProxmoxUpdateInterval } = useSettings()
 
@@ -143,6 +150,16 @@ function ProxmoxPageContent() {
 
 const WINDOW_SECONDS = 120
 
+/**
+ * Render the Proxmox dashboard content, handling live time-series streaming, configuration checks, and overview-driven UI.
+ *
+ * Uses a time-series SSE stream (with a 120s window and 1s updates), preloads recent history, updates the global
+ * last-update timestamp when new rows arrive, and runs a delayed configuration check if connected but no data is received.
+ *
+ * @returns The JSX content for the Proxmox dashboard: an error message on stream failure, a configuration guidance panel
+ *          when Proxmox is not configured, a loading indicator while awaiting data, or the overview UI (summary cards and host view)
+ *          when overview data is available.
+ */
 function ProxmoxContent() {
   const [configured, setConfigured] = useState<boolean | null>(null)
   const setLastUpdate = useSetAtom(proxmoxLastUpdateAtom)

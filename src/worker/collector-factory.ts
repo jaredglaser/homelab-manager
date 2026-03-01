@@ -14,9 +14,10 @@ export interface CollectorFactoryResult {
 }
 
 /**
- * Create all enabled collectors based on worker configuration.
- * Each collector is registered on the provided `AsyncDisposableStack` for automatic cleanup.
- * Returns the list of collectors (for runtime config changes) and their run promises.
+ * Create and register enabled collectors based on the provided worker configuration.
+ *
+ * @param proxmoxPollIntervalMs - Optional poll interval in milliseconds for the Proxmox collector; when omitted a default of 10000 ms is used
+ * @returns An object with `collectors` — the created collector instances, and `runners` — an array of each collector's run promise
  */
 export function createCollectors(
   db: DatabaseClient,

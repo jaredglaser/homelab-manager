@@ -19,11 +19,13 @@ const WorkerConfigSchema = z.object({
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
 
 /**
- * Load worker configuration from environment variables
- * Validates all required fields and provides sensible defaults
+ * Load and validate worker configuration from environment variables.
  *
- * @returns Validated worker configuration
- * @throws {z.ZodError} If configuration is invalid
+ * Reads configuration values from process.env, applies defaults where needed,
+ * and validates the result against the WorkerConfigSchema.
+ *
+ * @returns The validated worker configuration.
+ * @throws {z.ZodError} If the configuration is invalid according to the schema.
  */
 export function loadWorkerConfig(): WorkerConfig {
   const config = {

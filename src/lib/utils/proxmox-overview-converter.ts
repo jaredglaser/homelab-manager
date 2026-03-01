@@ -1,10 +1,11 @@
 import type { ProxmoxClusterOverview, ProxmoxStatsRow } from '@/types/proxmox';
 
 /**
- * Convert a ProxmoxClusterOverview (from the Proxmox REST API) into flat
- * ProxmoxStatsRow[] suitable for insertion into the proxmox_stats hypertable.
+ * Convert a ProxmoxClusterOverview into a flat array of ProxmoxStatsRow, producing one row for the cluster and one row per node, VM, container, and storage.
  *
- * Produces one row per entity: 1 cluster + N nodes + M guests + K storages.
+ * @param overview - Cluster overview object returned by the Proxmox REST API
+ * @param host - Host identifier to set on every produced row
+ * @returns An array of ProxmoxStatsRow: the first element is the cluster row, followed by node rows, VM rows (entity_type 'qemu'), container rows (entity_type 'lxc'), and storage rows
  */
 export function overviewToRows(
   overview: ProxmoxClusterOverview,

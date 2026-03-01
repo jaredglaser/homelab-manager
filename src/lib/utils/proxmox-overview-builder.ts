@@ -8,11 +8,10 @@ import type {
 } from '@/types/proxmox';
 
 /**
- * Reconstruct a ProxmoxClusterOverview from the latest row per entity.
- * This is the inverse of `overviewToRows()` — it takes the flat DB rows
- * and rebuilds the nested overview structure that downstream UI components expect.
+ * Builds a ProxmoxClusterOverview from the latest ProxmoxStatsRow entries keyed by entity.
  *
- * Totals are computed from node rows (matching the logic in ProxmoxClient.getClusterOverview).
+ * @param latestByEntity - Map of the most-recent `ProxmoxStatsRow` for each entity identifier
+ * @returns The reconstructed `ProxmoxClusterOverview`, or `null` if neither a cluster row nor any node rows are present
  */
 export function buildProxmoxOverview(
   latestByEntity: Map<string, ProxmoxStatsRow>,

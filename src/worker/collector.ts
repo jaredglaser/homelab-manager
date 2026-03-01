@@ -13,8 +13,9 @@ import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 
 /**
- * Background worker entry point
- * Orchestrates Docker and ZFS collectors, runs migrations, handles graceful shutdown
+ * Start and run the background worker that coordinates collectors, database migrations, settings updates, and graceful shutdown.
+ *
+ * Loads configuration and database connection, runs migrations, resolves collection and Proxmox poll intervals, creates and runs enabled collectors, and listens for settings changes (developer/dockerDebugLogging, developer/dbFlushDebugLogging, proxmox/updateInterval) to adjust collector behavior at runtime. Handles SIGTERM/SIGINT to abort collectors and performs orderly cleanup of connections; on unrecoverable errors the process exits with a non-zero code.
  */
 async function main() {
   console.log('[Worker] Starting homelab-manager background collector');
