@@ -177,8 +177,27 @@ export class StatsRepository {
     to: Date,
     targetPoints = 300,
   ): Promise<DockerStatsRow[]> {
-    const durationSeconds = (to.getTime() - from.getTime()) / 1000;
-    const bucketSeconds = Math.max(1, Math.ceil(durationSeconds / targetPoints));
+    // First, find the actual data extent so we bucket based on real data density
+    // rather than the full requested range. This prevents low-resolution graphs
+    // when the requested range exceeds the available data.
+    const boundsParams: (string | Date)[] = [from, to, containerId];
+    const boundsHostFilter = host ? `AND host = $${boundsParams.push(host)}` : '';
+
+    const boundsResult = await this.pool.query(
+      `SELECT EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) AS actual_span_secs
+       FROM docker_stats
+       WHERE time >= $1 AND time <= $2
+         AND container_id = $3
+         ${boundsHostFilter}`,
+      boundsParams
+    );
+
+    const actualSpanSecs = Number(boundsResult.rows[0]?.actual_span_secs) || 0;
+    const requestedSpanSecs = (to.getTime() - from.getTime()) / 1000;
+    const effectiveSpan = actualSpanSecs > 0
+      ? Math.min(actualSpanSecs, requestedSpanSecs)
+      : requestedSpanSecs;
+    const bucketSeconds = Math.max(1, Math.ceil(effectiveSpan / targetPoints));
 
     const params: (string | Date | number)[] = [from, to, bucketSeconds, containerId];
     const hostFilter = host ? `AND host = $${params.push(host)}` : '';
