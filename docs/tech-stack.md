@@ -8,7 +8,7 @@
 | **Virtualization** | [TanStack Virtual](https://tanstack.com/virtual) | Virtualized rendering for large lists (page-scroll mode) |
 | **Runtime** | [Bun](https://bun.sh) | Package manager, test runner, and JavaScript runtime |
 | **Build** | [Vite](https://vite.dev) | Dev server and production bundler |
-| **UI** | [MUI Joy UI](https://mui.com/joy-ui/getting-started/) + [TailwindCSS](https://tailwindcss.com) | Component library and utility-first styling |
+| **UI** | [MUI Material UI](https://mui.com/material-ui/getting-started/) + [TailwindCSS](https://tailwindcss.com) | Component library and utility-first styling |
 | **Docker** | [Dockerode](https://github.com/apocas/dockerode) | Docker Engine API client |
 | **SSH** | [ssh2](https://github.com/mscdex/ssh2) | SSH client for remote command execution |
 | **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and indefinite retention for time-series data |

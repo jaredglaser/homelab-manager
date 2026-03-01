@@ -7,7 +7,7 @@ src/
 │   ├── Header.tsx                   # Navigation header
 │   ├── PageHeader.tsx               # Page title with optional actions
 │   ├── ModeToggle.tsx               # Dark/light theme toggle
-│   ├── ThemeProvider.tsx            # MUI Joy theme wrapper
+│   ├── ThemeProvider.tsx            # MUI Material theme wrapper
 │   ├── docker/
 │   │   ├── ContainerTable.tsx       # Docker table (CSS Grid + useWindowVirtualizer, includes HostRow)
 │   │   ├── ContainerRow.tsx         # Container row with icon, metrics, and sparklines
@@ -76,7 +76,7 @@ src/
 │   ├── proxmox.tsx                  # Proxmox page (/proxmox)
 │   ├── settings.tsx                 # Settings page (/settings)
 │   └── zfs.tsx                      # ZFS page (/zfs)
-└── theme.ts                         # MUI Joy theme config
+└── theme.ts                         # MUI Material theme config
 
 public/icons/                        # SVG icons from homarr-labs/dashboard-icons
 migrations/                          # SQL migrations (settings + TimescaleDB wide tables)
