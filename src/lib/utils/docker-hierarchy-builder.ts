@@ -19,8 +19,8 @@ export function computeServiceKey(
   labels: Record<string, string> | undefined,
   containerName: string,
 ): string {
-  const project = labels?.['com.docker.compose.project'];
-  const service = labels?.['com.docker.compose.service'];
+  const project = labels?.['com.docker.compose.project']?.replaceAll('/', '-');
+  const service = labels?.['com.docker.compose.service']?.replaceAll('/', '-');
   return project && service ? `${project}/${service}` : containerName;
 }
 

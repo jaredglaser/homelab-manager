@@ -210,7 +210,7 @@ export default function ContainerHistoryPage({
           <div>
             <Typography variant="h5">{containerName}</Typography>
             {showServiceKey && (
-              <Typography variant="caption" className="text-neutral-400 block">Service: {serviceKey}</Typography>
+              <Typography variant="caption" className="text-[var(--mui-palette-text-secondary)] block">Service: {serviceKey}</Typography>
             )}
             {containerImage && (
               <Typography variant="caption" className="text-neutral-500">{containerImage}</Typography>

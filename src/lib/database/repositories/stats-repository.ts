@@ -450,10 +450,10 @@ export class StatsRepository {
     serviceKey: string,
   ): Promise<string[]> {
     const result = await this.pool.query(
-      `SELECT SUBSTRING(entity FROM LENGTH($2) + 2) AS container_id
+      `SELECT SPLIT_PART(entity, '/', 2) AS container_id
        FROM entity_metadata
        WHERE source = $1 AND key = 'service_key' AND value = $3
-         AND entity LIKE $2 || '/%'`,
+         AND SPLIT_PART(entity, '/', 1) = $2`,
       [source, host, serviceKey]
     );
     return (result.rows as { container_id: string }[]).map(r => r.container_id);
@@ -474,7 +474,7 @@ export class StatsRepository {
       `UPDATE entity_metadata
        SET value = $4, updated_at = NOW()
        WHERE source = $1 AND key = 'service_key' AND value = $3
-         AND entity LIKE $2 || '/%'`,
+         AND SPLIT_PART(entity, '/', 1) = $2`,
       [source, host, oldKey, newKey]
     );
   }
@@ -518,15 +518,16 @@ export class StatsRepository {
       `SELECT
          sk.entity                                                             AS container_entity,
          SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value                     AS service_key_entity,
-         icon.value                                                            AS icon_slug
+         COALESCE(icon.value, legacy_icon.value)                               AS icon_slug
        FROM entity_metadata sk
        LEFT JOIN entity_metadata icon
          ON  icon.source = sk.source
          AND icon.key    = 'icon'
-         AND (
-               icon.entity = SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value
-            OR icon.entity = sk.entity
-             )
+         AND icon.entity = SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value
+       LEFT JOIN entity_metadata legacy_icon
+         ON  legacy_icon.source = sk.source
+         AND legacy_icon.key    = 'icon'
+         AND legacy_icon.entity = sk.entity
        WHERE sk.source = $1 AND sk.key = 'service_key'`,
       [source]
     );

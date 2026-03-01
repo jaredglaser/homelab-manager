@@ -73,14 +73,22 @@ export class DockerCollector extends BaseCollector {
           // whose name differs from the compose service label). Fall back to the container name
           // when this is the first time the worker has seen this container.
           const oldServiceKey = known?.serviceKey ?? containerName;
-          await this.repository.migrateServiceKeyByName(
-            DOCKER_SOURCE, this.hostConfig.name, oldServiceKey, serviceKey,
-          );
-          await this.repository.migrateServiceIcon(
-            DOCKER_SOURCE,
-            `${this.hostConfig.name}/${oldServiceKey}`,
-            `${this.hostConfig.name}/${serviceKey}`,
-          );
+          try {
+            await this.repository.migrateServiceKeyByName(
+              DOCKER_SOURCE, this.hostConfig.name, oldServiceKey, serviceKey,
+            );
+            await this.repository.migrateServiceIcon(
+              DOCKER_SOURCE,
+              `${this.hostConfig.name}/${oldServiceKey}`,
+              `${this.hostConfig.name}/${serviceKey}`,
+            );
+          } catch (err) {
+            console.error(`[${this.name}] Failed to migrate service key ${oldServiceKey} → ${serviceKey}:`, err);
+            // Preserve old serviceKey so the next cycle retries the migration
+            this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image, serviceKey: oldServiceKey });
+            metadataUpdates++;
+            continue;
+          }
         }
         this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image, serviceKey });
         metadataUpdates++;

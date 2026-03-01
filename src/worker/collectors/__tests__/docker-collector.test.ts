@@ -396,6 +396,56 @@ describe('DockerCollector', () => {
       controller.abort();
     });
 
+    it('should continue collecting stats when migration fails and preserve old serviceKey for retry', async () => {
+      const db = createMockDb();
+      const controller = new AbortController();
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
+
+      const writtenRows: any[][] = [];
+      spyOn((collector as any).repository, 'insertDockerStats').mockImplementation(async (rows: any[]) => {
+        writtenRows.push(rows);
+      });
+      spyOn((collector as any).repository, 'upsertEntityMetadata').mockImplementation(async () => {});
+      spyOn((collector as any).repository, 'migrateServiceKeyByName').mockRejectedValue(new Error('DB migration error'));
+      spyOn((collector as any).repository, 'migrateServiceIcon').mockImplementation(async () => {});
+
+      const stats = createMockContainerStats(100000000, 10000000000);
+      const statsStream = Readable.from(JSON.stringify(stats));
+
+      const containerInfoWithLabels = {
+        Id: 'migrate-fail-123',
+        Names: ['/plex'],
+        Image: 'plexinc/pms-docker:latest',
+        Labels: {
+          'com.docker.compose.project': 'media-stack',
+          'com.docker.compose.service': 'plex',
+        },
+      };
+
+      const mockDocker = {
+        listContainers: mock(async () => [containerInfoWithLabels]),
+        getContainer: mock(() => ({ stats: mock(async () => statsStream) })),
+      };
+
+      spyOn(dockerConnectionManager, 'getClient').mockResolvedValue({
+        getDocker: () => mockDocker,
+        close: mock(async () => {}),
+        isConnected: () => true,
+      } as any);
+
+      await (collector as any).collect();
+
+      // Stats collection should still proceed despite migration failure
+      expect(writtenRows.length).toBeGreaterThanOrEqual(1);
+
+      // Old serviceKey (container name fallback) should be preserved for retry
+      const knownEntry = (collector as any).knownContainers.get('migrate-fail-123');
+      expect(knownEntry).toBeDefined();
+      expect(knownEntry.serviceKey).toBe('plex'); // old name-only key, not 'media-stack/plex'
+
+      controller.abort();
+    });
+
     it('should use shortened ID when container name is missing', async () => {
       const db = createMockDb();
       const controller = new AbortController();

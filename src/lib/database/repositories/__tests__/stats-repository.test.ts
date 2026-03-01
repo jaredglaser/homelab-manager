@@ -473,12 +473,15 @@ describe('StatsRepository', () => {
   });
 
   describe('getContainerIdsByServiceKey', () => {
-    it('should query with source, host prefix, and service_key', async () => {
+    it('should query with source, host prefix, and service_key using SPLIT_PART', async () => {
       await repo.getContainerIdsByServiceKey('docker', 'myhost', 'media-stack/plex');
 
       expect(mockPool.queries).toHaveLength(1);
-      expect(mockPool.queries[0].sql).toContain("key = 'service_key'");
-      expect(mockPool.queries[0].sql).toContain("entity LIKE $2 || '/%'");
+      const sql = mockPool.queries[0].sql;
+      expect(sql).toContain("key = 'service_key'");
+      expect(sql).toContain("SPLIT_PART(entity, '/', 1) = $2");
+      expect(sql).toContain("SPLIT_PART(entity, '/', 2) AS container_id");
+      expect(sql).not.toContain('LIKE');
       expect(mockPool.queries[0].params).toEqual(['docker', 'myhost', 'media-stack/plex']);
     });
 
@@ -499,24 +502,27 @@ describe('StatsRepository', () => {
       expect(result).toEqual([]);
     });
 
-    it('should pass host with SQL wildcard characters as a parameter, not interpolated', async () => {
-      await repo.getContainerIdsByServiceKey('docker', 'my_host', 'media-stack/plex');
+    it('should use SPLIT_PART instead of LIKE, avoiding wildcard injection from host values', async () => {
+      await repo.getContainerIdsByServiceKey('docker', 'my_host%', 'media-stack/plex');
 
       expect(mockPool.queries).toHaveLength(1);
-      expect(mockPool.queries[0].sql).toContain("key = 'service_key'");
-      expect(mockPool.queries[0].sql).toContain("entity LIKE $2 || '/%'");
-      expect(mockPool.queries[0].params).toEqual(['docker', 'my_host', 'media-stack/plex']);
+      const sql = mockPool.queries[0].sql;
+      expect(sql).toContain("SPLIT_PART(entity, '/', 1) = $2");
+      expect(sql).not.toContain('LIKE');
+      expect(mockPool.queries[0].params).toEqual(['docker', 'my_host%', 'media-stack/plex']);
     });
   });
 
   describe('migrateServiceKeyByName', () => {
-    it('should issue UPDATE with correct params', async () => {
+    it('should issue UPDATE with SPLIT_PART instead of LIKE', async () => {
       await repo.migrateServiceKeyByName('docker', 'myhost', 'plex', 'media-stack/plex');
 
       expect(mockPool.queries).toHaveLength(1);
-      expect(mockPool.queries[0].sql).toContain('UPDATE entity_metadata');
-      expect(mockPool.queries[0].sql).toContain("key = 'service_key'");
-      expect(mockPool.queries[0].sql).toContain("entity LIKE $2 || '/%'");
+      const sql = mockPool.queries[0].sql;
+      expect(sql).toContain('UPDATE entity_metadata');
+      expect(sql).toContain("key = 'service_key'");
+      expect(sql).toContain("SPLIT_PART(entity, '/', 1) = $2");
+      expect(sql).not.toContain('LIKE');
       expect(mockPool.queries[0].params).toEqual(['docker', 'myhost', 'plex', 'media-stack/plex']);
     });
   });
@@ -536,14 +542,17 @@ describe('StatsRepository', () => {
   });
 
   describe('getDockerContainerMetadata', () => {
-    it('should query with a JOIN between service_key and icon entries', async () => {
+    it('should query with two LEFT JOINs and COALESCE for icon resolution', async () => {
       await repo.getDockerContainerMetadata('docker');
 
       expect(mockPool.queries).toHaveLength(1);
       const sql = mockPool.queries[0].sql;
       expect(sql).toContain('service_key_entity');
       expect(sql).toContain('LEFT JOIN entity_metadata icon');
+      expect(sql).toContain('LEFT JOIN entity_metadata legacy_icon');
+      expect(sql).toContain('COALESCE(icon.value, legacy_icon.value)');
       expect(sql).toContain("sk.key = 'service_key'");
+      expect(sql).not.toContain(' OR ');
       expect(mockPool.queries[0].params).toEqual(['docker']);
     });
 

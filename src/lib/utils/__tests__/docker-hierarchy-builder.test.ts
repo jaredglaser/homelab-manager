@@ -461,6 +461,14 @@ describe('computeServiceKey', () => {
     expect(computeServiceKey(labels, 'my-app')).toBe('my-app');
   });
 
+  it('should sanitize slashes in project and service labels', () => {
+    const labels = {
+      'com.docker.compose.project': 'my/project',
+      'com.docker.compose.service': 'my/service',
+    };
+    expect(computeServiceKey(labels, 'my-app')).toBe('my-project/my-service');
+  });
+
   it('should include project in key to distinguish same service names across projects', () => {
     const labels1 = { 'com.docker.compose.project': 'project-a', 'com.docker.compose.service': 'db' };
     const labels2 = { 'com.docker.compose.project': 'project-b', 'com.docker.compose.service': 'db' };
