@@ -103,7 +103,7 @@ export interface StreamParser<T> {
   shouldProcessLine?(line: string): boolean;
 
   /** Optional: Extract metadata from header lines */
-  parseHeader?(line: string): Record<string, unknown>;
+  parseHeader?(line: string): Record<string, unknown> | undefined;
 }
 
 /**

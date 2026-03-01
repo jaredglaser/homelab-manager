@@ -18,7 +18,7 @@
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app.
 5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Server handles client disconnect via `request.signal`.
 6. **File Creation**: PREFER editing existing files over creating new ones. Only create files when genuinely necessary.
-7. **Testing**: Tests in `__tests__/` folders co-located with source. Use `bun:test` imports. 93% coverage threshold enforced.
+7. **Testing**: Tests in `__tests__/` folders co-located with source. Use `bun:test` imports. 95% functions / 99% lines coverage threshold enforced.
 8. **No Logging**: No `console.log` in committed code. Only `console.error` for actual errors. Remove all debug logging before completing a task.
 
 ## Tech Stack
@@ -69,8 +69,14 @@ bun dev:docker:wipe         # Remove all data (fresh database)
 ### Testing & Build
 ```bash
 bun run typecheck           # TypeScript type checking
-bun test                    # Run all tests (enforces 93% coverage)
+bun test                    # Run all tests (enforces 95%/99% coverage)
 bun test --watch            # Watch mode
+bun run test:coverage       # Run tests with coverage report
+bun run test:coverage:check # Run tests and enforce 95%/99% coverage threshold
+```
+
+### Production Build
+```bash
 bun build                   # Production build (runs typecheck first)
 bun worker                  # Run background collector locally
 bun icons:download          # Download dashboard icons from homarr-labs/dashboard-icons
@@ -122,7 +128,7 @@ src/
     └── [index, docker.$containerId, zfs, proxmox, settings].tsx
 
 migrations/                  # Sequential SQL migrations (TimescaleDB hypertables, settings, compression)
-scripts/                     # check-coverage.js (93% enforcer), download-icons.ts
+scripts/                     # check-coverage.js (95%/99% enforcer), download-icons.ts
 ```
 
 ## Architecture Patterns
@@ -220,11 +226,16 @@ const { statsPollService } = await import('@/lib/database/subscription-service')
 ### Testing
 - Test files: `__tests__/` folders co-located with source, named `*.test.ts` or `*.test.tsx`
 - Test utilities: `src/lib/test/` (Happy-DOM setup, Testing Library setup, stream helpers) — NOT in `__tests__/`
-- Import from `bun:test`: `import { describe, it, expect, mock, beforeEach } from 'bun:test'`
+- Use `bun:test` imports: `import { describe, it, expect, mock, beforeEach } from 'bun:test'`
 - Test preloads configured in `bunfig.toml`: Happy-DOM + Testing Library matchers
-- **Coverage**: 93% lines + 93% functions, enforced by `scripts/check-coverage.js` piped from `bun test --coverage`
+- **Coverage requirements:** 95% functions, 99% lines — enforced by `scripts/check-coverage.js` piped from `bun test --coverage`
 - **Avoid `mock.module()` for React or broadly-used modules** — it pollutes globally across concurrent test execution in `bun:test`. Use `renderHook` from Testing Library, dependency injection, or narrow-scope mocks instead.
 - Some hook tests skip in CI due to React 19 + Happy-DOM compatibility issues (guarded by `process.env.CI`)
+
+### Imports
+- **Always use `@/` for project imports**: `import { Header } from '@/components/Header'`
+- Relative paths OK for test imports in `__tests__/`: `import { foo } from '../foo'`
+- Never mix `@/` and relative in the same file (except tests)
 
 ## Gotchas (Learned from Past Sessions)
 
@@ -332,7 +343,7 @@ CI publishes Docker images to GHCR: `ghcr.io/jaredglaser/homelab-manager-web` an
 | Import from src | `@/path/to/file` |
 | Test file location | `__tests__/filename.test.ts` (co-located) |
 | Test utilities | `src/lib/test/` (NOT in `__tests__/`) |
-| Run tests | `bun test` (93% coverage enforced) |
+| Run tests | `bun test` (95%/99% coverage enforced) |
 | Type check | `bun run typecheck` |
 | Type validation | Zod schema |
 | BIGINT from PostgreSQL | Wrap with `Number()` in row converters |
