@@ -1,5 +1,5 @@
-import { useColorScheme } from '@mui/joy/styles';
-import { IconButton } from '@mui/joy';
+import { useColorScheme } from '@mui/material/styles';
+import { IconButton } from '@mui/material';
 import { Moon, Sun } from 'lucide-react';
 
 export default function ModeToggle() {
@@ -7,8 +7,7 @@ export default function ModeToggle() {
 
   return (
     <IconButton
-      variant="plain"
-      size="sm"
+      size="small"
       onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
       aria-label="Toggle dark mode"
     >

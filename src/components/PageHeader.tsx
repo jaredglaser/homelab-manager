@@ -1,4 +1,4 @@
-import { Typography } from '@mui/joy';
+import { Typography } from '@mui/material';
 import type { ReactNode } from 'react';
 
 interface PageHeaderProps {
@@ -9,7 +9,7 @@ interface PageHeaderProps {
 export default function PageHeader({ title, children }: PageHeaderProps) {
   return (
     <div className="mb-6">
-      <Typography level="h2">{title}</Typography>
+      <Typography variant="h4">{title}</Typography>
       {children}
     </div>
   );

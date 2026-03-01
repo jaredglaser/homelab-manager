@@ -313,17 +313,25 @@ describe('StatsRepository', () => {
   });
 
   describe('getDockerStatsForContainer', () => {
+    // Each call issues two queries: a bounds query (actual data extent) + the bucketed data query.
+    // The bounds query (queries[0]) returns actual_span_secs; the data query (queries[1]) returns rows.
+    // When bounds returns no rows, bucket falls back to requested range.
+
     it('should query with correct time range and container filter', async () => {
       const from = new Date('2024-01-01T00:00:00Z');
       const to = new Date('2024-01-01T00:05:00Z');
 
       await repo.getDockerStatsForContainer('abc123', undefined, from, to);
 
-      expect(mockPool.queries).toHaveLength(1);
-      expect(mockPool.queries[0].sql).toContain('docker_stats');
-      expect(mockPool.queries[0].sql).toContain('time_bucket');
-      expect(mockPool.queries[0].sql).toContain('container_id = $4');
-      expect(mockPool.queries[0].params).toEqual([from, to, 1, 'abc123']);
+      expect(mockPool.queries).toHaveLength(2);
+      // Bounds query
+      expect(mockPool.queries[0].sql).toContain('actual_span_secs');
+      expect(mockPool.queries[0].params).toEqual([from, to, 'abc123']);
+      // Data query
+      expect(mockPool.queries[1].sql).toContain('docker_stats');
+      expect(mockPool.queries[1].sql).toContain('time_bucket');
+      expect(mockPool.queries[1].sql).toContain('container_id = $4');
+      expect(mockPool.queries[1].params).toEqual([from, to, 1, 'abc123']);
     });
 
     it('should append host filter when host is provided', async () => {
@@ -332,9 +340,13 @@ describe('StatsRepository', () => {
 
       await repo.getDockerStatsForContainer('abc123', 'server1', from, to);
 
-      expect(mockPool.queries).toHaveLength(1);
-      expect(mockPool.queries[0].sql).toContain('host = $5');
-      expect(mockPool.queries[0].params).toEqual([from, to, 1, 'abc123', 'server1']);
+      expect(mockPool.queries).toHaveLength(2);
+      // Bounds query includes host filter
+      expect(mockPool.queries[0].sql).toContain('host = $4');
+      expect(mockPool.queries[0].params).toEqual([from, to, 'abc123', 'server1']);
+      // Data query includes host filter
+      expect(mockPool.queries[1].sql).toContain('host = $5');
+      expect(mockPool.queries[1].params).toEqual([from, to, 1, 'abc123', 'server1']);
     });
 
     it('should not include host filter when host is undefined', async () => {
@@ -343,8 +355,8 @@ describe('StatsRepository', () => {
 
       await repo.getDockerStatsForContainer('abc123', undefined, from, to);
 
-      expect(mockPool.queries[0].sql).not.toContain('host = $5');
-      expect(mockPool.queries[0].params).toEqual([from, to, 1, 'abc123']);
+      expect(mockPool.queries[1].sql).not.toContain('host = $5');
+      expect(mockPool.queries[1].params).toEqual([from, to, 1, 'abc123']);
     });
 
     it('should use 1s bucket for short windows (≤ 300s with default targetPoints)', async () => {
@@ -353,8 +365,8 @@ describe('StatsRepository', () => {
 
       await repo.getDockerStatsForContainer('abc123', undefined, from, to);
 
-      // 300s / 300 targetPoints = 1s bucket
-      expect(mockPool.queries[0].params[2]).toBe(1);
+      // Bounds returns empty → falls back to requested 300s / 300 targetPoints = 1s bucket
+      expect(mockPool.queries[1].params[2]).toBe(1);
     });
 
     it('should compute larger buckets for longer time ranges', async () => {
@@ -363,8 +375,8 @@ describe('StatsRepository', () => {
 
       await repo.getDockerStatsForContainer('abc123', undefined, from, to);
 
-      // 3600s / 300 targetPoints = 12s bucket
-      expect(mockPool.queries[0].params[2]).toBe(12);
+      // Bounds returns empty → falls back to requested 3600s / 300 targetPoints = 12s bucket
+      expect(mockPool.queries[1].params[2]).toBe(12);
     });
 
     it('should respect custom targetPoints', async () => {
@@ -373,8 +385,21 @@ describe('StatsRepository', () => {
 
       await repo.getDockerStatsForContainer('abc123', undefined, from, to, 100);
 
-      // 600s / 100 targetPoints = 6s bucket
-      expect(mockPool.queries[0].params[2]).toBe(6);
+      // Bounds returns empty → falls back to requested 600s / 100 targetPoints = 6s bucket
+      expect(mockPool.queries[1].params[2]).toBe(6);
+    });
+
+    it('should bucket based on actual data extent when shorter than requested range', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-02T00:00:00Z'); // 86400s requested
+
+      // Bounds query returns actual data spanning only 600 seconds
+      mockPool.pushResult([{ actual_span_secs: 600 }]);
+
+      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+
+      // 600s actual / 300 targetPoints = 2s bucket (not 86400/300 = 288s)
+      expect(mockPool.queries[1].params[2]).toBe(2);
     });
 
     it('should return rows from query result', async () => {
@@ -388,6 +413,8 @@ describe('StatsRepository', () => {
         network_tx_bytes_per_sec: 0, block_io_read_bytes_per_sec: 0,
         block_io_write_bytes_per_sec: 0,
       }];
+      // Push bounds result (consumed first), then data result
+      mockPool.pushResult([{ actual_span_secs: 300 }]);
       mockPool.pushResult(mockRows);
 
       const result = await repo.getDockerStatsForContainer('abc123', undefined, from, to);
