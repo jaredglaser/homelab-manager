@@ -1,4 +1,4 @@
-import { Alert } from '@mui/joy'
+import { Alert } from '@mui/material'
 import { AlertTriangle } from 'lucide-react'
 
 interface StaleDataAlertProps {
@@ -9,9 +9,8 @@ export function StaleDataAlert({ isStale }: StaleDataAlertProps) {
   if (!isStale) return null
   return (
     <Alert
-      color="warning"
-      variant="soft"
-      startDecorator={<AlertTriangle size={18} />}
+      severity="warning"
+      icon={<AlertTriangle size={18} />}
       className="mb-3"
     >
       Data is stale. Background worker may not be running.

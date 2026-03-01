@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useSettings } from '@/hooks/useSettings';
-import { Box, Chip, CircularProgress, Sheet, Typography } from '@mui/joy';
+import { Box, Chip, CircularProgress, Paper, Typography } from '@mui/material';
 import { ChevronRight, Server, WifiOff } from 'lucide-react';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import type { DockerStatsRow, DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
@@ -119,7 +119,7 @@ export default function ContainerTable({
     return (
       <Box className="w-full">
         <Box className="p-2">
-          <Typography color="danger">
+          <Typography color="error">
             Error connecting to Docker stats: {error.message}
           </Typography>
         </Box>
@@ -140,7 +140,7 @@ export default function ContainerTable({
   return (
     <Box className="w-full">
       <StaleDataAlert isStale={isStale} />
-      <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
+      <Paper variant="outlined" className="rounded-sm overflow-x-auto">
         {/* Shared min-w container ensures header and virtualizer body resolve to the same width */}
         <div className="min-w-[600px]">
         {/* Column headers */}
@@ -194,7 +194,7 @@ export default function ContainerTable({
           </div>
         </div>
         </div>
-      </Sheet>
+      </Paper>
     </Box>
   );
 }
@@ -231,7 +231,7 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
       onClick={handleClick}
       className={`${DOCKER_GRID} items-center border-t border-neutral-200 dark:border-neutral-700 ${
         hasContainers && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
-      } ${host.isStale ? 'bg-amber-500/10' : 'bg-[var(--joy-palette-background-level1)]'}`}
+      } ${host.isStale ? 'bg-amber-500/10' : 'bg-[var(--mui-palette-background-level1)]'}`}
     >
       <div className="px-3 py-2 flex items-center gap-2">
         {hasContainers && totalHosts > 1 && (
@@ -245,13 +245,9 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
           <WifiOff size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
         )}
         <span className="font-bold">{host.hostName}</span>
-        <Chip size="sm" variant="soft">
-          {a.containerCount} container{a.containerCount !== 1 ? 's' : ''}
-        </Chip>
+        <Chip size="small" variant="filled" label={`${a.containerCount} container${a.containerCount !== 1 ? 's' : ''}`} />
         {a.staleContainerCount > 0 && !host.isStale && (
-          <Chip size="sm" variant="soft" color="warning">
-            {a.staleContainerCount} stale
-          </Chip>
+          <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
         )}
       </div>
       <div>

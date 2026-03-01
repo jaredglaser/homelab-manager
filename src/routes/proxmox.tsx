@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { Typography, CircularProgress, IconButton, Tooltip, Chip, Sheet } from '@mui/joy'
+import { Typography, CircularProgress, Tooltip, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material'
 import { Zap, Waves } from 'lucide-react'
+import type { MouseEvent } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
 import AppShell from '../components/AppShell'
 import PageHeader from '@/components/PageHeader'
@@ -20,53 +21,42 @@ function IntervalToggle({
   interval: ProxmoxUpdateInterval
   onIntervalChange: (interval: ProxmoxUpdateInterval) => void
 }) {
-  const isFast = interval === 1000
-
   return (
-    <Sheet variant="soft" className="flex items-center gap-1 rounded-lg p-1">
-      <Tooltip
-        title={
-          <div className="flex flex-col gap-1">
-            <Typography level="body-sm" className="!text-white">Fast updates (1 second)</Typography>
-            <Chip size="sm" color="warning" variant="soft">
-              Increases API load on Proxmox
-            </Chip>
-          </div>
-        }
-        placement="bottom"
-      >
-        <IconButton
-          size="sm"
-          variant={isFast ? 'solid' : 'plain'}
-          color={isFast ? 'primary' : 'neutral'}
-          onClick={() => onIntervalChange(1000)}
-          className="transition-all"
+    <ToggleButtonGroup
+      value={String(interval)}
+      onChange={(_e: MouseEvent<HTMLElement>, newValue: string | null) => {
+        if (newValue !== null) onIntervalChange(Number(newValue) as ProxmoxUpdateInterval)
+      }}
+      size="small"
+      exclusive
+    >
+      <ToggleButton value="1000">
+        <Tooltip
+          title={
+            <div className="flex flex-col gap-1">
+              <Typography variant="body2" className="!text-white">Fast updates (1 second)</Typography>
+              <Chip size="small" color="warning" variant="filled" label="Increases API load on Proxmox" />
+            </div>
+          }
+          placement="bottom"
         >
           <Zap size={16} />
-        </IconButton>
-      </Tooltip>
-      <Tooltip
-        title={
-          <div className="flex flex-col gap-1">
-            <Typography level="body-sm" className="!text-white">Relaxed updates (10 seconds)</Typography>
-            <Chip size="sm" color="success" variant="soft">
-              Recommended for most users
-            </Chip>
-          </div>
-        }
-        placement="bottom"
-      >
-        <IconButton
-          size="sm"
-          variant={!isFast ? 'solid' : 'plain'}
-          color={!isFast ? 'primary' : 'neutral'}
-          onClick={() => onIntervalChange(10000)}
-          className="transition-all"
+        </Tooltip>
+      </ToggleButton>
+      <ToggleButton value="10000">
+        <Tooltip
+          title={
+            <div className="flex flex-col gap-1">
+              <Typography variant="body2" className="!text-white">Relaxed updates (10 seconds)</Typography>
+              <Chip size="small" color="success" variant="filled" label="Recommended for most users" />
+            </div>
+          }
+          placement="bottom"
         >
           <Waves size={16} />
-        </IconButton>
-      </Tooltip>
-    </Sheet>
+        </Tooltip>
+      </ToggleButton>
+    </ToggleButtonGroup>
   )
 }
 
@@ -190,7 +180,7 @@ function ProxmoxContent() {
 
   if (error) {
     return (
-      <Typography level="body-md" className="text-red-600 py-8">
+      <Typography variant="body1" className="text-red-600 py-8">
         Failed to connect to Proxmox SSE stream: {error.message}
       </Typography>
     )
@@ -200,13 +190,13 @@ function ProxmoxContent() {
     if (configured === false) {
       return (
         <div className="py-8">
-          <Typography level="body-md" className="mb-2">
+          <Typography variant="body1" className="mb-2">
             Proxmox is not configured.
           </Typography>
-          <Typography level="body-sm" className="text-neutral-500">
+          <Typography variant="body2" className="text-neutral-500">
             Set the following environment variables to connect to your Proxmox cluster:
           </Typography>
-          <pre className="mt-3 p-4 bg-neutral-100 dark:bg-neutral-800 rounded-lg text-sm font-mono">
+          <pre className="mt-3 p-4 bg-[var(--mui-palette-background-level1)] rounded-lg text-sm font-mono">
 {`PROXMOX_HOST=your-proxmox-host
 PROXMOX_TOKEN_ID=user@realm!tokenid
 PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
@@ -219,8 +209,8 @@ PROXMOX_ALLOW_SELF_SIGNED=true # optional, default true`}
 
     return (
       <div className="flex items-center gap-3 py-12">
-        <CircularProgress size="sm" />
-        <Typography level="body-md">Loading Proxmox cluster data...</Typography>
+        <CircularProgress size={20} />
+        <Typography variant="body1">Loading Proxmox cluster data...</Typography>
       </div>
     )
   }
