@@ -146,6 +146,32 @@ export type GuestRow = {
   netout: number
 }
 
+/** Wide row from proxmox_stats hypertable */
+export interface ProxmoxStatsRow {
+  time: string | Date;
+  host: string;
+  entity_type: 'cluster' | 'node' | 'qemu' | 'lxc' | 'storage';
+  node: string | null;
+  entity_id: string;
+  entity_name: string | null;
+  status: string | null;
+  cpu: number | null;
+  max_cpu: number | null;
+  mem: number | null;
+  max_mem: number | null;
+  disk: number | null;
+  max_disk: number | null;
+  uptime: number | null;
+  vmid: number | null;
+  netin: number | null;
+  netout: number | null;
+  storage_type: string | null;
+  storage_content: string | null;
+  storage_avail: number | null;
+  storage_shared: boolean | null;
+  cluster_version: number | null;
+}
+
 /** Aggregated cluster overview for the dashboard */
 export interface ProxmoxClusterOverview {
   clusterName: string;

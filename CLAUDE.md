@@ -112,19 +112,18 @@ src/
 │   │   ├── subscription-service.ts  # StatsPollService (shared 1s poll, broadcast to SSE clients)
 │   │   └── migrate.ts       # Sequential SQL migration runner
 │   ├── parsers/             # ZFSIOStatParser (indentation-based hierarchy detection)
-│   ├── proxmox/             # ProxmoxPollService (shared 10s API poll, SSE broadcast)
 │   ├── settings/            # SettingsBroadcastService (PostgreSQL LISTEN/NOTIFY → SSE)
 │   ├── streaming/types.ts   # Core interfaces (StreamingClient, StreamParser, RateCalculator)
 │   ├── test/                # Test utilities: Happy-DOM setup, Testing Library setup, stream helpers
-│   ├── utils/               # Hierarchy builders, rate calculators, row converters, abortable-sleep
+│   ├── utils/               # Hierarchy builders, rate calculators, row converters, Proxmox overview converter/builder, abortable-sleep
 │   └── server-init.ts       # Idempotent server startup + graceful shutdown handlers
 ├── worker/
-│   ├── collectors/          # BaseCollector (AsyncDisposable, backoff) + Docker/ZFS collectors
+│   ├── collectors/          # BaseCollector (AsyncDisposable, backoff) + Docker/ZFS/Proxmox collectors
 │   └── collector.ts         # Worker entry point (AsyncDisposableStack, AbortController)
 ├── types/                   # Domain types (docker.ts, zfs.ts, proxmox.ts, settings.ts)
 ├── formatters/              # Display formatting (binary units, SI units, percent — dual output: string + parts)
 └── routes/
-    ├── api/                 # SSE endpoints (docker-stats, zfs-stats, proxmox-overview, settings)
+    ├── api/                 # SSE endpoints (docker-stats, zfs-stats, proxmox-stats, settings)
     └── [index, docker.$containerId, zfs, proxmox, settings].tsx
 
 migrations/                  # Sequential SQL migrations (TimescaleDB hypertables, settings, compression)
@@ -142,15 +141,15 @@ scripts/                     # check-coverage.js (95%/99% enforcer), download-ic
 ### Data Flow
 
 ```text
-Worker → Docker/ZFS APIs → INSERT wide rows → TimescaleDB
-                                                    ↓
+Worker → Docker/ZFS/Proxmox APIs → INSERT wide rows → TimescaleDB
+                                                            ↓
 Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast to all clients
 ```
 - **Frontend reads from database**, not direct API/SSH connections.
 - Worker collects stats → INSERT wide rows into TimescaleDB.
 - Server runs shared `StatsPollService` that polls DB every 1s per source — only 1 query/sec regardless of client count.
 - Frontend preloads history via REST server function, then merges SSE updates.
-- **Proxmox is different**: No worker, no database. `ProxmoxPollService` polls Proxmox REST API every 10s server-side, broadcasts snapshots via SSE.
+- **All sources use the same architecture**: Docker, ZFS, and Proxmox all flow through worker → TimescaleDB → StatsPollService → SSE → `useTimeSeriesStream`.
 
 ### SSE Endpoints
 All SSE endpoints in `src/routes/api/` follow the same pattern:
@@ -178,6 +177,7 @@ const { statsPollService } = await import('@/lib/database/subscription-service')
 ### Database Schema (TimescaleDB)
 - `docker_stats` — hypertable: time, host, container_id, container_name, image, cpu_percent, memory_usage, memory_limit, memory_percent, network_rx/tx, block_io_read/write
 - `zfs_stats` — hypertable: time, host, pool, entity, entity_type, indent, capacity_alloc/free, read/write_ops_per_sec, read/write_bytes_per_sec, utilization_percent
+- `proxmox_stats` — hypertable: time, host, entity_type (cluster/node/qemu/lxc/storage), node, entity_id, entity_name, status, cpu, max_cpu, mem, max_mem, disk, max_disk, uptime, vmid, netin, netout, storage_type, storage_content, storage_avail, storage_shared, cluster_version
 - `entity_metadata` — key-value metadata per entity (icons, labels)
 - `settings` — application settings (key-value with `NOTIFY settings_change` trigger)
 - **Compression**: Automatic after 7 days (segmented by host/entity identifiers)
@@ -190,11 +190,13 @@ const { statsPollService } = await import('@/lib/database/subscription-service')
 - Worker entry point uses `AsyncDisposableStack` + `await using` for deterministic cleanup
 - Docker collector: keeps stats streams open continuously, flushes every 1s, reconnects on container changes
 - ZFS collector: streams `zpool iostat` continuously via SSH, flushes on cycle boundary
+- Proxmox collector: polls Proxmox REST API at configurable interval (1s/10s), converts overview to flat rows via `overviewToRows()`, inserts into `proxmox_stats`
 - Rate calculators are persistent (never cleared, unlike request-scoped ones)
 
 ### Entity ID Convention
 - **Docker**: `${host}/${container_id}` (e.g., `192.168.1.10/abc123`)
 - **ZFS**: `${host}/${pool}/${vdev}/${disk}` with depth encoding hierarchy (e.g., `server1/tank/mirror-0/sda`)
+- **Proxmox**: `entity_id` varies by type: cluster name, node name, vmid (guests), `${node}/${storage}` (storages)
 - **Always use entity IDs (with host prefix) for state keys**, never display names. Display names like "tank" are not unique across hosts.
 - ZFS hierarchy is encoded by indentation: 0=pool, 2=vdev, 4+=disk
 
@@ -274,7 +276,7 @@ All env vars documented in `.env.example`. Key groups:
 - `DOCKER_HOST_N` / `DOCKER_HOST_PORT_N` / `DOCKER_HOST_NAME_N`: Multi-host Docker (numbered 1-3)
 - `ZFS_HOST_N` / `ZFS_HOST_PORT_N` / `ZFS_HOST_USER_N` / `ZFS_HOST_KEY_PATH_N`: Multi-host ZFS via SSH (numbered 1-3)
 - `PROXMOX_HOST` / `PROXMOX_PORT` / `PROXMOX_TOKEN_ID` / `PROXMOX_TOKEN_SECRET` / `PROXMOX_ALLOW_SELF_SIGNED`: Proxmox VE API
-- `WORKER_ENABLED` / `WORKER_DOCKER_ENABLED` / `WORKER_ZFS_ENABLED` / `WORKER_COLLECTION_INTERVAL_MS`: Worker config
+- `WORKER_ENABLED` / `WORKER_DOCKER_ENABLED` / `WORKER_ZFS_ENABLED` / `WORKER_PROXMOX_ENABLED` / `WORKER_COLLECTION_INTERVAL_MS`: Worker config
 
 `.env` sets `POSTGRES_HOST=localhost` for local web dev; Docker services override to `postgres` (internal DNS) in compose files.
 
@@ -334,8 +336,8 @@ CI publishes Docker images to GHCR: `ghcr.io/jaredglaser/homelab-manager-web` an
 | Override MUI default style | `!` prefix: `!bg-[var(--mui-palette-...)]` |
 | Server logic (non-streaming) | `createServerFn()` + middleware |
 | Real-time streaming | SSE route in `src/routes/api/` |
-| Consume SSE (time-series) | `useTimeSeriesStream` hook |
-| Consume SSE (snapshot) | `useSSE` hook (e.g., Proxmox) |
+| Consume SSE (time-series) | `useTimeSeriesStream` hook (Docker, ZFS, Proxmox) |
+| Consume SSE (snapshot) | `useSSE` hook (e.g., settings) |
 | New streaming table | CSS Grid + `useWindowVirtualizer` + `useTimeSeriesStream` |
 | Settings key constant | `src/lib/constants/settings-keys.ts` |
 | Chart color CSS variable | `App.css` (`--chart-cpu`, `--chart-memory`, etc.) |

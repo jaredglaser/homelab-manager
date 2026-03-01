@@ -463,6 +463,246 @@ describe('StatsRepository', () => {
     });
   });
 
+  describe('insertProxmoxStats', () => {
+    it('should skip insert for empty rows', async () => {
+      await repo.insertProxmoxStats([]);
+      expect(mockPool.queries).toHaveLength(0);
+    });
+
+    it('should insert rows with correct parameters', async () => {
+      const rows = [
+        {
+          time: new Date('2024-01-01'),
+          host: 'proxmox-host',
+          entity_type: 'node' as const,
+          node: 'pve1',
+          entity_id: 'pve1',
+          entity_name: 'pve1',
+          status: 'online',
+          cpu: 2,
+          max_cpu: 8,
+          mem: 4e9,
+          max_mem: 16e9,
+          disk: 50e9,
+          max_disk: 500e9,
+          uptime: 86400,
+          vmid: null,
+          netin: null,
+          netout: null,
+          storage_type: null,
+          storage_content: null,
+          storage_avail: null,
+          storage_shared: null,
+          cluster_version: null,
+        },
+      ];
+
+      await repo.insertProxmoxStats(rows);
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('INSERT INTO proxmox_stats');
+      expect(mockPool.queries[0].params[0]).toEqual([new Date('2024-01-01')]);
+      expect(mockPool.queries[0].params[1]).toEqual(['proxmox-host']);
+      expect(mockPool.queries[0].params[2]).toEqual(['node']);
+      expect(mockPool.queries[0].params[3]).toEqual(['pve1']);
+      expect(mockPool.queries[0].params[4]).toEqual(['pve1']);
+    });
+
+    it('should handle multiple rows with mixed entity types', async () => {
+      const rows = [
+        {
+          time: new Date('2024-01-01'),
+          host: 'h',
+          entity_type: 'cluster' as const,
+          node: null,
+          entity_id: 'cluster',
+          entity_name: 'cluster',
+          status: 'quorate',
+          cpu: 4,
+          max_cpu: 16,
+          mem: 8e9,
+          max_mem: 32e9,
+          disk: 100e9,
+          max_disk: 1000e9,
+          uptime: null,
+          vmid: null,
+          netin: null,
+          netout: null,
+          storage_type: null,
+          storage_content: null,
+          storage_avail: null,
+          storage_shared: null,
+          cluster_version: 5,
+        },
+        {
+          time: new Date('2024-01-01'),
+          host: 'h',
+          entity_type: 'qemu' as const,
+          node: 'pve1',
+          entity_id: '100',
+          entity_name: 'ubuntu-vm',
+          status: 'running',
+          cpu: 0.5,
+          max_cpu: 4,
+          mem: 2e9,
+          max_mem: 4e9,
+          disk: 10e9,
+          max_disk: 50e9,
+          uptime: 3600,
+          vmid: 100,
+          netin: 1000000,
+          netout: 500000,
+          storage_type: null,
+          storage_content: null,
+          storage_avail: null,
+          storage_shared: null,
+          cluster_version: null,
+        },
+        {
+          time: new Date('2024-01-01'),
+          host: 'h',
+          entity_type: 'storage' as const,
+          node: 'pve1',
+          entity_id: 'pve1/local',
+          entity_name: 'local',
+          status: 'active',
+          cpu: null,
+          max_cpu: null,
+          mem: null,
+          max_mem: null,
+          disk: 20e9,
+          max_disk: 100e9,
+          uptime: null,
+          vmid: null,
+          netin: null,
+          netout: null,
+          storage_type: 'dir',
+          storage_content: 'rootdir,images',
+          storage_avail: 80e9,
+          storage_shared: false,
+          cluster_version: null,
+        },
+      ];
+
+      await repo.insertProxmoxStats(rows);
+
+      expect(mockPool.queries).toHaveLength(1);
+      // Verify entity_types array
+      expect(mockPool.queries[0].params[2]).toEqual(['cluster', 'qemu', 'storage']);
+      // Verify vmids array
+      expect(mockPool.queries[0].params[14]).toEqual([null, 100, null]);
+      // Verify storage_types array
+      expect(mockPool.queries[0].params[17]).toEqual([null, null, 'dir']);
+      // Verify cluster_versions array
+      expect(mockPool.queries[0].params[21]).toEqual([5, null, null]);
+    });
+
+    it('should propagate errors', async () => {
+      mockPool.setError(new Error('PX DB error'));
+
+      await expect(repo.insertProxmoxStats([{
+        time: new Date(),
+        host: 'h',
+        entity_type: 'cluster',
+        node: null,
+        entity_id: 'c',
+        entity_name: 'c',
+        status: 'quorate',
+        cpu: 0,
+        max_cpu: 0,
+        mem: 0,
+        max_mem: 0,
+        disk: 0,
+        max_disk: 0,
+        uptime: null,
+        vmid: null,
+        netin: null,
+        netout: null,
+        storage_type: null,
+        storage_content: null,
+        storage_avail: null,
+        storage_shared: null,
+        cluster_version: null,
+      }])).rejects.toThrow('PX DB error');
+    });
+  });
+
+  describe('getProxmoxStatsSince', () => {
+    it('should query with Date parameter', async () => {
+      const since = new Date('2024-01-01T00:00:00Z');
+      await repo.getProxmoxStatsSince(since);
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('proxmox_stats');
+      expect(mockPool.queries[0].sql).toContain('time > $1');
+      expect(mockPool.queries[0].params).toEqual([since]);
+    });
+
+    it('should return rows from query result', async () => {
+      const mockRows = [{
+        time: new Date(), host: 'h', entity_type: 'node' as const,
+        node: 'pve1', entity_id: 'pve1', entity_name: 'pve1',
+        status: 'online', cpu: 1, max_cpu: 4,
+        mem: null, max_mem: null, disk: null, max_disk: null,
+        uptime: null, vmid: null, netin: null, netout: null,
+        storage_type: null, storage_content: null, storage_avail: null,
+        storage_shared: null, cluster_version: null,
+      }];
+      mockPool.pushResult(mockRows);
+
+      const result = await repo.getProxmoxStatsSince(new Date());
+      expect(result).toEqual(mockRows);
+    });
+  });
+
+  describe('getProxmoxStatsHistory', () => {
+    it('should query with seconds parameter', async () => {
+      await repo.getProxmoxStatsHistory(120);
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('proxmox_stats');
+      expect(mockPool.queries[0].sql).toContain('make_interval');
+      expect(mockPool.queries[0].params).toEqual([120]);
+    });
+
+    it('should return rows from query result', async () => {
+      const mockRows = [{
+        time: new Date(), host: 'h', entity_type: 'cluster' as const,
+        node: null, entity_id: 'cluster', entity_name: 'test',
+        status: null, cpu: null, max_cpu: null,
+        mem: null, max_mem: null, disk: null, max_disk: null,
+        uptime: null, vmid: null, netin: null, netout: null,
+        storage_type: null, storage_content: null, storage_avail: null,
+        storage_shared: null, cluster_version: 3,
+      }];
+      mockPool.pushResult(mockRows);
+
+      const result = await repo.getProxmoxStatsHistory(60);
+      expect(result).toEqual(mockRows);
+    });
+  });
+
+  describe('getEntityIcon', () => {
+    it('should query for specific entity icon', async () => {
+      mockPool.pushResult([{ value: 'nginx.svg' }]);
+
+      const result = await repo.getEntityIcon('docker', 'host1/nginx');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('entity_metadata');
+      expect(mockPool.queries[0].sql).toContain("key = 'icon'");
+      expect(mockPool.queries[0].params).toEqual(['docker', 'host1/nginx']);
+      expect(result).toBe('nginx.svg');
+    });
+
+    it('should return null when no icon exists', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getEntityIcon('docker', 'host1/unknown');
+      expect(result).toBeNull();
+    });
+  });
+
   describe('getSourceIcons', () => {
     it('should query with source and icon key filter', async () => {
       await repo.getSourceIcons('docker');

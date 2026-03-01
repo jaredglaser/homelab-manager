@@ -33,6 +33,13 @@ x-zfs-env: &zfs-env
   ZFS_HOST_KEY_PATH_3: ${ZFS_HOST_KEY_PATH_3:-}
   ZFS_HOST_KEY_PASSPHRASE_3: ${ZFS_HOST_KEY_PASSPHRASE_3:-}
 
+x-proxmox-env: &proxmox-env
+  PROXMOX_HOST: ${PROXMOX_HOST:-}
+  PROXMOX_PORT: ${PROXMOX_PORT:-8006}
+  PROXMOX_TOKEN_ID: ${PROXMOX_TOKEN_ID:-}
+  PROXMOX_TOKEN_SECRET: ${PROXMOX_TOKEN_SECRET:-}
+  PROXMOX_ALLOW_SELF_SIGNED: ${PROXMOX_ALLOW_SELF_SIGNED:-true}
+
 x-shared-dev: &shared-dev
   build:
     context: .
@@ -81,11 +88,12 @@ services:
     mem_limit: 512m
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env]
+      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
       WORKER_ENABLED: ${WORKER_ENABLED}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
+      WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
 
   # Web server (development with HMR)
@@ -97,7 +105,7 @@ services:
     ports:
       - "${WEB_PORT}:3000"
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env]
+      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
 
 volumes:
   node_modules:

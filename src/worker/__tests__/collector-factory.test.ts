@@ -28,6 +28,7 @@ function createWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
     enabled: true,
     docker: { enabled: false },
     zfs: { enabled: false },
+    proxmox: { enabled: false },
     collection: { interval: 1000 },
     ...overrides,
   };
@@ -48,9 +49,16 @@ function clearZFSEnv() {
   });
 }
 
+function clearProxmoxEnv() {
+  Object.keys(process.env).forEach((key) => {
+    if (key.startsWith('PROXMOX_')) delete process.env[key];
+  });
+}
+
 function restoreEnv() {
   clearDockerEnv();
   clearZFSEnv();
+  clearProxmoxEnv();
   Object.assign(process.env, originalEnv);
 }
 
@@ -63,6 +71,7 @@ describe('createCollectors', () => {
     console.error = mock(() => {});
     clearDockerEnv();
     clearZFSEnv();
+    clearProxmoxEnv();
   });
 
   afterEach(() => {
@@ -206,6 +215,83 @@ describe('createCollectors', () => {
 
     expect(collectors).toHaveLength(2);
     expect(runners).toHaveLength(2);
+
+    controller.abort();
+  });
+
+  it('should log disabled message when proxmox is disabled', async () => {
+    const { createCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const config = createWorkerConfig({ proxmox: { enabled: false } });
+    createCollectors(db as unknown as DatabaseClient, config, controller, stack);
+
+    const logCalls = getMockLogCalls();
+    expect(logCalls).toContain('[Worker] Proxmox collector disabled');
+
+    controller.abort();
+  });
+
+  it('should log "not configured" when proxmox enabled but no env vars', async () => {
+    const { createCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const config = createWorkerConfig({ proxmox: { enabled: true } });
+    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
+
+    const logCalls = getMockLogCalls();
+    expect(logCalls).toContain('[Worker] Proxmox enabled but not configured');
+    expect(collectors).toHaveLength(0);
+    expect(runners).toHaveLength(0);
+
+    controller.abort();
+  });
+
+  it('should create Proxmox collector when proxmox enabled and configured', async () => {
+    process.env.PROXMOX_HOST = '192.168.1.200';
+    process.env.PROXMOX_TOKEN_ID = 'root@pam!test';
+    process.env.PROXMOX_TOKEN_SECRET = '12345678-1234-1234-1234-123456789012';
+
+    const { createCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const config = createWorkerConfig({ proxmox: { enabled: true } });
+    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
+
+    expect(collectors).toHaveLength(1);
+    expect(runners).toHaveLength(1);
+    expect(collectors[0].name).toBe('ProxmoxCollector[192.168.1.200]');
+
+    controller.abort();
+  });
+
+  it('should create all collectors when all enabled and configured', async () => {
+    process.env.DOCKER_HOST_1 = '192.168.1.100';
+    process.env.DOCKER_HOST_NAME_1 = 'docker-1';
+    process.env.ZFS_HOST_1 = '192.168.1.50';
+    process.env.ZFS_HOST_USER_1 = 'root';
+    process.env.ZFS_HOST_NAME_1 = 'zfs-1';
+    process.env.ZFS_HOST_KEY_PATH_1 = '/keys/id_rsa';
+    process.env.PROXMOX_HOST = '192.168.1.200';
+    process.env.PROXMOX_TOKEN_ID = 'root@pam!test';
+    process.env.PROXMOX_TOKEN_SECRET = '12345678-1234-1234-1234-123456789012';
+
+    const { createCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const config = createWorkerConfig({
+      docker: { enabled: true },
+      zfs: { enabled: true },
+      proxmox: { enabled: true },
+    });
+    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
+
+    expect(collectors).toHaveLength(3);
+    expect(runners).toHaveLength(3);
 
     controller.abort();
   });

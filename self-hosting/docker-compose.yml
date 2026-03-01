@@ -77,12 +77,13 @@ services:
     volumes:
       - /mnt/appdata/homelab-manager/keys:/keys:ro
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env]
+      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
-      WORKER_ENABLED: ${WORKER_ENABLED:-true}
-      WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED:-true}
-      WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED:-false}
-      WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS:-1000}
+      WORKER_ENABLED: ${WORKER_ENABLED}
+      WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
+      WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
+      WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
+      WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
