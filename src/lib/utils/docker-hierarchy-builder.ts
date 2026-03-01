@@ -10,10 +10,11 @@ import type {
  * Compute a stable service key for a Docker container.
  *
  * Prefers Docker Compose labels `com.docker.compose.project` and `com.docker.compose.service` when present.
+ * Any `/` characters in the label values are replaced with `-` to keep the single `/` delimiter unambiguous.
  *
  * @param labels - Optional map of Docker labels; used to derive `project/service` if both compose labels exist
  * @param containerName - Fallback container name to use when compose labels are not available
- * @returns The service key as `"{project}/{service}"` when both compose labels are present, otherwise `containerName`
+ * @returns The service key as `"{project}/{service}"` (slashes in labels sanitized) when both compose labels are present, otherwise `containerName`
  */
 export function computeServiceKey(
   labels: Record<string, string> | undefined,
