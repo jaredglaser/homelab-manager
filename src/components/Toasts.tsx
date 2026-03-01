@@ -1,5 +1,5 @@
 import { useAtomValue } from 'jotai';
-import { Snackbar } from '@mui/joy';
+import { Snackbar, Alert } from '@mui/material';
 import { toastsAtom, useToast } from '@/hooks/toastAtom';
 
 export default function Toasts() {
@@ -13,13 +13,13 @@ export default function Toasts() {
   return (
     <Snackbar
       open
-      color="danger"
-      variant="soft"
       autoHideDuration={4000}
       onClose={() => dismissToast(toast.id)}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
     >
-      {toast.message}
+      <Alert severity="error" onClose={() => dismissToast(toast.id)}>
+        {toast.message}
+      </Alert>
     </Snackbar>
   );
 }

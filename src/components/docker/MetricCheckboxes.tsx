@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import Checkbox from '@mui/joy/Checkbox';
+import { Checkbox, FormControlLabel } from '@mui/material';
 
 export type MetricType = 'cpu' | 'memory' | 'blockRead' | 'blockWrite' | 'networkRx' | 'networkTx';
 
@@ -33,12 +33,16 @@ export default memo(function MetricCheckboxes({ selected, onChange }: MetricChec
   return (
     <div className="flex flex-wrap gap-3">
       {ALL_METRICS.map((metric) => (
-        <Checkbox
+        <FormControlLabel
           key={metric}
           label={METRIC_LABELS[metric]}
-          checked={selected.has(metric)}
-          onChange={() => toggle(metric)}
-          size="sm"
+          control={
+            <Checkbox
+              checked={selected.has(metric)}
+              onChange={() => toggle(metric)}
+              size="small"
+            />
+          }
         />
       ))}
     </div>

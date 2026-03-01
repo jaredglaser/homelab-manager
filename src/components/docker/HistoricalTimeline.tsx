@@ -1,5 +1,10 @@
 import { memo, useMemo, useRef, useEffect, useCallback, useState } from 'react';
-import { Button, ToggleButtonGroup, Typography } from '@mui/joy';
+import { Typography, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
+import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useSettings } from '@/hooks/useSettings';
@@ -12,8 +17,11 @@ interface HistoricalTimelineProps {
   initialFrom: number;
   initialTo: number;
   onRangeChange: (from: number, to: number) => void;
-  timelineRangeMs: number;
+  timelineFrom: number;
+  timelineTo: number;
+  activePresetMs: number | null;
   onPresetChange: (ms: number) => void;
+  onCustomRangeChange: (from: number, to: number) => void;
 }
 
 const RANGE_PRESETS = [
@@ -122,8 +130,11 @@ export default memo(function HistoricalTimeline({
   initialFrom,
   initialTo,
   onRangeChange,
-  timelineRangeMs,
+  timelineFrom,
+  timelineTo,
+  activePresetMs,
   onPresetChange,
+  onCustomRangeChange,
 }: HistoricalTimelineProps) {
   const { general } = useSettings();
   const chartRef = useRef<ReactECharts>(null);
@@ -187,46 +198,100 @@ export default memo(function HistoricalTimeline({
     }
   }, [onPresetChange]);
 
-  // Find closest matching preset for highlight (tolerance handles URL-restored ranges)
-  const activeRangeValue = RANGE_PRESETS.find(
-    (p) => Math.abs(timelineRangeMs - p.ms) / p.ms < 0.05,
-  );
+  // Custom date picker handlers — reset slider to full range on change
+  const resetSlider = useCallback(() => {
+    suppressZoomRef.current = true;
+    const instance = chartRef.current?.getEchartsInstance();
+    if (instance) {
+      instance.dispatchAction({ type: 'dataZoom', start: 0, end: 100 });
+    }
+  }, []);
+
+  const handleFromChange = useCallback((value: Dayjs | null) => {
+    if (!value || !value.isValid()) return;
+    const ms = value.valueOf();
+    if (ms >= timelineTo) return;
+    onCustomRangeChange(ms, timelineTo);
+    resetSlider();
+  }, [timelineTo, onCustomRangeChange, resetSlider]);
+
+  const handleToChange = useCallback((value: Dayjs | null) => {
+    if (!value || !value.isValid()) return;
+    const ms = value.valueOf();
+    if (ms <= timelineFrom) return;
+    onCustomRangeChange(timelineFrom, ms);
+    resetSlider();
+  }, [timelineFrom, onCustomRangeChange, resetSlider]);
+
+  // Find closest matching preset for highlight
+  const activeRangeValue = activePresetMs != null
+    ? RANGE_PRESETS.find((p) => p.ms === activePresetMs)
+    : undefined;
+
+  const dateTimeFormat = general.use12HourTime ? 'MM/DD/YYYY hh:mm A' : 'MM/DD/YYYY HH:mm';
 
   return (
-    <div className="sticky bottom-0 z-10 border-t border-neutral-200 dark:border-neutral-700 bg-[var(--joy-palette-background-surface)] px-4 py-3">
-      <div className="flex items-center gap-3 mb-2">
+    <div className="sticky bottom-0 z-10 border-t border-neutral-200 dark:border-neutral-700 bg-[var(--mui-palette-background-paper)] px-4 py-3">
+      <div className="flex items-center gap-3 mb-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <Typography level="body-xs" className="text-neutral-500">Range:</Typography>
+          <Typography variant="caption" className="text-neutral-500">Range:</Typography>
           <ToggleButtonGroup
             value={activeRangeValue ? String(activeRangeValue.ms) : null}
             onChange={(_e, newValue) => {
               if (newValue !== null) handlePreset(Number(newValue));
             }}
-            size="sm"
-            variant="outlined"
+            size="small"
+            exclusive
           >
             {RANGE_PRESETS.map((preset) => (
-              <Button key={preset.label} value={String(preset.ms)}>
+              <ToggleButton key={preset.label} value={String(preset.ms)}>
                 {preset.label}
-              </Button>
+              </ToggleButton>
             ))}
           </ToggleButtonGroup>
         </div>
 
+        <LocalizationProvider dateAdapter={AdapterDayjs}>
+          <div className="flex items-center gap-2">
+            <Typography variant="caption" className="text-neutral-500">From:</Typography>
+            <DateTimePicker
+              value={dayjs(timelineFrom)}
+              onChange={handleFromChange}
+              maxDateTime={dayjs(timelineTo)}
+              ampm={general.use12HourTime}
+              format={dateTimeFormat}
+              slotProps={{
+                textField: { size: 'small' },
+              }}
+            />
+            <Typography variant="caption" className="text-neutral-500">To:</Typography>
+            <DateTimePicker
+              value={dayjs(timelineTo)}
+              onChange={handleToChange}
+              minDateTime={dayjs(timelineFrom)}
+              ampm={general.use12HourTime}
+              format={dateTimeFormat}
+              slotProps={{
+                textField: { size: 'small' },
+              }}
+            />
+          </div>
+        </LocalizationProvider>
+
         <div className="ml-auto flex items-center gap-2">
-          <Typography level="body-xs" className="text-neutral-500">Metric:</Typography>
+          <Typography variant="caption" className="text-neutral-500">Metric:</Typography>
           <ToggleButtonGroup
             value={timelineMetric}
             onChange={(_e, newValue) => {
               if (newValue !== null) setTimelineMetric(newValue as MetricType);
             }}
-            size="sm"
-            variant="outlined"
+            size="small"
+            exclusive
           >
             {TIMELINE_METRICS.map((metric) => (
-              <Button key={metric.key} value={metric.key}>
+              <ToggleButton key={metric.key} value={metric.key}>
                 {metric.label}
-              </Button>
+              </ToggleButton>
             ))}
           </ToggleButtonGroup>
         </div>
