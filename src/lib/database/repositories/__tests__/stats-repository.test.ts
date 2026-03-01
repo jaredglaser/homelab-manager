@@ -316,54 +316,80 @@ describe('StatsRepository', () => {
     // Each call issues two queries: a bounds query (actual data extent) + the bucketed data query.
     // The bounds query (queries[0]) returns actual_span_secs; the data query (queries[1]) returns rows.
     // When bounds returns no rows, bucket falls back to requested range.
+    // Accepts an array of container IDs and queries with ANY($N) to unify history across recreations.
 
     it('should query with correct time range and container filter', async () => {
       const from = new Date('2024-01-01T00:00:00Z');
       const to = new Date('2024-01-01T00:05:00Z');
 
-      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
       expect(mockPool.queries).toHaveLength(2);
-      // Bounds query
+      // Bounds query uses ANY for container IDs
       expect(mockPool.queries[0].sql).toContain('actual_span_secs');
-      expect(mockPool.queries[0].params).toEqual([from, to, 'abc123']);
+      expect(mockPool.queries[0].sql).toContain('container_id = ANY($3)');
+      expect(mockPool.queries[0].params).toEqual([from, to, ['abc123']]);
       // Data query
       expect(mockPool.queries[1].sql).toContain('docker_stats');
       expect(mockPool.queries[1].sql).toContain('time_bucket');
-      expect(mockPool.queries[1].sql).toContain('container_id = $4');
-      expect(mockPool.queries[1].params).toEqual([from, to, 1, 'abc123']);
+      expect(mockPool.queries[1].sql).toContain('container_id = ANY($4)');
+      expect(mockPool.queries[1].params).toEqual([from, to, 1, ['abc123']]);
+    });
+
+    it('should accept multiple container IDs for service group queries', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T00:05:00Z');
+
+      await repo.getDockerStatsForContainer(['abc123', 'def456', 'ghi789'], undefined, from, to);
+
+      expect(mockPool.queries[0].params).toEqual([from, to, ['abc123', 'def456', 'ghi789']]);
+      expect(mockPool.queries[1].params).toEqual([from, to, 1, ['abc123', 'def456', 'ghi789']]);
+    });
+
+    it('should group by time bucket without container_id (unified series)', async () => {
+      const from = new Date('2024-01-01T00:00:00Z');
+      const to = new Date('2024-01-01T00:05:00Z');
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      const sql = mockPool.queries[1].sql;
+      // Groups by time + host only — no container_id in GROUP BY
+      expect(sql).toContain('GROUP BY time_bucket');
+      expect(sql).not.toContain('GROUP BY time_bucket(make_interval(secs => $3), time), host, container_id');
+      // Uses last() to preserve a representative container_id in the output
+      expect(sql).toContain('last(container_id, time)');
     });
 
     it('should append host filter when host is provided', async () => {
       const from = new Date('2024-01-01T00:00:00Z');
       const to = new Date('2024-01-01T00:05:00Z');
 
-      await repo.getDockerStatsForContainer('abc123', 'server1', from, to);
+      await repo.getDockerStatsForContainer(['abc123'], 'server1', from, to);
 
       expect(mockPool.queries).toHaveLength(2);
       // Bounds query includes host filter
       expect(mockPool.queries[0].sql).toContain('host = $4');
-      expect(mockPool.queries[0].params).toEqual([from, to, 'abc123', 'server1']);
+      expect(mockPool.queries[0].params).toEqual([from, to, ['abc123'], 'server1']);
       // Data query includes host filter
       expect(mockPool.queries[1].sql).toContain('host = $5');
-      expect(mockPool.queries[1].params).toEqual([from, to, 1, 'abc123', 'server1']);
+      expect(mockPool.queries[1].params).toEqual([from, to, 1, ['abc123'], 'server1']);
     });
 
     it('should not include host filter when host is undefined', async () => {
       const from = new Date('2024-01-01T00:00:00Z');
       const to = new Date('2024-01-01T00:05:00Z');
 
-      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
       expect(mockPool.queries[1].sql).not.toContain('host = $5');
-      expect(mockPool.queries[1].params).toEqual([from, to, 1, 'abc123']);
+      expect(mockPool.queries[1].params).toEqual([from, to, 1, ['abc123']]);
     });
 
     it('should use 1s bucket for short windows (≤ 300s with default targetPoints)', async () => {
       const from = new Date('2024-01-01T00:00:00Z');
       const to = new Date('2024-01-01T00:05:00Z'); // 300s
 
-      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
       // Bounds returns empty → falls back to requested 300s / 300 targetPoints = 1s bucket
       expect(mockPool.queries[1].params[2]).toBe(1);
@@ -373,7 +399,7 @@ describe('StatsRepository', () => {
       const from = new Date('2024-01-01T00:00:00Z');
       const to = new Date('2024-01-01T01:00:00Z'); // 3600s
 
-      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
       // Bounds returns empty → falls back to requested 3600s / 300 targetPoints = 12s bucket
       expect(mockPool.queries[1].params[2]).toBe(12);
@@ -383,7 +409,7 @@ describe('StatsRepository', () => {
       const from = new Date('2024-01-01T00:00:00Z');
       const to = new Date('2024-01-01T00:10:00Z'); // 600s
 
-      await repo.getDockerStatsForContainer('abc123', undefined, from, to, 100);
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to, 100);
 
       // Bounds returns empty → falls back to requested 600s / 100 targetPoints = 6s bucket
       expect(mockPool.queries[1].params[2]).toBe(6);
@@ -396,7 +422,7 @@ describe('StatsRepository', () => {
       // Bounds query returns actual data spanning only 600 seconds
       mockPool.pushResult([{ actual_span_secs: 600 }]);
 
-      await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
       // 600s actual / 300 targetPoints = 2s bucket (not 86400/300 = 288s)
       expect(mockPool.queries[1].params[2]).toBe(2);
@@ -417,8 +443,118 @@ describe('StatsRepository', () => {
       mockPool.pushResult([{ actual_span_secs: 300 }]);
       mockPool.pushResult(mockRows);
 
-      const result = await repo.getDockerStatsForContainer('abc123', undefined, from, to);
+      const result = await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
       expect(result).toEqual(mockRows);
+    });
+  });
+
+  describe('getServiceKeyForEntity', () => {
+    it('should query entity_metadata with correct params', async () => {
+      await repo.getServiceKeyForEntity('docker', 'myhost/abc123');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain("key = 'service_key'");
+      expect(mockPool.queries[0].params).toEqual(['docker', 'myhost/abc123']);
+    });
+
+    it('should return the service_key value when found', async () => {
+      mockPool.pushResult([{ value: 'media-stack/plex' }]);
+
+      const result = await repo.getServiceKeyForEntity('docker', 'myhost/abc123');
+      expect(result).toBe('media-stack/plex');
+    });
+
+    it('should return null when no entry exists', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getServiceKeyForEntity('docker', 'myhost/unknown');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('getContainerIdsByServiceKey', () => {
+    it('should query with source, host prefix, and service_key', async () => {
+      await repo.getContainerIdsByServiceKey('docker', 'myhost', 'media-stack/plex');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain("key = 'service_key'");
+      expect(mockPool.queries[0].sql).toContain("entity LIKE $2 || '/%'");
+      expect(mockPool.queries[0].params).toEqual(['docker', 'myhost', 'media-stack/plex']);
+    });
+
+    it('should return container_ids stripped of host prefix', async () => {
+      mockPool.pushResult([
+        { container_id: 'abc123' },
+        { container_id: 'def456' },
+      ]);
+
+      const result = await repo.getContainerIdsByServiceKey('docker', 'myhost', 'plex');
+      expect(result).toEqual(['abc123', 'def456']);
+    });
+
+    it('should return empty array when no containers match', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getContainerIdsByServiceKey('docker', 'myhost', 'nonexistent');
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('migrateServiceKeyByName', () => {
+    it('should issue UPDATE with correct params', async () => {
+      await repo.migrateServiceKeyByName('docker', 'myhost', 'plex', 'media-stack/plex');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('UPDATE entity_metadata');
+      expect(mockPool.queries[0].sql).toContain("key = 'service_key'");
+      expect(mockPool.queries[0].sql).toContain("entity LIKE $2 || '/%'");
+      expect(mockPool.queries[0].params).toEqual(['docker', 'myhost', 'plex', 'media-stack/plex']);
+    });
+  });
+
+  describe('migrateServiceIcon', () => {
+    it('should INSERT icon from old entity to new entity with ON CONFLICT DO NOTHING', async () => {
+      await repo.migrateServiceIcon('docker', 'myhost/plex', 'myhost/media-stack/plex');
+
+      expect(mockPool.queries).toHaveLength(1);
+      const sql = mockPool.queries[0].sql;
+      expect(sql).toContain('INSERT INTO entity_metadata');
+      expect(sql).toContain("ON CONFLICT");
+      expect(sql).toContain("DO NOTHING");
+      expect(sql).toContain("key = 'icon'");
+      expect(mockPool.queries[0].params).toEqual(['docker', 'myhost/plex', 'myhost/media-stack/plex']);
+    });
+  });
+
+  describe('getDockerContainerMetadata', () => {
+    it('should query with a JOIN between service_key and icon entries', async () => {
+      await repo.getDockerContainerMetadata('docker');
+
+      expect(mockPool.queries).toHaveLength(1);
+      const sql = mockPool.queries[0].sql;
+      expect(sql).toContain('service_key_entity');
+      expect(sql).toContain('LEFT JOIN entity_metadata icon');
+      expect(sql).toContain("sk.key = 'service_key'");
+      expect(mockPool.queries[0].params).toEqual(['docker']);
+    });
+
+    it('should return metadata keyed by container_entity', async () => {
+      mockPool.pushResult([
+        { container_entity: 'myhost/abc123', service_key_entity: 'myhost/plex', icon_slug: 'plex.svg' },
+        { container_entity: 'myhost/def456', service_key_entity: 'myhost/media-stack/plex', icon_slug: null },
+      ]);
+
+      const result = await repo.getDockerContainerMetadata('docker');
+      expect(result.size).toBe(2);
+      expect(result.get('myhost/abc123')).toEqual({ serviceKeyEntity: 'myhost/plex', iconSlug: 'plex.svg' });
+      expect(result.get('myhost/def456')).toEqual({ serviceKeyEntity: 'myhost/media-stack/plex', iconSlug: null });
+    });
+
+    it('should return empty map when no containers have service_key', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getDockerContainerMetadata('docker');
+      expect(result.size).toBe(0);
     });
   });
 

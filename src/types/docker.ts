@@ -34,6 +34,8 @@ export interface DockerStatsRow {
  */
 export interface DockerStatsFromDB {
   id: string;
+  /** Entity path used for icon storage: host/service_key (e.g. "myhost/media-stack/plex") */
+  serviceKeyEntity: string;
   name: string;
   image: string;
   icon: string | null;

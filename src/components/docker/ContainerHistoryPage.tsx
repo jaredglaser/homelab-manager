@@ -175,6 +175,10 @@ export default function ContainerHistoryPage({
   const containerName = infoQuery.data?.containerName ?? containerId.substring(0, 12);
   const containerImage = infoQuery.data?.image ?? '';
   const containerIcon = infoQuery.data?.icon ?? null;
+  const serviceKey = infoQuery.data?.serviceKey ?? null;
+  // Only show service key label when it's compose-based (contains '/'), i.e. "media-stack/plex".
+  // When it's just the container name fallback, the label would be redundant.
+  const showServiceKey = serviceKey?.includes('/') ?? false;
   const iconUrl = containerImage ? getIconUrl(containerIcon, containerImage) : FALLBACK_ICON_URL;
   const [iconError, setIconError] = useState(false);
 
@@ -205,6 +209,9 @@ export default function ContainerHistoryPage({
           />
           <div>
             <Typography variant="h5">{containerName}</Typography>
+            {showServiceKey && (
+              <Typography variant="caption" className="text-neutral-400 block">Service: {serviceKey}</Typography>
+            )}
             {containerImage && (
               <Typography variant="caption" className="text-neutral-500">{containerImage}</Typography>
             )}

@@ -46,7 +46,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
   const iconUrl = getIconUrl(container.icon, container.image);
 
   const handleIconSelect = async (iconSlug: string) => {
-    await updateContainerIcon({ data: { entityId: container.id, iconSlug } });
+    await updateContainerIcon({ data: { serviceKeyEntity: container.serviceKeyEntity, iconSlug } });
     await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
   };
 

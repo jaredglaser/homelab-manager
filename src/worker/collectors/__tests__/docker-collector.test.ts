@@ -205,8 +205,8 @@ describe('DockerCollector', () => {
 
       await (collector as any).collect();
 
-      // Metadata should be upserted for the container (name + image)
-      expect(metadataUpserts.length).toBe(2);
+      // Metadata should be upserted for the container (name + image + service_key)
+      expect(metadataUpserts.length).toBe(3);
       expect(metadataUpserts[0]).toEqual({
         source: 'docker',
         entity: 'test-host/abc123def456789',
@@ -218,6 +218,12 @@ describe('DockerCollector', () => {
         entity: 'test-host/abc123def456789',
         key: 'image',
         value: 'nginx:latest',
+      });
+      expect(metadataUpserts[2]).toEqual({
+        source: 'docker',
+        entity: 'test-host/abc123def456789',
+        key: 'service_key',
+        value: 'web-server', // No compose labels → falls back to container name
       });
 
       // Stats should have been written — 2 stats events produce 2 rows
@@ -237,6 +243,81 @@ describe('DockerCollector', () => {
 
       // Client should be closed in finally block
       expect(closeMock).toHaveBeenCalled();
+
+      controller.abort();
+    });
+
+    it('should use compose labels to compute service_key as project/service', async () => {
+      const db = createMockDb();
+      const controller = new AbortController();
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
+
+      const metadataUpserts: any[] = [];
+      spyOn((collector as any).repository, 'insertDockerStats').mockImplementation(async () => {});
+      spyOn((collector as any).repository, 'upsertEntityMetadata').mockImplementation(
+        async (source: string, entity: string, key: string, value: string) => {
+          metadataUpserts.push({ source, entity, key, value });
+        },
+      );
+      const migrateCalls: any[] = [];
+      spyOn((collector as any).repository, 'migrateServiceKeyByName').mockImplementation(
+        async (source: string, host: string, oldKey: string, newKey: string) => {
+          migrateCalls.push({ source, host, oldKey, newKey });
+        },
+      );
+      const iconMigrateCalls: any[] = [];
+      spyOn((collector as any).repository, 'migrateServiceIcon').mockImplementation(
+        async (source: string, oldEntity: string, newEntity: string) => {
+          iconMigrateCalls.push({ source, oldEntity, newEntity });
+        },
+      );
+
+      const stats = createMockContainerStats(100000000, 10000000000);
+      const statsStream = Readable.from(JSON.stringify(stats));
+
+      const containerInfoWithLabels = {
+        Id: 'compose123',
+        Names: ['/plex'],
+        Image: 'plexinc/pms-docker:latest',
+        Labels: {
+          'com.docker.compose.project': 'media-stack',
+          'com.docker.compose.service': 'plex',
+        },
+      };
+
+      const mockDocker = {
+        listContainers: mock(async () => [containerInfoWithLabels]),
+        getContainer: mock(() => ({ stats: mock(async () => statsStream) })),
+      };
+
+      spyOn(dockerConnectionManager, 'getClient').mockResolvedValue({
+        getDocker: () => mockDocker,
+        close: mock(async () => {}),
+        isConnected: () => true,
+      } as any);
+
+      await (collector as any).collect();
+
+      const serviceKeyUpsert = metadataUpserts.find(u => u.key === 'service_key');
+      expect(serviceKeyUpsert).toBeDefined();
+      expect(serviceKeyUpsert.value).toBe('media-stack/plex');
+
+      // Migration should be triggered to link old name-only entries
+      expect(migrateCalls.length).toBe(1);
+      expect(migrateCalls[0]).toEqual({
+        source: 'docker',
+        host: 'test-host',
+        oldKey: 'plex',         // old name-fallback key
+        newKey: 'media-stack/plex',
+      });
+
+      // Icon should also be migrated from old service_key entity to new
+      expect(iconMigrateCalls.length).toBe(1);
+      expect(iconMigrateCalls[0]).toEqual({
+        source: 'docker',
+        oldEntity: 'test-host/plex',
+        newEntity: 'test-host/media-stack/plex',
+      });
 
       controller.abort();
     });

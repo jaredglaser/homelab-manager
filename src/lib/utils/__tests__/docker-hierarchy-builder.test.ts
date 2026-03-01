@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { buildDockerHierarchy, rowToDockerStats } from '../docker-hierarchy-builder';
+import { buildDockerHierarchy, rowToDockerStats, computeServiceKey } from '../docker-hierarchy-builder';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 
 describe('buildDockerHierarchy', () => {
@@ -12,6 +12,7 @@ describe('buildDockerHierarchy', () => {
   ): DockerStatsFromDB {
     return {
       id: `${hostName}/${containerId}`,
+      serviceKeyEntity: `${hostName}/${containerName}`,
       name: containerName,
       image: 'nginx:latest',
       icon: null,
@@ -286,6 +287,20 @@ describe('buildDockerHierarchy', () => {
       expect(result.icon).toBe('nginx.svg');
     });
 
+    it('should set serviceKeyEntity to provided value', () => {
+      const row = createMockRow();
+      const result = rowToDockerStats(row, null, 'host1/media-stack/plex');
+
+      expect(result.serviceKeyEntity).toBe('host1/media-stack/plex');
+    });
+
+    it('should fall back to entity ID when serviceKeyEntity is not provided', () => {
+      const row = createMockRow();
+      const result = rowToDockerStats(row);
+
+      expect(result.serviceKeyEntity).toBe('host1/abc123def456');
+    });
+
     it('should default null metrics to 0', () => {
       const row = createMockRow({
         cpu_percent: null,
@@ -321,6 +336,7 @@ describe('buildDockerHierarchy', () => {
     const stats: DockerStatsFromDB[] = [
       {
         id: 'invalid-no-slash', // Missing slash
+        serviceKeyEntity: 'invalid-no-slash',
         name: 'test',
         image: 'test:latest',
         icon: null,
@@ -415,5 +431,41 @@ describe('buildDockerHierarchy', () => {
       expect(host.aggregated.memoryUsage).toBe(1000);
       expect(host.aggregated.memoryLimit).toBe(2000);
     });
+  });
+});
+
+describe('computeServiceKey', () => {
+  it('should return project/service when both compose labels are present', () => {
+    const labels = {
+      'com.docker.compose.project': 'media-stack',
+      'com.docker.compose.service': 'plex',
+    };
+    expect(computeServiceKey(labels, 'plex')).toBe('media-stack/plex');
+  });
+
+  it('should return container name when labels is undefined', () => {
+    expect(computeServiceKey(undefined, 'my-app')).toBe('my-app');
+  });
+
+  it('should return container name when labels is an empty object', () => {
+    expect(computeServiceKey({}, 'my-app')).toBe('my-app');
+  });
+
+  it('should return container name when only compose project label is present', () => {
+    const labels = { 'com.docker.compose.project': 'my-project' };
+    expect(computeServiceKey(labels, 'my-app')).toBe('my-app');
+  });
+
+  it('should return container name when only compose service label is present', () => {
+    const labels = { 'com.docker.compose.service': 'my-service' };
+    expect(computeServiceKey(labels, 'my-app')).toBe('my-app');
+  });
+
+  it('should include project in key to distinguish same service names across projects', () => {
+    const labels1 = { 'com.docker.compose.project': 'project-a', 'com.docker.compose.service': 'db' };
+    const labels2 = { 'com.docker.compose.project': 'project-b', 'com.docker.compose.service': 'db' };
+    expect(computeServiceKey(labels1, 'db')).toBe('project-a/db');
+    expect(computeServiceKey(labels2, 'db')).toBe('project-b/db');
+    expect(computeServiceKey(labels1, 'db')).not.toBe(computeServiceKey(labels2, 'db'));
   });
 });

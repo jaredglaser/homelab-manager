@@ -7,16 +7,34 @@ import type {
 } from '@/types/docker';
 
 /**
+ * Compute a stable service key for a Docker container.
+ * Uses Docker Compose labels when available; falls back to container name.
+ *
+ * Format with labels: "{compose_project}/{compose_service}" (e.g. "media-stack/plex")
+ * Format without:     "{container_name}"                    (e.g. "plex")
+ */
+export function computeServiceKey(
+  labels: Record<string, string> | undefined,
+  containerName: string,
+): string {
+  const project = labels?.['com.docker.compose.project'];
+  const service = labels?.['com.docker.compose.service'];
+  return project && service ? `${project}/${service}` : containerName;
+}
+
+/**
  * Convert a wide DockerStatsRow to DockerStatsFromDB for UI consumption.
- * Metadata (icon) is resolved separately.
+ * Metadata (icon, serviceKeyEntity) is resolved separately and passed in.
  */
 export function rowToDockerStats(
   row: DockerStatsRow,
   icon: string | null = null,
+  serviceKeyEntity: string | null = null,
 ): DockerStatsFromDB {
   const entityId = `${row.host}/${row.container_id}`;
   return {
     id: entityId,
+    serviceKeyEntity: serviceKeyEntity ?? entityId,
     name: row.container_name || row.container_id.substring(0, 12),
     image: row.image || '',
     icon,

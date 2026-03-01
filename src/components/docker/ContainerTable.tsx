@@ -54,8 +54,9 @@ export default function ContainerTable({
     const stats: DockerStatsFromDB[] = [];
     for (const row of latestByEntity.values()) {
       const entityId = `${row.host}/${row.container_id}`;
-      const icon = entityIcons?.[entityId] ?? null;
-      stats.push(rowToDockerStats(row, icon));
+      const meta = entityIcons?.[entityId];
+      // Fall back to entity ID as serviceKeyEntity when service_key not yet populated
+      stats.push(rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? entityId));
     }
     return buildDockerHierarchy(stats);
   }, [latestByEntity, entityIcons]);
