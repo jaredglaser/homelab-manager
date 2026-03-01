@@ -53,7 +53,7 @@ The application uses a two-stage pipeline: background collection and real-time s
 
 ```mermaid
 flowchart LR
-    CL["Client<br/>(Docker / SSH)"]
+    CL["Client<br/>(Docker / SSH / REST)"]
     RS["Raw Stream<br/>(JSON / text)"]
     PA["Parser<br/>(structured data)"]
     RC["Rate Calculator<br/>(deltas & metrics)"]
@@ -61,6 +61,8 @@ flowchart LR
 
     CL --> RS --> PA --> RC --> DB
 ```
+
+> **Note:** Docker and ZFS follow this full pipeline (streaming → parse → rate-calculate → insert). Proxmox is simpler: it polls the REST API, converts the response to flat rows via `overviewToRows()`, and inserts directly — no streaming parser or rate calculator needed.
 
 ### Stage 2: Real-Time Streaming (Server → Browser)
 

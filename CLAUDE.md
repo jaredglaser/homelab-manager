@@ -168,7 +168,7 @@ import { statsPollService } from '@/lib/database/subscription-service';
 const { statsPollService } = await import('@/lib/database/subscription-service');
 ```
 
-### Virtualized Tables (Docker & ZFS)
+### Virtualized Tables (Docker, ZFS & Proxmox)
 1. Page route uses `useTimeSeriesStream` hook (preload + SSE merge + time-windowed buffer)
 2. Pass `latestByEntity` (Map) and `rows` (sorted array) to table component
 3. Table converts wide rows → domain objects → `FlatRow[]` discriminated union
