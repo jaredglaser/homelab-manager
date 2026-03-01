@@ -18,6 +18,15 @@ interface ZFSPoolSpeedChartsProps {
   rows: ZFSStatsRow[];
 }
 
+/**
+ * Render speed charts for ZFS pools derived from the provided stats rows.
+ *
+ * Builds time-series data per pool (grouped by host/pool when multiple hosts are present)
+ * and renders a ZFSPoolSpeedChart for each pool. Returns `null` when no pool-level data exists.
+ *
+ * @param rows - Array of ZFSStatsRow records used to construct pool time-series data
+ * @returns A React element containing one chart per pool, or `null` if there are no pools
+ */
 export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
   const pools = useMemo<PoolTimeSeriesData[]>(() => {
     // Filter to pool-level entities only (no '/' in entity path)

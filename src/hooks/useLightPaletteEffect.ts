@@ -42,6 +42,15 @@ const PALETTE_MAP: Record<LightPalette, PaletteTokens> = {
 
 const STYLE_ID = 'light-palette-override';
 
+/**
+ * Synchronizes document CSS custom properties for the light color scheme with the user's selected light palette.
+ *
+ * Observes the current `settings.general.lightPalette` and injects or updates a <style> element (id "light-palette-override")
+ * to define the following MUI background variables for elements matching `[data-color-scheme="light"]`:
+ * `--mui-palette-background-default`, `--mui-palette-background-paper`, `--mui-palette-background-popup`,
+ * `--mui-palette-background-level1`, `--mui-palette-background-level2`, `--mui-palette-background-level3`,
+ * and `--mui-palette-background-chartBg`.
+ */
 export function useLightPaletteEffect(): void {
   const settings = useAtomValue(settingsAtom);
   const palette = settings.general.lightPalette;

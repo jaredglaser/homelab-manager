@@ -168,6 +168,13 @@ function getChartOption(dataPoints: TimeSeriesDataPoint[], use12HourTime: boolea
   };
 }
 
+/**
+ * Renders a time-series chart showing read and write bytes-per-second for a ZFS pool.
+ *
+ * @param poolName - Display name shown above the chart
+ * @param dataPoints - Ordered array of timestamped measurements with `timestamp`, `readBytesPerSec`, and `writeBytesPerSec`
+ * @returns The chart component rendering the pool name and an interactive read/write speed graph
+ */
 export default function ZFSPoolSpeedChart({
   poolName,
   dataPoints,

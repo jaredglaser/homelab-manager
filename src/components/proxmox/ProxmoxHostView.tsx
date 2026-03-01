@@ -12,6 +12,12 @@ interface ProxmoxHostViewProps {
   overview: ProxmoxClusterOverview
 }
 
+/**
+ * Render a per-node Proxmox host view with expandable sections for virtual machines, containers, and storage.
+ *
+ * @param overview - Cluster overview containing nodes, VMs, containers, and storages used to populate each node's sections and metrics
+ * @returns A React element displaying each node with CPU/Memory/Disk metrics, status, uptime, and expandable Guest/Storage sections
+ */
 export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
   const {
     isProxmoxHostExpanded,

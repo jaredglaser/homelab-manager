@@ -33,6 +33,17 @@ interface ContainerTableProps {
   isStale: boolean;
 }
 
+/**
+ * Render a virtualized table of Docker hosts and their containers showing metric columns and expand/collapse state.
+ *
+ * @param latestByEntity - Map of the most recent Docker stats rows keyed by entity (host/container) used to build the host/container hierarchy and icons
+ * @param rows - Time-series Docker stats rows used to build per-entity chart data
+ * @param hasData - Whether any historical or latest data exists (affects loading/error rendering)
+ * @param isConnected - Whether the Docker stats source is currently connected
+ * @param error - Optional connection error to display when no data is available
+ * @param isStale - Whether the displayed data is considered stale (controls stale-data alert)
+ * @returns The rendered table element containing headers and a virtualized list of host and container rows
+ */
 export default function ContainerTable({
   latestByEntity,
   rows,
@@ -199,7 +210,17 @@ export default function ContainerTable({
   );
 }
 
-// ─── Host Row ────────────────────────────────────────────────────────────────
+/**
+ * Render a host row displaying the host name, aggregated metrics, container counts, and expansion controls.
+ *
+ * The row shows CPU, memory, disk I/O, and network metrics derived from the host's aggregated stats,
+ * indicates stale state, and displays chips for container and stale-container counts. Clicking the row
+ * toggles host expansion when the host has containers and there is more than one host.
+ *
+ * @param host - Host statistics used to populate the row (includes aggregated metrics, container map, stale flag, and hostName)
+ * @param totalHosts - Total number of hosts; used to determine whether expansion controls are enabled
+ * @returns The JSX element for the host row with metrics and controls
+ */
 
 function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) {
   const { docker, isHostExpanded, toggleHostExpanded } = useSettings();

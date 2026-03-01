@@ -17,6 +17,14 @@ function SettingsPage() {
   )
 }
 
+/**
+ * Render the settings page content with grouped controls for managing application preferences.
+ *
+ * Renders sections for General, Docker Containers Dashboard, ZFS Dashboard, Data Retention, and Developer
+ * settings where each control is bound to the application's settings hook so UI interactions update settings state.
+ *
+ * @returns The Settings page content as a JSX element
+ */
 function SettingsContent() {
   const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setChartWindowSeconds, setShowSparklines, setUseAbbreviatedUnits, setLightPalette, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
 

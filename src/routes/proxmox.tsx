@@ -14,6 +14,13 @@ import type { ProxmoxClusterOverview } from '@/types/proxmox'
 import { useSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
 
+/**
+ * Render a two-option toggle control for choosing the Proxmox update interval.
+ *
+ * @param interval - The currently selected update interval in milliseconds.
+ * @param onIntervalChange - Callback invoked with the new update interval (ms) when the selection changes.
+ * @returns The React element for the interval toggle control.
+ */
 function IntervalToggle({
   interval,
   onIntervalChange
@@ -140,6 +147,13 @@ function ProxmoxPageContent() {
   )
 }
 
+/**
+ * Renders the Proxmox dashboard content: subscribes to the Proxmox overview SSE, tracks connection/configuration state, and displays either an error, a not-configured notice, a loading state, or the cluster overview views.
+ *
+ * The component updates the global last-update timestamp when new overview data arrives and marks the instance as configured once data is received.
+ *
+ * @returns The UI for the Proxmox content area (error message, configuration guidance, loading indicator, or cluster overview components).
+ */
 function ProxmoxContent() {
   const [overview, setOverview] = useState<ProxmoxClusterOverview | null>(null)
   const [configured, setConfigured] = useState<boolean | null>(null)

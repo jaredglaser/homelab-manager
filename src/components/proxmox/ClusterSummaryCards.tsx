@@ -6,6 +6,15 @@ interface ClusterSummaryCardsProps {
   overview: ProxmoxClusterOverview
 }
 
+/**
+ * Render four summary cards showing cluster, CPU, memory, and guest statistics for a Proxmox cluster.
+ *
+ * The component displays: cluster name and online node count; CPU usage percentage and core counts;
+ * memory usage percentage and formatted byte totals; and running/stopped guest counts (VMs and CTs).
+ *
+ * @param overview - ProxmoxClusterOverview used to populate the cards. Expected to contain `totals` (CPU/memory/guest counts), `nodes` (node list with `status`), and `clusterName`.
+ * @returns A JSX element containing a responsive grid of four outlined cards: "Cluster", "CPU", "Memory", and "Guests".
+ */
 export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsProps) {
   const { totals, nodes, clusterName } = overview
   const onlineNodes = nodes.filter((n) => n.status === 'online').length

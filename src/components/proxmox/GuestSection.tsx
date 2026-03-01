@@ -14,6 +14,19 @@ interface GuestSectionProps {
   onToggle: () => void
 }
 
+/**
+ * Renders a collapsible section of guest (VM) rows with a header showing the label and count.
+ *
+ * The header toggles expansion via `onToggle`. When expanded, column headers and a row per guest
+ * are rendered; running guests show CPU, memory, and network metrics while non-running guests
+ * show placeholders or total memory.
+ *
+ * @param label - Section title shown in the header
+ * @param guests - Array of guest rows to display; rows are sorted by `vmid` ascending
+ * @param expanded - Whether the section is currently expanded
+ * @param onToggle - Click handler invoked to toggle the section's expanded state
+ * @returns A JSX element containing the section header and (when expanded) the guest table rows
+ */
 export function GuestSection({ label, guests, expanded, onToggle }: GuestSectionProps) {
   const sorted = [...guests].sort((a, b) => a.vmid - b.vmid)
 

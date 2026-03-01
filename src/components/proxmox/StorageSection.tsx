@@ -13,6 +13,20 @@ interface StorageSectionProps {
   onToggle: () => void
 }
 
+/**
+ * Renders a collapsible "Storage" section showing a sorted list of Proxmox storages and their metrics.
+ *
+ * When the header is clicked the provided `onToggle` callback is invoked. The component sorts `storages`
+ * by the storage name and, when `expanded` is true, displays columns for Name, Type, Status, Used, Available,
+ * and Usage. Status is shown as a small Chip labeled "active" or "inactive". Usage includes a percentage value
+ * and a progress sparkline whose color is `error` when usage > 90%, `warning` when usage > 70%, and `success`
+ * otherwise. Cells for Used/Available/Usage show a dash when the storage `total` is not greater than zero.
+ *
+ * @param storages - Array of Proxmox storage objects to display (each must include at least `storage`, `type`, `active`, `used`, `avail`, `total`, and `used_fraction`).
+ * @param expanded - Whether the section is expanded to show the storage list.
+ * @param onToggle - Callback invoked when the section header is clicked.
+ * @returns The rendered storage section as a JSX element.
+ */
 export function StorageSection({ storages, expanded, onToggle }: StorageSectionProps) {
   const sorted = [...storages].sort((a, b) => a.storage.localeCompare(b.storage))
 

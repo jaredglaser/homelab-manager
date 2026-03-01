@@ -5,6 +5,12 @@ interface StaleDataAlertProps {
   isStale: boolean
 }
 
+/**
+ * Displays a warning alert indicating the background worker may not be running when data is stale.
+ *
+ * @param isStale - Whether data is considered stale; when `true` the alert is rendered.
+ * @returns A React element with a warning alert message when `isStale` is `true`, or `null` otherwise.
+ */
 export function StaleDataAlert({ isStale }: StaleDataAlertProps) {
   if (!isStale) return null
   return (

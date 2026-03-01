@@ -15,6 +15,20 @@ interface IconPickerDialogProps {
   containerName: string;
 }
 
+/**
+ * Render a searchable, virtualized dialog for selecting an icon.
+ *
+ * Displays a TextField to filter available icons and a virtualized grid organized
+ * into rows of seven icons. Selecting an icon calls `onSelect`, closes the dialog,
+ * and clears the search; closing the dialog also clears the search.
+ *
+ * @param open - Whether the dialog is open
+ * @param onClose - Callback invoked when the dialog should close
+ * @param onSelect - Callback invoked with the selected icon slug
+ * @param currentIcon - The currently selected icon slug, which will be highlighted if present
+ * @param containerName - Human-readable name inserted into the dialog title
+ * @returns The dialog element containing the search input and virtualized icon grid
+ */
 export default function IconPickerDialog({
   open,
   onClose,

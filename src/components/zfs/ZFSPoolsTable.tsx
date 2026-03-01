@@ -27,6 +27,18 @@ interface ZFSPoolsTableProps {
   isStale: boolean;
 }
 
+/**
+ * Render the ZFS pools table UI, including host/pool/vdev/disk rows with virtualization.
+ *
+ * Renders a virtualized, hierarchical view built from the provided latest metrics, shows loading or error states when appropriate, and exposes expand/collapse behavior for hosts, pools, and vdevs according to settings.
+ *
+ * @param latestByEntity - Map of entity IDs to latest ZFS stats rows used to build the host/pool/vdev/disk hierarchy
+ * @param hasData - Whether any historical/latest data exists; affects whether loading or error placeholders are shown
+ * @param isConnected - Whether the ZFS stats source is currently connected; affects whether a spinner is shown when no data is available
+ * @param error - Connection or retrieval error to display when no data is available
+ * @param isStale - Whether the displayed data is considered stale; controls the stale-data alert
+ * @returns A React element rendering the ZFS pools table and related UI (headers, metrics, virtualized rows, and state placeholders)
+ */
 export default function ZFSPoolsTable({
   latestByEntity,
   hasData,
@@ -280,7 +292,13 @@ function HostAggregateMetrics({ host }: { host: ZFSHostStats }) {
   );
 }
 
-// ─── Host Row ───────────────────────────────────────────────────────────────────
+/**
+ * Render a table row representing a ZFS host with its name, optional expand control, pool count chip, and aggregated metrics.
+ *
+ * @param host - ZFS host statistics and associated pools used to populate the row
+ * @param totalHosts - Number of hosts currently displayed; when greater than 1 the row may be expandable
+ * @returns The rendered host row element showing the host header and its aggregated metrics
+ */
 
 function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number }) {
   const { isZfsHostExpanded, toggleZfsHostExpanded } = useSettings();
@@ -316,7 +334,15 @@ function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number 
   );
 }
 
-// ─── Pool Row ───────────────────────────────────────────────────────────────────
+/**
+ * Renders a single pool row with name, optional badge, expand chevron, and metrics.
+ *
+ * @param pool - PoolStats containing the pool's display name, id, and metrics to render
+ * @param totalPools - Total number of pools on the host; used to decide toggle eligibility
+ * @param expandable - Whether the pool can be expanded to show vdevs/disks
+ * @param badge - Optional small filled chip shown next to the pool name; `tooltip` shown on hover when provided
+ * @returns The JSX element for the pool row
+ */
 
 function PoolRow({
   pool,
@@ -367,7 +393,14 @@ function PoolRow({
   );
 }
 
-// ─── Vdev Row ───────────────────────────────────────────────────────────────────
+/**
+ * Renders a table row for a vdev, showing its name and metrics and allowing expansion to reveal disks when present.
+ *
+ * The row displays an expand chevron when the vdev has disks; clicking the row toggles the vdev's expanded state in that case.
+ *
+ * @param vdev - The vdev statistics and metadata used to populate the row
+ * @returns A React element representing the vdev row with metrics and optional expand control
+ */
 
 function VdevRow({ vdev }: { vdev: VdevStats }) {
   const { isVdevExpanded, toggleVdevExpanded } = useSettings();
@@ -399,7 +432,13 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
   );
 }
 
-// ─── Disk Row ───────────────────────────────────────────────────────────────────
+/**
+ * Renders a single disk row showing the disk name and its I/O metrics with indentation.
+ *
+ * @param disk - Disk metrics and rates to display
+ * @param indent - Indentation level (in rem units multiplied by 2) applied to the disk name
+ * @returns A JSX element representing a disk row with the disk name and metrics (capacity column hidden)
+ */
 
 function DiskRow({ disk, indent }: { disk: ZFSIOStatWithRates; indent: number }) {
   return (
