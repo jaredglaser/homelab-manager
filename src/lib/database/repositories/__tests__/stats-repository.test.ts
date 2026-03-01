@@ -498,6 +498,15 @@ describe('StatsRepository', () => {
       const result = await repo.getContainerIdsByServiceKey('docker', 'myhost', 'nonexistent');
       expect(result).toEqual([]);
     });
+
+    it('should pass host with SQL wildcard characters as a parameter, not interpolated', async () => {
+      await repo.getContainerIdsByServiceKey('docker', 'my_host', 'media-stack/plex');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain("key = 'service_key'");
+      expect(mockPool.queries[0].sql).toContain("entity LIKE $2 || '/%'");
+      expect(mockPool.queries[0].params).toEqual(['docker', 'my_host', 'media-stack/plex']);
+    });
   });
 
   describe('migrateServiceKeyByName', () => {

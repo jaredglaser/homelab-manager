@@ -322,6 +322,80 @@ describe('DockerCollector', () => {
       controller.abort();
     });
 
+    it('should migrate using container name as old key when name differs from compose service', async () => {
+      const db = createMockDb();
+      const controller = new AbortController();
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
+
+      const metadataUpserts: any[] = [];
+      spyOn((collector as any).repository, 'insertDockerStats').mockImplementation(async () => {});
+      spyOn((collector as any).repository, 'upsertEntityMetadata').mockImplementation(
+        async (source: string, entity: string, key: string, value: string) => {
+          metadataUpserts.push({ source, entity, key, value });
+        },
+      );
+      const migrateCalls: any[] = [];
+      spyOn((collector as any).repository, 'migrateServiceKeyByName').mockImplementation(
+        async (source: string, host: string, oldKey: string, newKey: string) => {
+          migrateCalls.push({ source, host, oldKey, newKey });
+        },
+      );
+      const iconMigrateCalls: any[] = [];
+      spyOn((collector as any).repository, 'migrateServiceIcon').mockImplementation(
+        async (source: string, oldEntity: string, newEntity: string) => {
+          iconMigrateCalls.push({ source, oldEntity, newEntity });
+        },
+      );
+
+      const stats = createMockContainerStats(100000000, 10000000000);
+      const statsStream = Readable.from(JSON.stringify(stats));
+
+      // Container name differs from compose service label
+      const containerInfoWithMismatch = {
+        Id: 'compose456',
+        Names: ['/plex-1'],
+        Image: 'plexinc/pms-docker:latest',
+        Labels: {
+          'com.docker.compose.project': 'media-stack',
+          'com.docker.compose.service': 'plex',
+        },
+      };
+
+      const mockDocker = {
+        listContainers: mock(async () => [containerInfoWithMismatch]),
+        getContainer: mock(() => ({ stats: mock(async () => statsStream) })),
+      };
+
+      spyOn(dockerConnectionManager, 'getClient').mockResolvedValue({
+        getDocker: () => mockDocker,
+        close: mock(async () => {}),
+        isConnected: () => true,
+      } as any);
+
+      await (collector as any).collect();
+
+      const serviceKeyUpsert = metadataUpserts.find(u => u.key === 'service_key');
+      expect(serviceKeyUpsert?.value).toBe('media-stack/plex');
+
+      // Old key must be the container name fallback, not the compose service label
+      expect(migrateCalls.length).toBe(1);
+      expect(migrateCalls[0]).toEqual({
+        source: 'docker',
+        host: 'test-host',
+        oldKey: 'plex-1',         // container name, not composeService ('plex')
+        newKey: 'media-stack/plex',
+      });
+
+      expect(iconMigrateCalls.length).toBe(1);
+      expect(iconMigrateCalls[0]).toEqual({
+        source: 'docker',
+        oldEntity: 'test-host/plex-1',
+        newEntity: 'test-host/media-stack/plex',
+      });
+
+      controller.abort();
+    });
+
     it('should use shortened ID when container name is missing', async () => {
       const db = createMockDb();
       const controller = new AbortController();

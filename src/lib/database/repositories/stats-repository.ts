@@ -168,7 +168,7 @@ export class StatsRepository {
        ORDER BY time ASC`,
       [seconds, bucketSeconds]
     );
-    return result.rows;
+    return result.rows.map(toDockerStatsRow);
   }
 
   /**
@@ -231,7 +231,7 @@ export class StatsRepository {
        ORDER BY time ASC`,
       params
     );
-    return result.rows;
+    return result.rows.map(toDockerStatsRow);
   }
 
   async getContainerInfo(
@@ -523,7 +523,10 @@ export class StatsRepository {
        LEFT JOIN entity_metadata icon
          ON  icon.source = sk.source
          AND icon.key    = 'icon'
-         AND icon.entity = SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value
+         AND (
+               icon.entity = SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value
+            OR icon.entity = sk.entity
+             )
        WHERE sk.source = $1 AND sk.key = 'service_key'`,
       [source]
     );
@@ -537,6 +540,31 @@ export class StatsRepository {
     }
     return meta;
   }
+}
+
+/**
+ * Convert a raw pg row to DockerStatsRow, coercing numeric columns to JS numbers.
+ * memory_usage and memory_limit are BIGINT in the schema — pg returns these as strings.
+ * AVG(BIGINT) returns NUMERIC, which pg also returns as a string, so all AVG'd numeric
+ * columns need the same treatment.
+ */
+function toDockerStatsRow(row: Record<string, unknown>): DockerStatsRow {
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    time: row.time as string | Date,
+    host: row.host as string,
+    container_id: row.container_id as string,
+    container_name: row.container_name as string | null,
+    image: row.image as string | null,
+    cpu_percent: n(row.cpu_percent),
+    memory_usage: n(row.memory_usage),
+    memory_limit: n(row.memory_limit),
+    memory_percent: n(row.memory_percent),
+    network_rx_bytes_per_sec: n(row.network_rx_bytes_per_sec),
+    network_tx_bytes_per_sec: n(row.network_tx_bytes_per_sec),
+    block_io_read_bytes_per_sec: n(row.block_io_read_bytes_per_sec),
+    block_io_write_bytes_per_sec: n(row.block_io_write_bytes_per_sec),
+  };
 }
 
 /** Convert a raw pg row to ProxmoxStatsRow, coercing BIGINT strings to numbers. */

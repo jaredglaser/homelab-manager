@@ -69,12 +69,16 @@ export class DockerCollector extends BaseCollector {
         // Note: removing compose labels does NOT revert the service_key — the container
         // retains its compose-based key until it is recreated without labels.
         if (composeService && (!known || known.serviceKey !== serviceKey)) {
+          // Use the previously-known service_key as the old key (e.g. "plex-1" for a container
+          // whose name differs from the compose service label). Fall back to the container name
+          // when this is the first time the worker has seen this container.
+          const oldServiceKey = known?.serviceKey ?? containerName;
           await this.repository.migrateServiceKeyByName(
-            DOCKER_SOURCE, this.hostConfig.name, composeService, serviceKey,
+            DOCKER_SOURCE, this.hostConfig.name, oldServiceKey, serviceKey,
           );
           await this.repository.migrateServiceIcon(
             DOCKER_SOURCE,
-            `${this.hostConfig.name}/${composeService}`,
+            `${this.hostConfig.name}/${oldServiceKey}`,
             `${this.hostConfig.name}/${serviceKey}`,
           );
         }

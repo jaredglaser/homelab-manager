@@ -136,9 +136,14 @@ export const getContainerInfo = createServerFn()
 
       const containerEntity = `${info.host}/${data.containerId}`;
       const serviceKey = await repo.getServiceKeyForEntity('docker', containerEntity);
-      // Look up icon from the service_key entity so it persists across recreations
+      // Look up icon from the service_key entity so it persists across recreations.
+      // If no icon is found there, fall back to the container entity itself to preserve
+      // icons that were stored under the legacy host/container_id format.
       const iconEntity = serviceKey ? `${info.host}/${serviceKey}` : containerEntity;
-      const icon = await repo.getEntityIcon('docker', iconEntity);
+      let icon = await repo.getEntityIcon('docker', iconEntity);
+      if (icon === null && iconEntity !== containerEntity) {
+        icon = await repo.getEntityIcon('docker', containerEntity);
+      }
 
       return {
         containerName: info.container_name ?? data.containerId.substring(0, 12),
