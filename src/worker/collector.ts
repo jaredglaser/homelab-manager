@@ -1,18 +1,21 @@
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
+import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
 import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
+import { ProxmoxCollector } from './collectors/proxmox-collector';
 import { createCollectors } from './collector-factory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 
 /**
- * Background worker entry point
- * Orchestrates Docker and ZFS collectors, runs migrations, handles graceful shutdown
+ * Start and run the background worker that coordinates collectors, database migrations, settings updates, and graceful shutdown.
+ *
+ * Loads configuration and database connection, runs migrations, resolves collection and Proxmox poll intervals, creates and runs enabled collectors, and listens for settings changes (developer/dockerDebugLogging, developer/dbFlushDebugLogging, proxmox/updateInterval) to adjust collector behavior at runtime. Handles SIGTERM/SIGINT to abort collectors and performs orderly cleanup of connections; on unrecoverable errors the process exits with a non-zero code.
  */
 async function main() {
   console.log('[Worker] Starting homelab-manager background collector');
@@ -30,6 +33,7 @@ async function main() {
       database: `${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
       docker: workerConfig.docker.enabled,
       zfs: workerConfig.zfs.enabled,
+      proxmox: workerConfig.proxmox.enabled,
       collectionInterval: `${workerConfig.collection.interval}ms`,
     });
 
@@ -49,6 +53,16 @@ async function main() {
       console.log(`[Worker] Using update interval from config: ${workerConfig.collection.interval}ms`);
     }
 
+    // Resolve Proxmox poll interval from DB settings (default 10s)
+    let proxmoxPollIntervalMs = 10_000;
+    try {
+      const raw = await settingsRepo.get(SETTINGS_KEYS.proxmox.updateInterval);
+      const parsed = raw ? parseInt(raw, 10) : 10_000;
+      if (parsed === 1000 || parsed === 10000) proxmoxPollIntervalMs = parsed;
+    } catch {
+      // Keep default
+    }
+
     // Shared AbortController — SIGTERM aborts all collectors instantly
     const shutdownController = new AbortController();
 
@@ -63,26 +77,39 @@ async function main() {
     {
       await using stack = new AsyncDisposableStack();
 
-      const { collectors, runners } = createCollectors(db, workerConfig, shutdownController, stack);
+      const { collectors, runners } = createCollectors(db, workerConfig, shutdownController, stack, proxmoxPollIntervalMs);
 
       if (runners.length === 0) {
         console.log('[Worker] No collectors enabled, exiting');
         process.exit(0);
       }
 
-      // Listen for debug logging setting changes and apply to all collectors
+      // Listen for debug logging + proxmox interval setting changes
       const settingsListener = stack.use(
         new SettingsListener(
           dbConfig,
           settingsRepo,
-          [SETTINGS_KEYS.developer.dockerDebugLogging, SETTINGS_KEYS.developer.dbFlushDebugLogging],
+          [
+            SETTINGS_KEYS.developer.dockerDebugLogging,
+            SETTINGS_KEYS.developer.dbFlushDebugLogging,
+            SETTINGS_KEYS.proxmox.updateInterval,
+          ],
           (key, value) => {
-            const enabled = value === 'true';
             if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
+              const enabled = value === 'true';
               for (const c of collectors) c.dockerDebugLogging = enabled;
               dockerConnectionManager.debugLogging = enabled;
             } else if (key === SETTINGS_KEYS.developer.dbFlushDebugLogging) {
+              const enabled = value === 'true';
               for (const c of collectors) c.dbFlushDebugLogging = enabled;
+            } else if (key === SETTINGS_KEYS.proxmox.updateInterval) {
+              const parsed = value ? parseInt(value, 10) : 10_000;
+              const interval = (parsed === 1000 || parsed === 10000) ? parsed : 10_000;
+              for (const c of collectors) {
+                if (c instanceof ProxmoxCollector) {
+                  c.pollInterval = interval;
+                }
+              }
             }
           },
           shutdownController.signal,
@@ -96,6 +123,7 @@ async function main() {
     // AsyncDisposableStack disposes here — cleans up
 
     console.log('[Worker] Closing connections...');
+    proxmoxConnectionManager.clearAll();
     await Promise.all([
       databaseConnectionManager.closeAll(),
       dockerConnectionManager.closeAll(),

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { Typography, CircularProgress, Tooltip, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material'
 import { Zap, Waves } from 'lucide-react'
@@ -8,9 +8,10 @@ import AppShell from '../components/AppShell'
 import PageHeader from '@/components/PageHeader'
 import ClusterSummaryCards from '@/components/proxmox/ClusterSummaryCards'
 import ProxmoxHostView from '@/components/proxmox/ProxmoxHostView'
-import { useSSE } from '@/hooks/useSSE'
-import { testProxmoxConnection } from '@/data/proxmox.functions'
-import type { ProxmoxClusterOverview } from '@/types/proxmox'
+import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
+import { getHistoricalProxmoxStats, testProxmoxConnection } from '@/data/proxmox.functions'
+import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
+import type { ProxmoxStatsRow } from '@/types/proxmox'
 import { useSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
 
@@ -123,6 +124,13 @@ function ProxmoxPage() {
   )
 }
 
+/**
+ * Renders the Proxmox dashboard content including the header, update controls, and main content area.
+ *
+ * The header shows the page title, an update freshness indicator, and an interval toggle bound to settings.
+ *
+ * @returns The JSX element containing the Proxmox dashboard content.
+ */
 function ProxmoxPageContent() {
   const { proxmox, setProxmoxUpdateInterval } = useSettings()
 
@@ -140,30 +148,63 @@ function ProxmoxPageContent() {
   )
 }
 
+const WINDOW_SECONDS = 120
+
+/**
+ * Render the Proxmox dashboard content, handling live time-series streaming, configuration checks, and overview-driven UI.
+ *
+ * Uses a time-series SSE stream (with a 120s window and 1s updates), preloads recent history, updates the global
+ * last-update timestamp when new rows arrive, and runs a delayed configuration check if connected but no data is received.
+ *
+ * @returns The JSX content for the Proxmox dashboard: an error message on stream failure, a configuration guidance panel
+ *          when Proxmox is not configured, a loading indicator while awaiting data, or the overview UI (summary cards and host view)
+ *          when overview data is available.
+ */
 function ProxmoxContent() {
-  const [overview, setOverview] = useState<ProxmoxClusterOverview | null>(null)
   const [configured, setConfigured] = useState<boolean | null>(null)
   const setLastUpdate = useSetAtom(proxmoxLastUpdateAtom)
 
-  const handleData = useCallback((data: ProxmoxClusterOverview) => {
-    setOverview(data)
-    setConfigured(true)
-    setLastUpdate(Date.now())
-  }, [setLastUpdate])
+  const preloadFn = useCallback(
+    () => getHistoricalProxmoxStats({ data: { seconds: WINDOW_SECONDS } }) as Promise<ProxmoxStatsRow[]>,
+    [],
+  )
 
-  const { isConnected, error } = useSSE<ProxmoxClusterOverview>({
-    url: '/api/proxmox-overview',
-    onData: handleData,
+  const stream = useTimeSeriesStream<ProxmoxStatsRow>({
+    sseUrl: '/api/proxmox-stats',
+    preloadFn,
+    getKey: (r) => `${r.entity_type}/${r.entity_id}/${new Date(r.time).getTime()}`,
+    getTime: (r) => new Date(r.time).getTime(),
+    getEntity: (r) => `${r.entity_type}/${r.entity_id}`,
+    windowSeconds: WINDOW_SECONDS,
+    updateIntervalMs: 1000,
   })
+
+  // Update the last-update atom when new rows arrive
+  const prevLastRowRef = useRef<ProxmoxStatsRow | null>(null)
+  useEffect(() => {
+    const lastRow = stream.rows[stream.rows.length - 1] ?? null
+    if (lastRow && lastRow !== prevLastRowRef.current) {
+      prevLastRowRef.current = lastRow
+      setLastUpdate(Date.now())
+    }
+  }, [stream.rows, setLastUpdate])
+
+  const overview = useMemo(
+    () => buildProxmoxOverview(stream.latestByEntity),
+    [stream.latestByEntity],
+  )
+
+  // Mark configured once we get data
+  useEffect(() => {
+    if (overview) setConfigured(true)
+  }, [overview])
 
   // Check configuration if connected but no data received after a delay
   const configCheckedRef = useRef(false)
   useEffect(() => {
     if (configCheckedRef.current || overview) return
-    if (!isConnected) return
+    if (!stream.isConnected) return
 
-    // Wait briefly — the poll service fires immediately on subscribe,
-    // so if data hasn't arrived yet, Proxmox likely isn't configured
     const timer = setTimeout(() => {
       if (!overview && !configCheckedRef.current) {
         configCheckedRef.current = true
@@ -176,12 +217,12 @@ function ProxmoxContent() {
     }, 3000)
 
     return () => clearTimeout(timer)
-  }, [isConnected, overview])
+  }, [stream.isConnected, overview])
 
-  if (error) {
+  if (stream.error) {
     return (
       <Typography variant="body1" className="text-red-600 py-8">
-        Failed to connect to Proxmox SSE stream: {error.message}
+        Failed to connect to Proxmox SSE stream: {stream.error.message}
       </Typography>
     )
   }

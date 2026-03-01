@@ -1,13 +1,16 @@
 import { statsPollService } from '@/lib/database/subscription-service';
-import { proxmoxPollService } from '@/lib/proxmox/proxmox-poll-service';
 import { settingsBroadcastService } from '@/lib/settings/settings-broadcast-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 
 let initialized = false;
 
 /**
- * Initialize server-side resources and set up shutdown handlers.
- * This is idempotent - safe to call multiple times.
+ * Initialize server-side resources and register shutdown handlers.
+ *
+ * This function is idempotent: if initialization has already occurred it returns immediately.
+ * It registers handlers for SIGTERM and SIGINT that stop the stats poller, stop the settings
+ * broadcast service, and close all database connections; on successful cleanup the process
+ * exits with code 0, and on error it exits with code 1.
  */
 export function initServer(): void {
   if (initialized) return;
@@ -18,7 +21,6 @@ export function initServer(): void {
 
     try {
       await statsPollService.stop();
-      await proxmoxPollService.stop();
       await settingsBroadcastService.stop();
       await databaseConnectionManager.closeAll();
 

@@ -2,7 +2,7 @@ import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { StatsRepository } from '@/lib/database/repositories/stats-repository';
 
-type StatsSource = 'docker' | 'zfs';
+type StatsSource = 'docker' | 'zfs' | 'proxmox';
 type StatsCallback = (rows: unknown[]) => void;
 type StatsErrorCallback = () => void;
 
@@ -81,7 +81,9 @@ class StatsPollService {
 
         const rowsPromise = source === 'docker'
           ? repo.getDockerStatsSince(since)
-          : repo.getZFSStatsSince(since);
+          : source === 'zfs'
+            ? repo.getZFSStatsSince(since)
+            : repo.getProxmoxStatsSince(since);
 
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Poll timeout')), POLL_TIMEOUT_MS)

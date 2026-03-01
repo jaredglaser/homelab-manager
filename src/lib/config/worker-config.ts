@@ -8,6 +8,9 @@ const WorkerConfigSchema = z.object({
   zfs: z.object({
     enabled: z.boolean(),
   }),
+  proxmox: z.object({
+    enabled: z.boolean(),
+  }),
   collection: z.object({
     interval: z.number().int().min(100).max(60000),
   }),
@@ -16,20 +19,25 @@ const WorkerConfigSchema = z.object({
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
 
 /**
- * Load worker configuration from environment variables
- * Validates all required fields and provides sensible defaults
+ * Load and validate worker configuration from environment variables.
  *
- * @returns Validated worker configuration
- * @throws {z.ZodError} If configuration is invalid
+ * Reads configuration values from process.env, applies defaults where needed,
+ * and validates the result against the WorkerConfigSchema.
+ *
+ * @returns The validated worker configuration.
+ * @throws {z.ZodError} If the configuration is invalid according to the schema.
  */
 export function loadWorkerConfig(): WorkerConfig {
   const config = {
     enabled: process.env.WORKER_ENABLED === 'true',
     docker: {
-      enabled: process.env.WORKER_DOCKER_ENABLED !== 'false',
+      enabled: process.env.WORKER_DOCKER_ENABLED === 'true',
     },
     zfs: {
-      enabled: process.env.WORKER_ZFS_ENABLED !== 'false',
+      enabled: process.env.WORKER_ZFS_ENABLED === 'true',
+    },
+    proxmox: {
+      enabled: process.env.WORKER_PROXMOX_ENABLED === 'true',
     },
     collection: {
       interval: parseInt(process.env.WORKER_COLLECTION_INTERVAL_MS || '1000', 10),

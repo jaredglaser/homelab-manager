@@ -1,4 +1,37 @@
 import { createServerFn } from '@tanstack/react-start';
+import { z } from 'zod';
+import type { ProxmoxStatsRow } from '@/types/proxmox';
+
+const getHistoricalProxmoxStatsSchema = z.object({
+  seconds: z.number().optional().default(120),
+});
+
+/**
+ * Fetch historical Proxmox stats rows from the database.
+ * Used by useTimeSeriesStream to preload data before SSE streaming begins.
+ */
+export const getHistoricalProxmoxStats = createServerFn()
+  .inputValidator(getHistoricalProxmoxStatsSchema)
+  .handler(async ({ data }): Promise<ProxmoxStatsRow[]> => {
+    try {
+      const { databaseConnectionManager } = await import(
+        '@/lib/clients/database-client'
+      );
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { StatsRepository } = await import(
+        '@/lib/database/repositories/stats-repository'
+      );
+
+      const config = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(config);
+      const repo = new StatsRepository(dbClient.getPool());
+
+      return await repo.getProxmoxStatsHistory(data.seconds);
+    } catch (err) {
+      console.error('[getHistoricalProxmoxStats] Failed to fetch historical data:', err);
+      return [];
+    }
+  });
 
 /**
  * Test the Proxmox API connection.

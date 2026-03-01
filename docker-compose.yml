@@ -90,11 +90,12 @@ services:
     container_name: homelab-worker
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env]
+      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
       WORKER_ENABLED: ${WORKER_ENABLED}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
+      WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
 
   # Web server (production build)
@@ -107,7 +108,7 @@ services:
     ports:
       - "${WEB_PORT}:3000"
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      <<: *postgres-env
       NODE_ENV: production
     extra_hosts:
       - "host.docker.internal:host-gateway"

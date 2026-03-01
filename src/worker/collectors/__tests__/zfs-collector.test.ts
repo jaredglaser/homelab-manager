@@ -26,6 +26,7 @@ function createMockConfig(): WorkerConfig {
     enabled: true,
     docker: { enabled: false },
     zfs: { enabled: true },
+    proxmox: { enabled: false },
     collection: { interval: 1000 },
   };
 }

@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { DockerStatsRow } from '@/types/docker';
+import type { ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
 
 export class StatsRepository {
@@ -262,6 +263,105 @@ export class StatsRepository {
     return result.rows;
   }
 
+  async insertProxmoxStats(rows: ProxmoxStatsRow[]): Promise<void> {
+    if (rows.length === 0) return;
+
+    try {
+      const times: (string | Date)[] = [];
+      const hosts: string[] = [];
+      const entityTypes: string[] = [];
+      const nodes: (string | null)[] = [];
+      const entityIds: string[] = [];
+      const entityNames: (string | null)[] = [];
+      const statuses: (string | null)[] = [];
+      const cpus: (number | null)[] = [];
+      const maxCpus: (number | null)[] = [];
+      const mems: (number | null)[] = [];
+      const maxMems: (number | null)[] = [];
+      const disks: (number | null)[] = [];
+      const maxDisks: (number | null)[] = [];
+      const uptimes: (number | null)[] = [];
+      const vmids: (number | null)[] = [];
+      const netins: (number | null)[] = [];
+      const netouts: (number | null)[] = [];
+      const storageTypes: (string | null)[] = [];
+      const storageContents: (string | null)[] = [];
+      const storageAvails: (number | null)[] = [];
+      const storageShareds: (boolean | null)[] = [];
+      const clusterVersions: (number | null)[] = [];
+
+      for (const row of rows) {
+        times.push(row.time);
+        hosts.push(row.host);
+        entityTypes.push(row.entity_type);
+        nodes.push(row.node);
+        entityIds.push(row.entity_id);
+        entityNames.push(row.entity_name);
+        statuses.push(row.status);
+        cpus.push(row.cpu);
+        maxCpus.push(row.max_cpu);
+        mems.push(row.mem);
+        maxMems.push(row.max_mem);
+        disks.push(row.disk);
+        maxDisks.push(row.max_disk);
+        uptimes.push(row.uptime);
+        vmids.push(row.vmid);
+        netins.push(row.netin);
+        netouts.push(row.netout);
+        storageTypes.push(row.storage_type);
+        storageContents.push(row.storage_content);
+        storageAvails.push(row.storage_avail);
+        storageShareds.push(row.storage_shared);
+        clusterVersions.push(row.cluster_version);
+      }
+
+      await this.pool.query(
+        `INSERT INTO proxmox_stats (
+          time, host, entity_type, node, entity_id, entity_name, status,
+          cpu, max_cpu, mem, max_mem, disk, max_disk, uptime,
+          vmid, netin, netout,
+          storage_type, storage_content, storage_avail, storage_shared,
+          cluster_version
+        )
+        SELECT * FROM unnest(
+          $1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
+          $8::float8[], $9::float8[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[],
+          $15::int[], $16::bigint[], $17::bigint[],
+          $18::text[], $19::text[], $20::bigint[], $21::boolean[],
+          $22::int[]
+        )`,
+        [
+          times, hosts, entityTypes, nodes, entityIds, entityNames, statuses,
+          cpus, maxCpus, mems, maxMems, disks, maxDisks, uptimes,
+          vmids, netins, netouts,
+          storageTypes, storageContents, storageAvails, storageShareds,
+          clusterVersions,
+        ]
+      );
+    } catch (err) {
+      console.error('[StatsRepository] Failed to insert proxmox stats:', err);
+      throw err;
+    }
+  }
+
+  async getProxmoxStatsSince(since: Date): Promise<ProxmoxStatsRow[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM proxmox_stats WHERE time > $1 ORDER BY time ASC`,
+      [since]
+    );
+    return result.rows.map(toProxmoxStatsRow);
+  }
+
+  async getProxmoxStatsHistory(seconds: number): Promise<ProxmoxStatsRow[]> {
+    const result = await this.pool.query(
+      `SELECT * FROM proxmox_stats
+       WHERE time > NOW() - make_interval(secs => $1)
+       ORDER BY time ASC`,
+      [seconds]
+    );
+    return result.rows.map(toProxmoxStatsRow);
+  }
+
   async upsertEntityMetadata(
     source: string,
     entity: string,
@@ -323,4 +423,33 @@ export class StatsRepository {
     }
     return metadata;
   }
+}
+
+/** Convert a raw pg row to ProxmoxStatsRow, coercing BIGINT strings to numbers. */
+function toProxmoxStatsRow(row: Record<string, unknown>): ProxmoxStatsRow {
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    time: row.time as string | Date,
+    host: row.host as string,
+    entity_type: row.entity_type as ProxmoxStatsRow['entity_type'],
+    node: row.node as string | null,
+    entity_id: row.entity_id as string,
+    entity_name: row.entity_name as string | null,
+    status: row.status as string | null,
+    cpu: n(row.cpu),
+    max_cpu: n(row.max_cpu),
+    mem: n(row.mem),
+    max_mem: n(row.max_mem),
+    disk: n(row.disk),
+    max_disk: n(row.max_disk),
+    uptime: n(row.uptime),
+    vmid: n(row.vmid),
+    netin: n(row.netin),
+    netout: n(row.netout),
+    storage_type: row.storage_type as string | null,
+    storage_content: row.storage_content as string | null,
+    storage_avail: n(row.storage_avail),
+    storage_shared: row.storage_shared as boolean | null,
+    cluster_version: n(row.cluster_version),
+  };
 }

@@ -204,7 +204,7 @@ export class ProxmoxClient {
  * Proxmox connection manager singleton
  * Caches client instances by host
  */
-class ProxmoxConnectionManager {
+export class ProxmoxConnectionManager {
   private clients = new Map<string, ProxmoxClient>();
 
   getClient(config: ProxmoxConfig): ProxmoxClient {
