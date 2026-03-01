@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef, useState, useEffect } from 'react';
 import { ChevronRight, History, Settings } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
-import Tooltip from '@mui/joy/Tooltip';
+import { Tooltip } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';

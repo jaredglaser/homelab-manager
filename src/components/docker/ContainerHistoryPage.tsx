@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Typography, CircularProgress } from '@mui/joy';
+import { Typography, CircularProgress } from '@mui/material';
 import { ArrowLeft } from 'lucide-react';
 import { getContainerHistory, getContainerInfo } from '@/data/docker.functions';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
@@ -59,12 +59,16 @@ export default function ContainerHistoryPage({
     to: initialTo ?? now,
   }).current;
 
-  // Timeline range driven by presets — determines what data the timeline fetches
-  const [timelineRangeMs, setTimelineRangeMs] = useState(() =>
-    initialFrom !== undefined && initialTo !== undefined
-      ? initialTo - initialFrom
-      : DEFAULT_RANGE_MS,
-  );
+  // Absolute timeline range — determines what data the timeline fetches.
+  // Presets compute { from: now - ms, to: now }; custom dates set arbitrary values.
+  const [timelineRange, setTimelineRange] = useState(initialRange);
+
+  // Track which preset is active (null = custom range)
+  const [activePresetMs, setActivePresetMs] = useState<number | null>(() => {
+    const span = initialRange.to - initialRange.from;
+    const PRESETS = [3_600_000, 21_600_000, 43_200_000, 86_400_000, 259_200_000, 604_800_000, 2_592_000_000];
+    return PRESETS.find((p) => Math.abs(span - p) / p < 0.05) ?? null;
+  });
 
   // Debounced range drives chart query — updated after 800ms of slider idle
   const [debouncedRange, setDebouncedRange] = useState(initialRange);
@@ -75,22 +79,23 @@ export default function ContainerHistoryPage({
     () => parseMetrics(initialMetrics),
   );
 
-  // ─── Stream 1: Timeline data for the current preset range ───
-  // Query key includes timelineRangeMs so presets trigger a refetch.
-  // queryFn uses Date.now() so periodic refetches pick up fresh data.
+  // ─── Stream 1: Timeline data for the current range ───
+  // Query key includes absolute from/to so presets and custom ranges trigger refetch.
+  // Auto-refresh only when the range includes "now".
+  const timelineIncludesNow = timelineRange.to >= Date.now() - 30_000;
   const timelineQuery = useQuery({
-    queryKey: ['container-timeline', host, containerId, timelineRangeMs],
+    queryKey: ['container-timeline', host, containerId, timelineRange.from, timelineRange.to],
     queryFn: () => getContainerHistory({
       data: {
         containerId,
         host,
-        fromMs: Date.now() - timelineRangeMs,
-        toMs: Date.now(),
+        fromMs: timelineRange.from,
+        toMs: timelineRange.to,
         targetPoints: 2000,
       },
     }),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: timelineIncludesNow ? 60_000 : false,
   });
 
   // Fetch container info (name, image, icon)
@@ -128,11 +133,20 @@ export default function ContainerHistoryPage({
 
   // Preset click → immediate timeline refetch + chart range reset
   const handlePresetChange = useCallback((ms: number) => {
-    setTimelineRangeMs(ms);
     const presetNow = Date.now();
     const from = presetNow - ms;
+    setTimelineRange({ from, to: presetNow });
+    setActivePresetMs(ms);
     clearTimeout(debounceRef.current);
     setDebouncedRange({ from, to: presetNow });
+  }, []);
+
+  // Custom date range → timeline + chart range update, deselect preset
+  const handleCustomRangeChange = useCallback((from: number, to: number) => {
+    setTimelineRange({ from, to });
+    setActivePresetMs(null);
+    clearTimeout(debounceRef.current);
+    setDebouncedRange({ from, to });
   }, []);
 
   // Cleanup debounce timer
@@ -166,9 +180,11 @@ export default function ContainerHistoryPage({
   const timelineData = useMemo(() => timelineQuery.data ?? [], [timelineQuery.data]);
   const chartData = useMemo(() => chartQuery.data ?? [], [chartQuery.data]);
 
-  // Derive chart axis range from actual data so axis + data update atomically
-  const chartFrom = chartData.length > 0 ? new Date(chartData[0].time).getTime() : debouncedRange.from;
-  const chartTo = chartData.length > 0 ? new Date(chartData[chartData.length - 1].time).getTime() : debouncedRange.to;
+  // Always use the requested range for chart axes — this keeps the full time range
+  // visible even when data only covers a portion, preventing the appearance of
+  // low-resolution data when the range exceeds available history.
+  const chartFrom = debouncedRange.from;
+  const chartTo = debouncedRange.to;
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-64px)]">
@@ -187,13 +203,13 @@ export default function ContainerHistoryPage({
             onError={() => setIconError(true)}
           />
           <div>
-            <Typography level="h3">{containerName}</Typography>
+            <Typography variant="h5">{containerName}</Typography>
             {containerImage && (
-              <Typography level="body-xs" className="text-neutral-500">{containerImage}</Typography>
+              <Typography variant="caption" className="text-neutral-500">{containerImage}</Typography>
             )}
           </div>
           {chartQuery.isFetching && (
-            <CircularProgress size="sm" variant="plain" className="ml-2" />
+            <CircularProgress size={20} className="ml-2" />
           )}
         </div>
 
@@ -204,7 +220,7 @@ export default function ContainerHistoryPage({
       <div className="flex-1 px-6 pb-4">
         {chartData.length === 0 && !chartQuery.isFetching ? (
           <div className="flex items-center justify-center h-64 text-neutral-500">
-            <Typography level="body-md">No data available for this time range.</Typography>
+            <Typography variant="body1">No data available for this time range.</Typography>
           </div>
         ) : (
           <HistoricalChartsGrid
@@ -216,14 +232,17 @@ export default function ContainerHistoryPage({
         )}
       </div>
 
-      {/* Sticky timeline — preset-driven data, slider selects chart sub-range */}
+      {/* Sticky timeline — preset/custom range data, slider selects chart sub-range */}
       <HistoricalTimeline
         timelineData={timelineData}
         initialFrom={initialRange.from}
         initialTo={initialRange.to}
         onRangeChange={handleRangeChange}
-        timelineRangeMs={timelineRangeMs}
+        timelineFrom={timelineRange.from}
+        timelineTo={timelineRange.to}
+        activePresetMs={activePresetMs}
         onPresetChange={handlePresetChange}
+        onCustomRangeChange={handleCustomRangeChange}
       />
     </div>
   );

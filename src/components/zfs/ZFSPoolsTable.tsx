@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { Box, Chip, CircularProgress, Sheet, Tooltip, Typography } from '@mui/joy';
+import { Box, Chip, CircularProgress, Paper, Tooltip, Typography } from '@mui/material';
 import { ChevronRight, Server } from 'lucide-react';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import type { PoolStats, VdevStats, ZFSHostHierarchy, ZFSHostStats, ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
@@ -131,7 +131,7 @@ export default function ZFSPoolsTable({
     return (
       <Box className="w-full">
         <Box className="p-2">
-          <Typography color="danger">
+          <Typography color="error">
             Error connecting to ZFS stats: {error.message}
           </Typography>
         </Box>
@@ -152,7 +152,7 @@ export default function ZFSPoolsTable({
   return (
     <Box className="w-full">
       <StaleDataAlert isStale={isStale} />
-      <Sheet variant="outlined" className="rounded-sm overflow-x-auto">
+      <Paper variant="outlined" className="rounded-sm overflow-x-auto">
         {/* Column headers */}
         <div className={`${ZFS_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
           <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">
@@ -214,7 +214,7 @@ export default function ZFSPoolsTable({
             </div>
           </div>
         </div>
-      </Sheet>
+      </Paper>
     </Box>
   );
 }
@@ -296,7 +296,7 @@ function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number 
   return (
     <div
       onClick={handleClick}
-      className={`${ZFS_GRID} items-center bg-[var(--joy-palette-background-level1)] border-t border-neutral-200 dark:border-neutral-700 ${
+      className={`${ZFS_GRID} items-center bg-[var(--mui-palette-background-level1)] border-t border-neutral-200 dark:border-neutral-700 ${
         hasPools && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
       }`}
     >
@@ -309,9 +309,7 @@ function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number 
         )}
         <Server size={18} />
         <span className="font-bold">{host.hostName}</span>
-        <Chip size="sm" variant="soft">
-          {host.aggregated.poolCount} pool{host.aggregated.poolCount !== 1 ? 's' : ''}
-        </Chip>
+        <Chip size="small" variant="filled" label={`${host.aggregated.poolCount} pool${host.aggregated.poolCount !== 1 ? 's' : ''}`} />
       </div>
       <HostAggregateMetrics host={host} />
     </div>
@@ -342,7 +340,7 @@ function PoolRow({
   };
 
   const chipEl = badge ? (
-    <Chip size="sm" variant="soft">{badge.label}</Chip>
+    <Chip size="small" variant="filled" label={badge.label} />
   ) : null;
 
   return (
@@ -385,7 +383,7 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
   return (
     <div
       onClick={handleClick}
-      className={`${ZFS_GRID} items-center bg-[var(--joy-palette-background-level2)] ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
+      className={`${ZFS_GRID} items-center bg-[var(--mui-palette-background-level2)] ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
     >
       <div className="py-2 pr-3 flex items-center gap-2 overflow-hidden" style={{ paddingLeft: '2rem' }}>
         {hasDisks && (
@@ -406,7 +404,7 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
 function DiskRow({ disk, indent }: { disk: ZFSIOStatWithRates; indent: number }) {
   return (
     <div
-      className={`${ZFS_GRID} items-center bg-[var(--joy-palette-background-level1)]`}
+      className={`${ZFS_GRID} items-center bg-[var(--mui-palette-background-level1)]`}
     >
       <div className="py-2 pr-3 overflow-hidden" style={{ paddingLeft: `${indent * 2}rem` }}>
         <span className="text-xs font-mono truncate">{disk.name}</span>
