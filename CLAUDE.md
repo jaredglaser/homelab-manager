@@ -85,7 +85,7 @@ docker compose logs -f web  # View web server logs
 
 ## File Organization
 
-```
+```text
 src/
 ├── components/
 │   ├── shared-table/        # MetricValue, MetricHeader (shared column infrastructure)
@@ -134,7 +134,8 @@ scripts/                     # check-coverage.js (93% enforcer), download-icons.
 - All routes: `ssr: false` (SPA mode).
 
 ### Data Flow
-```
+
+```text
 Worker → Docker/ZFS APIs → INSERT wide rows → TimescaleDB
                                                     ↓
 Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast to all clients
@@ -288,6 +289,7 @@ All env vars documented in `.env.example`. Key groups:
 - PRs by `jaredglaser` or `claude[bot]` get automatic Claude code review on `ready_for_review`.
 
 ### GitHub Actions Workflows
+
 | Workflow | File | Triggers |
 |----------|------|----------|
 | **CI** | `.github/workflows/ci.yml` | Push to `main`, PRs targeting `main` |
