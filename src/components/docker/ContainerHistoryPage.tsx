@@ -33,15 +33,15 @@ const DEFAULT_RANGE_MS = 3_600_000; // 1 hour
 const CHART_DEBOUNCE_MS = 800;
 
 /**
- * Page component that displays a container's historical metrics with a timeline, selectable metrics, and detailed charts.
+ * Render a container's historical metrics UI including a timeline, selectable metrics, and detailed charts.
  *
- * Renders a header with container info and metric controls, a chart area showing selected metrics for a debounced sub-range, and a sticky timeline for preset ranges and range selection. Fetches timeline and chart data, debounces slider updates, optionally auto-refreshes when the range includes "now", and keeps the URL search params synchronized with the current metrics and range.
+ * Synchronizes selected metrics and visible range to the URL, debounces chart-range updates, and auto-refreshes data when the requested range includes the current time.
  *
  * @param containerId - ID of the container to display
  * @param host - Optional host identifier used for data requests
  * @param initialMetrics - Comma-separated metrics string used to initialize selected metrics
- * @param initialFrom - Optional initial start time (ms since epoch) for the visible range
- * @param initialTo - Optional initial end time (ms since epoch) for the visible range
+ * @param initialFrom - Optional initial start time in milliseconds since epoch for the visible range
+ * @param initialTo - Optional initial end time in milliseconds since epoch for the visible range
  * @returns The rendered ContainerHistoryPage element
  */
 export default function ContainerHistoryPage({

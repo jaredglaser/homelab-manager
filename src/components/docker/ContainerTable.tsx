@@ -33,6 +33,19 @@ interface ContainerTableProps {
   isStale: boolean;
 }
 
+/**
+ * Render a virtualized, expandable table of Docker hosts and their containers showing CPU, memory, disk and network metrics.
+ *
+ * Builds a host/container hierarchy from the latest per-entity stats, associates time-series chart data for each entity, and fetches entity icon metadata to augment rows. Hosts can be expanded to reveal their containers; rows are virtualized for large lists and sized according to expansion state.
+ *
+ * @param latestByEntity - Map of the most recent DockerStatsRow keyed by `host/container_id` used to derive the host/container hierarchy and metadata.
+ * @param rows - Time-series DockerStatsRow entries used as chart data for individual entities.
+ * @param hasData - True when any historical or latest data is available; controls loading/error fallbacks.
+ * @param isConnected - True when the Docker stats source is currently connected; controls loading UI when no data exists.
+ * @param error - Optional connection error to display when no data is available.
+ * @param isStale - True when displayed data is known to be stale; used to show a stale-data alert.
+ * @returns The rendered ContainerTable React element.
+ */
 export default function ContainerTable({
   latestByEntity,
   rows,

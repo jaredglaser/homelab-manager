@@ -543,10 +543,13 @@ export class StatsRepository {
 }
 
 /**
- * Convert a raw pg row to DockerStatsRow, coercing numeric columns to JS numbers.
- * memory_usage and memory_limit are BIGINT in the schema — pg returns these as strings.
- * AVG(BIGINT) returns NUMERIC, which pg also returns as a string, so all AVG'd numeric
- * columns need the same treatment.
+ * Convert a raw PostgreSQL result row into a DockerStatsRow, coercing numeric fields to JS numbers.
+ *
+ * Numeric and bigint-derived fields returned as strings from the database are converted to Number;
+ * missing or undefined values are mapped to `null`.
+ *
+ * @param row - Raw row returned by pg for a docker_stats query
+ * @returns A DockerStatsRow with numeric fields converted to numbers or `null` where absent
  */
 function toDockerStatsRow(row: Record<string, unknown>): DockerStatsRow {
   const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));

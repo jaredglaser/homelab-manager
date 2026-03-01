@@ -8,10 +8,12 @@ import type {
 
 /**
  * Compute a stable service key for a Docker container.
- * Uses Docker Compose labels when available; falls back to container name.
  *
- * Format with labels: "{compose_project}/{compose_service}" (e.g. "media-stack/plex")
- * Format without:     "{container_name}"                    (e.g. "plex")
+ * Prefers Docker Compose labels `com.docker.compose.project` and `com.docker.compose.service` when present.
+ *
+ * @param labels - Optional map of Docker labels; used to derive `project/service` if both compose labels exist
+ * @param containerName - Fallback container name to use when compose labels are not available
+ * @returns The service key as `"{project}/{service}"` when both compose labels are present, otherwise `containerName`
  */
 export function computeServiceKey(
   labels: Record<string, string> | undefined,
@@ -23,8 +25,19 @@ export function computeServiceKey(
 }
 
 /**
- * Convert a wide DockerStatsRow to DockerStatsFromDB for UI consumption.
- * Metadata (icon, serviceKeyEntity) is resolved separately and passed in.
+ * Converts a raw DockerStatsRow into a DockerStatsFromDB object tailored for UI consumption.
+ *
+ * @param row - The source wide-format Docker stats row.
+ * @param icon - Optional icon identifier to attach to the resulting entity.
+ * @param serviceKeyEntity - Optional stable service key to use; when omitted the entity id (`host/container_id`) is used.
+ * @returns A DockerStatsFromDB object with:
+ *  - `id` set to `host/container_id`,
+ *  - `serviceKeyEntity` set to the provided value or the derived `id`,
+ *  - `name` using `container_name` or the first 12 characters of `container_id`,
+ *  - numeric rate fields defaulted to `0` when missing,
+ *  - `memory_stats.usage` and `memory_stats.limit` coerced to numbers,
+ *  - `timestamp` created from `row.time`, and
+ *  - `stale` initialized to `false`.
  */
 export function rowToDockerStats(
   row: DockerStatsRow,
