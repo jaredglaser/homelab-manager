@@ -1,4 +1,4 @@
-import type { MetricProfile } from './patterns';
+import type { MetricProfile } from '@/lib/mock/patterns';
 
 // ─── Docker Entities ─────────────────────────────────────────────────────────
 

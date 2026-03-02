@@ -38,10 +38,11 @@ describe('generateDockerSnapshot', () => {
     }
   });
 
-  it('includes both hosts', () => {
+  it('includes all hosts from entity definitions', () => {
     const rows = generateDockerSnapshot(time);
     const hosts = new Set(rows.map((r) => r.host));
-    expect(hosts.size).toBe(2);
+    const expectedHosts = new Set(DOCKER_ENTITIES.map((e) => e.host));
+    expect(hosts).toEqual(expectedHosts);
   });
 });
 

@@ -1,4 +1,4 @@
-import { MockEventSource } from './mock-event-source';
+import { MockEventSource } from '@/lib/mock/mock-event-source';
 
 let installed = false;
 

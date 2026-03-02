@@ -1,6 +1,6 @@
 import type { ProxmoxStatsRow } from '@/types/proxmox';
-import { generateMetric } from '../patterns';
-import { PROXMOX_ENTITIES } from '../entities';
+import { generateMetric } from '@/lib/mock/patterns';
+import { PROXMOX_ENTITIES } from '@/lib/mock/entities';
 
 /**
  * Generate a single Proxmox stats snapshot for a given timestamp.
@@ -28,7 +28,7 @@ export function generateProxmoxSnapshot(time: Date): ProxmoxStatsRow[] {
       max_mem: e.maxMem,
       disk: e.disk ? Math.round(generateMetric(timeMs, entityKey, 'disk', e.disk)) : null,
       max_disk: e.maxDisk,
-      uptime: e.uptime > 0 ? e.uptime + Math.floor(timeMs / 1000) % 86400 : null,
+      uptime: e.uptime > 0 ? e.uptime + Math.floor(timeMs / 1000) : null,
       vmid: e.vmid,
       netin: e.netin ? Math.round(generateMetric(timeMs, entityKey, 'netin', e.netin)) : null,
       netout: e.netout ? Math.round(generateMetric(timeMs, entityKey, 'netout', e.netout)) : null,
@@ -46,11 +46,12 @@ export function generateProxmoxSnapshot(time: Date): ProxmoxStatsRow[] {
  * Rows are ordered oldest-first (ascending time).
  */
 export function generateProxmoxHistory(seconds: number): ProxmoxStatsRow[] {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
   const now = Date.now();
   const rows: ProxmoxStatsRow[] = [];
 
-  for (let s = seconds; s >= 0; s--) {
-    const time = new Date(now - s * 1000);
+  for (let i = s; i >= 0; i--) {
+    const time = new Date(now - i * 1000);
     rows.push(...generateProxmoxSnapshot(time));
   }
 

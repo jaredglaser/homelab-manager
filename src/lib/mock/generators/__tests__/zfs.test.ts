@@ -39,9 +39,13 @@ describe('generateZFSSnapshot', () => {
     const vdevs = rows.filter((r) => r.entity_type === 'vdev');
     const disks = rows.filter((r) => r.entity_type === 'disk');
 
-    expect(pools.length).toBe(2); // tank and fast
-    expect(vdevs.length).toBe(1); // mirror-0
-    expect(disks.length).toBe(3); // sda, sdb, nvme0n1
+    const expectedPools = ZFS_ENTITIES.filter((e) => e.entityType === 'pool').length;
+    const expectedVdevs = ZFS_ENTITIES.filter((e) => e.entityType === 'vdev').length;
+    const expectedDisks = ZFS_ENTITIES.filter((e) => e.entityType === 'disk').length;
+
+    expect(pools.length).toBe(expectedPools);
+    expect(vdevs.length).toBe(expectedVdevs);
+    expect(disks.length).toBe(expectedDisks);
 
     for (const pool of pools) expect(pool.indent).toBe(0);
     for (const vdev of vdevs) expect(vdev.indent).toBe(2);

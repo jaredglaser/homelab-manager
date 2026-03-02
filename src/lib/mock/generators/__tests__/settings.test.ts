@@ -14,17 +14,24 @@ describe('generateDefaultSettings', () => {
     expect(a).toEqual(b);
   });
 
-  it('includes all canonical settings keys', () => {
+  it('includes exactly the canonical settings keys', () => {
     const settings = generateDefaultSettings();
 
-    // Check a representative set of keys from each category
-    expect(settings[SETTINGS_KEYS.general.use12HourTime]).toBeDefined();
-    expect(settings[SETTINGS_KEYS.general.updateIntervalMs]).toBe('1000');
-    expect(settings[SETTINGS_KEYS.docker.memoryDisplayMode]).toBe('percent');
-    expect(settings[SETTINGS_KEYS.zfs.expandedPools]).toBe('[]');
-    expect(settings[SETTINGS_KEYS.proxmox.updateInterval]).toBe('1000');
-    expect(settings[SETTINGS_KEYS.retention.rawDataHours]).toBe('24');
-    expect(settings[SETTINGS_KEYS.developer.dockerDebugLogging]).toBe('false');
+    // Flatten all keys from SETTINGS_KEYS
+    const expectedKeys = new Set<string>();
+    for (const group of Object.values(SETTINGS_KEYS)) {
+      for (const key of Object.values(group as Record<string, string | Record<string, string>>)) {
+        if (typeof key === 'string') {
+          expectedKeys.add(key);
+        } else {
+          for (const subKey of Object.values(key)) {
+            expectedKeys.add(subKey);
+          }
+        }
+      }
+    }
+
+    expect(new Set(Object.keys(settings))).toEqual(expectedKeys);
   });
 
   it('all values are strings', () => {

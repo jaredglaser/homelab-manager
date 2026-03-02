@@ -7,7 +7,7 @@
     "dev:host": "vite dev --port 3000 --host",
     "typecheck": "tsc --noEmit",
     "build": "bun run typecheck && vite build",
-    "build:demo": "cross-env VITE_DEMO_MODE=true vite build",
+    "build:demo": "bun run typecheck && cross-env VITE_DEMO_MODE=true vite build",
     "preview": "vite preview",
     "test": "cross-env-shell \"bun test --coverage 2>&1 | node scripts/check-coverage.js\"",
     "test:watch": "bun test --watch",

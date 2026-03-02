@@ -22,15 +22,15 @@ const isDev = process.env.NODE_ENV !== 'production'
 const isDemoMode = process.env.VITE_DEMO_MODE === 'true'
 
 function buildAliases(): Record<string, string> {
-  const aliases: Record<string, string> = {
-    '@': fileURLToPath(new URL('./src', import.meta.url)),
-  }
+  const aliases: Record<string, string> = {}
+  // Demo aliases must be registered before the generic '@' prefix so Vite matches them first
   if (isDemoMode) {
     aliases['@/data/docker.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/docker.functions.ts', import.meta.url))
     aliases['@/data/zfs.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/zfs.functions.ts', import.meta.url))
     aliases['@/data/proxmox.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/proxmox.functions.ts', import.meta.url))
     aliases['@/data/settings.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/settings.functions.ts', import.meta.url))
   }
+  aliases['@'] = fileURLToPath(new URL('./src', import.meta.url))
   return aliases
 }
 

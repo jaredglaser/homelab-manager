@@ -1,4 +1,4 @@
-import { mulberry32, hashCode } from './prng';
+import { mulberry32, hashCode } from '@/lib/mock/prng';
 
 /** Clamp a value to [min, max]. */
 export function clamp(value: number, min: number, max: number): number {

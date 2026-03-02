@@ -1,5 +1,8 @@
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
+/** localStorage key for persisting demo mode settings. */
+export const DEMO_SETTINGS_STORAGE_KEY = 'homelab-demo-settings';
+
 /**
  * Generate default settings matching the canonical settings keys.
  * Values mirror reasonable defaults for a demo environment.

@@ -1,6 +1,6 @@
 import type { ZFSStatsRow } from '@/types/zfs';
-import { generateMetric } from '../patterns';
-import { ZFS_ENTITIES } from '../entities';
+import { generateMetric } from '@/lib/mock/patterns';
+import { ZFS_ENTITIES } from '@/lib/mock/entities';
 
 /**
  * Generate a single ZFS stats snapshot for a given timestamp.
@@ -20,8 +20,8 @@ export function generateZFSSnapshot(time: Date): ZFSStatsRow[] {
       entity: e.entity,
       entity_type: e.entityType,
       indent: e.indent,
-      capacity_alloc: e.capacityAlloc || null,
-      capacity_free: e.capacityFree || null,
+      capacity_alloc: e.capacityAlloc ?? null,
+      capacity_free: e.capacityFree ?? null,
       read_ops_per_sec: Math.round(generateMetric(timeMs, entityKey, 'readOps', e.readOps)),
       write_ops_per_sec: Math.round(generateMetric(timeMs, entityKey, 'writeOps', e.writeOps)),
       read_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'readBytes', e.readBytes)),
@@ -36,11 +36,12 @@ export function generateZFSSnapshot(time: Date): ZFSStatsRow[] {
  * Rows are ordered oldest-first (ascending time).
  */
 export function generateZFSHistory(seconds: number): ZFSStatsRow[] {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
   const now = Date.now();
   const rows: ZFSStatsRow[] = [];
 
-  for (let s = seconds; s >= 0; s--) {
-    const time = new Date(now - s * 1000);
+  for (let i = s; i >= 0; i--) {
+    const time = new Date(now - i * 1000);
     rows.push(...generateZFSSnapshot(time));
   }
 

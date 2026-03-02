@@ -1,20 +1,18 @@
-import { generateDockerSnapshot } from './generators/docker';
-import { generateZFSSnapshot } from './generators/zfs';
-import { generateProxmoxSnapshot } from './generators/proxmox';
-import { generateDefaultSettings } from './generators/settings';
+import { generateDockerSnapshot } from '@/lib/mock/generators/docker';
+import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
+import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
+import { generateDefaultSettings, DEMO_SETTINGS_STORAGE_KEY } from '@/lib/mock/generators/settings';
 import type { SettingsSSEMessage } from '@/types/settings';
-
-const DEMO_SETTINGS_KEY = 'homelab-demo-settings';
 
 function loadDemoSettings(): Record<string, string> {
   try {
-    const stored = localStorage.getItem(DEMO_SETTINGS_KEY);
+    const stored = localStorage.getItem(DEMO_SETTINGS_STORAGE_KEY);
     if (stored) return JSON.parse(stored) as Record<string, string>;
   } catch { /* ignore */ }
   return generateDefaultSettings();
 }
 
-type EventSourceListener = ((event: MessageEvent) => void) | { handleEvent: (event: MessageEvent) => void };
+type EventSourceListener = ((event: Event) => void) | { handleEvent: (event: Event) => void };
 
 /**
  * Drop-in replacement for the browser's EventSource.
@@ -30,7 +28,7 @@ export class MockEventSource {
   readonly CLOSED = 2;
 
   readonly url: string;
-  readonly withCredentials = false;
+  readonly withCredentials: boolean;
 
   readyState: number = MockEventSource.CONNECTING;
 
@@ -41,8 +39,9 @@ export class MockEventSource {
   private _intervalId: ReturnType<typeof setInterval> | null = null;
   private _listeners = new Map<string, Set<EventSourceListener>>();
 
-  constructor(url: string | URL, _config?: EventSourceInit) {
+  constructor(url: string | URL, config?: EventSourceInit) {
     this.url = typeof url === 'string' ? url : url.toString();
+    this.withCredentials = !!config?.withCredentials;
     this._start();
   }
 
@@ -71,13 +70,17 @@ export class MockEventSource {
     this.readyState = MockEventSource.CLOSED;
   }
 
-  private _dispatch(type: string, data: string): void {
-    const event = new MessageEvent(type, { data });
-
+  private _dispatchEvent(type: string, event: Event): void {
+    // Fire the on* handler
     if (type === 'message' && this.onmessage) {
-      this.onmessage(event);
+      this.onmessage(event as MessageEvent);
+    } else if (type === 'open' && this.onopen) {
+      this.onopen(event);
+    } else if (type === 'error' && this.onerror) {
+      this.onerror(event);
     }
 
+    // Fire addEventListener listeners
     const listeners = this._listeners.get(type);
     if (listeners) {
       for (const listener of listeners) {
@@ -97,13 +100,13 @@ export class MockEventSource {
     setTimeout(() => {
       if (this.readyState === MockEventSource.CLOSED) return;
       this.readyState = MockEventSource.OPEN;
-      this.onopen?.(new Event('open'));
+      this._dispatchEvent('open', new Event('open'));
 
       // Settings endpoint: send init message then stay quiet
       if (path.includes('settings')) {
         const settings = loadDemoSettings();
         const msg: SettingsSSEMessage = { type: 'init', settings };
-        this._dispatch('message', JSON.stringify(msg));
+        this._dispatchEvent('message', new MessageEvent('message', { data: JSON.stringify(msg) }));
         return;
       }
 
@@ -112,11 +115,11 @@ export class MockEventSource {
       if (!generator) return;
 
       // Send initial snapshot immediately
-      this._dispatch('message', JSON.stringify(generator()));
+      this._dispatchEvent('message', new MessageEvent('message', { data: JSON.stringify(generator()) }));
 
       this._intervalId = setInterval(() => {
         if (this.readyState !== MockEventSource.OPEN) return;
-        this._dispatch('message', JSON.stringify(generator()));
+        this._dispatchEvent('message', new MessageEvent('message', { data: JSON.stringify(generator()) }));
       }, 1000);
     }, 50);
   }

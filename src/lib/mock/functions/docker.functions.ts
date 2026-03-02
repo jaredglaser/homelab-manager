@@ -1,6 +1,8 @@
 import type { DockerStatsRow } from '@/types/docker';
-import { generateDockerHistory, generateContainerHistory } from '../generators/docker';
-import { DOCKER_ENTITIES } from '../entities';
+import { generateDockerHistory, generateContainerHistory } from '@/lib/mock/generators/docker';
+import { DOCKER_ENTITIES } from '@/lib/mock/entities';
+
+const MAX_HISTORY_SECONDS = 3600;
 
 /**
  * Mock: Get historical Docker stats for preloading.
@@ -9,7 +11,7 @@ import { DOCKER_ENTITIES } from '../entities';
 export const getHistoricalDockerStats = async (opts?: {
   data?: { seconds?: number };
 }): Promise<DockerStatsRow[]> => {
-  const seconds = opts?.data?.seconds ?? 60;
+  const seconds = Math.min(opts?.data?.seconds ?? 60, MAX_HISTORY_SECONDS);
   return generateDockerHistory(seconds);
 };
 
