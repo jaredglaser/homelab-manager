@@ -59,35 +59,45 @@ export default function ContainerTable({
   const { data: entityIcons } = useQuery({
     queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
     queryFn: () => getDockerEntityIcons(),
-    staleTime: Infinity,
+    staleTime: 60_000,
   });
 
-  // Convert latest rows to DockerStatsFromDB and build hierarchy
+  // Convert latest rows to DockerStatsFromDB and build hierarchy.
+  // Deduplicate by serviceKeyEntity so that when a container is recreated
+  // (new container_id, same logical service), only the most recently active
+  // incarnation is shown in the live dashboard.
   const hierarchy = useMemo<DockerHierarchy>(() => {
-    const stats: DockerStatsFromDB[] = [];
+    const byServiceKey = new Map<string, DockerStatsFromDB>();
     for (const row of latestByEntity.values()) {
       const entityId = `${row.host}/${row.container_id}`;
+      const name = row.container_name || row.container_id.substring(0, 12);
       const meta = entityIcons?.[entityId];
-      // Fall back to entity ID as serviceKeyEntity when service_key not yet populated
-      stats.push(rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? entityId));
+      const stat = rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? `${row.host}/${name}`);
+      const existing = byServiceKey.get(stat.serviceKeyEntity);
+      if (!existing || stat.timestamp > existing.timestamp) {
+        byServiceKey.set(stat.serviceKeyEntity, stat);
+      }
     }
-    return buildDockerHierarchy(stats);
+    return buildDockerHierarchy([...byServiceKey.values()]);
   }, [latestByEntity, entityIcons]);
 
-  // Build per-entity chart data index
-  const chartDataByEntity = useMemo(() => {
+  // Build per-service chart data index, keyed by serviceKeyEntity so rows from
+  // all incarnations of the same service (different container IDs) are merged.
+  const chartDataByServiceKey = useMemo(() => {
     const map = new Map<string, DockerStatsRow[]>();
     for (const row of rows) {
-      const entity = `${row.host}/${row.container_id}`;
-      let arr = map.get(entity);
+      const entityId = `${row.host}/${row.container_id}`;
+      const name = row.container_name || row.container_id.substring(0, 12);
+      const serviceKey = entityIcons?.[entityId]?.serviceKeyEntity ?? `${row.host}/${name}`;
+      let arr = map.get(serviceKey);
       if (!arr) {
         arr = [];
-        map.set(entity, arr);
+        map.set(serviceKey, arr);
       }
       arr.push(row);
     }
     return map;
-  }, [rows]);
+  }, [rows, entityIcons]);
 
   // Flatten hierarchy into a single virtual row list
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -100,13 +110,13 @@ export default function ContainerTable({
           result.push({
             type: 'container',
             container: container.data,
-            chartData: chartDataByEntity.get(container.data.id) ?? [],
+            chartData: chartDataByServiceKey.get(container.data.serviceKeyEntity) ?? [],
           });
         }
       }
     }
     return result;
-  }, [hierarchy, isHostExpanded, chartDataByEntity]);
+  }, [hierarchy, isHostExpanded, chartDataByServiceKey]);
 
   const listRef = useRef<HTMLDivElement>(null);
 

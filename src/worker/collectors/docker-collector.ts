@@ -59,16 +59,22 @@ export class DockerCollector extends BaseCollector {
       const serviceKey = computeServiceKey(labels, containerName);
       const known = this.knownContainers.get(containerInfo.Id);
 
-      if (!known || known.name !== containerName || known.image !== containerInfo.Image || known.serviceKey !== serviceKey) {
+      // Upsert name/image only when they actually changed
+      if (!known || known.name !== containerName || known.image !== containerInfo.Image) {
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', containerName);
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', containerInfo.Image);
+        metadataUpdates++;
+      }
+
+      // Upsert service_key and attempt migration only when serviceKey changed
+      if (!known || known.serviceKey !== serviceKey) {
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', serviceKey);
         // When compose labels appear (or the service_key changes), migrate old name-only entries
         // so history and icons accumulated before adding labels are linked to the new key.
         // Icon is also copied from old entity to new so it survives the migration.
         // Note: removing compose labels does NOT revert the service_key — the container
         // retains its compose-based key until it is recreated without labels.
-        if (composeService && (!known || known.serviceKey !== serviceKey)) {
+        if (composeService) {
           // Use the previously-known service_key as the old key (e.g. "plex-1" for a container
           // whose name differs from the compose service label). Fall back to the container name
           // when this is the first time the worker has seen this container.
@@ -84,15 +90,16 @@ export class DockerCollector extends BaseCollector {
             );
           } catch (err) {
             console.error(`[${this.name}] Failed to migrate service key ${oldServiceKey} → ${serviceKey}:`, err);
-            // Preserve old serviceKey so the next cycle retries the migration
-            this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image, serviceKey: oldServiceKey });
-            metadataUpdates++;
+            // Preserve updated name/image but old serviceKey so the next cycle only retries
+            // the service_key upsert + migration, not name/image
+            this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image, serviceKey: known?.serviceKey ?? containerName });
             continue;
           }
         }
-        this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image, serviceKey });
         metadataUpdates++;
       }
+
+      this.knownContainers.set(containerInfo.Id, { name: containerName, image: containerInfo.Image, serviceKey });
     }
     const tMeta = performance.now();
 

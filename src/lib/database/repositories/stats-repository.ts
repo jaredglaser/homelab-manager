@@ -441,6 +441,30 @@ export class StatsRepository {
   }
 
   /**
+   * Given a container entity (host/container_id), find all sibling container_ids on the same
+   * host that share the same service_key. Combines the getServiceKeyForEntity + getContainerIdsByServiceKey
+   * lookups into a single self-join query. Returns an empty array if no service_key is set.
+   */
+  async getLinkedContainerIds(
+    source: string,
+    entity: string,
+    host: string,
+  ): Promise<string[]> {
+    const result = await this.pool.query(
+      `SELECT SPLIT_PART(sibling.entity, '/', 2) AS container_id
+       FROM entity_metadata me
+       JOIN entity_metadata sibling
+         ON  sibling.source = me.source
+         AND sibling.key    = 'service_key'
+         AND sibling.value  = me.value
+         AND SPLIT_PART(sibling.entity, '/', 1) = $3
+       WHERE me.source = $1 AND me.entity = $2 AND me.key = 'service_key'`,
+      [source, entity, host]
+    );
+    return (result.rows as { container_id: string }[]).map(r => r.container_id);
+  }
+
+  /**
    * Return all container_ids (without host prefix) that share the given service_key on a host.
    * Entity format is "host/container_id", so we strip the "host/" prefix from results.
    */
@@ -503,6 +527,36 @@ export class StatsRepository {
        ON CONFLICT (source, entity, key) DO NOTHING`,
       [source, oldServiceKeyEntity, newServiceKeyEntity]
     );
+  }
+
+  /**
+   * Return the service_key and resolved icon for a single container entity in one query.
+   * Uses the same JOIN + COALESCE pattern as getDockerContainerMetadata but for a single entity.
+   * Returns null if the entity has no service_key set.
+   */
+  async getContainerServiceInfo(
+    source: string,
+    entity: string,
+  ): Promise<{ serviceKey: string; icon: string | null } | null> {
+    const result = await this.pool.query(
+      `SELECT
+         sk.value AS service_key,
+         COALESCE(icon.value, legacy_icon.value) AS icon
+       FROM entity_metadata sk
+       LEFT JOIN entity_metadata icon
+         ON  icon.source = sk.source
+         AND icon.key    = 'icon'
+         AND icon.entity = SPLIT_PART(sk.entity, '/', 1) || '/' || sk.value
+       LEFT JOIN entity_metadata legacy_icon
+         ON  legacy_icon.source = sk.source
+         AND legacy_icon.key    = 'icon'
+         AND legacy_icon.entity = sk.entity
+       WHERE sk.source = $1 AND sk.entity = $2 AND sk.key = 'service_key'`,
+      [source, entity]
+    );
+    const row = result.rows[0] as { service_key: string; icon: string | null } | undefined;
+    if (!row) return null;
+    return { serviceKey: row.service_key, icon: row.icon ?? null };
   }
 
   /**

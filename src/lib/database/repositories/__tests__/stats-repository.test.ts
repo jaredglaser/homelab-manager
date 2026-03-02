@@ -513,6 +513,34 @@ describe('StatsRepository', () => {
     });
   });
 
+  describe('getLinkedContainerIds', () => {
+    it('should self-join entity_metadata to find sibling container_ids by service_key', async () => {
+      mockPool.pushResult([
+        { container_id: 'abc123' },
+        { container_id: 'def456' },
+      ]);
+
+      const result = await repo.getLinkedContainerIds('docker', 'myhost/abc123', 'myhost');
+
+      expect(mockPool.queries).toHaveLength(1);
+      const sql = mockPool.queries[0].sql;
+      expect(sql).toContain('JOIN entity_metadata sibling');
+      expect(sql).toContain("me.key = 'service_key'");
+      expect(sql).toContain("sibling.key    = 'service_key'");
+      expect(sql).toContain("SPLIT_PART(sibling.entity, '/', 1) = $3");
+      expect(sql).toContain("SPLIT_PART(sibling.entity, '/', 2) AS container_id");
+      expect(mockPool.queries[0].params).toEqual(['docker', 'myhost/abc123', 'myhost']);
+      expect(result).toEqual(['abc123', 'def456']);
+    });
+
+    it('should return empty array when entity has no service_key', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getLinkedContainerIds('docker', 'myhost/unknown', 'myhost');
+      expect(result).toEqual([]);
+    });
+  });
+
   describe('migrateServiceKeyByName', () => {
     it('should issue UPDATE with SPLIT_PART instead of LIKE', async () => {
       await repo.migrateServiceKeyByName('docker', 'myhost', 'plex', 'media-stack/plex');
@@ -573,6 +601,37 @@ describe('StatsRepository', () => {
 
       const result = await repo.getDockerContainerMetadata('docker');
       expect(result.size).toBe(0);
+    });
+  });
+
+  describe('getContainerServiceInfo', () => {
+    it('should query with JOIN + COALESCE for icon resolution', async () => {
+      mockPool.pushResult([{ service_key: 'media-stack/plex', icon: 'plex.svg' }]);
+
+      const result = await repo.getContainerServiceInfo('docker', 'myhost/abc123');
+
+      expect(mockPool.queries).toHaveLength(1);
+      const sql = mockPool.queries[0].sql;
+      expect(sql).toContain('LEFT JOIN entity_metadata icon');
+      expect(sql).toContain('LEFT JOIN entity_metadata legacy_icon');
+      expect(sql).toContain('COALESCE(icon.value, legacy_icon.value)');
+      expect(sql).toContain("sk.key = 'service_key'");
+      expect(mockPool.queries[0].params).toEqual(['docker', 'myhost/abc123']);
+      expect(result).toEqual({ serviceKey: 'media-stack/plex', icon: 'plex.svg' });
+    });
+
+    it('should return null icon when no icon exists', async () => {
+      mockPool.pushResult([{ service_key: 'plex', icon: null }]);
+
+      const result = await repo.getContainerServiceInfo('docker', 'myhost/abc123');
+      expect(result).toEqual({ serviceKey: 'plex', icon: null });
+    });
+
+    it('should return null when entity has no service_key', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getContainerServiceInfo('docker', 'myhost/unknown');
+      expect(result).toBeNull();
     });
   });
 

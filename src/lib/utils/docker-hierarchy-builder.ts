@@ -30,10 +30,11 @@ export function computeServiceKey(
  *
  * @param row - The source wide-format Docker stats row.
  * @param icon - Optional icon identifier to attach to the resulting entity.
- * @param serviceKeyEntity - Optional stable service key to use; when omitted the entity id (`host/container_id`) is used.
+ * @param serviceKeyEntity - Optional stable service key to use; when omitted `host/container_name` is used
+ *   (matching the worker's `computeServiceKey` fallback) so recreated containers naturally deduplicate.
  * @returns A DockerStatsFromDB object with:
  *  - `id` set to `host/container_id`,
- *  - `serviceKeyEntity` set to the provided value or the derived `id`,
+ *  - `serviceKeyEntity` set to the provided value or `host/container_name`,
  *  - `name` using `container_name` or the first 12 characters of `container_id`,
  *  - numeric rate fields defaulted to `0` when missing,
  *  - `memory_stats.usage` and `memory_stats.limit` coerced to numbers,
@@ -46,10 +47,11 @@ export function rowToDockerStats(
   serviceKeyEntity: string | null = null,
 ): DockerStatsFromDB {
   const entityId = `${row.host}/${row.container_id}`;
+  const name = row.container_name || row.container_id.substring(0, 12);
   return {
     id: entityId,
-    serviceKeyEntity: serviceKeyEntity ?? entityId,
-    name: row.container_name || row.container_id.substring(0, 12),
+    serviceKeyEntity: serviceKeyEntity ?? `${row.host}/${name}`,
+    name,
     image: row.image || '',
     icon,
     stale: false,

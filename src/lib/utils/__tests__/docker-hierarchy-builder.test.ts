@@ -294,8 +294,17 @@ describe('buildDockerHierarchy', () => {
       expect(result.serviceKeyEntity).toBe('host1/media-stack/plex');
     });
 
-    it('should fall back to entity ID when serviceKeyEntity is not provided', () => {
+    it('should fall back to host/container_name when serviceKeyEntity is not provided', () => {
       const row = createMockRow();
+      const result = rowToDockerStats(row);
+
+      // Falls back to host/name (not host/container_id) so recreated containers
+      // with the same name naturally deduplicate before metadata is available
+      expect(result.serviceKeyEntity).toBe('host1/nginx');
+    });
+
+    it('should fall back to host/short_id when container_name is null', () => {
+      const row = createMockRow({ container_name: null });
       const result = rowToDockerStats(row);
 
       expect(result.serviceKeyEntity).toBe('host1/abc123def456');

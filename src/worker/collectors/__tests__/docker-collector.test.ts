@@ -438,10 +438,13 @@ describe('DockerCollector', () => {
       // Stats collection should still proceed despite migration failure
       expect(writtenRows.length).toBeGreaterThanOrEqual(1);
 
-      // Old serviceKey (container name fallback) should be preserved for retry
+      // Old serviceKey (container name fallback) should be preserved for retry,
+      // but name/image should be updated so the next cycle doesn't re-upsert them
       const knownEntry = (collector as any).knownContainers.get('migrate-fail-123');
       expect(knownEntry).toBeDefined();
       expect(knownEntry.serviceKey).toBe('plex'); // old name-only key, not 'media-stack/plex'
+      expect(knownEntry.name).toBe('plex');
+      expect(knownEntry.image).toBe('plexinc/pms-docker:latest');
 
       controller.abort();
     });

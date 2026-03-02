@@ -85,14 +85,12 @@ export const getContainerHistory = createServerFn()
       // so history is seamlessly unified across container recreations.
       let containerIds: string[] = [data.containerId];
       if (data.host) {
-        const serviceKey = await repo.getServiceKeyForEntity(
+        const linked = await repo.getLinkedContainerIds(
           'docker',
           `${data.host}/${data.containerId}`,
+          data.host,
         );
-        if (serviceKey) {
-          const linked = await repo.getContainerIdsByServiceKey('docker', data.host, serviceKey);
-          if (linked.length > 0) containerIds = linked;
-        }
+        if (linked.length > 0) containerIds = linked;
       }
 
       return await repo.getDockerStatsForContainer(
@@ -135,22 +133,14 @@ export const getContainerInfo = createServerFn()
       if (!info) return null;
 
       const containerEntity = `${info.host}/${data.containerId}`;
-      const serviceKey = await repo.getServiceKeyForEntity('docker', containerEntity);
-      // Look up icon from the service_key entity so it persists across recreations.
-      // If no icon is found there, fall back to the container entity itself to preserve
-      // icons that were stored under the legacy host/container_id format.
-      const iconEntity = serviceKey ? `${info.host}/${serviceKey}` : containerEntity;
-      let icon = await repo.getEntityIcon('docker', iconEntity);
-      if (icon === null && iconEntity !== containerEntity) {
-        icon = await repo.getEntityIcon('docker', containerEntity);
-      }
+      const serviceInfo = await repo.getContainerServiceInfo('docker', containerEntity);
 
       return {
         containerName: info.container_name ?? data.containerId.substring(0, 12),
         image: info.image ?? '',
         host: info.host,
-        icon,
-        serviceKey,
+        icon: serviceInfo?.icon ?? null,
+        serviceKey: serviceInfo?.serviceKey ?? null,
       };
     } catch (err) {
       console.error('[getContainerInfo] Failed to fetch container info:', err);
