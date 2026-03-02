@@ -1,15 +1,23 @@
 import { useCallback } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import AppShell from '@/components/AppShell'
-import ContainerTable from '@/components/docker/ContainerTable'
+import AppShell, { queryClient } from '@/components/AppShell'
+import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
-import { getHistoricalDockerStats } from '@/data/docker.functions'
+import { getHistoricalDockerStats, getDockerEntityIcons } from '@/data/docker.functions'
 import { useSettings } from '@/hooks/useSettings'
 import type { DockerStatsRow } from '@/types/docker'
 
 
-export const Route = createFileRoute('/')({ ssr: false, component: DockerPage })
+export const Route = createFileRoute('/')({
+  ssr: false,
+  loader: () => queryClient.ensureQueryData({
+    queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
+    queryFn: () => getDockerEntityIcons(),
+    staleTime: Infinity,
+  }),
+  component: DockerPage,
+})
 
 function DockerPage() {
   return (

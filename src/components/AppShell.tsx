@@ -5,7 +5,7 @@ import Toasts from './Toasts'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
 
-const queryClient = new QueryClient()
+export const queryClient = new QueryClient()
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   useSettingsSync()
