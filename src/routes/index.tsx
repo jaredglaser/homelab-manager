@@ -14,7 +14,7 @@ export const Route = createFileRoute('/')({
   loader: () => queryClient.ensureQueryData({
     queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
     queryFn: () => getDockerEntityIcons(),
-    staleTime: Infinity,
+    staleTime: 60_000,
   }),
   component: DockerPage,
 })
