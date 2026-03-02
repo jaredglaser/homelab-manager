@@ -78,6 +78,7 @@ bun run test:coverage:check # Run tests and enforce 95%/99% coverage threshold
 ### Production Build
 ```bash
 bun build                   # Production build (runs typecheck first)
+bun run build:demo          # Demo build (no server required, mock data)
 bun worker                  # Run background collector locally
 bun icons:download          # Download dashboard icons from homarr-labs/dashboard-icons
 ```
@@ -114,6 +115,14 @@ src/
 │   ├── parsers/             # ZFSIOStatParser (indentation-based hierarchy detection)
 │   ├── settings/            # SettingsBroadcastService (PostgreSQL LISTEN/NOTIFY → SSE)
 │   ├── streaming/types.ts   # Core interfaces (StreamingClient, StreamParser, RateCalculator)
+│   ├── mock/                # Demo mode: deterministic mock data generation system
+│   │   ├── prng.ts          # Mulberry32 seeded PRNG + FNV hash
+│   │   ├── patterns.ts      # Time-series pattern functions (sine, noise, lerp, smoothstep, spike)
+│   │   ├── entities.ts      # Static entity definitions with metric profiles
+│   │   ├── generators/      # Snapshot + history generators (docker, zfs, proxmox, settings)
+│   │   ├── functions/       # Mock server function replacements (Vite alias targets)
+│   │   ├── mock-event-source.ts  # Drop-in EventSource replacement for SSE
+│   │   └── install-demo.ts  # One-time setup: patches window.EventSource
 │   ├── test/                # Test utilities: Happy-DOM setup, Testing Library setup, stream helpers
 │   ├── utils/               # Hierarchy builders, rate calculators, row converters, Proxmox overview converter/builder, abortable-sleep
 │   └── server-init.ts       # Idempotent server startup + graceful shutdown handlers
@@ -206,6 +215,18 @@ const { statsPollService } = await import('@/lib/database/subscription-service')
 - Config loaders in `src/lib/config/` validate with Zod and parse numbered groups
 - Host rows shown in UI only when multiple hosts are configured
 - Single-item collections always show expanded (no collapse button if only one host)
+
+### Demo Mode (`VITE_DEMO_MODE=true`)
+- **Purpose**: Fully static demo build — no server, no database, no worker required
+- **Activation**: `bun run build:demo` or `VITE_DEMO_MODE=true vite build`
+- **How it works**:
+  1. Vite `resolve.alias` redirects `@/data/*.functions` imports → `@/lib/mock/functions/*.functions` (mock implementations)
+  2. `AppShell.tsx` patches `window.EventSource` with `MockEventSource` that emits generated data every 1s
+  3. Settings persist to `localStorage` instead of PostgreSQL
+- **Zero changes to routes, hooks, or components** — the mock layer is entirely additive
+- **Data generation**: Deterministic, time-based — `value(entity, metric, time) = pattern + noise(hash(entity, metric, time))`
+- **Mock entities**: 10 Docker containers (2 hosts), 2 ZFS pools (6 entities), 1 Proxmox cluster (2 nodes, 4 guests, 3 storages)
+- **Bundle impact**: Production build — zero (tree-shaken). Demo build — ~5-10KB gzipped
 
 ### Styling
 - **TailwindCSS v4** via `@tailwindcss/vite` plugin (no `tailwind.config` file — configured in `App.css` with `@import "tailwindcss"`)
@@ -350,3 +371,6 @@ CI publishes Docker images to GHCR: `ghcr.io/jaredglaser/homelab-manager-web` an
 | Type check | `bun run typecheck` |
 | Type validation | Zod schema |
 | BIGINT from PostgreSQL | Wrap with `Number()` in row converters |
+| Demo/static build | `bun run build:demo` (sets `VITE_DEMO_MODE=true`) |
+| Mock data generators | `src/lib/mock/generators/` |
+| Add mock entity | Edit `src/lib/mock/entities.ts` |
