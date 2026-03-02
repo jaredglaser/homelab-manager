@@ -70,8 +70,9 @@ export default function ContainerTable({
     const byServiceKey = new Map<string, DockerStatsFromDB>();
     for (const row of latestByEntity.values()) {
       const entityId = `${row.host}/${row.container_id}`;
+      const name = row.container_name || row.container_id.substring(0, 12);
       const meta = entityIcons?.[entityId];
-      const stat = rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? entityId);
+      const stat = rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? `${row.host}/${name}`);
       const existing = byServiceKey.get(stat.serviceKeyEntity);
       if (!existing || stat.timestamp > existing.timestamp) {
         byServiceKey.set(stat.serviceKeyEntity, stat);
@@ -86,7 +87,8 @@ export default function ContainerTable({
     const map = new Map<string, DockerStatsRow[]>();
     for (const row of rows) {
       const entityId = `${row.host}/${row.container_id}`;
-      const serviceKey = entityIcons?.[entityId]?.serviceKeyEntity ?? entityId;
+      const name = row.container_name || row.container_id.substring(0, 12);
+      const serviceKey = entityIcons?.[entityId]?.serviceKeyEntity ?? `${row.host}/${name}`;
       let arr = map.get(serviceKey);
       if (!arr) {
         arr = [];
