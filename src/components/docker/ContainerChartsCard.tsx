@@ -20,7 +20,6 @@ interface ContainerChartsCardProps {
   host: string;
 }
 
-// Stable formatter references to avoid breaking DualSeriesChart memo
 const formatPercent = (v: number) => formatAsPercent(v / 100);
 const formatNetwork = (v: number) => formatBitsSIUnits(v * 8, true);
 

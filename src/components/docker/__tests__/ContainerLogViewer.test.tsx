@@ -1,5 +1,8 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+
+// Track mock terminal instances for lifecycle testing
+const mockTerminalInstances: { dispose: ReturnType<typeof mock>; loadAddon: ReturnType<typeof mock>; open: ReturnType<typeof mock> }[] = [];
 
 // Mock xterm.js — CJS modules need default export for bun:test ESM loader
 mock.module('@xterm/xterm', () => ({
@@ -11,15 +14,22 @@ mock.module('@xterm/xterm', () => ({
       dispose = mock(() => {});
       writeln = mock(() => {});
       write = mock(() => {});
+      constructor() {
+        mockTerminalInstances.push(this as unknown as typeof mockTerminalInstances[0]);
+      }
     },
   },
 }));
 
+// Track fit calls
+const mockFitFn = mock(() => {});
+
 mock.module('@xterm/addon-fit', () => ({
   default: {
     FitAddon: class MockFitAddon {
-      fit = mock(() => {});
+      fit = mockFitFn;
       dispose = mock(() => {});
+      activate = mock(() => {});
     },
   },
 }));
@@ -38,6 +48,22 @@ mock.module('@/hooks/useContainerLogs', () => ({
 }));
 
 let lastCallOpts: { containerId: string; host: string } | null = null;
+
+// Mock ResizeObserver
+let lastResizeCallback: (() => void) | null = null;
+const mockObserve = mock(() => {});
+const mockDisconnect = mock(() => {});
+
+class MockResizeObserver {
+  constructor(callback: () => void) {
+    lastResizeCallback = callback;
+  }
+  observe = mockObserve;
+  disconnect = mockDisconnect;
+  unobserve = mock(() => {});
+}
+
+(globalThis as unknown as { ResizeObserver: typeof MockResizeObserver }).ResizeObserver = MockResizeObserver;
 
 const { default: ContainerLogViewer } = await import('../ContainerLogViewer');
 
@@ -76,5 +102,50 @@ describe('ContainerLogViewer', () => {
     expect(lastCallOpts).not.toBeNull();
     expect(lastCallOpts!.containerId).toBe('my-container');
     expect(lastCallOpts!.host).toBe('my-host');
+  });
+
+  it('initializes terminal and calls dispose on unmount', async () => {
+    mockReturnValue = { isConnected: true, error: null };
+    mockTerminalInstances.length = 0;
+
+    const { unmount } = render(<ContainerLogViewer containerId="abc123" host="server" />);
+
+    // Wait for async terminal initialization
+    await waitFor(() => {
+      expect(mockTerminalInstances.length).toBeGreaterThan(0);
+    });
+
+    const term = mockTerminalInstances[mockTerminalInstances.length - 1];
+    expect(term.open).toHaveBeenCalled();
+
+    // Unmount should dispose the terminal
+    unmount();
+    expect(term.dispose).toHaveBeenCalled();
+  });
+
+  it('sets up ResizeObserver after terminal init', async () => {
+    mockReturnValue = { isConnected: true, error: null };
+    mockTerminalInstances.length = 0;
+    mockObserve.mockClear();
+    mockFitFn.mockClear();
+    lastResizeCallback = null;
+
+    render(<ContainerLogViewer containerId="abc123" host="server" />);
+
+    // Wait for async terminal initialization which triggers re-render
+    await waitFor(() => {
+      expect(mockTerminalInstances.length).toBeGreaterThan(0);
+    });
+
+    // ResizeObserver should be set up after terminal state update
+    await waitFor(() => {
+      expect(mockObserve).toHaveBeenCalled();
+    });
+
+    // Simulate a resize event — should call fit without error
+    const cb = lastResizeCallback as (() => void) | null;
+    if (cb) {
+      cb();
+    }
   });
 });

@@ -25,7 +25,8 @@ interface DualSeriesChartProps {
   formatValue: (value: number) => string;
 }
 
-function getChartOption(
+/** @internal Exported for testing */
+export function getChartOption(
   series: [SeriesConfig, SeriesConfig],
   yAxisMode: YAxisMode,
   formatValue: (value: number) => string,

@@ -15,6 +15,7 @@ export default memo(function ContainerLogViewer({
 }: ContainerLogViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [terminal, setTerminal] = useState<TerminalType | null>(null);
+  const terminalRef = useRef<TerminalType | null>(null);
   const fitAddonRef = useRef<{ fit(): void } | null>(null);
 
   // Dynamically import xterm.js (CJS modules — must be loaded at runtime, not statically)
@@ -67,16 +68,15 @@ export default memo(function ContainerLogViewer({
         }
       });
 
+      terminalRef.current = term;
       setTerminal(term);
     })();
 
     return () => {
       disposed = true;
       fitAddonRef.current = null;
-      setTerminal((prev) => {
-        prev?.dispose();
-        return null;
-      });
+      terminalRef.current?.dispose();
+      terminalRef.current = null;
     };
   }, []);
 

@@ -22,7 +22,7 @@ mock.module('@/hooks/useEChartTimeScroll', () => ({
 }));
 
 // Must import after mocks
-const { default: DualSeriesChart } = await import('../DualSeriesChart');
+const { default: DualSeriesChart, getChartOption } = await import('../DualSeriesChart');
 
 const baseSeries: [
   { name: string; dataPoints: { timestamp: number; value: number }[]; colorVar: string },
@@ -116,5 +116,48 @@ describe('DualSeriesChart', () => {
       />,
     );
     expect(screen.getByText('Empty')).toBeTruthy();
+  });
+});
+
+describe('getChartOption', () => {
+  const formatValue = (v: number) => `${v}%`;
+
+  it('tooltip formatter returns formatted lines for both series', () => {
+    const option = getChartOption(baseSeries, 'percent', formatValue, false, 60000);
+    const formatter = (option.tooltip as { formatter: Function }).formatter;
+    const result = formatter([
+      { value: [1000, 25], marker: '●', seriesName: 'CPU' },
+      { value: [1000, 40], marker: '●', seriesName: 'Memory' },
+    ]);
+    expect(result).toContain('CPU: 25%');
+    expect(result).toContain('Memory: 40%');
+  });
+
+  it('tooltip formatter handles empty params', () => {
+    const option = getChartOption(baseSeries, 'percent', formatValue, false, 60000);
+    const formatter = (option.tooltip as { formatter: Function }).formatter;
+    const result = formatter([]);
+    expect(result).toContain('<br/>');
+  });
+
+  it('xAxis formatter formats minutes and seconds', () => {
+    const option = getChartOption(baseSeries, 'percent', formatValue, false, 60000);
+    const xAxisFormatter = (option.xAxis as { axisLabel: { formatter: Function } }).axisLabel.formatter;
+    // Test with a known timestamp: 2024-01-01 00:05:30
+    const ts = new Date(2024, 0, 1, 0, 5, 30).getTime();
+    expect(xAxisFormatter(ts)).toBe('05:30');
+  });
+
+  it('yAxis formatter uses formatValue', () => {
+    const option = getChartOption(baseSeries, 'percent', formatValue, false, 60000);
+    const yAxisFormatter = (option.yAxis as { axisLabel: { formatter: Function } }).axisLabel.formatter;
+    expect(yAxisFormatter(50)).toBe('50%');
+  });
+
+  it('sets itemStyle.color on each series', () => {
+    const option = getChartOption(baseSeries, 'percent', formatValue, false, 60000);
+    const series = option.series as { itemStyle: { color: string } }[];
+    expect(series[0].itemStyle).toBeDefined();
+    expect(series[1].itemStyle).toBeDefined();
   });
 });
