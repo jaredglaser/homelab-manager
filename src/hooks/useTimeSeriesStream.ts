@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { useSSE } from './useSSE';
+import { useEventSource } from './useEventSource';
 
 const STALE_THRESHOLD_MS = 30000;
 const STALE_CHECK_INTERVAL_MS = 5000;
@@ -261,7 +261,7 @@ export function useTimeSeriesStream<TRow>({
     setServiceError(new Error('Database unavailable'));
   }, []);
 
-  const { isConnected, error: sseError } = useSSE<TRow[]>({
+  const { isConnected, error: sseError } = useEventSource<TRow[]>({
     url: sseUrl,
     onData: handleData,
     onServiceError,

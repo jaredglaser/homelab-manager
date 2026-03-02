@@ -1,7 +1,8 @@
 import { memo, useMemo } from 'react';
 import { Paper } from '@mui/material';
-import { formatAsPercent, formatBytes, formatBitsSIUnits } from '@/formatters/metrics';
-import ContainerMetricChart from './ContainerMetricChart';
+import { formatAsPercent, formatBitsSIUnits } from '@/formatters/metrics';
+import DualSeriesChart from './DualSeriesChart';
+import ContainerLogViewer from './ContainerLogViewer';
 
 interface ContainerChartDataPoint {
   timestamp: number;
@@ -15,68 +16,77 @@ interface ContainerChartDataPoint {
 
 interface ContainerChartsCardProps {
   dataPoints: ContainerChartDataPoint[];
+  containerId: string;
+  host: string;
 }
 
-// Stable formatter references to avoid breaking ContainerMetricChart memo
-const formatCpu = (v: number) => formatAsPercent(v / 100);
-const formatMemory = (v: number) => formatAsPercent(v / 100);
-const formatBlockRead = (v: number) => formatBytes(v, true);
-const formatBlockWrite = (v: number) => formatBytes(v, true);
-const formatNetworkRx = (v: number) => formatBitsSIUnits(v * 8, true);
-const formatNetworkTx = (v: number) => formatBitsSIUnits(v * 8, true);
+// Stable formatter references to avoid breaking DualSeriesChart memo
+const formatPercent = (v: number) => formatAsPercent(v / 100);
+const formatNetwork = (v: number) => formatBitsSIUnits(v * 8, true);
+
+interface SeriesConfig {
+  name: string;
+  dataPoints: { timestamp: number; value: number }[];
+  colorVar: string;
+}
+
+type DualSeries = [SeriesConfig, SeriesConfig];
 
 export default memo(function ContainerChartsCard({
   dataPoints,
+  containerId,
+  host,
 }: ContainerChartsCardProps) {
-  // Memoize transformed data arrays
-  const chartData = useMemo(() => ({
-    cpu: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
-    memory: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent })),
-    blockRead: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoReadBytesPerSec })),
-    blockWrite: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoWriteBytesPerSec })),
-    networkRx: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
-    networkTx: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
-  }), [dataPoints]);
+  const cpuMemSeries = useMemo<DualSeries>(
+    () => [
+      {
+        name: 'CPU',
+        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
+        colorVar: '--chart-cpu',
+      },
+      {
+        name: 'Memory',
+        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent })),
+        colorVar: '--chart-memory',
+      },
+    ],
+    [dataPoints],
+  );
+
+  const networkSeries = useMemo<DualSeries>(
+    () => [
+      {
+        name: 'RX',
+        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
+        colorVar: '--chart-read',
+      },
+      {
+        name: 'TX',
+        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
+        colorVar: '--chart-write',
+      },
+    ],
+    [dataPoints],
+  );
 
   return (
     <Paper variant="outlined" className="m-2 p-4 rounded-sm">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-        <ContainerMetricChart
-          title="CPU %"
-          dataPoints={chartData.cpu}
-          colorVar="--chart-cpu"
-          formatValue={formatCpu}
-        />
-        <ContainerMetricChart
-          title="Memory %"
-          dataPoints={chartData.memory}
-          colorVar="--chart-memory"
-          formatValue={formatMemory}
-        />
-        <ContainerMetricChart
-          title="Block Read"
-          dataPoints={chartData.blockRead}
-          colorVar="--chart-read"
-          formatValue={formatBlockRead}
-        />
-        <ContainerMetricChart
-          title="Block Write"
-          dataPoints={chartData.blockWrite}
-          colorVar="--chart-write"
-          formatValue={formatBlockWrite}
-        />
-        <ContainerMetricChart
-          title="Network RX"
-          dataPoints={chartData.networkRx}
-          colorVar="--chart-read"
-          formatValue={formatNetworkRx}
-        />
-        <ContainerMetricChart
-          title="Network TX"
-          dataPoints={chartData.networkTx}
-          colorVar="--chart-write"
-          formatValue={formatNetworkTx}
-        />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="flex flex-col gap-3">
+          <DualSeriesChart
+            title="CPU & Memory"
+            series={cpuMemSeries}
+            yAxisMode="percent"
+            formatValue={formatPercent}
+          />
+          <DualSeriesChart
+            title="Network I/O"
+            series={networkSeries}
+            yAxisMode="bytes"
+            formatValue={formatNetwork}
+          />
+        </div>
+        <ContainerLogViewer containerId={containerId} host={host} />
       </div>
     </Paper>
   );
