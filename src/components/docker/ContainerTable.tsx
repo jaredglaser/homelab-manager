@@ -62,16 +62,22 @@ export default function ContainerTable({
     staleTime: Infinity,
   });
 
-  // Convert latest rows to DockerStatsFromDB and build hierarchy
+  // Convert latest rows to DockerStatsFromDB and build hierarchy.
+  // Deduplicate by serviceKeyEntity so that when a container is recreated
+  // (new container_id, same logical service), only the most recently active
+  // incarnation is shown in the live dashboard.
   const hierarchy = useMemo<DockerHierarchy>(() => {
-    const stats: DockerStatsFromDB[] = [];
+    const byServiceKey = new Map<string, DockerStatsFromDB>();
     for (const row of latestByEntity.values()) {
       const entityId = `${row.host}/${row.container_id}`;
       const meta = entityIcons?.[entityId];
-      // Fall back to entity ID as serviceKeyEntity when service_key not yet populated
-      stats.push(rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? entityId));
+      const stat = rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? entityId);
+      const existing = byServiceKey.get(stat.serviceKeyEntity);
+      if (!existing || stat.timestamp > existing.timestamp) {
+        byServiceKey.set(stat.serviceKeyEntity, stat);
+      }
     }
-    return buildDockerHierarchy(stats);
+    return buildDockerHierarchy([...byServiceKey.values()]);
   }, [latestByEntity, entityIcons]);
 
   // Build per-entity chart data index
