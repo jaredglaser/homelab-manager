@@ -201,7 +201,7 @@ export default memo(function DualSeriesChart({
         <ReactECharts
           ref={chartRef}
           option={option}
-          className="h-full w-full"
+          className="!h-full !w-full"
           opts={{ renderer: 'canvas' }}
           notMerge={false}
           lazyUpdate={true}
