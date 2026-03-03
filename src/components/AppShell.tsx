@@ -7,8 +7,12 @@ import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
 
 if (import.meta.env.VITE_DEMO_MODE === 'true' && typeof window !== 'undefined') {
-  const { installDemo } = await import('@/lib/mock/install-demo')
-  installDemo()
+  // Use .then() instead of top-level await to avoid circular dependency deadlock.
+  // The main chunk imports install-demo, which statically imports back from the main
+  // chunk (for mock generators). TLA pauses main mid-evaluation, causing deadlock.
+  // This is safe because EventSource connections are created in useEffect (deferred),
+  // and MockEventSource._start uses setTimeout(50ms) — both fire after .then() resolves.
+  void import('@/lib/mock/install-demo').then(({ installDemo }) => installDemo())
 }
 
 const DEMO_BANNER_KEY = 'demo-banner-dismissed'
