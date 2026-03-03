@@ -116,7 +116,7 @@ export default function IconPickerDialog({
                           currentIcon === slug ? 'bg-blue-500/20 ring-1 ring-blue-500' : ''
                         }`}
                       >
-                        <img src={`/icons/${slug}.svg`} alt={slug} className="w-8 h-8" />
+                        <img src={`${import.meta.env.BASE_URL}icons/${slug}.svg`} alt={slug} className="w-8 h-8" />
                         <span className="mt-1 text-xs truncate w-full text-center">{slug}</span>
                       </button>
                     ))}

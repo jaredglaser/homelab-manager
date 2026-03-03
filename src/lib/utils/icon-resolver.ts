@@ -3,8 +3,8 @@ import { AVAILABLE_ICONS } from './available-icons';
 // Re-export for convenience
 export { AVAILABLE_ICONS, type IconSlug } from './available-icons';
 
-/** Local icons path (served from public/icons/) */
-const ICONS_PATH = '/icons';
+/** Local icons path (served from public/icons/, respects Vite base path) */
+const ICONS_PATH = `${import.meta.env.BASE_URL}icons`;
 
 /** Set for O(1) lookup */
 const ICON_SET = new Set<string>(AVAILABLE_ICONS);
