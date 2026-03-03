@@ -1,6 +1,6 @@
 import { describe, it, expect, spyOn } from 'bun:test';
-import { buildHierarchy, buildZFSHostHierarchy, rowToZFSStats } from '../zfs-hierarchy-builder';
-import type { ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
+import { buildHierarchy, buildZFSHostHierarchy, rowToZFSStats, sortZFSHierarchy } from '../zfs-hierarchy-builder';
+import type { ZFSIOStatWithRates, ZFSStatsRow, ZFSHierarchy } from '@/types/zfs';
 
 describe('buildHierarchy', () => {
   // Helper to create mock ZFS stats
@@ -661,33 +661,97 @@ describe('buildZFSHostHierarchy', () => {
     expect(tank.vdevs.get('mirror-1')!.disks.has('sdd')).toBe(true);
   });
 
-  it('should sort pools, vdevs, and disks alphabetically for stable render order', () => {
-    // Insert rows in reverse alphabetical order to verify sorting
+  it('should produce sorted pools via sortZFSHierarchy integration', () => {
     const rows = [
       createMockRow({ host: 'server1', pool: 'zroot', entity: 'zroot', indent: 0 }),
       createMockRow({ host: 'server1', pool: 'backup', entity: 'backup', indent: 0 }),
       createMockRow({ host: 'server1', pool: 'tank', entity: 'tank', indent: 0 }),
-      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/raidz2-0', entity_type: 'vdev', indent: 2 }),
-      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0', entity_type: 'vdev', indent: 2 }),
-      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sdb', entity_type: 'disk', indent: 4 }),
-      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sda', entity_type: 'disk', indent: 4 }),
     ];
 
     const hierarchy = buildZFSHostHierarchy(rows);
-    const server1 = hierarchy.get('server1')!;
-
-    // Pools should be sorted alphabetically
-    const poolNames = Array.from(server1.pools.keys());
+    const poolNames = Array.from(hierarchy.get('server1')!.pools.keys());
     expect(poolNames).toEqual(['backup', 'tank', 'zroot']);
+  });
+});
 
-    // Vdevs within tank should be sorted alphabetically
-    const tank = server1.pools.get('tank')!;
-    const vdevNames = Array.from(tank.vdevs.keys());
-    expect(vdevNames).toEqual(['mirror-0', 'raidz2-0']);
+describe('sortZFSHierarchy', () => {
+  function makeStat(name: string): ZFSIOStatWithRates {
+    return {
+      id: name, name, indent: 0, timestamp: 0,
+      capacity: { alloc: 0, free: 0 },
+      operations: { read: 0, write: 0 },
+      bandwidth: { read: 0, write: 0 },
+      total: { readOps: 0, writeOps: 0, readBytes: 0, writeBytes: 0 },
+      rates: { readOpsPerSec: 0, writeOpsPerSec: 0, readBytesPerSec: 0, writeBytesPerSec: 0, utilizationPercent: 0 },
+    };
+  }
 
-    // Disks within mirror-0 should be sorted alphabetically
-    const mirror0 = tank.vdevs.get('mirror-0')!;
-    const diskNames = Array.from(mirror0.disks.keys());
-    expect(diskNames).toEqual(['sda', 'sdb']);
+  it('should sort pools alphabetically', () => {
+    const hierarchy: ZFSHierarchy = new Map([
+      ['zroot', { data: makeStat('zroot'), vdevs: new Map(), individualDisks: new Map() }],
+      ['backup', { data: makeStat('backup'), vdevs: new Map(), individualDisks: new Map() }],
+    ]);
+
+    const sorted = sortZFSHierarchy(hierarchy);
+    expect(Array.from(sorted.keys())).toEqual(['backup', 'zroot']);
+  });
+
+  it('should sort vdevs within each pool', () => {
+    const hierarchy: ZFSHierarchy = new Map([
+      ['tank', {
+        data: makeStat('tank'),
+        vdevs: new Map([
+          ['raidz2-0', { data: makeStat('raidz2-0'), disks: new Map() }],
+          ['mirror-0', { data: makeStat('mirror-0'), disks: new Map() }],
+        ]),
+        individualDisks: new Map(),
+      }],
+    ]);
+
+    const sorted = sortZFSHierarchy(hierarchy);
+    expect(Array.from(sorted.get('tank')!.vdevs.keys())).toEqual(['mirror-0', 'raidz2-0']);
+  });
+
+  it('should sort disks within each vdev', () => {
+    const hierarchy: ZFSHierarchy = new Map([
+      ['tank', {
+        data: makeStat('tank'),
+        vdevs: new Map([
+          ['mirror-0', {
+            data: makeStat('mirror-0'),
+            disks: new Map([
+              ['sdb', { data: makeStat('sdb') }],
+              ['sda', { data: makeStat('sda') }],
+            ]),
+          }],
+        ]),
+        individualDisks: new Map(),
+      }],
+    ]);
+
+    const sorted = sortZFSHierarchy(hierarchy);
+    expect(Array.from(sorted.get('tank')!.vdevs.get('mirror-0')!.disks.keys())).toEqual(['sda', 'sdb']);
+  });
+
+  it('should sort individual disks under pool', () => {
+    const hierarchy: ZFSHierarchy = new Map([
+      ['tank', {
+        data: makeStat('tank'),
+        vdevs: new Map(),
+        individualDisks: new Map([
+          ['sdc', { data: makeStat('sdc') }],
+          ['sda', { data: makeStat('sda') }],
+          ['sdb', { data: makeStat('sdb') }],
+        ]),
+      }],
+    ]);
+
+    const sorted = sortZFSHierarchy(hierarchy);
+    expect(Array.from(sorted.get('tank')!.individualDisks.keys())).toEqual(['sda', 'sdb', 'sdc']);
+  });
+
+  it('should return empty map for empty input', () => {
+    const sorted = sortZFSHierarchy(new Map());
+    expect(sorted.size).toBe(0);
   });
 });

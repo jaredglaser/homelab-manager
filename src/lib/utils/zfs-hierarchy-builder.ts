@@ -15,7 +15,7 @@ import type {
  * disks within each vdev, and individual disks. Returns a new Map with
  * stable alphabetical ordering at every level.
  */
-function sortZFSHierarchy(hierarchy: ZFSHierarchy): ZFSHierarchy {
+export function sortZFSHierarchy(hierarchy: ZFSHierarchy): ZFSHierarchy {
   return new Map(
     [...hierarchy.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
