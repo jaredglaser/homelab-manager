@@ -47,3 +47,6 @@ export const SETTINGS_KEYS = {
     sseDebugLogging: 'developer/sseDebugLogging',
   },
 } as const;
+
+/** localStorage key for persisting demo mode settings. */
+export const DEMO_SETTINGS_STORAGE_KEY = 'homelab-demo-settings';

@@ -1,4 +1,4 @@
-import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/mock/generators/settings';
+import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
 
 /**
  * Mock: Update a setting — persists to localStorage in demo mode.

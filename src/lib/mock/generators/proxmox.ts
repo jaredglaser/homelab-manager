@@ -2,8 +2,8 @@ import type { ProxmoxStatsRow } from '@/types/proxmox';
 import { generateMetric } from '@/lib/mock/patterns';
 import { PROXMOX_ENTITIES } from '@/lib/mock/entities';
 
-/** Fixed reference for uptime calculation — entity uptime values are "as of" this instant. */
-const UPTIME_REFERENCE_MS = Date.UTC(2025, 0, 1); // 2025-01-01T00:00:00Z
+/** Session-scoped reference for uptime calculation — entities show uptime relative to demo session start. */
+const UPTIME_REFERENCE_MS = Date.now();
 
 /**
  * Generate a single Proxmox stats snapshot for a given timestamp.

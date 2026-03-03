@@ -1,7 +1,8 @@
 import { generateDockerSnapshot, generateContainerLogBatch, generateContainerLogHistory } from '@/lib/mock/generators/docker';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
-import { generateDefaultSettings, DEMO_SETTINGS_STORAGE_KEY } from '@/lib/mock/generators/settings';
+import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
+import { generateDefaultSettings } from '@/lib/mock/generators/settings';
 import { DOCKER_ENTITIES } from '@/lib/mock/entities';
 import type { SettingsSSEMessage } from '@/types/settings';
 

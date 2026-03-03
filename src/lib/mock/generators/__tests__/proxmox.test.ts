@@ -68,8 +68,9 @@ describe('generateProxmoxSnapshot', () => {
   });
 
   it('uptime grows over time', () => {
-    const time1 = new Date('2025-06-15T12:00:00Z');
-    const time2 = new Date('2025-06-15T12:01:00Z'); // 60s later
+    const base = Date.now();
+    const time1 = new Date(base);
+    const time2 = new Date(base + 60_000); // 60s later
     const rows1 = generateProxmoxSnapshot(time1);
     const rows2 = generateProxmoxSnapshot(time2);
     const node1 = rows1.find((r) => r.entity_id === 'pve1');
