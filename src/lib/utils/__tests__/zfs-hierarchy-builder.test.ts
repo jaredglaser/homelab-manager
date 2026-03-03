@@ -660,4 +660,34 @@ describe('buildZFSHostHierarchy', () => {
     expect(tank.vdevs.get('mirror-1')!.disks.has('sdc')).toBe(true);
     expect(tank.vdevs.get('mirror-1')!.disks.has('sdd')).toBe(true);
   });
+
+  it('should sort pools, vdevs, and disks alphabetically for stable render order', () => {
+    // Insert rows in reverse alphabetical order to verify sorting
+    const rows = [
+      createMockRow({ host: 'server1', pool: 'zroot', entity: 'zroot', indent: 0 }),
+      createMockRow({ host: 'server1', pool: 'backup', entity: 'backup', indent: 0 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank', indent: 0 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/raidz2-0', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0', entity_type: 'vdev', indent: 2 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sdb', entity_type: 'disk', indent: 4 }),
+      createMockRow({ host: 'server1', pool: 'tank', entity: 'tank/mirror-0/sda', entity_type: 'disk', indent: 4 }),
+    ];
+
+    const hierarchy = buildZFSHostHierarchy(rows);
+    const server1 = hierarchy.get('server1')!;
+
+    // Pools should be sorted alphabetically
+    const poolNames = Array.from(server1.pools.keys());
+    expect(poolNames).toEqual(['backup', 'tank', 'zroot']);
+
+    // Vdevs within tank should be sorted alphabetically
+    const tank = server1.pools.get('tank')!;
+    const vdevNames = Array.from(tank.vdevs.keys());
+    expect(vdevNames).toEqual(['mirror-0', 'raidz2-0']);
+
+    // Disks within mirror-0 should be sorted alphabetically
+    const mirror0 = tank.vdevs.get('mirror-0')!;
+    const diskNames = Array.from(mirror0.disks.keys());
+    expect(diskNames).toEqual(['sda', 'sdb']);
+  });
 });
