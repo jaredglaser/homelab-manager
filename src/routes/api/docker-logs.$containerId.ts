@@ -92,6 +92,12 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
                 nodeStream.on('end', () => {
                   if (!closed) {
                     sendLines([{ text: '--- Container log stream ended ---', stream: 'stdout' }]);
+                    closed = true;
+                    try {
+                      controller.close();
+                    } catch {
+                      // Already closed
+                    }
                   }
                 });
 

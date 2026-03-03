@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, afterAll } from 'bun:test';
 import { render, screen, waitFor } from '@testing-library/react';
 
 // Track mock terminal instances for lifecycle testing
@@ -63,7 +63,12 @@ class MockResizeObserver {
   unobserve = mock(() => {});
 }
 
+const originalResizeObserver = (globalThis as unknown as { ResizeObserver: typeof MockResizeObserver }).ResizeObserver;
 (globalThis as unknown as { ResizeObserver: typeof MockResizeObserver }).ResizeObserver = MockResizeObserver;
+
+afterAll(() => {
+  (globalThis as unknown as { ResizeObserver: typeof MockResizeObserver }).ResizeObserver = originalResizeObserver;
+});
 
 const { default: ContainerLogViewer } = await import('../ContainerLogViewer');
 

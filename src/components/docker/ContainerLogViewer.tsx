@@ -24,52 +24,56 @@ export default memo(function ContainerLogViewer({
     let disposed = false;
 
     void (async () => {
-      const [xtermMod, fitMod] = await Promise.all([
-        import('@xterm/xterm'),
-        import('@xterm/addon-fit'),
-      ]);
+      try {
+        const [xtermMod, fitMod] = await Promise.all([
+          import('@xterm/xterm'),
+          import('@xterm/addon-fit'),
+        ]);
 
-      // Also load the stylesheet
-      await import('@xterm/xterm/css/xterm.css');
+        // Also load the stylesheet
+        await import('@xterm/xterm/css/xterm.css');
 
-      if (disposed) return;
+        if (disposed) return;
 
-      // Handle CJS default export (bun) vs ESM named export (Vite)
-      const xtermAny = xtermMod as Record<string, unknown>;
-      const Terminal = (xtermAny.Terminal ?? (xtermAny.default as Record<string, unknown>).Terminal) as typeof TerminalType;
-      const fitAny = fitMod as Record<string, unknown>;
-      const FitAddon = (fitAny.FitAddon ?? (fitAny.default as Record<string, unknown>).FitAddon) as new () => import('@xterm/xterm').ITerminalAddon & { fit(): void };
+        // Handle CJS default export (bun) vs ESM named export (Vite)
+        const xtermAny = xtermMod as Record<string, unknown>;
+        const Terminal = (xtermAny.Terminal ?? (xtermAny.default as Record<string, unknown>).Terminal) as typeof TerminalType;
+        const fitAny = fitMod as Record<string, unknown>;
+        const FitAddon = (fitAny.FitAddon ?? (fitAny.default as Record<string, unknown>).FitAddon) as new () => import('@xterm/xterm').ITerminalAddon & { fit(): void };
 
-      const bg = getCssVar('--mui-palette-background-chartBg') || '#1e1e2e';
-      const fg = getCssVar('--chart-text-muted') || '#cdd6f4';
+        const bg = getCssVar('--mui-palette-background-chartBg');
+        const fg = getCssVar('--chart-text-muted');
 
-      const term = new Terminal({
-        disableStdin: true,
-        convertEol: true,
-        fontSize: 12,
-        fontFamily: 'monospace',
-        scrollback: 2000,
-        theme: {
-          background: bg,
-          foreground: fg,
-        },
-      });
+        const term = new Terminal({
+          disableStdin: true,
+          convertEol: true,
+          fontSize: 12,
+          fontFamily: 'monospace',
+          scrollback: 2000,
+          theme: {
+            ...(bg && { background: bg }),
+            ...(fg && { foreground: fg }),
+          },
+        });
 
-      const fitAddon = new FitAddon();
-      fitAddonRef.current = fitAddon;
-      term.loadAddon(fitAddon);
-      term.open(containerRef.current!);
+        const fitAddon = new FitAddon();
+        fitAddonRef.current = fitAddon;
+        term.loadAddon(fitAddon);
+        term.open(containerRef.current!);
 
-      requestAnimationFrame(() => {
-        try {
-          fitAddon.fit();
-        } catch {
-          // Container may not be visible yet
-        }
-      });
+        requestAnimationFrame(() => {
+          try {
+            fitAddon.fit();
+          } catch {
+            // Container may not be visible yet
+          }
+        });
 
-      terminalRef.current = term;
-      setTerminal(term);
+        terminalRef.current = term;
+        setTerminal(term);
+      } catch (err) {
+        console.error('Failed to initialize terminal:', err);
+      }
     })();
 
     return () => {

@@ -1,8 +1,8 @@
 import { memo, useMemo } from 'react';
 import { Paper } from '@mui/material';
 import { formatAsPercent, formatBitsSIUnits } from '@/formatters/metrics';
-import DualSeriesChart from './DualSeriesChart';
-import ContainerLogViewer from './ContainerLogViewer';
+import DualSeriesChart from '@/components/docker/DualSeriesChart';
+import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 
 interface ContainerChartDataPoint {
   timestamp: number;
