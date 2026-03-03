@@ -100,7 +100,7 @@ src/
 │   ├── zfs/                 # ZFSPoolsTable, ZFSPoolSpeedCharts
 │   ├── proxmox/             # ClusterSummaryCards, ProxmoxHostView, GuestSection, StorageSection
 │   └── [AppShell, Header, ModeToggle, ThemeProvider]
-├── hooks/                   # useSSE, useTimeSeriesStream, useSettings, settingsAtom, useSettingsSync, toastAtom
+├── hooks/                   # useEventSource, useTimeSeriesStream, useContainerLogs, useSettings, settingsAtom, useSettingsSync, toastAtom
 ├── data/                    # Server functions (*.functions.tsx) - non-streaming DB queries
 ├── middleware/              # Connection injection factories (Docker, SSH — env-based + config-based)
 ├── lib/
@@ -359,7 +359,7 @@ CI publishes Docker images to GHCR: `ghcr.io/jaredglaser/homelab-manager-web` an
 | Server logic (non-streaming) | `createServerFn()` + middleware |
 | Real-time streaming | SSE route in `src/routes/api/` |
 | Consume SSE (time-series) | `useTimeSeriesStream` hook (Docker, ZFS, Proxmox) |
-| Consume SSE (snapshot) | `useSSE` hook (e.g., settings) |
+| Consume SSE (snapshot) | `useEventSource` hook (e.g., settings) |
 | New streaming table | CSS Grid + `useWindowVirtualizer` + `useTimeSeriesStream` |
 | Settings key constant | `src/lib/constants/settings-keys.ts` |
 | Chart color CSS variable | `App.css` (`--chart-cpu`, `--chart-memory`, etc.) |

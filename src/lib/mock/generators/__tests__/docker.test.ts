@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { generateDockerSnapshot, generateDockerHistory, generateContainerHistory } from '../docker';
+import { generateDockerSnapshot, generateDockerHistory, generateContainerHistory, generateContainerLogBatch } from '../docker';
 import { DOCKER_ENTITIES } from '../../entities';
 
 describe('generateDockerSnapshot', () => {
@@ -84,5 +84,63 @@ describe('generateContainerHistory', () => {
   it('returns empty array for unknown container', () => {
     const rows = generateContainerHistory('nonexistent', undefined, 0, 60000);
     expect(rows).toEqual([]);
+  });
+});
+
+describe('generateContainerLogBatch', () => {
+  const time = new Date('2025-06-15T12:00:00Z');
+
+  it('returns lines with valid shape', () => {
+    const batch = generateContainerLogBatch('nginx-proxy', time);
+    expect(batch.lines.length).toBeGreaterThan(0);
+    expect(batch.lines.length).toBeLessThanOrEqual(4);
+    for (const line of batch.lines) {
+      expect(typeof line.text).toBe('string');
+      expect(line.text.length).toBeGreaterThan(0);
+      expect(['stdout', 'stderr']).toContain(line.stream);
+    }
+  });
+
+  it('is deterministic for the same container and time', () => {
+    const batch1 = generateContainerLogBatch('postgres', time);
+    const batch2 = generateContainerLogBatch('postgres', time);
+    expect(batch1).toEqual(batch2);
+  });
+
+  it('produces different output for different containers', () => {
+    const batch1 = generateContainerLogBatch('nginx-proxy', time);
+    const batch2 = generateContainerLogBatch('postgres', time);
+    expect(batch1.lines.map((l) => l.text)).not.toEqual(batch2.lines.map((l) => l.text));
+  });
+
+  it('produces different output for different time buckets', () => {
+    const time1 = new Date('2025-06-15T12:00:00Z');
+    const time2 = new Date('2025-06-15T12:00:04Z'); // 4s later = different 3s bucket
+    const batch1 = generateContainerLogBatch('nginx-proxy', time1);
+    const batch2 = generateContainerLogBatch('nginx-proxy', time2);
+    expect(batch1.lines.map((l) => l.text)).not.toEqual(batch2.lines.map((l) => l.text));
+  });
+
+  it('uses service-specific templates for known containers', () => {
+    const batch = generateContainerLogBatch('postgres', time);
+    // Postgres logs should contain typical postgres patterns
+    const allText = batch.lines.map((l) => l.text).join(' ');
+    expect(allText).toContain('UTC');
+  });
+
+  it('falls back to default templates for unknown containers', () => {
+    const batch = generateContainerLogBatch('unknown-service', time);
+    expect(batch.lines.length).toBeGreaterThan(0);
+    for (const line of batch.lines) {
+      expect(typeof line.text).toBe('string');
+      expect(['stdout', 'stderr']).toContain(line.stream);
+    }
+  });
+
+  it('generates logs for all known docker entities', () => {
+    for (const entity of DOCKER_ENTITIES) {
+      const batch = generateContainerLogBatch(entity.containerName, time);
+      expect(batch.lines.length).toBeGreaterThan(0);
+    }
   });
 });

@@ -11,7 +11,9 @@ src/
 │   ├── docker/
 │   │   ├── ContainerTable.tsx       # Docker table (CSS Grid + useWindowVirtualizer, includes HostRow)
 │   │   ├── ContainerRow.tsx         # Container row with icon, metrics, and sparklines
-│   │   ├── ContainerChartsCard.tsx  # Expanded container detail charts (60s history)
+│   │   ├── ContainerChartsCard.tsx  # Expanded container detail (dual-series charts + log viewer)
+│   │   ├── DualSeriesChart.tsx      # Dual-series ECharts component (CPU/Mem, Network I/O)
+│   │   ├── ContainerLogViewer.tsx   # Live xterm.js log viewer with SSE streaming
 │   │   ├── ContainerMetricChart.tsx # Individual metric chart component
 │   │   ├── SparklineChart.tsx       # Inline SVG sparkline for real-time metrics
 │   │   └── IconPickerDialog.tsx     # Container icon picker with search
@@ -28,7 +30,8 @@ src/
 │   ├── settingsAtom.ts              # Jotai atoms (rawSettings → derived settings), types, parsing
 │   ├── useSettings.tsx              # Consumer hook — settings + optimistic setters with rollback
 │   ├── useSettingsSync.ts           # SSE-to-atom bridge (syncs /api/settings → rawSettingsAtom)
-│   ├── useSSE.ts                    # EventSource-based SSE consumer
+│   ├── useEventSource.ts             # EventSource-based SSE consumer
+│   ├── useContainerLogs.ts          # SSE-based container log stream → xterm.js
 │   ├── useTimeSeriesStream.ts       # Preload + SSE merge + time-windowed buffer + stale detection
 │   └── toastAtom.ts                 # Toast notification atom + useToast hook
 ├── data/
@@ -55,6 +58,7 @@ src/
 │   ├── test/                        # Test utilities and helpers
 │   ├── utils/
 │   │   ├── docker-hierarchy-builder.ts  # Wide rows → domain objects + host/container hierarchy
+│   │   ├── docker-log-demux.ts          # Docker log stream demuxer (TTY vs muxed frame protocol)
 │   │   ├── zfs-hierarchy-builder.ts     # Wide rows → domain objects + pool/vdev/disk hierarchy
 │   │   ├── icon-resolver.ts             # Auto-resolve icons from Docker image names
 │   │   └── available-icons.ts           # Icon slug registry (dashboard-icons)
