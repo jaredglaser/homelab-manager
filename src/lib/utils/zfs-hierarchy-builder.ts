@@ -11,6 +11,44 @@ import type {
 } from '../../types/zfs';
 
 /**
+ * Deep-sort a ZFSHierarchy Map: pools by name, vdevs within each pool,
+ * disks within each vdev, and individual disks. Returns a new Map with
+ * stable alphabetical ordering at every level.
+ */
+function sortZFSHierarchy(hierarchy: ZFSHierarchy): ZFSHierarchy {
+  return new Map(
+    [...hierarchy.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([poolName, pool]) => [
+        poolName,
+        {
+          ...pool,
+          vdevs: new Map(
+            [...pool.vdevs.entries()]
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([vdevName, vdev]) => [
+                vdevName,
+                {
+                  ...vdev,
+                  disks: new Map(
+                    [...vdev.disks.entries()].sort(([a], [b]) =>
+                      a.localeCompare(b)
+                    )
+                  ),
+                },
+              ])
+          ),
+          individualDisks: new Map(
+            [...pool.individualDisks.entries()].sort(([a], [b]) =>
+              a.localeCompare(b)
+            )
+          ),
+        },
+      ])
+  );
+}
+
+/**
  * Detects the hierarchy level based on indentation from zpool iostat -vvv output
  *   indent 0  → pool (top-level)
  *   indent 2  → vdev (mirror-N, raidz-N, or single-disk acting as vdev)
@@ -131,34 +169,7 @@ export function buildHierarchy(stats: ZFSIOStatWithRates[]): ZFSHierarchy {
     }
   }
 
-  // Sort all levels alphabetically for stable render order
-  const sorted: ZFSHierarchy = new Map(
-    [...hierarchy.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([poolName, pool]) => [
-        poolName,
-        {
-          ...pool,
-          vdevs: new Map(
-            [...pool.vdevs.entries()]
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([vdevName, vdev]) => [
-                vdevName,
-                {
-                  ...vdev,
-                  disks: new Map(
-                    [...vdev.disks.entries()].sort(([a], [b]) => a.localeCompare(b))
-                  ),
-                },
-              ])
-          ),
-          individualDisks: new Map(
-            [...pool.individualDisks.entries()].sort(([a], [b]) => a.localeCompare(b))
-          ),
-        },
-      ])
-  );
-  return sorted;
+  return sortZFSHierarchy(hierarchy);
 }
 
 /**
@@ -252,36 +263,7 @@ function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
     }
   }
 
-  // Sort all levels alphabetically for stable render order:
-  // pools, vdevs within each pool, disks within each vdev, and individual disks
-  const sorted: ZFSHierarchy = new Map(
-    [...hierarchy.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([poolName, pool]) => [
-        poolName,
-        {
-          ...pool,
-          vdevs: new Map(
-            [...pool.vdevs.entries()]
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([vdevName, vdev]) => [
-                vdevName,
-                {
-                  ...vdev,
-                  disks: new Map(
-                    [...vdev.disks.entries()].sort(([a], [b]) => a.localeCompare(b))
-                  ),
-                },
-              ])
-          ),
-          individualDisks: new Map(
-            [...pool.individualDisks.entries()].sort(([a], [b]) => a.localeCompare(b))
-          ),
-        },
-      ])
-  );
-
-  return sorted;
+  return sortZFSHierarchy(hierarchy);
 }
 
 /**
