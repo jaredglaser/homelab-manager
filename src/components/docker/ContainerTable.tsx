@@ -19,7 +19,7 @@ type FlatRow =
   | { type: 'container'; container: DockerStatsFromDB; chartData: DockerStatsRow[] };
 
 const ROW_HEIGHT_ESTIMATE = 41;
-const EXPANDED_ROW_HEIGHT_ESTIMATE = 420;
+const EXPANDED_ROW_HEIGHT_ESTIMATE = 550;
 const OVERSCAN = 10;
 
 export const DOCKER_GRID = 'grid grid-cols-[minmax(300px,20%)_repeat(6,minmax(0,1fr))] min-w-[600px]';

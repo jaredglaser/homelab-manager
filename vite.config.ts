@@ -53,6 +53,9 @@ export default defineConfig({
   ssr: {
     external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
   },
+  optimizeDeps: {
+    exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams'],
+  },
   preview: {
     host: true,
   },

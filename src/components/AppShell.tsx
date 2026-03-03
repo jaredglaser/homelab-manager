@@ -5,7 +5,7 @@ import Toasts from './Toasts'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
 
-if (import.meta.env.VITE_DEMO_MODE === 'true') {
+if (import.meta.env.VITE_DEMO_MODE === 'true' && typeof window !== 'undefined') {
   const { installDemo } = await import('@/lib/mock/install-demo')
   installDemo()
 }

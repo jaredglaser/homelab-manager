@@ -9,6 +9,7 @@ let installed = false;
  */
 export function installDemo(): void {
   if (installed) return;
+  if (typeof window === 'undefined') return;
   installed = true;
 
   // Replace the native EventSource with our mock
