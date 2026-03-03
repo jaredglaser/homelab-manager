@@ -36,6 +36,7 @@ function buildAliases(): Record<string, string> {
 
 export default defineConfig({
   customLogger,
+  base: process.env.VITE_BASE_PATH || '/',
   resolve: {
     alias: buildAliases(),
   },

@@ -7,6 +7,7 @@ import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { getHistoricalZFSStats } from '@/data/zfs.functions'
 import { useSettings } from '@/hooks/useSettings'
+import { apiUrl } from '@/lib/utils/api-url'
 import type { ZFSStatsRow } from '@/types/zfs'
 
 export const Route = createFileRoute('/zfs')({
@@ -31,7 +32,7 @@ function ZFSPageContent() {
   )
 
   const stream = useTimeSeriesStream<ZFSStatsRow>({
-    sseUrl: '/api/zfs-stats',
+    sseUrl: apiUrl('/api/zfs-stats'),
     preloadFn,
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.entity}`,
     getTime: (row) => new Date(row.time).getTime(),

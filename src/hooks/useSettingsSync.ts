@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useSetAtom } from 'jotai';
 import { rawSettingsAtom } from './settingsAtom';
 import { useEventSource } from './useEventSource';
+import { apiUrl } from '@/lib/utils/api-url';
 import type { SettingsSSEMessage } from '@/types/settings';
 
 /**
@@ -24,7 +25,7 @@ export function useSettingsSync(): void {
   }, [setRaw]);
 
   useEventSource<SettingsSSEMessage>({
-    url: '/api/settings',
+    url: apiUrl('/api/settings'),
     onData: handleData,
   });
 }

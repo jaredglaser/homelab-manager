@@ -1,8 +1,12 @@
 # Homelab Manager
 
 [![CI](https://github.com/jaredglaser/homelab-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/jaredglaser/homelab-manager/actions/workflows/ci.yml)
+[![Demo](https://img.shields.io/badge/demo-live-blue)](https://jaredglaser.github.io/homelab-manager/)
 
 > A real-time monitoring dashboard for homelab infrastructure, built on TanStack Start.
+
+> [!NOTE]
+> **Try the live demo** at [jaredglaser.github.io/homelab-manager](https://jaredglaser.github.io/homelab-manager/) — no setup required. The demo runs entirely in the browser with deterministic mock data.
 
 > [!NOTE]
 > **Want to run this yourself?** See the [self-hosting guide](self-hosting/README.md) for setup instructions using pre-built Docker images.
@@ -58,6 +62,7 @@ For development setup, see the [Development Guide](docs/development.md).
 - [x] Proxmox API integration
 - [ ] Authentication (OIDC with Pocket ID support)
 - [x] Pre-built Docker image on a container registry
+- [x] Live demo deployed to GitHub Pages
 - [ ] Extensible service architecture (plugin-like system for SSH/HTTP services)
 - [ ] Return to TanStack Start streaming server functions (pending upstream abort signal fix)
 
