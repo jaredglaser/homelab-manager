@@ -14,12 +14,14 @@ if (import.meta.env.VITE_DEMO_MODE === 'true' && typeof window !== 'undefined') 
 const DEMO_BANNER_KEY = 'demo-banner-dismissed'
 
 function DemoBanner() {
-  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(DEMO_BANNER_KEY) === 'true')
+  const [dismissed, setDismissed] = useState(() => {
+    try { return sessionStorage.getItem(DEMO_BANNER_KEY) === 'true' } catch { return false }
+  })
 
   if (dismissed) return null
 
   function dismiss() {
-    sessionStorage.setItem(DEMO_BANNER_KEY, 'true')
+    try { sessionStorage.setItem(DEMO_BANNER_KEY, 'true') } catch { /* storage unavailable */ }
     setDismissed(true)
   }
 
@@ -47,7 +49,7 @@ function DemoBanner() {
         </a>
         {' '}to run it against your own infrastructure.
       </span>
-      <button onClick={dismiss} aria-label="Dismiss demo banner" className="shrink-0 opacity-80 hover:opacity-100 cursor-pointer text-lg leading-none">
+      <button type="button" onClick={dismiss} aria-label="Dismiss demo banner" className="shrink-0 opacity-80 hover:opacity-100 cursor-pointer text-lg leading-none">
         ✕
       </button>
     </div>
