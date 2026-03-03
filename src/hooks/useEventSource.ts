@@ -2,24 +2,24 @@ import { useEffect, useState, useRef } from 'react';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-interface UseSSEOptions<T> {
+interface UseEventSourceOptions<T> {
   url: string;
   onData: (data: T) => void;
   onServiceError?: () => void;
   debug?: boolean;
 }
 
-interface UseSSEResult {
+interface UseEventSourceResult {
   isConnected: boolean;
   error: Error | null;
 }
 
-export function useSSE<T>({
+export function useEventSource<T>({
   url,
   onData,
   onServiceError,
   debug = false,
-}: UseSSEOptions<T>): UseSSEResult {
+}: UseEventSourceOptions<T>): UseEventSourceResult {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -39,7 +39,7 @@ export function useSSE<T>({
     const connect = () => {
       if (!mounted) return;
 
-      if (debug) console.log(`[useSSE] Connecting to ${url}`);
+      if (debug) console.log(`[useEventSource] Connecting to ${url}`);
       const eventSource = new EventSource(url);
       eventSourceRef.current = eventSource;
 
@@ -48,7 +48,7 @@ export function useSSE<T>({
           setIsConnected(true);
           setError(null);
           reconnectAttemptsRef.current = 0;
-          if (debug) console.log('[useSSE] Connected');
+          if (debug) console.log('[useEventSource] Connected');
         }
       };
 
@@ -67,14 +67,14 @@ export function useSSE<T>({
 
             if (debug) {
               console.log(
-                `[useSSE] Message #${messageCountRef.current}: ${rowCount} rows ` +
+                `[useEventSource] Message #${messageCountRef.current}: ${rowCount} rows ` +
                 `(${timeSinceLastMessage > 0 ? `${timeSinceLastMessage.toFixed(0)}ms since last` : 'first message'})`
               );
             }
 
             onDataRef.current(data);
           } catch (err) {
-            console.error('[useSSE] Failed to parse message:', err);
+            console.error('[useEventSource] Failed to parse message:', err);
           }
         }
       };
@@ -89,7 +89,7 @@ export function useSSE<T>({
           reconnectAttemptsRef.current++;
 
           if (debug) {
-            console.warn(`[useSSE] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+            console.warn(`[useEventSource] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
           }
 
           // Close EventSource after multiple failed reconnection attempts
@@ -108,7 +108,7 @@ export function useSSE<T>({
     return () => {
       mounted = false;
       if (eventSourceRef.current) {
-        if (debug) console.log('[useSSE] Closing connection');
+        if (debug) console.log('[useEventSource] Closing connection');
         eventSourceRef.current.close();
         eventSourceRef.current = null;
       }

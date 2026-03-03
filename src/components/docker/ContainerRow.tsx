@@ -293,7 +293,11 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
       </div>
 
       {expanded && (
-        <ContainerChartsCard dataPoints={dataPoints} />
+        <ContainerChartsCard
+          dataPoints={dataPoints}
+          containerId={container.id.split('/')[1]}
+          host={container.id.split('/')[0]}
+        />
       )}
 
       {iconPickerOpen && (
