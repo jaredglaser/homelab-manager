@@ -1,0 +1,228 @@
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { renderHook, act } from '@testing-library/react';
+import { useContainerLogs } from '../useContainerLogs';
+
+// Mock EventSource
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+  url: string;
+  onopen: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  private listeners = new Map<string, ((event: unknown) => void)[]>();
+  readyState = 0; // CONNECTING
+  closed = false;
+
+  constructor(url: string) {
+    this.url = url;
+    MockEventSource.instances.push(this);
+  }
+
+  addEventListener(type: string, handler: (event: unknown) => void) {
+    const handlers = this.listeners.get(type) ?? [];
+    handlers.push(handler);
+    this.listeners.set(type, handlers);
+  }
+
+  removeEventListener(type: string, handler: (event: unknown) => void) {
+    const handlers = this.listeners.get(type) ?? [];
+    this.listeners.set(type, handlers.filter(h => h !== handler));
+  }
+
+  dispatchEvent(type: string, data: unknown) {
+    const handlers = this.listeners.get(type) ?? [];
+    for (const handler of handlers) {
+      handler(data);
+    }
+  }
+
+  close() {
+    this.closed = true;
+    this.readyState = 2; // CLOSED
+  }
+
+  static reset() {
+    MockEventSource.instances = [];
+  }
+}
+
+const originalEventSource = globalThis.EventSource;
+
+beforeEach(() => {
+  MockEventSource.reset();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).EventSource = MockEventSource;
+});
+
+afterEach(() => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).EventSource = originalEventSource;
+});
+
+describe('useContainerLogs', () => {
+  const mockTerminal = {
+    writeln: mock(() => {}),
+    write: mock(() => {}),
+    dispose: mock(() => {}),
+  };
+
+  beforeEach(() => {
+    mockTerminal.writeln.mockReset();
+    mockTerminal.write.mockReset();
+  });
+
+  it('connects to the correct SSE URL', () => {
+    renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'my-server',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+
+    expect(MockEventSource.instances.length).toBe(1);
+    expect(MockEventSource.instances[0].url).toBe('/api/docker-logs/abc123?host=my-server');
+  });
+
+  it('encodes special characters in URL', () => {
+    renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc/123',
+        host: 'host with spaces',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+
+    const url = MockEventSource.instances[0].url;
+    expect(url).toContain('abc%2F123');
+    expect(url).toContain('host%20with%20spaces');
+  });
+
+  it('sets isConnected on open', () => {
+    const { result } = renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'server',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+
+    expect(result.current.isConnected).toBe(false);
+
+    act(() => {
+      MockEventSource.instances[0].onopen?.();
+    });
+
+    expect(result.current.isConnected).toBe(true);
+  });
+
+  it('writes log lines to terminal on message', () => {
+    renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'server',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+
+    act(() => {
+      MockEventSource.instances[0].onopen?.();
+      MockEventSource.instances[0].onmessage?.({
+        data: JSON.stringify({
+          lines: [
+            { text: 'hello world', stream: 'stdout' },
+            { text: 'error msg', stream: 'stderr' },
+          ],
+        }),
+      });
+    });
+
+    expect(mockTerminal.writeln).toHaveBeenCalledTimes(2);
+    expect(mockTerminal.writeln).toHaveBeenCalledWith('hello world');
+    expect(mockTerminal.writeln).toHaveBeenCalledWith('error msg');
+  });
+
+  it('does not connect when enabled=false', () => {
+    renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'server',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+        enabled: false,
+      }),
+    );
+
+    expect(MockEventSource.instances.length).toBe(0);
+  });
+
+  it('does not connect when terminal is null', () => {
+    renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'server',
+        terminal: null,
+      }),
+    );
+
+    expect(MockEventSource.instances.length).toBe(0);
+  });
+
+  it('closes EventSource on unmount', () => {
+    const { unmount } = renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'server',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+
+    const es = MockEventSource.instances[0];
+    expect(es.closed).toBe(false);
+
+    unmount();
+
+    expect(es.closed).toBe(true);
+  });
+
+  it('sets error after max reconnect attempts', () => {
+    const { result } = renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'server',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+
+    // Trigger 5 errors
+    act(() => {
+      for (let i = 0; i < 5; i++) {
+        MockEventSource.instances[0].onerror?.();
+      }
+    });
+
+    expect(result.current.error).not.toBeNull();
+    expect(result.current.error?.message).toContain('failed after multiple attempts');
+    expect(MockEventSource.instances[0].closed).toBe(true);
+  });
+
+  it('handles log_error custom events', () => {
+    renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'server',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+
+    act(() => {
+      MockEventSource.instances[0].onopen?.();
+      MockEventSource.instances[0].dispatchEvent('log_error', {
+        data: JSON.stringify({ message: 'Container not found' }),
+      });
+    });
+
+    expect(mockTerminal.writeln).toHaveBeenCalledWith(
+      expect.stringContaining('Container not found'),
+    );
+  });
+});
