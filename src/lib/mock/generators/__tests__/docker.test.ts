@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { generateDockerSnapshot, generateDockerHistory, generateContainerHistory, generateContainerLogBatch } from '../docker';
+import { generateDockerSnapshot, generateDockerHistory, generateContainerHistory, generateContainerLogBatch, generateContainerLogHistory } from '../docker';
 import { DOCKER_ENTITIES } from '../../entities';
 
 describe('generateDockerSnapshot', () => {
@@ -141,6 +141,42 @@ describe('generateContainerLogBatch', () => {
     for (const entity of DOCKER_ENTITIES) {
       const batch = generateContainerLogBatch(entity.containerName, time);
       expect(batch.lines.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('generateContainerLogHistory', () => {
+  const time = new Date('2025-06-15T12:00:00Z');
+
+  it('returns many more lines than a single batch', () => {
+    const history = generateContainerLogHistory('nginx-proxy', time);
+    const singleBatch = generateContainerLogBatch('nginx-proxy', time);
+    expect(history.lines.length).toBeGreaterThan(singleBatch.lines.length);
+  });
+
+  it('defaults to 20 buckets', () => {
+    const history = generateContainerLogHistory('nginx-proxy', time);
+    // 20 buckets × 1-4 lines each = at least 20 lines
+    expect(history.lines.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('respects custom bucket count', () => {
+    const small = generateContainerLogHistory('nginx-proxy', time, 3);
+    const large = generateContainerLogHistory('nginx-proxy', time, 30);
+    expect(large.lines.length).toBeGreaterThan(small.lines.length);
+  });
+
+  it('is deterministic', () => {
+    const h1 = generateContainerLogHistory('postgres', time);
+    const h2 = generateContainerLogHistory('postgres', time);
+    expect(h1).toEqual(h2);
+  });
+
+  it('lines are ordered oldest-first', () => {
+    const history = generateContainerLogHistory('nginx-proxy', time);
+    for (let i = 1; i < history.lines.length; i++) {
+      expect(typeof history.lines[i].text).toBe('string');
+      expect(['stdout', 'stderr']).toContain(history.lines[i].stream);
     }
   });
 });

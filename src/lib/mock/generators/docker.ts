@@ -183,6 +183,28 @@ function fillTemplate(template: string, rng: () => number, time: Date): string {
 }
 
 /**
+ * Generate a backlog of mock log lines for a container, simulating recent history.
+ * Produces logs spanning `buckets` × 3-second intervals leading up to `time`.
+ * Used in demo mode to fill the terminal immediately on open.
+ */
+export function generateContainerLogHistory(
+  containerName: string,
+  time: Date,
+  buckets: number = 20,
+): { lines: MockLogLine[] } {
+  const lines: MockLogLine[] = [];
+  const timeMs = time.getTime();
+
+  for (let i = buckets - 1; i >= 0; i--) {
+    const bucketTime = new Date(timeMs - i * 3000);
+    const batch = generateContainerLogBatch(containerName, bucketTime);
+    lines.push(...batch.lines);
+  }
+
+  return { lines };
+}
+
+/**
  * Generate a batch of mock log lines for a container.
  * Returns 1-4 lines per call, weighted toward stdout with occasional stderr.
  * Deterministic for the same containerName + time bucket.

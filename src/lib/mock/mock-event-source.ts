@@ -1,4 +1,4 @@
-import { generateDockerSnapshot, generateContainerLogBatch } from '@/lib/mock/generators/docker';
+import { generateDockerSnapshot, generateContainerLogBatch, generateContainerLogHistory } from '@/lib/mock/generators/docker';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { generateDefaultSettings, DEMO_SETTINGS_STORAGE_KEY } from '@/lib/mock/generators/settings';
@@ -148,9 +148,9 @@ export class MockEventSource {
     );
     const containerName = entity?.containerName ?? 'unknown';
 
-    // Emit initial batch immediately
-    const batch = generateContainerLogBatch(containerName, new Date());
-    this._dispatchEvent('message', new MessageEvent('message', { data: JSON.stringify(batch) }));
+    // Emit a backlog of recent logs immediately so the terminal isn't empty on open
+    const history = generateContainerLogHistory(containerName, new Date());
+    this._dispatchEvent('message', new MessageEvent('message', { data: JSON.stringify(history) }));
 
     // Emit new log batches every 3 seconds
     this._intervalId = setInterval(() => {
