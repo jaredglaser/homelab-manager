@@ -2,6 +2,9 @@ import type { ProxmoxStatsRow } from '@/types/proxmox';
 import { generateMetric } from '@/lib/mock/patterns';
 import { PROXMOX_ENTITIES } from '@/lib/mock/entities';
 
+/** Fixed reference for uptime calculation — entity uptime values are "as of" this instant. */
+const UPTIME_REFERENCE_MS = Date.UTC(2025, 0, 1); // 2025-01-01T00:00:00Z
+
 /**
  * Generate a single Proxmox stats snapshot for a given timestamp.
  * Returns one row per entity (cluster, node, qemu, lxc, storage),
@@ -10,6 +13,7 @@ import { PROXMOX_ENTITIES } from '@/lib/mock/entities';
 export function generateProxmoxSnapshot(time: Date): ProxmoxStatsRow[] {
   const timeMs = time.getTime();
   const timeStr = time.toISOString();
+  const elapsedSeconds = Math.max(0, Math.floor((timeMs - UPTIME_REFERENCE_MS) / 1000));
 
   return PROXMOX_ENTITIES.map((e) => {
     const entityKey = `${e.host}/${e.entityId}`;
@@ -28,7 +32,7 @@ export function generateProxmoxSnapshot(time: Date): ProxmoxStatsRow[] {
       max_mem: e.maxMem,
       disk: e.disk ? Math.round(generateMetric(timeMs, entityKey, 'disk', e.disk)) : null,
       max_disk: e.maxDisk,
-      uptime: e.uptime > 0 ? e.uptime + Math.floor(timeMs / 1000) : null,
+      uptime: e.uptime > 0 ? e.uptime + elapsedSeconds : null,
       vmid: e.vmid,
       netin: e.netin ? Math.round(generateMetric(timeMs, entityKey, 'netin', e.netin)) : null,
       netout: e.netout ? Math.round(generateMetric(timeMs, entityKey, 'netout', e.netout)) : null,

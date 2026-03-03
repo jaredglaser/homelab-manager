@@ -66,6 +66,16 @@ describe('generateProxmoxSnapshot', () => {
       expect(storage.max_disk).not.toBeNull();
     }
   });
+
+  it('uptime grows over time', () => {
+    const time1 = new Date('2025-06-15T12:00:00Z');
+    const time2 = new Date('2025-06-15T12:01:00Z'); // 60s later
+    const rows1 = generateProxmoxSnapshot(time1);
+    const rows2 = generateProxmoxSnapshot(time2);
+    const node1 = rows1.find((r) => r.entity_id === 'pve1');
+    const node2 = rows2.find((r) => r.entity_id === 'pve1');
+    expect(node2!.uptime! - node1!.uptime!).toBe(60);
+  });
 });
 
 describe('generateProxmoxHistory', () => {

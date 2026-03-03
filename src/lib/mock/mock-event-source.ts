@@ -59,7 +59,9 @@ export class MockEventSource {
     this._listeners.get(type)?.delete(listener);
   }
 
-  dispatchEvent(_event: Event): boolean {
+  dispatchEvent(event: Event): boolean {
+    if (this.readyState === MockEventSource.CLOSED) return false;
+    this._dispatchEvent(event.type, event);
     return true;
   }
 
