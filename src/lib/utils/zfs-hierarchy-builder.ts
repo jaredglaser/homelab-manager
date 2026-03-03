@@ -131,9 +131,32 @@ export function buildHierarchy(stats: ZFSIOStatWithRates[]): ZFSHierarchy {
     }
   }
 
-  // Sort pools alphabetically for stable render order
+  // Sort all levels alphabetically for stable render order
   const sorted: ZFSHierarchy = new Map(
-    [...hierarchy.entries()].sort(([a], [b]) => a.localeCompare(b))
+    [...hierarchy.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([poolName, pool]) => [
+        poolName,
+        {
+          ...pool,
+          vdevs: new Map(
+            [...pool.vdevs.entries()]
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([vdevName, vdev]) => [
+                vdevName,
+                {
+                  ...vdev,
+                  disks: new Map(
+                    [...vdev.disks.entries()].sort(([a], [b]) => a.localeCompare(b))
+                  ),
+                },
+              ])
+          ),
+          individualDisks: new Map(
+            [...pool.individualDisks.entries()].sort(([a], [b]) => a.localeCompare(b))
+          ),
+        },
+      ])
   );
   return sorted;
 }
@@ -229,7 +252,36 @@ function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
     }
   }
 
-  return hierarchy;
+  // Sort all levels alphabetically for stable render order:
+  // pools, vdevs within each pool, disks within each vdev, and individual disks
+  const sorted: ZFSHierarchy = new Map(
+    [...hierarchy.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([poolName, pool]) => [
+        poolName,
+        {
+          ...pool,
+          vdevs: new Map(
+            [...pool.vdevs.entries()]
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([vdevName, vdev]) => [
+                vdevName,
+                {
+                  ...vdev,
+                  disks: new Map(
+                    [...vdev.disks.entries()].sort(([a], [b]) => a.localeCompare(b))
+                  ),
+                },
+              ])
+          ),
+          individualDisks: new Map(
+            [...pool.individualDisks.entries()].sort(([a], [b]) => a.localeCompare(b))
+          ),
+        },
+      ])
+  );
+
+  return sorted;
 }
 
 /**
