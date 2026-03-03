@@ -168,8 +168,10 @@ jobs:
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
 
-      - name: Copy index.html to 404.html for SPA routing
-        run: cp .output/public/index.html .output/public/404.html
+      - name: Rename _shell.html to index.html and copy to 404.html for SPA routing
+        run: |
+          mv .output/public/_shell.html .output/public/index.html
+          cp .output/public/index.html .output/public/404.html
 
       - name: Configure Pages
         uses: actions/configure-pages@v4
