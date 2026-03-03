@@ -11,6 +11,7 @@ import ProxmoxHostView from '@/components/proxmox/ProxmoxHostView'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { getHistoricalProxmoxStats, testProxmoxConnection } from '@/data/proxmox.functions'
 import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
+import { apiUrl } from '@/lib/utils/api-url'
 import type { ProxmoxStatsRow } from '@/types/proxmox'
 import { useSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
@@ -170,7 +171,7 @@ function ProxmoxContent() {
   )
 
   const stream = useTimeSeriesStream<ProxmoxStatsRow>({
-    sseUrl: '/api/proxmox-stats',
+    sseUrl: apiUrl('/api/proxmox-stats'),
     preloadFn,
     getKey: (r) => `${r.entity_type}/${r.entity_id}/${new Date(r.time).getTime()}`,
     getTime: (r) => new Date(r.time).getTime(),

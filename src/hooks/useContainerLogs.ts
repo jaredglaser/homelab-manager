@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import type { Terminal } from '@xterm/xterm';
+import { apiUrl } from '@/lib/utils/api-url';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 
@@ -39,7 +40,7 @@ export function useContainerLogs({
 
     let mounted = true;
 
-    const url = `/api/docker-logs/${encodeURIComponent(containerId)}?host=${encodeURIComponent(host)}`;
+    const url = apiUrl(`/api/docker-logs/${encodeURIComponent(containerId)}?host=${encodeURIComponent(host)}`);
     const eventSource = new EventSource(url);
     eventSourceRef.current = eventSource;
 

@@ -6,6 +6,7 @@ import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { getHistoricalDockerStats, getDockerEntityIcons } from '@/data/docker.functions'
 import { useSettings } from '@/hooks/useSettings'
+import { apiUrl } from '@/lib/utils/api-url'
 import type { DockerStatsRow } from '@/types/docker'
 
 
@@ -47,7 +48,7 @@ function DockerPageContent() {
   )
 
   const stream = useTimeSeriesStream<DockerStatsRow>({
-    sseUrl: '/api/docker-stats',
+    sseUrl: apiUrl('/api/docker-stats'),
     preloadFn,
     getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
     getTime: (row) => new Date(row.time).getTime(),
