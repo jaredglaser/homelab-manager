@@ -1,4 +1,4 @@
-import type { MetricProfile } from '@/lib/mock/patterns';
+import type { MetricProfile, ActivityProfile } from '@/lib/mock/patterns';
 
 // ─── Docker Entities ─────────────────────────────────────────────────────────
 
@@ -198,71 +198,120 @@ export interface ZFSEntityDef {
   indent: number;
   capacityAlloc: number;
   capacityFree: number;
-  readOps: MetricProfile;
-  writeOps: MetricProfile;
-  readBytes: MetricProfile;
-  writeBytes: MetricProfile;
-  utilization: MetricProfile;
+  /** Activity-based I/O profile — replaces per-metric sine-wave profiles. */
+  activity: ActivityProfile;
 }
 
-export const ZFS_ENTITIES: ZFSEntityDef[] = [
-  // ── tank pool (mirrored) ──────────────────────────────────────────────────
-  {
-    host: 'nas01', pool: 'tank', entity: 'tank', entityType: 'pool', indent: 0,
-    capacityAlloc: 3_200_000_000_000, capacityFree: 5_600_000_000_000,
-    readOps: { base: 120, amplitude: 80, periodMs: 5 * MINUTE, noiseLevel: 40, min: 0, max: 500 },
-    writeOps: { base: 60, amplitude: 40, periodMs: 5 * MINUTE, noiseLevel: 25, min: 0, max: 300 },
-    readBytes: { base: 5_000_000, amplitude: 4_000_000, periodMs: 5 * MINUTE, noiseLevel: 2_000_000, min: 0, max: 20_000_000 },
-    writeBytes: { base: 2_000_000, amplitude: 1_500_000, periodMs: 5 * MINUTE, noiseLevel: 800_000, min: 0, max: 10_000_000 },
-    utilization: { base: 15, amplitude: 10, periodMs: 5 * MINUTE, noiseLevel: 5, min: 0, max: 80 },
-  },
-  {
-    host: 'nas01', pool: 'tank', entity: 'mirror-0', entityType: 'vdev', indent: 2,
-    capacityAlloc: 3_200_000_000_000, capacityFree: 5_600_000_000_000,
-    readOps: { base: 120, amplitude: 80, periodMs: 5 * MINUTE, noiseLevel: 40, min: 0, max: 500 },
-    writeOps: { base: 60, amplitude: 40, periodMs: 5 * MINUTE, noiseLevel: 25, min: 0, max: 300 },
-    readBytes: { base: 5_000_000, amplitude: 4_000_000, periodMs: 5 * MINUTE, noiseLevel: 2_000_000, min: 0, max: 20_000_000 },
-    writeBytes: { base: 2_000_000, amplitude: 1_500_000, periodMs: 5 * MINUTE, noiseLevel: 800_000, min: 0, max: 10_000_000 },
-    utilization: { base: 15, amplitude: 10, periodMs: 5 * MINUTE, noiseLevel: 5, min: 0, max: 80 },
-  },
-  {
-    host: 'nas01', pool: 'tank', entity: 'sda', entityType: 'disk', indent: 4,
-    capacityAlloc: 0, capacityFree: 0,
-    readOps: { base: 60, amplitude: 40, periodMs: 5 * MINUTE, noiseLevel: 20, min: 0, max: 250 },
-    writeOps: { base: 30, amplitude: 20, periodMs: 5 * MINUTE, noiseLevel: 12, min: 0, max: 150 },
-    readBytes: { base: 2_500_000, amplitude: 2_000_000, periodMs: 5 * MINUTE, noiseLevel: 1_000_000, min: 0, max: 10_000_000 },
-    writeBytes: { base: 1_000_000, amplitude: 750_000, periodMs: 5 * MINUTE, noiseLevel: 400_000, min: 0, max: 5_000_000 },
-    utilization: { base: 12, amplitude: 8, periodMs: 5 * MINUTE, noiseLevel: 4, min: 0, max: 70 },
-  },
-  {
-    host: 'nas01', pool: 'tank', entity: 'sdb', entityType: 'disk', indent: 4,
-    capacityAlloc: 0, capacityFree: 0,
-    readOps: { base: 60, amplitude: 40, periodMs: 5 * MINUTE, noiseLevel: 20, min: 0, max: 250 },
-    writeOps: { base: 30, amplitude: 20, periodMs: 5 * MINUTE, noiseLevel: 12, min: 0, max: 150 },
-    readBytes: { base: 2_500_000, amplitude: 2_000_000, periodMs: 5 * MINUTE, noiseLevel: 1_000_000, min: 0, max: 10_000_000 },
-    writeBytes: { base: 1_000_000, amplitude: 750_000, periodMs: 5 * MINUTE, noiseLevel: 400_000, min: 0, max: 5_000_000 },
-    utilization: { base: 12, amplitude: 8, periodMs: 5 * MINUTE, noiseLevel: 4, min: 0, max: 70 },
-  },
+// ── application pool (2x NVMe mirror, ~3 TiB — VM/LXC storage) ──────────────
+//
+// NVMe characteristics: fast random I/O (VMs doing DB work = high IOPS / med BW)
+// and high sequential throughput (VM migrations / large file copies = high BW / low IOPS).
+// Mirror read policy: both disks serve reads (~50% each), both receive all writes (100%).
+//
+// State breakdown:
+//   idle — no activity                          (30%)
+//   low  — background metadata, cache warming   (28%)
+//   med  — VM random I/O: high IOPS / med BW    (27%)
+//   high — sequential: VM migration / large IO  (15%)
+const APP_POOL_ACTIVITY: ActivityProfile = {
+  stateDurationMs: 45_000,
+  weights: [0.30, 0.28, 0.27, 0.15],
+  noise: 0.14,
+  transitionMs: 0,       // NVMe: instant step — no ramp-up
+  idleBlipScale: 0.25,   // ARC metadata reads, cache warm-up blips
+  idle: { readBytes: 0,             writeBytes: 0,           readOps: 0,      writeOps: 0      },
+  low:  { readBytes: 5_000_000,     writeBytes: 2_000_000,   readOps: 450,    writeOps: 180    },
+  med:  { readBytes: 130_000_000,   writeBytes: 65_000_000,  readOps: 22_000, writeOps: 11_000 },
+  high: { readBytes: 1_400_000_000, writeBytes: 420_000_000, readOps: 1_200,  writeOps: 360    },
+};
+// Mirror disks: reads split ~50/50, writes go to both (100% of pool writes)
+const APP_DISK_ACTIVITY: ActivityProfile = {
+  ...APP_POOL_ACTIVITY,  // inherits transitionMs: 0
+  idle: { readBytes: 0,           writeBytes: 0,           readOps: 0,      writeOps: 0      },
+  low:  { readBytes: 2_500_000,   writeBytes: 2_000_000,   readOps: 225,    writeOps: 180    },
+  med:  { readBytes: 65_000_000,  writeBytes: 65_000_000,  readOps: 11_000, writeOps: 11_000 },
+  high: { readBytes: 700_000_000, writeBytes: 420_000_000, readOps: 600,    writeOps: 360    },
+};
 
-  // ── fast pool (single NVMe) ───────────────────────────────────────────────
-  {
-    host: 'nas01', pool: 'fast', entity: 'fast', entityType: 'pool', indent: 0,
-    capacityAlloc: 180_000_000_000, capacityFree: 750_000_000_000,
-    readOps: { base: 800, amplitude: 500, periodMs: 3 * MINUTE, noiseLevel: 200, min: 0, max: 3000 },
-    writeOps: { base: 400, amplitude: 300, periodMs: 3 * MINUTE, noiseLevel: 150, min: 0, max: 2000 },
-    readBytes: { base: 50_000_000, amplitude: 40_000_000, periodMs: 3 * MINUTE, noiseLevel: 20_000_000, min: 0, max: 200_000_000 },
-    writeBytes: { base: 25_000_000, amplitude: 20_000_000, periodMs: 3 * MINUTE, noiseLevel: 10_000_000, min: 0, max: 100_000_000 },
-    utilization: { base: 25, amplitude: 15, periodMs: 3 * MINUTE, noiseLevel: 8, min: 0, max: 90 },
-  },
-  {
-    host: 'nas01', pool: 'fast', entity: 'nvme0n1', entityType: 'disk', indent: 2,
-    capacityAlloc: 180_000_000_000, capacityFree: 750_000_000_000,
-    readOps: { base: 800, amplitude: 500, periodMs: 3 * MINUTE, noiseLevel: 200, min: 0, max: 3000 },
-    writeOps: { base: 400, amplitude: 300, periodMs: 3 * MINUTE, noiseLevel: 150, min: 0, max: 2000 },
-    readBytes: { base: 50_000_000, amplitude: 40_000_000, periodMs: 3 * MINUTE, noiseLevel: 20_000_000, min: 0, max: 200_000_000 },
-    writeBytes: { base: 25_000_000, amplitude: 20_000_000, periodMs: 3 * MINUTE, noiseLevel: 10_000_000, min: 0, max: 100_000_000 },
-    utilization: { base: 25, amplitude: 15, periodMs: 3 * MINUTE, noiseLevel: 8, min: 0, max: 90 },
-  },
+// ── rust pool (8x HDD raidz2, ~48 TiB — bulk media) ─────────────────────────
+//
+// HDD characteristics: slow random I/O, good sequential throughput.
+// raidz2 with 8 drives: ~600 MB/s sequential, ~350 IOPS random pool-level.
+// Primary workload: Plex/Jellyfin streaming = high sequential read, low IOPS.
+//
+// State breakdown:
+//   idle — pool at rest (overnight, low demand)  (42%)
+//   low  — metadata reads, background scrub      (33%)
+//   med  — Sonarr/Radarr activity, random seeks  (17%)
+//   high — active media streaming (sequential)    (8%)
+const RUST_POOL_ACTIVITY: ActivityProfile = {
+  stateDurationMs: 60_000,
+  weights: [0.42, 0.33, 0.17, 0.08],
+  noise: 0.12,
+  transitionMs: 3_000,   // HDD: ~3 seconds to spin up / settle
+  idleBlipScale: 0.20,   // occasional background scrub, ZIL flush blips
+  idle: { readBytes: 0,           writeBytes: 0,          readOps: 0,   writeOps: 0  },
+  low:  { readBytes: 1_000_000,   writeBytes: 300_000,    readOps: 15,  writeOps: 5  },
+  med:  { readBytes: 55_000_000,  writeBytes: 35_000_000, readOps: 550, writeOps: 220 },
+  high: { readBytes: 580_000_000, writeBytes: 8_000_000,  readOps: 300, writeOps: 25  },
+};
+// raidz2 disks: each drive carries ~1/8 of pool I/O (striped evenly across all 8 drives)
+const RUST_DISK_ACTIVITY: ActivityProfile = {
+  ...RUST_POOL_ACTIVITY,  // inherits transitionMs: 3_000
+  idle: { readBytes: 0,          writeBytes: 0,         readOps: 0,  writeOps: 0 },
+  low:  { readBytes: 125_000,    writeBytes: 38_000,    readOps: 2,  writeOps: 1 },
+  med:  { readBytes: 6_900_000,  writeBytes: 4_400_000, readOps: 69, writeOps: 28 },
+  high: { readBytes: 72_500_000, writeBytes: 1_000_000, readOps: 38, writeOps: 3  },
+};
+
+// ── system pool (single SSD, ~500 GiB — host OS) ─────────────────────────────
+//
+// Light, bursty OS workload: mostly idle with occasional reads (package updates,
+// logs) and small writes. sda is the only child entity (depth-1) with no disk
+// children → triggers isSingleDiskPool=true → shows "single disk" badge.
+//
+// State breakdown:
+//   idle — OS idle, no disk activity             (55%)
+//   low  — log flushes, inode updates            (30%)
+//   med  — apt/pacman update, service restart    (12%)
+//   high — OS install, large config write         (3%)
+const SYSTEM_ACTIVITY: ActivityProfile = {
+  stateDurationMs: 60_000,
+  weights: [0.55, 0.30, 0.12, 0.03],
+  noise: 0.20,
+  transitionMs: 1_000,   // SSD: ~1 second ramp
+  idleBlipScale: 0.30,   // OS idle is noisy: journald, cron, inode updates
+  idle: { readBytes: 0,          writeBytes: 0,         readOps: 0,   writeOps: 0   },
+  low:  { readBytes: 200_000,    writeBytes: 80_000,    readOps: 12,  writeOps: 5   },
+  med:  { readBytes: 8_000_000,  writeBytes: 3_000_000, readOps: 180, writeOps: 80  },
+  high: { readBytes: 40_000_000, writeBytes: 8_000_000, readOps: 380, writeOps: 150 },
+};
+
+export const ZFS_ENTITIES: ZFSEntityDef[] = [
+  // ── application pool ──────────────────────────────────────────────────────
+  // Entity paths use slashes so buildHierarchyFromRows places them correctly:
+  //   depth 0 (no '/')  → pool
+  //   depth 1 (one '/') → vdev
+  //   depth 2+ (2+ '/') → disk
+  { host: 'nas01', pool: 'application', entity: 'application',              entityType: 'pool', indent: 0, capacityAlloc: 1_800_000_000_000, capacityFree: 1_200_000_000_000, activity: APP_POOL_ACTIVITY },
+  { host: 'nas01', pool: 'application', entity: 'application/mirror-0',     entityType: 'vdev', indent: 2, capacityAlloc: 1_800_000_000_000, capacityFree: 1_200_000_000_000, activity: APP_POOL_ACTIVITY },
+  { host: 'nas01', pool: 'application', entity: 'application/mirror-0/nvme0n1', entityType: 'disk', indent: 4, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
+  { host: 'nas01', pool: 'application', entity: 'application/mirror-0/nvme1n1', entityType: 'disk', indent: 4, capacityAlloc: 0, capacityFree: 0, activity: APP_DISK_ACTIVITY },
+
+  // ── rust pool ─────────────────────────────────────────────────────────────
+  { host: 'nas01', pool: 'rust', entity: 'rust',          entityType: 'pool', indent: 0, capacityAlloc: 33_600_000_000_000, capacityFree: 14_400_000_000_000, activity: RUST_POOL_ACTIVITY },
+  { host: 'nas01', pool: 'rust', entity: 'rust/raidz2-0', entityType: 'vdev', indent: 2, capacityAlloc: 33_600_000_000_000, capacityFree: 14_400_000_000_000, activity: RUST_POOL_ACTIVITY },
+  // 8 drives — each carries ~1/8 of pool I/O
+  ...(['sdc', 'sdd', 'sde', 'sdf', 'sdg', 'sdh', 'sdi', 'sdj'] as const).map((disk): ZFSEntityDef => ({
+    host: 'nas01', pool: 'rust', entity: `rust/raidz2-0/${disk}`, entityType: 'disk', indent: 4,
+    capacityAlloc: 0, capacityFree: 0, activity: RUST_DISK_ACTIVITY,
+  })),
+
+  // ── system pool ───────────────────────────────────────────────────────────
+  // sda is the only child with a depth-1 entity path and no disk children
+  // → isSingleDiskPool=true → shows "single disk" badge, pool is non-expandable
+  { host: 'nas01', pool: 'system', entity: 'system',     entityType: 'pool', indent: 0, capacityAlloc: 256_000_000_000, capacityFree: 244_000_000_000, activity: SYSTEM_ACTIVITY },
+  { host: 'nas01', pool: 'system', entity: 'system/sda', entityType: 'vdev', indent: 2, capacityAlloc: 256_000_000_000, capacityFree: 244_000_000_000, activity: SYSTEM_ACTIVITY },
 ];
 
 // ─── Proxmox Entities ────────────────────────────────────────────────────────
