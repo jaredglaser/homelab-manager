@@ -111,13 +111,13 @@ export function useTimeSeriesStream<TRow>({
   // Stored as a ref so effects always invoke the latest closure without recreating intervals.
   const doRefreshRef = useRef<() => Promise<void>>(async () => {});
   doRefreshRef.current = async () => {
-    lastRefreshRef.current = Date.now();
     let rows: TRow[];
     try {
       rows = await preloadFnRef.current();
     } catch {
       return; // silently ignore — next interval will retry
     }
+    lastRefreshRef.current = Date.now();
     if (rows.length === 0) return;
 
     const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
