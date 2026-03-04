@@ -46,7 +46,7 @@ export function loadZFSConfig(): ZFSConfig {
 
     const username = process.env[`ZFS_HOST_USER_${i}`];
     if (!username) {
-      console.error(`[ZFSConfig] ZFS_HOST_${i} is set but ZFS_HOST_USER_${i} is missing — skipping host ${host}`);
+      console.error(`[ZFSConfig] ZFS_HOST_${i} is set but ZFS_HOST_USER_${i} is missing - skipping host ${host}`);
       continue;
     }
 

@@ -179,7 +179,7 @@ export default memo(function HistoricalTimeline({
       const opt = instance.getOption() as { dataZoom: { startValue: string | number; endValue: string | number }[] };
       const zoom = opt.dataZoom?.[0];
       if (!zoom || zoom.startValue == null || zoom.endValue == null) return;
-      // Time axis may return date strings — coerce to numeric timestamps
+      // Time axis may return date strings - coerce to numeric timestamps
       const from = typeof zoom.startValue === 'string' ? new Date(zoom.startValue).getTime() : zoom.startValue;
       const to = typeof zoom.endValue === 'string' ? new Date(zoom.endValue).getTime() : zoom.endValue;
       if (isNaN(from) || isNaN(to)) return;
@@ -198,7 +198,7 @@ export default memo(function HistoricalTimeline({
     }
   }, [onPresetChange]);
 
-  // Custom date picker handlers — reset slider to full range on change
+  // Custom date picker handlers - reset slider to full range on change
   const resetSlider = useCallback(() => {
     suppressZoomRef.current = true;
     const instance = chartRef.current?.getEchartsInstance();

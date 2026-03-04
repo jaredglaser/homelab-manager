@@ -72,7 +72,7 @@ export class DockerCollector extends BaseCollector {
         // When compose labels appear (or the service_key changes), migrate old name-only entries
         // so history and icons accumulated before adding labels are linked to the new key.
         // Icon is also copied from old entity to new so it survives the migration.
-        // Note: removing compose labels does NOT revert the service_key — the container
+        // Note: removing compose labels does NOT revert the service_key - the container
         // retains its compose-based key until it is recreated without labels.
         if (composeService) {
           // Use the previously-known service_key as the old key (e.g. "plex-1" for a container

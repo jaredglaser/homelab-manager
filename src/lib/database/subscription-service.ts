@@ -91,11 +91,11 @@ class StatsPollService {
 
         const rows = await Promise.race([rowsPromise, timeoutPromise]);
 
-        // Success — reset failure tracking
+        // Success - reset failure tracking
         this.consecutiveFailures.set(source, 0);
         this.errorSignalled.delete(source);
 
-        // Only broadcast rows newer than last poll — prevents broadcasting stale data
+        // Only broadcast rows newer than last poll - prevents broadcasting stale data
         // when the worker is down (which would break the 30s stale detection in the frontend)
         const toMs = (value: string | Date) => new Date(value).getTime();
         const newRows = rows.filter(r => toMs(r.time as string | Date) > last.getTime());
@@ -108,11 +108,11 @@ class StatsPollService {
           );
           this.lastPollTime.set(source, new Date(maxSeenTime));
           for (const cb of subs) {
-            cb(rows); // send all rows including 200ms overlap — frontend Map deduplicates
+            cb(rows); // send all rows including 200ms overlap - frontend Map deduplicates
           }
         }
       } catch {
-        // Query failed or timed out — track consecutive failures
+        // Query failed or timed out - track consecutive failures
         const failures = (this.consecutiveFailures.get(source) ?? 0) + 1;
         this.consecutiveFailures.set(source, failures);
 

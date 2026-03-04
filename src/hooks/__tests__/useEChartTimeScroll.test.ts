@@ -82,7 +82,7 @@ if (isCI) {
 
       renderHook(() => useEChartTimeScroll(chartRef as AnyRef, 60_000));
 
-      // Trigger RAF — should not throw
+      // Trigger RAF - should not throw
       expect(() => rafCallbacks[0](performance.now())).not.toThrow();
     });
 

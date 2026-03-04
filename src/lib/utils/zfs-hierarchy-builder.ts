@@ -209,9 +209,9 @@ function calculateHostAggregates(pools: ZFSHierarchy): ZFSHostAggregatedStats {
  * so the result is correct regardless of row order.
  *
  * Entity path depth determines level:
- *   depth 0 (no '/'):   pool — e.g. "tank"
- *   depth 1 (one '/'):  vdev — e.g. "tank/mirror-0"
- *   depth 2+ (2+ '/'):  disk — e.g. "tank/mirror-0/sda"
+ *   depth 0 (no '/'):   pool - e.g. "tank"
+ *   depth 1 (one '/'):  vdev - e.g. "tank/mirror-0"
+ *   depth 2+ (2+ '/'):  disk - e.g. "tank/mirror-0/sda"
  *
  * @param rows - Flat array of ZFS stats rows for a single host
  * @returns Hierarchical Map structure: pools -> vdevs -> disks
@@ -221,7 +221,7 @@ function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
   const poolByEntity = new Map<string, PoolStats>();
   const vdevByEntity = new Map<string, VdevStats>();
 
-  // Pass 1: pools — entity has no '/'
+  // Pass 1: pools - entity has no '/'
   for (const row of rows) {
     if (row.entity.includes('/')) continue;
     const stat = rowToZFSStats(row);
@@ -230,7 +230,7 @@ function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
     poolByEntity.set(row.entity, pool);
   }
 
-  // Pass 2: vdevs — entity has exactly one '/'
+  // Pass 2: vdevs - entity has exactly one '/'
   for (const row of rows) {
     const firstSlash = row.entity.indexOf('/');
     if (firstSlash === -1) continue; // pool, already handled
@@ -247,7 +247,7 @@ function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
     vdevByEntity.set(row.entity, vdev);
   }
 
-  // Pass 3: disks — entity has two or more '/'
+  // Pass 3: disks - entity has two or more '/'
   for (const row of rows) {
     const firstSlash = row.entity.indexOf('/');
     if (firstSlash === -1) continue; // pool

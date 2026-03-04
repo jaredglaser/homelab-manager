@@ -48,7 +48,7 @@ x-proxmox-env: &proxmox-env
   PROXMOX_ALLOW_SELF_SIGNED: ${PROXMOX_ALLOW_SELF_SIGNED:-true}
 
 services:
-  # PostgreSQL / TimescaleDB — persistent time-series database
+  # PostgreSQL / TimescaleDB - persistent time-series database
   postgres:
     image: timescale/timescaledb:latest-pg16
     container_name: homelab-db
@@ -69,7 +69,7 @@ services:
     networks:
       - homelab-network
 
-  # Background worker — collects stats from Docker/ZFS hosts and writes to DB
+  # Background worker - collects stats from Docker/ZFS hosts and writes to DB
   worker:
     image: ghcr.io/jaredglaser/homelab-manager-worker:latest
     container_name: homelab-worker
@@ -97,7 +97,7 @@ services:
         limits:
           memory: 256M
 
-  # Web server — serves the dashboard UI
+  # Web server - serves the dashboard UI
   web:
     image: ghcr.io/jaredglaser/homelab-manager-web:latest
     container_name: homelab-web

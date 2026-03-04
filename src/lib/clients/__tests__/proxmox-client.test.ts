@@ -30,7 +30,7 @@ describe('ProxmoxClient', () => {
 
   it('should construct with correct base URL', async () => {
     const client = new ProxmoxClient(createConfig());
-    // Test via a request — the URL should contain the correct base
+    // Test via a request - the URL should contain the correct base
     fetchSpy.mockResolvedValueOnce(
       new Response(JSON.stringify({ data: {} }), { status: 200 })
     );

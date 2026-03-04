@@ -21,7 +21,7 @@ ZFS_HOST_1="192.168.1.101"          # ZFS host IP or hostname
 ZFS_HOST_PORT_1="22"                # SSH port
 ZFS_HOST_USER_1="root"              # SSH username
 
-# Authentication — use ONE of the following:
+# Authentication - use ONE of the following:
 ZFS_HOST_PASSWORD_1="your-password" # Password-based auth
 
 # OR use key-based auth (recommended):
@@ -48,7 +48,7 @@ Access the UI at http://localhost:3000
 
 ### Option 2: Local Development
 
-**With Docker Compose (recommended)** — includes TimescaleDB, worker, and hot reload:
+**With Docker Compose (recommended)** - includes TimescaleDB, worker, and hot reload:
 
 ```bash
 bun install             # Install dependencies
@@ -57,7 +57,7 @@ bun dev:docker:down     # Stop dev services
 bun dev:docker:restart  # Restart dev services
 ```
 
-**Without Docker Compose** — requires external TimescaleDB:
+**Without Docker Compose** - requires external TimescaleDB:
 
 ```bash
 bun install             # Install dependencies

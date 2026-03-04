@@ -197,7 +197,7 @@ describe('ZFSCollector', () => {
         writtenRows.push(rows);
       });
 
-      // Output without a trailing header — only the final-cycle write path
+      // Output without a trailing header - only the final-cycle write path
       const output = [
         '              capacity     operations     bandwidth',
         'pool        alloc   free   read  write   read  write',

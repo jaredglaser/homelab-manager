@@ -69,7 +69,7 @@ export function parseZFSIOStat(
   const name = parts[0];
   const allocStr = parts[1];
   const freeStr = parts[2];
-  // Use parseIOStatValue for operations too — zpool formats large values with K/M/G suffixes
+  // Use parseIOStatValue for operations too - zpool formats large values with K/M/G suffixes
   const readOps = parseIOStatValue(parts[3]);
   const writeOps = parseIOStatValue(parts[4]);
   const readBandwidth = parseIOStatValue(parts[5]);

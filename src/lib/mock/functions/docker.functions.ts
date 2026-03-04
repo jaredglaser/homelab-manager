@@ -80,7 +80,7 @@ export const getContainerInfo = async (opts: {
 };
 
 /**
- * Mock: Update container icon — no-op in demo mode.
+ * Mock: Update container icon - no-op in demo mode.
  */
 export const updateContainerIcon = async (_opts: {
   data: {

@@ -49,7 +49,7 @@ export class SettingsListener implements AsyncDisposable {
           const value = await this.settingsRepo.get(msg.payload);
           this.onChange(msg.payload, value);
         } catch {
-          // DB read failed — keep current value
+          // DB read failed - keep current value
         }
       }
     });
@@ -65,7 +65,7 @@ export class SettingsListener implements AsyncDisposable {
 
   /**
    * Read the current value for every watched key and call onChange.
-   * Swallows errors — if the DB isn't ready, we keep defaults.
+   * Swallows errors - if the DB isn't ready, we keep defaults.
    */
   private async loadInitialValues(): Promise<void> {
     try {
@@ -74,7 +74,7 @@ export class SettingsListener implements AsyncDisposable {
         this.onChange(key, value);
       }
     } catch {
-      // DB read failed — keep defaults (off)
+      // DB read failed - keep defaults (off)
     }
   }
 

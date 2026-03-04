@@ -4,7 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 // Track mock terminal instances for lifecycle testing
 const mockTerminalInstances: { dispose: ReturnType<typeof mock>; loadAddon: ReturnType<typeof mock>; open: ReturnType<typeof mock> }[] = [];
 
-// Mock xterm.js — CJS modules need default export for bun:test ESM loader
+// Mock xterm.js - CJS modules need default export for bun:test ESM loader
 mock.module('@xterm/xterm', () => ({
   default: {
     Terminal: class MockTerminal {
@@ -147,7 +147,7 @@ describe('ContainerLogViewer', () => {
       expect(mockObserve).toHaveBeenCalled();
     });
 
-    // Simulate a resize event — should call fit without error
+    // Simulate a resize event - should call fit without error
     const cb = lastResizeCallback as (() => void) | null;
     if (cb) {
       cb();

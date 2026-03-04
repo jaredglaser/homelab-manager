@@ -123,7 +123,7 @@ describe('BaseCollector', () => {
         if (callCount === 1) {
           throw new Error('Connection failed');
         }
-        // Second call means we survived the backoff — abort now
+        // Second call means we survived the backoff - abort now
         controller.abort(new DOMException('Done', 'AbortError'));
       };
 

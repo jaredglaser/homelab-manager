@@ -6,7 +6,7 @@
 > A real-time monitoring dashboard for homelab infrastructure, built on TanStack Start.
 
 > [!NOTE]
-> **Try the live demo** at [jaredglaser.github.io/homelab-manager](https://jaredglaser.github.io/homelab-manager/) — no setup required. The demo runs entirely in the browser with deterministic mock data.
+> **Try the live demo** at [jaredglaser.github.io/homelab-manager](https://jaredglaser.github.io/homelab-manager/) - no setup required. The demo runs entirely in the browser with deterministic mock data.
 
 > [!NOTE]
 > **Want to run this yourself?** See the [self-hosting guide](self-hosting/README.md) for setup instructions using pre-built Docker images.
@@ -30,14 +30,14 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring Docker hosts, Pr
 
 ## Features
 
-- **Docker Dashboard** — Real-time CPU, memory, block I/O, and network metrics for all containers with inline sparkline charts
-- **ZFS Dashboard** — Hierarchical view of pools, vdevs, and disks with capacity, IOPS, and bandwidth metrics via SSH
-- **Proxmox Dashboard** — Cluster overview with per-node CPU, memory, and disk metrics via REST API polling
-- **TimescaleDB Persistence** — 1-second collection interval with automatic compression and indefinite retention
-- **Live-Updating UI** — SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
-- **Cross-Browser Sync** — User preferences persisted and synced across tabs via a dedicated SSE channel
-- **Virtualized Tables** — CSS Grid + page-scroll virtualization for large datasets
-- **Stale Detection** — Per-entity amber highlighting when a host or container stops reporting
+- **Docker Dashboard** - Real-time CPU, memory, block I/O, and network metrics for all containers with inline sparkline charts
+- **ZFS Dashboard** - Hierarchical view of pools, vdevs, and disks with capacity, IOPS, and bandwidth metrics via SSH
+- **Proxmox Dashboard** - Cluster overview with per-node CPU, memory, and disk metrics via REST API polling
+- **TimescaleDB Persistence** - 1-second collection interval with automatic compression and indefinite retention
+- **Live-Updating UI** - SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
+- **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated SSE channel
+- **Virtualized Tables** - CSS Grid + page-scroll virtualization for large datasets
+- **Stale Detection** - Per-entity amber highlighting when a host or container stops reporting
 
 ## Quick Start
 

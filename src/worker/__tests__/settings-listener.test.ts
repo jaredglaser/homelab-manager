@@ -94,7 +94,7 @@ describe('SettingsListener', () => {
   });
 
   it('should export SettingChangeHandler type', async () => {
-    // Type-level test — if this compiles, the type is exported correctly
+    // Type-level test - if this compiles, the type is exported correctly
     const handler: SettingChangeHandler = (_key: string, _value: string | null) => {};
     expect(typeof handler).toBe('function');
   });

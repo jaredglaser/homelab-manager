@@ -79,7 +79,7 @@ export function useTimeSeriesStream<TRow>({
   refreshIntervalMs,
   debug = false,
 }: UseTimeSeriesStreamOptions<TRow>): UseTimeSeriesStreamResult<TRow> {
-  // Primary sorted state — drives renders. sortedRef mirrors it for synchronous reads in the flush interval.
+  // Primary sorted state - drives renders. sortedRef mirrors it for synchronous reads in the flush interval.
   const [sortedRows, setSortedRows] = useState<TRow[]>([]);
   const sortedRef = useRef<TRow[]>([]);
   // Dedup set: O(1) key lookup prevents duplicate entries from preload/SSE overlap
@@ -92,7 +92,7 @@ export function useTimeSeriesStream<TRow>({
   const preloadedRef = useRef(false);
 
   // Keep refs up to date for use in callbacks and memoization
-  // (callers pass inline arrows — refs give stable identities for useMemo)
+  // (callers pass inline arrows - refs give stable identities for useMemo)
   const getKeyRef = useRef(getKey);
   const getTimeRef = useRef(getTime);
   const getEntityRef = useRef(getEntity);
@@ -102,7 +102,7 @@ export function useTimeSeriesStream<TRow>({
   getEntityRef.current = getEntity;
   preloadFnRef.current = preloadFn;
 
-  // Atomic buffer refresh — re-fetches bucketed history and swaps the buffer in one state update.
+  // Atomic buffer refresh - re-fetches bucketed history and swaps the buffer in one state update.
   // Declared before the preload effect so both the preload effect and later effects can reference it.
   // Stored as a ref so effects always invoke the latest closure without recreating intervals.
   const doRefreshRef = useRef<() => Promise<void>>(async () => {});
@@ -111,7 +111,7 @@ export function useTimeSeriesStream<TRow>({
     try {
       rows = await preloadFnRef.current();
     } catch {
-      return; // silently ignore — next interval will retry
+      return; // silently ignore - next interval will retry
     }
     if (rows.length === 0) return;
 
@@ -123,7 +123,7 @@ export function useTimeSeriesStream<TRow>({
     const liveTail = sortedRef.current.filter(r => getTimeRef.current(r) > preloadMaxTime);
     const merged = liveTail.length > 0 ? [...sorted, ...liveTail] : sorted;
 
-    // Atomically rebuild dedup set and swap the buffer — single setSortedRows call = one re-render
+    // Atomically rebuild dedup set and swap the buffer - single setSortedRows call = one re-render
     const newDedup = new Set<string>();
     for (const row of merged) newDedup.add(getKeyRef.current(row));
     dedupRef.current = newDedup;
@@ -142,7 +142,7 @@ export function useTimeSeriesStream<TRow>({
   // (its useCallback dep changed), triggering this effect to re-fetch the larger history range.
   useEffect(() => {
     if (preloadedRef.current) {
-      // preloadFn changed after initial mount — window size changed, re-fetch history.
+      // preloadFn changed after initial mount - window size changed, re-fetch history.
       void doRefreshRef.current();
       return;
     }
@@ -206,7 +206,7 @@ export function useTimeSeriesStream<TRow>({
       const dedup = dedupRef.current;
       const sorted = sortedRef.current;
 
-      // Filter to new unique rows only — skips preload/SSE overlap duplicates
+      // Filter to new unique rows only - skips preload/SSE overlap duplicates
       const newRows: TRow[] = [];
       for (const row of pending) {
         const key = getKeyRef.current(row);
@@ -216,10 +216,10 @@ export function useTimeSeriesStream<TRow>({
         }
       }
 
-      // Sort the incoming batch (small — typically one per container per second)
+      // Sort the incoming batch (small - typically one per container per second)
       newRows.sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
 
-      // Binary search for the eviction boundary — O(log n)
+      // Binary search for the eviction boundary - O(log n)
       const cutoffIdx = lowerBound(sorted, cutoff, getTimeRef.current);
 
       // Remove evicted keys from the dedup set

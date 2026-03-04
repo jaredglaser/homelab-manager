@@ -18,7 +18,7 @@ export default memo(function ContainerLogViewer({
   const terminalRef = useRef<TerminalType | null>(null);
   const fitAddonRef = useRef<{ fit(): void } | null>(null);
 
-  // Dynamically import xterm.js (CJS modules — must be loaded at runtime, not statically)
+  // Dynamically import xterm.js (CJS modules - must be loaded at runtime, not statically)
   useEffect(() => {
     if (!containerRef.current) return;
     let disposed = false;

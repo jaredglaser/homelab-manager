@@ -12,8 +12,8 @@ const BASE_BACKOFF_MS = 500;
  * Implements AsyncDisposable for deterministic cleanup via `await using`.
  *
  * Subclasses implement:
- * - `name` — human-readable label for logging
- * - `collect()` — single collection cycle (connect, stream, write)
+ * - `name` - human-readable label for logging
+ * - `collect()` - single collection cycle (connect, stream, write)
  */
 export abstract class BaseCollector implements AsyncDisposable {
   protected readonly repository: StatsRepository;
@@ -63,7 +63,7 @@ export abstract class BaseCollector implements AsyncDisposable {
 
         const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
 
-        // Collection ended (container changes, error, or aborted) — reconnect immediately
+        // Collection ended (container changes, error, or aborted) - reconnect immediately
         if (!this.signal.aborted) {
           this.debugLog(
             `[${this.name}] Collection ended after ${elapsed}s` +

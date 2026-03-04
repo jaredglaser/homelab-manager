@@ -1,5 +1,5 @@
 /**
- * Mulberry32 — a fast, high-quality 32-bit seeded PRNG.
+ * Mulberry32 - a fast, high-quality 32-bit seeded PRNG.
  * Returns a function that produces values in [0, 1) on each call.
  */
 export function mulberry32(seed: number): () => number {

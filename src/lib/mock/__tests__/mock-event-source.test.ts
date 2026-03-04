@@ -147,7 +147,7 @@ describe('MockEventSource', () => {
       const listener = () => {};
       instance.addEventListener('message', listener);
       instance.removeEventListener('message', listener);
-      // No error thrown — basic verification
+      // No error thrown - basic verification
     });
   });
 

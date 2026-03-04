@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 
-// Mock echarts-for-react — canvas rendering not available in Happy-DOM
+// Mock echarts-for-react - canvas rendering not available in Happy-DOM
 mock.module('echarts-for-react', () => ({
   default: ({ option }: { option: unknown }) => (
     <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
@@ -16,7 +16,7 @@ mock.module('@/hooks/useSettings', () => ({
   }),
 }));
 
-// Mock useEChartTimeScroll — no-op in tests
+// Mock useEChartTimeScroll - no-op in tests
 mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
 }));

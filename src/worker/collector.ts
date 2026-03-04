@@ -63,7 +63,7 @@ async function main() {
       // Keep default
     }
 
-    // Shared AbortController — SIGTERM aborts all collectors instantly
+    // Shared AbortController - SIGTERM aborts all collectors instantly
     const shutdownController = new AbortController();
 
     const shutdown = () => {
@@ -120,7 +120,7 @@ async function main() {
       console.log(`[Worker] ${runners.length} collector(s) started, running...`);
       await Promise.all(runners);
     }
-    // AsyncDisposableStack disposes here — cleans up
+    // AsyncDisposableStack disposes here - cleans up
 
     console.log('[Worker] Closing connections...');
     proxmoxConnectionManager.clearAll();

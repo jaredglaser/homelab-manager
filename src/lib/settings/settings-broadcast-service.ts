@@ -8,7 +8,7 @@ type SettingsCallback = (message: SettingsSSEMessage) => void;
  *
  * Listens to PostgreSQL NOTIFY on the 'settings_change' channel and
  * broadcasts changes to all subscribed SSE clients. On subscribe,
- * sends the full settings state as an 'init' message — this handles
+ * sends the full settings state as an 'init' message - this handles
  * both startup sync and reconnection recovery.
  *
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.

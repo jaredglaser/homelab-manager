@@ -59,7 +59,7 @@ export default function ContainerHistoryPage({
     to: initialTo ?? now,
   }).current;
 
-  // Absolute timeline range — determines what data the timeline fetches.
+  // Absolute timeline range - determines what data the timeline fetches.
   // Presets compute { from: now - ms, to: now }; custom dates set arbitrary values.
   const [timelineRange, setTimelineRange] = useState(initialRange);
 
@@ -70,7 +70,7 @@ export default function ContainerHistoryPage({
     return PRESETS.find((p) => Math.abs(span - p) / p < 0.05) ?? null;
   });
 
-  // Debounced range drives chart query — updated after 800ms of slider idle
+  // Debounced range drives chart query - updated after 800ms of slider idle
   const [debouncedRange, setDebouncedRange] = useState(initialRange);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -185,7 +185,7 @@ export default function ContainerHistoryPage({
   const timelineData = useMemo(() => timelineQuery.data ?? [], [timelineQuery.data]);
   const chartData = useMemo(() => chartQuery.data ?? [], [chartQuery.data]);
 
-  // Always use the requested range for chart axes — this keeps the full time range
+  // Always use the requested range for chart axes - this keeps the full time range
   // visible even when data only covers a portion, preventing the appearance of
   // low-resolution data when the range exceeds available history.
   const chartFrom = debouncedRange.from;
@@ -240,7 +240,7 @@ export default function ContainerHistoryPage({
         )}
       </div>
 
-      {/* Sticky timeline — preset/custom range data, slider selects chart sub-range */}
+      {/* Sticky timeline - preset/custom range data, slider selects chart sub-range */}
       <HistoricalTimeline
         timelineData={timelineData}
         initialFrom={initialRange.from}

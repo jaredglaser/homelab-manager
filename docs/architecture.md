@@ -41,8 +41,8 @@ graph TD
 ```
 
 The frontend reads stats from the database, not directly from Docker/ZFS APIs. This enables:
-- **Shared polling** — `StatsPollService` runs 1 query/sec per source, broadcasting results to all SSE clients
-- **Direct DB queries** with seq-based cursors — no intermediate cache layer
+- **Shared polling** - `StatsPollService` runs 1 query/sec per source, broadcasting results to all SSE clients
+- **Direct DB queries** with seq-based cursors - no intermediate cache layer
 - **Stale data detection** at both global (30+ second warning) and per-entity levels (amber highlighting for individual hosts/containers)
 
 ## Data Streaming Pipeline
@@ -62,7 +62,7 @@ flowchart LR
     CL --> RS --> PA --> RC --> DB
 ```
 
-> **Note:** Docker and ZFS follow this full pipeline (streaming → parse → rate-calculate → insert). Proxmox is simpler: it polls the REST API, converts the response to flat rows via `overviewToRows()`, and inserts directly — no streaming parser or rate calculator needed.
+> **Note:** Docker and ZFS follow this full pipeline (streaming → parse → rate-calculate → insert). Proxmox is simpler: it polls the REST API, converts the response to flat rows via `overviewToRows()`, and inserts directly - no streaming parser or rate calculator needed.
 
 ### Stage 2: Real-Time Streaming (Server → Browser)
 
@@ -86,7 +86,7 @@ flowchart LR
 4. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows with entity type discriminator, and inserts into TimescaleDB
 5. Stats are **inserted** into TimescaleDB wide hypertables
 6. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to all subscribed SSE endpoints
-7. **SSE endpoints** subscribe to the poll service; multiple browser tabs share the same poll — only 1 DB query/sec per source
+7. **SSE endpoints** subscribe to the poll service; multiple browser tabs share the same poll - only 1 DB query/sec per source
 8. The **`useTimeSeriesStream` hook** preloads history via REST, then merges SSE updates into a time-windowed buffer with stale detection
 9. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
 

@@ -486,7 +486,7 @@ export class StatsRepository {
   /**
    * Migrate all entity_metadata rows on a host where service_key = oldKey to newKey.
    * Used when a container gains Docker Compose labels after previously using a name-only key.
-   * Idempotent — safe to call even if rows don't exist or are already updated.
+   * Idempotent - safe to call even if rows don't exist or are already updated.
    */
   async migrateServiceKeyByName(
     source: string,
@@ -505,13 +505,13 @@ export class StatsRepository {
 
   /**
    * Copy the icon from one service_key entity to another.
-   * Used when a container gains Docker Compose labels — the icon stored under the
+   * Used when a container gains Docker Compose labels - the icon stored under the
    * old name-only entity (e.g. "myhost/plex") is copied to the new compose entity
    * (e.g. "myhost/media-stack/plex") so it survives the migration.
    * ON CONFLICT DO NOTHING preserves any icon the user already set on the new entity.
    *
    * NOTE: Removing compose labels from a container does NOT revert the service_key
-   * back to a name-only entry — the container retains the compose-based service_key
+   * back to a name-only entry - the container retains the compose-based service_key
    * and icon until the worker restarts or the container is recreated without labels.
    */
   async migrateServiceIcon(
