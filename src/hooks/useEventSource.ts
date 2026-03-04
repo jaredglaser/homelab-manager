@@ -105,8 +105,19 @@ export function useEventSource<T>({
 
     connect();
 
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (eventSourceRef.current === null || eventSourceRef.current.readyState === EventSource.CLOSED) {
+        reconnectAttemptsRef.current = 0;
+        connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       mounted = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if (eventSourceRef.current) {
         if (debug) console.log('[useEventSource] Closing connection');
         eventSourceRef.current.close();
