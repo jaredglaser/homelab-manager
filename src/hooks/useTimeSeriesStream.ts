@@ -4,6 +4,7 @@ import { useEventSource } from './useEventSource';
 const STALE_THRESHOLD_MS = 30000;
 const STALE_CHECK_INTERVAL_MS = 5000;
 const PRELOAD_TIMEOUT_MS = 8000;
+export const VISIBILITY_REFRESH_COOLDOWN_MS = 5000;
 
 interface UseTimeSeriesStreamOptions<TRow> {
   sseUrl: string;
@@ -102,6 +103,9 @@ export function useTimeSeriesStream<TRow>({
   getEntityRef.current = getEntity;
   preloadFnRef.current = preloadFn;
 
+  // Track last refresh time for visibility cooldown
+  const lastRefreshRef = useRef(0);
+
   // Atomic buffer refresh — re-fetches bucketed history and swaps the buffer in one state update.
   // Declared before the preload effect so both the preload effect and later effects can reference it.
   // Stored as a ref so effects always invoke the latest closure without recreating intervals.
@@ -113,6 +117,7 @@ export function useTimeSeriesStream<TRow>({
     } catch {
       return; // silently ignore — next interval will retry
     }
+    lastRefreshRef.current = Date.now();
     if (rows.length === 0) return;
 
     const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
@@ -170,6 +175,7 @@ export function useTimeSeriesStream<TRow>({
         setSortedRows(sorted);
         setHasData(true);
         setLastDataTime(Date.now());
+        lastRefreshRef.current = Date.now();
       })
       .catch((err) => {
         clearTimeout(preloadTimeoutId);
@@ -256,6 +262,18 @@ export function useTimeSeriesStream<TRow>({
     const id = setInterval(() => { void doRefreshRef.current(); }, refreshIntervalMs);
     return () => clearInterval(id);
   }, [refreshIntervalMs]);
+
+  // Re-fetch history when tab becomes visible after idle/sleep
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRefreshRef.current < VISIBILITY_REFRESH_COOLDOWN_MS) return;
+      void doRefreshRef.current();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const onServiceError = useCallback(() => {
     setServiceError(new Error('Database unavailable'));
