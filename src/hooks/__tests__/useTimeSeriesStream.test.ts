@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
-import { useTimeSeriesStream } from '../useTimeSeriesStream';
+import { useTimeSeriesStream, VISIBILITY_REFRESH_COOLDOWN_MS } from '../useTimeSeriesStream';
 
 // Minimal MockEventSource for useEventSource dependency
 class MockEventSource {
@@ -38,8 +38,6 @@ function makeRow(entity: string, timeOffset: number): TestRow {
   return { key: `${entity}-${timeOffset}`, time: Date.now() - timeOffset * 1000, entity };
 }
 
-const VISIBILITY_REFRESH_COOLDOWN_MS = 5000;
-
 beforeEach(() => {
   MockEventSource.reset();
   (globalThis as unknown as Record<string, unknown>).EventSource = MockEventSource;
@@ -70,15 +68,17 @@ describe('useTimeSeriesStream visibility refresh', () => {
 
     // Advance past cooldown
     const originalNow = Date.now;
-    Date.now = () => originalNow() + VISIBILITY_REFRESH_COOLDOWN_MS + 100;
+    try {
+      Date.now = () => originalNow() + VISIBILITY_REFRESH_COOLDOWN_MS + 100;
 
-    act(() => simulateVisibilityChange('visible'));
+      act(() => simulateVisibilityChange('visible'));
 
-    // Wait for async refresh
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    expect(preloadFn).toHaveBeenCalledTimes(2);
-
-    Date.now = originalNow;
+      // Wait for async refresh
+      await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+      expect(preloadFn).toHaveBeenCalledTimes(2);
+    } finally {
+      Date.now = originalNow;
+    }
   });
 
   it('skips refresh if last refresh was recent', async () => {
