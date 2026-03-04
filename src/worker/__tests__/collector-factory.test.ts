@@ -1,7 +1,8 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { Pool } from 'pg';
+import { BaseCollector } from '../collectors/base-collector';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
@@ -65,10 +66,14 @@ function restoreEnv() {
 describe('createCollectors', () => {
   let db: ReturnType<typeof createMockDb>;
 
+  let runSpy: ReturnType<typeof spyOn>;
+
   beforeEach(() => {
     db = createMockDb();
     console.log = mock(() => {});
     console.error = mock(() => {});
+    // Prevent collectors from actually running (and making real network calls)
+    runSpy = spyOn(BaseCollector.prototype, 'run').mockResolvedValue(undefined);
     clearDockerEnv();
     clearZFSEnv();
     clearProxmoxEnv();
@@ -77,6 +82,7 @@ describe('createCollectors', () => {
   afterEach(() => {
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
+    runSpy.mockRestore();
     restoreEnv();
   });
 
