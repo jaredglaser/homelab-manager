@@ -24,6 +24,7 @@ interface UseEventSourceResult {
  * @param onServiceError - Optional callback invoked when a `stats_error` event is received from the server.
  * @param debug - When true, emits debug logs to the console.
  * @returns An object with `isConnected` indicating whether the EventSource is currently connected and `error` containing a connection error if reconnection failed after multiple attempts.
+ */
 export function useEventSource<T>({
   url,
   onData,
