@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { useEventSource } from '../useEventSource';
 
@@ -35,6 +35,11 @@ class MockEventSource {
   close() {
     this.closed = true;
     this.readyState = 2;
+  }
+
+  fireEvent(type: string) {
+    const handlers = this.listeners.get(type) ?? [];
+    for (const handler of handlers) handler({});
   }
 
   static reset() {
@@ -110,5 +115,105 @@ describe('useEventSource', () => {
 
     expect(result.current.error).toBeNull();
     expect(result.current.isConnected).toBe(true);
+  });
+
+  it('parses JSON messages and calls onData', () => {
+    const onData = mock(() => {});
+    renderHook(() => useEventSource({ url: '/api/test', onData }));
+
+    const es = MockEventSource.instances[0];
+    act(() => { es.onopen?.(); });
+    act(() => { es.onmessage?.({ data: JSON.stringify({ value: 42 }) }); });
+
+    expect(onData).toHaveBeenCalledTimes(1);
+    expect(onData).toHaveBeenCalledWith({ value: 42 });
+  });
+
+  it('handles array messages', () => {
+    const onData = mock(() => {});
+    renderHook(() => useEventSource({ url: '/api/test', onData }));
+
+    const es = MockEventSource.instances[0];
+    act(() => { es.onopen?.(); });
+    act(() => { es.onmessage?.({ data: JSON.stringify([1, 2, 3]) }); });
+
+    expect(onData).toHaveBeenCalledWith([1, 2, 3]);
+  });
+
+  it('handles JSON parse errors without crashing', () => {
+    const onData = mock(() => {});
+    const origError = console.error;
+    console.error = mock(() => {});
+
+    try {
+      renderHook(() => useEventSource({ url: '/api/test', onData }));
+
+      const es = MockEventSource.instances[0];
+      act(() => { es.onopen?.(); });
+      act(() => { es.onmessage?.({ data: 'not-valid-json' }); });
+
+      expect(onData).not.toHaveBeenCalled();
+      expect(console.error).toHaveBeenCalled();
+    } finally {
+      console.error = origError;
+    }
+  });
+
+  it('calls onServiceError when stats_error event is received', () => {
+    const onServiceError = mock(() => {});
+    renderHook(() =>
+      useEventSource({ url: '/api/test', onData: () => {}, onServiceError })
+    );
+
+    const es = MockEventSource.instances[0];
+    act(() => { es.onopen?.(); });
+    act(() => { es.fireEvent('stats_error'); });
+
+    expect(onServiceError).toHaveBeenCalledTimes(1);
+  });
+
+  it('tracks isConnected state on open and error', () => {
+    const { result } = renderHook(() =>
+      useEventSource({ url: '/api/test', onData: () => {} })
+    );
+
+    expect(result.current.isConnected).toBe(false);
+
+    const es = MockEventSource.instances[0];
+    act(() => { es.onopen?.(); });
+    expect(result.current.isConnected).toBe(true);
+
+    act(() => { es.onerror?.(); });
+    expect(result.current.isConnected).toBe(false);
+  });
+
+  it('does not reconnect when visibility changes to hidden', () => {
+    renderHook(() =>
+      useEventSource({ url: '/api/test', onData: () => {} })
+    );
+
+    const es = MockEventSource.instances[0];
+    act(() => { for (let i = 0; i < 5; i++) es.onerror?.(); });
+
+    act(() => simulateVisibilityChange('hidden'));
+
+    expect(MockEventSource.instances).toHaveLength(1);
+  });
+
+  it('processes multiple messages sequentially', () => {
+    const received: unknown[] = [];
+    const onData = mock((data: unknown) => { received.push(data); });
+    renderHook(() => useEventSource({ url: '/api/test', onData }));
+
+    const es = MockEventSource.instances[0];
+    act(() => { es.onopen?.(); });
+    act(() => {
+      es.onmessage?.({ data: JSON.stringify({ id: 1 }) });
+      es.onmessage?.({ data: JSON.stringify({ id: 2 }) });
+      es.onmessage?.({ data: JSON.stringify({ id: 3 }) });
+    });
+
+    expect(onData).toHaveBeenCalledTimes(3);
+    expect(received).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
   });
 });
