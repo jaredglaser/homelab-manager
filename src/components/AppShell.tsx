@@ -68,14 +68,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeProvider>
-      <Header />
-      {import.meta.env.VITE_DEMO_MODE === 'true' && <DemoBanner />}
-      <QueryClientProvider client={queryClient}>
-        <div className="min-h-screen">
-          {children}
-        </div>
-      </QueryClientProvider>
-      <Toasts />
+      <div className="flex flex-col min-h-screen">
+        <Header />
+        {import.meta.env.VITE_DEMO_MODE === 'true' && <DemoBanner />}
+        <QueryClientProvider client={queryClient}>
+          <div className="flex-1">
+            {children}
+          </div>
+        </QueryClientProvider>
+        <Toasts />
+      </div>
     </ThemeProvider>
   )
 }
