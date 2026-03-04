@@ -113,13 +113,13 @@ export interface ActivityValues {
  * Activity-based I/O profile.
  *
  * Models four distinct workload states instead of a continuous sine wave:
- *   idle — no I/O (ops are always 0 when bytes are 0, enforced by design)
- *   low  — background metadata reads/writes
- *   med  — medium bandwidth, high IOPS (random access: VM databases, cache hits)
- *   high — high bandwidth, low IOPS (sequential: media streaming, large copies)
+ *   idle - no I/O (ops are always 0 when bytes are 0, enforced by design)
+ *   low  - background metadata reads/writes
+ *   med  - medium bandwidth, high IOPS (random access: VM databases, cache hits)
+ *   high - high bandwidth, low IOPS (sequential: media streaming, large copies)
  *
  * Each state holds for `stateDurationMs`, then steps to the next. Only a brief
- * `transitionMs` window at the boundary is interpolated — the rest is flat.
+ * `transitionMs` window at the boundary is interpolated - the rest is flat.
  * Set `transitionMs: 0` for NVMe-style instant jumps.
  */
 export interface ActivityProfile {
@@ -167,12 +167,12 @@ function pickLevel(
  * Generate correlated I/O metrics from an activity profile.
  *
  * Values are flat within each state bucket. Only the brief `transitionMs` window
- * at the bucket boundary is interpolated — so NVMe pools jump immediately while
+ * at the bucket boundary is interpolated - so NVMe pools jump immediately while
  * HDD pools ramp over a second or two. The noise key is unique per entity so
  * individual disks in the same pool vary slightly around the shared state.
  *
  * During stable idle phases, occasional brief blips are added additively via
- * `spike()` — scaled to `idleBlipScale` * `low` state values. This avoids the
+ * `spike()` - scaled to `idleBlipScale` * `low` state values. This avoids the
  * perfectly flat zero line that multiplicative noise produces on idle (0 * n = 0).
  */
 export function generateActivityMetrics(
@@ -219,7 +219,7 @@ export function generateActivityMetrics(
 
   // Idle blips: additive spikes during stable-idle to break the flat-zero line.
   // Uses activityKey (shared across all entities in a pool) so pool, vdev, and
-  // disk rows all fire their blips at the same moment — pool values rise in sync
+  // disk rows all fire their blips at the same moment - pool values rise in sync
   // with their children. Each entity uses its own profile.low magnitude so the
   // values remain correctly scaled per hierarchy level.
   const blipScale = profile.idleBlipScale ?? 0;

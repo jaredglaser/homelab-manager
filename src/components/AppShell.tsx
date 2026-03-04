@@ -11,7 +11,7 @@ if (import.meta.env.VITE_DEMO_MODE === 'true' && typeof window !== 'undefined') 
   // The main chunk imports install-demo, which statically imports back from the main
   // chunk (for mock generators). TLA pauses main mid-evaluation, causing deadlock.
   // This is safe because EventSource connections are created in useEffect (deferred),
-  // and MockEventSource._start uses setTimeout(50ms) — both fire after .then() resolves.
+  // and MockEventSource._start uses setTimeout(50ms) - both fire after .then() resolves.
   void import('@/lib/mock/install-demo').then(({ installDemo }) => installDemo())
 }
 
@@ -32,7 +32,7 @@ function DemoBanner() {
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-2 bg-[var(--mui-palette-info-main)] text-[var(--mui-palette-info-contrastText)] text-sm">
       <span>
-        <strong>Demo mode</strong> — all data is generated in the browser with no server or database.
+        <strong>Demo mode:</strong> all data is generated in the browser with no server or database.
         {' '}
         <a
           href="https://github.com/jaredglaser/homelab-manager"

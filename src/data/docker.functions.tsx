@@ -149,7 +149,7 @@ export const getContainerInfo = createServerFn()
   });
 
 const updateContainerIconSchema = z.object({
-  /** Service-key entity path (host/service_key) — icon is stored here so it survives recreation. */
+  /** Service-key entity path (host/service_key) - icon is stored here so it survives recreation. */
   serviceKeyEntity: z.string().min(1),
   iconSlug: z.string().min(1),
 });

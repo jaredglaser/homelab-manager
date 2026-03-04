@@ -17,7 +17,7 @@ export interface CollectorFactoryResult {
  * Create and register enabled collectors based on the provided worker configuration.
  *
  * @param proxmoxPollIntervalMs - Optional poll interval in milliseconds for the Proxmox collector; when omitted a default of 10000 ms is used
- * @returns An object with `collectors` — the created collector instances, and `runners` — an array of each collector's run promise
+ * @returns An object with `collectors` - the created collector instances, and `runners` - an array of each collector's run promise
  */
 export function createCollectors(
   db: DatabaseClient,

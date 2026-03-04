@@ -5,7 +5,7 @@ let installed = false;
 /**
  * Install demo mode overrides.
  * Patches window.EventSource with MockEventSource so SSE hooks work without a server.
- * Safe to call multiple times — only installs once.
+ * Safe to call multiple times - only installs once.
  */
 export function installDemo(): void {
   if (installed) return;

@@ -195,10 +195,10 @@ export function parseSettings(raw: Record<string, string>): Settings {
 /** Raw DB key-value pairs */
 export const rawSettingsAtom = atom<Record<string, string>>({});
 
-/** Derived parsed Settings object — recomputes when raw changes */
+/** Derived parsed Settings object - recomputes when raw changes */
 export const settingsAtom = atom<Settings>((get) => parseSettings(get(rawSettingsAtom)));
 
-/** Transient Proxmox last-update timestamp — not persisted, used to decouple
+/** Transient Proxmox last-update timestamp - not persisted, used to decouple
  *  the update indicator from the data-receiving component (avoids prop drilling
  *  that would re-render the entire Proxmox page on every SSE message). */
 export const proxmoxLastUpdateAtom = atom<number>(0);

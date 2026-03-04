@@ -67,7 +67,7 @@ export class ProxmoxCollector extends BaseCollector {
         await abortableSleep(sleepMs, AbortSignal.any([this.signal, this._sleepAbortController.signal]));
       } catch {
         if (this.signal.aborted) return;
-        // Sleep interrupted by pollInterval change — continue immediately
+        // Sleep interrupted by pollInterval change - continue immediately
       } finally {
         this._sleepAbortController = null;
       }

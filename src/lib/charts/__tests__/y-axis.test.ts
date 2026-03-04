@@ -28,7 +28,7 @@ describe('findNiceInterval', () => {
   });
 
   it('should handle very large ranges', () => {
-    // 100 PiB in bytes — upper bound for large-scale storage
+    // 100 PiB in bytes - upper bound for large-scale storage
     const hundredPiB = 100 * 1024 * 1024 * 1024 * 1024 * 1024;
     const result = findNiceInterval(hundredPiB);
     // rough = 100PiB/5 ≈ 2.25e16, magnitude = 1e16, normalized ≈ 2.25 → nice=5 → 5e16

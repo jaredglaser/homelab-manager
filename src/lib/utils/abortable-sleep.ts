@@ -25,7 +25,7 @@ export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 /**
- * Type guard for AbortError — used to distinguish intentional shutdown
+ * Type guard for AbortError - used to distinguish intentional shutdown
  * from real errors in catch blocks.
  */
 export function isAbortError(err: unknown): boolean {

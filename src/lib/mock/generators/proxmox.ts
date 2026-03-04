@@ -2,7 +2,7 @@ import type { ProxmoxStatsRow } from '@/types/proxmox';
 import { generateMetric } from '@/lib/mock/patterns';
 import { PROXMOX_ENTITIES } from '@/lib/mock/entities';
 
-/** Session-scoped reference for uptime calculation — entities show uptime relative to demo session start. */
+/** Session-scoped reference for uptime calculation - entities show uptime relative to demo session start. */
 const UPTIME_REFERENCE_MS = Date.now();
 
 /**

@@ -22,7 +22,7 @@ export function parseMuxedChunk(buffer: Buffer): { lines: LogLine[]; remainder: 
     const payloadSize = buffer.readUInt32BE(offset + 4);
 
     if (offset + 8 + payloadSize > buffer.length) {
-      // Incomplete frame — return remainder for next chunk
+      // Incomplete frame - return remainder for next chunk
       break;
     }
 

@@ -198,26 +198,26 @@ export interface ZFSEntityDef {
   indent: number;
   capacityAlloc: number;
   capacityFree: number;
-  /** Activity-based I/O profile — replaces per-metric sine-wave profiles. */
+  /** Activity-based I/O profile - replaces per-metric sine-wave profiles. */
   activity: ActivityProfile;
 }
 
-// ── application pool (2x NVMe mirror, ~3 TiB — VM/LXC storage) ──────────────
+// ── application pool (2x NVMe mirror, ~3 TiB - VM/LXC storage) ──────────────
 //
 // NVMe characteristics: fast random I/O (VMs doing DB work = high IOPS / med BW)
 // and high sequential throughput (VM migrations / large file copies = high BW / low IOPS).
 // Mirror read policy: both disks serve reads (~50% each), both receive all writes (100%).
 //
 // State breakdown:
-//   idle — no activity                          (30%)
-//   low  — background metadata, cache warming   (28%)
-//   med  — VM random I/O: high IOPS / med BW    (27%)
-//   high — sequential: VM migration / large IO  (15%)
+//   idle - no activity                          (30%)
+//   low  - background metadata, cache warming   (28%)
+//   med  - VM random I/O: high IOPS / med BW    (27%)
+//   high - sequential: VM migration / large IO  (15%)
 const APP_POOL_ACTIVITY: ActivityProfile = {
   stateDurationMs: 45_000,
   weights: [0.30, 0.28, 0.27, 0.15],
   noise: 0.14,
-  transitionMs: 0,       // NVMe: instant step — no ramp-up
+  transitionMs: 0,       // NVMe: instant step - no ramp-up
   idleBlipScale: 0.25,   // ARC metadata reads, cache warm-up blips
   idle: { readBytes: 0,             writeBytes: 0,           readOps: 0,      writeOps: 0      },
   low:  { readBytes: 5_000_000,     writeBytes: 2_000_000,   readOps: 450,    writeOps: 180    },
@@ -233,17 +233,17 @@ const APP_DISK_ACTIVITY: ActivityProfile = {
   high: { readBytes: 700_000_000, writeBytes: 420_000_000, readOps: 600,    writeOps: 360    },
 };
 
-// ── rust pool (8x HDD raidz2, ~48 TiB — bulk media) ─────────────────────────
+// ── rust pool (8x HDD raidz2, ~48 TiB - bulk media) ─────────────────────────
 //
 // HDD characteristics: slow random I/O, good sequential throughput.
 // raidz2 with 8 drives: ~600 MB/s sequential, ~350 IOPS random pool-level.
 // Primary workload: Plex/Jellyfin streaming = high sequential read, low IOPS.
 //
 // State breakdown:
-//   idle — pool at rest (overnight, low demand)  (42%)
-//   low  — metadata reads, background scrub      (33%)
-//   med  — Sonarr/Radarr activity, random seeks  (17%)
-//   high — active media streaming (sequential)    (8%)
+//   idle - pool at rest (overnight, low demand)  (42%)
+//   low  - metadata reads, background scrub      (33%)
+//   med  - Sonarr/Radarr activity, random seeks  (17%)
+//   high - active media streaming (sequential)    (8%)
 const RUST_POOL_ACTIVITY: ActivityProfile = {
   stateDurationMs: 60_000,
   weights: [0.42, 0.33, 0.17, 0.08],
@@ -264,17 +264,17 @@ const RUST_DISK_ACTIVITY: ActivityProfile = {
   high: { readBytes: 72_500_000, writeBytes: 1_000_000, readOps: 38, writeOps: 3  },
 };
 
-// ── system pool (single SSD, ~500 GiB — host OS) ─────────────────────────────
+// ── system pool (single SSD, ~500 GiB - host OS) ─────────────────────────────
 //
 // Light, bursty OS workload: mostly idle with occasional reads (package updates,
 // logs) and small writes. sda is the only child entity (depth-1) with no disk
 // children → triggers isSingleDiskPool=true → shows "single disk" badge.
 //
 // State breakdown:
-//   idle — OS idle, no disk activity             (55%)
-//   low  — log flushes, inode updates            (30%)
-//   med  — apt/pacman update, service restart    (12%)
-//   high — OS install, large config write         (3%)
+//   idle - OS idle, no disk activity             (55%)
+//   low  - log flushes, inode updates            (30%)
+//   med  - apt/pacman update, service restart    (12%)
+//   high - OS install, large config write         (3%)
 const SYSTEM_ACTIVITY: ActivityProfile = {
   stateDurationMs: 60_000,
   weights: [0.55, 0.30, 0.12, 0.03],
@@ -301,7 +301,7 @@ export const ZFS_ENTITIES: ZFSEntityDef[] = [
   // ── rust pool ─────────────────────────────────────────────────────────────
   { host: 'nas01', pool: 'rust', entity: 'rust',          entityType: 'pool', indent: 0, capacityAlloc: 33_600_000_000_000, capacityFree: 14_400_000_000_000, activity: RUST_POOL_ACTIVITY },
   { host: 'nas01', pool: 'rust', entity: 'rust/raidz2-0', entityType: 'vdev', indent: 2, capacityAlloc: 33_600_000_000_000, capacityFree: 14_400_000_000_000, activity: RUST_POOL_ACTIVITY },
-  // 8 drives — each carries ~1/8 of pool I/O
+  // 8 drives - each carries ~1/8 of pool I/O
   ...(['sdc', 'sdd', 'sde', 'sdf', 'sdg', 'sdh', 'sdi', 'sdj'] as const).map((disk): ZFSEntityDef => ({
     host: 'nas01', pool: 'rust', entity: `rust/raidz2-0/${disk}`, entityType: 'disk', indent: 4,
     capacityAlloc: 0, capacityFree: 0, activity: RUST_DISK_ACTIVITY,

@@ -21,7 +21,7 @@ mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
 }));
 
-// Mock xterm.js — CJS modules need default export for bun:test ESM loader
+// Mock xterm.js - CJS modules need default export for bun:test ESM loader
 mock.module('@xterm/xterm', () => ({
   default: {
     Terminal: class MockTerminal {

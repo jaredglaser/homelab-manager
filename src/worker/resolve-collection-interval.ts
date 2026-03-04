@@ -7,7 +7,7 @@ const MAX_INTERVAL_MS = 60_000;
 /**
  * Read the collection interval from database settings, falling back to the default.
  * Returns the DB value if it's a valid integer in [100, 60000], otherwise `defaultInterval`.
- * Swallows DB errors gracefully — the worker should always start.
+ * Swallows DB errors gracefully - the worker should always start.
  */
 export async function resolveCollectionInterval(
   settingsRepo: SettingsRepository,

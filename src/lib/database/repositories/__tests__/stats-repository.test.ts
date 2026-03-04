@@ -353,7 +353,7 @@ describe('StatsRepository', () => {
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
       const sql = mockPool.queries[1].sql;
-      // Groups by time + host only — no container_id in GROUP BY
+      // Groups by time + host only - no container_id in GROUP BY
       expect(sql).toContain('GROUP BY time_bucket');
       expect(sql).not.toContain('GROUP BY time_bucket(make_interval(secs => $3), time), host, container_id');
       // Uses last() to preserve a representative container_id in the output

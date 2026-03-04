@@ -19,7 +19,7 @@ interface UseContainerLogsResult {
 /**
  * Streams container logs from the SSE endpoint and writes them to an xterm.js Terminal.
  *
- * Raw ANSI escape codes are preserved — xterm.js handles rendering them natively.
+ * Raw ANSI escape codes are preserved - xterm.js handles rendering them natively.
  * Reconnects automatically up to MAX_RECONNECT_ATTEMPTS times on connection loss.
  */
 export function useContainerLogs({

@@ -15,7 +15,7 @@ export function generateZFSSnapshot(time: Date): ZFSStatsRow[] {
   const timeStr = time.toISOString();
 
   return ZFS_ENTITIES.map((e) => {
-    // Pool-level key drives the shared activity state — all disks/vdevs in a pool
+    // Pool-level key drives the shared activity state - all disks/vdevs in a pool
     // transition together. Per-entity key provides independent noise variation.
     const activityKey = `${e.host}/${e.pool}`;
     const noiseKey    = `${e.host}/${e.pool}/${e.entity}`;

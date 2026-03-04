@@ -3,7 +3,7 @@
 A real-time monitoring dashboard for Docker containers, ZFS pools, and Proxmox VE clusters.
 
 > [!WARNING]
-> **Do not expose this dashboard to the public internet.** There is no built-in authentication — anyone who can reach the port can view your infrastructure and change settings. The service is not hardened for untrusted networks. Keep it on your LAN, and ideally isolate it further with a dedicated lab VLAN or a firewall rule that restricts access to specific hosts.
+> **Do not expose this dashboard to the public internet.** There is no built-in authentication - anyone who can reach the port can view your infrastructure and change settings. The service is not hardened for untrusted networks. Keep it on your LAN, and ideally isolate it further with a dedicated lab VLAN or a firewall rule that restricts access to specific hosts.
 >
 > For remote access, use a VPN tunnel back to your home network rather than port-forwarding. [Tailscale](https://tailscale.com) and [WireGuard](https://www.wireguard.com) are both solid options: install the client on your phone or laptop, connect to your homelab's VPN, and access the dashboard at its local IP as if you were home.
 
@@ -59,11 +59,11 @@ docker compose down -v
 
 | Service | Image | Description |
 |---------|-------|-------------|
-| `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (7-day retention, automatic compression). Runs with `synchronous_commit=off` — up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
-| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector — polls Docker and ZFS hosts, writes stats to TimescaleDB |
+| `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (7-day retention, automatic compression). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
+| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - polls Docker and ZFS hosts, writes stats to TimescaleDB |
 | `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Also polls the Proxmox REST API on a 10-second interval server-side and broadcasts the results to all connected clients via SSE. |
 
-> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker)) on every push to `main`. The project is pre-release and not yet versioned — use `latest` for now and watch the changelog for breaking changes before pulling updates.
+> **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker)) on every push to `main`. The project is pre-release and not yet versioned - use `latest` for now and watch the changelog for breaking changes before pulling updates.
 
 ---
 
@@ -87,7 +87,7 @@ All configuration is done via environment variables in your `.env` file.
 
 ### Reverse Proxy
 
-Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular homelab choice — refer to its docs for setup.
+Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular homelab choice - refer to its docs for setup.
 
 **Keep the dashboard on your LAN.** A reverse proxy does not change the security posture described in the warning above. Do not route this dashboard through a public-facing proxy.
 
@@ -99,11 +99,11 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOCKER_HOST_1` | — | Docker host IP or hostname |
+| `DOCKER_HOST_1` | - | Docker host IP or hostname |
 | `DOCKER_HOST_PORT_1` | `2375` | Docker API port (TCP, no TLS) |
-| `DOCKER_HOST_NAME_1` | — | Display name shown in the dashboard |
+| `DOCKER_HOST_NAME_1` | - | Display name shown in the dashboard |
 
-> **Docker host setup:** Rather than exposing the raw Docker daemon socket over TCP, run a **Docker socket proxy** on each monitored host. A socket proxy (e.g., [`ghcr.io/tecnativa/docker-socket-proxy`](https://github.com/Tecnativa/docker-socket-proxy) or [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy)) binds to a TCP port and forwards only the API endpoints you allow — containers, stats, and similar read-only calls. Point `DOCKER_HOST_1` at the proxy's address and port. This is significantly safer than exposing the full daemon socket.
+> **Docker host setup:** Rather than exposing the raw Docker daemon socket over TCP, run a **Docker socket proxy** on each monitored host. A socket proxy (e.g., [`ghcr.io/tecnativa/docker-socket-proxy`](https://github.com/Tecnativa/docker-socket-proxy) or [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy)) binds to a TCP port and forwards only the API endpoints you allow - containers, stats, and similar read-only calls. Point `DOCKER_HOST_1` at the proxy's address and port. This is significantly safer than exposing the full daemon socket.
 
 ### ZFS Monitoring
 
@@ -111,13 +111,13 @@ Monitor ZFS pools over SSH. Each host is numbered (`_1`, `_2`, `_3`).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ZFS_HOST_1` | — | SSH host IP or hostname |
+| `ZFS_HOST_1` | - | SSH host IP or hostname |
 | `ZFS_HOST_PORT_1` | `22` | SSH port |
-| `ZFS_HOST_NAME_1` | — | Display name shown in the dashboard |
-| `ZFS_HOST_USER_1` | — | SSH username |
-| `ZFS_HOST_KEY_PATH_1` | — | Path to SSH private key inside the container (see below) |
-| `ZFS_HOST_KEY_PASSPHRASE_1` | — | Passphrase for the private key (if encrypted) |
-| `ZFS_HOST_PASSWORD_1` | — | SSH password (alternative to key auth) |
+| `ZFS_HOST_NAME_1` | - | Display name shown in the dashboard |
+| `ZFS_HOST_USER_1` | - | SSH username |
+| `ZFS_HOST_KEY_PATH_1` | - | Path to SSH private key inside the container (see below) |
+| `ZFS_HOST_KEY_PASSPHRASE_1` | - | Passphrase for the private key (if encrypted) |
+| `ZFS_HOST_PASSWORD_1` | - | SSH password (alternative to key auth) |
 
 > **SSH key setup:** Place your private key on the host running homelab-manager at `/mnt/appdata/homelab-manager/keys/`. The compose file bind-mounts this directory into the worker container at `/keys` (read-only). Reference the key as `/keys/<filename>` in `ZFS_HOST_KEY_PATH_1`. Create the directory first: `mkdir -p /mnt/appdata/homelab-manager/keys && chmod 700 /mnt/appdata/homelab-manager/keys`.
 >
@@ -130,10 +130,10 @@ Monitor ZFS pools over SSH. Each host is numbered (`_1`, `_2`, `_3`).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROXMOX_HOST` | — | Proxmox VE hostname or IP |
+| `PROXMOX_HOST` | - | Proxmox VE hostname or IP |
 | `PROXMOX_PORT` | `8006` | Proxmox API port |
-| `PROXMOX_TOKEN_ID` | — | API token ID (`USER@REALM!TOKENID`) |
-| `PROXMOX_TOKEN_SECRET` | — | API token secret (UUID) |
+| `PROXMOX_TOKEN_ID` | - | API token ID (`USER@REALM!TOKENID`) |
+| `PROXMOX_TOKEN_SECRET` | - | API token secret (UUID) |
 | `PROXMOX_ALLOW_SELF_SIGNED` | `true` | Allow self-signed TLS certificates |
 
 > **Proxmox API token:** Create one via **Datacenter > Permissions > API Tokens**. The token needs `PVEAuditor` role (read-only) on `/` for cluster overview data.

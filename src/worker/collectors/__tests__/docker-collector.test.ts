@@ -226,7 +226,7 @@ describe('DockerCollector', () => {
         value: 'web-server', // No compose labels → falls back to container name
       });
 
-      // Stats should have been written — 2 stats events produce 2 rows
+      // Stats should have been written - 2 stats events produce 2 rows
       expect(writtenRows.length).toBe(2);
 
       // Verify row structure: the private containerInfo() helper resolved the name

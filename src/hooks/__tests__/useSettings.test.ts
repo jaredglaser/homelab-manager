@@ -678,7 +678,7 @@ if (isCI) {
                 await new Promise(resolve => setTimeout(resolve, 10));
             });
 
-            // Still false — no rollback
+            // Still false - no rollback
             expect(result.current.general.showSparklines).toBe(false);
 
             // No toasts

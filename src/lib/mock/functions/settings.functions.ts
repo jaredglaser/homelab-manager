@@ -1,7 +1,7 @@
 import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
 
 /**
- * Mock: Update a setting — persists to localStorage in demo mode.
+ * Mock: Update a setting - persists to localStorage in demo mode.
  * Matches the real `updateSetting` signature.
  */
 export const updateSetting = async (opts: {

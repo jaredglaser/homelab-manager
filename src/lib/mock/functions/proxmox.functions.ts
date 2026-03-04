@@ -15,7 +15,7 @@ export const getHistoricalProxmoxStats = async (opts?: {
 };
 
 /**
- * Mock: Test Proxmox connection — always succeeds in demo mode.
+ * Mock: Test Proxmox connection - always succeeds in demo mode.
  */
 export const testProxmoxConnection = async (): Promise<{
   connected: boolean;

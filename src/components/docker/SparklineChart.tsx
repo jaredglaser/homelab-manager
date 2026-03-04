@@ -38,11 +38,11 @@ export default memo(function SparklineChart({
   const areaEndColorRef = useRef('');
   const rightEdgeTimeRef = useRef(0);
 
-  // Pre-allocated buffers — written into every frame, never replaced
+  // Pre-allocated buffers - written into every frame, never replaced
   const pointsXRef = useRef(new Float64Array(MAX_POINTS));
   const pointsYRef = useRef(new Float64Array(MAX_POINTS));
 
-  // Cached gradient — only recreated when colors or dimensions change
+  // Cached gradient - only recreated when colors or dimensions change
   const gradientRef = useRef<CanvasGradient | null>(null);
   const gradientCtxRef = useRef<CanvasRenderingContext2D | null>(null);
 
@@ -81,7 +81,7 @@ export default memo(function SparklineChart({
       lastEndTimestampRef.current = latestTimestamp;
     }
 
-    // Stable max with decay — use same y-axis scaling as ECharts for consistent visual representation
+    // Stable max with decay - use same y-axis scaling as ECharts for consistent visual representation
     if (data.length > 0) {
       let rawMax = 0;
       for (let i = 0; i < data.length; i++) {
@@ -142,7 +142,7 @@ export default memo(function SparklineChart({
       const len = currentData.length;
       if (len === 0 || currentRightEdge === 0) return;
 
-      // Time window calculation (inlined — no closure allocation)
+      // Time window calculation (inlined - no closure allocation)
       const timeNow = Date.now();
       const visualRightEdge = timeNow; // currentRightEdge + (timeNow - currentRightEdge)
       const leftEdgeTime = visualRightEdge - TIME_WINDOW_MS;

@@ -28,7 +28,7 @@ src/
 │       └── MetricValue.tsx          # Formatted metric display (value + unit + optional sparkline)
 ├── hooks/
 │   ├── settingsAtom.ts              # Jotai atoms (rawSettings → derived settings), types, parsing
-│   ├── useSettings.tsx              # Consumer hook — settings + optimistic setters with rollback
+│   ├── useSettings.tsx              # Consumer hook - settings + optimistic setters with rollback
 │   ├── useSettingsSync.ts           # SSE-to-atom bridge (syncs /api/settings → rawSettingsAtom)
 │   ├── useEventSource.ts             # EventSource-based SSE consumer
 │   ├── useContainerLogs.ts          # SSE-based container log stream → xterm.js
@@ -48,10 +48,10 @@ src/
 │   ├── config/                      # Configuration loaders (database, worker)
 │   ├── database/
 │   │   ├── repositories/            # Data access layer (StatsRepository, SettingsRepository)
-│   │   ├── subscription-service.ts  # StatsPollService — shared 1s poll, broadcasts to SSE clients
+│   │   ├── subscription-service.ts  # StatsPollService - shared 1s poll, broadcasts to SSE clients
 │   │   └── migrate.ts               # Database migration runner
 │   ├── proxmox/
-│   │   └── proxmox-poll-service.ts  # ProxmoxPollService — shared API poll + SSE broadcast
+│   │   └── proxmox-poll-service.ts  # ProxmoxPollService - shared API poll + SSE broadcast
 │   ├── settings/
 │   │   └── settings-broadcast-service.ts  # PostgreSQL LISTEN + SSE broadcast for settings changes
 │   ├── parsers/                     # Stream parsers (ZFS iostat, text lines)
