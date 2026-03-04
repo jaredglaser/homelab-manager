@@ -14,6 +14,16 @@ interface UseEventSourceResult {
   error: Error | null;
 }
 
+/**
+ * Manages an EventSource connection to receive server-sent JSON messages and expose connection state.
+ *
+ * Establishes and maintains an EventSource for the given URL, parses incoming messages as JSON and forwards them to `onData`, tracks connection status and errors, limits automatic reconnection attempts, and attempts to re-establish the connection when the document becomes visible again.
+ *
+ * @param url - The EventSource endpoint URL to connect to.
+ * @param onData - Callback invoked with parsed JSON message payloads of type `T` for each `message` event.
+ * @param onServiceError - Optional callback invoked when a `stats_error` event is received from the server.
+ * @param debug - When true, emits debug logs to the console.
+ * @returns An object with `isConnected` indicating whether the EventSource is currently connected and `error` containing a connection error if reconnection failed after multiple attempts.
 export function useEventSource<T>({
   url,
   onData,
