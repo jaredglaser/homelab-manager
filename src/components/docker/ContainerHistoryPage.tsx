@@ -192,7 +192,7 @@ export default function ContainerHistoryPage({
   const chartTo = debouncedRange.to;
 
   return (
-    <div className="flex flex-col min-h-full">
+    <div className="flex flex-col flex-1">
       {/* Header */}
       <div className="p-6 pb-4">
         <Link to="/" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 mb-3">

@@ -72,7 +72,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <Header />
         {import.meta.env.VITE_DEMO_MODE === 'true' && <DemoBanner />}
         <QueryClientProvider client={queryClient}>
-          <div className="flex-1">
+          <div className="flex-1 flex flex-col">
             {children}
           </div>
         </QueryClientProvider>
