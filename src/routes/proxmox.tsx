@@ -4,7 +4,6 @@ import { Typography, CircularProgress, Tooltip, Chip, ToggleButtonGroup, ToggleB
 import { Zap, Waves } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import AppShell from '../components/AppShell'
 import PageHeader from '@/components/PageHeader'
 import ClusterSummaryCards from '@/components/proxmox/ClusterSummaryCards'
 import ProxmoxHostView from '@/components/proxmox/ProxmoxHostView'
@@ -114,16 +113,8 @@ function UpdateIndicator({ expectedInterval }: { expectedInterval: number }) {
 
 export const Route = createFileRoute('/proxmox')({
   ssr: false,
-  component: ProxmoxPage,
+  component: ProxmoxPageContent,
 })
-
-function ProxmoxPage() {
-  return (
-    <AppShell>
-      <ProxmoxPageContent />
-    </AppShell>
-  )
-}
 
 /**
  * Renders the Proxmox dashboard content including the header, update controls, and main content area.

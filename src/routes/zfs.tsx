@@ -1,6 +1,5 @@
 import { useCallback } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import AppShell from '../components/AppShell'
 import ZFSPoolsTable from '../components/zfs/ZFSPoolsTable'
 import ZFSPoolSpeedCharts from '../components/zfs/ZFSPoolSpeedCharts'
 import PageHeader from '@/components/PageHeader'
@@ -12,16 +11,8 @@ import type { ZFSStatsRow } from '@/types/zfs'
 
 export const Route = createFileRoute('/zfs')({
   ssr: false,
-  component: ZFSPage,
+  component: ZFSPageContent,
 })
-
-function ZFSPage() {
-  return (
-    <AppShell>
-      <ZFSPageContent />
-    </AppShell>
-  )
-}
 
 function ZFSPageContent() {
   const { general } = useSettings()

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import Alert from '@mui/material/Alert'
+import Link from '@mui/material/Link'
 import ThemeProvider from './ThemeProvider'
 import Header from './Header'
 import Toasts from './Toasts'
@@ -30,32 +32,20 @@ function DemoBanner() {
   }
 
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-2 bg-[var(--mui-palette-info-main)] text-[var(--mui-palette-info-contrastText)] text-sm">
-      <span>
-        <strong>Demo mode:</strong> all data is generated in the browser with no server or database.
-        {' '}
-        <a
-          href="https://github.com/jaredglaser/homelab-manager"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline font-medium"
-        >
-          View on GitHub
-        </a>
-        {' '}or see the{' '}
-        <a
-          href="https://github.com/jaredglaser/homelab-manager/blob/main/self-hosting/README.md"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline font-medium"
-        >
-          self-hosting guide
-        </a>
-        {' '}to run it against your own infrastructure.
-      </span>
-      <button type="button" onClick={dismiss} aria-label="Dismiss demo banner" className="shrink-0 opacity-80 hover:opacity-100 cursor-pointer text-lg leading-none">
-        ✕
-      </button>
+    <div className="px-4 pb-1">
+      <div className="mx-auto max-w-5xl">
+        <Alert severity="info" onClose={dismiss}>
+          <strong>Demo mode</strong> &mdash; all data is generated in the browser.
+          {' '}
+          <Link href="https://github.com/jaredglaser/homelab-manager" target="_blank" rel="noopener noreferrer">
+            GitHub
+          </Link>
+          {' '}&middot;{' '}
+          <Link href="https://github.com/jaredglaser/homelab-manager/blob/main/self-hosting/README.md" target="_blank" rel="noopener noreferrer">
+            Self-host guide
+          </Link>
+        </Alert>
+      </div>
     </div>
   )
 }
@@ -72,7 +62,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <Header />
         {import.meta.env.VITE_DEMO_MODE === 'true' && <DemoBanner />}
         <QueryClientProvider client={queryClient}>
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col [view-transition-name:page-content]">
             {children}
           </div>
         </QueryClientProvider>

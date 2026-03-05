@@ -235,7 +235,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
-            color="cpu"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden min-[1428px]:block" />}
           />
@@ -245,7 +245,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
-            color="memory"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden min-[1428px]:block" />}
           />
@@ -255,7 +255,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
             hasDecimals={decimals.diskSpeed}
-            color="read"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden min-[1428px]:block" />}
           />
@@ -265,7 +265,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}
             hasDecimals={decimals.diskSpeed}
-            color="write"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden min-[1428px]:block" />}
           />
@@ -275,7 +275,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.networkRx.value}
             unit={metricParts.networkRx.unit}
             hasDecimals={decimals.networkSpeed}
-            color="read"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden min-[1428px]:block" />}
           />
@@ -285,7 +285,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.networkTx.value}
             unit={metricParts.networkTx.unit}
             hasDecimals={decimals.networkSpeed}
-            color="write"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden min-[1428px]:block" />}
           />

@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import AppShell, { queryClient } from '@/components/AppShell'
+import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
@@ -17,16 +17,8 @@ export const Route = createFileRoute('/')({
     queryFn: () => getDockerEntityIcons(),
     staleTime: 60_000,
   }),
-  component: DockerPage,
+  component: DockerPageContent,
 })
-
-function DockerPage() {
-  return (
-    <AppShell>
-      <DockerPageContent />
-    </AppShell>
-  )
-}
 
 /**
  * Render the Docker Containers dashboard content and wire it to a live time-series stream of Docker stats.

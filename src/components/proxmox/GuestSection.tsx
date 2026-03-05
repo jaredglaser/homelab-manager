@@ -67,12 +67,12 @@ export function GuestSection({ label, guests, expanded, onToggle }: GuestSection
                 </div>
                 <div>
                   {vm.status === 'running' ? (
-                    <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals color="cpu" />
+                    <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals />
                   ) : DASH_CELL}
                 </div>
                 <div>
                   {vm.status === 'running' ? (
-                    <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals color="memory" />
+                    <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals />
                   ) : (
                     <span className="text-right block px-3">{formatBytes(vm.maxmem, false, false)}</span>
                   )}
