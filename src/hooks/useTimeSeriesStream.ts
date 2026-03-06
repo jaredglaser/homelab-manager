@@ -172,7 +172,6 @@ export function useTimeSeriesStream<TRow>({
 
     // Use cached data if available (e.g. from TanStack Query)
     if (initialDataRef.current && initialDataRef.current.length > 0) {
-      if (debug) console.log(`[useTimeSeriesStream] Seeding from cached data: ${initialDataRef.current.length} rows`);
       seedRows(initialDataRef.current);
       return;
     }

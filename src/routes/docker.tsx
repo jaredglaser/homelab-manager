@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
@@ -46,14 +46,21 @@ function DockerPageContent() {
   }, [])
 
   const windowSeconds = Math.max(docker.chartWindowSeconds + 10, SPARKLINE_BUFFER_SECONDS)
+  const qc = useQueryClient()
+
+  const dockerQueryKey = [...DOCKER_PRELOAD_KEY, windowSeconds] as const
 
   const preloadFn = useCallback(
-    () => preloadDockerStats(windowSeconds),
-    [windowSeconds],
+    () => qc.fetchQuery({
+      queryKey: dockerQueryKey,
+      queryFn: () => preloadDockerStats(windowSeconds),
+      staleTime: PRELOAD_STALE_TIME,
+    }),
+    [qc, windowSeconds],
   )
 
   const { data: initialData } = useQuery({
-    queryKey: DOCKER_PRELOAD_KEY,
+    queryKey: dockerQueryKey,
     queryFn: () => preloadDockerStats(windowSeconds),
     staleTime: PRELOAD_STALE_TIME,
   })

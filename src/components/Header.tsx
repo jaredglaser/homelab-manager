@@ -39,6 +39,10 @@ const NAV_ITEMS: { to: '/docker' | '/zfs' | '/proxmox' | '/settings'; label: str
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
+export const NAV_ORDER: Record<string, number> = Object.fromEntries(
+  NAV_ITEMS.map((item, index) => [item.to, index]),
+)
+
 function useCurrentTab(): string {
   const pathname = useLocation({ select: (l) => l.pathname })
   const match = NAV_ITEMS.find(
@@ -53,10 +57,12 @@ const PREFETCH_CONFIG: Partial<Record<string, { queryKey: readonly string[]; que
   '/proxmox': { queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats },
 }
 
+const PREFETCH_STALE_TIME = 1_000
+
 function handlePrefetch(route: string) {
   const config = PREFETCH_CONFIG[route]
   if (config) {
-    void queryClient.prefetchQuery({ ...config, staleTime: 1_000 })
+    void queryClient.prefetchQuery({ ...config, staleTime: PREFETCH_STALE_TIME })
   }
 }
 

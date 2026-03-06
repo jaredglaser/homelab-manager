@@ -225,8 +225,10 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
                 e.stopPropagation();
                 setIconPickerOpen(true);
               }}
-              className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100'}`}
+              className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100 focus-visible:!opacity-100'}`}
               aria-label="Change container icon"
+              tabIndex={expanded ? 0 : -1}
+              aria-hidden={!expanded}
             >
               <Settings size={14} />
             </IconButton>
@@ -237,8 +239,10 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
                   e.stopPropagation();
                   onOpenHistory(container.id.split('/')[1], container.id.split('/')[0]);
                 }}
-                className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100'}`}
+                className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100 focus-visible:!opacity-100'}`}
                 aria-label="View container history"
+                tabIndex={expanded ? 0 : -1}
+                aria-hidden={!expanded}
               >
                 <History size={14} />
               </IconButton>
