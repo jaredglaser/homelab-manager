@@ -1,3 +1,4 @@
+import { createNoise2D } from 'simplex-noise';
 import { mulberry32, hashCode } from '@/lib/mock/prng';
 
 /** Clamp a value to [min, max]. */
@@ -93,6 +94,48 @@ export function generateMetric(
   const trend = sine(timeMs, entity, profile.base, profile.amplitude, profile.periodMs);
   const n = smoothNoise(timeMs, entity, metric, profile.noiseBucketMs ?? 5000);
   const value = trend + (n - 0.5) * 2 * profile.noiseLevel;
+  return clamp(value, profile.min ?? 0, profile.max ?? Infinity);
+}
+
+// ─── Simplex-Based Generator ──────────────────────────────────────────────────
+
+/** Profile for multi-octave simplex noise metric generation. */
+export interface SimplexProfile {
+  base: number;
+  amplitude: number;
+  periods: [number, number, number, number];
+  weights?: [number, number, number, number];
+  min?: number;
+  max?: number;
+}
+
+const DEFAULT_WEIGHTS: [number, number, number, number] = [0.5, 0.25, 0.15, 0.10];
+
+/**
+ * Generate a metric value using 4 octaves of 2D simplex noise.
+ *
+ * Each octave is seeded deterministically from entity/metric/octave, producing
+ * organic-looking signals without the obvious periodicity of sine waves.
+ */
+export function generateSimplexMetric(
+  timeMs: number,
+  entity: string,
+  metric: string,
+  profile: SimplexProfile,
+): number {
+  const weights = profile.weights ?? DEFAULT_WEIGHTS;
+  let sum = 0;
+
+  for (let i = 0; i < 4; i++) {
+    const seed = hashCode(`${entity}/${metric}/${i}`);
+    const prng = mulberry32(seed);
+    const noise2D = createNoise2D(prng);
+    const x = timeMs / profile.periods[i];
+    const y = (seed % 1000) / 1000;
+    sum += weights[i] * noise2D(x, y);
+  }
+
+  const value = profile.base + profile.amplitude * sum;
   return clamp(value, profile.min ?? 0, profile.max ?? Infinity);
 }
 
