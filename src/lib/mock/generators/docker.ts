@@ -1,14 +1,14 @@
 import type { DockerStatsRow } from '@/types/docker';
-import { generateMetric, spike } from '@/lib/mock/patterns';
+import { generateSimplexMetric, spike } from '@/lib/mock/patterns';
 import { DOCKER_ENTITIES, type DockerEntityDef } from '@/lib/mock/entities';
 import { mulberry32, hashCode } from '@/lib/mock/prng';
 
 /** Build a single DockerStatsRow from an entity definition at a given time. */
 function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string): DockerStatsRow {
   const entityKey = `${e.host}/${e.containerId}`;
-  const cpuBase = generateMetric(timeMs, entityKey, 'cpu', e.cpu);
+  const cpuBase = generateSimplexMetric(timeMs, entityKey, 'cpu', e.cpu);
   const cpuSpike = spike(timeMs, entityKey, 'cpu', 600_000, 30_000, 15);
-  const memUsage = generateMetric(timeMs, entityKey, 'memUsage', e.memoryUsage);
+  const memUsage = generateSimplexMetric(timeMs, entityKey, 'memUsage', e.memoryUsage);
 
   return {
     time: timeStr,
@@ -20,10 +20,10 @@ function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string): Do
     memory_usage: Math.round(memUsage),
     memory_limit: e.memoryLimit,
     memory_percent: Math.round((memUsage / e.memoryLimit) * 10000) / 100,
-    network_rx_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'netRx', e.networkRx)),
-    network_tx_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'netTx', e.networkTx)),
-    block_io_read_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'blockRead', e.blockRead)),
-    block_io_write_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'blockWrite', e.blockWrite)),
+    network_rx_bytes_per_sec: Math.round(generateSimplexMetric(timeMs, entityKey, 'netRx', e.networkRx)),
+    network_tx_bytes_per_sec: Math.round(generateSimplexMetric(timeMs, entityKey, 'netTx', e.networkTx)),
+    block_io_read_bytes_per_sec: Math.round(generateSimplexMetric(timeMs, entityKey, 'blockRead', e.blockRead)),
+    block_io_write_bytes_per_sec: Math.round(generateSimplexMetric(timeMs, entityKey, 'blockWrite', e.blockWrite)),
   };
 }
 
