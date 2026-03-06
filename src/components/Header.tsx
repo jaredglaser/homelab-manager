@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
 import Alert from '@mui/material/Alert'
@@ -69,27 +69,14 @@ function handlePrefetch(route: string) {
   }
 }
 
-const DEMO_BANNER_KEY = 'demo-banner-dismissed'
-
 function DemoBanner() {
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    try {
-      if (sessionStorage.getItem(DEMO_BANNER_KEY) !== 'true') setVisible(true)
-    } catch { /* storage unavailable */ }
-  }, [])
+  const [visible, setVisible] = useState(true)
 
   if (!visible) return null
 
-  function dismiss() {
-    try { sessionStorage.setItem(DEMO_BANNER_KEY, 'true') } catch { /* storage unavailable */ }
-    setVisible(false)
-  }
-
   return (
     <div className="mx-auto max-w-5xl pt-2 pointer-events-auto">
-      <Alert severity="info" onClose={dismiss}>
+      <Alert severity="info" onClose={() => setVisible(false)}>
         <strong>Demo mode</strong> &mdash; all data is generated in the browser.
         {' '}
         <MuiLink href="https://github.com/jaredglaser/homelab-manager" target="_blank" rel="noopener noreferrer">
