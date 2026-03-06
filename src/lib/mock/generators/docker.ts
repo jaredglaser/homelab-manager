@@ -7,7 +7,11 @@ import { mulberry32, hashCode } from '@/lib/mock/prng';
 function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string, sampleMs?: number): DockerStatsRow {
   const entityKey = `${e.host}/${e.containerId}`;
   const cpuBase = generateSimplexMetric(timeMs, entityKey, 'cpu', e.cpu, sampleMs);
-  const cpuSpike = spike(timeMs, entityKey, 'cpu', 600_000, 30_000, 15);
+  // Skip spikes when sample interval is too coarse to represent them -
+  // a 30s spike sampled at 518s intervals produces random needles
+  const cpuSpike = (!sampleMs || sampleMs <= 30_000)
+    ? spike(timeMs, entityKey, 'cpu', 600_000, 30_000, 15)
+    : 0;
   const memUsage = generateSimplexMetric(timeMs, entityKey, 'memUsage', e.memoryUsage, sampleMs);
 
   return {
