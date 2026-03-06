@@ -3,7 +3,7 @@ import { createRouter } from '@tanstack/react-router'
 import { routeTree } from './routeTree.gen'
 
 const NAV_ORDER: Record<string, number> = {
-  '/': 0,
+  '/docker': 0,
   '/zfs': 1,
   '/proxmox': 2,
   '/settings': 3,

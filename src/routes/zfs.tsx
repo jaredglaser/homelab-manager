@@ -1,12 +1,13 @@
 import { useCallback } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import ZFSPoolsTable from '@/components/zfs/ZFSPoolsTable'
 import ZFSPoolSpeedCharts from '@/components/zfs/ZFSPoolSpeedCharts'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
-import { getHistoricalZFSStats } from '@/data/zfs.functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
+import { ZFS_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadZFSStats } from '@/lib/constants/preload-queries'
 import type { ZFSStatsRow } from '@/types/zfs'
 
 export const Route = createFileRoute('/zfs')({
@@ -17,10 +18,13 @@ export const Route = createFileRoute('/zfs')({
 function ZFSPageContent() {
   const { general } = useSettings()
 
-  const preloadFn = useCallback(
-    () => getHistoricalZFSStats({ data: { seconds: 90 } }),
-    [],
-  )
+  const preloadFn = useCallback(preloadZFSStats, [])
+
+  const { data: initialData } = useQuery({
+    queryKey: ZFS_PRELOAD_KEY,
+    queryFn: preloadZFSStats,
+    staleTime: PRELOAD_STALE_TIME,
+  })
 
   const stream = useTimeSeriesStream<ZFSStatsRow>({
     sseUrl: apiUrl('/api/zfs-stats'),
@@ -30,6 +34,7 @@ function ZFSPageContent() {
     getEntity: (row) => row.host ? `${row.host}/${row.entity}` : row.entity,
     windowSeconds: 90,
     updateIntervalMs: general.updateIntervalMs,
+    initialData,
   })
 
   return (

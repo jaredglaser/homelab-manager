@@ -3,6 +3,11 @@ import Tab from '@mui/material/Tab'
 import { Link, useLocation } from '@tanstack/react-router'
 import { HardDrive, Settings } from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
+import { queryClient } from '@/components/AppShell'
+import {
+  DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
+  preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
+} from '@/lib/constants/preload-queries'
 
 interface IconProps {
   size?: number
@@ -27,8 +32,8 @@ function ProxmoxIcon({ size = 18 }: IconProps) {
 
 type NavIcon = React.ComponentType<{ size?: number }>
 
-const NAV_ITEMS: { to: '/' | '/zfs' | '/proxmox' | '/settings'; label: string; icon: NavIcon }[] = [
-  { to: '/', label: 'Docker', icon: DockerIcon },
+const NAV_ITEMS: { to: '/docker' | '/zfs' | '/proxmox' | '/settings'; label: string; icon: NavIcon }[] = [
+  { to: '/docker', label: 'Docker', icon: DockerIcon },
   { to: '/zfs', label: 'ZFS', icon: HardDrive },
   { to: '/proxmox', label: 'Proxmox', icon: ProxmoxIcon },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -37,17 +42,30 @@ const NAV_ITEMS: { to: '/' | '/zfs' | '/proxmox' | '/settings'; label: string; i
 function useCurrentTab(): string {
   const pathname = useLocation({ select: (l) => l.pathname })
   const match = NAV_ITEMS.find(
-    (item) => item.to === '/' ? pathname === '/' : pathname === item.to || pathname.startsWith(item.to + '/'),
+    (item) => pathname === item.to || pathname.startsWith(item.to + '/'),
   )
-  return match?.to ?? '/'
+  return match?.to ?? '/docker'
+}
+
+const PREFETCH_CONFIG: Partial<Record<string, { queryKey: readonly string[]; queryFn: () => Promise<unknown> }>> = {
+  '/docker': { queryKey: [...DOCKER_PRELOAD_KEY], queryFn: () => preloadDockerStats() },
+  '/zfs': { queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats },
+  '/proxmox': { queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats },
+}
+
+function handlePrefetch(route: string) {
+  const config = PREFETCH_CONFIG[route]
+  if (config) {
+    void queryClient.prefetchQuery({ ...config, staleTime: 1_000 })
+  }
 }
 
 export default function Header() {
   const currentTab = useCurrentTab()
 
   return (
-    <header className="sticky top-0 z-50 pt-3 pb-2 px-4">
-      <nav className="mx-auto max-w-5xl flex items-center rounded-2xl px-6 py-1 backdrop-blur-xl bg-[var(--mui-palette-background-paper)]/75 border border-[var(--mui-palette-divider)]/30 shadow-[0_8px_32px_var(--mui-palette-common-black)]/10">
+    <header className="sticky top-0 z-50 pt-3 pb-2 px-4 pointer-events-none">
+      <nav className="mx-auto max-w-5xl flex items-center rounded-2xl px-6 py-1 pointer-events-auto backdrop-blur-xl bg-[var(--mui-palette-background-paper)]/75 border border-[var(--mui-palette-divider)]/30 shadow-[0_8px_32px_var(--mui-palette-common-black)]/10">
         <Tabs
           value={currentTab}
           aria-label="Main navigation"
@@ -62,6 +80,8 @@ export default function Header() {
               iconPosition="start"
               component={Link}
               to={to}
+              disableRipple
+              onMouseEnter={() => handlePrefetch(to)}
               className="!min-h-0 !py-2"
             />
           ))}

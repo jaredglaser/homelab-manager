@@ -16,6 +16,8 @@ interface UseTimeSeriesStreamOptions<TRow> {
   updateIntervalMs?: number; // default 1000
   /** If set, re-fetches bucketed history at this interval (ms) to prevent unbounded buffer growth. */
   refreshIntervalMs?: number;
+  /** Cached preload data (e.g. from TanStack Query). If provided, seeds the buffer immediately instead of fetching. */
+  initialData?: TRow[];
   debug?: boolean;
 }
 
@@ -78,6 +80,7 @@ export function useTimeSeriesStream<TRow>({
   windowSeconds = 60,
   updateIntervalMs = 1000,
   refreshIntervalMs,
+  initialData,
   debug = false,
 }: UseTimeSeriesStreamOptions<TRow>): UseTimeSeriesStreamResult<TRow> {
   // Primary sorted state - drives renders. sortedRef mirrors it for synchronous reads in the flush interval.
@@ -142,9 +145,11 @@ export function useTimeSeriesStream<TRow>({
     }
   };
 
-  // Preload historical data on mount; re-fetch when preloadFn changes (window size changed).
-  // When chartWindowSeconds changes via SSE from another window, preloadFn gets a new identity
-  // (its useCallback dep changed), triggering this effect to re-fetch the larger history range.
+  // Seed the buffer from cached initialData or fetch via preloadFn.
+  // Re-fetches when preloadFn changes (window size changed via settings).
+  const initialDataRef = useRef(initialData);
+  initialDataRef.current = initialData;
+
   useEffect(() => {
     if (preloadedRef.current) {
       // preloadFn changed after initial mount - window size changed, re-fetch history.
@@ -153,6 +158,26 @@ export function useTimeSeriesStream<TRow>({
     }
     preloadedRef.current = true;
 
+    const seedRows = (rows: TRow[]) => {
+      if (rows.length === 0) return;
+      const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
+      const dedup = dedupRef.current;
+      for (const row of sorted) dedup.add(getKeyRef.current(row));
+      sortedRef.current = sorted;
+      setSortedRows(sorted);
+      setHasData(true);
+      setLastDataTime(Date.now());
+      lastRefreshRef.current = Date.now();
+    };
+
+    // Use cached data if available (e.g. from TanStack Query)
+    if (initialDataRef.current && initialDataRef.current.length > 0) {
+      if (debug) console.log(`[useTimeSeriesStream] Seeding from cached data: ${initialDataRef.current.length} rows`);
+      seedRows(initialDataRef.current);
+      return;
+    }
+
+    // Otherwise fetch from the server
     if (debug) console.log('[useTimeSeriesStream] Starting preload...');
     let preloadTimeoutId: ReturnType<typeof setTimeout>;
     const preloadTimeout = new Promise<never>((_, reject) => {
@@ -161,21 +186,8 @@ export function useTimeSeriesStream<TRow>({
     Promise.race([preloadFn(), preloadTimeout])
       .then((rows) => {
         clearTimeout(preloadTimeoutId);
-        if (rows.length === 0) {
-          if (debug) console.log('[useTimeSeriesStream] Preload complete: 0 rows');
-          return;
-        }
         if (debug) console.log(`[useTimeSeriesStream] Preload complete: ${rows.length} rows`);
-        const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
-        const dedup = dedupRef.current;
-        for (const row of sorted) {
-          dedup.add(getKeyRef.current(row));
-        }
-        sortedRef.current = sorted;
-        setSortedRows(sorted);
-        setHasData(true);
-        setLastDataTime(Date.now());
-        lastRefreshRef.current = Date.now();
+        seedRows(rows);
       })
       .catch((err) => {
         clearTimeout(preloadTimeoutId);

@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, useEffect } from 'react';
+import { memo, useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { ChevronRight, History, Settings } from 'lucide-react';
 import { Collapse, IconButton, Tooltip } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
@@ -161,12 +161,20 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
     decimals.cpu, decimals.memory, decimals.diskSpeed, decimals.networkSpeed,
   ]);
 
+  const rowRef = useRef<HTMLDivElement>(null);
+
   const handleClick = () => {
     toggleContainerExpanded(container.id);
   };
 
+  const handleExpanded = useCallback(() => {
+    if (expanded && rowRef.current) {
+      rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [expanded]);
+
   return (
-    <>
+    <div ref={rowRef}>
       <div
         onClick={handleClick}
         className={`group ${DOCKER_GRID} items-center cursor-pointer transition-[background-color,box-shadow] duration-150 ${
@@ -217,7 +225,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
                 e.stopPropagation();
                 setIconPickerOpen(true);
               }}
-              className="!p-1 !opacity-0 group-hover:!opacity-100 !transition-opacity"
+              className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100'}`}
               aria-label="Change container icon"
             >
               <Settings size={14} />
@@ -229,7 +237,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
                   e.stopPropagation();
                   onOpenHistory(container.id.split('/')[1], container.id.split('/')[0]);
                 }}
-                className="!p-1 !opacity-0 group-hover:!opacity-100 !transition-opacity"
+                className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100'}`}
                 aria-label="View container history"
               >
                 <History size={14} />
@@ -299,7 +307,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
         </div>
       </div>
 
-      <Collapse in={expanded} unmountOnExit>
+      <Collapse in={expanded} unmountOnExit onEntered={handleExpanded}>
         <ContainerChartsCard
           dataPoints={dataPoints}
           containerId={container.id.split('/')[1]}
@@ -316,6 +324,6 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
           containerName={container.name}
         />
       )}
-    </>
+    </div>
   );
 });

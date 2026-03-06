@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
+  PRELOAD_STALE_TIME,
+  preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
+} from '@/lib/constants/preload-queries'
 import Alert from '@mui/material/Alert'
 import Link from '@mui/material/Link'
 import ThemeProvider from '@/components/ThemeProvider'
@@ -60,6 +65,13 @@ export const queryClient = new QueryClient()
 export default function AppShell({ children }: { children: React.ReactNode }) {
   useSettingsSync()
   useLightPaletteEffect()
+
+  // Pre-seed all route data on app load so tab switches are instant
+  useEffect(() => {
+    void queryClient.ensureQueryData({ queryKey: [...DOCKER_PRELOAD_KEY], queryFn: () => preloadDockerStats(), staleTime: PRELOAD_STALE_TIME })
+    void queryClient.ensureQueryData({ queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats, staleTime: PRELOAD_STALE_TIME })
+    void queryClient.ensureQueryData({ queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats, staleTime: PRELOAD_STALE_TIME })
+  }, [])
 
   return (
     <ThemeProvider>
