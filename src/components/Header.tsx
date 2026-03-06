@@ -78,13 +78,14 @@ function DemoBanner() {
     <div className="mx-auto max-w-5xl pt-2 pointer-events-auto">
       <Alert severity="info" onClose={() => setVisible(false)}>
         <strong>Demo mode</strong> &mdash; all data is generated in the browser.
+        {' '}Self-host to connect to your own infrastructure.
         {' '}
-        <MuiLink href="https://github.com/jaredglaser/homelab-manager" target="_blank" rel="noopener noreferrer">
-          GitHub
-        </MuiLink>
-        {' '}&middot;{' '}
         <MuiLink href="https://github.com/jaredglaser/homelab-manager/blob/main/self-hosting/README.md" target="_blank" rel="noopener noreferrer">
           Self-host guide
+        </MuiLink>
+        {' '}&middot;{' '}
+        <MuiLink href="https://github.com/jaredglaser/homelab-manager" target="_blank" rel="noopener noreferrer">
+          GitHub
         </MuiLink>
       </Alert>
     </div>
