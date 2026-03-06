@@ -1,19 +1,34 @@
-import { memo, useState, useMemo, useRef, useCallback } from 'react';
+import { memo, useState, useMemo, useRef, useCallback, useEffect, createContext, useContext } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Drawer, IconButton, TextField, InputAdornment, Typography, Skeleton } from '@mui/material';
+import { SwipeableDrawer, ButtonBase, IconButton, TextField, InputAdornment, Typography, Skeleton } from '@mui/material';
 import { Search, X } from 'lucide-react';
 import { AVAILABLE_ICONS } from '@/lib/utils/icon-resolver';
+import { SELECTION_FEEDBACK_MS, DRAWER_ENTER_MS, DRAWER_EXIT_MS, DRAWER_EASING } from '@/lib/constants/ui-timing';
+
+/** Row-level AbortController context — aborts all in-flight icon loads when the row unmounts. */
+const AbortContext = createContext<AbortSignal | null>(null);
 
 const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: string; selected: boolean; onSelect: (slug: string) => void }) {
   const [loaded, setLoaded] = useState(false);
+  const signal = useContext(AbortContext);
+  const imgRef = useRef<HTMLImageElement | null>(null);
   const handleLoad = useCallback(() => setLoaded(true), []);
 
+  // Abort: remove src to cancel the in-flight request when the row unmounts
+  useEffect(() => {
+    if (!signal) return;
+    const onAbort = () => {
+      if (imgRef.current) imgRef.current.src = '';
+    };
+    signal.addEventListener('abort', onAbort);
+    return () => signal.removeEventListener('abort', onAbort);
+  }, [signal]);
+
   return (
-    <button
-      type="button"
+    <ButtonBase
       onClick={() => onSelect(slug)}
-      className={`flex flex-col items-center p-2 rounded-md hover:bg-blue-500/10 ${
-        selected ? 'bg-blue-500/20 ring-1 ring-blue-500' : ''
+      className={`!flex !flex-col !items-center !p-2 !rounded-md hover:!bg-blue-500/10 ${
+        selected ? '!bg-blue-500/20 !ring-1 !ring-blue-500' : ''
       }`}
     >
       <div className="relative w-8 h-8">
@@ -21,6 +36,7 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
           <Skeleton variant="rounded" width={32} height={32} className="!absolute inset-0" />
         )}
         <img
+          ref={imgRef}
           src={`${import.meta.env.BASE_URL}icons/${slug}.svg`}
           alt={slug}
           className={`w-8 h-8 ${loaded ? 'visible' : 'invisible'}`}
@@ -28,7 +44,24 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
         />
       </div>
       <span className="mt-1 text-xs truncate w-full text-center">{slug}</span>
-    </button>
+    </ButtonBase>
+  );
+});
+
+/** Provides a shared AbortController for all IconCells in the row. On unmount, aborts in-flight loads. */
+const IconRow = memo(function IconRow({ slugs, currentIcon, onSelect }: { slugs: string[]; currentIcon: string | null; onSelect: (slug: string) => void }) {
+  const controllerRef = useRef(new AbortController());
+
+  useEffect(() => {
+    return () => controllerRef.current.abort();
+  }, []);
+
+  return (
+    <AbortContext.Provider value={controllerRef.current.signal}>
+      {slugs.map((slug) => (
+        <IconCell key={slug} slug={slug} selected={currentIcon === slug} onSelect={onSelect} />
+      ))}
+    </AbortContext.Provider>
   );
 });
 
@@ -77,8 +110,10 @@ export default function IconPickerDialog({
 
   const handleSelect = (iconSlug: string) => {
     onSelect(iconSlug);
-    onClose();
-    setSearch('');
+    setTimeout(() => {
+      onClose();
+      setSearch('');
+    }, SELECTION_FEEDBACK_MS);
   };
 
   const handleClose = () => {
@@ -87,11 +122,13 @@ export default function IconPickerDialog({
   };
 
   return (
-    <Drawer
+    <SwipeableDrawer
       anchor="bottom"
       open={open}
       onClose={handleClose}
-      transitionDuration={{ enter: 400, exit: 300 }}
+      onOpen={() => {}}
+      disableScrollLock
+      transitionDuration={{ enter: DRAWER_ENTER_MS, exit: DRAWER_EXIT_MS }}
       slotProps={{
         paper: {
           className:
@@ -99,15 +136,15 @@ export default function IconPickerDialog({
         },
         transition: {
           easing: {
-            enter: 'cubic-bezier(0.32, 0.72, 0, 1)',
-            exit: 'cubic-bezier(0.32, 0.72, 0, 1)',
+            enter: DRAWER_EASING,
+            exit: DRAWER_EASING,
           },
         },
       }}
     >
       {/* Drag handle */}
       <div className="flex justify-center pt-3 pb-1 select-none">
-        <div className="w-10 h-1 rounded-full bg-neutral-400/50" />
+        <div className="w-10 h-1 rounded-full bg-[var(--mui-palette-divider)]" />
       </div>
 
       <div className="flex flex-col min-h-0">
@@ -155,12 +192,9 @@ export default function IconPickerDialog({
                     style={{
                       height: virtualRow.size,
                       transform: `translateY(${virtualRow.start}px)`,
-                      willChange: 'transform',
                     }}
                   >
-                    {row.map((slug) => (
-                      <IconCell key={slug} slug={slug} selected={currentIcon === slug} onSelect={handleSelect} />
-                    ))}
+                    <IconRow slugs={row} currentIcon={currentIcon} onSelect={handleSelect} />
                   </div>
                 );
               })}
@@ -168,6 +202,6 @@ export default function IconPickerDialog({
           )}
         </div>
       </div>
-    </Drawer>
+    </SwipeableDrawer>
   );
 }

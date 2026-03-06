@@ -51,7 +51,7 @@ export default function Header() {
         <Tabs
           value={currentTab}
           aria-label="Main navigation"
-          sx={{ minHeight: 0 }}
+          className="!min-h-0"
         >
           {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
             <Tab
@@ -62,7 +62,7 @@ export default function Header() {
               iconPosition="start"
               component={Link}
               to={to}
-              sx={{ minHeight: 0, py: 1 }}
+              className="!min-h-0 !py-2"
             />
           ))}
         </Tabs>

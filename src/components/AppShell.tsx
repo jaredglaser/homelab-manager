@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import Alert from '@mui/material/Alert'
 import Link from '@mui/material/Link'
@@ -20,15 +20,20 @@ if (import.meta.env.VITE_DEMO_MODE === 'true' && typeof window !== 'undefined') 
 const DEMO_BANNER_KEY = 'demo-banner-dismissed'
 
 function DemoBanner() {
-  const [dismissed, setDismissed] = useState(() => {
-    try { return sessionStorage.getItem(DEMO_BANNER_KEY) === 'true' } catch { return false }
-  })
+  // Start hidden to avoid hydration mismatch (sessionStorage unavailable on server)
+  const [visible, setVisible] = useState(false)
 
-  if (dismissed) return null
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(DEMO_BANNER_KEY) !== 'true') setVisible(true)
+    } catch { /* storage unavailable */ }
+  }, [])
+
+  if (!visible) return null
 
   function dismiss() {
     try { sessionStorage.setItem(DEMO_BANNER_KEY, 'true') } catch { /* storage unavailable */ }
-    setDismissed(true)
+    setVisible(false)
   }
 
   return (

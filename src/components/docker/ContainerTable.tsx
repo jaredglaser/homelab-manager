@@ -120,12 +120,9 @@ export default function ContainerTable({
     return groups;
   }, [hierarchy, chartDataByServiceKey]);
 
-  const listRef = useRef<HTMLDivElement>(null);
-
-  const virtualizer = useWindowVirtualizer({
-    count: hostGroups.length,
-    estimateSize: (index: number) => {
-      const group = hostGroups[index];
+  // Pre-compute estimated heights per host group so estimateSize is O(1)
+  const groupHeights = useMemo(() => {
+    return hostGroups.map((group) => {
       const expanded = isHostExpanded(group.host.hostName, group.totalHosts);
       if (!expanded) return ROW_HEIGHT_ESTIMATE;
       let height = ROW_HEIGHT_ESTIMATE;
@@ -133,7 +130,14 @@ export default function ContainerTable({
         height += isContainerExpanded(c.container.id) ? EXPANDED_ROW_HEIGHT_ESTIMATE : ROW_HEIGHT_ESTIMATE;
       }
       return height;
-    },
+    });
+  }, [hostGroups, isHostExpanded, isContainerExpanded]);
+
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useWindowVirtualizer({
+    count: hostGroups.length,
+    estimateSize: (index: number) => groupHeights[index],
     overscan: OVERSCAN,
     scrollMargin: listRef.current?.offsetTop ?? 0,
     getItemKey: (index: number) => `host-${hostGroups[index].host.hostName}`,

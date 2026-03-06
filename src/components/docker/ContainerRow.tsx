@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useState, useEffect } from 'react';
 import { ChevronRight, History, Settings } from 'lucide-react';
-import { Collapse, Tooltip } from '@mui/material';
+import { Collapse, IconButton, Tooltip } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
@@ -12,6 +12,7 @@ import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
 import { DOCKER_GRID, DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable';
+import { PULSE_DURATION_MS, LATE_THRESHOLD_MS } from '@/lib/constants/ui-timing';
 
 /** Chart data point derived from wide rows */
 interface ChartDataPoint {
@@ -61,8 +62,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
       lastUpdatedMsRef.current = lastUpdatedMs;
       setIsPulsing(true);
       setIsLate(false);
-      const pulseTimer = setTimeout(() => setIsPulsing(false), 1000);
-      const lateTimer = setTimeout(() => setIsLate(true), 2000);
+      const pulseTimer = setTimeout(() => setIsPulsing(false), PULSE_DURATION_MS);
+      const lateTimer = setTimeout(() => setIsLate(true), LATE_THRESHOLD_MS);
       return () => {
         clearTimeout(pulseTimer);
         clearTimeout(lateTimer);
@@ -210,26 +211,28 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
               onError={() => setIconError(true)}
             />
             <span className="truncate">{container.name}</span>
-            <button
+            <IconButton
+              size="small"
               onClick={(e) => {
                 e.stopPropagation();
                 setIconPickerOpen(true);
               }}
-              className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-neutral-500/20"
+              className="!p-1 !opacity-0 group-hover:!opacity-100 !transition-opacity"
               aria-label="Change container icon"
             >
               <Settings size={14} />
-            </button>
-            <button
+            </IconButton>
+            <IconButton
+              size="small"
               onClick={(e) => {
                 e.stopPropagation();
                 onOpenHistory?.(container.id.split('/')[1], container.id.split('/')[0]);
               }}
-              className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-neutral-500/20"
+              className="!p-1 !opacity-0 group-hover:!opacity-100 !transition-opacity"
               aria-label="View container history"
             >
               <History size={14} />
-            </button>
+            </IconButton>
           </div>
         </div>
         <div>

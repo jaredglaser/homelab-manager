@@ -1,5 +1,6 @@
-import { Drawer } from '@mui/material';
+import { SwipeableDrawer } from '@mui/material';
 import ContainerHistoryPage from '@/components/docker/ContainerHistoryPage';
+import { DRAWER_ENTER_MS, DRAWER_EXIT_MS, DRAWER_EASING } from '@/lib/constants/ui-timing';
 
 interface ContainerHistoryPanelProps {
   open: boolean;
@@ -17,11 +18,13 @@ export default function ContainerHistoryPanel({
   onExited,
 }: ContainerHistoryPanelProps) {
   return (
-    <Drawer
+    <SwipeableDrawer
       anchor="bottom"
       open={open}
       onClose={onClose}
-      transitionDuration={{ enter: 400, exit: 300 }}
+      onOpen={() => {}}
+      disableScrollLock
+      transitionDuration={{ enter: DRAWER_ENTER_MS, exit: DRAWER_EXIT_MS }}
       slotProps={{
         paper: {
           className:
@@ -30,15 +33,15 @@ export default function ContainerHistoryPanel({
         transition: {
           onExited,
           easing: {
-            enter: 'cubic-bezier(0.32, 0.72, 0, 1)',
-            exit: 'cubic-bezier(0.32, 0.72, 0, 1)',
+            enter: DRAWER_EASING,
+            exit: DRAWER_EASING,
           },
         },
       }}
     >
       {/* Drag handle */}
       <div className="flex justify-center pt-3 pb-1 select-none">
-        <div className="w-10 h-1 rounded-full bg-neutral-400/50" />
+        <div className="w-10 h-1 rounded-full bg-[var(--mui-palette-divider)]" />
       </div>
       <ContainerHistoryPage
         key={`${host}/${containerId}`}
@@ -47,6 +50,6 @@ export default function ContainerHistoryPanel({
         initialMetrics="cpu,memory"
         onClose={onClose}
       />
-    </Drawer>
+    </SwipeableDrawer>
   );
 }

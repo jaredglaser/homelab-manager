@@ -133,7 +133,7 @@ export default memo(function ContainerLogViewer({
               key={i}
               variant="text"
               width={`${45 + ((i * 37) % 50)}%`}
-              sx={{ bgcolor: 'var(--mui-palette-action-hover)', fontSize: 12 }}
+              className="!bg-[var(--mui-palette-action-hover)] !text-xs"
             />
           ))}
         </div>
