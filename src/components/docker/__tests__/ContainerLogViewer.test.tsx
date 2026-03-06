@@ -79,16 +79,32 @@ describe('ContainerLogViewer', () => {
     expect(screen.getByText('Logs')).toBeTruthy();
   });
 
-  it('shows connecting overlay when not connected', () => {
+  it('shows skeleton loading state when not ready', () => {
     mockReturnValue = { isConnected: false, error: null };
-    render(<ContainerLogViewer containerId="abc123" host="server" />);
-    expect(screen.getByText('Connecting...')).toBeTruthy();
+    const { container } = render(<ContainerLogViewer containerId="abc123" host="server" />);
+    // Skeleton elements should be present
+    expect(container.querySelectorAll('.MuiSkeleton-root').length).toBeGreaterThan(0);
+    // Terminal container should be invisible (opacity-0)
+    const termContainer = container.querySelector('.transition-opacity');
+    expect(termContainer?.className).toContain('opacity-0');
   });
 
-  it('hides connecting overlay when connected', () => {
+  it('hides skeleton when connected with terminal', async () => {
     mockReturnValue = { isConnected: true, error: null };
-    render(<ContainerLogViewer containerId="abc123" host="server" />);
-    expect(screen.queryByText('Connecting...')).toBeNull();
+    mockTerminalInstances.length = 0;
+    const { container } = render(<ContainerLogViewer containerId="abc123" host="server" />);
+
+    // Wait for terminal to initialize (triggers ready state)
+    await waitFor(() => {
+      expect(mockTerminalInstances.length).toBeGreaterThan(0);
+    });
+
+    // Once ready, skeleton should be gone and terminal visible
+    await waitFor(() => {
+      expect(container.querySelectorAll('.MuiSkeleton-root').length).toBe(0);
+      const termContainer = container.querySelector('.transition-opacity');
+      expect(termContainer?.className).toContain('opacity-100');
+    });
   });
 
   it('shows error message on failure', () => {

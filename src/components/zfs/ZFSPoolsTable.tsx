@@ -1,18 +1,17 @@
 import { useMemo, useRef } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { Box, Chip, CircularProgress, Paper, Tooltip, Typography } from '@mui/material';
+import { Box, Chip, CircularProgress, Collapse, Paper, Tooltip, Typography } from '@mui/material';
 import { ChevronRight, Server } from 'lucide-react';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import type { PoolStats, VdevStats, ZFSHostHierarchy, ZFSHostStats, ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
-import { formatBytes, formatAsPercent } from '@/formatters/metrics';
+import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
+import { MetricValue, MetricHeader, EMPTY_METRIC } from '@/components/shared-table';
 import { useSettings } from '@/hooks/useSettings';
 
 type ZFSFlatRow =
   | { type: 'host'; host: ZFSHostStats; totalHosts: number }
-  | { type: 'pool'; pool: PoolStats; totalPools: number; expandable: boolean; badge?: { label: string; tooltip?: string } }
-  | { type: 'vdev'; vdev: VdevStats }
-  | { type: 'disk'; disk: ZFSIOStatWithRates; indent: number };
+  | { type: 'pool'; pool: PoolStats; totalPools: number; expandable: boolean; badge?: { label: string; tooltip?: string }; isSingleVdevMultiDisk: boolean };
 
 const ROW_HEIGHT_ESTIMATE = 41;
 const OVERSCAN = 10;
@@ -34,7 +33,7 @@ export default function ZFSPoolsTable({
   error,
   isStale,
 }: ZFSPoolsTableProps) {
-  const { isZfsHostExpanded, isPoolExpanded, isVdevExpanded } = useSettings();
+  const { isZfsHostExpanded } = useSettings();
 
   // Build multi-host hierarchy from latest rows
   const hostHierarchy = useMemo<ZFSHostHierarchy>(() => {
@@ -42,12 +41,12 @@ export default function ZFSPoolsTable({
     return buildZFSHostHierarchy(rows);
   }, [latestByEntity]);
 
+  // Flatten to host + pool rows only; children render inside PoolRow via Collapse
   const flatRows = useMemo<ZFSFlatRow[]>(() => {
     const rows: ZFSFlatRow[] = [];
     const totalHosts = hostHierarchy.size;
 
     for (const hostStats of hostHierarchy.values()) {
-      // Add host row if there are multiple hosts
       if (totalHosts > 1) {
         rows.push({ type: 'host', host: hostStats, totalHosts });
 
@@ -79,35 +78,12 @@ export default function ZFSPoolsTable({
         }
 
         const expandable = !isSingleDiskPool;
-        rows.push({ type: 'pool', pool, totalPools, expandable, badge });
-
-        if (!expandable) continue;
-
-        const expanded = isPoolExpanded(pool.data.id, totalPools);
-        if (!expanded) continue;
-
-        if (isSingleVdevMultiDisk) {
-          for (const disk of vdevs[0].disks.values()) {
-            rows.push({ type: 'disk', disk: disk.data, indent: 1 });
-          }
-        } else {
-          for (const vdev of vdevs) {
-            rows.push({ type: 'vdev', vdev });
-            if (isVdevExpanded(vdev.data.id) && vdev.disks.size > 0) {
-              for (const disk of vdev.disks.values()) {
-                rows.push({ type: 'disk', disk: disk.data, indent: 2 });
-              }
-            }
-          }
-          for (const disk of disks) {
-            rows.push({ type: 'disk', disk: disk.data, indent: 1 });
-          }
-        }
+        rows.push({ type: 'pool', pool, totalPools, expandable, badge, isSingleVdevMultiDisk });
       }
     }
 
     return rows;
-  }, [hostHierarchy, isZfsHostExpanded, isPoolExpanded, isVdevExpanded]);
+  }, [hostHierarchy, isZfsHostExpanded]);
 
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -119,9 +95,7 @@ export default function ZFSPoolsTable({
     getItemKey: (index: number) => {
       const row = flatRows[index];
       if (row.type === 'host') return `host-${row.host.hostName}`;
-      if (row.type === 'pool') return `pool-${row.pool.data.id}`;
-      if (row.type === 'vdev') return `vdev-${row.vdev.data.id}`;
-      return `disk-${row.disk.id}`;
+      return `pool-${row.pool.data.id}`;
     },
   });
 
@@ -158,12 +132,12 @@ export default function ZFSPoolsTable({
           <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">
             {hostHierarchy.size > 1 ? 'Host / Pool / Device' : 'Pool / Device'}
           </div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Capacity</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Read Ops/s</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Write Ops/s</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Read</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Write</div>
-          <div className="px-3 py-2 font-semibold text-sm text-right whitespace-nowrap">Utilization</div>
+          <div className="px-3 py-2"><MetricHeader>Capacity</MetricHeader></div>
+          <div className="px-3 py-2"><MetricHeader>Read Ops/s</MetricHeader></div>
+          <div className="px-3 py-2"><MetricHeader>Write Ops/s</MetricHeader></div>
+          <div className="px-3 py-2"><MetricHeader>Read</MetricHeader></div>
+          <div className="px-3 py-2"><MetricHeader>Write</MetricHeader></div>
+          <div className="px-3 py-2"><MetricHeader>Utilization</MetricHeader></div>
         </div>
 
         {/* Virtualized body */}
@@ -196,17 +170,14 @@ export default function ZFSPoolsTable({
                   >
                     {row.type === 'host' ? (
                       <HostRow host={row.host} totalHosts={row.totalHosts} />
-                    ) : row.type === 'pool' ? (
+                    ) : (
                       <PoolRow
                         pool={row.pool}
                         totalPools={row.totalPools}
                         expandable={row.expandable}
                         badge={row.badge}
+                        isSingleVdevMultiDisk={row.isSingleVdevMultiDisk}
                       />
-                    ) : row.type === 'vdev' ? (
-                      <VdevRow vdev={row.vdev} />
-                    ) : (
-                      <DiskRow disk={row.disk} indent={row.indent} />
                     )}
                   </div>
                 );
@@ -225,27 +196,37 @@ function ZFSMetrics({ data, showCapacity = true }: { data: ZFSIOStatWithRates; s
   const { zfs } = useSettings();
   const { decimals } = zfs;
 
+  const totalBytes = data.capacity.alloc + data.capacity.free;
+  const capacityParts = showCapacity && totalBytes > 0
+    ? formatBytesParts(totalBytes, false)
+    : null;
+  const readOpsParts = { value: data.rates.readOpsPerSec.toFixed(0), unit: 'ops/s' };
+  const writeOpsParts = { value: data.rates.writeOpsPerSec.toFixed(0), unit: 'ops/s' };
+  const readParts = formatBytesParts(data.rates.readBytesPerSec, true, decimals.diskSpeed);
+  const writeParts = formatBytesParts(data.rates.writeBytesPerSec, true, decimals.diskSpeed);
+  const utilParts = formatAsPercentParts(data.rates.utilizationPercent / 100, decimals.diskSpeed);
+
   return (
     <>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {showCapacity && data.capacity.alloc + data.capacity.free > 0
-          ? formatBytes(data.capacity.alloc + data.capacity.free, false)
-          : '\u2014'}
+      <div className="px-3 py-2">
+        {capacityParts
+          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} />
+          : <MetricValue value={EMPTY_METRIC} unit="" />}
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {data.rates.readOpsPerSec.toFixed(0)}
+      <div className="px-3 py-2">
+        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} />
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {data.rates.writeOpsPerSec.toFixed(0)}
+      <div className="px-3 py-2">
+        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} />
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {formatBytes(data.rates.readBytesPerSec, true, decimals.diskSpeed)}
+      <div className="px-3 py-2">
+        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {formatBytes(data.rates.writeBytesPerSec, true, decimals.diskSpeed)}
+      <div className="px-3 py-2">
+        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {formatAsPercent(data.rates.utilizationPercent / 100, decimals.diskSpeed)}
+      <div className="px-3 py-2">
+        <MetricValue value={utilParts.value} unit={utilParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
     </>
   );
@@ -256,25 +237,34 @@ function HostAggregateMetrics({ host }: { host: ZFSHostStats }) {
   const { decimals } = zfs;
   const a = host.aggregated;
 
+  const totalBytes = a.capacityAlloc + a.capacityFree;
+  const capacityParts = totalBytes > 0 ? formatBytesParts(totalBytes, false) : null;
+  const readOpsParts = { value: a.readOpsPerSec.toFixed(0), unit: 'ops/s' };
+  const writeOpsParts = { value: a.writeOpsPerSec.toFixed(0), unit: 'ops/s' };
+  const readParts = formatBytesParts(a.readBytesPerSec, true, decimals.diskSpeed);
+  const writeParts = formatBytesParts(a.writeBytesPerSec, true, decimals.diskSpeed);
+
   return (
     <>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {a.capacityAlloc + a.capacityFree > 0 ? formatBytes(a.capacityAlloc + a.capacityFree, false) : '\u2014'}
+      <div className="px-3 py-2">
+        {capacityParts
+          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} />
+          : <MetricValue value={EMPTY_METRIC} unit="" />}
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {a.readOpsPerSec.toFixed(0)}
+      <div className="px-3 py-2">
+        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} />
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {a.writeOpsPerSec.toFixed(0)}
+      <div className="px-3 py-2">
+        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} />
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {formatBytes(a.readBytesPerSec, true, decimals.diskSpeed)}
+      <div className="px-3 py-2">
+        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {formatBytes(a.writeBytesPerSec, true, decimals.diskSpeed)}
+      <div className="px-3 py-2">
+        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} />
       </div>
-      <div className="px-3 py-2 text-right tabular-nums text-sm">
-        {'\u2014'}
+      <div className="px-3 py-2">
+        <MetricValue value={EMPTY_METRIC} unit="" />
       </div>
     </>
   );
@@ -323,11 +313,13 @@ function PoolRow({
   totalPools,
   expandable,
   badge,
+  isSingleVdevMultiDisk,
 }: {
   pool: PoolStats;
   totalPools: number;
   expandable: boolean;
   badge?: { label: string; tooltip?: string };
+  isSingleVdevMultiDisk: boolean;
 }) {
   const { isPoolExpanded, togglePoolExpanded } = useSettings();
   const expanded = isPoolExpanded(pool.data.id, totalPools);
@@ -343,27 +335,55 @@ function PoolRow({
     <Chip size="small" variant="filled" label={badge.label} />
   ) : null;
 
+  const vdevs = Array.from(pool.vdevs.values());
+  const individualDisks = Array.from(pool.individualDisks.values());
+
   return (
-    <div
-      onClick={handleClick}
-      className={`${ZFS_GRID} items-center ${canToggle ? 'cursor-pointer' : 'cursor-default'}`}
-    >
-      <div className="px-3 py-2 flex items-center gap-2 overflow-hidden">
-        {canToggle && (
-          <ChevronRight
-            size={18}
-            className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-          />
-        )}
-        <span className="font-bold truncate">{pool.data.name}</span>
-        {badge?.tooltip ? (
-          <Tooltip title={badge.tooltip} arrow placement="bottom-end">
-            {chipEl!}
-          </Tooltip>
-        ) : chipEl}
+    <>
+      <div
+        onClick={handleClick}
+        className={`${ZFS_GRID} items-center transition-colors duration-150 ${
+          canToggle ? 'cursor-pointer' : 'cursor-default'
+        } ${expanded ? 'bg-[var(--mui-palette-action-hover)]' : ''}`}
+      >
+        <div className="px-3 py-2 flex items-center gap-2 overflow-hidden">
+          {canToggle && (
+            <ChevronRight
+              size={18}
+              className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+            />
+          )}
+          <span className="font-bold truncate">{pool.data.name}</span>
+          {badge?.tooltip ? (
+            <Tooltip title={badge.tooltip} arrow placement="bottom-end">
+              {chipEl!}
+            </Tooltip>
+          ) : chipEl}
+        </div>
+        <ZFSMetrics data={pool.data} />
       </div>
-      <ZFSMetrics data={pool.data} />
-    </div>
+
+      {expandable && (
+        <Collapse in={expanded} unmountOnExit>
+          <div className="bg-[var(--mui-palette-action-hover)] border-b border-[var(--mui-palette-divider)]">
+            {isSingleVdevMultiDisk ? (
+              vdevs[0]?.disks && Array.from(vdevs[0].disks.values()).map((disk) => (
+                <DiskRow key={disk.data.id} disk={disk.data} indent={1} />
+              ))
+            ) : (
+              <>
+                {vdevs.map((vdev) => (
+                  <VdevRow key={vdev.data.id} vdev={vdev} />
+                ))}
+                {individualDisks.map((disk) => (
+                  <DiskRow key={disk.data.id} disk={disk.data} indent={1} />
+                ))}
+              </>
+            )}
+          </div>
+        </Collapse>
+      )}
+    </>
   );
 }
 
@@ -381,21 +401,31 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
   };
 
   return (
-    <div
-      onClick={handleClick}
-      className={`${ZFS_GRID} items-center bg-[var(--mui-palette-background-level2)] ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
-    >
-      <div className="py-2 pr-3 flex items-center gap-2 overflow-hidden" style={{ paddingLeft: '2rem' }}>
-        {hasDisks && (
-          <ChevronRight
-            size={16}
-            className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-          />
-        )}
-        <span className="text-sm truncate">{vdev.data.name}</span>
+    <>
+      <div
+        onClick={handleClick}
+        className={`${ZFS_GRID} items-center ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
+      >
+        <div className="py-2 pr-3 flex items-center gap-2 overflow-hidden" style={{ paddingLeft: '2rem' }}>
+          {hasDisks && (
+            <ChevronRight
+              size={16}
+              className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+            />
+          )}
+          <span className="text-sm truncate">{vdev.data.name}</span>
+        </div>
+        <ZFSMetrics data={vdev.data} showCapacity={vdev.data.capacity.alloc > 0} />
       </div>
-      <ZFSMetrics data={vdev.data} showCapacity={vdev.data.capacity.alloc > 0} />
-    </div>
+
+      {hasDisks && (
+        <Collapse in={expanded} unmountOnExit>
+          {Array.from(vdev.disks.values()).map((disk) => (
+            <DiskRow key={disk.data.id} disk={disk.data} indent={2} />
+          ))}
+        </Collapse>
+      )}
+    </>
   );
 }
 
@@ -404,10 +434,10 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
 function DiskRow({ disk, indent }: { disk: ZFSIOStatWithRates; indent: number }) {
   return (
     <div
-      className={`${ZFS_GRID} items-center bg-[var(--mui-palette-background-level1)]`}
+      className={`${ZFS_GRID} items-center`}
     >
       <div className="py-2 pr-3 overflow-hidden" style={{ paddingLeft: `${indent * 2}rem` }}>
-        <span className="text-xs font-mono truncate">{disk.name}</span>
+        <span className="text-sm truncate">{disk.name}</span>
       </div>
       <ZFSMetrics data={disk} showCapacity={false} />
     </div>

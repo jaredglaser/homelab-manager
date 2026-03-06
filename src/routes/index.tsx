@@ -1,7 +1,8 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
+import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { getHistoricalDockerStats, getDockerEntityIcons } from '@/data/docker.functions'
@@ -31,6 +32,21 @@ const SPARKLINE_BUFFER_SECONDS = 45
 
 function DockerPageContent() {
   const { general, docker, developer } = useSettings()
+  const [historyTarget, setHistoryTarget] = useState<{ containerId: string; host: string } | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  const handleOpenHistory = useCallback((containerId: string, host: string) => {
+    setHistoryTarget({ containerId, host })
+    setHistoryOpen(true)
+  }, [])
+
+  const handleCloseHistory = useCallback(() => {
+    setHistoryOpen(false)
+  }, [])
+
+  const handleHistoryExited = useCallback(() => {
+    setHistoryTarget(null)
+  }, [])
 
   const windowSeconds = Math.max(docker.chartWindowSeconds + 10, SPARKLINE_BUFFER_SECONDS)
 
@@ -61,7 +77,17 @@ function DockerPageContent() {
         isConnected={stream.isConnected}
         error={stream.error}
         isStale={stream.isStale}
+        onOpenHistory={handleOpenHistory}
       />
+      {historyTarget && (
+        <ContainerHistoryPanel
+          open={historyOpen}
+          containerId={historyTarget.containerId}
+          host={historyTarget.host}
+          onClose={handleCloseHistory}
+          onExited={handleHistoryExited}
+        />
+      )}
     </div>
   )
 }

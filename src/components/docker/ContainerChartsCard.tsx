@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { Paper } from '@mui/material';
+import { Divider } from '@mui/material';
 import { formatAsPercent, formatBitsSIUnits } from '@/formatters/metrics';
 import DualSeriesChart from '@/components/docker/DualSeriesChart';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
@@ -69,8 +69,9 @@ export default memo(function ContainerChartsCard({
   );
 
   return (
-    <Paper variant="outlined" className="m-2 p-4 rounded-sm">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="bg-[var(--mui-palette-action-hover)] pb-4 border-b border-[var(--mui-palette-divider)]">
+      <Divider />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pt-4">
         <div className="flex flex-col gap-3">
           <DualSeriesChart
             title="CPU & Memory"
@@ -87,6 +88,6 @@ export default memo(function ContainerChartsCard({
         </div>
         <ContainerLogViewer containerId={containerId} host={host} />
       </div>
-    </Paper>
+    </div>
   );
 });

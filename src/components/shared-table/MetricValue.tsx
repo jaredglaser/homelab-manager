@@ -2,6 +2,9 @@ import { memo, type ReactNode } from 'react';
 import { useSettings } from '@/hooks/useSettings';
 import { abbreviateUnit } from '@/lib/utils/abbreviate-unit';
 
+/** Display placeholder for metrics with no value */
+export const EMPTY_METRIC = '--';
+
 interface MetricValueProps {
   /** The numeric value to display */
   value: string;
@@ -25,10 +28,9 @@ export const MetricValue = memo(function MetricValue({
   const { general } = useSettings();
   const { useAbbreviatedUnits, showSparklines } = general;
 
-  // With decimals: need space for up to "999.99" (6 chars)
-  // Without decimals: need space for up to "9999" (4 chars)
-  // Using ch units for precise character-based width with tabular-nums
-  const valueWidth = hasDecimals ? 'w-[6ch]' : 'w-[4ch]';
+  // Reserve minimum space to prevent layout shift on typical values,
+  // but allow growth for larger numbers (e.g., 5+ digit ops/s)
+  const valueWidth = hasDecimals ? 'min-w-[6ch]' : 'min-w-[4ch]';
 
   const displayUnit = useAbbreviatedUnits ? abbreviateUnit(unit) : unit;
   // Abbreviated units are narrower, adjust width accordingly
