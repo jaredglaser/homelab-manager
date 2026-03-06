@@ -129,22 +129,38 @@ function getCachedNoise2D(seed: number): (x: number, y: number) => number {
  * Each octave is seeded deterministically from entity/metric/octave, producing
  * organic-looking signals without the obvious periodicity of sine waves.
  * Noise functions are cached per seed so the permutation table is built only once.
+ *
+ * When `sampleIntervalMs` is provided, octaves with periods below 2x the sample
+ * interval are skipped to prevent aliasing (high-frequency noise that appears as
+ * random static when under-sampled). Their weight is redistributed to surviving
+ * octaves so the overall amplitude stays consistent.
  */
 export function generateSimplexMetric(
   timeMs: number,
   entity: string,
   metric: string,
   profile: SimplexProfile,
+  sampleIntervalMs?: number,
 ): number {
   const weights = profile.weights ?? DEFAULT_WEIGHTS;
+  const nyquist = sampleIntervalMs ? sampleIntervalMs * 2 : 0;
+
   let sum = 0;
+  let totalWeight = 0;
 
   for (let i = 0; i < 4; i++) {
+    if (nyquist > 0 && profile.periods[i] < nyquist) continue;
     const seed = hashCode(`${entity}/${metric}/${i}`);
     const noise2D = getCachedNoise2D(seed);
     const x = timeMs / profile.periods[i];
     const y = (seed % 1000) / 1000;
     sum += weights[i] * noise2D(x, y);
+    totalWeight += weights[i];
+  }
+
+  // Normalize so skipped octaves don't reduce overall amplitude
+  if (totalWeight > 0 && totalWeight < 1) {
+    sum /= totalWeight;
   }
 
   const value = profile.base + profile.amplitude * sum;
