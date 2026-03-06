@@ -104,17 +104,18 @@ export default function ContainerTable({
   }, [rows, entityIcons]);
 
   // Build host groups: each host with all its containers (always included for Collapse animation)
+  // Sort hosts and containers for stable rendering order (Map iteration is insertion-order)
   const hostGroups = useMemo<HostGroup[]>(() => {
     const totalHosts = hierarchy.size;
+    const hosts = Array.from(hierarchy.values()).sort((a, b) => a.hostName.localeCompare(b.hostName));
     const groups: HostGroup[] = [];
-    for (const host of hierarchy.values()) {
-      const containers: HostGroup['containers'] = [];
-      for (const container of host.containers.values()) {
-        containers.push({
+    for (const host of hosts) {
+      const containers: HostGroup['containers'] = Array.from(host.containers.values())
+        .sort((a, b) => a.data.name.localeCompare(b.data.name))
+        .map((container) => ({
           container: container.data,
           chartData: chartDataByServiceKey.get(container.data.serviceKeyEntity) ?? [],
-        });
-      }
+        }));
       groups.push({ host, totalHosts, containers });
     }
     return groups;

@@ -14,6 +14,7 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
   const signal = useContext(AbortContext);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const handleLoad = useCallback(() => setLoaded(true), []);
+  const handleError = useCallback(() => setLoaded(true), []);
 
   // Abort: remove src to cancel the in-flight request when the row unmounts
   useEffect(() => {
@@ -42,6 +43,7 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
           alt={slug}
           className={`w-8 h-8 ${loaded ? 'visible' : 'invisible'}`}
           onLoad={handleLoad}
+          onError={handleError}
         />
       </div>
       <span className="mt-1 text-xs truncate w-full text-center">{slug}</span>
@@ -115,13 +117,13 @@ export default function IconPickerDialog({
     overscan: 8,
   });
 
-  const handleSelect = (iconSlug: string) => {
+  const handleSelect = useCallback((iconSlug: string) => {
     onSelect(iconSlug);
     feedbackTimerRef.current = setTimeout(() => {
       onClose();
       setSearch('');
     }, SELECTION_FEEDBACK_MS);
-  };
+  }, [onSelect, onClose]);
 
   const handleClose = () => {
     onClose();

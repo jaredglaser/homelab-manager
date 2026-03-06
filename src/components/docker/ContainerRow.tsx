@@ -222,17 +222,19 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             >
               <Settings size={14} />
             </IconButton>
-            <IconButton
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenHistory?.(container.id.split('/')[1], container.id.split('/')[0]);
-              }}
-              className="!p-1 !opacity-0 group-hover:!opacity-100 !transition-opacity"
-              aria-label="View container history"
-            >
-              <History size={14} />
-            </IconButton>
+            {onOpenHistory && (
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenHistory(container.id.split('/')[1], container.id.split('/')[0]);
+                }}
+                className="!p-1 !opacity-0 group-hover:!opacity-100 !transition-opacity"
+                aria-label="View container history"
+              >
+                <History size={14} />
+              </IconButton>
+            )}
           </div>
         </div>
         <div>

@@ -202,7 +202,7 @@ export default function ContainerHistoryPage({
               )}
               <Typography variant="caption" className="text-neutral-500 block" noWrap>{containerImage || '\u00A0'}</Typography>
             </div>
-            <IconButton onClick={onClose} aria-label="Close history panel" className="!flex-shrink-0">
+            <IconButton onClick={() => onClose?.()} aria-label="Close history panel" className="!flex-shrink-0">
               <X size={20} />
             </IconButton>
           </div>

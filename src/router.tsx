@@ -20,7 +20,7 @@ export const getRouter = () => {
       types: ({ fromLocation, toLocation }) => {
         const fromIndex = NAV_ORDER[fromLocation?.pathname ?? ''] ?? -1
         const toIndex = NAV_ORDER[toLocation.pathname] ?? -1
-        if (fromIndex < 0 || toIndex < 0) return ['fade']
+        if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return ['fade']
         return fromIndex < toIndex ? ['slide-forward'] : ['slide-back']
       },
     },

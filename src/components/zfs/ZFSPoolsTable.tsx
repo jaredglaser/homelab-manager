@@ -342,6 +342,10 @@ function PoolRow({
     <>
       <div
         onClick={handleClick}
+        onKeyDown={canToggle ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } } : undefined}
+        role={canToggle ? 'button' : undefined}
+        tabIndex={canToggle ? 0 : undefined}
+        aria-expanded={canToggle ? expanded : undefined}
         className={`${ZFS_GRID} items-center transition-colors duration-150 ${
           canToggle ? 'cursor-pointer' : 'cursor-default'
         } ${expanded ? 'bg-[var(--mui-palette-action-hover)]' : ''}`}
@@ -404,6 +408,10 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
     <>
       <div
         onClick={handleClick}
+        onKeyDown={hasDisks ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } } : undefined}
+        role={hasDisks ? 'button' : undefined}
+        tabIndex={hasDisks ? 0 : undefined}
+        aria-expanded={hasDisks ? expanded : undefined}
         className={`${ZFS_GRID} items-center ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
       >
         <div className="py-2 pr-3 flex items-center gap-2 overflow-hidden" style={{ paddingLeft: '2rem' }}>
