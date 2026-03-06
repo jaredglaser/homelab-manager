@@ -1,5 +1,8 @@
+import { useState, useEffect } from 'react'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
+import Alert from '@mui/material/Alert'
+import MuiLink from '@mui/material/Link'
 import { Link, useLocation } from '@tanstack/react-router'
 import { HardDrive, Settings } from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
@@ -66,6 +69,41 @@ function handlePrefetch(route: string) {
   }
 }
 
+const DEMO_BANNER_KEY = 'demo-banner-dismissed'
+
+function DemoBanner() {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem(DEMO_BANNER_KEY) !== 'true') setVisible(true)
+    } catch { /* storage unavailable */ }
+  }, [])
+
+  if (!visible) return null
+
+  function dismiss() {
+    try { sessionStorage.setItem(DEMO_BANNER_KEY, 'true') } catch { /* storage unavailable */ }
+    setVisible(false)
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl pt-2 pointer-events-auto">
+      <Alert severity="info" onClose={dismiss}>
+        <strong>Demo mode</strong> &mdash; all data is generated in the browser.
+        {' '}
+        <MuiLink href="https://github.com/jaredglaser/homelab-manager" target="_blank" rel="noopener noreferrer">
+          GitHub
+        </MuiLink>
+        {' '}&middot;{' '}
+        <MuiLink href="https://github.com/jaredglaser/homelab-manager/blob/main/self-hosting/README.md" target="_blank" rel="noopener noreferrer">
+          Self-host guide
+        </MuiLink>
+      </Alert>
+    </div>
+  )
+}
+
 export default function Header() {
   const currentTab = useCurrentTab()
 
@@ -97,6 +135,7 @@ export default function Header() {
           <ModeToggle />
         </div>
       </nav>
+      {import.meta.env.VITE_DEMO_MODE === 'true' && <DemoBanner />}
     </header>
   )
 }

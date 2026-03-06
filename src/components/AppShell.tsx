@@ -1,12 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
   PRELOAD_STALE_TIME,
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
 } from '@/lib/constants/preload-queries'
-import Alert from '@mui/material/Alert'
-import Link from '@mui/material/Link'
 import ThemeProvider from '@/components/ThemeProvider'
 import Header from '@/components/Header'
 import Toasts from '@/components/Toasts'
@@ -20,44 +18,6 @@ if (import.meta.env.VITE_DEMO_MODE === 'true' && typeof window !== 'undefined') 
   // This is safe because EventSource connections are created in useEffect (deferred),
   // and MockEventSource._start uses setTimeout(50ms) - both fire after .then() resolves.
   void import('@/lib/mock/install-demo').then(({ installDemo }) => installDemo())
-}
-
-const DEMO_BANNER_KEY = 'demo-banner-dismissed'
-
-function DemoBanner() {
-  // Start hidden to avoid hydration mismatch (sessionStorage unavailable on server)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    try {
-      if (sessionStorage.getItem(DEMO_BANNER_KEY) !== 'true') setVisible(true)
-    } catch { /* storage unavailable */ }
-  }, [])
-
-  if (!visible) return null
-
-  function dismiss() {
-    try { sessionStorage.setItem(DEMO_BANNER_KEY, 'true') } catch { /* storage unavailable */ }
-    setVisible(false)
-  }
-
-  return (
-    <div className="px-4 pb-1">
-      <div className="mx-auto max-w-5xl">
-        <Alert severity="info" onClose={dismiss}>
-          <strong>Demo mode</strong> &mdash; all data is generated in the browser.
-          {' '}
-          <Link href="https://github.com/jaredglaser/homelab-manager" target="_blank" rel="noopener noreferrer">
-            GitHub
-          </Link>
-          {' '}&middot;{' '}
-          <Link href="https://github.com/jaredglaser/homelab-manager/blob/main/self-hosting/README.md" target="_blank" rel="noopener noreferrer">
-            Self-host guide
-          </Link>
-        </Alert>
-      </div>
-    </div>
-  )
 }
 
 export const queryClient = new QueryClient()
@@ -77,7 +37,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       <div className="flex flex-col min-h-screen">
         <Header />
-        {import.meta.env.VITE_DEMO_MODE === 'true' && <DemoBanner />}
         <QueryClientProvider client={queryClient}>
           <div className="flex-1 flex flex-col [view-transition-name:page-content]">
             {children}
