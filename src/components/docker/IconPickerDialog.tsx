@@ -1,9 +1,10 @@
 import { memo, useState, useMemo, useRef, useCallback, useEffect, createContext, useContext } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { SwipeableDrawer, ButtonBase, IconButton, TextField, InputAdornment, Typography, Skeleton } from '@mui/material';
+import { ButtonBase, IconButton, TextField, InputAdornment, Typography, Skeleton } from '@mui/material';
 import { Search, X } from 'lucide-react';
 import { AVAILABLE_ICONS } from '@/lib/utils/icon-resolver';
-import { SELECTION_FEEDBACK_MS, DRAWER_ENTER_MS, DRAWER_EXIT_MS, DRAWER_EASING } from '@/lib/constants/ui-timing';
+import { SELECTION_FEEDBACK_MS } from '@/lib/constants/ui-timing';
+import BottomDrawer from '@/components/shared/BottomDrawer';
 
 /** Row-level AbortController context — aborts all in-flight icon loads when the row unmounts. */
 const AbortContext = createContext<AbortSignal | null>(null);
@@ -85,6 +86,12 @@ export default function IconPickerDialog({
 }: IconPickerDialogProps) {
   const [search, setSearch] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Cleanup selection feedback timer on unmount
+  useEffect(() => {
+    return () => clearTimeout(feedbackTimerRef.current);
+  }, []);
 
   const filteredIcons = useMemo(() => {
     if (!search.trim()) return AVAILABLE_ICONS;
@@ -110,7 +117,7 @@ export default function IconPickerDialog({
 
   const handleSelect = (iconSlug: string) => {
     onSelect(iconSlug);
-    setTimeout(() => {
+    feedbackTimerRef.current = setTimeout(() => {
       onClose();
       setSearch('');
     }, SELECTION_FEEDBACK_MS);
@@ -122,31 +129,7 @@ export default function IconPickerDialog({
   };
 
   return (
-    <SwipeableDrawer
-      anchor="bottom"
-      open={open}
-      onClose={handleClose}
-      onOpen={() => {}}
-      disableScrollLock
-      transitionDuration={{ enter: DRAWER_ENTER_MS, exit: DRAWER_EXIT_MS }}
-      slotProps={{
-        paper: {
-          className:
-            '!rounded-t-2xl !rounded-b-none !bg-[var(--mui-palette-background-default)] !max-h-[calc(100vh-60px)]',
-        },
-        transition: {
-          easing: {
-            enter: DRAWER_EASING,
-            exit: DRAWER_EASING,
-          },
-        },
-      }}
-    >
-      {/* Drag handle */}
-      <div className="flex justify-center pt-3 pb-1 select-none">
-        <div className="w-10 h-1 rounded-full bg-[var(--mui-palette-divider)]" />
-      </div>
-
+    <BottomDrawer open={open} onClose={handleClose}>
       <div className="flex flex-col min-h-0">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-2 pb-3 select-none">
@@ -182,7 +165,7 @@ export default function IconPickerDialog({
           {filteredIcons.length === 0 ? (
             <p className="text-center py-4 text-sm opacity-70">No icons found for &quot;{search}&quot;</p>
           ) : (
-            <div style={{ height: virtualizer.getTotalSize(), position: 'relative', contain: 'strict' }}>
+            <div style={{ height: virtualizer.getTotalSize(), position: 'relative', contain: 'layout style' }}>
               {virtualizer.getVirtualItems().map((virtualRow) => {
                 const row = iconRows[virtualRow.index];
                 return (
@@ -202,6 +185,6 @@ export default function IconPickerDialog({
           )}
         </div>
       </div>
-    </SwipeableDrawer>
+    </BottomDrawer>
   );
 }

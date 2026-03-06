@@ -124,16 +124,16 @@ html {
 }
 
 @keyframes slide-out-left {
-  to { transform: translateX(-100%); opacity: 0; }
+  to { transform: translateX(-100%); }
 }
 @keyframes slide-in-from-right {
-  from { transform: translateX(100%); opacity: 0; }
+  from { transform: translateX(100%); }
 }
 @keyframes slide-out-right {
-  to { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(100%); }
 }
 @keyframes slide-in-from-left {
-  from { transform: translateX(-100%); opacity: 0; }
+  from { transform: translateX(-100%); }
 }
 @keyframes vt-fade-out {
   to { opacity: 0; }
