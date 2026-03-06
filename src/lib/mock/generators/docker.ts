@@ -67,6 +67,7 @@ export function generateContainerHistory(
   host: string | undefined,
   fromMs: number,
   toMs: number,
+  targetPoints: number = 300,
 ): DockerStatsRow[] {
   const rows: DockerStatsRow[] = [];
   const entity = DOCKER_ENTITIES.find(
@@ -74,7 +75,8 @@ export function generateContainerHistory(
   );
   if (!entity) return rows;
 
-  const step = Math.max(1000, Math.floor((toMs - fromMs) / 5000));
+  const spanMs = toMs - fromMs;
+  const step = Math.max(1000, Math.floor(spanMs / targetPoints));
   for (let t = fromMs; t <= toMs; t += step) {
     const time = new Date(t);
     rows.push(buildDockerRow(entity, time.getTime(), time.toISOString(), step));
