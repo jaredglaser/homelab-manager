@@ -111,11 +111,24 @@ export interface SimplexProfile {
 
 const DEFAULT_WEIGHTS: [number, number, number, number] = [0.5, 0.25, 0.15, 0.10];
 
+/** Cache noise functions by seed to avoid rebuilding the 512-entry permutation table on every call. */
+const noiseCache = new Map<number, (x: number, y: number) => number>();
+
+function getCachedNoise2D(seed: number): (x: number, y: number) => number {
+  let fn = noiseCache.get(seed);
+  if (!fn) {
+    fn = createNoise2D(mulberry32(seed));
+    noiseCache.set(seed, fn);
+  }
+  return fn;
+}
+
 /**
  * Generate a metric value using 4 octaves of 2D simplex noise.
  *
  * Each octave is seeded deterministically from entity/metric/octave, producing
  * organic-looking signals without the obvious periodicity of sine waves.
+ * Noise functions are cached per seed so the permutation table is built only once.
  */
 export function generateSimplexMetric(
   timeMs: number,
@@ -128,8 +141,7 @@ export function generateSimplexMetric(
 
   for (let i = 0; i < 4; i++) {
     const seed = hashCode(`${entity}/${metric}/${i}`);
-    const prng = mulberry32(seed);
-    const noise2D = createNoise2D(prng);
+    const noise2D = getCachedNoise2D(seed);
     const x = timeMs / profile.periods[i];
     const y = (seed % 1000) / 1000;
     sum += weights[i] * noise2D(x, y);
