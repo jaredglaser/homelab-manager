@@ -1,7 +1,6 @@
-import { memo, useMemo, useRef, useState, useEffect } from 'react';
+import { memo, useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { ChevronRight, History, Settings } from 'lucide-react';
-import { Link } from '@tanstack/react-router';
-import { Tooltip } from '@mui/material';
+import { Collapse, IconButton, Tooltip } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
@@ -13,6 +12,7 @@ import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
 import { DOCKER_GRID, DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable';
+import { PULSE_DURATION_MS, LATE_THRESHOLD_MS } from '@/lib/constants/ui-timing';
 
 /** Chart data point derived from wide rows */
 interface ChartDataPoint {
@@ -28,9 +28,10 @@ interface ChartDataPoint {
 interface ContainerRowProps {
   container: DockerStatsFromDB;
   chartData: DockerStatsRow[];
+  onOpenHistory?: (containerId: string, host: string) => void;
 }
 
-export default memo(function ContainerRow({ container, chartData }: ContainerRowProps) {
+export default memo(function ContainerRow({ container, chartData, onOpenHistory }: ContainerRowProps) {
   const { general, docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
   const { rates } = container;
   const { decimals } = docker;
@@ -61,8 +62,8 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
       lastUpdatedMsRef.current = lastUpdatedMs;
       setIsPulsing(true);
       setIsLate(false);
-      const pulseTimer = setTimeout(() => setIsPulsing(false), 1000);
-      const lateTimer = setTimeout(() => setIsLate(true), 2000);
+      const pulseTimer = setTimeout(() => setIsPulsing(false), PULSE_DURATION_MS);
+      const lateTimer = setTimeout(() => setIsLate(true), LATE_THRESHOLD_MS);
       return () => {
         clearTimeout(pulseTimer);
         clearTimeout(lateTimer);
@@ -160,18 +161,28 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
     decimals.cpu, decimals.memory, decimals.diskSpeed, decimals.networkSpeed,
   ]);
 
+  const rowRef = useRef<HTMLDivElement>(null);
+
   const handleClick = () => {
     toggleContainerExpanded(container.id);
   };
 
+  const handleExpanded = useCallback(() => {
+    if (expanded && rowRef.current) {
+      rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [expanded]);
+
   return (
-    <>
+    <div ref={rowRef}>
       <div
         onClick={handleClick}
         className={`group ${DOCKER_GRID} items-center cursor-pointer transition-[background-color,box-shadow] duration-150 ${
           container.stale
             ? 'bg-amber-500/10 opacity-70 hover:bg-amber-500/15 hover:shadow-[inset_0_0_0_1px_rgba(245,158,11,0.4)]'
-            : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
+            : expanded
+              ? 'bg-[var(--mui-palette-action-hover)]'
+              : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
         }`}
       >
         <div className="px-3 py-2">
@@ -208,26 +219,34 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
               onError={() => setIconError(true)}
             />
             <span className="truncate">{container.name}</span>
-            <button
+            <IconButton
+              size="small"
               onClick={(e) => {
                 e.stopPropagation();
                 setIconPickerOpen(true);
               }}
-              className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-neutral-500/20"
+              className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100 focus-visible:!opacity-100'}`}
               aria-label="Change container icon"
+              tabIndex={expanded ? 0 : -1}
+              aria-hidden={!expanded}
             >
               <Settings size={14} />
-            </button>
-            <Link
-              to="/docker/$containerId"
-              params={{ containerId: container.id.split('/')[1] }}
-              search={{ host: container.id.split('/')[0], metrics: 'cpu,memory' }}
-              onClick={(e: React.MouseEvent) => e.stopPropagation()}
-              className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-neutral-500/20"
-              aria-label="View container history"
-            >
-              <History size={14} />
-            </Link>
+            </IconButton>
+            {onOpenHistory && (
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenHistory(container.id.split('/')[1], container.id.split('/')[0]);
+                }}
+                className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100 focus-visible:!opacity-100'}`}
+                aria-label="View container history"
+                tabIndex={expanded ? 0 : -1}
+                aria-hidden={!expanded}
+              >
+                <History size={14} />
+              </IconButton>
+            )}
           </div>
         </div>
         <div>
@@ -235,7 +254,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
-            color="cpu"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden min-[1428px]:block" />}
           />
@@ -245,7 +264,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
-            color="memory"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden min-[1428px]:block" />}
           />
@@ -255,7 +274,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
             hasDecimals={decimals.diskSpeed}
-            color="read"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden min-[1428px]:block" />}
           />
@@ -265,7 +284,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}
             hasDecimals={decimals.diskSpeed}
-            color="write"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden min-[1428px]:block" />}
           />
@@ -275,7 +294,7 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.networkRx.value}
             unit={metricParts.networkRx.unit}
             hasDecimals={decimals.networkSpeed}
-            color="read"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden min-[1428px]:block" />}
           />
@@ -285,20 +304,20 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
             value={metricParts.networkTx.value}
             unit={metricParts.networkTx.unit}
             hasDecimals={decimals.networkSpeed}
-            color="write"
+
             isStale={container.stale}
             sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden min-[1428px]:block" />}
           />
         </div>
       </div>
 
-      {expanded && (
+      <Collapse in={expanded} unmountOnExit onEntered={handleExpanded}>
         <ContainerChartsCard
           dataPoints={dataPoints}
           containerId={container.id.split('/')[1]}
           host={container.id.split('/')[0]}
         />
-      )}
+      </Collapse>
 
       {iconPickerOpen && (
         <IconPickerDialog
@@ -309,6 +328,6 @@ export default memo(function ContainerRow({ container, chartData }: ContainerRow
           containerName={container.name}
         />
       )}
-    </>
+    </div>
   );
 });

@@ -1,15 +1,16 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { Typography, CircularProgress, Tooltip, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material'
 import { Zap, Waves } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import AppShell from '../components/AppShell'
 import PageHeader from '@/components/PageHeader'
 import ClusterSummaryCards from '@/components/proxmox/ClusterSummaryCards'
 import ProxmoxHostView from '@/components/proxmox/ProxmoxHostView'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
-import { getHistoricalProxmoxStats, testProxmoxConnection } from '@/data/proxmox.functions'
+import { testProxmoxConnection } from '@/data/proxmox.functions'
+import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/lib/constants/preload-queries'
 import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
 import { apiUrl } from '@/lib/utils/api-url'
 import type { ProxmoxStatsRow } from '@/types/proxmox'
@@ -114,16 +115,8 @@ function UpdateIndicator({ expectedInterval }: { expectedInterval: number }) {
 
 export const Route = createFileRoute('/proxmox')({
   ssr: false,
-  component: ProxmoxPage,
+  component: ProxmoxPageContent,
 })
-
-function ProxmoxPage() {
-  return (
-    <AppShell>
-      <ProxmoxPageContent />
-    </AppShell>
-  )
-}
 
 /**
  * Renders the Proxmox dashboard content including the header, update controls, and main content area.
@@ -165,10 +158,13 @@ function ProxmoxContent() {
   const [configured, setConfigured] = useState<boolean | null>(null)
   const setLastUpdate = useSetAtom(proxmoxLastUpdateAtom)
 
-  const preloadFn = useCallback(
-    () => getHistoricalProxmoxStats({ data: { seconds: WINDOW_SECONDS } }) as Promise<ProxmoxStatsRow[]>,
-    [],
-  )
+  const preloadFn = useCallback(preloadProxmoxStats, [])
+
+  const { data: initialData } = useQuery({
+    queryKey: PROXMOX_PRELOAD_KEY,
+    queryFn: preloadProxmoxStats,
+    staleTime: PRELOAD_STALE_TIME,
+  })
 
   const stream = useTimeSeriesStream<ProxmoxStatsRow>({
     sseUrl: apiUrl('/api/proxmox-stats'),
@@ -178,6 +174,7 @@ function ProxmoxContent() {
     getEntity: (r) => `${r.entity_type}/${r.entity_id}`,
     windowSeconds: WINDOW_SECONDS,
     updateIntervalMs: 1000,
+    initialData,
   })
 
   // Update the last-update atom when new rows arrive

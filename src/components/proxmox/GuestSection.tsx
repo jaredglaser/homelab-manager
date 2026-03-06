@@ -1,11 +1,9 @@
-import { Chip } from '@mui/material'
+import { Chip, Collapse } from '@mui/material'
 import { ChevronRight } from 'lucide-react'
 import type { GuestRow } from '@/types/proxmox'
-import { formatBytes, formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
-import { MetricValue, MetricHeader } from '@/components/shared-table'
+import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
+import { MetricValue, MetricHeader, EMPTY_METRIC } from '@/components/shared-table'
 import { GUEST_GRID, BORDER, ROW_HOVER } from '@/components/proxmox/constants'
-
-const DASH_CELL = <span className="text-right block px-3">-</span>
 
 interface GuestSectionProps {
   label: string
@@ -33,8 +31,8 @@ export function GuestSection({ label, guests, expanded, onToggle }: GuestSection
         </span>
       </div>
 
-      {expanded && (
-        <>
+      <Collapse in={expanded} unmountOnExit>
+        <div className="bg-[var(--mui-palette-action-hover)] border-b border-[var(--mui-palette-divider)]">
           {/* Column headers */}
           <div className={`${GUEST_GRID} ${BORDER}`}>
             <div className="px-3 py-2 font-semibold text-sm">VMID</div>
@@ -49,7 +47,9 @@ export function GuestSection({ label, guests, expanded, onToggle }: GuestSection
           {/* Data rows */}
           {sorted.map((vm) => {
             const cpuParts = formatAsPercentParts(vm.cpu, true)
-            const memParts = formatAsPercentParts(vm.maxmem > 0 ? vm.mem / vm.maxmem : 0, true)
+            const memParts = vm.status === 'running'
+              ? formatAsPercentParts(vm.maxmem > 0 ? vm.mem / vm.maxmem : 0, true)
+              : formatBytesParts(vm.maxmem, false, false)
             const netInParts = formatBytesParts(vm.netin, false, false)
             const netOutParts = formatBytesParts(vm.netout, false, false)
 
@@ -67,31 +67,27 @@ export function GuestSection({ label, guests, expanded, onToggle }: GuestSection
                 </div>
                 <div>
                   {vm.status === 'running' ? (
-                    <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals color="cpu" />
-                  ) : DASH_CELL}
+                    <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals />
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
                 </div>
                 <div>
-                  {vm.status === 'running' ? (
-                    <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals color="memory" />
-                  ) : (
-                    <span className="text-right block px-3">{formatBytes(vm.maxmem, false, false)}</span>
-                  )}
+                  <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals={vm.status === 'running'} />
                 </div>
                 <div>
                   {vm.status === 'running' ? (
                     <MetricValue value={netInParts.value} unit={netInParts.unit} />
-                  ) : DASH_CELL}
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
                 </div>
                 <div>
                   {vm.status === 'running' ? (
                     <MetricValue value={netOutParts.value} unit={netOutParts.unit} />
-                  ) : DASH_CELL}
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
                 </div>
               </div>
             )
           })}
-        </>
-      )}
+        </div>
+      </Collapse>
     </>
   )
 }

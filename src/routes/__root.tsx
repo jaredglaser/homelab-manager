@@ -1,5 +1,6 @@
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
+import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
 import { lazy } from 'react'
+import AppShell from '@/components/AppShell'
 
 import '../App.css'
 import '@fontsource/inter/index.css'
@@ -38,8 +39,17 @@ export const Route = createRootRoute({
     ],
   }),
 
+  component: RootLayout,
   shellComponent: RootDocument,
 })
+
+function RootLayout() {
+  return (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  )
+}
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (

@@ -1,6 +1,9 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, type ReactNode } from 'react';
 import { useSettings } from '@/hooks/useSettings';
 import { abbreviateUnit } from '@/lib/utils/abbreviate-unit';
+
+/** Display placeholder for metrics with no value */
+export const EMPTY_METRIC = '--';
 
 interface MetricValueProps {
   /** The numeric value to display */
@@ -11,50 +14,23 @@ interface MetricValueProps {
   sparkline?: ReactNode;
   /** Whether decimals are enabled - affects reserved width */
   hasDecimals?: boolean;
-  /** Color category for glow animation (cpu, memory, read, write) */
-  color?: 'cpu' | 'memory' | 'read' | 'write';
   /** Whether the data is stale (desaturate visuals) */
   isStale?: boolean;
 }
 
-/**
- * Displays a metric value with consistent width handling.
- * Reserves appropriate space for the value based on whether decimals are enabled,
- * preventing layout shift when values change.
- * Applies a color-coded glow animation when the value updates.
- */
 export const MetricValue = memo(function MetricValue({
   value,
   unit,
   sparkline,
   hasDecimals = false,
-  color,
   isStale = false,
 }: MetricValueProps) {
   const { general } = useSettings();
   const { useAbbreviatedUnits, showSparklines } = general;
-  const previousValueRef = useRef<string>(value);
-  const [isGlowing, setIsGlowing] = useState(false);
 
-  // Detect value changes and trigger glow animation
-  useEffect(() => {
-    if (color && previousValueRef.current !== value) {
-      previousValueRef.current = value;
-      setIsGlowing(true);
-
-      const glowTimer = setTimeout(() => setIsGlowing(false), 600);
-
-      return () => {
-        clearTimeout(glowTimer);
-      };
-    }
-    previousValueRef.current = value;
-  }, [value, color]);
-
-  // With decimals: need space for up to "999.99" (6 chars)
-  // Without decimals: need space for up to "9999" (4 chars)
-  // Using ch units for precise character-based width with tabular-nums
-  const valueWidth = hasDecimals ? 'w-[6ch]' : 'w-[4ch]';
+  // Reserve minimum space to prevent layout shift on typical values,
+  // but allow growth for larger numbers (e.g., 5+ digit ops/s)
+  const valueWidth = hasDecimals ? 'min-w-[6ch]' : 'min-w-[4ch]';
 
   const displayUnit = useAbbreviatedUnits ? abbreviateUnit(unit) : unit;
   // Abbreviated units are narrower, adjust width accordingly
@@ -66,14 +42,13 @@ export const MetricValue = memo(function MetricValue({
     <div className="hidden min-[1280px]:block flex-shrink-0" style={{ width: 60, height: 24 }} />
   ) : null;
 
-  const glowClass = color && isGlowing ? `metric-value-glow-${color}` : '';
   const staleClass = isStale ? 'opacity-50 saturate-50' : '';
 
   return (
     <div className="flex items-center justify-end gap-2">
       {sparkline || sparklinePlaceholder}
 
-      <span className={`${valueWidth} flex-shrink-0 text-right tabular-nums transition-opacity duration-200 ${glowClass} ${staleClass}`}>
+      <span className={`${valueWidth} flex-shrink-0 text-right tabular-nums transition-opacity duration-200 ${staleClass}`}>
         {value}
       </span>
 

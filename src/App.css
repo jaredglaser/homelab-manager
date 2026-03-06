@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @source not "../CLAUDE.md";
 
+html {
+  scrollbar-gutter: stable;
+}
+
 /*
  * Chart colors (values match Tailwind's default palette)
  * Note: ECharts does not support oklch colors for stops, so we use hex/rgba values.
@@ -51,55 +55,97 @@
   --indicator-late: #fbbf24; /* amber-400 */
 }
 
-/* Metric value glow animations */
-@keyframes glow-cpu {
-  0%, 100% {
-    text-shadow: 0 0 0 transparent;
+
+/* Themed scrollbar for drawer panels — uses MUI palette for theme adaptation */
+.themed-scrollbar {
+  &::-webkit-scrollbar {
+    width: 14px;
   }
-  50% {
-    text-shadow: 0 0 8px var(--chart-cpu), 0 0 12px var(--chart-cpu);
+  &::-webkit-scrollbar-track {
+    background: color-mix(in srgb, var(--mui-palette-text-primary) 6%, transparent);
+    border-radius: 7px;
+    margin: 4px 0;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--mui-palette-text-primary) 25%, transparent);
+    border-radius: 7px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--mui-palette-text-primary) 45%, transparent);
+    border: 3px solid transparent;
+    background-clip: padding-box;
   }
 }
 
-@keyframes glow-memory {
-  0%, 100% {
-    text-shadow: 0 0 0 transparent;
-  }
-  50% {
-    text-shadow: 0 0 8px var(--chart-memory), 0 0 12px var(--chart-memory);
-  }
+/* Suppress default crossfade on root (header, toasts, etc. stay put) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
 }
 
-@keyframes glow-read {
-  0%, 100% {
-    text-shadow: 0 0 0 transparent;
-  }
-  50% {
-    text-shadow: 0 0 8px var(--chart-read), 0 0 12px var(--chart-read);
-  }
+/* Only the page content area transitions */
+::view-transition-old(page-content) {
+  animation: none;
+}
+::view-transition-new(page-content) {
+  animation: none;
 }
 
-@keyframes glow-write {
-  0%, 100% {
-    text-shadow: 0 0 0 transparent;
+/* Forward: slide left */
+:active-view-transition-type(slide-forward) {
+  &::view-transition-old(page-content) {
+    animation: slide-out-left 200ms ease-in forwards;
   }
-  50% {
-    text-shadow: 0 0 8px var(--chart-write), 0 0 12px var(--chart-write);
+  &::view-transition-new(page-content) {
+    animation: slide-in-from-right 200ms ease-out forwards;
   }
 }
 
-.metric-value-glow-cpu {
-  animation: glow-cpu 0.6s ease-out;
+/* Backward: slide right */
+:active-view-transition-type(slide-back) {
+  &::view-transition-old(page-content) {
+    animation: slide-out-right 200ms ease-in forwards;
+  }
+  &::view-transition-new(page-content) {
+    animation: slide-in-from-left 200ms ease-out forwards;
+  }
 }
 
-.metric-value-glow-memory {
-  animation: glow-memory 0.6s ease-out;
+/* Fallback fade for non-nav routes */
+:active-view-transition-type(fade) {
+  &::view-transition-old(page-content) {
+    animation: vt-fade-out 150ms ease-in forwards;
+  }
+  &::view-transition-new(page-content) {
+    animation: vt-fade-in 200ms ease-out forwards;
+  }
 }
 
-.metric-value-glow-read {
-  animation: glow-read 0.6s ease-out;
+@keyframes slide-out-left {
+  to { transform: translateX(-100%); }
+}
+@keyframes slide-in-from-right {
+  from { transform: translateX(100%); }
+}
+@keyframes slide-out-right {
+  to { transform: translateX(100%); }
+}
+@keyframes slide-in-from-left {
+  from { transform: translateX(-100%); }
+}
+@keyframes vt-fade-out {
+  to { opacity: 0; }
+}
+@keyframes vt-fade-in {
+  from { opacity: 0; }
 }
 
-.metric-value-glow-write {
-  animation: glow-write 0.6s ease-out;
+/* Respect reduced motion preference for view transitions */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(page-content),
+  ::view-transition-new(page-content) {
+    animation: none;
+  }
 }

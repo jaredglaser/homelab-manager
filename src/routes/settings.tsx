@@ -1,21 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
-import AppShell from '../components/AppShell'
 import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Switch, Typography } from '@mui/material'
 import { useSettings, type MemoryDisplayMode, type DecimalSettings, type LightPalette } from '@/hooks/useSettings'
 import PageHeader from '@/components/PageHeader'
 
 export const Route = createFileRoute('/settings')({
   ssr: false,
-  component: SettingsPage,
+  component: SettingsContent,
 })
-
-function SettingsPage() {
-  return (
-    <AppShell>
-      <SettingsContent />
-    </AppShell>
-  )
-}
 
 function SettingsContent() {
   const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setChartWindowSeconds, setShowSparklines, setUseAbbreviatedUnits, setLightPalette, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();

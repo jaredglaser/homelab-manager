@@ -1,11 +1,9 @@
-import { Chip, LinearProgress } from '@mui/material'
+import { Chip, Collapse, LinearProgress } from '@mui/material'
 import { ChevronRight } from 'lucide-react'
 import type { ProxmoxStorage } from '@/types/proxmox'
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
-import { MetricValue, MetricHeader } from '@/components/shared-table'
+import { MetricValue, MetricHeader, EMPTY_METRIC } from '@/components/shared-table'
 import { STORAGE_GRID, BORDER, ROW_HOVER } from '@/components/proxmox/constants'
-
-const DASH_CELL = <span className="text-right block px-3">-</span>
 
 interface StorageSectionProps {
   storages: ProxmoxStorage[]
@@ -32,8 +30,8 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
         </span>
       </div>
 
-      {expanded && (
-        <>
+      <Collapse in={expanded} unmountOnExit>
+        <div className="bg-[var(--mui-palette-action-hover)] border-b border-[var(--mui-palette-divider)]">
           {/* Column headers */}
           <div className={`${STORAGE_GRID} ${BORDER}`}>
             <div className="px-3 py-2 font-semibold text-sm">Name</div>
@@ -65,12 +63,12 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
                 <div>
                   {s.total > 0 ? (
                     <MetricValue value={usedParts.value} unit={usedParts.unit} />
-                  ) : DASH_CELL}
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
                 </div>
                 <div>
                   {s.total > 0 ? (
                     <MetricValue value={availParts.value} unit={availParts.unit} />
-                  ) : DASH_CELL}
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
                 </div>
                 <div>
                   {s.total > 0 ? (
@@ -93,13 +91,13 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
                         />
                       }
                     />
-                  ) : DASH_CELL}
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
                 </div>
               </div>
             )
           })}
-        </>
-      )}
+        </div>
+      </Collapse>
     </>
   )
 }

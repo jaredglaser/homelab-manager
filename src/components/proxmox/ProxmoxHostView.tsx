@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
-import { Paper, Chip } from '@mui/material'
+import { Paper, Chip, Collapse } from '@mui/material'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
 import { useSettings } from '@/hooks/useSettings'
+import { EMPTY_METRIC } from '@/components/shared-table'
 import { BORDER } from '@/components/proxmox/constants'
 import { formatUptime } from '@/components/proxmox/utils'
 import { GuestSection } from '@/components/proxmox/GuestSection'
@@ -87,9 +88,9 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
             {/* Host accordion row */}
             <div
               onClick={() => toggleProxmoxHostExpanded(node.node)}
-              className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer bg-[var(--mui-palette-background-level2)] ${
+              className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
                 nodeIdx > 0 ? BORDER : ''
-              }`}
+              } ${hostExpanded ? 'bg-[var(--mui-palette-action-hover)]' : 'bg-[var(--mui-palette-background-level2)]'}`}
             >
               <ChevronRight
                 size={18}
@@ -103,46 +104,44 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
                 color={node.status === 'online' ? 'success' : 'error'}
                 label={node.status}
               />
-              <div className="ml-auto flex items-center gap-4 text-sm font-mono">
+              <div className="ml-auto flex items-center gap-4 text-sm tabular-nums">
                 <span>CPU: {cpuPercent}%</span>
                 <span>Mem: {memPercent}%</span>
                 <span>Disk: {diskPercent}%</span>
                 <span className="text-neutral-500">
-                  {node.status === 'online' ? formatUptime(node.uptime) : '-'}
+                  {node.status === 'online' ? formatUptime(node.uptime) : EMPTY_METRIC}
                 </span>
               </div>
             </div>
 
             {/* Expanded sections */}
-            {hostExpanded && (
-              <>
-                {vms.length > 0 && (
-                  <GuestSection
-                    label="Virtual Machines"
-                    guests={vms}
-                    expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-vm`) : true}
-                    onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-vm`)}
-                  />
-                )}
+            <Collapse in={hostExpanded} unmountOnExit>
+              {vms.length > 0 && (
+                <GuestSection
+                  label="Virtual Machines"
+                  guests={vms}
+                  expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-vm`) : true}
+                  onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-vm`)}
+                />
+              )}
 
-                {containers.length > 0 && (
-                  <GuestSection
-                    label="LXC Containers"
-                    guests={containers}
-                    expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-ct`) : true}
-                    onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-ct`)}
-                  />
-                )}
+              {containers.length > 0 && (
+                <GuestSection
+                  label="LXC Containers"
+                  guests={containers}
+                  expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-ct`) : true}
+                  onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-ct`)}
+                />
+              )}
 
-                {storages.length > 0 && (
-                  <StorageSection
-                    storages={storages}
-                    expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-storage`) : true}
-                    onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-storage`)}
-                  />
-                )}
-              </>
-            )}
+              {storages.length > 0 && (
+                <StorageSection
+                  storages={storages}
+                  expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-storage`) : true}
+                  onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-storage`)}
+                />
+              )}
+            </Collapse>
           </div>
         )
       })}

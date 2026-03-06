@@ -1,8 +1,7 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Typography, CircularProgress } from '@mui/material';
-import { ArrowLeft } from 'lucide-react';
+import { Typography, CircularProgress, IconButton, Skeleton } from '@mui/material';
+import { X } from 'lucide-react';
 import { getContainerHistory, getContainerInfo } from '@/data/docker.functions';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import MetricCheckboxes, { type MetricType } from '@/components/docker/MetricCheckboxes';
@@ -15,6 +14,7 @@ interface ContainerHistoryPageProps {
   initialMetrics: string;
   initialFrom?: number;
   initialTo?: number;
+  onClose?: () => void;
 }
 
 /**
@@ -50,8 +50,8 @@ export default function ContainerHistoryPage({
   initialMetrics,
   initialFrom,
   initialTo,
+  onClose,
 }: ContainerHistoryPageProps) {
-  const navigate = useNavigate({ from: '/docker/$containerId' });
 
   const now = useRef(Date.now()).current;
   const initialRange = useRef({
@@ -153,20 +153,6 @@ export default function ContainerHistoryPage({
   // Cleanup debounce timer
   useEffect(() => () => clearTimeout(debounceRef.current), []);
 
-  // Sync URL search params when debounced range or metrics change
-  useEffect(() => {
-    const metricsStr = Array.from(selectedMetrics).join(',');
-    navigate({
-      search: (prev) => ({
-        ...prev,
-        metrics: metricsStr,
-        from: debouncedRange.from,
-        to: debouncedRange.to,
-      }),
-      replace: true,
-    });
-  }, [debouncedRange, selectedMetrics, navigate]);
-
   const handleMetricsChange = useCallback((metrics: Set<MetricType>) => {
     setSelectedMetrics(metrics);
   }, []);
@@ -182,6 +168,11 @@ export default function ContainerHistoryPage({
   const iconUrl = containerImage ? getIconUrl(containerIcon, containerImage) : FALLBACK_ICON_URL;
   const [iconError, setIconError] = useState(false);
 
+  // Reset icon error when the resolved URL changes (e.g. new valid icon assigned)
+  useEffect(() => {
+    setIconError(false);
+  }, [iconUrl]);
+
   const timelineData = useMemo(() => timelineQuery.data ?? [], [timelineQuery.data]);
   const chartData = useMemo(() => chartQuery.data ?? [], [chartQuery.data]);
 
@@ -192,66 +183,81 @@ export default function ContainerHistoryPage({
   const chartTo = debouncedRange.to;
 
   return (
-    <div className="flex flex-col flex-1">
-      {/* Header */}
-      <div className="p-6 pb-4">
-        <Link to="/" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300 mb-3">
-          <ArrowLeft size={14} />
-          Docker Dashboard
-        </Link>
-
-        <div className="flex items-center gap-3 mb-4">
-          <img
-            src={iconError ? FALLBACK_ICON_URL : iconUrl}
-            alt=""
-            className="w-8 h-8 flex-shrink-0"
-            onError={() => setIconError(true)}
-          />
-          <div>
-            <Typography variant="h5">{containerName}</Typography>
-            {showServiceKey && (
-              <Typography variant="caption" className="text-[var(--mui-palette-text-secondary)] block">Service: {serviceKey}</Typography>
-            )}
-            {containerImage && (
-              <Typography variant="caption" className="text-neutral-500">{containerImage}</Typography>
+    <div className="flex flex-col min-h-0">
+      {/* Sticky panel header */}
+      <div className="sticky top-0 z-10 !bg-[var(--mui-palette-background-level1)] border-b border-[var(--mui-palette-divider)] px-6 pt-4 pb-3 select-none">
+        <div className="relative">
+          {/* Real content — always in flow, determines height */}
+          <div className={`flex items-center gap-3 transition-opacity duration-300 ${infoQuery.isLoading ? 'opacity-0' : 'opacity-100'}`}>
+            <img
+              src={iconError ? FALLBACK_ICON_URL : iconUrl}
+              alt=""
+              className="w-8 h-8 flex-shrink-0"
+              onError={() => setIconError(true)}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <Typography variant="h5" noWrap>{containerName}</Typography>
+                {chartQuery.isFetching && (
+                  <CircularProgress size={18} />
+                )}
+              </div>
+              {showServiceKey && (
+                <Typography variant="caption" className="text-[var(--mui-palette-text-secondary)] block" noWrap>Service: {serviceKey}</Typography>
+              )}
+              <Typography variant="caption" className="text-neutral-500 block" noWrap>{containerImage || '\u00A0'}</Typography>
+            </div>
+            {onClose && (
+              <IconButton onClick={onClose} aria-label="Close history panel" className="!flex-shrink-0">
+                <X size={20} />
+              </IconButton>
             )}
           </div>
-          {chartQuery.isFetching && (
-            <CircularProgress size={20} className="ml-2" />
+          {/* Skeleton overlay — always absolute, fades out */}
+          <div className={`absolute inset-0 flex items-center gap-3 transition-opacity duration-300 ${infoQuery.isLoading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+            <Skeleton variant="rounded" width={32} height={32} className="flex-shrink-0" />
+            <div className="min-w-0 flex-1">
+              <Typography variant="h5"><Skeleton width={180} /></Typography>
+              <Typography variant="caption"><Skeleton width={120} /></Typography>
+            </div>
+          </div>
+        </div>
+        <div className="mt-3">
+          <MetricCheckboxes selected={selectedMetrics} onChange={handleMetricsChange} />
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div className="overflow-y-auto flex-1 min-h-0 themed-scrollbar">
+        {/* Charts area */}
+        <div className="px-6 py-4">
+          {chartData.length === 0 && !chartQuery.isFetching ? (
+            <div className="flex items-center justify-center h-64 text-neutral-500">
+              <Typography variant="body1">No data available for this time range.</Typography>
+            </div>
+          ) : (
+            <HistoricalChartsGrid
+              data={chartData}
+              selectedMetrics={selectedMetrics}
+              from={chartFrom}
+              to={chartTo}
+            />
           )}
         </div>
 
-        <MetricCheckboxes selected={selectedMetrics} onChange={handleMetricsChange} />
+        {/* Sticky timeline - preset/custom range data, slider selects chart sub-range */}
+        <HistoricalTimeline
+          timelineData={timelineData}
+          initialFrom={initialRange.from}
+          initialTo={initialRange.to}
+          onRangeChange={handleRangeChange}
+          timelineFrom={timelineRange.from}
+          timelineTo={timelineRange.to}
+          activePresetMs={activePresetMs}
+          onPresetChange={handlePresetChange}
+          onCustomRangeChange={handleCustomRangeChange}
+        />
       </div>
-
-      {/* Charts area */}
-      <div className="flex-1 px-6 pb-4">
-        {chartData.length === 0 && !chartQuery.isFetching ? (
-          <div className="flex items-center justify-center h-64 text-neutral-500">
-            <Typography variant="body1">No data available for this time range.</Typography>
-          </div>
-        ) : (
-          <HistoricalChartsGrid
-            data={chartData}
-            selectedMetrics={selectedMetrics}
-            from={chartFrom}
-            to={chartTo}
-          />
-        )}
-      </div>
-
-      {/* Sticky timeline - preset/custom range data, slider selects chart sub-range */}
-      <HistoricalTimeline
-        timelineData={timelineData}
-        initialFrom={initialRange.from}
-        initialTo={initialRange.to}
-        onRangeChange={handleRangeChange}
-        timelineFrom={timelineRange.from}
-        timelineTo={timelineRange.to}
-        activePresetMs={activePresetMs}
-        onPresetChange={handlePresetChange}
-        onCustomRangeChange={handleCustomRangeChange}
-      />
     </div>
   );
 }
