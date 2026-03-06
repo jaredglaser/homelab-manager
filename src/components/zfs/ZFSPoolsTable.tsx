@@ -46,7 +46,8 @@ export default function ZFSPoolsTable({
     const rows: ZFSFlatRow[] = [];
     const totalHosts = hostHierarchy.size;
 
-    for (const hostStats of hostHierarchy.values()) {
+    const sortedHosts = Array.from(hostHierarchy.values()).sort((a, b) => a.hostName.localeCompare(b.hostName));
+    for (const hostStats of sortedHosts) {
       if (totalHosts > 1) {
         rows.push({ type: 'host', host: hostStats, totalHosts });
 
@@ -57,10 +58,11 @@ export default function ZFSPoolsTable({
 
       const poolHierarchy = hostStats.pools;
       const totalPools = poolHierarchy.size;
+      const sortedPools = Array.from(poolHierarchy.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
 
-      for (const pool of poolHierarchy.values()) {
-        const vdevs = Array.from(pool.vdevs.values());
-        const disks = Array.from(pool.individualDisks.values());
+      for (const pool of sortedPools) {
+        const vdevs = Array.from(pool.vdevs.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
+        const disks = Array.from(pool.individualDisks.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
         const singleVdev = vdevs.length === 1 && disks.length === 0;
         const isSingleDiskPool =
           (singleVdev && vdevs[0].disks.size <= 1) ||
@@ -335,13 +337,13 @@ function PoolRow({
     <Chip size="small" variant="filled" label={badge.label} />
   ) : null;
 
-  const vdevs = Array.from(pool.vdevs.values());
-  const individualDisks = Array.from(pool.individualDisks.values());
+  const vdevs = Array.from(pool.vdevs.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
+  const individualDisks = Array.from(pool.individualDisks.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
 
   return (
     <>
       <div
-        onClick={handleClick}
+        onClick={canToggle ? handleClick : undefined}
         onKeyDown={canToggle ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } } : undefined}
         role={canToggle ? 'button' : undefined}
         tabIndex={canToggle ? 0 : undefined}
@@ -407,7 +409,7 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
   return (
     <>
       <div
-        onClick={handleClick}
+        onClick={hasDisks ? handleClick : undefined}
         onKeyDown={hasDisks ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } } : undefined}
         role={hasDisks ? 'button' : undefined}
         tabIndex={hasDisks ? 0 : undefined}

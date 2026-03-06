@@ -168,6 +168,11 @@ export default function ContainerHistoryPage({
   const iconUrl = containerImage ? getIconUrl(containerIcon, containerImage) : FALLBACK_ICON_URL;
   const [iconError, setIconError] = useState(false);
 
+  // Reset icon error when the resolved URL changes (e.g. new valid icon assigned)
+  useEffect(() => {
+    setIconError(false);
+  }, [iconUrl]);
+
   const timelineData = useMemo(() => timelineQuery.data ?? [], [timelineQuery.data]);
   const chartData = useMemo(() => chartQuery.data ?? [], [chartQuery.data]);
 
@@ -202,9 +207,11 @@ export default function ContainerHistoryPage({
               )}
               <Typography variant="caption" className="text-neutral-500 block" noWrap>{containerImage || '\u00A0'}</Typography>
             </div>
-            <IconButton onClick={() => onClose?.()} aria-label="Close history panel" className="!flex-shrink-0">
-              <X size={20} />
-            </IconButton>
+            {onClose && (
+              <IconButton onClick={onClose} aria-label="Close history panel" className="!flex-shrink-0">
+                <X size={20} />
+              </IconButton>
+            )}
           </div>
           {/* Skeleton overlay — always absolute, fades out */}
           <div className={`absolute inset-0 flex items-center gap-3 transition-opacity duration-300 ${infoQuery.isLoading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>

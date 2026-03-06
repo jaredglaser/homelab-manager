@@ -125,10 +125,10 @@ export default function IconPickerDialog({
     }, SELECTION_FEEDBACK_MS);
   }, [onSelect, onClose]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     onClose();
     setSearch('');
-  };
+  }, [onClose]);
 
   return (
     <BottomDrawer open={open} onClose={handleClose}>

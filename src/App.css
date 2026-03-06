@@ -141,3 +141,11 @@ html {
 @keyframes vt-fade-in {
   from { opacity: 0; }
 }
+
+/* Respect reduced motion preference for view transitions */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(page-content),
+  ::view-transition-new(page-content) {
+    animation: none;
+  }
+}
