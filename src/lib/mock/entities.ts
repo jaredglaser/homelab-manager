@@ -1,4 +1,4 @@
-import type { MetricProfile, ActivityProfile } from '@/lib/mock/patterns';
+import type { MetricProfile, ActivityProfile, SimplexProfile } from '@/lib/mock/patterns';
 
 // ─── Docker Entities ─────────────────────────────────────────────────────────
 
@@ -10,13 +10,13 @@ export interface DockerEntityDef {
   image: string;
   iconSlug: string;
   serviceKey: string;
-  cpu: MetricProfile;
-  memoryUsage: MetricProfile;
+  cpu: SimplexProfile;
+  memoryUsage: SimplexProfile;
   memoryLimit: number;
-  networkRx: MetricProfile;
-  networkTx: MetricProfile;
-  blockRead: MetricProfile;
-  blockWrite: MetricProfile;
+  networkRx: SimplexProfile;
+  networkTx: SimplexProfile;
+  blockRead: SimplexProfile;
+  blockWrite: SimplexProfile;
 }
 
 const MINUTE = 60_000;
@@ -25,6 +25,7 @@ const HOUR = 3_600_000;
 export const DOCKER_ENTITIES: DockerEntityDef[] = [
   // ── nas01 ──────────────────────────────────────────────────────────────────
   {
+    // nginx-proxy: low CPU, stable memory, bursty network
     host: '192.168.1.10',
     hostName: 'nas01',
     containerId: 'a1b2c3d4e5f6',
@@ -32,15 +33,16 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'nginx:latest',
     iconSlug: 'nginx',
     serviceKey: 'nginx-proxy',
-    cpu: { base: 5, amplitude: 3, periodMs: 10 * MINUTE, noiseLevel: 1.5, min: 0.5, max: 15 },
-    memoryUsage: { base: 150_000_000, amplitude: 20_000_000, periodMs: 30 * MINUTE, noiseLevel: 5_000_000, min: 100_000_000, max: 400_000_000 },
+    cpu: { base: 5, amplitude: 3, periods: [12 * MINUTE, 2.5 * MINUTE, MINUTE, 20_000], min: 0.5, max: 15 },
+    memoryUsage: { base: 150_000_000, amplitude: 20_000_000, periods: [2.5 * HOUR, 45 * MINUTE, 14 * MINUTE, 5 * MINUTE], min: 100_000_000, max: 400_000_000 },
     memoryLimit: 512_000_000,
-    networkRx: { base: 500_000, amplitude: 300_000, periodMs: 5 * MINUTE, noiseLevel: 100_000, min: 10_000, max: 2_000_000 },
-    networkTx: { base: 800_000, amplitude: 400_000, periodMs: 5 * MINUTE, noiseLevel: 150_000, min: 10_000, max: 3_000_000 },
-    blockRead: { base: 50_000, amplitude: 30_000, periodMs: 15 * MINUTE, noiseLevel: 20_000, min: 0, max: 500_000 },
-    blockWrite: { base: 20_000, amplitude: 10_000, periodMs: 15 * MINUTE, noiseLevel: 8_000, min: 0, max: 200_000 },
+    networkRx: { base: 500_000, amplitude: 300_000, periods: [10 * MINUTE, 3 * MINUTE, 50_000, 15_000], min: 10_000, max: 2_000_000 },
+    networkTx: { base: 800_000, amplitude: 400_000, periods: [10 * MINUTE, 3.5 * MINUTE, 55_000, 18_000], min: 10_000, max: 3_000_000 },
+    blockRead: { base: 50_000, amplitude: 30_000, periods: [30 * MINUTE, 7 * MINUTE, 2 * MINUTE, 35_000], min: 0, max: 500_000 },
+    blockWrite: { base: 20_000, amplitude: 10_000, periods: [35 * MINUTE, 8 * MINUTE, 2.5 * MINUTE, 40_000], min: 0, max: 200_000 },
   },
   {
+    // plex: low idle CPU with big spikes, high stable memory, high tx/read bursts
     host: '192.168.1.10',
     hostName: 'nas01',
     containerId: 'b2c3d4e5f6a7',
@@ -48,15 +50,16 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'plexinc/pms-docker:latest',
     iconSlug: 'plex',
     serviceKey: 'plex',
-    cpu: { base: 15, amplitude: 20, periodMs: 8 * MINUTE, noiseLevel: 8, min: 2, max: 55 },
-    memoryUsage: { base: 2_000_000_000, amplitude: 500_000_000, periodMs: 20 * MINUTE, noiseLevel: 200_000_000, min: 1_000_000_000, max: 3_800_000_000 },
+    cpu: { base: 15, amplitude: 20, periods: [9 * MINUTE, 2.5 * MINUTE, 50_000, 15_000], min: 2, max: 55 },
+    memoryUsage: { base: 2_000_000_000, amplitude: 500_000_000, periods: [2 * HOUR, 50 * MINUTE, 18 * MINUTE, 6 * MINUTE], min: 1_000_000_000, max: 3_800_000_000 },
     memoryLimit: 4_000_000_000,
-    networkRx: { base: 200_000, amplitude: 100_000, periodMs: 10 * MINUTE, noiseLevel: 50_000, min: 5_000, max: 1_000_000 },
-    networkTx: { base: 5_000_000, amplitude: 4_000_000, periodMs: 8 * MINUTE, noiseLevel: 2_000_000, min: 50_000, max: 15_000_000 },
-    blockRead: { base: 2_000_000, amplitude: 1_500_000, periodMs: 8 * MINUTE, noiseLevel: 800_000, min: 10_000, max: 8_000_000 },
-    blockWrite: { base: 100_000, amplitude: 80_000, periodMs: 15 * MINUTE, noiseLevel: 50_000, min: 0, max: 1_000_000 },
+    networkRx: { base: 200_000, amplitude: 100_000, periods: [12 * MINUTE, 3 * MINUTE, MINUTE, 20_000], min: 5_000, max: 1_000_000 },
+    networkTx: { base: 5_000_000, amplitude: 4_000_000, periods: [9 * MINUTE, 2.5 * MINUTE, 50_000, 15_000], min: 50_000, max: 15_000_000 },
+    blockRead: { base: 2_000_000, amplitude: 1_500_000, periods: [28 * MINUTE, 6 * MINUTE, 2 * MINUTE, 30_000], min: 10_000, max: 8_000_000 },
+    blockWrite: { base: 100_000, amplitude: 80_000, periods: [32 * MINUTE, 7 * MINUTE, 2.5 * MINUTE, 40_000], min: 0, max: 1_000_000 },
   },
   {
+    // homeassistant: very low steady CPU, stable memory, low steady network
     host: '192.168.1.10',
     hostName: 'nas01',
     containerId: 'c3d4e5f6a7b8',
@@ -64,15 +67,16 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'homeassistant/home-assistant:stable',
     iconSlug: 'home-assistant',
     serviceKey: 'homeassistant',
-    cpu: { base: 4.5, amplitude: 1.5, periodMs: 15 * MINUTE, noiseLevel: 1, min: 1, max: 10 },
-    memoryUsage: { base: 300_000_000, amplitude: 50_000_000, periodMs: HOUR, noiseLevel: 20_000_000, min: 200_000_000, max: 500_000_000 },
+    cpu: { base: 4.5, amplitude: 1.5, periods: [18 * MINUTE, 4 * MINUTE, 1.2 * MINUTE, 25_000], min: 1, max: 10 },
+    memoryUsage: { base: 300_000_000, amplitude: 50_000_000, periods: [3 * HOUR, HOUR, 22 * MINUTE, 7 * MINUTE], min: 200_000_000, max: 500_000_000 },
     memoryLimit: 1_000_000_000,
-    networkRx: { base: 50_000, amplitude: 30_000, periodMs: 10 * MINUTE, noiseLevel: 15_000, min: 1_000, max: 200_000 },
-    networkTx: { base: 40_000, amplitude: 20_000, periodMs: 10 * MINUTE, noiseLevel: 10_000, min: 1_000, max: 150_000 },
-    blockRead: { base: 30_000, amplitude: 15_000, periodMs: 20 * MINUTE, noiseLevel: 10_000, min: 0, max: 200_000 },
-    blockWrite: { base: 80_000, amplitude: 40_000, periodMs: 20 * MINUTE, noiseLevel: 25_000, min: 0, max: 300_000 },
+    networkRx: { base: 50_000, amplitude: 30_000, periods: [13 * MINUTE, 3.5 * MINUTE, MINUTE, 20_000], min: 1_000, max: 200_000 },
+    networkTx: { base: 40_000, amplitude: 20_000, periods: [14 * MINUTE, 3.5 * MINUTE, MINUTE, 22_000], min: 1_000, max: 150_000 },
+    blockRead: { base: 30_000, amplitude: 15_000, periods: [35 * MINUTE, 9 * MINUTE, 2.5 * MINUTE, 40_000], min: 0, max: 200_000 },
+    blockWrite: { base: 80_000, amplitude: 40_000, periods: [38 * MINUTE, 10 * MINUTE, 3 * MINUTE, 45_000], min: 0, max: 300_000 },
   },
   {
+    // postgres: moderate fast CPU, high slow-drift memory, moderate correlated r/w
     host: '192.168.1.10',
     hostName: 'nas01',
     containerId: 'd4e5f6a7b8c9',
@@ -80,15 +84,16 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'timescale/timescaledb:latest-pg16',
     iconSlug: 'postgres',
     serviceKey: 'postgres',
-    cpu: { base: 11, amplitude: 4, periodMs: 5 * MINUTE, noiseLevel: 3, min: 3, max: 25 },
-    memoryUsage: { base: 1_500_000_000, amplitude: 300_000_000, periodMs: 30 * MINUTE, noiseLevel: 100_000_000, min: 800_000_000, max: 3_500_000_000 },
+    cpu: { base: 11, amplitude: 4, periods: [8 * MINUTE, 2 * MINUTE, 40_000, 12_000], min: 3, max: 25 },
+    memoryUsage: { base: 1_500_000_000, amplitude: 300_000_000, periods: [2.2 * HOUR, 42 * MINUTE, 15 * MINUTE, 5.5 * MINUTE], min: 800_000_000, max: 3_500_000_000 },
     memoryLimit: 4_000_000_000,
-    networkRx: { base: 300_000, amplitude: 200_000, periodMs: 5 * MINUTE, noiseLevel: 80_000, min: 10_000, max: 1_500_000 },
-    networkTx: { base: 400_000, amplitude: 250_000, periodMs: 5 * MINUTE, noiseLevel: 100_000, min: 10_000, max: 2_000_000 },
-    blockRead: { base: 1_000_000, amplitude: 800_000, periodMs: 5 * MINUTE, noiseLevel: 400_000, min: 10_000, max: 5_000_000 },
-    blockWrite: { base: 500_000, amplitude: 400_000, periodMs: 5 * MINUTE, noiseLevel: 200_000, min: 10_000, max: 3_000_000 },
+    networkRx: { base: 300_000, amplitude: 200_000, periods: [9 * MINUTE, 2.5 * MINUTE, 50_000, 18_000], min: 10_000, max: 1_500_000 },
+    networkTx: { base: 400_000, amplitude: 250_000, periods: [9 * MINUTE, 2.8 * MINUTE, 55_000, 20_000], min: 10_000, max: 2_000_000 },
+    blockRead: { base: 1_000_000, amplitude: 800_000, periods: [25 * MINUTE, 5.5 * MINUTE, 1.5 * MINUTE, 25_000], min: 10_000, max: 5_000_000 },
+    blockWrite: { base: 500_000, amplitude: 400_000, periods: [27 * MINUTE, 6 * MINUTE, 1.8 * MINUTE, 30_000], min: 10_000, max: 3_000_000 },
   },
   {
+    // grafana: very low CPU, stable low memory, low network
     host: '192.168.1.10',
     hostName: 'nas01',
     containerId: 'e5f6a7b8c9d0',
@@ -96,15 +101,16 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'grafana/grafana:latest',
     iconSlug: 'grafana',
     serviceKey: 'grafana',
-    cpu: { base: 2.5, amplitude: 1.5, periodMs: 20 * MINUTE, noiseLevel: 0.8, min: 0.5, max: 8 },
-    memoryUsage: { base: 200_000_000, amplitude: 30_000_000, periodMs: HOUR, noiseLevel: 15_000_000, min: 120_000_000, max: 400_000_000 },
+    cpu: { base: 2.5, amplitude: 1.5, periods: [20 * MINUTE, 5 * MINUTE, 1.5 * MINUTE, 25_000], min: 0.5, max: 8 },
+    memoryUsage: { base: 200_000_000, amplitude: 30_000_000, periods: [2.8 * HOUR, 55 * MINUTE, 20 * MINUTE, 7.5 * MINUTE], min: 120_000_000, max: 400_000_000 },
     memoryLimit: 512_000_000,
-    networkRx: { base: 20_000, amplitude: 15_000, periodMs: 10 * MINUTE, noiseLevel: 8_000, min: 1_000, max: 100_000 },
-    networkTx: { base: 30_000, amplitude: 20_000, periodMs: 10 * MINUTE, noiseLevel: 10_000, min: 1_000, max: 150_000 },
-    blockRead: { base: 40_000, amplitude: 25_000, periodMs: 15 * MINUTE, noiseLevel: 15_000, min: 0, max: 200_000 },
-    blockWrite: { base: 15_000, amplitude: 10_000, periodMs: 15 * MINUTE, noiseLevel: 5_000, min: 0, max: 100_000 },
+    networkRx: { base: 20_000, amplitude: 15_000, periods: [11 * MINUTE, 3 * MINUTE, MINUTE, 22_000], min: 1_000, max: 100_000 },
+    networkTx: { base: 30_000, amplitude: 20_000, periods: [12 * MINUTE, 3.5 * MINUTE, 1.2 * MINUTE, 25_000], min: 1_000, max: 150_000 },
+    blockRead: { base: 40_000, amplitude: 25_000, periods: [30 * MINUTE, 8 * MINUTE, 2.5 * MINUTE, 35_000], min: 0, max: 200_000 },
+    blockWrite: { base: 15_000, amplitude: 10_000, periods: [33 * MINUTE, 9 * MINUTE, 2.8 * MINUTE, 40_000], min: 0, max: 100_000 },
   },
   {
+    // traefik: low fast CPU, very stable low memory, bursty network
     host: '192.168.1.10',
     hostName: 'nas01',
     containerId: 'f6a7b8c9d0e1',
@@ -112,17 +118,18 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'traefik:v3',
     iconSlug: 'traefik',
     serviceKey: 'traefik',
-    cpu: { base: 3, amplitude: 2, periodMs: 5 * MINUTE, noiseLevel: 1.2, min: 0.5, max: 10 },
-    memoryUsage: { base: 100_000_000, amplitude: 15_000_000, periodMs: 30 * MINUTE, noiseLevel: 8_000_000, min: 60_000_000, max: 200_000_000 },
+    cpu: { base: 3, amplitude: 2, periods: [10 * MINUTE, 2.5 * MINUTE, 45_000, 15_000], min: 0.5, max: 10 },
+    memoryUsage: { base: 100_000_000, amplitude: 15_000_000, periods: [2.6 * HOUR, 48 * MINUTE, 16 * MINUTE, 6 * MINUTE], min: 60_000_000, max: 200_000_000 },
     memoryLimit: 256_000_000,
-    networkRx: { base: 1_200_000, amplitude: 800_000, periodMs: 5 * MINUTE, noiseLevel: 400_000, min: 50_000, max: 5_000_000 },
-    networkTx: { base: 1_500_000, amplitude: 1_000_000, periodMs: 5 * MINUTE, noiseLevel: 500_000, min: 50_000, max: 6_000_000 },
-    blockRead: { base: 5_000, amplitude: 3_000, periodMs: 20 * MINUTE, noiseLevel: 2_000, min: 0, max: 50_000 },
-    blockWrite: { base: 10_000, amplitude: 5_000, periodMs: 20 * MINUTE, noiseLevel: 3_000, min: 0, max: 80_000 },
+    networkRx: { base: 1_200_000, amplitude: 800_000, periods: [8 * MINUTE, 2 * MINUTE, 40_000, 12_000], min: 50_000, max: 5_000_000 },
+    networkTx: { base: 1_500_000, amplitude: 1_000_000, periods: [8 * MINUTE, 2.5 * MINUTE, 45_000, 15_000], min: 50_000, max: 6_000_000 },
+    blockRead: { base: 5_000, amplitude: 3_000, periods: [40 * MINUTE, 10 * MINUTE, 3 * MINUTE, 40_000], min: 0, max: 50_000 },
+    blockWrite: { base: 10_000, amplitude: 5_000, periods: [38 * MINUTE, 9 * MINUTE, 2.8 * MINUTE, 38_000], min: 0, max: 80_000 },
   },
 
   // ── server02 ───────────────────────────────────────────────────────────────
   {
+    // jellyfin: low idle with big spikes (like plex), high memory, high tx bursts
     host: '192.168.1.20',
     hostName: 'server02',
     containerId: 'a7b8c9d0e1f2',
@@ -130,15 +137,16 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'jellyfin/jellyfin:latest',
     iconSlug: 'jellyfin',
     serviceKey: 'jellyfin',
-    cpu: { base: 25, amplitude: 25, periodMs: 10 * MINUTE, noiseLevel: 10, min: 3, max: 70 },
-    memoryUsage: { base: 3_000_000_000, amplitude: 1_000_000_000, periodMs: 15 * MINUTE, noiseLevel: 500_000_000, min: 1_500_000_000, max: 7_500_000_000 },
+    cpu: { base: 25, amplitude: 25, periods: [11 * MINUTE, 3 * MINUTE, MINUTE, 18_000], min: 3, max: 70 },
+    memoryUsage: { base: 3_000_000_000, amplitude: 1_000_000_000, periods: [2.3 * HOUR, 48 * MINUTE, 16 * MINUTE, 5.5 * MINUTE], min: 1_500_000_000, max: 7_500_000_000 },
     memoryLimit: 8_000_000_000,
-    networkRx: { base: 100_000, amplitude: 80_000, periodMs: 10 * MINUTE, noiseLevel: 40_000, min: 5_000, max: 500_000 },
-    networkTx: { base: 8_000_000, amplitude: 6_000_000, periodMs: 10 * MINUTE, noiseLevel: 3_000_000, min: 50_000, max: 25_000_000 },
-    blockRead: { base: 3_000_000, amplitude: 2_500_000, periodMs: 10 * MINUTE, noiseLevel: 1_200_000, min: 20_000, max: 12_000_000 },
-    blockWrite: { base: 200_000, amplitude: 150_000, periodMs: 15 * MINUTE, noiseLevel: 80_000, min: 0, max: 1_500_000 },
+    networkRx: { base: 100_000, amplitude: 80_000, periods: [11 * MINUTE, 3 * MINUTE, 55_000, 18_000], min: 5_000, max: 500_000 },
+    networkTx: { base: 8_000_000, amplitude: 6_000_000, periods: [10 * MINUTE, 2.5 * MINUTE, 50_000, 15_000], min: 50_000, max: 25_000_000 },
+    blockRead: { base: 3_000_000, amplitude: 2_500_000, periods: [26 * MINUTE, 5 * MINUTE, 2 * MINUTE, 30_000], min: 20_000, max: 12_000_000 },
+    blockWrite: { base: 200_000, amplitude: 150_000, periods: [30 * MINUTE, 7 * MINUTE, 2.5 * MINUTE, 40_000], min: 0, max: 1_500_000 },
   },
   {
+    // vaultwarden: very low everything
     host: '192.168.1.20',
     hostName: 'server02',
     containerId: 'b8c9d0e1f2a3',
@@ -146,15 +154,16 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'vaultwarden/server:latest',
     iconSlug: 'vaultwarden',
     serviceKey: 'vaultwarden',
-    cpu: { base: 2, amplitude: 1.5, periodMs: 30 * MINUTE, noiseLevel: 0.8, min: 0.3, max: 8 },
-    memoryUsage: { base: 120_000_000, amplitude: 20_000_000, periodMs: HOUR, noiseLevel: 10_000_000, min: 80_000_000, max: 300_000_000 },
+    cpu: { base: 2, amplitude: 1.5, periods: [17 * MINUTE, 4.5 * MINUTE, 1.5 * MINUTE, 25_000], min: 0.3, max: 8 },
+    memoryUsage: { base: 120_000_000, amplitude: 20_000_000, periods: [3 * HOUR, HOUR, 25 * MINUTE, 8 * MINUTE], min: 80_000_000, max: 300_000_000 },
     memoryLimit: 512_000_000,
-    networkRx: { base: 5_000, amplitude: 3_000, periodMs: 15 * MINUTE, noiseLevel: 2_000, min: 500, max: 30_000 },
-    networkTx: { base: 8_000, amplitude: 5_000, periodMs: 15 * MINUTE, noiseLevel: 3_000, min: 500, max: 50_000 },
-    blockRead: { base: 5_000, amplitude: 3_000, periodMs: 30 * MINUTE, noiseLevel: 2_000, min: 0, max: 30_000 },
-    blockWrite: { base: 10_000, amplitude: 8_000, periodMs: 30 * MINUTE, noiseLevel: 5_000, min: 0, max: 80_000 },
+    networkRx: { base: 5_000, amplitude: 3_000, periods: [15 * MINUTE, 4 * MINUTE, 1.2 * MINUTE, 25_000], min: 500, max: 30_000 },
+    networkTx: { base: 8_000, amplitude: 5_000, periods: [14 * MINUTE, 3.5 * MINUTE, MINUTE, 22_000], min: 500, max: 50_000 },
+    blockRead: { base: 5_000, amplitude: 3_000, periods: [35 * MINUTE, 8 * MINUTE, 2.5 * MINUTE, 40_000], min: 0, max: 30_000 },
+    blockWrite: { base: 10_000, amplitude: 8_000, periods: [38 * MINUTE, 9 * MINUTE, 2.8 * MINUTE, 45_000], min: 0, max: 80_000 },
   },
   {
+    // pihole: very low fast CPU, very stable low memory, steady low network
     host: '192.168.1.20',
     hostName: 'server02',
     containerId: 'c9d0e1f2a3b4',
@@ -162,15 +171,16 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'pihole/pihole:latest',
     iconSlug: 'pi-hole',
     serviceKey: 'pihole',
-    cpu: { base: 1.2, amplitude: 0.8, periodMs: 10 * MINUTE, noiseLevel: 0.4, min: 0.2, max: 4 },
-    memoryUsage: { base: 80_000_000, amplitude: 10_000_000, periodMs: HOUR, noiseLevel: 5_000_000, min: 50_000_000, max: 150_000_000 },
+    cpu: { base: 1.2, amplitude: 0.8, periods: [9 * MINUTE, 2.5 * MINUTE, 45_000, 15_000], min: 0.2, max: 4 },
+    memoryUsage: { base: 80_000_000, amplitude: 10_000_000, periods: [2.7 * HOUR, 52 * MINUTE, 19 * MINUTE, 7 * MINUTE], min: 50_000_000, max: 150_000_000 },
     memoryLimit: 256_000_000,
-    networkRx: { base: 15_000, amplitude: 10_000, periodMs: 5 * MINUTE, noiseLevel: 5_000, min: 1_000, max: 80_000 },
-    networkTx: { base: 12_000, amplitude: 8_000, periodMs: 5 * MINUTE, noiseLevel: 4_000, min: 1_000, max: 60_000 },
-    blockRead: { base: 2_000, amplitude: 1_500, periodMs: 20 * MINUTE, noiseLevel: 1_000, min: 0, max: 15_000 },
-    blockWrite: { base: 3_000, amplitude: 2_000, periodMs: 20 * MINUTE, noiseLevel: 1_500, min: 0, max: 20_000 },
+    networkRx: { base: 15_000, amplitude: 10_000, periods: [10 * MINUTE, 3 * MINUTE, 50_000, 15_000], min: 1_000, max: 80_000 },
+    networkTx: { base: 12_000, amplitude: 8_000, periods: [10 * MINUTE, 3.5 * MINUTE, 55_000, 18_000], min: 1_000, max: 60_000 },
+    blockRead: { base: 2_000, amplitude: 1_500, periods: [32 * MINUTE, 7 * MINUTE, 2 * MINUTE, 30_000], min: 0, max: 15_000 },
+    blockWrite: { base: 3_000, amplitude: 2_000, periods: [34 * MINUTE, 8 * MINUTE, 2.5 * MINUTE, 35_000], min: 0, max: 20_000 },
   },
   {
+    // portainer: very low everything
     host: '192.168.1.20',
     hostName: 'server02',
     containerId: 'd0e1f2a3b4c5',
@@ -178,13 +188,13 @@ export const DOCKER_ENTITIES: DockerEntityDef[] = [
     image: 'portainer/portainer-ce:latest',
     iconSlug: 'portainer',
     serviceKey: 'portainer',
-    cpu: { base: 1.5, amplitude: 1, periodMs: 15 * MINUTE, noiseLevel: 0.6, min: 0.2, max: 5 },
-    memoryUsage: { base: 50_000_000, amplitude: 10_000_000, periodMs: HOUR, noiseLevel: 5_000_000, min: 30_000_000, max: 120_000_000 },
+    cpu: { base: 1.5, amplitude: 1, periods: [15 * MINUTE, 3.5 * MINUTE, 1.2 * MINUTE, 22_000], min: 0.2, max: 5 },
+    memoryUsage: { base: 50_000_000, amplitude: 10_000_000, periods: [2.5 * HOUR, 50 * MINUTE, 18 * MINUTE, 6.5 * MINUTE], min: 30_000_000, max: 120_000_000 },
     memoryLimit: 128_000_000,
-    networkRx: { base: 3_000, amplitude: 2_000, periodMs: 10 * MINUTE, noiseLevel: 1_500, min: 200, max: 20_000 },
-    networkTx: { base: 5_000, amplitude: 3_000, periodMs: 10 * MINUTE, noiseLevel: 2_000, min: 200, max: 30_000 },
-    blockRead: { base: 3_000, amplitude: 2_000, periodMs: 20 * MINUTE, noiseLevel: 1_500, min: 0, max: 20_000 },
-    blockWrite: { base: 2_000, amplitude: 1_500, periodMs: 20 * MINUTE, noiseLevel: 1_000, min: 0, max: 15_000 },
+    networkRx: { base: 3_000, amplitude: 2_000, periods: [12 * MINUTE, 3.5 * MINUTE, MINUTE, 22_000], min: 200, max: 20_000 },
+    networkTx: { base: 5_000, amplitude: 3_000, periods: [13 * MINUTE, 3.5 * MINUTE, 1.2 * MINUTE, 25_000], min: 200, max: 30_000 },
+    blockRead: { base: 3_000, amplitude: 2_000, periods: [36 * MINUTE, 8 * MINUTE, 2.5 * MINUTE, 35_000], min: 0, max: 20_000 },
+    blockWrite: { base: 2_000, amplitude: 1_500, periods: [34 * MINUTE, 7 * MINUTE, 2.2 * MINUTE, 32_000], min: 0, max: 15_000 },
   },
 ];
 

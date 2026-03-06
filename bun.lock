@@ -35,6 +35,7 @@
         "pg": "^8.18.0",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
+        "simplex-noise": "^4.0.3",
         "ssh2": "^1.17.0",
         "tailwindcss": "^4.1.18",
         "vite-tsconfig-paths": "^6.1.1",
@@ -958,6 +959,8 @@
     "shell-quote": ["shell-quote@1.8.3", "", {}, "sha512-ObmnIF4hXNg1BqhnHmgbDETF8dLPCggZWBjkQfhZpbszZnYur5DUljTcCHii5LC3J5E0yeO/1LIMyH+UvHQgyw=="],
 
     "siginfo": ["siginfo@2.0.0", "", {}, "sha512-ybx0WO1/8bSBLEWXZvEd7gMW3Sn3JFlW3TvX1nREbDLRNQNaeNN8WK0meBwPdAaOI7TtRRRJn/Es1zhrrCHu7g=="],
+
+    "simplex-noise": ["simplex-noise@4.0.3", "", {}, "sha512-qSE2I4AngLQG7BXqoZj51jokT4WUXe8mOBrvfOXpci8+6Yu44+/dD5zqDpOx3Ux792eamTd2lLcI8jqFntk/lg=="],
 
     "size-sensor": ["size-sensor@1.0.3", "", {}, "sha512-+k9mJ2/rQMiRmQUcjn+qznch260leIXY8r4FyYKKyRBO/s5UoeMAHGkCJyE1R/4wrIhTJONfyloY55SkE7ve3A=="],
 

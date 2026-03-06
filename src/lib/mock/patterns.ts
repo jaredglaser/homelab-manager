@@ -1,3 +1,4 @@
+import { createNoise2D } from 'simplex-noise';
 import { mulberry32, hashCode } from '@/lib/mock/prng';
 
 /** Clamp a value to [min, max]. */
@@ -93,6 +94,68 @@ export function generateMetric(
   const trend = sine(timeMs, entity, profile.base, profile.amplitude, profile.periodMs);
   const n = smoothNoise(timeMs, entity, metric, profile.noiseBucketMs ?? 5000);
   const value = trend + (n - 0.5) * 2 * profile.noiseLevel;
+  return clamp(value, profile.min ?? 0, profile.max ?? Infinity);
+}
+
+// ─── Simplex-Based Generator ──────────────────────────────────────────────────
+
+/** Profile for multi-octave simplex noise metric generation. */
+export interface SimplexProfile {
+  base: number;
+  amplitude: number;
+  periods: [number, number, number, number];
+  weights?: [number, number, number, number];
+  min?: number;
+  max?: number;
+}
+
+const DEFAULT_WEIGHTS: [number, number, number, number] = [0.5, 0.25, 0.15, 0.10];
+
+/** Cache noise functions by seed to avoid rebuilding the 512-entry permutation table on every call. */
+const noiseCache = new Map<number, (x: number, y: number) => number>();
+
+function getCachedNoise2D(seed: number): (x: number, y: number) => number {
+  let fn = noiseCache.get(seed);
+  if (!fn) {
+    fn = createNoise2D(mulberry32(seed));
+    noiseCache.set(seed, fn);
+  }
+  return fn;
+}
+
+/**
+ * Generate a metric value using 4 octaves of 2D simplex noise.
+ *
+ * Each octave is seeded deterministically from entity/metric/octave, producing
+ * organic-looking signals without the obvious periodicity of sine waves.
+ * Noise functions are cached per seed so the permutation table is built only once.
+ *
+ * When `sampleIntervalMs` is provided, octaves whose period is below the Nyquist
+ * limit (2x sample interval) are clamped to the minimum safe period. This prevents
+ * aliasing while preserving variation at all zoom levels.
+ */
+export function generateSimplexMetric(
+  timeMs: number,
+  entity: string,
+  metric: string,
+  profile: SimplexProfile,
+  sampleIntervalMs?: number,
+): number {
+  const weights = profile.weights ?? DEFAULT_WEIGHTS;
+  const minPeriod = sampleIntervalMs ? sampleIntervalMs * 2 : 0;
+
+  let sum = 0;
+
+  for (let i = 0; i < 4; i++) {
+    const seed = hashCode(`${entity}/${metric}/${i}`);
+    const noise2D = getCachedNoise2D(seed);
+    const period = minPeriod > 0 ? Math.max(profile.periods[i], minPeriod) : profile.periods[i];
+    const x = timeMs / period;
+    const y = (seed % 1000) / 1000;
+    sum += weights[i] * noise2D(x, y);
+  }
+
+  const value = profile.base + profile.amplitude * sum;
   return clamp(value, profile.min ?? 0, profile.max ?? Infinity);
 }
 

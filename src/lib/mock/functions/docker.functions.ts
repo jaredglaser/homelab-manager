@@ -45,8 +45,8 @@ export const getContainerHistory = async (opts: {
     targetPoints?: number;
   };
 }): Promise<DockerStatsRow[]> => {
-  const { containerId, host, fromMs, toMs } = opts.data;
-  return generateContainerHistory(containerId, host, fromMs, toMs);
+  const { containerId, host, fromMs, toMs, targetPoints } = opts.data;
+  return generateContainerHistory(containerId, host, fromMs, toMs, targetPoints);
 };
 
 /**

@@ -1,14 +1,18 @@
 import type { DockerStatsRow } from '@/types/docker';
-import { generateMetric, spike } from '@/lib/mock/patterns';
+import { generateSimplexMetric, spike } from '@/lib/mock/patterns';
 import { DOCKER_ENTITIES, type DockerEntityDef } from '@/lib/mock/entities';
 import { mulberry32, hashCode } from '@/lib/mock/prng';
 
 /** Build a single DockerStatsRow from an entity definition at a given time. */
-function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string): DockerStatsRow {
+function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string, sampleMs?: number): DockerStatsRow {
   const entityKey = `${e.host}/${e.containerId}`;
-  const cpuBase = generateMetric(timeMs, entityKey, 'cpu', e.cpu);
-  const cpuSpike = spike(timeMs, entityKey, 'cpu', 600_000, 30_000, 15);
-  const memUsage = generateMetric(timeMs, entityKey, 'memUsage', e.memoryUsage);
+  const cpuBase = generateSimplexMetric(timeMs, entityKey, 'cpu', e.cpu, sampleMs);
+  // Skip spikes when sample interval is too coarse to represent them -
+  // a 30s spike sampled at 518s intervals produces random needles
+  const cpuSpike = (!sampleMs || sampleMs <= 30_000)
+    ? spike(timeMs, entityKey, 'cpu', 600_000, 30_000, 15)
+    : 0;
+  const memUsage = generateSimplexMetric(timeMs, entityKey, 'memUsage', e.memoryUsage, sampleMs);
 
   return {
     time: timeStr,
@@ -20,10 +24,10 @@ function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string): Do
     memory_usage: Math.round(memUsage),
     memory_limit: e.memoryLimit,
     memory_percent: Math.round((memUsage / e.memoryLimit) * 10000) / 100,
-    network_rx_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'netRx', e.networkRx)),
-    network_tx_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'netTx', e.networkTx)),
-    block_io_read_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'blockRead', e.blockRead)),
-    block_io_write_bytes_per_sec: Math.round(generateMetric(timeMs, entityKey, 'blockWrite', e.blockWrite)),
+    network_rx_bytes_per_sec: Math.round(generateSimplexMetric(timeMs, entityKey, 'netRx', e.networkRx, sampleMs)),
+    network_tx_bytes_per_sec: Math.round(generateSimplexMetric(timeMs, entityKey, 'netTx', e.networkTx, sampleMs)),
+    block_io_read_bytes_per_sec: Math.round(generateSimplexMetric(timeMs, entityKey, 'blockRead', e.blockRead, sampleMs)),
+    block_io_write_bytes_per_sec: Math.round(generateSimplexMetric(timeMs, entityKey, 'blockWrite', e.blockWrite, sampleMs)),
   };
 }
 
@@ -63,6 +67,7 @@ export function generateContainerHistory(
   host: string | undefined,
   fromMs: number,
   toMs: number,
+  targetPoints: number = 300,
 ): DockerStatsRow[] {
   const rows: DockerStatsRow[] = [];
   const entity = DOCKER_ENTITIES.find(
@@ -70,10 +75,11 @@ export function generateContainerHistory(
   );
   if (!entity) return rows;
 
-  const step = Math.max(1000, Math.floor((toMs - fromMs) / 5000));
+  const spanMs = toMs - fromMs;
+  const step = Math.max(1000, Math.floor(spanMs / targetPoints));
   for (let t = fromMs; t <= toMs; t += step) {
     const time = new Date(t);
-    rows.push(buildDockerRow(entity, time.getTime(), time.toISOString()));
+    rows.push(buildDockerRow(entity, time.getTime(), time.toISOString(), step));
   }
 
   return rows;
