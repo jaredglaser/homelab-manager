@@ -1,4 +1,7 @@
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+import { DOCKER_ENTITIES } from '@/lib/mock/entities';
+
+const homeassistant = DOCKER_ENTITIES.find(e => e.serviceKey === 'homeassistant')!;
 
 /**
  * Generate default settings matching the canonical settings keys.
@@ -15,7 +18,7 @@ export function generateDefaultSettings(): Record<string, string> {
     [SETTINGS_KEYS.docker.memoryDisplayMode]: 'percent',
     [SETTINGS_KEYS.docker.chartWindowSeconds]: '60',
     [SETTINGS_KEYS.docker.expandedHosts]: '[]',
-    [SETTINGS_KEYS.docker.expandedContainers]: '[]',
+    [SETTINGS_KEYS.docker.expandedContainers]: JSON.stringify([`${homeassistant.host}/${homeassistant.containerId}`]),
     [SETTINGS_KEYS.docker.decimals.cpu]: '1',
     [SETTINGS_KEYS.docker.decimals.memory]: '1',
     [SETTINGS_KEYS.docker.decimals.diskSpeed]: '1',
