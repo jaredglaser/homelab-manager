@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import {
   rawSettingsAtom,
@@ -225,7 +225,10 @@ export function useSettings(): SettingsValue {
     optimisticSet(SETTINGS_KEYS.general.lightPalette, () => palette);
   }, [optimisticSet]);
 
-  return {
+  // All callbacks depend on either `optimisticSet` (stable) or fields within `settings`.
+  // When `settings` changes, useMemo re-evaluates and picks up the new callback closures.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo<SettingsValue>(() => ({
     ...settings,
     setUse12HourTime,
     setUpdateInterval,
@@ -255,5 +258,5 @@ export function useSettings(): SettingsValue {
     setDbFlushDebugLogging,
     setSseDebugLogging,
     setLightPalette,
-  };
+  }), [settings]);
 }

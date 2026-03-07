@@ -33,7 +33,7 @@ export default function ZFSPoolsTable({
   error,
   isStale,
 }: ZFSPoolsTableProps) {
-  const { isZfsHostExpanded } = useSettings();
+  const { isZfsHostExpanded, toggleZfsHostExpanded, zfs, general } = useSettings();
 
   // Build multi-host hierarchy from latest rows
   const hostHierarchy = useMemo<ZFSHostHierarchy>(() => {
@@ -171,7 +171,15 @@ export default function ZFSPoolsTable({
                     ref={virtualizer.measureElement}
                   >
                     {row.type === 'host' ? (
-                      <HostRow host={row.host} totalHosts={row.totalHosts} />
+                      <HostRow
+                        host={row.host}
+                        totalHosts={row.totalHosts}
+                        isZfsHostExpanded={isZfsHostExpanded}
+                        toggleZfsHostExpanded={toggleZfsHostExpanded}
+                        showSparklines={general.showSparklines}
+                        useAbbreviatedUnits={general.useAbbreviatedUnits}
+                        diskSpeedDecimals={zfs.decimals.diskSpeed}
+                      />
                     ) : (
                       <PoolRow
                         pool={row.pool}
@@ -194,9 +202,8 @@ export default function ZFSPoolsTable({
 
 // ─── Metric Cells ───────────────────────────────────────────────────────────────
 
-function ZFSMetrics({ data, showCapacity = true }: { data: ZFSIOStatWithRates; showCapacity?: boolean }) {
-  const { zfs } = useSettings();
-  const { decimals } = zfs;
+function ZFSMetrics({ data, showCapacity = true, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: { data: ZFSIOStatWithRates; showCapacity?: boolean; showSparklines: boolean; useAbbreviatedUnits: boolean; diskSpeedDecimals: boolean }) {
+  const decimals = { diskSpeed: diskSpeedDecimals };
 
   const totalBytes = data.capacity.alloc + data.capacity.free;
   const capacityParts = showCapacity && totalBytes > 0
@@ -212,31 +219,30 @@ function ZFSMetrics({ data, showCapacity = true }: { data: ZFSIOStatWithRates; s
     <>
       <div className="px-3 py-2">
         {capacityParts
-          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} />
-          : <MetricValue value={EMPTY_METRIC} unit="" />}
+          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+          : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} />
+        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} />
+        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={utilParts.value} unit={utilParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={utilParts.value} unit={utilParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
     </>
   );
 }
 
-function HostAggregateMetrics({ host }: { host: ZFSHostStats }) {
-  const { zfs } = useSettings();
-  const { decimals } = zfs;
+function HostAggregateMetrics({ host, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: { host: ZFSHostStats; showSparklines: boolean; useAbbreviatedUnits: boolean; diskSpeedDecimals: boolean }) {
+  const decimals = { diskSpeed: diskSpeedDecimals };
   const a = host.aggregated;
 
   const totalBytes = a.capacityAlloc + a.capacityFree;
@@ -250,23 +256,23 @@ function HostAggregateMetrics({ host }: { host: ZFSHostStats }) {
     <>
       <div className="px-3 py-2">
         {capacityParts
-          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} />
-          : <MetricValue value={EMPTY_METRIC} unit="" />}
+          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+          : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} />
+        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} />
+        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={EMPTY_METRIC} unit="" />
+        <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
     </>
   );
@@ -274,8 +280,23 @@ function HostAggregateMetrics({ host }: { host: ZFSHostStats }) {
 
 // ─── Host Row ───────────────────────────────────────────────────────────────────
 
-function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number }) {
-  const { isZfsHostExpanded, toggleZfsHostExpanded } = useSettings();
+function HostRow({
+  host,
+  totalHosts,
+  isZfsHostExpanded,
+  toggleZfsHostExpanded,
+  showSparklines,
+  useAbbreviatedUnits,
+  diskSpeedDecimals,
+}: {
+  host: ZFSHostStats;
+  totalHosts: number;
+  isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
+  toggleZfsHostExpanded: (hostName: string) => void;
+  showSparklines: boolean;
+  useAbbreviatedUnits: boolean;
+  diskSpeedDecimals: boolean;
+}) {
   const expanded = isZfsHostExpanded(host.hostName, totalHosts);
   const hasPools = host.pools.size > 0;
 
@@ -303,7 +324,7 @@ function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number 
         <span className="font-bold">{host.hostName}</span>
         <Chip size="small" variant="filled" label={`${host.aggregated.poolCount} pool${host.aggregated.poolCount !== 1 ? 's' : ''}`} />
       </div>
-      <HostAggregateMetrics host={host} />
+      <HostAggregateMetrics host={host} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
     </div>
   );
 }
@@ -323,9 +344,10 @@ function PoolRow({
   badge?: { label: string; tooltip?: string };
   isSingleVdevMultiDisk: boolean;
 }) {
-  const { isPoolExpanded, togglePoolExpanded } = useSettings();
+  const { isPoolExpanded, togglePoolExpanded, zfs, general } = useSettings();
   const expanded = isPoolExpanded(pool.data.id, totalPools);
   const canToggle = expandable && totalPools > 1;
+  const displayProps = { showSparklines: general.showSparklines, useAbbreviatedUnits: general.useAbbreviatedUnits, diskSpeedDecimals: zfs.decimals.diskSpeed };
 
   const handleClick = () => {
     if (canToggle) {
@@ -366,7 +388,7 @@ function PoolRow({
             </Tooltip>
           ) : chipEl}
         </div>
-        <ZFSMetrics data={pool.data} />
+        <ZFSMetrics data={pool.data} {...displayProps} />
       </div>
 
       {expandable && (
@@ -374,15 +396,15 @@ function PoolRow({
           <div className="bg-[var(--mui-palette-action-hover)] border-b border-[var(--mui-palette-divider)]">
             {isSingleVdevMultiDisk ? (
               vdevs[0]?.disks && Array.from(vdevs[0].disks.values()).map((disk) => (
-                <DiskRow key={disk.data.id} disk={disk.data} indent={1} />
+                <DiskRow key={disk.data.id} disk={disk.data} indent={1} {...displayProps} />
               ))
             ) : (
               <>
                 {vdevs.map((vdev) => (
-                  <VdevRow key={vdev.data.id} vdev={vdev} />
+                  <VdevRow key={vdev.data.id} vdev={vdev} {...displayProps} />
                 ))}
                 {individualDisks.map((disk) => (
-                  <DiskRow key={disk.data.id} disk={disk.data} indent={1} />
+                  <DiskRow key={disk.data.id} disk={disk.data} indent={1} {...displayProps} />
                 ))}
               </>
             )}
@@ -395,7 +417,13 @@ function PoolRow({
 
 // ─── Vdev Row ───────────────────────────────────────────────────────────────────
 
-function VdevRow({ vdev }: { vdev: VdevStats }) {
+interface DisplayProps {
+  showSparklines: boolean;
+  useAbbreviatedUnits: boolean;
+  diskSpeedDecimals: boolean;
+}
+
+function VdevRow({ vdev, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: { vdev: VdevStats } & DisplayProps) {
   const { isVdevExpanded, toggleVdevExpanded } = useSettings();
   const hasDisks = vdev.disks.size > 0;
   const expanded = isVdevExpanded(vdev.data.id);
@@ -425,13 +453,13 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
           )}
           <span className="text-sm truncate">{vdev.data.name}</span>
         </div>
-        <ZFSMetrics data={vdev.data} showCapacity={vdev.data.capacity.alloc > 0} />
+        <ZFSMetrics data={vdev.data} showCapacity={vdev.data.capacity.alloc > 0} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
       </div>
 
       {hasDisks && (
         <Collapse in={expanded} unmountOnExit>
           {Array.from(vdev.disks.values()).map((disk) => (
-            <DiskRow key={disk.data.id} disk={disk.data} indent={2} />
+            <DiskRow key={disk.data.id} disk={disk.data} indent={2} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
           ))}
         </Collapse>
       )}
@@ -441,7 +469,7 @@ function VdevRow({ vdev }: { vdev: VdevStats }) {
 
 // ─── Disk Row ───────────────────────────────────────────────────────────────────
 
-function DiskRow({ disk, indent }: { disk: ZFSIOStatWithRates; indent: number }) {
+function DiskRow({ disk, indent, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: { disk: ZFSIOStatWithRates; indent: number } & DisplayProps) {
   return (
     <div
       className={`${ZFS_GRID} items-center`}
@@ -449,7 +477,7 @@ function DiskRow({ disk, indent }: { disk: ZFSIOStatWithRates; indent: number })
       <div className="py-2 pr-3 overflow-hidden" style={{ paddingLeft: `${indent * 2}rem` }}>
         <span className="text-sm truncate">{disk.name}</span>
       </div>
-      <ZFSMetrics data={disk} showCapacity={false} />
+      <ZFSMetrics data={disk} showCapacity={false} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
     </div>
   );
 }

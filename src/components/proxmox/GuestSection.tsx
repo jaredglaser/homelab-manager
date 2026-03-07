@@ -10,9 +10,11 @@ interface GuestSectionProps {
   guests: GuestRow[]
   expanded: boolean
   onToggle: () => void
+  showSparklines: boolean
+  useAbbreviatedUnits: boolean
 }
 
-export function GuestSection({ label, guests, expanded, onToggle }: GuestSectionProps) {
+export function GuestSection({ label, guests, expanded, onToggle, showSparklines, useAbbreviatedUnits }: GuestSectionProps) {
   const sorted = [...guests].sort((a, b) => a.vmid - b.vmid)
 
   return (
@@ -67,21 +69,21 @@ export function GuestSection({ label, guests, expanded, onToggle }: GuestSection
                 </div>
                 <div>
                   {vm.status === 'running' ? (
-                    <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
+                    <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
                 <div>
-                  <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals={vm.status === 'running'} />
-                </div>
-                <div>
-                  {vm.status === 'running' ? (
-                    <MetricValue value={netInParts.value} unit={netInParts.unit} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
+                  <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals={vm.status === 'running'} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
                 </div>
                 <div>
                   {vm.status === 'running' ? (
-                    <MetricValue value={netOutParts.value} unit={netOutParts.unit} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
+                    <MetricValue value={netInParts.value} unit={netInParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+                </div>
+                <div>
+                  {vm.status === 'running' ? (
+                    <MetricValue value={netOutParts.value} unit={netOutParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
               </div>
             )

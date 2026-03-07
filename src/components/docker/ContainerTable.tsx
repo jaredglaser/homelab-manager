@@ -1,7 +1,7 @@
-import { useMemo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { useSettings } from '@/hooks/useSettings';
+import { useSettings, type DecimalSettings, type MemoryDisplayMode } from '@/hooks/useSettings';
 import { Box, Chip, CircularProgress, Collapse, Paper, Typography } from '@mui/material';
 import { ChevronRight, Server, WifiOff } from 'lucide-react';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
@@ -58,7 +58,14 @@ export default function ContainerTable({
   isStale,
   onOpenHistory,
 }: ContainerTableProps) {
-  const { docker, isHostExpanded, isContainerExpanded } = useSettings();
+  const {
+    docker,
+    general,
+    isHostExpanded,
+    isContainerExpanded,
+    toggleHostExpanded,
+    toggleContainerExpanded,
+  } = useSettings();
 
   const { data: entityIcons } = useQuery({
     queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
@@ -70,23 +77,36 @@ export default function ContainerTable({
   // Deduplicate by serviceKeyEntity so that when a container is recreated
   // (new container_id, same logical service), only the most recently active
   // incarnation is shown in the live dashboard.
+  const prevContainersRef = useRef<Map<string, DockerStatsFromDB>>(new Map());
+
   const hierarchy = useMemo<DockerHierarchy>(() => {
     const byServiceKey = new Map<string, DockerStatsFromDB>();
+    const prev = prevContainersRef.current;
+
     for (const row of latestByEntity.values()) {
       const entityId = `${row.host}/${row.container_id}`;
       const name = row.container_name || row.container_id.substring(0, 12);
       const meta = entityIcons?.[entityId];
       const stat = rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? `${row.host}/${name}`);
+
+      // Reuse previous object if the underlying data hasn't changed
+      const prevStat = prev.get(stat.serviceKeyEntity);
+      const reuse = prevStat && prevStat.timestamp === stat.timestamp;
+
       const existing = byServiceKey.get(stat.serviceKeyEntity);
       if (!existing || stat.timestamp > existing.timestamp) {
-        byServiceKey.set(stat.serviceKeyEntity, stat);
+        byServiceKey.set(stat.serviceKeyEntity, reuse ? prevStat : stat);
       }
     }
+
+    prevContainersRef.current = byServiceKey;
     return buildDockerHierarchy([...byServiceKey.values()]);
   }, [latestByEntity, entityIcons]);
 
   // Build per-service chart data index, keyed by serviceKeyEntity so rows from
   // all incarnations of the same service (different container IDs) are merged.
+  const prevChartDataRef = useRef<Map<string, DockerStatsRow[]>>(new Map());
+
   const chartDataByServiceKey = useMemo(() => {
     const map = new Map<string, DockerStatsRow[]>();
     for (const row of rows) {
@@ -100,6 +120,17 @@ export default function ContainerTable({
       }
       arr.push(row);
     }
+
+    // Reuse previous array references when content hasn't changed
+    const prev = prevChartDataRef.current;
+    for (const [key, arr] of map) {
+      const prevArr = prev.get(key);
+      if (prevArr && prevArr.length === arr.length && prevArr[prevArr.length - 1] === arr[arr.length - 1]) {
+        map.set(key, prevArr);
+      }
+    }
+
+    prevChartDataRef.current = map;
     return map;
   }, [rows, entityIcons]);
 
@@ -216,13 +247,28 @@ export default function ContainerTable({
                     data-index={virtualRow.index}
                     ref={virtualizer.measureElement}
                   >
-                    <HostRow host={group.host} totalHosts={group.totalHosts} />
+                    <HostRow
+                      host={group.host}
+                      totalHosts={group.totalHosts}
+                      expanded={expanded}
+                      toggleHostExpanded={toggleHostExpanded}
+                      decimals={docker.decimals}
+                      memoryDisplayMode={docker.memoryDisplayMode}
+                      showSparklines={general.showSparklines}
+                      useAbbreviatedUnits={general.useAbbreviatedUnits}
+                    />
                     <Collapse in={expanded} unmountOnExit>
                       {group.containers.map((c) => (
                         <ContainerRow
                           key={c.container.id}
                           container={c.container}
                           chartData={c.chartData}
+                          expanded={isContainerExpanded(c.container.id)}
+                          toggleContainerExpanded={toggleContainerExpanded}
+                          decimals={docker.decimals}
+                          memoryDisplayMode={docker.memoryDisplayMode}
+                          showSparklines={general.showSparklines}
+                          useAbbreviatedUnits={general.useAbbreviatedUnits}
                           onOpenHistory={onOpenHistory}
                         />
                       ))}
@@ -241,10 +287,27 @@ export default function ContainerTable({
 
 // ─── Host Row ────────────────────────────────────────────────────────────────
 
-function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) {
-  const { docker, isHostExpanded, toggleHostExpanded } = useSettings();
-  const { decimals } = docker;
-  const expanded = isHostExpanded(host.hostName, totalHosts);
+interface HostRowProps {
+  host: HostStats;
+  totalHosts: number;
+  expanded: boolean;
+  toggleHostExpanded: (hostName: string) => void;
+  decimals: DecimalSettings;
+  memoryDisplayMode: MemoryDisplayMode;
+  showSparklines: boolean;
+  useAbbreviatedUnits: boolean;
+}
+
+const HostRow = memo(function HostRow({
+  host,
+  totalHosts,
+  expanded,
+  toggleHostExpanded,
+  decimals,
+  memoryDisplayMode,
+  showSparklines,
+  useAbbreviatedUnits,
+}: HostRowProps) {
   const hasContainers = host.containers.size > 0;
 
   const handleClick = () => {
@@ -258,7 +321,7 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
   const networkTxBps = a.networkTxBytesPerSec * 8;
 
   const cpuParts = formatAsPercentParts(a.cpuPercent / 100, decimals.cpu);
-  const memoryParts = docker.memoryDisplayMode === 'bytes'
+  const memoryParts = memoryDisplayMode === 'bytes'
     ? formatBytesParts(a.memoryUsage, false, decimals.memory)
     : formatAsPercentParts(a.memoryPercent / 100, decimals.memory);
   const blockReadParts = formatBytesParts(a.blockIoReadBytesPerSec, true, decimals.diskSpeed);
@@ -291,23 +354,23 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
         )}
       </div>
       <div>
-        <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} />
+        <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} />
+        <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} />
+        <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} />
+        <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
     </div>
   );
-}
+});
