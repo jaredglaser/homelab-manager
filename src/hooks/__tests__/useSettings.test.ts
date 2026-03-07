@@ -262,24 +262,33 @@ if (isCI) {
             expect(result.current.isHostExpanded('host-1', 1)).toBe(true);
         });
 
+        it('should default to expanded for multiple hosts', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
+        });
+
         it('should toggle host expanded state for multiple hosts', () => {
             const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
+            // Default is expanded
+            expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
+
+            // Toggle to collapse
+            act(() => {
+                result.current.toggleHostExpanded('host-1');
+            });
+
             expect(result.current.isHostExpanded('host-1', 2)).toBe(false);
 
+            // Toggle again to expand
             act(() => {
                 result.current.toggleHostExpanded('host-1');
             });
 
             expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
-
-            // Toggle again to collapse
-            act(() => {
-                result.current.toggleHostExpanded('host-1');
-            });
-
-            expect(result.current.isHostExpanded('host-1', 2)).toBe(false);
         });
     });
 
@@ -542,16 +551,17 @@ if (isCI) {
     });
 
     describe('parsing settings from raw atom', () => {
-        it('should parse expanded hosts from JSON', () => {
+        it('should parse collapsed hosts from JSON', () => {
             const { wrapper } = createWrapper({
                 [SETTINGS_KEYS.docker.expandedHosts]: '["host-1", "host-2"]',
             });
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            expect(result.current.isHostExpanded('host-1', 3)).toBe(true);
-            expect(result.current.isHostExpanded('host-2', 3)).toBe(true);
-            expect(result.current.isHostExpanded('host-3', 3)).toBe(false);
+            // Hosts in the set are collapsed (inverted semantics)
+            expect(result.current.isHostExpanded('host-1', 3)).toBe(false);
+            expect(result.current.isHostExpanded('host-2', 3)).toBe(false);
+            expect(result.current.isHostExpanded('host-3', 3)).toBe(true);
         });
 
         it('should parse expanded containers from JSON', () => {
@@ -571,8 +581,8 @@ if (isCI) {
 
             const { result } = renderHook(() => useSettings(), { wrapper });
 
-            // Should default to empty set
-            expect(result.current.isHostExpanded('host-1', 2)).toBe(false);
+            // Should default to empty set (all expanded)
+            expect(result.current.isHostExpanded('host-1', 2)).toBe(true);
         });
 
         it('should handle invalid memory display mode', () => {

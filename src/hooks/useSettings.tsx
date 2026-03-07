@@ -116,7 +116,7 @@ export function useSettings(): SettingsValue {
   const isHostExpanded = useCallback(
     (hostName: string, totalHosts: number): boolean => {
       if (totalHosts === 1) return true;
-      return settings.docker.expandedHosts.has(hostName);
+      return !settings.docker.expandedHosts.has(hostName);
     },
     [settings.docker.expandedHosts]
   );
