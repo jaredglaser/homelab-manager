@@ -23,9 +23,9 @@ nul
 .ripgreprc
 .zprofile
 .zshrc
-config
-HEAD
-hooks
-objects
-refs
+/config
+/HEAD
+/hooks
+/objects
+/refs
 docs/plans
