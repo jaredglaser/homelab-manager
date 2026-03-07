@@ -163,7 +163,7 @@ export default function IconPickerDialog({
         </div>
 
         {/* Icon grid */}
-        <div ref={scrollRef} className="overflow-y-auto h-80 ml-4 mr-2 mb-4 pl-2 pr-2 py-2 rounded-l-xl rounded-r-none !bg-[var(--mui-palette-background-level1)] themed-scrollbar">
+        <div ref={scrollRef} className="overflow-y-auto h-[50vh] ml-4 mr-2 mb-4 pl-2 pr-2 py-2 rounded-l-xl rounded-r-none !bg-[var(--mui-palette-background-level1)] themed-scrollbar">
           {filteredIcons.length === 0 ? (
             <p className="text-center py-4 text-sm opacity-70">No icons found for &quot;{search}&quot;</p>
           ) : (
