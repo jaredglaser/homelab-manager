@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useRef } from 'react';
 import SparklineChart from '@/components/docker/SparklineChart';
 import { resolveChartColors } from '@/lib/charts/css-vars';
 
@@ -22,6 +22,9 @@ interface MetricSparklineProps {
  * NEW data points (by timestamp). When cached data is stale (e.g., returning
  * to the page after navigation), shows a placeholder until fresh SSE data
  * arrives, then does a full seed with the last 35s window.
+ *
+ * Accumulation runs during render (not in an effect) to avoid scheduling a
+ * second React commit after the parent's data update.
  */
 export default memo(function MetricSparkline({ data, color }: MetricSparklineProps) {
   const accRef = useRef<{ timestamp: number; value: number }[]>([]);
@@ -29,39 +32,30 @@ export default memo(function MetricSparkline({ data, color }: MetricSparklinePro
   // 'pending' = first mount, 'waiting' = skipped stale data, 'seeded' = ready
   const stateRef = useRef<'pending' | 'waiting' | 'seeded'>('pending');
 
-  const [points, setPoints] = useState<{ timestamp: number; value: number }[]>([]);
-
-  useEffect(() => {
-    if (data.length === 0) return;
-
+  // Compute accumulated points during render (pure derivation from props + refs).
+  // No useState/useEffect needed — avoids a second React commit per tick.
+  if (data.length > 0) {
     const latest = data[data.length - 1].timestamp;
 
     if (stateRef.current !== 'seeded') {
-      // Don't seed with stale cached data — wait for live SSE.
-      // On first load, preloaded data is <1s old; on return from cache it's always older.
       if (Date.now() - latest > STALE_THRESHOLD_MS) {
         stateRef.current = 'waiting';
-        return;
+      } else {
+        stateRef.current = 'seeded';
+        const cutoff = latest - SPARKLINE_WINDOW_MS;
+        accRef.current = data.filter((d) => d.timestamp >= cutoff);
+        maxTsRef.current = latest;
       }
-      // Fresh data available — full seed with the last 35s window
-      stateRef.current = 'seeded';
-      const cutoff = latest - SPARKLINE_WINDOW_MS;
-      accRef.current = data.filter((d) => d.timestamp >= cutoff);
-      maxTsRef.current = latest;
     } else if (latest > maxTsRef.current) {
-      // New data arrived: add only points newer than our tracked max
       const newPoints = data.filter((d) => d.timestamp > maxTsRef.current);
       const combined = [...accRef.current, ...newPoints];
       const cutoff = latest - SPARKLINE_WINDOW_MS;
       accRef.current = combined.filter((d) => d.timestamp >= cutoff);
       maxTsRef.current = latest;
-    } else {
-      // Buffer swap (re-bucketed data, same time range): skip update
-      return;
     }
+  }
 
-    setPoints(accRef.current);
-  }, [data]);
+  const points = accRef.current;
 
   if (points.length > 0) {
     return <SparklineChart data={points} color={color} className="hidden min-[1428px]:block" />;

@@ -1,11 +1,11 @@
 import { memo, useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { ChevronRight, History, Settings } from 'lucide-react';
-import { Collapse, IconButton, Tooltip } from '@mui/material';
+import { Collapse } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
+import type { DecimalSettings, MemoryDisplayMode } from '@/hooks/useSettings';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import { MetricValue } from '@/components/shared-table';
-import { useSettings } from '@/hooks/useSettings';
 import ContainerChartsCard from '@/components/docker/ContainerChartsCard';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
@@ -27,14 +27,27 @@ interface ChartDataPoint {
 interface ContainerRowProps {
   container: DockerStatsFromDB;
   chartData: DockerStatsRow[];
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  decimals: DecimalSettings;
+  memoryDisplayMode: MemoryDisplayMode;
+  showSparklines: boolean;
+  useAbbreviatedUnits: boolean;
   onOpenHistory?: (containerId: string, host: string) => void;
 }
 
-export default memo(function ContainerRow({ container, chartData, onOpenHistory }: ContainerRowProps) {
-  const { docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
+export default memo(function ContainerRow({
+  container,
+  chartData,
+  expanded,
+  onToggleExpanded,
+  decimals,
+  memoryDisplayMode,
+  showSparklines,
+  useAbbreviatedUnits,
+  onOpenHistory,
+}: ContainerRowProps) {
   const { rates } = container;
-  const { decimals } = docker;
-  const expanded = isContainerExpanded(container.id);
 
   const queryClient = useQueryClient();
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
@@ -51,13 +64,17 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
   const lastUpdatedMs = lastUpdated?.getTime() ?? 0;
   const lastUpdatedMsRef = useRef(lastUpdatedMs);
 
-  // Pulse animation via direct DOM manipulation to avoid re-render per tick
+  // Pulse animation + tooltip via direct DOM manipulation to avoid re-render per tick
+  const indicatorRef = useRef<HTMLDivElement>(null);
   const pingRef = useRef<HTMLDivElement>(null);
   const dotRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (lastUpdatedMs > 0 && lastUpdatedMs !== lastUpdatedMsRef.current) {
       lastUpdatedMsRef.current = lastUpdatedMs;
+
+      const indicator = indicatorRef.current;
+      if (indicator) indicator.title = `Last updated: ${new Date(lastUpdatedMs).toLocaleTimeString()}`;
 
       const ping = pingRef.current;
       const dot = dotRef.current;
@@ -120,7 +137,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
 
     return {
       cpu: formatAsPercentParts(rates.cpuPercent / 100, decimals.cpu),
-      memory: docker.memoryDisplayMode === 'bytes'
+      memory: memoryDisplayMode === 'bytes'
         ? formatBytesParts(container.memory_stats.usage, false, decimals.memory)
         : formatAsPercentParts(rates.memoryPercent / 100, decimals.memory),
       blockRead: formatBytesParts(rates.blockIoReadBytesPerSec, true, decimals.diskSpeed),
@@ -132,19 +149,25 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
     rates.cpuPercent, rates.memoryPercent,
     rates.blockIoReadBytesPerSec, rates.blockIoWriteBytesPerSec,
     rates.networkRxBytesPerSec, rates.networkTxBytesPerSec,
-    container.memory_stats.usage, docker.memoryDisplayMode,
+    container.memory_stats.usage, memoryDisplayMode,
     decimals.cpu, decimals.memory, decimals.diskSpeed, decimals.networkSpeed,
   ]);
 
   const rowRef = useRef<HTMLDivElement>(null);
 
   const handleClick = () => {
-    toggleContainerExpanded(container.id);
+    onToggleExpanded();
   };
 
   const handleExpanded = useCallback(() => {
     if (expanded && rowRef.current) {
-      rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const rect = rowRef.current.getBoundingClientRect();
+      // Only scroll if the row header is below the viewport bottom.
+      // Don't scroll when it's above or already visible — that would push
+      // the header out of view trying to fit the expanded chart card.
+      if (rect.top > window.innerHeight) {
+        rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
     }
   }, [expanded]);
 
@@ -168,24 +191,22 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             />
 
             {/* Container update indicator - pulses when stats update */}
-            <Tooltip
+            <div
+              ref={indicatorRef}
+              className="relative w-2 h-2 flex-shrink-0"
               title={lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'No data yet'}
-              placement="top"
-              arrow
             >
-              <div className="relative w-2 h-2 flex-shrink-0">
-                <div
-                  ref={pingRef}
-                  className="absolute inset-0 rounded-full transition-opacity duration-200 opacity-0"
-                  style={{ backgroundColor: 'var(--indicator-active)' }}
-                />
-                <div
-                  ref={dotRef}
-                  className="absolute inset-0 rounded-full transition-colors duration-300"
-                  style={{ backgroundColor: 'var(--indicator-active)' }}
-                />
-              </div>
-            </Tooltip>
+              <div
+                ref={pingRef}
+                className="absolute inset-0 rounded-full transition-opacity duration-200 opacity-0"
+                style={{ backgroundColor: 'var(--indicator-active)' }}
+              />
+              <div
+                ref={dotRef}
+                className="absolute inset-0 rounded-full transition-colors duration-300"
+                style={{ backgroundColor: 'var(--indicator-active)' }}
+              />
+            </div>
 
             <img
               src={iconError ? FALLBACK_ICON_URL : iconUrl}
@@ -194,33 +215,33 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
               onError={() => setIconError(true)}
             />
             <span className="truncate">{container.name}</span>
-            <IconButton
-              size="small"
+            <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 setIconPickerOpen(true);
               }}
-              className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100 focus-visible:!opacity-100'}`}
+              className={`p-1 rounded-full transition-opacity hover:bg-black/10 dark:hover:bg-white/10 ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
               aria-label="Change container icon"
               tabIndex={expanded ? 0 : -1}
               aria-hidden={!expanded}
             >
               <Settings size={14} />
-            </IconButton>
+            </button>
             {onOpenHistory && (
-              <IconButton
-                size="small"
+              <button
+                type="button"
                 onClick={(e) => {
                   e.stopPropagation();
                   onOpenHistory(container.id.split('/')[1], container.id.split('/')[0]);
                 }}
-                className={`!p-1 !transition-opacity ${expanded ? '!opacity-100' : '!opacity-0 group-hover:!opacity-100 focus-visible:!opacity-100'}`}
+                className={`p-1 rounded-full transition-opacity hover:bg-black/10 dark:hover:bg-white/10 ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
                 aria-label="View container history"
                 tabIndex={expanded ? 0 : -1}
                 aria-hidden={!expanded}
               >
                 <History size={14} />
-              </IconButton>
+              </button>
             )}
           </div>
         </div>
@@ -229,7 +250,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
-
+            showSparklines={showSparklines}
+            useAbbreviatedUnits={useAbbreviatedUnits}
             isStale={container.stale}
             sparklineData={sparklineData.cpu}
             sparklineColor="--chart-cpu"
@@ -240,7 +262,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
-
+            showSparklines={showSparklines}
+            useAbbreviatedUnits={useAbbreviatedUnits}
             isStale={container.stale}
             sparklineData={sparklineData.memory}
             sparklineColor="--chart-memory"
@@ -251,7 +274,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
             hasDecimals={decimals.diskSpeed}
-
+            showSparklines={showSparklines}
+            useAbbreviatedUnits={useAbbreviatedUnits}
             isStale={container.stale}
             sparklineData={sparklineData.blockRead}
             sparklineColor="--chart-read"
@@ -262,7 +286,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}
             hasDecimals={decimals.diskSpeed}
-
+            showSparklines={showSparklines}
+            useAbbreviatedUnits={useAbbreviatedUnits}
             isStale={container.stale}
             sparklineData={sparklineData.blockWrite}
             sparklineColor="--chart-write"
@@ -273,7 +298,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             value={metricParts.networkRx.value}
             unit={metricParts.networkRx.unit}
             hasDecimals={decimals.networkSpeed}
-
+            showSparklines={showSparklines}
+            useAbbreviatedUnits={useAbbreviatedUnits}
             isStale={container.stale}
             sparklineData={sparklineData.networkRx}
             sparklineColor="--chart-read"
@@ -284,7 +310,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             value={metricParts.networkTx.value}
             unit={metricParts.networkTx.unit}
             hasDecimals={decimals.networkSpeed}
-
+            showSparklines={showSparklines}
+            useAbbreviatedUnits={useAbbreviatedUnits}
             isStale={container.stale}
             sparklineData={sparklineData.networkTx}
             sparklineColor="--chart-write"

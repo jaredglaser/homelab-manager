@@ -9,9 +9,11 @@ interface StorageSectionProps {
   storages: ProxmoxStorage[]
   expanded: boolean
   onToggle: () => void
+  showSparklines: boolean
+  useAbbreviatedUnits: boolean
 }
 
-export function StorageSection({ storages, expanded, onToggle }: StorageSectionProps) {
+export function StorageSection({ storages, expanded, onToggle, showSparklines, useAbbreviatedUnits }: StorageSectionProps) {
   const sorted = [...storages].sort((a, b) => a.storage.localeCompare(b.storage))
 
   return (
@@ -62,13 +64,13 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
                 </div>
                 <div>
                   {s.total > 0 ? (
-                    <MetricValue value={usedParts.value} unit={usedParts.unit} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
+                    <MetricValue value={usedParts.value} unit={usedParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
                 <div>
                   {s.total > 0 ? (
-                    <MetricValue value={availParts.value} unit={availParts.unit} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
+                    <MetricValue value={availParts.value} unit={availParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
                 <div>
                   {s.total > 0 ? (
@@ -76,6 +78,8 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
                       value={usageParts.value}
                       unit={usageParts.unit}
                       hasDecimals
+                      showSparklines={showSparklines}
+                      useAbbreviatedUnits={useAbbreviatedUnits}
                       sparkline={
                         <LinearProgress
                           variant="determinate"
@@ -91,7 +95,7 @@ export function StorageSection({ storages, expanded, onToggle }: StorageSectionP
                         />
                       }
                     />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" />}
+                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
               </div>
             )

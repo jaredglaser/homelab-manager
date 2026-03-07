@@ -20,6 +20,7 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
     isProxmoxSectionExpanded,
     toggleProxmoxSectionExpanded,
     proxmox: { expandedHosts, expandedSections },
+    general: { showSparklines, useAbbreviatedUnits },
   } = useSettings()
 
   // On first render with no saved expansion state, default to all expanded
@@ -122,6 +123,8 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
                   guests={vms}
                   expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-vm`) : true}
                   onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-vm`)}
+                  showSparklines={showSparklines}
+                  useAbbreviatedUnits={useAbbreviatedUnits}
                 />
               )}
 
@@ -131,6 +134,8 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
                   guests={containers}
                   expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-ct`) : true}
                   onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-ct`)}
+                  showSparklines={showSparklines}
+                  useAbbreviatedUnits={useAbbreviatedUnits}
                 />
               )}
 
@@ -139,6 +144,8 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
                   storages={storages}
                   expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-storage`) : true}
                   onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-storage`)}
+                  showSparklines={showSparklines}
+                  useAbbreviatedUnits={useAbbreviatedUnits}
                 />
               )}
             </Collapse>

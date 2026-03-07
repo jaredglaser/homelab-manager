@@ -90,7 +90,7 @@ export function useTimeSeriesStream<TRow>({
   const dedupRef = useRef<Set<string>>(new Set());
 
   const [hasData, setHasData] = useState(false);
-  const [lastDataTime, setLastDataTime] = useState<number | null>(null);
+  const lastDataTimeRef = useRef<number | null>(null);
   const [preloadError, setPreloadError] = useState<Error | null>(null);
   const [serviceError, setServiceError] = useState<Error | null>(null);
   const preloadedRef = useRef(false);
@@ -166,7 +166,7 @@ export function useTimeSeriesStream<TRow>({
       sortedRef.current = sorted;
       setSortedRows(sorted);
       setHasData(true);
-      setLastDataTime(Date.now());
+      lastDataTimeRef.current = Date.now();
       lastRefreshRef.current = Date.now();
     };
 
@@ -198,13 +198,20 @@ export function useTimeSeriesStream<TRow>({
   // Pending rows accumulated between flushes
   const pendingRef = useRef<TRow[]>([]);
 
-  // Each SSE message queues rows for the next flush; also clears any prior errors (DB recovered)
+  // Each SSE message queues rows for the next flush; also clears any prior errors (DB recovered).
+  // Uses refs to avoid calling setState when errors are already null — those no-op setState calls
+  // still enter the reconciler and produce an extra React commit per SSE tick.
+  const preloadErrorRef = useRef<Error | null>(null);
+  const serviceErrorRef = useRef<Error | null>(null);
+  preloadErrorRef.current = preloadError;
+  serviceErrorRef.current = serviceError;
+
   const handleData = useCallback((incoming: TRow[]) => {
     if (debug) {
       console.log(`[useTimeSeriesStream] Received ${incoming.length} rows, queuing for next flush`);
     }
-    setPreloadError(null);
-    setServiceError(null);
+    if (preloadErrorRef.current !== null) setPreloadError(null);
+    if (serviceErrorRef.current !== null) setServiceError(null);
     pendingRef.current.push(...incoming);
   }, [debug]);
 
@@ -261,7 +268,7 @@ export function useTimeSeriesStream<TRow>({
       sortedRef.current = next;
       setSortedRows(next);
       setHasData(true);
-      setLastDataTime(now);
+      lastDataTimeRef.current = now;
     }, updateIntervalMs);
     return () => clearInterval(id);
   }, [windowSeconds, updateIntervalMs]);
@@ -330,16 +337,18 @@ export function useTimeSeriesStream<TRow>({
     return prev;
   }, [sortedRows]);
 
-  // Stale detection via interval
+  // Stale detection via interval — uses lastDataTimeRef (declared above) to
+  // avoid tearing down/recreating the interval every time new data arrives.
   const [isStale, setIsStale] = useState(false);
   useEffect(() => {
     if (!hasData) return;
-    setIsStale(false); // Clear stale immediately when new data arrives
     const id = setInterval(() => {
-      setIsStale(lastDataTime !== null && Date.now() - lastDataTime > STALE_THRESHOLD_MS);
+      const t = lastDataTimeRef.current;
+      const stale = t !== null && Date.now() - t > STALE_THRESHOLD_MS;
+      setIsStale(prev => prev === stale ? prev : stale);
     }, STALE_CHECK_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [hasData, lastDataTime]);
+  }, [hasData]);
 
   return { rows: sortedRows, latestByEntity, isConnected, error, hasData, isStale };
 }

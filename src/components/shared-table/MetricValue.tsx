@@ -1,6 +1,5 @@
 import { memo, type ReactNode } from 'react';
 import MetricSparkline from '@/components/docker/MetricSparkline';
-import { useSettings } from '@/hooks/useSettings';
 import { abbreviateUnit } from '@/lib/utils/abbreviate-unit';
 
 /** Display placeholder for metrics with no value */
@@ -11,6 +10,10 @@ interface MetricValueProps {
   value: string;
   /** The unit (e.g., "%", "MiB/s", "Kbps") */
   unit: string;
+  /** Whether sparklines are visible */
+  showSparklines: boolean;
+  /** Whether to abbreviate unit labels */
+  useAbbreviatedUnits: boolean;
   /** Pre-rendered sparkline element (e.g., LinearProgress). Prefer sparklineData+sparklineColor for memo. */
   sparkline?: ReactNode;
   /** Time-series data for auto-rendered MetricSparkline */
@@ -26,14 +29,14 @@ interface MetricValueProps {
 export const MetricValue = memo(function MetricValue({
   value,
   unit,
+  showSparklines,
+  useAbbreviatedUnits,
   sparkline,
   sparklineData,
   sparklineColor,
   hasDecimals = false,
   isStale = false,
 }: MetricValueProps) {
-  const { general } = useSettings();
-  const { useAbbreviatedUnits, showSparklines } = general;
 
   // Reserve minimum space to prevent layout shift on typical values,
   // but allow growth for larger numbers (e.g., 5+ digit ops/s)

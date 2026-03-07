@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { useSettings } from '@/hooks/useSettings';
+import { useSettings, type DecimalSettings, type MemoryDisplayMode } from '@/hooks/useSettings';
 import { Box, Chip, CircularProgress, Collapse, Paper, Typography } from '@mui/material';
 import { ChevronRight, Server, WifiOff } from 'lucide-react';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
@@ -58,7 +58,14 @@ export default function ContainerTable({
   isStale,
   onOpenHistory,
 }: ContainerTableProps) {
-  const { docker, isHostExpanded, isContainerExpanded } = useSettings();
+  const {
+    docker,
+    general,
+    isHostExpanded,
+    isContainerExpanded,
+    toggleHostExpanded,
+    toggleContainerExpanded,
+  } = useSettings();
 
   const { data: entityIcons } = useQuery({
     queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
@@ -240,13 +247,28 @@ export default function ContainerTable({
                     data-index={virtualRow.index}
                     ref={virtualizer.measureElement}
                   >
-                    <HostRow host={group.host} totalHosts={group.totalHosts} />
+                    <HostRow
+                      host={group.host}
+                      totalHosts={group.totalHosts}
+                      expanded={expanded}
+                      onToggleExpanded={() => toggleHostExpanded(group.host.hostName)}
+                      decimals={docker.decimals}
+                      memoryDisplayMode={docker.memoryDisplayMode}
+                      showSparklines={general.showSparklines}
+                      useAbbreviatedUnits={general.useAbbreviatedUnits}
+                    />
                     <Collapse in={expanded} unmountOnExit>
                       {group.containers.map((c) => (
                         <ContainerRow
                           key={c.container.id}
                           container={c.container}
                           chartData={c.chartData}
+                          expanded={isContainerExpanded(c.container.id)}
+                          onToggleExpanded={() => toggleContainerExpanded(c.container.id)}
+                          decimals={docker.decimals}
+                          memoryDisplayMode={docker.memoryDisplayMode}
+                          showSparklines={general.showSparklines}
+                          useAbbreviatedUnits={general.useAbbreviatedUnits}
                           onOpenHistory={onOpenHistory}
                         />
                       ))}
@@ -265,15 +287,32 @@ export default function ContainerTable({
 
 // ─── Host Row ────────────────────────────────────────────────────────────────
 
-const HostRow = memo(function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) {
-  const { docker, isHostExpanded, toggleHostExpanded } = useSettings();
-  const { decimals } = docker;
-  const expanded = isHostExpanded(host.hostName, totalHosts);
+interface HostRowProps {
+  host: HostStats;
+  totalHosts: number;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  decimals: DecimalSettings;
+  memoryDisplayMode: MemoryDisplayMode;
+  showSparklines: boolean;
+  useAbbreviatedUnits: boolean;
+}
+
+const HostRow = memo(function HostRow({
+  host,
+  totalHosts,
+  expanded,
+  onToggleExpanded,
+  decimals,
+  memoryDisplayMode,
+  showSparklines,
+  useAbbreviatedUnits,
+}: HostRowProps) {
   const hasContainers = host.containers.size > 0;
 
   const handleClick = () => {
     if (hasContainers && totalHosts > 1) {
-      toggleHostExpanded(host.hostName);
+      onToggleExpanded();
     }
   };
 
@@ -282,7 +321,7 @@ const HostRow = memo(function HostRow({ host, totalHosts }: { host: HostStats; t
   const networkTxBps = a.networkTxBytesPerSec * 8;
 
   const cpuParts = formatAsPercentParts(a.cpuPercent / 100, decimals.cpu);
-  const memoryParts = docker.memoryDisplayMode === 'bytes'
+  const memoryParts = memoryDisplayMode === 'bytes'
     ? formatBytesParts(a.memoryUsage, false, decimals.memory)
     : formatAsPercentParts(a.memoryPercent / 100, decimals.memory);
   const blockReadParts = formatBytesParts(a.blockIoReadBytesPerSec, true, decimals.diskSpeed);
@@ -315,22 +354,22 @@ const HostRow = memo(function HostRow({ host, totalHosts }: { host: HostStats; t
         )}
       </div>
       <div>
-        <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} />
+        <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} />
+        <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} />
+        <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} />
+        <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} />
+        <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
     </div>
   );
