@@ -7,7 +7,7 @@ import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '
 import { MetricValue } from '@/components/shared-table';
 import { useSettings } from '@/hooks/useSettings';
 import ContainerChartsCard from '@/components/docker/ContainerChartsCard';
-import SparklineChart from '@/components/docker/SparklineChart';
+import MetricSparkline from '@/components/docker/MetricSparkline';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
@@ -84,59 +84,15 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
     }));
   }, [chartData]);
 
-  // Sparkline accumulator: isolates sparkline data from chart buffer re-fetches.
-  // Only accumulates NEW data points (by timestamp). When the chart window changes
-  // and the buffer is re-fetched with a different time_bucket resolution, re-bucketed
-  // data doesn't have newer timestamps than what we've already seen, so sparklines
-  // stay visually stable. After ~35s all initial bucketed data is evicted and replaced
-  // with raw 1s-resolution SSE data.
-  const sparkAccRef = useRef<ChartDataPoint[]>([]);
-  const sparkMaxTsRef = useRef(0);
-  const sparkSeededRef = useRef(false);
-
-  const [sparklines, setSparklines] = useState(() => ({
-    cpu: [] as { timestamp: number; value: number }[],
-    memory: [] as { timestamp: number; value: number }[],
-    blockRead: [] as { timestamp: number; value: number }[],
-    blockWrite: [] as { timestamp: number; value: number }[],
-    networkRx: [] as { timestamp: number; value: number }[],
-    networkTx: [] as { timestamp: number; value: number }[],
-  }));
-
-  useEffect(() => {
-    if (dataPoints.length === 0) return;
-
-    const latest = dataPoints[dataPoints.length - 1].timestamp;
-
-    if (!sparkSeededRef.current) {
-      // First data: seed with all points in the sparkline window
-      sparkSeededRef.current = true;
-      const cutoff = latest - 35000;
-      sparkAccRef.current = dataPoints.filter((d) => d.timestamp >= cutoff);
-      sparkMaxTsRef.current = latest;
-    } else if (latest > sparkMaxTsRef.current) {
-      // New data arrived: add only points newer than our tracked max
-      const newPoints = dataPoints.filter((d) => d.timestamp > sparkMaxTsRef.current);
-      const combined = [...sparkAccRef.current, ...newPoints];
-      // Evict points outside the sparkline window
-      const cutoff = latest - 35000;
-      sparkAccRef.current = combined.filter((d) => d.timestamp >= cutoff);
-      sparkMaxTsRef.current = latest;
-    } else {
-      // Buffer swap (re-bucketed data, same time range): skip update
-      return;
-    }
-
-    const points = sparkAccRef.current;
-    setSparklines({
-      cpu: points.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
-      memory: points.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent })),
-      blockRead: points.map((d) => ({ timestamp: d.timestamp, value: d.blockIoReadBytesPerSec })),
-      blockWrite: points.map((d) => ({ timestamp: d.timestamp, value: d.blockIoWriteBytesPerSec })),
-      networkRx: points.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
-      networkTx: points.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
-    });
-  }, [dataPoints]);
+  // Per-metric sparkline data extracted from chart data points
+  const sparklineData = useMemo(() => ({
+    cpu: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
+    memory: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent })),
+    blockRead: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoReadBytesPerSec })),
+    blockWrite: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoWriteBytesPerSec })),
+    networkRx: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
+    networkTx: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
+  }), [dataPoints]);
 
   // Memoize formatted metric parts
   const metricParts = useMemo(() => {
@@ -256,7 +212,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.cpu}
 
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.cpu} color="--chart-cpu" className="hidden min-[1428px]:block" />}
+            sparkline={showSparklines && <MetricSparkline data={sparklineData.cpu} color="--chart-cpu" />}
           />
         </div>
         <div>
@@ -266,7 +222,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.memory}
 
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.memory} color="--chart-memory" className="hidden min-[1428px]:block" />}
+            sparkline={showSparklines && <MetricSparkline data={sparklineData.memory} color="--chart-memory" />}
           />
         </div>
         <div >
@@ -276,7 +232,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.diskSpeed}
 
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.blockRead} color="--chart-read" className="hidden min-[1428px]:block" />}
+            sparkline={showSparklines && <MetricSparkline data={sparklineData.blockRead} color="--chart-read" />}
           />
         </div>
         <div >
@@ -286,7 +242,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.diskSpeed}
 
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.blockWrite} color="--chart-write" className="hidden min-[1428px]:block" />}
+            sparkline={showSparklines && <MetricSparkline data={sparklineData.blockWrite} color="--chart-write" />}
           />
         </div>
         <div>
@@ -296,7 +252,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.networkSpeed}
 
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.networkRx} color="--chart-read" className="hidden min-[1428px]:block" />}
+            sparkline={showSparklines && <MetricSparkline data={sparklineData.networkRx} color="--chart-read" />}
           />
         </div>
         <div>
@@ -306,7 +262,7 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.networkSpeed}
 
             isStale={container.stale}
-            sparkline={showSparklines && <SparklineChart data={sparklines.networkTx} color="--chart-write" className="hidden min-[1428px]:block" />}
+            sparkline={showSparklines && <MetricSparkline data={sparklineData.networkTx} color="--chart-write" />}
           />
         </div>
       </div>
