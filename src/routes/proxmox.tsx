@@ -65,24 +65,28 @@ function IntervalToggle({
 
 function UpdateIndicator({ expectedInterval }: { expectedInterval: number }) {
   const lastUpdate = useAtomValue(proxmoxLastUpdateAtom)
-  const [isPulsing, setIsPulsing] = useState(false)
-  const [isLate, setIsLate] = useState(false)
+  const dotRef = useRef<HTMLDivElement>(null)
+  const pingRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (lastUpdate === 0) return
 
-    // Trigger pulse animation on new data
-    setIsPulsing(true)
-    const pulseTimer = setTimeout(() => setIsPulsing(false), 1000)
+    const dot = dotRef.current
+    const ping = pingRef.current
 
-    // Check if updates become late (2x the expected interval + 5s buffer)
+    // Reset to active state
+    if (dot) { dot.className = 'absolute w-2 h-2 rounded-full transition-all duration-300 bg-green-500 opacity-100' }
+    if (ping) { ping.className = 'absolute w-2 h-2 bg-green-500 rounded-full animate-ping opacity-75' }
+
+    const pulseTimer = setTimeout(() => {
+      if (ping) { ping.className = 'absolute w-2 h-2 bg-green-500 rounded-full opacity-0' }
+    }, 1000)
+
     const lateThreshold = expectedInterval * 2 + 5000
     const lateCheckTimer = setTimeout(() => {
-      setIsLate(true)
+      if (dot) { dot.className = 'absolute w-2 h-2 rounded-full transition-all duration-300 bg-orange-500 opacity-30' }
+      if (ping) { ping.className = 'absolute w-2 h-2 bg-green-500 rounded-full opacity-0' }
     }, lateThreshold)
-
-    // Reset late status when new data arrives
-    setIsLate(false)
 
     return () => {
       clearTimeout(pulseTimer)
@@ -99,15 +103,13 @@ function UpdateIndicator({ expectedInterval }: { expectedInterval: number }) {
     <Tooltip title={tooltipTitle} placement="bottom">
       <div className="relative inline-flex items-center justify-center w-2 h-2">
         <div
-          className={`absolute w-2 h-2 rounded-full transition-all duration-300 ${
-            isLate
-              ? 'bg-orange-500 opacity-30'
-              : 'bg-green-500 opacity-100'
-          }`}
+          ref={dotRef}
+          className="absolute w-2 h-2 rounded-full transition-all duration-300 bg-green-500 opacity-100"
         />
-        {isPulsing && !isLate && (
-          <div className="absolute w-2 h-2 bg-green-500 rounded-full animate-ping opacity-75" />
-        )}
+        <div
+          ref={pingRef}
+          className="absolute w-2 h-2 bg-green-500 rounded-full opacity-0"
+        />
       </div>
     </Tooltip>
   )

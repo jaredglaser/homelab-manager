@@ -7,7 +7,6 @@ import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '
 import { MetricValue } from '@/components/shared-table';
 import { useSettings } from '@/hooks/useSettings';
 import ContainerChartsCard from '@/components/docker/ContainerChartsCard';
-import MetricSparkline from '@/components/docker/MetricSparkline';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker.functions';
@@ -32,18 +31,14 @@ interface ContainerRowProps {
 }
 
 export default memo(function ContainerRow({ container, chartData, onOpenHistory }: ContainerRowProps) {
-  const { general, docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
+  const { docker, toggleContainerExpanded, isContainerExpanded } = useSettings();
   const { rates } = container;
   const { decimals } = docker;
-  const { showSparklines } = general;
   const expanded = isContainerExpanded(container.id);
 
   const queryClient = useQueryClient();
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
-  const [isPulsing, setIsPulsing] = useState(false);
-  const [isLate, setIsLate] = useState(false);
-
   const iconUrl = getIconUrl(container.icon, container.image);
 
   const handleIconSelect = async (iconSlug: string) => {
@@ -56,14 +51,29 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
   const lastUpdatedMs = lastUpdated?.getTime() ?? 0;
   const lastUpdatedMsRef = useRef(lastUpdatedMs);
 
-  // Detect when container stats update and trigger pulse animation
+  // Pulse animation via direct DOM manipulation to avoid re-render per tick
+  const pingRef = useRef<HTMLDivElement>(null);
+  const dotRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (lastUpdatedMs > 0 && lastUpdatedMs !== lastUpdatedMsRef.current) {
       lastUpdatedMsRef.current = lastUpdatedMs;
-      setIsPulsing(true);
-      setIsLate(false);
-      const pulseTimer = setTimeout(() => setIsPulsing(false), PULSE_DURATION_MS);
-      const lateTimer = setTimeout(() => setIsLate(true), LATE_THRESHOLD_MS);
+
+      const ping = pingRef.current;
+      const dot = dotRef.current;
+      if (ping) { ping.classList.add('opacity-100', 'animate-ping'); ping.classList.remove('opacity-0'); }
+      if (ping && dot) {
+        ping.style.backgroundColor = 'var(--indicator-active)';
+        dot.style.backgroundColor = 'var(--indicator-active)';
+      }
+
+      const pulseTimer = setTimeout(() => {
+        if (ping) { ping.classList.remove('opacity-100', 'animate-ping'); ping.classList.add('opacity-0'); }
+      }, PULSE_DURATION_MS);
+      const lateTimer = setTimeout(() => {
+        if (ping) ping.style.backgroundColor = 'var(--indicator-late)';
+        if (dot) dot.style.backgroundColor = 'var(--indicator-late)';
+      }, LATE_THRESHOLD_MS);
       return () => {
         clearTimeout(pulseTimer);
         clearTimeout(lateTimer);
@@ -71,28 +81,37 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
     }
   }, [lastUpdatedMs]);
 
-  // Convert wide rows to chart data points
-  const dataPoints = useMemo<ChartDataPoint[]>(() => {
-    return chartData.map((row) => ({
-      timestamp: new Date(row.time).getTime(),
-      cpuPercent: row.cpu_percent ?? 0,
-      memoryPercent: row.memory_percent ?? 0,
-      blockIoReadBytesPerSec: row.block_io_read_bytes_per_sec ?? 0,
-      blockIoWriteBytesPerSec: row.block_io_write_bytes_per_sec ?? 0,
-      networkRxBytesPerSec: row.network_rx_bytes_per_sec ?? 0,
-      networkTxBytesPerSec: row.network_tx_bytes_per_sec ?? 0,
-    }));
-  }, [chartData]);
+  // Convert wide rows to chart data points and sparkline data in a single pass
+  const { dataPoints, sparklineData } = useMemo(() => {
+    const points: ChartDataPoint[] = new Array(chartData.length);
+    const cpu: { timestamp: number; value: number }[] = new Array(chartData.length);
+    const memory: { timestamp: number; value: number }[] = new Array(chartData.length);
+    const blockRead: { timestamp: number; value: number }[] = new Array(chartData.length);
+    const blockWrite: { timestamp: number; value: number }[] = new Array(chartData.length);
+    const networkRx: { timestamp: number; value: number }[] = new Array(chartData.length);
+    const networkTx: { timestamp: number; value: number }[] = new Array(chartData.length);
 
-  // Per-metric sparkline data extracted from chart data points
-  const sparklineData = useMemo(() => ({
-    cpu: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.cpuPercent })),
-    memory: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.memoryPercent })),
-    blockRead: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoReadBytesPerSec })),
-    blockWrite: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.blockIoWriteBytesPerSec })),
-    networkRx: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
-    networkTx: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
-  }), [dataPoints]);
+    for (let i = 0; i < chartData.length; i++) {
+      const row = chartData[i];
+      const timestamp = new Date(row.time).getTime();
+      const cpuPercent = row.cpu_percent ?? 0;
+      const memoryPercent = row.memory_percent ?? 0;
+      const blockIoRead = row.block_io_read_bytes_per_sec ?? 0;
+      const blockIoWrite = row.block_io_write_bytes_per_sec ?? 0;
+      const netRx = row.network_rx_bytes_per_sec ?? 0;
+      const netTx = row.network_tx_bytes_per_sec ?? 0;
+
+      points[i] = { timestamp, cpuPercent, memoryPercent, blockIoReadBytesPerSec: blockIoRead, blockIoWriteBytesPerSec: blockIoWrite, networkRxBytesPerSec: netRx, networkTxBytesPerSec: netTx };
+      cpu[i] = { timestamp, value: cpuPercent };
+      memory[i] = { timestamp, value: memoryPercent };
+      blockRead[i] = { timestamp, value: blockIoRead };
+      blockWrite[i] = { timestamp, value: blockIoWrite };
+      networkRx[i] = { timestamp, value: netRx };
+      networkTx[i] = { timestamp, value: netTx };
+    }
+
+    return { dataPoints: points, sparklineData: { cpu, memory, blockRead, blockWrite, networkRx, networkTx } };
+  }, [chartData]);
 
   // Memoize formatted metric parts
   const metricParts = useMemo(() => {
@@ -156,14 +175,14 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             >
               <div className="relative w-2 h-2 flex-shrink-0">
                 <div
-                  className={`absolute inset-0 rounded-full transition-opacity duration-200 ${
-                    isPulsing ? 'opacity-100 animate-ping' : 'opacity-0'
-                  }`}
-                  style={{ backgroundColor: isLate ? 'var(--indicator-late)' : 'var(--indicator-active)' }}
+                  ref={pingRef}
+                  className="absolute inset-0 rounded-full transition-opacity duration-200 opacity-0"
+                  style={{ backgroundColor: 'var(--indicator-active)' }}
                 />
                 <div
+                  ref={dotRef}
                   className="absolute inset-0 rounded-full transition-colors duration-300"
-                  style={{ backgroundColor: isLate ? 'var(--indicator-late)' : 'var(--indicator-active)' }}
+                  style={{ backgroundColor: 'var(--indicator-active)' }}
                 />
               </div>
             </Tooltip>
@@ -212,7 +231,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.cpu}
 
             isStale={container.stale}
-            sparkline={showSparklines && <MetricSparkline data={sparklineData.cpu} color="--chart-cpu" />}
+            sparklineData={sparklineData.cpu}
+            sparklineColor="--chart-cpu"
           />
         </div>
         <div>
@@ -222,7 +242,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.memory}
 
             isStale={container.stale}
-            sparkline={showSparklines && <MetricSparkline data={sparklineData.memory} color="--chart-memory" />}
+            sparklineData={sparklineData.memory}
+            sparklineColor="--chart-memory"
           />
         </div>
         <div >
@@ -232,7 +253,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.diskSpeed}
 
             isStale={container.stale}
-            sparkline={showSparklines && <MetricSparkline data={sparklineData.blockRead} color="--chart-read" />}
+            sparklineData={sparklineData.blockRead}
+            sparklineColor="--chart-read"
           />
         </div>
         <div >
@@ -242,7 +264,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.diskSpeed}
 
             isStale={container.stale}
-            sparkline={showSparklines && <MetricSparkline data={sparklineData.blockWrite} color="--chart-write" />}
+            sparklineData={sparklineData.blockWrite}
+            sparklineColor="--chart-write"
           />
         </div>
         <div>
@@ -252,7 +275,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.networkSpeed}
 
             isStale={container.stale}
-            sparkline={showSparklines && <MetricSparkline data={sparklineData.networkRx} color="--chart-read" />}
+            sparklineData={sparklineData.networkRx}
+            sparklineColor="--chart-read"
           />
         </div>
         <div>
@@ -262,7 +286,8 @@ export default memo(function ContainerRow({ container, chartData, onOpenHistory 
             hasDecimals={decimals.networkSpeed}
 
             isStale={container.stale}
-            sparkline={showSparklines && <MetricSparkline data={sparklineData.networkTx} color="--chart-write" />}
+            sparklineData={sparklineData.networkTx}
+            sparklineColor="--chart-write"
           />
         </div>
       </div>

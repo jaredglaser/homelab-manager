@@ -399,3 +399,42 @@ describe('useTimeSeriesStream periodic refresh', () => {
     expect(result.current.rows.length).toBeGreaterThan(0);
   });
 });
+
+describe('useTimeSeriesStream latestByEntity stability', () => {
+  it('returns the same Map reference when no entity latest changes', async () => {
+    const now = Date.now();
+    const preloadRows: TestRow[] = [
+      { key: 'a-1', time: now - 10000, entity: 'a' },
+      { key: 'b-1', time: now - 8000, entity: 'b' },
+    ];
+    const preloadFn = mock(() => Promise.resolve(preloadRows));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        sseUrl: '/api/test',
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+        updateIntervalMs: 50,
+      })
+    );
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const firstMap = result.current.latestByEntity;
+    expect(firstMap.size).toBe(2);
+
+    // Send SSE data for entity 'a' only - entity 'b' should keep the same row reference
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.onmessage?.({ data: JSON.stringify([{ key: 'a-2', time: now - 1000, entity: 'a' }]) });
+    });
+
+    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+    const secondMap = result.current.latestByEntity;
+
+    // Map reference changes (entity 'a' updated)
+    expect(secondMap.get('a')?.key).toBe('a-2');
+    // But entity 'b' row reference should be the same object
+    expect(secondMap.get('b')).toBe(firstMap.get('b'));
+  });
+});

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { useSettings } from '@/hooks/useSettings';
@@ -70,23 +70,36 @@ export default function ContainerTable({
   // Deduplicate by serviceKeyEntity so that when a container is recreated
   // (new container_id, same logical service), only the most recently active
   // incarnation is shown in the live dashboard.
+  const prevContainersRef = useRef<Map<string, DockerStatsFromDB>>(new Map());
+
   const hierarchy = useMemo<DockerHierarchy>(() => {
     const byServiceKey = new Map<string, DockerStatsFromDB>();
+    const prev = prevContainersRef.current;
+
     for (const row of latestByEntity.values()) {
       const entityId = `${row.host}/${row.container_id}`;
       const name = row.container_name || row.container_id.substring(0, 12);
       const meta = entityIcons?.[entityId];
       const stat = rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? `${row.host}/${name}`);
+
+      // Reuse previous object if the underlying data hasn't changed
+      const prevStat = prev.get(stat.serviceKeyEntity);
+      const reuse = prevStat && prevStat.timestamp === stat.timestamp;
+
       const existing = byServiceKey.get(stat.serviceKeyEntity);
       if (!existing || stat.timestamp > existing.timestamp) {
-        byServiceKey.set(stat.serviceKeyEntity, stat);
+        byServiceKey.set(stat.serviceKeyEntity, reuse ? prevStat : stat);
       }
     }
+
+    prevContainersRef.current = byServiceKey;
     return buildDockerHierarchy([...byServiceKey.values()]);
   }, [latestByEntity, entityIcons]);
 
   // Build per-service chart data index, keyed by serviceKeyEntity so rows from
   // all incarnations of the same service (different container IDs) are merged.
+  const prevChartDataRef = useRef<Map<string, DockerStatsRow[]>>(new Map());
+
   const chartDataByServiceKey = useMemo(() => {
     const map = new Map<string, DockerStatsRow[]>();
     for (const row of rows) {
@@ -100,6 +113,17 @@ export default function ContainerTable({
       }
       arr.push(row);
     }
+
+    // Reuse previous array references when content hasn't changed
+    const prev = prevChartDataRef.current;
+    for (const [key, arr] of map) {
+      const prevArr = prev.get(key);
+      if (prevArr && prevArr.length === arr.length && prevArr[prevArr.length - 1] === arr[arr.length - 1]) {
+        map.set(key, prevArr);
+      }
+    }
+
+    prevChartDataRef.current = map;
     return map;
   }, [rows, entityIcons]);
 
@@ -241,7 +265,7 @@ export default function ContainerTable({
 
 // ─── Host Row ────────────────────────────────────────────────────────────────
 
-function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) {
+const HostRow = memo(function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) {
   const { docker, isHostExpanded, toggleHostExpanded } = useSettings();
   const { decimals } = docker;
   const expanded = isHostExpanded(host.hostName, totalHosts);
@@ -310,4 +334,4 @@ function HostRow({ host, totalHosts }: { host: HostStats; totalHosts: number }) 
       </div>
     </div>
   );
-}
+});

@@ -299,16 +299,35 @@ export function useTimeSeriesStream<TRow>({
 
   const error = sseError ?? serviceError ?? preloadError;
 
+  const prevLatestRef = useRef<Map<string, TRow>>(new Map());
+
   const latestByEntity = useMemo(() => {
-    const map = new Map<string, TRow>();
+    const prev = prevLatestRef.current;
+    const next = new Map<string, TRow>();
+
     for (const row of sortedRows) {
       const entity = getEntityRef.current(row);
-      const existing = map.get(entity);
+      const existing = next.get(entity);
       if (!existing || getTimeRef.current(row) > getTimeRef.current(existing)) {
-        map.set(entity, row);
+        next.set(entity, row);
       }
     }
-    return map;
+
+    // Structural sharing: return previous Map if nothing changed.
+    // Compare by row key (dedup key includes timestamp, so this detects actual data changes).
+    if (next.size !== prev.size) {
+      prevLatestRef.current = next;
+      return next;
+    }
+    for (const [entity, row] of next) {
+      const prevRow = prev.get(entity);
+      if (!prevRow || getKeyRef.current(row) !== getKeyRef.current(prevRow)) {
+        prevLatestRef.current = next;
+        return next;
+      }
+    }
+
+    return prev;
   }, [sortedRows]);
 
   // Stale detection via interval
