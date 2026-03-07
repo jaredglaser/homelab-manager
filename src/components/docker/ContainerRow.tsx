@@ -161,13 +161,24 @@ export default memo(function ContainerRow({
 
   const handleExpanded = useCallback(() => {
     if (expanded && rowRef.current) {
-      const rect = rowRef.current.getBoundingClientRect();
-      // Only scroll if the row header is below the viewport bottom.
-      // Don't scroll when it's above or already visible — that would push
-      // the header out of view trying to fit the expanded chart card.
-      if (rect.top > window.innerHeight) {
-        rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      const el = rowRef.current;
+      // Delay to let the virtualizer settle after the Collapse animation
+      setTimeout(() => {
+        const rect = el.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+        const headerAbove = rect.top < 0;
+        const contentBelow = rect.bottom > viewportHeight;
+
+        if (headerAbove || contentBelow) {
+          if (headerAbove) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } else if (rect.height <= viewportHeight) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          } else {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+      }, 50);
     }
   }, [expanded]);
 
