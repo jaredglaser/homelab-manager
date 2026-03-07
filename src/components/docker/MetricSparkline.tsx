@@ -32,8 +32,17 @@ export default memo(function MetricSparkline({ data, color }: MetricSparklinePro
   // 'pending' = first mount, 'waiting' = skipped stale data, 'seeded' = ready
   const stateRef = useRef<'pending' | 'waiting' | 'seeded'>('pending');
 
-  // Compute accumulated points during render (pure derivation from props + refs).
-  // No useState/useEffect needed — avoids a second React commit per tick.
+  // Render-time ref mutation — intentional and safe.
+  //
+  // These refs (stateRef, accRef, maxTsRef) are mutated during render instead of
+  // using useState/useEffect. This is safe because updates are idempotent and fully
+  // derived from the incoming `data` prop: the logic keys on the latest timestamp
+  // and filters by a fixed cutoff (SPARKLINE_WINDOW_MS), so repeated renders with
+  // the same data converge to the same ref state. This avoids scheduling a deferred
+  // setState that would cause a second React commit per SSE tick (×168 sparklines).
+  //
+  // WARNING: Do not change the timestamp-based assumptions (e.g. switching to index-
+  // based filtering or adding non-deterministic logic) without revisiting this pattern.
   if (data.length > 0) {
     const latest = data[data.length - 1].timestamp;
 

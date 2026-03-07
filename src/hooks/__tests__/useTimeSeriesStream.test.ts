@@ -437,4 +437,38 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
     // But entity 'b' row reference should be the same object
     expect(secondMap.get('b')).toBe(firstMap.get('b'));
   });
+
+  it('returns the same Map reference when a duplicate/older row is sent', async () => {
+    const now = Date.now();
+    const preloadRows: TestRow[] = [
+      { key: 'a-1', time: now - 10000, entity: 'a' },
+      { key: 'b-1', time: now - 8000, entity: 'b' },
+    ];
+    const preloadFn = mock(() => Promise.resolve(preloadRows));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        sseUrl: '/api/test',
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+        updateIntervalMs: 50,
+      })
+    );
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    const firstMap = result.current.latestByEntity;
+    expect(firstMap.size).toBe(2);
+
+    // Send a duplicate row (same key as existing) — should be deduped, no latest change
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.onmessage?.({ data: JSON.stringify([{ key: 'a-1', time: now - 10000, entity: 'a' }]) });
+    });
+
+    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+
+    // Map reference should be identical — no entity's latest changed
+    expect(result.current.latestByEntity).toBe(firstMap);
+  });
 });

@@ -33,7 +33,7 @@ export default function ZFSPoolsTable({
   error,
   isStale,
 }: ZFSPoolsTableProps) {
-  const { isZfsHostExpanded } = useSettings();
+  const { isZfsHostExpanded, toggleZfsHostExpanded, zfs, general } = useSettings();
 
   // Build multi-host hierarchy from latest rows
   const hostHierarchy = useMemo<ZFSHostHierarchy>(() => {
@@ -171,7 +171,15 @@ export default function ZFSPoolsTable({
                     ref={virtualizer.measureElement}
                   >
                     {row.type === 'host' ? (
-                      <HostRow host={row.host} totalHosts={row.totalHosts} />
+                      <HostRow
+                        host={row.host}
+                        totalHosts={row.totalHosts}
+                        isZfsHostExpanded={isZfsHostExpanded}
+                        toggleZfsHostExpanded={toggleZfsHostExpanded}
+                        showSparklines={general.showSparklines}
+                        useAbbreviatedUnits={general.useAbbreviatedUnits}
+                        diskSpeedDecimals={zfs.decimals.diskSpeed}
+                      />
                     ) : (
                       <PoolRow
                         pool={row.pool}
@@ -272,8 +280,23 @@ function HostAggregateMetrics({ host, showSparklines, useAbbreviatedUnits, diskS
 
 // ─── Host Row ───────────────────────────────────────────────────────────────────
 
-function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number }) {
-  const { isZfsHostExpanded, toggleZfsHostExpanded, zfs, general } = useSettings();
+function HostRow({
+  host,
+  totalHosts,
+  isZfsHostExpanded,
+  toggleZfsHostExpanded,
+  showSparklines,
+  useAbbreviatedUnits,
+  diskSpeedDecimals,
+}: {
+  host: ZFSHostStats;
+  totalHosts: number;
+  isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
+  toggleZfsHostExpanded: (hostName: string) => void;
+  showSparklines: boolean;
+  useAbbreviatedUnits: boolean;
+  diskSpeedDecimals: boolean;
+}) {
   const expanded = isZfsHostExpanded(host.hostName, totalHosts);
   const hasPools = host.pools.size > 0;
 
@@ -301,7 +324,7 @@ function HostRow({ host, totalHosts }: { host: ZFSHostStats; totalHosts: number 
         <span className="font-bold">{host.hostName}</span>
         <Chip size="small" variant="filled" label={`${host.aggregated.poolCount} pool${host.aggregated.poolCount !== 1 ? 's' : ''}`} />
       </div>
-      <HostAggregateMetrics host={host} showSparklines={general.showSparklines} useAbbreviatedUnits={general.useAbbreviatedUnits} diskSpeedDecimals={zfs.decimals.diskSpeed} />
+      <HostAggregateMetrics host={host} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
     </div>
   );
 }

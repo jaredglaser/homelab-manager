@@ -251,7 +251,7 @@ export default function ContainerTable({
                       host={group.host}
                       totalHosts={group.totalHosts}
                       expanded={expanded}
-                      onToggleExpanded={() => toggleHostExpanded(group.host.hostName)}
+                      toggleHostExpanded={toggleHostExpanded}
                       decimals={docker.decimals}
                       memoryDisplayMode={docker.memoryDisplayMode}
                       showSparklines={general.showSparklines}
@@ -264,7 +264,7 @@ export default function ContainerTable({
                           container={c.container}
                           chartData={c.chartData}
                           expanded={isContainerExpanded(c.container.id)}
-                          onToggleExpanded={() => toggleContainerExpanded(c.container.id)}
+                          toggleContainerExpanded={toggleContainerExpanded}
                           decimals={docker.decimals}
                           memoryDisplayMode={docker.memoryDisplayMode}
                           showSparklines={general.showSparklines}
@@ -291,7 +291,7 @@ interface HostRowProps {
   host: HostStats;
   totalHosts: number;
   expanded: boolean;
-  onToggleExpanded: () => void;
+  toggleHostExpanded: (hostName: string) => void;
   decimals: DecimalSettings;
   memoryDisplayMode: MemoryDisplayMode;
   showSparklines: boolean;
@@ -302,7 +302,7 @@ const HostRow = memo(function HostRow({
   host,
   totalHosts,
   expanded,
-  onToggleExpanded,
+  toggleHostExpanded,
   decimals,
   memoryDisplayMode,
   showSparklines,
@@ -312,7 +312,7 @@ const HostRow = memo(function HostRow({
 
   const handleClick = () => {
     if (hasContainers && totalHosts > 1) {
-      onToggleExpanded();
+      toggleHostExpanded(host.hostName);
     }
   };
 

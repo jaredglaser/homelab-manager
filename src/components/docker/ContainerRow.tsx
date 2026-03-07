@@ -28,7 +28,7 @@ interface ContainerRowProps {
   container: DockerStatsFromDB;
   chartData: DockerStatsRow[];
   expanded: boolean;
-  onToggleExpanded: () => void;
+  toggleContainerExpanded: (containerId: string) => void;
   decimals: DecimalSettings;
   memoryDisplayMode: MemoryDisplayMode;
   showSparklines: boolean;
@@ -40,7 +40,7 @@ export default memo(function ContainerRow({
   container,
   chartData,
   expanded,
-  onToggleExpanded,
+  toggleContainerExpanded,
   decimals,
   memoryDisplayMode,
   showSparklines,
@@ -156,7 +156,7 @@ export default memo(function ContainerRow({
   const rowRef = useRef<HTMLDivElement>(null);
 
   const handleClick = () => {
-    onToggleExpanded();
+    toggleContainerExpanded(container.id);
   };
 
   const handleExpanded = useCallback(() => {
@@ -269,7 +269,7 @@ export default memo(function ContainerRow({
             sparklineColor="--chart-memory"
           />
         </div>
-        <div >
+        <div>
           <MetricValue
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
@@ -281,7 +281,7 @@ export default memo(function ContainerRow({
             sparklineColor="--chart-read"
           />
         </div>
-        <div >
+        <div>
           <MetricValue
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}

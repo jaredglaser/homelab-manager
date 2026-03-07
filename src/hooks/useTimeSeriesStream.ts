@@ -120,8 +120,11 @@ export function useTimeSeriesStream<TRow>({
     } catch {
       return; // silently ignore - next interval will retry
     }
-    lastRefreshRef.current = Date.now();
+    const now = Date.now();
+    lastRefreshRef.current = now;
     if (rows.length === 0) return;
+    lastDataTimeRef.current = now;
+    setIsStale(false);
 
     const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
     const preloadMaxTime = getTimeRef.current(sorted[sorted.length - 1]);
@@ -207,13 +210,10 @@ export function useTimeSeriesStream<TRow>({
   serviceErrorRef.current = serviceError;
 
   const handleData = useCallback((incoming: TRow[]) => {
-    if (debug) {
-      console.log(`[useTimeSeriesStream] Received ${incoming.length} rows, queuing for next flush`);
-    }
     if (preloadErrorRef.current !== null) setPreloadError(null);
     if (serviceErrorRef.current !== null) setServiceError(null);
     pendingRef.current.push(...incoming);
-  }, [debug]);
+  }, []);
 
   // Flush pending rows into the sorted array on a fixed interval.
   // O(k log k + log n) per flush vs O(n log n) with full re-sort:
