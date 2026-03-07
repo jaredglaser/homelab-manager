@@ -37,6 +37,12 @@ export const Route = createRootRoute({
         title: 'Homelab Manager',
       },
     ],
+    links: [
+      {
+        rel: 'icon',
+        href: `${import.meta.env.BASE_URL}favicon.ico`,
+      },
+    ],
   }),
 
   component: RootLayout,
