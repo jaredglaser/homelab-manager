@@ -400,6 +400,103 @@ describe('useTimeSeriesStream periodic refresh', () => {
   });
 });
 
+describe('useTimeSeriesStream stale initialData', () => {
+  it('triggers a refresh when initialData is stale', async () => {
+    const now = Date.now();
+    // Rows older than STALE_INITIAL_DATA_MS (1500ms)
+    const staleRows: TestRow[] = [
+      { key: 'a-1', time: now - 5000, entity: 'a' },
+      { key: 'b-1', time: now - 3000, entity: 'b' },
+    ];
+    const freshRows: TestRow[] = [
+      { key: 'a-2', time: now - 500, entity: 'a' },
+      { key: 'b-2', time: now - 200, entity: 'b' },
+    ];
+    const preloadFn = mock(() => Promise.resolve(freshRows));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        sseUrl: '/api/test',
+        preloadFn,
+        initialData: staleRows,
+        ...defaultOpts,
+        windowSeconds: 60,
+      })
+    );
+
+    // initialData seeds immediately
+    expect(result.current.hasData).toBe(true);
+    expect(result.current.rows).toHaveLength(2);
+
+    // Wait for the stale-data refresh (setTimeout 0 + preloadFn)
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    // preloadFn should have been called to refresh stale data
+    expect(preloadFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not refresh when initialData is fresh', async () => {
+    const now = Date.now();
+    // Rows within STALE_INITIAL_DATA_MS (1500ms)
+    const freshRows: TestRow[] = [
+      { key: 'a-1', time: now - 500, entity: 'a' },
+    ];
+    const preloadFn = mock(() => Promise.resolve([]));
+
+    renderHook(() =>
+      useTimeSeriesStream({
+        sseUrl: '/api/test',
+        preloadFn,
+        initialData: freshRows,
+        ...defaultOpts,
+        windowSeconds: 60,
+      })
+    );
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    // preloadFn should NOT have been called — initialData was fresh
+    expect(preloadFn).toHaveBeenCalledTimes(0);
+  });
+});
+
+describe('useTimeSeriesStream cutoff-only eviction', () => {
+  it('evicts old rows when SSE sends only duplicates', async () => {
+    const now = Date.now();
+    const preloadRows: TestRow[] = [
+      { key: 'old', time: now - 120_000, entity: 'a' },
+      { key: 'recent', time: now - 5000, entity: 'a' },
+    ];
+    const preloadFn = mock(() => Promise.resolve(preloadRows));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        sseUrl: '/api/test',
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+        updateIntervalMs: 50,
+      })
+    );
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(result.current.rows).toHaveLength(2);
+
+    // Send a duplicate row — triggers flush with pending > 0, but newRows is empty after dedup.
+    // This exercises the cutoff-only branch (hasCutoff && !hasNew).
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.onmessage?.({ data: JSON.stringify([{ key: 'recent', time: now - 5000, entity: 'a' }]) });
+    });
+
+    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+
+    const keys = result.current.rows.map(r => r.key);
+    expect(keys).not.toContain('old');
+    expect(keys).toContain('recent');
+  });
+});
+
 describe('useTimeSeriesStream latestByEntity stability', () => {
   it('returns the same Map reference when no entity latest changes', async () => {
     const now = Date.now();
