@@ -5,6 +5,7 @@ const STALE_THRESHOLD_MS = 30000;
 const STALE_CHECK_INTERVAL_MS = 5000;
 const PRELOAD_TIMEOUT_MS = 8000;
 export const VISIBILITY_REFRESH_COOLDOWN_MS = 5000;
+const STALE_INITIAL_DATA_MS = 1500;
 
 interface UseTimeSeriesStreamOptions<TRow> {
   sseUrl: string;
@@ -176,6 +177,16 @@ export function useTimeSeriesStream<TRow>({
     // Use cached data if available (e.g. from TanStack Query)
     if (initialDataRef.current && initialDataRef.current.length > 0) {
       seedRows(initialDataRef.current);
+      // Cached data may be stale (e.g. navigated away and back). If the newest row
+      // is behind now, schedule a refresh to fill the gap.
+      let maxTime = 0;
+      for (const r of initialDataRef.current) {
+        const t = getTimeRef.current(r);
+        if (t > maxTime) maxTime = t;
+      }
+      if (maxTime > 0 && Date.now() - maxTime > STALE_INITIAL_DATA_MS) {
+        setTimeout(() => { void doRefreshRef.current(); }, 0);
+      }
       return;
     }
 

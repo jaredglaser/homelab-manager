@@ -54,7 +54,7 @@ function DockerPageContent() {
     () => qc.fetchQuery({
       queryKey: dockerQueryKey,
       queryFn: () => preloadDockerStats(windowSeconds),
-      staleTime: PRELOAD_STALE_TIME,
+      staleTime: 0,
     }),
     [qc, windowSeconds],
   )
