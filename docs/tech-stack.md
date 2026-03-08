@@ -13,5 +13,7 @@
 | **SSH** | [ssh2](https://github.com/mscdex/ssh2) | SSH client for remote command execution |
 | **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and indefinite retention for time-series data |
 | **Validation** | [Zod](https://zod.dev) | Schema validation |
+| **Charts** | [Apache ECharts](https://echarts.apache.org/) | Interactive charts - sparklines, dual-series, and historical metric charts |
+| **Terminal** | [xterm.js](https://xtermjs.org/) | Container log viewer with live SSE streaming |
 | **State** | [Jotai](https://jotai.org) | Atomic state management - settings atoms with optimistic updates and SSE sync |
 | **Language** | TypeScript + React 19 | Type-safe UI development |

@@ -59,9 +59,9 @@ docker compose down -v
 
 | Service | Image | Description |
 |---------|-------|-------------|
-| `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (7-day retention, automatic compression). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
-| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - polls Docker and ZFS hosts, writes stats to TimescaleDB |
-| `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Also polls the Proxmox REST API on a 10-second interval server-side and broadcasts the results to all connected clients via SSE. |
+| `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (infinite retention, automatic compression after 7 days). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
+| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - polls Docker, ZFS, and Proxmox hosts, writes stats to TimescaleDB |
+| `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Streams stats from TimescaleDB to connected clients via SSE. |
 
 > **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker)) on every push to `main`. The project is pre-release and not yet versioned - use `latest` for now and watch the changelog for breaking changes before pulling updates.
 
@@ -145,7 +145,10 @@ Monitor ZFS pools over SSH. Each host is numbered (`_1`, `_2`, `_3`).
 | `WORKER_ENABLED` | `true` | Enable the background collector |
 | `WORKER_DOCKER_ENABLED` | `true` | Enable Docker stats collection |
 | `WORKER_ZFS_ENABLED` | `false` | Enable ZFS stats collection |
+| `WORKER_PROXMOX_ENABLED` | `true` | Enable Proxmox stats collection |
 | `WORKER_COLLECTION_INTERVAL_MS` | `1000` | Collection interval in milliseconds |
+| `WORKER_BATCH_SIZE` | `10` | Number of rows to batch per INSERT |
+| `WORKER_BATCH_TIMEOUT_MS` | `1000` | Max time before flushing a partial batch |
 | `POSTGRES_POOL_SIZE` | `10` | Database connection pool size |
 
 ---
