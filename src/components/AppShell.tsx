@@ -8,6 +8,7 @@ import {
 import ThemeProvider from '@/components/ThemeProvider'
 import Header from '@/components/Header'
 import Toasts from '@/components/Toasts'
+import NotificationToasts from '@/components/notifications/NotificationToasts'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
 
@@ -41,6 +42,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex-1 flex flex-col [view-transition-name:page-content]">
             {children}
           </div>
+          <NotificationToasts />
         </QueryClientProvider>
         <Toasts />
       </div>
