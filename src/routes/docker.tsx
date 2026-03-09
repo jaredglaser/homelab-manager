@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ToggleButton, ToggleButtonGroup, Tooltip } from '@mui/material'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
+import StacksTable from '@/components/docker/StacksTable'
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
 import ContainerInfoPanel from '@/components/docker/ContainerInfoPanel'
 import PageHeader from '@/components/PageHeader'
@@ -149,9 +150,16 @@ function DockerPageContent() {
         </ToggleButtonGroup>
       </div>
       {docker.viewMode === 'stacks' ? (
-        <div className="text-center py-12 text-[var(--mui-palette-text-secondary)]">
-          Stacks view coming soon
-        </div>
+        <StacksTable
+          latestByEntity={stream.latestByEntity}
+          rows={stream.rows}
+          hasData={stream.hasData}
+          isConnected={stream.isConnected}
+          error={stream.error}
+          isStale={stream.isStale}
+          versionsWithUpdates={versionsWithUpdates}
+          onOpenInfo={handleOpenInfo}
+        />
       ) : (
         <ContainerTable
           latestByEntity={stream.latestByEntity}
