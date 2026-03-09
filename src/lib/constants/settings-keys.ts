@@ -16,6 +16,7 @@ export const SETTINGS_KEYS = {
     chartWindowSeconds: 'docker/chartWindowSeconds',
     expandedHosts: 'docker/expandedHosts',
     expandedContainers: 'docker/expandedContainers',
+    viewMode: 'docker/viewMode',
     decimals: {
       cpu: 'docker/decimals/cpu',
       memory: 'docker/decimals/memory',
@@ -45,6 +46,12 @@ export const SETTINGS_KEYS = {
     dockerDebugLogging: 'developer/dockerDebugLogging',
     dbFlushDebugLogging: 'developer/dbFlushDebugLogging',
     sseDebugLogging: 'developer/sseDebugLogging',
+  },
+  update: {
+    status: 'update/status',
+    target: 'update/target',
+    step: 'update/step',
+    error: 'update/error',
   },
   versionCheck: {
     command: 'versionCheck/command',
