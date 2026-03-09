@@ -916,6 +916,136 @@ describe('StatsRepository', () => {
     });
   });
 
+  describe('upsertContainerVersion', () => {
+    it('should insert with correct SQL and params', async () => {
+      await repo.upsertContainerVersion(
+        'nginx:1.25', '1.25', 'v1.26', true, 'nginx/nginx', 'manual',
+        [{ tag: 'v1.26', name: 'v1.26', body: '', published_at: '2024-01-01', url: 'url' }],
+      );
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('INSERT INTO container_versions');
+      expect(mockPool.queries[0].sql).toContain('ON CONFLICT (image) DO UPDATE');
+      expect(mockPool.queries[0].params[0]).toBe('nginx:1.25');
+      expect(mockPool.queries[0].params[1]).toBe('1.25');
+      expect(mockPool.queries[0].params[2]).toBe('v1.26');
+      expect(mockPool.queries[0].params[3]).toBe(true);
+      expect(mockPool.queries[0].params[4]).toBe('nginx/nginx');
+      expect(mockPool.queries[0].params[5]).toBe('manual');
+      expect(mockPool.queries[0].params[6]).toBe(JSON.stringify(
+        [{ tag: 'v1.26', name: 'v1.26', body: '', published_at: '2024-01-01', url: 'url' }],
+      ));
+    });
+
+    it('should handle null values', async () => {
+      await repo.upsertContainerVersion('alpine:latest', 'latest', null, false, null, null, []);
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].params[2]).toBeNull();
+      expect(mockPool.queries[0].params[4]).toBeNull();
+      expect(mockPool.queries[0].params[5]).toBeNull();
+      expect(mockPool.queries[0].params[6]).toBe('[]');
+    });
+  });
+
+  describe('getContainerVersionSummaries', () => {
+    it('should return rows from query', async () => {
+      const rows = [
+        { image: 'nginx:1.25', current_tag: '1.25', latest_tag: 'v1.26', update_available: true },
+        { image: 'redis:7', current_tag: '7', latest_tag: '7', update_available: false },
+      ];
+      mockPool.pushResult(rows);
+
+      const result = await repo.getContainerVersionSummaries();
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('SELECT image, current_tag, latest_tag, update_available FROM container_versions');
+      expect(result).toEqual(rows);
+    });
+
+    it('should return empty array when no versions exist', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getContainerVersionSummaries();
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getContainerChangelog', () => {
+    it('should return releases array for matching image', async () => {
+      const releases = [
+        { tag: 'v1.26', name: 'v1.26', body: 'Release notes', published_at: '2024-01-01', url: 'url' },
+      ];
+      mockPool.pushResult([{ releases }]);
+
+      const result = await repo.getContainerChangelog('nginx:1.25');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('SELECT releases FROM container_versions WHERE image = $1');
+      expect(mockPool.queries[0].params).toEqual(['nginx:1.25']);
+      expect(result).toEqual(releases);
+    });
+
+    it('should return empty array when no matching image', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getContainerChangelog('nonexistent:image');
+      expect(result).toEqual([]);
+    });
+
+    it('should return empty array when releases is null', async () => {
+      mockPool.pushResult([{ releases: null }]);
+
+      const result = await repo.getContainerChangelog('nginx:latest');
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getUniqueDockerImages', () => {
+    it('should return rows with image and entity', async () => {
+      const rows = [
+        { image: 'nginx:latest', entity: 'host1/abc' },
+        { image: 'redis:7', entity: 'host1/def' },
+      ];
+      mockPool.pushResult(rows);
+
+      const result = await repo.getUniqueDockerImages();
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('DISTINCT ON (value)');
+      expect(mockPool.queries[0].sql).toContain("source = 'docker'");
+      expect(mockPool.queries[0].sql).toContain("key = 'image'");
+      expect(result).toEqual(rows);
+    });
+
+    it('should return empty array when no images exist', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getUniqueDockerImages();
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('getEntityMetadataValue', () => {
+    it('should return value when found', async () => {
+      mockPool.pushResult([{ value: 'https://github.com/nginx/nginx' }]);
+
+      const result = await repo.getEntityMetadataValue('docker', 'host1/abc', 'oci_image_source');
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('SELECT value FROM entity_metadata');
+      expect(mockPool.queries[0].params).toEqual(['docker', 'host1/abc', 'oci_image_source']);
+      expect(result).toBe('https://github.com/nginx/nginx');
+    });
+
+    it('should return null when not found', async () => {
+      mockPool.pushResult([]);
+
+      const result = await repo.getEntityMetadataValue('docker', 'host1/xyz', 'github_repo_override');
+      expect(result).toBeNull();
+    });
+  });
+
   describe('getSourceIcons', () => {
     it('should query with source and icon key filter', async () => {
       await repo.getSourceIcons('docker');

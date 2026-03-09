@@ -275,6 +275,38 @@ describe('createCollectors', () => {
     controller.abort();
   });
 
+  it('should create VersionCheck collector when versionCheck enabled', async () => {
+    const { createCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const config = createWorkerConfig({ versionCheck: { enabled: true, interval: 86400000 } });
+    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
+
+    expect(collectors).toHaveLength(1);
+    expect(runners).toHaveLength(1);
+    expect(collectors[0].name).toBe('VersionCheck');
+
+    const logCalls = getMockLogCalls();
+    expect(logCalls).toContain('[Worker] Starting VersionCheck collector');
+
+    controller.abort();
+  });
+
+  it('should log disabled message when versionCheck is disabled', async () => {
+    const { createCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const config = createWorkerConfig({ versionCheck: { enabled: false, interval: 86400000 } });
+    createCollectors(db as unknown as DatabaseClient, config, controller, stack);
+
+    const logCalls = getMockLogCalls();
+    expect(logCalls).toContain('[Worker] VersionCheck collector disabled');
+
+    controller.abort();
+  });
+
   it('should create all collectors when all enabled and configured', async () => {
     process.env.DOCKER_HOST_1 = '192.168.1.100';
     process.env.DOCKER_HOST_NAME_1 = 'docker-1';
@@ -294,11 +326,12 @@ describe('createCollectors', () => {
       docker: { enabled: true },
       zfs: { enabled: true },
       proxmox: { enabled: true },
+      versionCheck: { enabled: true, interval: 86400000 },
     });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    expect(collectors).toHaveLength(3);
-    expect(runners).toHaveLength(3);
+    expect(collectors).toHaveLength(4);
+    expect(runners).toHaveLength(4);
 
     controller.abort();
   });
