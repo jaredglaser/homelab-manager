@@ -40,5 +40,10 @@ export function generateDefaultSettings(): Record<string, string> {
     [SETTINGS_KEYS.developer.dockerDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.dbFlushDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.sseDebugLogging]: 'false',
+
+    [SETTINGS_KEYS.versionCheck.command]: '',
+    [SETTINGS_KEYS.versionCheck.status]: 'idle',
+    [SETTINGS_KEYS.versionCheck.progress]: '',
+    [SETTINGS_KEYS.versionCheck.lastRun]: '',
   };
 }

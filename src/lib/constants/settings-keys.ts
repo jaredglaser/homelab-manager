@@ -46,6 +46,12 @@ export const SETTINGS_KEYS = {
     dbFlushDebugLogging: 'developer/dbFlushDebugLogging',
     sseDebugLogging: 'developer/sseDebugLogging',
   },
+  versionCheck: {
+    command: 'versionCheck/command',
+    status: 'versionCheck/status',
+    progress: 'versionCheck/progress',
+    lastRun: 'versionCheck/lastRun',
+  },
 } as const;
 
 /** localStorage key for persisting demo mode settings. */

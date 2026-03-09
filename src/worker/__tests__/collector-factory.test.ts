@@ -31,6 +31,7 @@ function createWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
     zfs: { enabled: false },
     proxmox: { enabled: false },
     collection: { interval: 1000 },
+    versionCheck: { enabled: false, interval: 86400000 },
     ...overrides,
   };
 }

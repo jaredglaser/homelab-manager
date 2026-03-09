@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import type { DockerStatsRow } from '@/types/docker';
+import type { ContainerVersionSummary, ContainerDetails, ContainerPort, ContainerVolume, GitHubRelease } from '@/types/container-versions';
 
 const getHistoricalDockerStatsSchema = z.object({
   /** Number of seconds of historical data to fetch. Default: 60 */
@@ -170,4 +171,148 @@ export const updateContainerIcon = createServerFn()
     const repo = new StatsRepository(dbClient.getPool());
 
     await repo.upsertEntityMetadata('docker', data.serviceKeyEntity, 'icon', data.iconSlug);
+  });
+
+// ─── Container Version & Info Functions ───────────────────────────────────────
+
+export const getContainerVersions = createServerFn()
+  .handler(async (): Promise<ContainerVersionSummary[]> => {
+    try {
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+
+      const config = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(config);
+      const repo = new StatsRepository(dbClient.getPool());
+
+      return await repo.getContainerVersionSummaries();
+    } catch (err) {
+      console.error('[getContainerVersions] Failed:', err);
+      return [];
+    }
+  });
+
+const getContainerDetailsSchema = z.object({
+  containerId: z.string().min(1),
+  host: z.string().min(1),
+});
+
+export const getContainerDetails = createServerFn()
+  .inputValidator(getContainerDetailsSchema)
+  .handler(async ({ data }): Promise<ContainerDetails | null> => {
+    try {
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+      const { dockerConnectionManager } = await import('@/lib/clients/docker-client');
+      const { loadDockerConfig } = await import('@/lib/config/docker-config');
+
+      const dbConfig = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(dbConfig);
+      const repo = new StatsRepository(dbClient.getPool());
+
+      const dockerConfig = loadDockerConfig();
+      const hostConfig = dockerConfig.hosts.find(h => h.host === data.host || h.name === data.host);
+      if (!hostConfig) return null;
+
+      const dockerClient = await dockerConnectionManager.getClient(hostConfig);
+      const docker = dockerClient.getDocker();
+      const container = docker.getContainer(data.containerId);
+      const inspectData = await container.inspect();
+
+      const image = inspectData.Config.Image || '';
+
+      // Get version info from DB
+      const versions = await repo.getContainerVersionSummaries();
+      const versionInfo = versions.find(v => v.image === image);
+
+      // Get github repo info
+      const containerEntity = `${data.host}/${data.containerId}`;
+      const githubRepo = await repo.getEntityMetadataValue('docker', containerEntity, 'github_repo_override');
+
+      // Parse ports
+      const ports: ContainerPort[] = [];
+      const portBindings = inspectData.HostConfig.PortBindings || {};
+      for (const [containerPortProto, bindings] of Object.entries(portBindings)) {
+        const [portStr, protocol] = containerPortProto.split('/');
+        for (const binding of (bindings as any[]) || []) {
+          ports.push({
+            containerPort: parseInt(portStr, 10),
+            hostPort: binding.HostPort ? parseInt(binding.HostPort, 10) : null,
+            protocol: protocol || 'tcp',
+            hostIp: binding.HostIp || '0.0.0.0',
+          });
+        }
+      }
+
+      // Parse volumes/mounts
+      const volumes: ContainerVolume[] = (inspectData.Mounts || []).map((m: any) => ({
+        source: m.Source || '',
+        destination: m.Destination || '',
+        mode: m.Mode || '',
+        rw: m.RW ?? true,
+      }));
+
+      return {
+        containerId: data.containerId,
+        containerName: inspectData.Name?.replace(/^\//, '') || '',
+        image,
+        status: inspectData.State.Status || 'unknown',
+        created: inspectData.Created || '',
+        restartPolicy: inspectData.HostConfig.RestartPolicy?.Name || 'no',
+        currentTag: versionInfo?.current_tag ?? null,
+        latestTag: versionInfo?.latest_tag ?? null,
+        updateAvailable: versionInfo?.update_available ?? false,
+        githubRepo: githubRepo,
+        githubRepoSource: githubRepo ? 'manual' : null,
+        ports,
+        volumes,
+      };
+    } catch (err) {
+      console.error('[getContainerDetails] Failed:', err);
+      return null;
+    }
+  });
+
+const getContainerChangelogSchema = z.object({
+  image: z.string().min(1),
+});
+
+export const getContainerChangelog = createServerFn()
+  .inputValidator(getContainerChangelogSchema)
+  .handler(async ({ data }): Promise<GitHubRelease[]> => {
+    try {
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+
+      const config = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(config);
+      const repo = new StatsRepository(dbClient.getPool());
+
+      return await repo.getContainerChangelog(data.image);
+    } catch (err) {
+      console.error('[getContainerChangelog] Failed:', err);
+      return [];
+    }
+  });
+
+const updateContainerGithubRepoSchema = z.object({
+  serviceKeyEntity: z.string().min(1),
+  githubRepoUrl: z.string().min(1),
+});
+
+export const updateContainerGithubRepo = createServerFn()
+  .inputValidator(updateContainerGithubRepoSchema)
+  .handler(async ({ data }): Promise<void> => {
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+
+    const config = loadDatabaseConfig();
+    const dbClient = await databaseConnectionManager.getClient(config);
+    const repo = new StatsRepository(dbClient.getPool());
+
+    await repo.upsertEntityMetadata('docker', data.serviceKeyEntity, 'github_repo_override', data.githubRepoUrl);
   });

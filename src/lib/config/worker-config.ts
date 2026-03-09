@@ -14,6 +14,10 @@ const WorkerConfigSchema = z.object({
   collection: z.object({
     interval: z.number().int().min(100).max(60000),
   }),
+  versionCheck: z.object({
+    enabled: z.boolean(),
+    interval: z.number().int().min(60000),
+  }),
 });
 
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
@@ -41,6 +45,10 @@ export function loadWorkerConfig(): WorkerConfig {
     },
     collection: {
       interval: parseInt(process.env.WORKER_COLLECTION_INTERVAL_MS || '1000', 10),
+    },
+    versionCheck: {
+      enabled: process.env.WORKER_VERSION_CHECK_ENABLED !== 'false',
+      interval: parseInt(process.env.WORKER_VERSION_CHECK_INTERVAL_MS || '86400000', 10),
     },
   };
 

@@ -28,6 +28,7 @@ function createMockConfig(): WorkerConfig {
     zfs: { enabled: true },
     proxmox: { enabled: false },
     collection: { interval: 1000 },
+    versionCheck: { enabled: false, interval: 86400000 },
   };
 }
 

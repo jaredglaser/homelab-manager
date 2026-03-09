@@ -34,6 +34,8 @@ interface ContainerTableProps {
   error: Error | null;
   isStale: boolean;
   onOpenHistory?: (containerId: string, host: string) => void;
+  onOpenInfo?: (containerId: string, host: string, image: string, name: string, serviceKeyEntity: string) => void;
+  versionsWithUpdates?: Set<string>;
 }
 
 /**
@@ -57,6 +59,8 @@ export default function ContainerTable({
   error,
   isStale,
   onOpenHistory,
+  onOpenInfo,
+  versionsWithUpdates,
 }: ContainerTableProps) {
   const {
     docker,
@@ -270,6 +274,8 @@ export default function ContainerTable({
                           showSparklines={general.showSparklines}
                           useAbbreviatedUnits={general.useAbbreviatedUnits}
                           onOpenHistory={onOpenHistory}
+                          onOpenInfo={onOpenInfo}
+                          updateAvailable={versionsWithUpdates?.has(c.container.image) ?? false}
                         />
                       ))}
                     </Collapse>

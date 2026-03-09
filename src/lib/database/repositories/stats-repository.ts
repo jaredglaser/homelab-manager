@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import type { DockerStatsRow } from '@/types/docker';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
+import type { ContainerVersionSummary, GitHubRelease } from '@/types/container-versions';
 
 export class StatsRepository {
   constructor(private pool: Pool) {}
@@ -594,6 +595,66 @@ export class StatsRepository {
       });
     }
     return meta;
+  }
+
+  // ─── Container Versions ─────────────────────────────────────────────────────
+
+  async upsertContainerVersion(
+    image: string,
+    currentTag: string | null,
+    latestTag: string | null,
+    updateAvailable: boolean,
+    githubRepo: string | null,
+    githubRepoSource: string | null,
+    releases: unknown[],
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO container_versions (image, current_tag, latest_tag, update_available, github_repo, github_repo_source, releases, checked_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+       ON CONFLICT (image) DO UPDATE SET
+         current_tag = EXCLUDED.current_tag,
+         latest_tag = EXCLUDED.latest_tag,
+         update_available = EXCLUDED.update_available,
+         github_repo = EXCLUDED.github_repo,
+         github_repo_source = EXCLUDED.github_repo_source,
+         releases = EXCLUDED.releases,
+         checked_at = NOW()`,
+      [image, currentTag, latestTag, updateAvailable, githubRepo, githubRepoSource, JSON.stringify(releases)],
+    );
+  }
+
+  async getContainerVersionSummaries(): Promise<ContainerVersionSummary[]> {
+    const result = await this.pool.query(
+      `SELECT image, current_tag, latest_tag, update_available FROM container_versions`,
+    );
+    return result.rows;
+  }
+
+  async getContainerChangelog(image: string): Promise<GitHubRelease[]> {
+    const result = await this.pool.query(
+      `SELECT releases FROM container_versions WHERE image = $1`,
+      [image],
+    );
+    if (result.rows.length === 0) return [];
+    return result.rows[0].releases ?? [];
+  }
+
+  async getUniqueDockerImages(): Promise<{ image: string; entity: string }[]> {
+    const result = await this.pool.query(
+      `SELECT DISTINCT ON (value) value AS image, entity
+       FROM entity_metadata
+       WHERE source = 'docker' AND key = 'image'
+       ORDER BY value, entity`,
+    );
+    return result.rows;
+  }
+
+  async getEntityMetadataValue(source: string, entity: string, key: string): Promise<string | null> {
+    const result = await this.pool.query(
+      `SELECT value FROM entity_metadata WHERE source = $1 AND entity = $2 AND key = $3`,
+      [source, entity, key],
+    );
+    return result.rows.length > 0 ? (result.rows[0] as { value: string }).value : null;
   }
 }
 

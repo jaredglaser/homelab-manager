@@ -8,6 +8,7 @@ import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
+import { VersionCheckCollector } from './collectors/version-check-collector';
 import { createCollectors } from './collector-factory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
@@ -93,6 +94,7 @@ async function main() {
             SETTINGS_KEYS.developer.dockerDebugLogging,
             SETTINGS_KEYS.developer.dbFlushDebugLogging,
             SETTINGS_KEYS.proxmox.updateInterval,
+            SETTINGS_KEYS.versionCheck.command,
           ],
           (key, value) => {
             if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
@@ -102,6 +104,12 @@ async function main() {
             } else if (key === SETTINGS_KEYS.developer.dbFlushDebugLogging) {
               const enabled = value === 'true';
               for (const c of collectors) c.dbFlushDebugLogging = enabled;
+            } else if (key === SETTINGS_KEYS.versionCheck.command) {
+              for (const c of collectors) {
+                if (c instanceof VersionCheckCollector) {
+                  c.handleCommand(value);
+                }
+              }
             } else if (key === SETTINGS_KEYS.proxmox.updateInterval) {
               const parsed = value ? parseInt(value, 10) : 10_000;
               const interval = (parsed === 1000 || parsed === 10000) ? parsed : 10_000;

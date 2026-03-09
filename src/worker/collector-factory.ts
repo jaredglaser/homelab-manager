@@ -6,6 +6,7 @@ import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { BaseCollector } from './collectors/base-collector';
 import { DockerCollector } from './collectors/docker-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
+import { VersionCheckCollector } from './collectors/version-check-collector';
 import { ZFSCollector } from './collectors/zfs-collector';
 
 export interface CollectorFactoryResult {
@@ -85,6 +86,17 @@ export function createCollectors(
     }
   } else {
     console.log('[Worker] Proxmox collector disabled');
+  }
+
+  if (workerConfig.versionCheck.enabled) {
+    console.log('[Worker] Starting VersionCheck collector');
+    const collector = stack.use(
+      new VersionCheckCollector(db, workerConfig, shutdownController)
+    );
+    collectors.push(collector);
+    runners.push(collector.run());
+  } else {
+    console.log('[Worker] VersionCheck collector disabled');
   }
 
   return { collectors, runners };

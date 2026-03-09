@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState, useEffect, useCallback } from 'react';
-import { ChevronRight, History, Settings } from 'lucide-react';
+import { ChevronRight, History, Info, Settings } from 'lucide-react';
 import { Collapse } from '@mui/material';
 import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
@@ -34,6 +34,8 @@ interface ContainerRowProps {
   showSparklines: boolean;
   useAbbreviatedUnits: boolean;
   onOpenHistory?: (containerId: string, host: string) => void;
+  onOpenInfo?: (containerId: string, host: string, image: string, name: string, serviceKeyEntity: string) => void;
+  updateAvailable?: boolean;
 }
 
 export default memo(function ContainerRow({
@@ -46,6 +48,8 @@ export default memo(function ContainerRow({
   showSparklines,
   useAbbreviatedUnits,
   onOpenHistory,
+  onOpenInfo,
+  updateAvailable,
 }: ContainerRowProps) {
   const { rates } = container;
 
@@ -252,6 +256,30 @@ export default memo(function ContainerRow({
                 aria-hidden={!expanded}
               >
                 <History size={14} />
+              </button>
+            )}
+            {onOpenInfo && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenInfo(
+                    container.id.split('/')[1],
+                    container.id.split('/')[0],
+                    container.image,
+                    container.name,
+                    container.serviceKeyEntity,
+                  );
+                }}
+                className={`relative p-1 rounded-full transition-opacity hover:bg-black/10 dark:hover:bg-white/10 ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+                aria-label="View container info"
+                tabIndex={expanded ? 0 : -1}
+                aria-hidden={!expanded}
+              >
+                <Info size={14} />
+                {updateAvailable && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500" title="Update available" />
+                )}
               </button>
             )}
           </div>

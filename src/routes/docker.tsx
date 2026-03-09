@@ -1,12 +1,13 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
+import ContainerInfoPanel from '@/components/docker/ContainerInfoPanel'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
-import { getDockerEntityIcons } from '@/data/docker.functions'
+import { getDockerEntityIcons, getContainerVersions } from '@/data/docker.functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
@@ -31,6 +32,10 @@ function DockerPageContent() {
   const { general, docker, developer } = useSettings()
   const [historyTarget, setHistoryTarget] = useState<{ containerId: string; host: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [infoTarget, setInfoTarget] = useState<{
+    containerId: string; host: string; image: string; name: string; serviceKeyEntity: string;
+  } | null>(null)
+  const [infoOpen, setInfoOpen] = useState(false)
 
   const handleOpenHistory = useCallback((containerId: string, host: string) => {
     setHistoryTarget({ containerId, host })
@@ -43,6 +48,19 @@ function DockerPageContent() {
 
   const handleHistoryExited = useCallback(() => {
     setHistoryTarget(null)
+  }, [])
+
+  const handleOpenInfo = useCallback((containerId: string, host: string, image: string, name: string, serviceKeyEntity: string) => {
+    setInfoTarget({ containerId, host, image, name, serviceKeyEntity })
+    setInfoOpen(true)
+  }, [])
+
+  const handleCloseInfo = useCallback(() => {
+    setInfoOpen(false)
+  }, [])
+
+  const handleInfoExited = useCallback(() => {
+    setInfoTarget(null)
   }, [])
 
   const windowSeconds = Math.max(docker.chartWindowSeconds + 10, SPARKLINE_BUFFER_SECONDS)
@@ -64,6 +82,21 @@ function DockerPageContent() {
     queryFn: () => preloadDockerStats(windowSeconds),
     staleTime: PRELOAD_STALE_TIME,
   })
+
+  const { data: versions } = useQuery({
+    queryKey: ['container-versions'],
+    queryFn: () => getContainerVersions(),
+    staleTime: 60_000,
+  })
+
+  const versionsWithUpdates = useMemo(() => {
+    if (!versions) return undefined
+    const set = new Set<string>()
+    for (const v of versions) {
+      if (v.update_available) set.add(v.image)
+    }
+    return set
+  }, [versions])
 
   const stream = useTimeSeriesStream<DockerStatsRow>({
     sseUrl: apiUrl('/api/docker-stats'),
@@ -89,6 +122,8 @@ function DockerPageContent() {
         error={stream.error}
         isStale={stream.isStale}
         onOpenHistory={handleOpenHistory}
+        onOpenInfo={handleOpenInfo}
+        versionsWithUpdates={versionsWithUpdates}
       />
       {historyTarget && (
         <ContainerHistoryPanel
@@ -97,6 +132,18 @@ function DockerPageContent() {
           host={historyTarget.host}
           onClose={handleCloseHistory}
           onExited={handleHistoryExited}
+        />
+      )}
+      {infoTarget && (
+        <ContainerInfoPanel
+          open={infoOpen}
+          containerId={infoTarget.containerId}
+          host={infoTarget.host}
+          image={infoTarget.image}
+          containerName={infoTarget.name}
+          serviceKeyEntity={infoTarget.serviceKeyEntity}
+          onClose={handleCloseInfo}
+          onExited={handleInfoExited}
         />
       )}
     </div>
