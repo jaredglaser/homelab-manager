@@ -16,6 +16,7 @@ import { Route as DockerRouteImport } from './routes/docker'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DockerContainerIdRouteImport } from './routes/docker.$containerId'
 import { Route as ApiZfsStatsRouteImport } from './routes/api/zfs-stats'
+import { Route as ApiUpdateProgressRouteImport } from './routes/api/update-progress'
 import { Route as ApiSettingsRouteImport } from './routes/api/settings'
 import { Route as ApiProxmoxStatsRouteImport } from './routes/api/proxmox-stats'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
@@ -56,6 +57,11 @@ const ApiZfsStatsRoute = ApiZfsStatsRouteImport.update({
   path: '/api/zfs-stats',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiUpdateProgressRoute = ApiUpdateProgressRouteImport.update({
+  id: '/api/update-progress',
+  path: '/api/update-progress',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSettingsRoute = ApiSettingsRouteImport.update({
   id: '/api/settings',
   path: '/api/settings',
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/update-progress': typeof ApiUpdateProgressRoute
   '/api/zfs-stats': typeof ApiZfsStatsRoute
   '/docker/$containerId': typeof DockerContainerIdRoute
   '/api/docker-logs/$containerId': typeof ApiDockerLogsContainerIdRoute
@@ -100,6 +107,7 @@ export interface FileRoutesByTo {
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/update-progress': typeof ApiUpdateProgressRoute
   '/api/zfs-stats': typeof ApiZfsStatsRoute
   '/docker/$containerId': typeof DockerContainerIdRoute
   '/api/docker-logs/$containerId': typeof ApiDockerLogsContainerIdRoute
@@ -114,6 +122,7 @@ export interface FileRoutesById {
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
+  '/api/update-progress': typeof ApiUpdateProgressRoute
   '/api/zfs-stats': typeof ApiZfsStatsRoute
   '/docker/$containerId': typeof DockerContainerIdRoute
   '/api/docker-logs/$containerId': typeof ApiDockerLogsContainerIdRoute
@@ -129,6 +138,7 @@ export interface FileRouteTypes {
     | '/api/docker-stats'
     | '/api/proxmox-stats'
     | '/api/settings'
+    | '/api/update-progress'
     | '/api/zfs-stats'
     | '/docker/$containerId'
     | '/api/docker-logs/$containerId'
@@ -142,6 +152,7 @@ export interface FileRouteTypes {
     | '/api/docker-stats'
     | '/api/proxmox-stats'
     | '/api/settings'
+    | '/api/update-progress'
     | '/api/zfs-stats'
     | '/docker/$containerId'
     | '/api/docker-logs/$containerId'
@@ -155,6 +166,7 @@ export interface FileRouteTypes {
     | '/api/docker-stats'
     | '/api/proxmox-stats'
     | '/api/settings'
+    | '/api/update-progress'
     | '/api/zfs-stats'
     | '/docker/$containerId'
     | '/api/docker-logs/$containerId'
@@ -169,6 +181,7 @@ export interface RootRouteChildren {
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
   ApiProxmoxStatsRoute: typeof ApiProxmoxStatsRoute
   ApiSettingsRoute: typeof ApiSettingsRoute
+  ApiUpdateProgressRoute: typeof ApiUpdateProgressRoute
   ApiZfsStatsRoute: typeof ApiZfsStatsRoute
   ApiDockerLogsContainerIdRoute: typeof ApiDockerLogsContainerIdRoute
 }
@@ -224,6 +237,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiZfsStatsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/update-progress': {
+      id: '/api/update-progress'
+      path: '/api/update-progress'
+      fullPath: '/api/update-progress'
+      preLoaderRoute: typeof ApiUpdateProgressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/settings': {
       id: '/api/settings'
       path: '/api/settings'
@@ -275,6 +295,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDockerStatsRoute: ApiDockerStatsRoute,
   ApiProxmoxStatsRoute: ApiProxmoxStatsRoute,
   ApiSettingsRoute: ApiSettingsRoute,
+  ApiUpdateProgressRoute: ApiUpdateProgressRoute,
   ApiZfsStatsRoute: ApiZfsStatsRoute,
   ApiDockerLogsContainerIdRoute: ApiDockerLogsContainerIdRoute,
 }
