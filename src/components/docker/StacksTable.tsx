@@ -1,11 +1,15 @@
 import { memo, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAtomValue } from 'jotai';
 import { Box, Chip, CircularProgress, Collapse, Paper, Button, Typography } from '@mui/material';
 import { ChevronRight, Layers, Package, RotateCw } from 'lucide-react';
 import { MetricValue, MetricHeader } from '@/components/shared-table';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
+import UpdateDialog from '@/components/docker/UpdateDialog';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import { useSettings } from '@/hooks/useSettings';
+import { rawSettingsAtom } from '@/hooks/settingsAtom';
+import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { getPortainerStacks } from '@/data/portainer.functions';
 import type { DockerStatsRow } from '@/types/docker';
 
@@ -26,6 +30,7 @@ interface StacksTableProps {
 interface StackGroup {
   stackId: number;
   stackName: string;
+  endpointId: number;
   endpointName: string;
   status: number;
   containers: DockerStatsRow[];
@@ -55,6 +60,16 @@ export default function StacksTable({
 }: StacksTableProps) {
   const { docker, general } = useSettings();
   const [expandedStacks, setExpandedStacks] = useState<Set<string>>(new Set());
+  const [redeployTarget, setRedeployTarget] = useState<{
+    stackId: number;
+    stackName: string;
+    endpointId: number;
+  } | null>(null);
+
+  const rawSettings = useAtomValue(rawSettingsAtom);
+  const updateInProgress = rawSettings[SETTINGS_KEYS.update.status] !== undefined
+    && rawSettings[SETTINGS_KEYS.update.status] !== ''
+    && rawSettings[SETTINGS_KEYS.update.status] !== 'idle';
 
   const { data: portainerStacks, isLoading: stacksLoading } = useQuery({
     queryKey: ['portainer-stacks'],
@@ -131,6 +146,7 @@ export default function StacksTable({
       groups.push({
         stackId: stack.id,
         stackName: stack.name,
+        endpointId: stack.endpointId,
         endpointName: stack.endpointName,
         status: stack.status,
         containers: stackContainers,
@@ -232,6 +248,8 @@ export default function StacksTable({
                   memoryDisplayMode={docker.memoryDisplayMode}
                   showSparklines={general.showSparklines}
                   useAbbreviatedUnits={general.useAbbreviatedUnits}
+                  updateInProgress={updateInProgress}
+                  onRedeploy={() => setRedeployTarget({ stackId: stack.stackId, stackName: stack.stackName, endpointId: stack.endpointId })}
                 />
                 <Collapse in={expanded} unmountOnExit>
                   {stack.containers.map((row) => (
@@ -283,6 +301,16 @@ export default function StacksTable({
           )}
         </div>
       </Paper>
+      {redeployTarget && (
+        <UpdateDialog
+          open={!!redeployTarget}
+          onClose={() => setRedeployTarget(null)}
+          mode="stack"
+          stackId={redeployTarget.stackId}
+          stackName={redeployTarget.stackName}
+          endpointId={redeployTarget.endpointId}
+        />
+      )}
     </Box>
   );
 }
@@ -297,6 +325,8 @@ interface StackRowProps {
   memoryDisplayMode: string;
   showSparklines: boolean;
   useAbbreviatedUnits: boolean;
+  updateInProgress: boolean;
+  onRedeploy: () => void;
 }
 
 const StackRow = memo(function StackRow({
@@ -307,6 +337,8 @@ const StackRow = memo(function StackRow({
   memoryDisplayMode,
   showSparklines,
   useAbbreviatedUnits,
+  updateInProgress,
+  onRedeploy,
 }: StackRowProps) {
   const a = stack.aggregated;
   const networkRxBps = a.networkRxBytesPerSec * 8;
@@ -363,9 +395,12 @@ const StackRow = memo(function StackRow({
         <Button
           size="small"
           variant="outlined"
-          disabled
+          disabled={updateInProgress}
           startIcon={<RotateCw size={14} />}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRedeploy();
+          }}
           className="!text-xs !normal-case"
         >
           Redeploy
