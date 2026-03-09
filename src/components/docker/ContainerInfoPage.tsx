@@ -1,8 +1,12 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAtomValue } from 'jotai';
 import { X, ExternalLink, Pencil, Check, ArrowUpCircle } from 'lucide-react';
-import { CircularProgress } from '@mui/material';
+import { Button, CircularProgress } from '@mui/material';
+import { rawSettingsAtom } from '@/hooks/settingsAtom';
+import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { getContainerDetails, getContainerChangelog, updateContainerGithubRepo } from '@/data/docker.functions';
+import UpdateDialog from '@/components/docker/UpdateDialog';
 import type { ContainerDetails, GitHubRelease } from '@/types/container-versions';
 
 interface ContainerInfoPageProps {
@@ -62,6 +66,9 @@ export default function ContainerInfoPage({
             details={details}
             serviceKeyEntity={serviceKeyEntity}
             queryClient={queryClient}
+            containerId={containerId}
+            host={host}
+            containerName={containerName}
           />
           <PortsSection ports={details.ports} />
           <VolumesSection volumes={details.volumes} />
@@ -129,13 +136,26 @@ function VersionSection({
   details,
   serviceKeyEntity,
   queryClient,
+  containerId,
+  host,
+  containerName,
 }: {
   details: ContainerDetails;
   serviceKeyEntity: string;
   queryClient: ReturnType<typeof useQueryClient>;
+  containerId: string;
+  host: string;
+  containerName: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [repoUrl, setRepoUrl] = useState(details.githubRepo ?? '');
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+
+  const rawSettings = useAtomValue(rawSettingsAtom);
+  const updateStatus = rawSettings[SETTINGS_KEYS.update.status];
+  const updateInProgress = updateStatus !== undefined
+    && updateStatus !== ''
+    && updateStatus !== 'idle';
 
   const handleSave = useCallback(async () => {
     if (!repoUrl.trim()) return;
@@ -156,6 +176,11 @@ function VersionSection({
           <code className="text-xs bg-[var(--mui-palette-action-hover)] px-1.5 py-0.5 rounded">
             {details.currentTag ?? 'unknown'}
           </code>
+          {details.currentVersion && details.currentVersion !== details.currentTag && (
+            <code className="text-xs bg-[var(--mui-palette-action-hover)] px-1.5 py-0.5 rounded ml-1">
+              {details.currentVersion}
+            </code>
+          )}
         </InfoRow>
         <InfoRow label="Latest Tag">
           {details.latestTag ? (
@@ -170,9 +195,20 @@ function VersionSection({
           <div className="flex items-center gap-2 mt-2 py-1.5 px-2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400">
             <ArrowUpCircle size={16} />
             <span className="text-sm font-medium">
-              Update available: {details.currentTag} → {details.latestTag}
+              Update available: {details.currentVersion ?? details.currentTag} → {details.latestTag}
             </span>
           </div>
+        )}
+        {details.updateAvailable && (
+          <Button
+            variant="contained"
+            size="small"
+            onClick={() => setUpdateDialogOpen(true)}
+            disabled={updateInProgress}
+            className="!mt-2"
+          >
+            Update Container
+          </Button>
         )}
         <div className="mt-2 pt-2 border-t border-[var(--mui-palette-divider)]">
           <div className="flex items-center gap-2">
@@ -225,6 +261,14 @@ function VersionSection({
           </div>
         </div>
       </div>
+      <UpdateDialog
+        open={updateDialogOpen}
+        onClose={() => setUpdateDialogOpen(false)}
+        mode="container"
+        containerId={containerId}
+        host={host}
+        containerName={containerName}
+      />
     </section>
   );
 }
