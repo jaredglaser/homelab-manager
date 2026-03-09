@@ -19,6 +19,7 @@ export function generateDefaultSettings(): Record<string, string> {
     [SETTINGS_KEYS.docker.chartWindowSeconds]: '60',
     [SETTINGS_KEYS.docker.expandedHosts]: '[]',
     [SETTINGS_KEYS.docker.expandedContainers]: JSON.stringify([`${homeassistant.host}/${homeassistant.containerId}`]),
+    [SETTINGS_KEYS.docker.viewMode]: 'containers',
     [SETTINGS_KEYS.docker.decimals.cpu]: '1',
     [SETTINGS_KEYS.docker.decimals.memory]: '1',
     [SETTINGS_KEYS.docker.decimals.diskSpeed]: '1',
@@ -40,6 +41,11 @@ export function generateDefaultSettings(): Record<string, string> {
     [SETTINGS_KEYS.developer.dockerDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.dbFlushDebugLogging]: 'false',
     [SETTINGS_KEYS.developer.sseDebugLogging]: 'false',
+
+    [SETTINGS_KEYS.update.status]: '',
+    [SETTINGS_KEYS.update.target]: '',
+    [SETTINGS_KEYS.update.step]: '',
+    [SETTINGS_KEYS.update.error]: '',
 
     [SETTINGS_KEYS.versionCheck.command]: '',
     [SETTINGS_KEYS.versionCheck.status]: 'idle',

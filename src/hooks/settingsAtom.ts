@@ -14,6 +14,8 @@ export interface DecimalSettings {
   networkSpeed: boolean;
 }
 
+export type DockerViewMode = 'containers' | 'stacks';
+
 export type ProxmoxUpdateInterval = 1000 | 10000;
 
 export interface Settings {
@@ -29,6 +31,7 @@ export interface Settings {
     chartWindowSeconds: number;
     expandedHosts: Set<string>;
     expandedContainers: Set<string>;
+    viewMode: DockerViewMode;
     decimals: DecimalSettings;
   };
   zfs: {
@@ -76,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
     chartWindowSeconds: 300,
     expandedHosts: new Set(),
     expandedContainers: new Set(),
+    viewMode: 'containers' as DockerViewMode,
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
   },
   zfs: {
@@ -159,6 +163,7 @@ export function parseSettings(raw: Record<string, string>): Settings {
       ))),
       expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedHosts]),
       expandedContainers: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedContainers]),
+      viewMode: (raw[SETTINGS_KEYS.docker.viewMode] === 'stacks' ? 'stacks' : 'containers') as DockerViewMode,
       decimals: {
         cpu: parseBool(raw[SETTINGS_KEYS.docker.decimals.cpu], DEFAULT_DECIMAL_SETTINGS.cpu),
         memory: parseBool(raw[SETTINGS_KEYS.docker.decimals.memory], DEFAULT_DECIMAL_SETTINGS.memory),

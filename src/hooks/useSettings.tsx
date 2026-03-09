@@ -9,13 +9,14 @@ import {
   type DecimalSettings,
   type ProxmoxUpdateInterval,
   type LightPalette,
+  type DockerViewMode,
 } from './settingsAtom';
 import { useToast } from './toastAtom';
 import { updateSetting } from '@/data/settings.functions';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 // Re-export types for backward-compatible imports
-export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval, LightPalette } from './settingsAtom';
+export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval, LightPalette, DockerViewMode } from './settingsAtom';
 
 interface SettingsValue extends Settings {
   setUse12HourTime: (value: boolean) => void;
@@ -46,6 +47,7 @@ interface SettingsValue extends Settings {
   setDbFlushDebugLogging: (value: boolean) => void;
   setSseDebugLogging: (value: boolean) => void;
   setLightPalette: (palette: LightPalette) => void;
+  setDockerViewMode: (mode: DockerViewMode) => void;
 }
 
 function toggleInSet(raw: string | undefined, item: string): string {
@@ -225,6 +227,10 @@ export function useSettings(): SettingsValue {
     optimisticSet(SETTINGS_KEYS.general.lightPalette, () => palette);
   }, [optimisticSet]);
 
+  const setDockerViewMode = useCallback((mode: DockerViewMode) => {
+    optimisticSet(SETTINGS_KEYS.docker.viewMode, () => mode);
+  }, [optimisticSet]);
+
   // All callbacks depend on either `optimisticSet` (stable) or fields within `settings`.
   // When `settings` changes, useMemo re-evaluates and picks up the new callback closures.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -258,5 +264,6 @@ export function useSettings(): SettingsValue {
     setDbFlushDebugLogging,
     setSseDebugLogging,
     setLightPalette,
+    setDockerViewMode,
   }), [settings]);
 }

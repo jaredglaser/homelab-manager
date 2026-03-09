@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ToggleButton, ToggleButtonGroup, Tooltip } from '@mui/material'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
@@ -8,6 +9,7 @@ import ContainerInfoPanel from '@/components/docker/ContainerInfoPanel'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { getDockerEntityIcons, getContainerVersions } from '@/data/docker.functions'
+import { getPortainerStatus } from '@/data/portainer.functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
@@ -29,7 +31,7 @@ export const Route = createFileRoute('/docker')({
 const SPARKLINE_BUFFER_SECONDS = 45
 
 function DockerPageContent() {
-  const { general, docker, developer } = useSettings()
+  const { general, docker, developer, setDockerViewMode } = useSettings()
   const [historyTarget, setHistoryTarget] = useState<{ containerId: string; host: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [infoTarget, setInfoTarget] = useState<{
@@ -89,6 +91,12 @@ function DockerPageContent() {
     staleTime: 60_000,
   })
 
+  const { data: portainerStatus } = useQuery({
+    queryKey: ['portainer-status'],
+    queryFn: () => getPortainerStatus(),
+    staleTime: 300_000,
+  })
+
   const versionsWithUpdates = useMemo(() => {
     if (!versions) return undefined
     const set = new Set<string>()
@@ -113,18 +121,50 @@ function DockerPageContent() {
 
   return (
     <div className="w-full p-6">
-      <PageHeader title="Docker Containers Dashboard" />
-      <ContainerTable
-        latestByEntity={stream.latestByEntity}
-        rows={stream.rows}
-        hasData={stream.hasData}
-        isConnected={stream.isConnected}
-        error={stream.error}
-        isStale={stream.isStale}
-        onOpenHistory={handleOpenHistory}
-        onOpenInfo={handleOpenInfo}
-        versionsWithUpdates={versionsWithUpdates}
-      />
+      <div className="flex items-center justify-between mb-4">
+        <PageHeader title="Docker Containers Dashboard" />
+        <ToggleButtonGroup
+          value={docker.viewMode}
+          exclusive
+          onChange={(_, value) => value && setDockerViewMode(value)}
+          size="small"
+          className="ml-4"
+        >
+          <ToggleButton value="containers" className="!text-xs !px-3 !py-1">
+            Containers
+          </ToggleButton>
+          <Tooltip
+            title={!portainerStatus?.configured ? "Portainer integration required — configure PORTAINER_URL and PORTAINER_TOKEN environment variables to enable stack management" : ""}
+          >
+            <span>
+              <ToggleButton
+                value="stacks"
+                disabled={!portainerStatus?.configured}
+                className="!text-xs !px-3 !py-1"
+              >
+                Stacks
+              </ToggleButton>
+            </span>
+          </Tooltip>
+        </ToggleButtonGroup>
+      </div>
+      {docker.viewMode === 'stacks' ? (
+        <div className="text-center py-12 text-[var(--mui-palette-text-secondary)]">
+          Stacks view coming soon
+        </div>
+      ) : (
+        <ContainerTable
+          latestByEntity={stream.latestByEntity}
+          rows={stream.rows}
+          hasData={stream.hasData}
+          isConnected={stream.isConnected}
+          error={stream.error}
+          isStale={stream.isStale}
+          onOpenHistory={handleOpenHistory}
+          onOpenInfo={handleOpenInfo}
+          versionsWithUpdates={versionsWithUpdates}
+        />
+      )}
       {historyTarget && (
         <ContainerHistoryPanel
           open={historyOpen}
