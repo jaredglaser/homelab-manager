@@ -29,6 +29,9 @@ function buildAliases(): Record<string, string> {
     aliases['@/data/zfs.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/zfs.functions.ts', import.meta.url))
     aliases['@/data/proxmox.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/proxmox.functions.ts', import.meta.url))
     aliases['@/data/settings.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/settings.functions.ts', import.meta.url))
+    aliases['@/data/portainer.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/portainer.functions.ts', import.meta.url))
+    aliases['@/data/notification.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/notification.functions.ts', import.meta.url))
+    aliases['@/data/update.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/update.functions.ts', import.meta.url))
   }
   aliases['@'] = fileURLToPath(new URL('./src', import.meta.url))
   return aliases
