@@ -222,14 +222,18 @@ export const getContainerDetails = createServerFn()
       const inspectData = await container.inspect();
 
       const image = inspectData.Config.Image || '';
+      const ociVersion = inspectData.Config.Labels?.['org.opencontainers.image.version'] || null;
 
       // Get version info from DB
       const versions = await repo.getContainerVersionSummaries();
       const versionInfo = versions.find(v => v.image === image);
 
-      // Get github repo info
+      // Get github repo info: manual override takes priority, then fall back to version-check-discovered repo
       const containerEntity = `${data.host}/${data.containerId}`;
-      const githubRepo = await repo.getEntityMetadataValue('docker', containerEntity, 'github_repo_override');
+      const manualOverride = await repo.getEntityMetadataValue('docker', containerEntity, 'github_repo_override');
+      const githubRepo = manualOverride
+        ?? (versionInfo?.github_repo ? `https://github.com/${versionInfo.github_repo}` : null);
+      const githubRepoSource = manualOverride ? 'manual' : (versionInfo?.github_repo_source ?? null);
 
       // Parse ports
       const ports: ContainerPort[] = [];
@@ -262,10 +266,11 @@ export const getContainerDetails = createServerFn()
         created: inspectData.Created || '',
         restartPolicy: inspectData.HostConfig.RestartPolicy?.Name || 'no',
         currentTag: versionInfo?.current_tag ?? null,
+        currentVersion: ociVersion,
         latestTag: versionInfo?.latest_tag ?? null,
         updateAvailable: versionInfo?.update_available ?? false,
-        githubRepo: githubRepo,
-        githubRepoSource: githubRepo ? 'manual' : null,
+        githubRepo,
+        githubRepoSource,
         ports,
         volumes,
       };

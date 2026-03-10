@@ -11,17 +11,17 @@ describe('parseDockerImage', () => {
   });
 
   it('parses org/image:tag', () => {
-    expect(parseDockerImage('linuxserver/sonarr:latest')).toEqual({
+    expect(parseDockerImage('jaredglaser/homelab-manager:latest')).toEqual({
       registry: null,
-      repository: 'linuxserver/sonarr',
+      repository: 'jaredglaser/homelab-manager',
       tag: 'latest',
     });
   });
 
   it('parses registry/org/image:tag', () => {
-    expect(parseDockerImage('ghcr.io/linuxserver/sonarr:v4.0.0')).toEqual({
+    expect(parseDockerImage('ghcr.io/jaredglaser/homelab-manager:v4.0.0')).toEqual({
       registry: 'ghcr.io',
-      repository: 'linuxserver/sonarr',
+      repository: 'jaredglaser/homelab-manager',
       tag: 'v4.0.0',
     });
   });

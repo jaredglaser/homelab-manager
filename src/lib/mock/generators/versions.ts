@@ -1,16 +1,16 @@
 import type { ContainerVersionSummary, GitHubRelease } from '@/types/container-versions';
 
 export const MOCK_CONTAINER_VERSIONS: ContainerVersionSummary[] = [
-  { image: 'nginx:latest', current_tag: 'latest', latest_tag: '1.27.3', update_available: true },
-  { image: 'plexinc/pms-docker:latest', current_tag: 'latest', latest_tag: '1.41.3.9314', update_available: true },
-  { image: 'homeassistant/home-assistant:stable', current_tag: 'stable', latest_tag: '2025.3.1', update_available: false },
-  { image: 'timescale/timescaledb:latest-pg16', current_tag: 'latest-pg16', latest_tag: '2.18.1-pg16', update_available: false },
-  { image: 'grafana/grafana:latest', current_tag: 'latest', latest_tag: '11.5.2', update_available: true },
-  { image: 'traefik:v3', current_tag: 'v3', latest_tag: 'v3.3.3', update_available: false },
-  { image: 'jellyfin/jellyfin:latest', current_tag: 'latest', latest_tag: '10.10.6', update_available: false },
-  { image: 'vaultwarden/server:latest', current_tag: 'latest', latest_tag: '1.33.2', update_available: true },
-  { image: 'pihole/pihole:latest', current_tag: 'latest', latest_tag: '2025.02.1', update_available: false },
-  { image: 'portainer/portainer-ce:latest', current_tag: 'latest', latest_tag: '2.25.1', update_available: false },
+  { image: 'nginx:latest', current_tag: 'latest', latest_tag: '1.27.3', update_available: true, github_repo: 'nginx/nginx', github_repo_source: 'oci_label' },
+  { image: 'plexinc/pms-docker:latest', current_tag: 'latest', latest_tag: '1.41.3.9314', update_available: true, github_repo: 'plexinc/pms-docker', github_repo_source: 'oci_label' },
+  { image: 'homeassistant/home-assistant:stable', current_tag: 'stable', latest_tag: '2025.3.1', update_available: false, github_repo: 'home-assistant/core', github_repo_source: 'oci_label' },
+  { image: 'timescale/timescaledb:latest-pg16', current_tag: 'latest-pg16', latest_tag: '2.18.1-pg16', update_available: false, github_repo: 'timescale/timescaledb', github_repo_source: 'oci_label' },
+  { image: 'grafana/grafana:latest', current_tag: 'latest', latest_tag: '11.5.2', update_available: true, github_repo: 'grafana/grafana', github_repo_source: 'oci_label' },
+  { image: 'traefik:v3', current_tag: 'v3', latest_tag: 'v3.3.3', update_available: false, github_repo: 'traefik/traefik', github_repo_source: 'oci_label' },
+  { image: 'jellyfin/jellyfin:latest', current_tag: 'latest', latest_tag: '10.10.6', update_available: false, github_repo: 'jellyfin/jellyfin', github_repo_source: 'oci_label' },
+  { image: 'vaultwarden/server:latest', current_tag: 'latest', latest_tag: '1.33.2', update_available: true, github_repo: 'dani-garcia/vaultwarden', github_repo_source: 'oci_label' },
+  { image: 'pihole/pihole:latest', current_tag: 'latest', latest_tag: '2025.02.1', update_available: false, github_repo: 'pi-hole/pi-hole', github_repo_source: 'oci_label' },
+  { image: 'portainer/portainer-ce:latest', current_tag: 'latest', latest_tag: '2.25.1', update_available: false, github_repo: 'portainer/portainer', github_repo_source: 'oci_label' },
 ];
 
 const sampleChangelog: GitHubRelease[] = [

@@ -248,6 +248,51 @@ describe('DockerCollector', () => {
       controller.abort();
     });
 
+    it('should store oci_image_source when OCI source label is present', async () => {
+      const db = createMockDb();
+      const controller = new AbortController();
+      const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
+
+      const metadataUpserts: any[] = [];
+      spyOn((collector as any).repository, 'insertDockerStats').mockImplementation(async () => {});
+      spyOn((collector as any).repository, 'upsertEntityMetadata').mockImplementation(
+        async (source: string, entity: string, key: string, value: string) => {
+          metadataUpserts.push({ source, entity, key, value });
+        },
+      );
+
+      const stats = createMockContainerStats(100000000, 10000000000);
+      const statsStream = Readable.from(JSON.stringify(stats));
+
+      const containerInfo = {
+        Id: 'oci123',
+        Names: ['/homelab-manager'],
+        Image: 'ghcr.io/jaredglaser/homelab-manager:latest',
+        Labels: {
+          'org.opencontainers.image.source': 'https://github.com/jaredglaser/homelab-manager',
+        },
+      };
+
+      const mockDocker = {
+        listContainers: mock(async () => [containerInfo]),
+        getContainer: mock(() => ({ stats: mock(async () => statsStream) })),
+      };
+
+      spyOn(dockerConnectionManager, 'getClient').mockResolvedValue({
+        getDocker: () => mockDocker,
+        close: mock(async () => {}),
+        isConnected: () => true,
+      } as any);
+
+      await (collector as any).collect();
+
+      const ociUpsert = metadataUpserts.find(u => u.key === 'oci_image_source');
+      expect(ociUpsert).toBeDefined();
+      expect(ociUpsert.value).toBe('https://github.com/jaredglaser/homelab-manager');
+
+      controller.abort();
+    });
+
     it('should use compose labels to compute service_key as project/service', async () => {
       const db = createMockDb();
       const controller = new AbortController();

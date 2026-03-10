@@ -4,23 +4,23 @@ import type { GitHubRepo } from '../github-api';
 
 describe('parseGitHubRepoUrl', () => {
   it('extracts owner/repo from HTTPS URL', () => {
-    expect(parseGitHubRepoUrl('https://github.com/linuxserver/docker-sonarr')).toEqual({
-      owner: 'linuxserver',
-      repo: 'docker-sonarr',
+    expect(parseGitHubRepoUrl('https://github.com/jaredglaser/homelab-manager')).toEqual({
+      owner: 'jaredglaser',
+      repo: 'homelab-manager',
     });
   });
 
   it('handles trailing slash', () => {
-    expect(parseGitHubRepoUrl('https://github.com/linuxserver/docker-sonarr/')).toEqual({
-      owner: 'linuxserver',
-      repo: 'docker-sonarr',
+    expect(parseGitHubRepoUrl('https://github.com/jaredglaser/homelab-manager/')).toEqual({
+      owner: 'jaredglaser',
+      repo: 'homelab-manager',
     });
   });
 
   it('handles .git suffix', () => {
-    expect(parseGitHubRepoUrl('https://github.com/linuxserver/docker-sonarr.git')).toEqual({
-      owner: 'linuxserver',
-      repo: 'docker-sonarr',
+    expect(parseGitHubRepoUrl('https://github.com/jaredglaser/homelab-manager.git')).toEqual({
+      owner: 'jaredglaser',
+      repo: 'homelab-manager',
     });
   });
 
@@ -43,10 +43,10 @@ describe('parseGitHubRepoUrl', () => {
 
 describe('extractGitHubRepo', () => {
   it('extracts from OCI source label', () => {
-    const labels = { 'org.opencontainers.image.source': 'https://github.com/linuxserver/docker-sonarr' };
+    const labels = { 'org.opencontainers.image.source': 'https://github.com/jaredglaser/homelab-manager' };
     expect(extractGitHubRepo(labels)).toEqual({
-      owner: 'linuxserver',
-      repo: 'docker-sonarr',
+      owner: 'jaredglaser',
+      repo: 'homelab-manager',
     });
   });
 
@@ -63,11 +63,11 @@ describe('fetchGitHubReleases', () => {
     globalThis.fetch = originalFetch;
   });
 
-  const repo: GitHubRepo = { owner: 'nginx', repo: 'nginx' };
+  const repo: GitHubRepo = { owner: 'jaredglaser', repo: 'homelab-manager' };
 
   it('should return releases filtering out prereleases', async () => {
     globalThis.fetch = (async () => new Response(JSON.stringify([
-      { tag_name: 'v1.26', name: 'v1.26', body: 'Stable', published_at: '2024-01-01', html_url: 'https://github.com/nginx/nginx/releases/v1.26', prerelease: false },
+      { tag_name: 'v1.26', name: 'v1.26', body: 'Stable', published_at: '2024-01-01', html_url: 'https://github.com/jaredglaser/homelab-manager/releases/v1.26', prerelease: false },
       { tag_name: 'v1.27-rc1', name: 'v1.27-rc1', body: 'RC', published_at: '2024-02-01', html_url: 'url2', prerelease: true },
       { tag_name: 'v1.25', name: 'v1.25', body: 'Old stable', published_at: '2023-06-01', html_url: 'url3', prerelease: false },
     ]), {

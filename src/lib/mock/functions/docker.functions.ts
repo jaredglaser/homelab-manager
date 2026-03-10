@@ -125,6 +125,7 @@ export const getContainerDetails = async (opts: {
     created: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     restartPolicy: 'unless-stopped',
     currentTag: version?.current_tag ?? null,
+    currentVersion: null,
     latestTag: version?.latest_tag ?? null,
     updateAvailable: version?.update_available ?? false,
     githubRepo: null,

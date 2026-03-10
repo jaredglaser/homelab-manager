@@ -63,6 +63,13 @@ export class DockerCollector extends BaseCollector {
       if (!known || known.name !== containerName || known.image !== containerInfo.Image) {
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', containerName);
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', containerInfo.Image);
+
+        // Extract OCI source label for GitHub repo detection (used by version check collector)
+        const ociSource = labels['org.opencontainers.image.source'];
+        if (ociSource) {
+          await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'oci_image_source', ociSource);
+        }
+
         metadataUpdates++;
       }
 

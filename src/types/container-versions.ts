@@ -4,6 +4,8 @@ export interface ContainerVersionSummary {
   current_tag: string | null;
   latest_tag: string | null;
   update_available: boolean;
+  github_repo: string | null;
+  github_repo_source: string | null;
 }
 
 /** Single GitHub release entry stored in container_versions.releases JSONB */
@@ -24,6 +26,7 @@ export interface ContainerDetails {
   created: string;
   restartPolicy: string;
   currentTag: string | null;
+  currentVersion: string | null;
   latestTag: string | null;
   updateAvailable: boolean;
   githubRepo: string | null;

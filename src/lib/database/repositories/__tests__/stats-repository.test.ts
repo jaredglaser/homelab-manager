@@ -919,7 +919,7 @@ describe('StatsRepository', () => {
   describe('upsertContainerVersion', () => {
     it('should insert with correct SQL and params', async () => {
       await repo.upsertContainerVersion(
-        'nginx:1.25', '1.25', 'v1.26', true, 'nginx/nginx', 'manual',
+        'nginx:1.25', '1.25', 'v1.26', true, 'jaredglaser/homelab-manager', 'manual',
         [{ tag: 'v1.26', name: 'v1.26', body: '', published_at: '2024-01-01', url: 'url' }],
       );
 
@@ -930,7 +930,7 @@ describe('StatsRepository', () => {
       expect(mockPool.queries[0].params[1]).toBe('1.25');
       expect(mockPool.queries[0].params[2]).toBe('v1.26');
       expect(mockPool.queries[0].params[3]).toBe(true);
-      expect(mockPool.queries[0].params[4]).toBe('nginx/nginx');
+      expect(mockPool.queries[0].params[4]).toBe('jaredglaser/homelab-manager');
       expect(mockPool.queries[0].params[5]).toBe('manual');
       expect(mockPool.queries[0].params[6]).toBe(JSON.stringify(
         [{ tag: 'v1.26', name: 'v1.26', body: '', published_at: '2024-01-01', url: 'url' }],
@@ -951,15 +951,15 @@ describe('StatsRepository', () => {
   describe('getContainerVersionSummaries', () => {
     it('should return rows from query', async () => {
       const rows = [
-        { image: 'nginx:1.25', current_tag: '1.25', latest_tag: 'v1.26', update_available: true },
-        { image: 'redis:7', current_tag: '7', latest_tag: '7', update_available: false },
+        { image: 'nginx:1.25', current_tag: '1.25', latest_tag: 'v1.26', update_available: true, github_repo: 'jaredglaser/homelab-manager', github_repo_source: 'oci_label' },
+        { image: 'redis:7', current_tag: '7', latest_tag: '7', update_available: false, github_repo: null, github_repo_source: null },
       ];
       mockPool.pushResult(rows);
 
       const result = await repo.getContainerVersionSummaries();
 
       expect(mockPool.queries).toHaveLength(1);
-      expect(mockPool.queries[0].sql).toContain('SELECT image, current_tag, latest_tag, update_available FROM container_versions');
+      expect(mockPool.queries[0].sql).toContain('SELECT image, current_tag, latest_tag, update_available, github_repo, github_repo_source FROM container_versions');
       expect(result).toEqual(rows);
     });
 
@@ -1028,14 +1028,14 @@ describe('StatsRepository', () => {
 
   describe('getEntityMetadataValue', () => {
     it('should return value when found', async () => {
-      mockPool.pushResult([{ value: 'https://github.com/nginx/nginx' }]);
+      mockPool.pushResult([{ value: 'https://github.com/jaredglaser/homelab-manager' }]);
 
       const result = await repo.getEntityMetadataValue('docker', 'host1/abc', 'oci_image_source');
 
       expect(mockPool.queries).toHaveLength(1);
       expect(mockPool.queries[0].sql).toContain('SELECT value FROM entity_metadata');
       expect(mockPool.queries[0].params).toEqual(['docker', 'host1/abc', 'oci_image_source']);
-      expect(result).toBe('https://github.com/nginx/nginx');
+      expect(result).toBe('https://github.com/jaredglaser/homelab-manager');
     });
 
     it('should return null when not found', async () => {

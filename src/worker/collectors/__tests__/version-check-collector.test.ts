@@ -287,7 +287,7 @@ describe('VersionCheckCollector', () => {
 
       const getMetaSpy = spyOn((collector as any).repository, 'getEntityMetadataValue')
         .mockImplementation(async (_source: string, _entity: string, key: string) => {
-          if (key === 'github_repo_override') return 'https://github.com/nginx/nginx';
+          if (key === 'github_repo_override') return 'https://github.com/jaredglaser/homelab-manager';
           return null;
         });
 
@@ -296,7 +296,7 @@ describe('VersionCheckCollector', () => {
       // Mock global fetch for fetchGitHubReleases
       const originalFetch = globalThis.fetch;
       globalThis.fetch = mock(async () => new Response(JSON.stringify([
-        { tag_name: 'v1.26', name: 'v1.26', body: 'Release', published_at: '2024-01-01', html_url: 'https://github.com/nginx/nginx/releases/v1.26', prerelease: false },
+        { tag_name: 'v1.26', name: 'v1.26', body: 'Release', published_at: '2024-01-01', html_url: 'https://github.com/jaredglaser/homelab-manager/releases/v1.26', prerelease: false },
       ]), {
         status: 200,
         headers: { 'x-ratelimit-remaining': '59', 'x-ratelimit-reset': '1700000000' },
@@ -307,7 +307,7 @@ describe('VersionCheckCollector', () => {
 
         expect(getMetaSpy.mock.calls[0][2]).toBe('github_repo_override');
         expect(upsertSpy).toHaveBeenCalledTimes(1);
-        expect(upsertSpy.mock.calls[0][4]).toBe('nginx/nginx');
+        expect(upsertSpy.mock.calls[0][4]).toBe('jaredglaser/homelab-manager');
         expect(upsertSpy.mock.calls[0][5]).toBe('manual');
       } finally {
         globalThis.fetch = originalFetch;
@@ -324,7 +324,7 @@ describe('VersionCheckCollector', () => {
       spyOn((collector as any).repository, 'getEntityMetadataValue')
         .mockImplementation(async (_source: string, _entity: string, key: string) => {
           if (key === 'github_repo_override') return null;
-          if (key === 'oci_image_source') return 'https://github.com/linuxserver/docker-sonarr';
+          if (key === 'oci_image_source') return 'https://github.com/jaredglaser/homelab-manager';
           return null;
         });
 
@@ -339,9 +339,9 @@ describe('VersionCheckCollector', () => {
       })) as unknown as typeof fetch;
 
       try {
-        await (collector as any).checkImage('linuxserver/sonarr:latest', 'host1/abc');
+        await (collector as any).checkImage('ghcr.io/jaredglaser/homelab-manager:latest', 'host1/abc');
 
-        expect(upsertSpy.mock.calls[0][4]).toBe('linuxserver/docker-sonarr');
+        expect(upsertSpy.mock.calls[0][4]).toBe('jaredglaser/homelab-manager');
         expect(upsertSpy.mock.calls[0][5]).toBe('oci_label');
       } finally {
         globalThis.fetch = originalFetch;
@@ -357,7 +357,7 @@ describe('VersionCheckCollector', () => {
 
       spyOn((collector as any).repository, 'getEntityMetadataValue')
         .mockImplementation(async (_source: string, _entity: string, key: string) => {
-          if (key === 'github_repo_override') return 'https://github.com/owner/repo';
+          if (key === 'github_repo_override') return 'https://github.com/jaredglaser/homelab-manager';
           return null;
         });
 
@@ -392,7 +392,7 @@ describe('VersionCheckCollector', () => {
 
       spyOn((collector as any).repository, 'getEntityMetadataValue')
         .mockImplementation(async (_source: string, _entity: string, key: string) => {
-          if (key === 'github_repo_override') return 'https://github.com/owner/repo';
+          if (key === 'github_repo_override') return 'https://github.com/jaredglaser/homelab-manager';
           return null;
         });
 
@@ -425,7 +425,7 @@ describe('VersionCheckCollector', () => {
 
       spyOn((collector as any).repository, 'getEntityMetadataValue')
         .mockImplementation(async (_source: string, _entity: string, key: string) => {
-          if (key === 'github_repo_override') return 'https://github.com/owner/repo';
+          if (key === 'github_repo_override') return 'https://github.com/jaredglaser/homelab-manager';
           return null;
         });
 
@@ -463,7 +463,7 @@ describe('VersionCheckCollector', () => {
 
       spyOn((collector as any).repository, 'getEntityMetadataValue')
         .mockImplementation(async (_source: string, _entity: string, key: string) => {
-          if (key === 'github_repo_override') return 'https://github.com/owner/repo';
+          if (key === 'github_repo_override') return 'https://github.com/jaredglaser/homelab-manager';
           return null;
         });
 

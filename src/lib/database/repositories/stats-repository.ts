@@ -625,7 +625,7 @@ export class StatsRepository {
 
   async getContainerVersionSummaries(): Promise<ContainerVersionSummary[]> {
     const result = await this.pool.query(
-      `SELECT image, current_tag, latest_tag, update_available FROM container_versions`,
+      `SELECT image, current_tag, latest_tag, update_available, github_repo, github_repo_source FROM container_versions`,
     );
     return result.rows;
   }
