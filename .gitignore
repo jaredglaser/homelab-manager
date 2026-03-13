@@ -29,3 +29,6 @@ nul
 /objects
 /refs
 docs/plans
+.openviking
+ov.conf
+data/
