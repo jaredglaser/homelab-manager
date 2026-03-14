@@ -5,6 +5,7 @@ export interface ManagedHost {
   name: string;
   agent_url: string;
   agent_token_hash: string;
+  agent_token: string | null; // plaintext token for worker auth
   socket_proxy_url: string;
   agent_version: string | null;
   status: string;
@@ -16,6 +17,7 @@ export interface CreateHostInput {
   name: string;
   agent_url: string;
   agent_token_hash: string;
+  agent_token: string; // plaintext token stored for worker use
   socket_proxy_url: string;
 }
 
@@ -29,6 +31,7 @@ function rowToHost(row: ManagedHost): ManagedHost {
     name: row.name,
     agent_url: row.agent_url,
     agent_token_hash: row.agent_token_hash,
+    agent_token: row.agent_token,
     socket_proxy_url: row.socket_proxy_url,
     agent_version: row.agent_version,
     status: row.status,
@@ -42,10 +45,10 @@ export class HostRepository {
 
   async create(input: CreateHostInput): Promise<ManagedHost> {
     const result = await this.pool.query(
-      `INSERT INTO managed_hosts (name, agent_url, agent_token_hash, socket_proxy_url)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO managed_hosts (name, agent_url, agent_token_hash, agent_token, socket_proxy_url)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [input.name, input.agent_url, input.agent_token_hash, input.socket_proxy_url]
+      [input.name, input.agent_url, input.agent_token_hash, input.agent_token, input.socket_proxy_url]
     );
     return rowToHost(result.rows[0] as ManagedHost);
   }
