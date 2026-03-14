@@ -133,8 +133,8 @@ export type OpenBaoConfig = z.infer<typeof OpenBaoConfigSchema>;
  */
 export function loadOpenBaoConfig(): OpenBaoConfig {
   return OpenBaoConfigSchema.parse({
-    url: process.env.OPENBAO_URL || '',
-    token: process.env.OPENBAO_TOKEN || '',
+    url: process.env.OPENBAO_URL,
+    token: process.env.OPENBAO_TOKEN,
   });
 }
 
@@ -417,6 +417,35 @@ describe('OpenBaoClient', () => {
       const secrets = await client.getAllSecrets('plex');
       expect(secrets).toEqual({});
     });
+
+    test('handles partial failures gracefully with Promise.allSettled', async () => {
+      // List returns two keys
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { keys: ['GOOD_KEY', 'BAD_KEY'] },
+          }),
+          { status: 200 },
+        ),
+      );
+      // First key succeeds
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { data: { value: 'good-value' }, metadata: { version: 1 } },
+          }),
+          { status: 200 },
+        ),
+      );
+      // Second key fails with server error
+      mockFetch.mockResolvedValueOnce(
+        new Response('Internal Server Error', { status: 500 }),
+      );
+
+      const secrets = await client.getAllSecrets('plex');
+      // Should return the successful secret and skip the failed one
+      expect(secrets).toEqual({ GOOD_KEY: 'good-value' });
+    });
   });
 
   describe('ensureSecretsEngine', () => {
@@ -457,6 +486,46 @@ describe('OpenBaoClient', () => {
       });
     });
   });
+
+  describe('input sanitization', () => {
+    test('rejects stack names with path traversal', async () => {
+      await expect(client.listSecrets('../etc')).rejects.toThrow(
+        'Invalid stack',
+      );
+    });
+
+    test('rejects key names with slashes', async () => {
+      await expect(client.getSecret('plex', 'foo/bar')).rejects.toThrow(
+        'Invalid key',
+      );
+    });
+
+    test('rejects stack names with dots', async () => {
+      await expect(client.setSecret('my.stack', 'KEY', 'val')).rejects.toThrow(
+        'Invalid stack',
+      );
+    });
+
+    test('rejects empty stack name', async () => {
+      await expect(client.deleteSecret('', 'KEY')).rejects.toThrow(
+        'Invalid stack',
+      );
+    });
+
+    test('allows valid stack and key names', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { data: { value: 'ok' }, metadata: { version: 1 } },
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const value = await client.getSecret('my-stack_1', 'API_KEY-2');
+      expect(value).toBe('ok');
+    });
+  });
 });
 ```
 
@@ -479,6 +548,8 @@ import type { OpenBaoConfig } from '@/lib/config/openbao-config';
  * Secret path convention: secret/stacks/<stack-name>/<key>
  */
 export class OpenBaoClient {
+  private static readonly SAFE_PATH_SEGMENT = /^[a-zA-Z0-9_-]+$/;
+
   private readonly url: string;
   private readonly token: string;
   private readonly fetchFn: typeof fetch;
@@ -490,9 +561,22 @@ export class OpenBaoClient {
   }
 
   /**
+   * Validate that a path segment (stack name or key) contains only safe characters.
+   * Prevents path traversal and injection attacks in OpenBao API URLs.
+   */
+  private validatePathSegment(value: string, label: string): void {
+    if (!OpenBaoClient.SAFE_PATH_SEGMENT.test(value)) {
+      throw new Error(
+        `Invalid ${label}: "${value}" — must match ^[a-zA-Z0-9_-]+$`,
+      );
+    }
+  }
+
+  /**
    * List secret key names for a stack. Returns names only, never values.
    */
   async listSecrets(stack: string): Promise<string[]> {
+    this.validatePathSegment(stack, 'stack');
     const response = await this.fetchFn(
       `${this.url}/v1/secret/metadata/stacks/${stack}`,
       {
@@ -517,6 +601,9 @@ export class OpenBaoClient {
    * Get a single secret value. Returns null if not found.
    */
   async getSecret(stack: string, key: string): Promise<string | null> {
+    this.validatePathSegment(stack, 'stack');
+    this.validatePathSegment(key, 'key');
+
     const response = await this.fetchFn(
       `${this.url}/v1/secret/data/stacks/${stack}/${key}`,
       {
@@ -541,6 +628,9 @@ export class OpenBaoClient {
    * Set or update a secret value.
    */
   async setSecret(stack: string, key: string, value: string): Promise<void> {
+    this.validatePathSegment(stack, 'stack');
+    this.validatePathSegment(key, 'key');
+
     const response = await this.fetchFn(
       `${this.url}/v1/secret/data/stacks/${stack}/${key}`,
       {
@@ -563,6 +653,9 @@ export class OpenBaoClient {
    * Does not throw if the secret does not exist.
    */
   async deleteSecret(stack: string, key: string): Promise<void> {
+    this.validatePathSegment(stack, 'stack');
+    this.validatePathSegment(key, 'key');
+
     const response = await this.fetchFn(
       `${this.url}/v1/secret/metadata/stacks/${stack}/${key}`,
       {
@@ -583,6 +676,14 @@ export class OpenBaoClient {
   /**
    * Get all secret key-value pairs for a stack.
    * Used by the deploy pipeline to build .env files.
+   *
+   * NOTE: This makes N+1 HTTP calls (1 LIST + N GETs). Per-key storage is
+   * simpler for the reveal-single-secret UX but costs N+1 calls. For v1 with
+   * small numbers of secrets this is acceptable. Could be optimized to
+   * single-path-per-stack in v2 if needed.
+   *
+   * Uses Promise.allSettled so individual secret fetch failures don't block
+   * the entire operation. Failed fetches are logged and skipped.
    */
   async getAllSecrets(stack: string): Promise<Record<string, string>> {
     const keys = await this.listSecrets(stack);
@@ -590,16 +691,26 @@ export class OpenBaoClient {
       return {};
     }
 
-    const entries = await Promise.all(
+    const results = await Promise.allSettled(
       keys.map(async (key) => {
         const value = await this.getSecret(stack, key);
         return value !== null ? ([key, value] as const) : null;
       }),
     );
 
-    return Object.fromEntries(
-      entries.filter((entry): entry is [string, string] => entry !== null),
-    );
+    const entries: [string, string][] = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value !== null) {
+        entries.push(result.value);
+      } else if (result.status === 'rejected') {
+        console.error(
+          `Failed to fetch secret in stack "${stack}":`,
+          result.reason instanceof Error ? result.reason.message : String(result.reason),
+        );
+      }
+    }
+
+    return Object.fromEntries(entries);
   }
 
   /**
@@ -953,32 +1064,79 @@ git commit -m "feat(openbao): add SecretResolver factory with auto-detection"
 Create `src/middleware/__tests__/openbao-middleware.test.ts`:
 
 ```typescript
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
-import { isOpenBaoConfigured } from '@/lib/config/openbao-config';
+import { describe, expect, test, beforeEach, afterEach, mock } from 'bun:test';
+import { resetOpenBaoInitState } from '@/lib/services/openbao-init';
 
-describe('openbao middleware config check', () => {
+describe('openBaoMiddleware', () => {
   const originalEnv = { ...process.env };
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    resetOpenBaoInitState();
   });
 
-  test('isOpenBaoConfigured returns true when env vars set', () => {
-    process.env.OPENBAO_URL = 'http://openbao:8200';
-    expect(isOpenBaoConfigured()).toBe(true);
-  });
-
-  test('isOpenBaoConfigured returns false when env vars not set', () => {
+  test('throws when OpenBao is not configured', async () => {
     delete process.env.OPENBAO_URL;
-    expect(isOpenBaoConfigured()).toBe(false);
+    delete process.env.OPENBAO_TOKEN;
+
+    const { openBaoMiddleware } = await import(
+      '@/middleware/openbao-middleware'
+    );
+
+    // Simulate calling the middleware's server handler
+    // The middleware should throw before calling next()
+    const nextFn = mock();
+    await expect(
+      // Access the server handler — implementation detail of createMiddleware
+      openBaoMiddleware._handler({ next: nextFn }),
+    ).rejects.toThrow('OpenBao is not configured');
+
+    expect(nextFn).not.toHaveBeenCalled();
+  });
+
+  test('creates client and attaches to context when configured', async () => {
+    process.env.OPENBAO_URL = 'http://openbao:8200';
+    process.env.OPENBAO_TOKEN = 'dev-root-token';
+
+    const { openBaoMiddleware } = await import(
+      '@/middleware/openbao-middleware'
+    );
+
+    let capturedContext: Record<string, unknown> = {};
+    const nextFn = mock(({ context }: { context: Record<string, unknown> }) => {
+      capturedContext = context;
+      return Promise.resolve();
+    });
+
+    await openBaoMiddleware._handler({ next: nextFn });
+
+    expect(nextFn).toHaveBeenCalledTimes(1);
+    expect(capturedContext.openBaoClient).toBeDefined();
+  });
+
+  test('runs initializeOpenBao on first use', async () => {
+    process.env.OPENBAO_URL = 'http://openbao:8200';
+    process.env.OPENBAO_TOKEN = 'dev-root-token';
+
+    const { openBaoMiddleware } = await import(
+      '@/middleware/openbao-middleware'
+    );
+
+    const nextFn = mock((_args: unknown) => Promise.resolve());
+
+    // Should not throw — initializeOpenBao calls ensureSecretsEngine
+    // In tests the fetch will fail but init should still be attempted
+    await openBaoMiddleware._handler({ next: nextFn }).catch(() => {
+      // Expected: fetch is not mocked, so ensureSecretsEngine may fail
+    });
   });
 });
 ```
 
-- [ ] **Step 2: Run test to verify it passes**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun test src/middleware/__tests__/openbao-middleware.test.ts`
-Expected: All tests pass
+Expected: FAIL — middleware not yet implemented
 
 - [ ] **Step 3: Implement OpenBao middleware**
 
@@ -991,6 +1149,7 @@ import type { OpenBaoClient } from '@/lib/clients/openbao-client';
 /**
  * OpenBao middleware — injects an OpenBaoClient into the server function context.
  * Dynamically imports server-only modules to avoid leaking into the client bundle.
+ * Runs initializeOpenBao on first use to ensure the KV v2 engine is enabled.
  */
 export const openBaoMiddleware = createMiddleware().server(
   async ({ next }) => {
@@ -1007,6 +1166,12 @@ export const openBaoMiddleware = createMiddleware().server(
       '@/lib/clients/openbao-client'
     );
     const client = new Client(config);
+
+    // Initialize on first use (promise-based singleton prevents race conditions)
+    const { initializeOpenBao } = await import(
+      '@/lib/services/openbao-init'
+    );
+    await initializeOpenBao(client);
 
     return next({ context: { openBaoClient: client } });
   },
@@ -1042,98 +1207,116 @@ import { describe, expect, test, mock } from 'bun:test';
 import { OpenBaoClient } from '@/lib/clients/openbao-client';
 
 /**
- * Unit tests for OpenBao server function logic.
- * Tests the underlying client calls that the server functions delegate to.
- * Server functions themselves are thin wrappers (createServerFn + middleware),
- * so we test the client integration layer here.
+ * Unit tests for OpenBao server functions.
+ * Imports the actual server functions and tests them with a mocked OpenBao client.
+ * Verifies that each server function calls the correct client method, handles
+ * errors properly, and returns the expected shape.
  */
-describe('OpenBao server function logic', () => {
-  function createClient(mockFetch: ReturnType<typeof mock>): OpenBaoClient {
-    return new OpenBaoClient(
-      { url: 'http://openbao:8200', token: 'dev-root-token' },
-      mockFetch as typeof fetch,
-    );
+describe('OpenBao server functions', () => {
+  function createMockClient() {
+    return {
+      listSecrets: mock(),
+      getSecret: mock(),
+      setSecret: mock(),
+      deleteSecret: mock(),
+      getAllSecrets: mock(),
+      ensureSecretsEngine: mock(),
+    } as unknown as OpenBaoClient;
   }
 
-  describe('listSecretNames', () => {
-    test('returns sorted key names', async () => {
-      const mockFetch = mock();
-      mockFetch.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: { keys: ['ZEBRA', 'ALPHA', 'MIDDLE'] },
-          }),
-          { status: 200 },
-        ),
+  /**
+   * Helper to invoke a server function handler with a mocked context.
+   * Simulates the middleware having already injected the OpenBao client.
+   */
+  function callHandler<T>(
+    handler: { handler: (opts: { context: { openBaoClient: OpenBaoClient }; data: T }) => Promise<unknown> },
+    client: OpenBaoClient,
+    data: T,
+  ) {
+    return handler.handler({ context: { openBaoClient: client }, data });
+  }
+
+  describe('listStackSecrets', () => {
+    test('calls client.listSecrets and returns sorted keys', async () => {
+      const { listStackSecrets } = await import(
+        '@/lib/server-functions/openbao-server-functions'
       );
+      const client = createMockClient();
+      (client.listSecrets as ReturnType<typeof mock>).mockResolvedValueOnce([
+        'ZEBRA', 'ALPHA', 'MIDDLE',
+      ]);
 
-      const client = createClient(mockFetch);
-      const keys = await client.listSecrets('mystack');
-      const sorted = [...keys].sort();
+      const result = await callHandler(listStackSecrets, client, { stack: 'plex' });
 
-      expect(sorted).toEqual(['ALPHA', 'MIDDLE', 'ZEBRA']);
+      expect(client.listSecrets).toHaveBeenCalledWith('plex');
+      expect(result).toEqual(['ALPHA', 'MIDDLE', 'ZEBRA']);
     });
   });
 
-  describe('revealSecret', () => {
-    test('returns single secret value', async () => {
-      const mockFetch = mock();
-      mockFetch.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            data: { data: { value: 'revealed!' }, metadata: { version: 1 } },
-          }),
-          { status: 200 },
-        ),
+  describe('getStackSecret', () => {
+    test('calls client.getSecret and returns value object', async () => {
+      const { getStackSecret } = await import(
+        '@/lib/server-functions/openbao-server-functions'
       );
+      const client = createMockClient();
+      (client.getSecret as ReturnType<typeof mock>).mockResolvedValueOnce('revealed!');
 
-      const client = createClient(mockFetch);
-      const value = await client.getSecret('mystack', 'API_KEY');
+      const result = await callHandler(getStackSecret, client, {
+        stack: 'plex',
+        key: 'API_KEY',
+      });
 
-      expect(value).toBe('revealed!');
+      expect(client.getSecret).toHaveBeenCalledWith('plex', 'API_KEY');
+      expect(result).toEqual({ value: 'revealed!' });
     });
 
-    test('returns null for missing secret', async () => {
-      const mockFetch = mock();
-      mockFetch.mockResolvedValueOnce(
-        new Response(null, { status: 404 }),
+    test('throws when secret is not found', async () => {
+      const { getStackSecret } = await import(
+        '@/lib/server-functions/openbao-server-functions'
       );
+      const client = createMockClient();
+      (client.getSecret as ReturnType<typeof mock>).mockResolvedValueOnce(null);
 
-      const client = createClient(mockFetch);
-      const value = await client.getSecret('mystack', 'MISSING');
-
-      expect(value).toBeNull();
-    });
-  });
-
-  describe('setSecret', () => {
-    test('writes secret and does not throw on success', async () => {
-      const mockFetch = mock();
-      mockFetch.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({ data: { version: 1 } }),
-          { status: 200 },
-        ),
-      );
-
-      const client = createClient(mockFetch);
       await expect(
-        client.setSecret('mystack', 'NEW_KEY', 'new-value'),
-      ).resolves.toBeUndefined();
+        callHandler(getStackSecret, client, { stack: 'plex', key: 'MISSING' }),
+      ).rejects.toThrow('Secret not found: MISSING');
     });
   });
 
-  describe('deleteSecret', () => {
-    test('deletes secret and does not throw on success', async () => {
-      const mockFetch = mock();
-      mockFetch.mockResolvedValueOnce(
-        new Response(null, { status: 204 }),
+  describe('setStackSecret', () => {
+    test('calls client.setSecret and returns success', async () => {
+      const { setStackSecret } = await import(
+        '@/lib/server-functions/openbao-server-functions'
       );
+      const client = createMockClient();
+      (client.setSecret as ReturnType<typeof mock>).mockResolvedValueOnce(undefined);
 
-      const client = createClient(mockFetch);
-      await expect(
-        client.deleteSecret('mystack', 'OLD_KEY'),
-      ).resolves.toBeUndefined();
+      const result = await callHandler(setStackSecret, client, {
+        stack: 'plex',
+        key: 'DB_PASS',
+        value: 'new-password',
+      });
+
+      expect(client.setSecret).toHaveBeenCalledWith('plex', 'DB_PASS', 'new-password');
+      expect(result).toEqual({ success: true });
+    });
+  });
+
+  describe('deleteStackSecret', () => {
+    test('calls client.deleteSecret and returns success', async () => {
+      const { deleteStackSecret } = await import(
+        '@/lib/server-functions/openbao-server-functions'
+      );
+      const client = createMockClient();
+      (client.deleteSecret as ReturnType<typeof mock>).mockResolvedValueOnce(undefined);
+
+      const result = await callHandler(deleteStackSecret, client, {
+        stack: 'plex',
+        key: 'OLD_KEY',
+      });
+
+      expect(client.deleteSecret).toHaveBeenCalledWith('plex', 'OLD_KEY');
+      expect(result).toEqual({ success: true });
     });
   });
 });
@@ -1150,14 +1333,29 @@ Create `src/lib/server-functions/openbao-server-functions.ts`:
 
 ```typescript
 import { createServerFn } from '@tanstack/react-start';
+import { z } from 'zod';
 import { openBaoMiddleware } from '@/middleware/openbao-middleware';
+
+/** Reusable pattern for safe path segments (stack names, secret keys) */
+const safePathSegment = z.string().regex(
+  /^[a-zA-Z0-9_-]+$/,
+  'Must contain only letters, numbers, hyphens, and underscores',
+);
+
+const stackInput = z.object({ stack: safePathSegment });
+const stackKeyInput = z.object({ stack: safePathSegment, key: safePathSegment });
+const stackKeyValueInput = z.object({
+  stack: safePathSegment,
+  key: safePathSegment,
+  value: z.string().min(1),
+});
 
 /**
  * List secret names for a stack. Returns names only, never values.
  */
 export const listStackSecrets = createServerFn({ method: 'GET' })
   .middleware([openBaoMiddleware])
-  .validator((data: { stack: string }) => data)
+  .validator((data: unknown) => stackInput.parse(data))
   .handler(async ({ context, data }) => {
     const keys = await context.openBaoClient.listSecrets(data.stack);
     return keys.sort();
@@ -1169,7 +1367,7 @@ export const listStackSecrets = createServerFn({ method: 'GET' })
  */
 export const getStackSecret = createServerFn({ method: 'GET' })
   .middleware([openBaoMiddleware])
-  .validator((data: { stack: string; key: string }) => data)
+  .validator((data: unknown) => stackKeyInput.parse(data))
   .handler(async ({ context, data }) => {
     const value = await context.openBaoClient.getSecret(data.stack, data.key);
     if (value === null) {
@@ -1183,7 +1381,7 @@ export const getStackSecret = createServerFn({ method: 'GET' })
  */
 export const setStackSecret = createServerFn({ method: 'POST' })
   .middleware([openBaoMiddleware])
-  .validator((data: { stack: string; key: string; value: string }) => data)
+  .validator((data: unknown) => stackKeyValueInput.parse(data))
   .handler(async ({ context, data }) => {
     await context.openBaoClient.setSecret(data.stack, data.key, data.value);
     return { success: true };
@@ -1194,7 +1392,7 @@ export const setStackSecret = createServerFn({ method: 'POST' })
  */
 export const deleteStackSecret = createServerFn({ method: 'POST' })
   .middleware([openBaoMiddleware])
-  .validator((data: { stack: string; key: string }) => data)
+  .validator((data: unknown) => stackKeyInput.parse(data))
   .handler(async ({ context, data }) => {
     await context.openBaoClient.deleteSecret(data.stack, data.key);
     return { success: true };
@@ -1247,21 +1445,27 @@ Add the following service block to the `services:` section of `docker-compose.de
       - management
 ```
 
-Add to the `x-shared-dev` environment or to the `web` service environment section:
+Add `OPENBAO_URL` and `OPENBAO_TOKEN` to the `web` service environment, but **only when the management profile is active**. Do NOT use empty defaults — omit the vars entirely when the profile is inactive so the app correctly detects OpenBao as unconfigured:
 
 ```yaml
     environment:
       <<: *postgres-env
-      OPENBAO_URL: ${OPENBAO_URL:-}
-      OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+      OPENBAO_URL: ${OPENBAO_URL}
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN}
 ```
 
-- [ ] **Step 2: Add env var examples to `.env.example`**
+> **Note:** These env vars are only meaningful when the `management` profile is active. Without the profile, the OpenBao container does not start, and the env vars should not be set.
+
+- [ ] **Step 2: Add env var examples and profile activation docs to `.env.example`**
 
 Add the following lines to `.env.example`:
 
 ```bash
 # OpenBao (optional, enables secrets management for Docker stacks)
+# To activate, start with the management profile:
+#   docker compose --profile management -f docker-compose.dev.yml up
+# Or set COMPOSE_PROFILES in your .env:
+#   COMPOSE_PROFILES=management
 # OPENBAO_URL=http://localhost:8200
 # OPENBAO_TOKEN=dev-root-token
 ```
@@ -1354,35 +1558,38 @@ Create `src/lib/services/openbao-init.ts`:
 ```typescript
 import type { OpenBaoClient } from '@/lib/clients/openbao-client';
 
-let initialized = false;
+let initPromise: Promise<void> | null = null;
 
 /**
  * Initialize OpenBao for first use.
  * Ensures the KV v2 secrets engine is enabled at the `secret/` path.
- * Safe to call multiple times — only runs once per process lifetime.
+ * Safe to call multiple times — uses a promise-based singleton to prevent
+ * race conditions when concurrent requests arrive simultaneously.
+ * The first call creates the initialization promise; subsequent calls await it.
  */
 export async function initializeOpenBao(client: OpenBaoClient): Promise<void> {
-  if (initialized) {
-    return;
+  if (initPromise) {
+    return initPromise;
   }
 
-  try {
-    await client.ensureSecretsEngine();
-    initialized = true;
-  } catch (error) {
+  initPromise = client.ensureSecretsEngine().catch((error) => {
+    // Reset so next call retries instead of returning a rejected promise
+    initPromise = null;
     console.error(
       'Failed to initialize OpenBao secrets engine:',
       error instanceof Error ? error.message : String(error),
     );
     throw error;
-  }
+  });
+
+  return initPromise;
 }
 
 /**
  * Reset initialization state (for testing only).
  */
 export function resetOpenBaoInitState(): void {
-  initialized = false;
+  initPromise = null;
 }
 ```
 
