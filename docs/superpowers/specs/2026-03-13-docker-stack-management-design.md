@@ -288,7 +288,7 @@ Stacks management page with:
 
 - **Stack list** — name, host, sync status (in-sync / pending / failed), deploy mode (auto/manual)
 - **Expanded stack detail** — diff view for pending changes, variables panel, deploy/logs/edit/history actions
-- **Editor view** — CodeMirror editor for compose files (lighter than Monaco, ~100KB vs ~3MB), with YAML syntax highlighting and a side panel for `${VAR}` references with secret inputs
+- **Editor view** — Monaco editor (dynamically imported to avoid bundle impact) for compose files with `monaco-yaml` plugin for Docker Compose schema validation and autocomplete. Side panel for `${VAR}` references with secret inputs
 - **Deploy history** — per-stack list of deploys with commit, timestamp, trigger, status, collapsible logs
 
 ### Existing Docker Page Enrichment
