@@ -2149,12 +2149,1049 @@ git commit -m "docs(config): document DOCKER_HOST_N migration path with managed 
 
 ---
 
+## Chunk 8: Agent Stats Collection from Managed Hosts
+
+This chunk replaces direct Dockerode stats collection with SSE-based collection from agent containers running on managed hosts. The `AgentStatsCollector` connects to each managed host's agent `GET /stats/stream` endpoint, parses SSE events into `DockerStatsRow` rows, and inserts them via the existing `StatsRepository.insertDockerStats()`. Legacy `DOCKER_HOST_N` env var hosts continue using `DockerCollector` unchanged.
+
+**Design note — agent token access:** The existing `managed_hosts` table stores only a bcrypt hash (`agent_token_hash`). The worker needs the plaintext token to authenticate to agents via `Authorization: Bearer <token>`. Since the socket proxy URL is already stored in plaintext (providing equivalent access), storing the plaintext token is acceptable. Task 11 adds an `agent_token` column via migration. The provisioning server function (Task 8, Chunk 6) must be updated to also store the plaintext token when creating a host — that change is noted but deferred to a follow-up since it touches code outside this chunk's scope.
+
+**SSE data shape from agent** (emitted by `agent/src/routes/stats.ts`):
+```json
+{
+  "containerId": "abc123...",
+  "containerName": "plex",
+  "image": "plexinc/plex-media-server:latest",
+  "cpuPercent": 12.5,
+  "memoryUsage": 536870912,
+  "memoryLimit": 8589934592,
+  "memoryPercent": 6.25,
+  "networkRxBytesPerSec": 1024,
+  "networkTxBytesPerSec": 512,
+  "blockReadBytesPerSec": 2048,
+  "blockWriteBytesPerSec": 1024,
+  "timestamp": "2026-03-13T12:00:00.000Z"
+}
+```
+
+Note: The agent emits pre-computed rates — no `DockerRateCalculator` needed on this side. Field name mapping is required: agent uses `blockReadBytesPerSec`/`blockWriteBytesPerSec` while the DB column uses `block_io_read_bytes_per_sec`/`block_io_write_bytes_per_sec`.
+
+### Task 11: Migration to add agent_token column
+
+**Files:**
+- Create: `migrations/010_managed_hosts_agent_token.sql`
+
+- [ ] **Step 1: Create `migrations/010_managed_hosts_agent_token.sql`**
+
+```sql
+-- Add plaintext agent token column for worker authentication to agent SSE endpoints.
+-- The worker needs the token to send Authorization: Bearer <token> headers.
+-- Security note: the socket_proxy_url column already provides equivalent access,
+-- so storing the plaintext token does not meaningfully increase attack surface.
+ALTER TABLE managed_hosts ADD COLUMN IF NOT EXISTS agent_token TEXT;
+```
+
+- [ ] **Step 2: Verify migration SQL syntax**
+
+Run: `cd /home/jared/homelab-manager && cat migrations/010_managed_hosts_agent_token.sql`
+Expected: Valid SQL with no syntax errors
+
+- [ ] **Step 3: Update HostRepository types and queries**
+
+In `src/lib/database/repositories/host-repository.ts`, add `agent_token` to `ManagedHost` interface and `CreateHostInput`:
+
+```typescript
+export interface ManagedHost {
+  id: number;
+  name: string;
+  agent_url: string;
+  agent_token_hash: string;
+  agent_token: string | null; // plaintext token for worker auth
+  socket_proxy_url: string;
+  agent_version: string | null;
+  status: string;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreateHostInput {
+  name: string;
+  agent_url: string;
+  agent_token_hash: string;
+  agent_token: string; // plaintext token stored for worker use
+  socket_proxy_url: string;
+}
+```
+
+Update `rowToHost` to include `agent_token: row.agent_token`. Update `create()` INSERT to include the `agent_token` column.
+
+- [ ] **Step 4: Run typecheck and tests**
+
+Run: `cd /home/jared/homelab-manager && bun run typecheck && bun test`
+Expected: No errors, all tests pass (update existing host-repository tests to include `agent_token` field)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add migrations/010_managed_hosts_agent_token.sql src/lib/database/repositories/host-repository.ts src/lib/database/repositories/__tests__/host-repository.test.ts
+git commit -m "feat(db): add agent_token column to managed_hosts for worker authentication"
+```
+
+### Task 12: AgentStatsCollector
+
+**Files:**
+- Create: `src/worker/collectors/__tests__/agent-stats-collector.test.ts`
+- Create: `src/worker/collectors/agent-stats-collector.ts`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `src/worker/collectors/__tests__/agent-stats-collector.test.ts`:
+
+```typescript
+import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { AgentStatsCollector } from '../agent-stats-collector';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { DockerStatsRow } from '@/types/docker';
+
+/** Create a mock DatabaseClient that captures insertDockerStats calls */
+function createMockDb() {
+  const insertedRows: DockerStatsRow[][] = [];
+  const upsertedMetadata: { source: string; entity: string; key: string; value: string }[] = [];
+  return {
+    db: {
+      getPool: () => ({
+        query: async () => ({ rows: [], rowCount: 0 }),
+      }),
+    } as any,
+    insertedRows,
+    upsertedMetadata,
+    /** Patch the repository after construction */
+    patchRepository(collector: AgentStatsCollector) {
+      // Access the protected repository via any cast
+      const repo = (collector as any).repository;
+      repo.insertDockerStats = async (rows: DockerStatsRow[]) => {
+        insertedRows.push(rows);
+      };
+      repo.upsertEntityMetadata = async (source: string, entity: string, key: string, value: string) => {
+        upsertedMetadata.push({ source, entity, key, value });
+      };
+    },
+  };
+}
+
+const defaultConfig = {
+  enabled: true,
+  docker: { enabled: true },
+  zfs: { enabled: false },
+  proxmox: { enabled: false },
+  collection: { interval: 1000 },
+} as any;
+
+const sampleHost: ManagedHost = {
+  id: 1,
+  name: 'homeserver',
+  agent_url: 'http://192.168.1.10:9090',
+  agent_token_hash: '$2b$10$hashedtoken',
+  agent_token: 'test-token-uuid',
+  socket_proxy_url: 'tcp://192.168.1.10:2375',
+  agent_version: '0.1.0',
+  status: 'online',
+  created_at: new Date('2026-01-01T00:00:00Z'),
+  updated_at: new Date('2026-01-01T00:00:00Z'),
+};
+
+/** Build a ReadableStream that emits SSE-formatted lines, then closes */
+function createMockSSEStream(events: Record<string, unknown>[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const event of events) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      }
+      controller.close();
+    },
+  });
+}
+
+/** Build a ReadableStream that emits events then errors */
+function createErrorSSEStream(events: Record<string, unknown>[], error: Error): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const event of events) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      }
+      controller.error(error);
+    },
+  });
+}
+
+const sampleAgentEvent = {
+  containerId: 'abc123def456',
+  containerName: 'plex',
+  image: 'plexinc/plex-media-server:latest',
+  cpuPercent: 12.5,
+  memoryUsage: 536870912,
+  memoryLimit: 8589934592,
+  memoryPercent: 6.25,
+  networkRxBytesPerSec: 1024,
+  networkTxBytesPerSec: 512,
+  blockReadBytesPerSec: 2048,
+  blockWriteBytesPerSec: 1024,
+  timestamp: '2026-03-13T12:00:00.000Z',
+};
+
+describe('AgentStatsCollector', () => {
+  let mockDb: ReturnType<typeof createMockDb>;
+  let abortController: AbortController;
+
+  beforeEach(() => {
+    mockDb = createMockDb();
+    abortController = new AbortController();
+  });
+
+  it('has the correct name', () => {
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController,
+    );
+    expect(collector.name).toBe('AgentStatsCollector[homeserver]');
+  });
+
+  it('parses SSE events and inserts DockerStatsRow', async () => {
+    const events = [sampleAgentEvent];
+    const fetchFn = mock(async () =>
+      new Response(createMockSSEStream(events), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    // Run collection — the stream closes after one event, so collect() returns
+    // We call collect() directly via the protected method
+    await (collector as any).collect();
+
+    expect(mockDb.insertedRows).toHaveLength(1);
+    const row = mockDb.insertedRows[0][0];
+    expect(row.host).toBe('homeserver');
+    expect(row.container_id).toBe('abc123def456');
+    expect(row.container_name).toBe('plex');
+    expect(row.image).toBe('plexinc/plex-media-server:latest');
+    expect(row.cpu_percent).toBe(12.5);
+    expect(row.memory_usage).toBe(536870912);
+    expect(row.memory_limit).toBe(8589934592);
+    expect(row.memory_percent).toBe(6.25);
+    expect(row.network_rx_bytes_per_sec).toBe(1024);
+    expect(row.network_tx_bytes_per_sec).toBe(512);
+    expect(row.block_io_read_bytes_per_sec).toBe(2048);
+    expect(row.block_io_write_bytes_per_sec).toBe(1024);
+  });
+
+  it('sends Authorization header with bearer token', async () => {
+    const fetchFn = mock(async () =>
+      new Response(createMockSSEStream([]), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const callArgs = fetchFn.mock.calls[0];
+    const url = callArgs[0] as string;
+    const opts = callArgs[1] as RequestInit;
+    expect(url).toBe('http://192.168.1.10:9090/stats/stream');
+    expect(opts.headers).toEqual({
+      Authorization: 'Bearer test-token-uuid',
+    });
+  });
+
+  it('passes abort signal to fetch', async () => {
+    const fetchFn = mock(async (_url: string, opts: RequestInit) => {
+      // Verify signal is passed
+      expect(opts.signal).toBeDefined();
+      return new Response(createMockSSEStream([]), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+  });
+
+  it('upserts entity metadata for each container', async () => {
+    const events = [sampleAgentEvent];
+    const fetchFn = mock(async () =>
+      new Response(createMockSSEStream(events), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    // Should upsert name, image, and service_key for the container
+    const nameUpsert = mockDb.upsertedMetadata.find(m => m.key === 'name');
+    expect(nameUpsert).toBeDefined();
+    expect(nameUpsert!.entity).toBe('homeserver/abc123def456');
+    expect(nameUpsert!.value).toBe('plex');
+
+    const imageUpsert = mockDb.upsertedMetadata.find(m => m.key === 'image');
+    expect(imageUpsert).toBeDefined();
+    expect(imageUpsert!.value).toBe('plexinc/plex-media-server:latest');
+  });
+
+  it('throws on non-200 response', async () => {
+    const fetchFn = mock(async () =>
+      new Response('Unauthorized', { status: 401 })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await expect((collector as any).collect()).rejects.toThrow('Agent returned 401');
+  });
+
+  it('handles multiple events in sequence', async () => {
+    const event2 = {
+      ...sampleAgentEvent,
+      containerId: 'def789ghi012',
+      containerName: 'sonarr',
+      image: 'linuxserver/sonarr:latest',
+      cpuPercent: 3.2,
+    };
+    const fetchFn = mock(async () =>
+      new Response(createMockSSEStream([sampleAgentEvent, event2]), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    expect(mockDb.insertedRows).toHaveLength(2);
+    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
+    expect(mockDb.insertedRows[1][0].container_name).toBe('sonarr');
+  });
+
+  it('stops processing when abort signal fires', async () => {
+    // Create a stream that never closes — abort will terminate it
+    const encoder = new TextEncoder();
+    let controllerRef: ReadableStreamDefaultController<Uint8Array>;
+    const neverEndingStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controllerRef = controller;
+        // Enqueue one event immediately
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
+      },
+    });
+
+    const fetchFn = mock(async () =>
+      new Response(neverEndingStream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    // Abort after a short delay
+    setTimeout(() => abortController.abort(new DOMException('Shutdown', 'AbortError')), 50);
+
+    // collect() should return once abort fires
+    await (collector as any).collect();
+
+    // At least one row should have been inserted before abort
+    expect(mockDb.insertedRows.length).toBeGreaterThanOrEqual(1);
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd /home/jared/homelab-manager && bun test src/worker/collectors/__tests__/agent-stats-collector.test.ts`
+Expected: FAIL — `agent-stats-collector` module not found
+
+- [ ] **Step 3: Implement AgentStatsCollector**
+
+Create `src/worker/collectors/agent-stats-collector.ts`:
+
+```typescript
+import type { DatabaseClient } from '@/lib/clients/database-client';
+import type { WorkerConfig } from '@/lib/config/worker-config';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { DockerStatsRow } from '@/types/docker';
+import { BaseCollector } from './base-collector';
+
+const DOCKER_SOURCE = 'docker';
+
+/** Shape of SSE events emitted by the agent's GET /stats/stream endpoint */
+interface AgentStatsEvent {
+  containerId: string;
+  containerName: string;
+  image: string;
+  cpuPercent: number;
+  memoryUsage: number;
+  memoryLimit: number;
+  memoryPercent: number;
+  networkRxBytesPerSec: number;
+  networkTxBytesPerSec: number;
+  blockReadBytesPerSec: number;
+  blockWriteBytesPerSec: number;
+  timestamp: string;
+}
+
+type FetchFn = typeof globalThis.fetch;
+
+export class AgentStatsCollector extends BaseCollector {
+  readonly name: string;
+  private readonly host: ManagedHost;
+  private readonly fetchFn: FetchFn;
+  private knownContainers = new Set<string>();
+
+  constructor(
+    db: DatabaseClient,
+    config: WorkerConfig,
+    host: ManagedHost,
+    abortController?: AbortController,
+    fetchFn?: FetchFn,
+  ) {
+    super(db, config, abortController);
+    this.host = host;
+    this.name = `AgentStatsCollector[${host.name}]`;
+    this.fetchFn = fetchFn ?? globalThis.fetch;
+  }
+
+  protected async collect(): Promise<void> {
+    const url = `${this.host.agent_url}/stats/stream`;
+    this.debugLog(`[${this.name}] Connecting to ${url}`);
+
+    const response = await this.fetchFn(url, {
+      headers: {
+        Authorization: `Bearer ${this.host.agent_token}`,
+      },
+      signal: this.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Agent returned ${response.status}: ${response.statusText}`);
+    }
+
+    if (!response.body) {
+      throw new Error('Agent response has no body');
+    }
+
+    this.resetBackoff();
+    this.debugLog(`[${this.name}] Connected, reading SSE stream`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let statsReceived = 0;
+
+    try {
+      while (!this.signal.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Process complete SSE messages (separated by double newlines)
+        const messages = buffer.split('\n\n');
+        // Keep the last incomplete chunk in the buffer
+        buffer = messages.pop() ?? '';
+
+        for (const message of messages) {
+          if (this.signal.aborted) break;
+          if (!message.trim()) continue;
+
+          // Extract data from SSE "data: " prefix
+          const dataLine = message
+            .split('\n')
+            .find(line => line.startsWith('data: '));
+
+          if (!dataLine) continue;
+
+          const jsonStr = dataLine.slice(6); // Remove "data: " prefix
+          let event: AgentStatsEvent;
+          try {
+            event = JSON.parse(jsonStr);
+          } catch {
+            this.debugLog(`[${this.name}] Failed to parse SSE event: ${jsonStr.substring(0, 100)}`);
+            continue;
+          }
+
+          // Skip error events from the agent
+          if ('error' in event && !('containerId' in event)) continue;
+
+          // Upsert entity metadata for new containers
+          if (!this.knownContainers.has(event.containerId)) {
+            const entityPath = `${this.host.name}/${event.containerId}`;
+            await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', event.containerName);
+            await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', event.image);
+            // Use container name as service_key (agent doesn't have compose label info yet)
+            await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', event.containerName);
+            this.knownContainers.add(event.containerId);
+          }
+
+          // Map agent event to DockerStatsRow
+          const row: DockerStatsRow = {
+            time: new Date(),
+            host: this.host.name,
+            container_id: event.containerId,
+            container_name: event.containerName,
+            image: event.image,
+            cpu_percent: event.cpuPercent,
+            memory_usage: event.memoryUsage,
+            memory_limit: event.memoryLimit,
+            memory_percent: event.memoryPercent,
+            network_rx_bytes_per_sec: event.networkRxBytesPerSec,
+            network_tx_bytes_per_sec: event.networkTxBytesPerSec,
+            block_io_read_bytes_per_sec: event.blockReadBytesPerSec,
+            block_io_write_bytes_per_sec: event.blockWriteBytesPerSec,
+          };
+
+          statsReceived++;
+          const t0 = performance.now();
+          await this.repository.insertDockerStats([row]);
+          const writeMs = (performance.now() - t0).toFixed(1);
+          this.dbDebugLog(
+            `[${this.name}] Wrote stat for ${event.containerName} in ${writeMs}ms (total: ${statsReceived})`
+          );
+        }
+      }
+    } finally {
+      reader.releaseLock();
+      this.debugLog(
+        `[${this.name}] Stream ended (${statsReceived} stats received, aborted=${this.signal.aborted})`
+      );
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `cd /home/jared/homelab-manager && bun test src/worker/collectors/__tests__/agent-stats-collector.test.ts`
+Expected: All tests pass
+
+- [ ] **Step 5: Run full test suite and typecheck**
+
+Run: `cd /home/jared/homelab-manager && bun run typecheck && bun test`
+Expected: No errors, all tests pass
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/worker/collectors/agent-stats-collector.ts src/worker/collectors/__tests__/agent-stats-collector.test.ts
+git commit -m "feat(worker): add AgentStatsCollector for SSE-based stats from managed hosts"
+```
+
+### Task 13: Worker startup integration
+
+**Files:**
+- Create: `src/worker/__tests__/collector-factory.test.ts` (if not exists, otherwise modify)
+- Modify: `src/worker/collector-factory.ts`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `src/worker/__tests__/collector-factory.test.ts`:
+
+```typescript
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+
+// Test the managed host integration in createCollectors.
+// We test the logic that checks for managed hosts and creates AgentStatsCollectors.
+
+describe('collector-factory — managed hosts', () => {
+  it('creates AgentStatsCollector for each managed host when feature flag is on', async () => {
+    // Mock the feature flag
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [
+      {
+        id: 1,
+        name: 'homeserver',
+        agent_url: 'http://192.168.1.10:9090',
+        agent_token_hash: '$2b$10$hash',
+        agent_token: 'token-1',
+        socket_proxy_url: 'tcp://192.168.1.10:2375',
+        agent_version: '0.1.0',
+        status: 'online',
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    ]);
+
+    // Import and test createCollectorsForManagedHosts
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const mockDb = {
+      getPool: () => ({
+        query: async () => ({ rows: [], rowCount: 0 }),
+      }),
+    } as any;
+
+    const shutdownController = new AbortController();
+    const stack = new AsyncDisposableStack();
+
+    const workerConfig = {
+      enabled: true,
+      docker: { enabled: true },
+      zfs: { enabled: false },
+      proxmox: { enabled: false },
+      collection: { interval: 1000 },
+    } as any;
+
+    const result = await createCollectorsForManagedHosts(
+      mockDb, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(1);
+    expect(result.collectors[0].name).toBe('AgentStatsCollector[homeserver]');
+    expect(result.runners).toHaveLength(1);
+
+    // Clean up
+    shutdownController.abort();
+    await stack.disposeAsync();
+  });
+
+  it('returns empty when feature flag is off', async () => {
+    const mockIsEnabled = mock(() => false);
+    const mockFindAll = mock(async () => []);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const mockDb = { getPool: () => ({ query: async () => ({ rows: [], rowCount: 0 }) }) } as any;
+    const shutdownController = new AbortController();
+    const stack = new AsyncDisposableStack();
+    const workerConfig = {
+      enabled: true,
+      docker: { enabled: true },
+      zfs: { enabled: false },
+      proxmox: { enabled: false },
+      collection: { interval: 1000 },
+    } as any;
+
+    const result = await createCollectorsForManagedHosts(
+      mockDb, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+    expect(result.runners).toHaveLength(0);
+    expect(mockFindAll).not.toHaveBeenCalled();
+
+    shutdownController.abort();
+    await stack.disposeAsync();
+  });
+
+  it('returns empty when no managed hosts exist', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => []);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const mockDb = { getPool: () => ({ query: async () => ({ rows: [], rowCount: 0 }) }) } as any;
+    const shutdownController = new AbortController();
+    const stack = new AsyncDisposableStack();
+    const workerConfig = {
+      enabled: true,
+      docker: { enabled: true },
+      zfs: { enabled: false },
+      proxmox: { enabled: false },
+      collection: { interval: 1000 },
+    } as any;
+
+    const result = await createCollectorsForManagedHosts(
+      mockDb, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+    expect(result.runners).toHaveLength(0);
+    expect(mockFindAll).toHaveBeenCalledTimes(1);
+
+    shutdownController.abort();
+    await stack.disposeAsync();
+  });
+
+  it('skips managed hosts with no agent_token', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [
+      {
+        id: 1,
+        name: 'homeserver',
+        agent_url: 'http://192.168.1.10:9090',
+        agent_token_hash: '$2b$10$hash',
+        agent_token: null, // no plaintext token
+        socket_proxy_url: 'tcp://192.168.1.10:2375',
+        agent_version: '0.1.0',
+        status: 'online',
+        created_at: new Date(),
+        updated_at: new Date(),
+      },
+    ]);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const mockDb = { getPool: () => ({ query: async () => ({ rows: [], rowCount: 0 }) }) } as any;
+    const shutdownController = new AbortController();
+    const stack = new AsyncDisposableStack();
+    const workerConfig = {
+      enabled: true,
+      docker: { enabled: true },
+      zfs: { enabled: false },
+      proxmox: { enabled: false },
+      collection: { interval: 1000 },
+    } as any;
+
+    const result = await createCollectorsForManagedHosts(
+      mockDb, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+
+    shutdownController.abort();
+    await stack.disposeAsync();
+  });
+});
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `cd /home/jared/homelab-manager && bun test src/worker/__tests__/collector-factory.test.ts`
+Expected: FAIL — `createCollectorsForManagedHosts` not exported
+
+- [ ] **Step 3: Add `createCollectorsForManagedHosts` to collector-factory.ts**
+
+Add to `src/worker/collector-factory.ts`:
+
+```typescript
+import { AgentStatsCollector } from './collectors/agent-stats-collector';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+
+/**
+ * Create AgentStatsCollectors for managed hosts when the management feature flag is enabled.
+ * Uses dependency injection for the feature flag check and host lookup to enable testing
+ * without database or env var dependencies.
+ *
+ * Managed hosts with no `agent_token` are skipped (token not yet stored — host was
+ * provisioned before the migration that added the agent_token column).
+ */
+export async function createCollectorsForManagedHosts(
+  db: DatabaseClient,
+  workerConfig: WorkerConfig,
+  shutdownController: AbortController,
+  stack: AsyncDisposableStack,
+  isManagementEnabled: () => boolean,
+  findAllHosts: () => Promise<ManagedHost[]>,
+): Promise<CollectorFactoryResult> {
+  const collectors: BaseCollector[] = [];
+  const runners: Promise<void>[] = [];
+
+  if (!isManagementEnabled()) {
+    return { collectors, runners };
+  }
+
+  const hosts = await findAllHosts();
+  if (hosts.length === 0) {
+    console.log('[Worker] Management feature enabled but no managed hosts found');
+    return { collectors, runners };
+  }
+
+  console.log(`[Worker] Starting ${hosts.length} AgentStatsCollector(s) for managed hosts`);
+
+  for (const host of hosts) {
+    if (!host.agent_token) {
+      console.log(`[Worker] Skipping managed host ${host.name}: no agent_token (provisioned before migration)`);
+      continue;
+    }
+
+    console.log(`[Worker] Starting AgentStatsCollector for ${host.name} (${host.agent_url})`);
+    const collector = stack.use(
+      new AgentStatsCollector(db, workerConfig, host, shutdownController)
+    );
+    collectors.push(collector);
+    runners.push(collector.run());
+  }
+
+  return { collectors, runners };
+}
+```
+
+- [ ] **Step 4: Integrate into worker startup**
+
+Modify `src/worker/collector.ts` to call `createCollectorsForManagedHosts` after `createCollectors`. Add to the worker's `main()` function, after the existing `createCollectors` call:
+
+```typescript
+import { createCollectorsForManagedHosts } from './collector-factory';
+import { isDockerManagementEnabled } from '@/lib/config/feature-flags';
+import { HostRepository } from '@/lib/database/repositories/host-repository';
+
+// ... inside the { await using stack = ... } block, after createCollectors:
+
+// Also start AgentStatsCollectors for managed hosts (if feature flag is on)
+const hostRepo = new HostRepository(db.getPool());
+const { collectors: managedCollectors, runners: managedRunners } = await createCollectorsForManagedHosts(
+  db, workerConfig, shutdownController, stack,
+  isDockerManagementEnabled,
+  () => hostRepo.findAll(),
+);
+collectors.push(...managedCollectors);
+runners.push(...managedRunners);
+```
+
+Both legacy `DockerCollector` (env var hosts) and `AgentStatsCollector` (managed hosts) run simultaneously in the same worker process. They write to the same `docker_stats` table using different host names, so their data is naturally separated.
+
+- [ ] **Step 5: Run test to verify it passes**
+
+Run: `cd /home/jared/homelab-manager && bun test src/worker/__tests__/collector-factory.test.ts`
+Expected: All tests pass
+
+- [ ] **Step 6: Run full test suite and typecheck**
+
+Run: `cd /home/jared/homelab-manager && bun run typecheck && bun test`
+Expected: No errors, all tests pass
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/worker/collector-factory.ts src/worker/__tests__/collector-factory.test.ts src/worker/collector.ts
+git commit -m "feat(worker): integrate AgentStatsCollector for managed hosts into worker startup"
+```
+
+### Task 14: AgentStatsCollector reconnection and edge case tests
+
+**Files:**
+- Modify: `src/worker/collectors/__tests__/agent-stats-collector.test.ts`
+
+- [ ] **Step 1: Add reconnection and edge case tests**
+
+Add the following tests to the existing `agent-stats-collector.test.ts`:
+
+```typescript
+describe('AgentStatsCollector — reconnection', () => {
+  let mockDb: ReturnType<typeof createMockDb>;
+  let abortController: AbortController;
+
+  beforeEach(() => {
+    mockDb = createMockDb();
+    abortController = new AbortController();
+  });
+
+  it('run() reconnects after stream error with backoff', async () => {
+    let callCount = 0;
+    const fetchFn = mock(async () => {
+      callCount++;
+      if (callCount === 1) {
+        // First call: error stream
+        return new Response(
+          createErrorSSEStream([sampleAgentEvent], new Error('Connection reset')),
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+        );
+      }
+      // Second call: abort to end the test
+      abortController.abort(new DOMException('Shutdown', 'AbortError'));
+      return new Response(createMockSSEStream([]), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    // run() drives the reconnection loop via BaseCollector
+    await collector.run();
+
+    // Should have been called at least twice (initial + reconnect)
+    expect(fetchFn.mock.calls.length).toBeGreaterThanOrEqual(2);
+    // First event from the error stream should still have been inserted
+    expect(mockDb.insertedRows.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('run() reconnects after non-200 response with backoff', async () => {
+    let callCount = 0;
+    const fetchFn = mock(async () => {
+      callCount++;
+      if (callCount <= 2) {
+        return new Response('Service Unavailable', { status: 503 });
+      }
+      // Third call: abort
+      abortController.abort(new DOMException('Shutdown', 'AbortError'));
+      return new Response(createMockSSEStream([]), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await collector.run();
+
+    // BaseCollector handles the exponential backoff and retries
+    expect(fetchFn.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('handles partial SSE messages across chunks', async () => {
+    // Simulate a message split across two chunks
+    const encoder = new TextEncoder();
+    const part1 = `data: {"containerId":"abc123","containerNa`;
+    const part2 = `me":"plex","image":"plexinc/plex","cpuPercent":5,"memoryUsage":100,"memoryLimit":1000,"memoryPercent":10,"networkRxBytesPerSec":0,"networkTxBytesPerSec":0,"blockReadBytesPerSec":0,"blockWriteBytesPerSec":0,"timestamp":"2026-03-13T12:00:00Z"}\n\n`;
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(part1));
+        controller.enqueue(encoder.encode(part2));
+        controller.close();
+      },
+    });
+
+    const fetchFn = mock(async () =>
+      new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    expect(mockDb.insertedRows).toHaveLength(1);
+    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
+  });
+
+  it('skips malformed JSON in SSE events', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Malformed event
+        controller.enqueue(encoder.encode(`data: {not valid json}\n\n`));
+        // Valid event
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
+        controller.close();
+      },
+    });
+
+    const fetchFn = mock(async () =>
+      new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    // Only the valid event should be inserted
+    expect(mockDb.insertedRows).toHaveLength(1);
+    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
+  });
+
+  it('skips agent error events', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Agent error event
+        controller.enqueue(encoder.encode(`event: error\ndata: {"error":"connection lost"}\n\n`));
+        // Valid stats event
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
+        controller.close();
+      },
+    });
+
+    const fetchFn = mock(async () =>
+      new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    expect(mockDb.insertedRows).toHaveLength(1);
+  });
+});
+```
+
+- [ ] **Step 2: Run tests**
+
+Run: `cd /home/jared/homelab-manager && bun test src/worker/collectors/__tests__/agent-stats-collector.test.ts`
+Expected: All tests pass
+
+- [ ] **Step 3: Run full test suite and typecheck**
+
+Run: `cd /home/jared/homelab-manager && bun run typecheck && bun test`
+Expected: No errors, all tests pass
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add src/worker/collectors/__tests__/agent-stats-collector.test.ts
+git commit -m "test(worker): add reconnection and edge case tests for AgentStatsCollector"
+```
+
+---
+
 ## Summary
 
 ### Files Created
 | File | Purpose |
 |------|---------|
 | `migrations/009_managed_hosts.sql` | Database migration for managed_hosts table |
+| `migrations/010_managed_hosts_agent_token.sql` | Add agent_token column for worker auth |
+| `src/worker/collectors/agent-stats-collector.ts` | SSE-based stats collector for managed host agents |
+| `src/worker/collectors/__tests__/agent-stats-collector.test.ts` | AgentStatsCollector unit tests |
+| `src/worker/__tests__/collector-factory.test.ts` | Managed host collector factory tests |
 | `src/lib/database/repositories/host-repository.ts` | CRUD operations for managed_hosts |
 | `src/lib/database/repositories/__tests__/host-repository.test.ts` | Repository unit tests |
 | `src/lib/services/token-service.ts` | Token generation + bcrypt hashing |
@@ -2175,6 +3212,9 @@ git commit -m "docs(config): document DOCKER_HOST_N migration path with managed 
 | File | Change |
 |------|--------|
 | `src/lib/config/docker-config.ts` | Added migration path documentation |
+| `src/lib/database/repositories/host-repository.ts` | Added `agent_token` field to ManagedHost and CreateHostInput |
+| `src/worker/collector-factory.ts` | Added `createCollectorsForManagedHosts()` for managed host agent collectors |
+| `src/worker/collector.ts` | Integrated managed host collector startup alongside legacy DockerCollectors |
 
 ### Key Design Decisions
 - **Container name convention:** `homelab-agent-{hostname}` (matches spec)
@@ -2192,3 +3232,9 @@ git commit -m "docs(config): document DOCKER_HOST_N migration path with managed 
 - **Middleware:** Note added for future middleware injection pattern per CLAUDE.md rule 3
 - **updated_at column:** Tracks last status/version/token change for debugging connectivity issues
 - **Dynamic imports:** All server-only modules (pg, Dockerode, services) use `await import()` inside handlers per project convention
+- **Agent token storage:** Plaintext `agent_token` stored in `managed_hosts` because the socket proxy URL already provides equivalent access; bcrypt hash retained for agent-side verification
+- **AgentStatsCollector:** Extends `BaseCollector` for automatic exponential backoff on connection failures; uses `fetch()` with streaming response (not `EventSource`) for SSE consumption since `EventSource` doesn't support custom headers
+- **Fetch DI in collector:** `AgentStatsCollector` accepts injectable `fetchFn` parameter for testing without network access, matching the pattern used by `checkAgentHealth` and `updateAgent`
+- **No rate calculation:** Agent emits pre-computed rates via its own `RateCalculator`; the `AgentStatsCollector` maps fields directly without using `DockerRateCalculator`
+- **Coexistence:** Legacy `DOCKER_HOST_N` env var hosts use `DockerCollector`, managed hosts use `AgentStatsCollector`; both write to `docker_stats` with different host names, run simultaneously in the same worker process
+- **Managed host skipping:** Hosts provisioned before the `agent_token` migration (column is NULL) are skipped with a log message rather than failing the entire worker
