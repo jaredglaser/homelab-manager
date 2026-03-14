@@ -1,6 +1,7 @@
 import Dockerode from 'dockerode';
 import { authenticateRequest } from './middleware';
 import { handleHealth } from './routes/health';
+import { handleStatsStream } from './routes/stats';
 
 const PORT = Number(process.env.AGENT_PORT) || 9090;
 const AGENT_TOKEN = process.env.AGENT_TOKEN;
@@ -37,6 +38,10 @@ Bun.serve({
 
     if (url.pathname === '/health' && request.method === 'GET') {
       return handleHealth(docker);
+    }
+
+    if (url.pathname === '/stats/stream' && request.method === 'GET') {
+      return handleStatsStream(docker, request);
     }
 
     return new Response('Not Found', { status: 404 });
