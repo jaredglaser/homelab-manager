@@ -25,6 +25,7 @@ const sampleRow = {
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
   agent_token_hash: '$2b$10$hashedtoken',
+  agent_token: 'test-token-uuid',
   socket_proxy_url: 'tcp://192.168.1.10:2375',
   agent_version: '0.1.0',
   status: 'online',
@@ -49,6 +50,7 @@ describe('HostRepository', () => {
         name: 'homeserver',
         agent_url: 'http://192.168.1.10:9090',
         agent_token_hash: '$2b$10$hashedtoken',
+        agent_token: 'test-token-uuid',
         socket_proxy_url: 'tcp://192.168.1.10:2375',
       };
 
