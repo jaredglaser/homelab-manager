@@ -1815,7 +1815,7 @@ Bun.serve({
     }
 
     // Log streaming
-    const logsMatch = url.pathname.match(/^\/logs\/(.+)$/);
+    const logsMatch = url.pathname.match(/^\/logs\/([a-zA-Z0-9]+)$/);
     if (logsMatch && request.method === 'GET') {
       return handleLogStream(docker, logsMatch[1], request);
     }
