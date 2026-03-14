@@ -75,6 +75,10 @@ Create `src/lib/utils/feature-flags.ts`:
 /**
  * Check if Docker management features are enabled.
  * Controlled by VITE_DOCKER_MANAGEMENT_FEATURE_FLAG env var.
+ *
+ * Note: The `VITE_` prefix is required for client-side access via `import.meta.env`.
+ * Server-side code (e.g., worker, server functions) should use
+ * `DOCKER_MANAGEMENT_FEATURE_FLAG` (without prefix) via `process.env`.
  */
 export function isDockerManagementEnabled(): boolean {
   return import.meta.env.VITE_DOCKER_MANAGEMENT_FEATURE_FLAG === 'true';
@@ -241,82 +245,110 @@ feat: add TypeScript types for stack management
 ### Task 2.2: Create stack server functions (real)
 
 **Files:**
-- Create: `src/data/stacks.functions.ts`
+- Create: `src/data/stacks.functions.tsx`
 
-These server functions will be called by the UI. They delegate to the deploy pipeline and git management modules (which are built in separate plans). For now, they define the interface and use dynamic imports for server-only dependencies.
+These server functions will be called by the UI. They delegate to the deploy pipeline and git management modules (which are built in separate plans). For now, they define the interface and use dynamic imports for server-only dependencies. They use `createServerFn()` with `.validator()` and `.handler()` chaining, matching the pattern in `src/data/docker.functions.tsx`.
 
 - [ ] **Step 1: Create server functions file**
 
-Create `src/data/stacks.functions.ts`:
+Create `src/data/stacks.functions.tsx`:
 
 ```typescript
-import type { StackSummary, StackDetail, DeployRecord, UIDeployRequest } from '@/types/stacks';
+import { createServerFn } from '@tanstack/react-start';
+import { z } from 'zod';
+import type { StackSummary, StackDetail, DeployRecord } from '@/types/stacks';
 
 /**
  * List all stacks from the manifest with their current sync status.
  * Reads the manifest via isomorphic-git, cross-references deploy_history for status.
  */
-export async function listStacks(): Promise<StackSummary[]> {
-  const { getStackSummaries } = await import('@/lib/stacks/stack-service');
-  return getStackSummaries();
-}
+export const listStacks = createServerFn()
+  .handler(async (): Promise<StackSummary[]> => {
+    const { getStackSummaries } = await import('@/lib/stacks/stack-service');
+    return getStackSummaries();
+  });
+
+const getStackDetailSchema = z.object({
+  stackName: z.string().min(1),
+});
 
 /**
  * Get full detail for a single stack, including compose file content and variables.
  */
-export async function getStackDetail(opts: {
-  data: { stackName: string };
-}): Promise<StackDetail | null> {
-  const { getStackDetailByName } = await import('@/lib/stacks/stack-service');
-  return getStackDetailByName(opts.data.stackName);
-}
+export const getStackDetail = createServerFn()
+  .inputValidator(getStackDetailSchema)
+  .handler(async ({ data }): Promise<StackDetail | null> => {
+    const { getStackDetailByName } = await import('@/lib/stacks/stack-service');
+    return getStackDetailByName(data.stackName);
+  });
+
+const triggerDeploySchema = z.object({
+  stack: z.string().min(1),
+  host: z.string().min(1),
+  action: z.enum(['deploy', 'teardown', 'restart']),
+});
 
 /**
  * Trigger a deploy, teardown, or restart for a stack.
  */
-export async function triggerDeploy(opts: {
-  data: UIDeployRequest;
-}): Promise<{ deployId: number }> {
-  const { triggerStackDeploy } = await import('@/lib/stacks/stack-service');
-  return triggerStackDeploy(opts.data);
-}
+export const triggerDeploy = createServerFn()
+  .inputValidator(triggerDeploySchema)
+  .handler(async ({ data }): Promise<{ deployId: number }> => {
+    const { triggerStackDeploy } = await import('@/lib/stacks/stack-service');
+    return triggerStackDeploy(data);
+  });
+
+const getDeployHistorySchema = z.object({
+  stackName: z.string().min(1),
+  limit: z.number().min(1).max(100).optional().default(20),
+});
 
 /**
  * Get deploy history for a stack.
  */
-export async function getDeployHistory(opts: {
-  data: { stackName: string; limit?: number };
-}): Promise<DeployRecord[]> {
-  const { getStackDeployHistory } = await import('@/lib/stacks/stack-service');
-  return getStackDeployHistory(opts.data.stackName, opts.data.limit ?? 20);
-}
+export const getDeployHistory = createServerFn()
+  .inputValidator(getDeployHistorySchema)
+  .handler(async ({ data }): Promise<DeployRecord[]> => {
+    const { getStackDeployHistory } = await import('@/lib/stacks/stack-service');
+    return getStackDeployHistory(data.stackName, data.limit);
+  });
+
+const saveComposeFileSchema = z.object({
+  stackName: z.string().min(1),
+  content: z.string(),
+});
 
 /**
  * Save compose file content (creates a git commit).
  */
-export async function saveComposeFile(opts: {
-  data: { stackName: string; content: string };
-}): Promise<{ commitSha: string }> {
-  const { saveStackComposeFile } = await import('@/lib/stacks/stack-service');
-  return saveStackComposeFile(opts.data.stackName, opts.data.content);
-}
+export const saveComposeFile = createServerFn()
+  .inputValidator(saveComposeFileSchema)
+  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+    const { saveStackComposeFile } = await import('@/lib/stacks/stack-service');
+    return saveStackComposeFile(data.stackName, data.content);
+  });
+
+const updateStackIconSchema = z.object({
+  stackName: z.string().min(1),
+  iconSlug: z.string().min(1),
+});
 
 /**
  * Update stack icon.
  */
-export async function updateStackIcon(opts: {
-  data: { stackName: string; iconSlug: string };
-}): Promise<void> {
-  const { updateStackIconSlug } = await import('@/lib/stacks/stack-service');
-  return updateStackIconSlug(opts.data.stackName, opts.data.iconSlug);
-}
+export const updateStackIcon = createServerFn()
+  .inputValidator(updateStackIconSchema)
+  .handler(async ({ data }): Promise<void> => {
+    const { updateStackIconSlug } = await import('@/lib/stacks/stack-service');
+    return updateStackIconSlug(data.stackName, data.iconSlug);
+  });
 ```
 
 - [ ] **Step 2: Verify**
 
 Run: `bun run typecheck`
 
-Note: Typecheck will report errors for the missing `@/lib/stacks/stack-service` module. This is expected -- the stack service is built in the deploy pipeline plan. The dynamic imports ensure these don't break the client bundle at runtime.
+Note: Typecheck will report errors for the missing `@/lib/stacks/stack-service` module. This is expected -- the stack service is built in the deploy pipeline plan. The dynamic imports ensure these don't break the client bundle at runtime. The `createServerFn()` pattern with `.inputValidator()` and `.handler()` matches existing server functions in `src/data/docker.functions.tsx`.
 
 - [ ] **Step 3: Commit**
 
@@ -327,11 +359,11 @@ feat: add stack server functions for UI data access
 ### Task 2.3: Create mock stack server functions
 
 **Files:**
-- Create: `src/lib/mock/functions/stacks.functions.ts`
+- Create: `src/lib/mock/functions/stacks.functions.tsx`
 
 - [ ] **Step 1: Create mock functions file**
 
-Create `src/lib/mock/functions/stacks.functions.ts`:
+Create `src/lib/mock/functions/stacks.functions.tsx`:
 
 ```typescript
 import type { StackSummary, StackDetail, DeployRecord, UIDeployRequest } from '@/types/stacks';
@@ -501,7 +533,7 @@ export async function updateStackIcon(_opts: {
 In `vite.config.ts`, inside the `if (isDemoMode)` block in `buildAliases()`, add after the existing `settings.functions` alias:
 
 ```typescript
-    aliases['@/data/stacks.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/stacks.functions.ts', import.meta.url))
+    aliases['@/data/stacks.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/stacks.functions.tsx', import.meta.url))
 ```
 
 - [ ] **Step 3: Verify**
@@ -517,6 +549,26 @@ feat: add mock stack server functions and demo mode alias
 ---
 
 ## Chunk 3: Stack List Route & Component
+
+### Task 3.0: Create stacks query key constants
+
+**Files:**
+- Create: `src/lib/constants/stacks-keys.ts`
+
+- [ ] **Step 1: Create stacks keys constants file**
+
+Create `src/lib/constants/stacks-keys.ts`:
+
+```typescript
+/** Query key for the stacks list. Defined here to avoid circular imports between route and components. */
+export const STACKS_QUERY_KEY = ['stacks-list'] as const;
+```
+
+- [ ] **Step 2: Commit**
+
+```
+feat: add stacks query key constants to avoid circular imports
+```
 
 ### Task 3.1: Create the stacks route
 
@@ -534,8 +586,7 @@ import PageHeader from '@/components/PageHeader'
 import { isDockerManagementEnabled } from '@/lib/utils/feature-flags'
 import { listStacks } from '@/data/stacks.functions'
 import StacksTable from '@/components/stacks/StacksTable'
-
-export const STACKS_QUERY_KEY = ['stacks-list'] as const
+import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
 export const Route = createFileRoute('/docker/stacks')({
   ssr: false,
@@ -798,34 +849,60 @@ Create `src/hooks/__tests__/useStackExpansion.test.ts`:
 
 ```typescript
 import { describe, it, expect, mock } from 'bun:test';
-
-// Mock useSettings to control expansion state
-const mockIsExpanded = mock(() => false);
-const mockToggle = mock(() => {});
-
-mock.module('@/hooks/useSettings', () => ({
-  useSettings: () => ({
-    isStackExpanded: mockIsExpanded,
-    toggleStackExpanded: mockToggle,
-  }),
-}));
-
 import { renderHook, act } from '@testing-library/react';
+
+/**
+ * Test useStackExpansion by providing mock settings functions via dependency injection.
+ * Per CLAUDE.md: Do NOT use mock.module on @/hooks/useSettings -- it pollutes globally
+ * across concurrent tests. Instead, refactor useStackExpansion to accept an optional
+ * settings override for testing, or test it indirectly through the settings integration.
+ *
+ * Approach: The hook is a thin wrapper around useSettings, so we test it by verifying
+ * the integration with a test-friendly Jotai provider that pre-seeds settings state.
+ */
+
+import { Provider } from 'jotai';
 import { useStackExpansion } from '../useStackExpansion';
 
+function createTestWrapper() {
+  // Create a fresh Jotai store for isolation between tests
+  const { createStore } = require('jotai');
+  const store = createStore();
+  return ({ children }: { children: React.ReactNode }) => (
+    <Provider store={store}>{children}</Provider>
+  );
+}
+
 describe('useStackExpansion', () => {
-  it('delegates isStackExpanded to useSettings', () => {
-    const { result } = renderHook(() => useStackExpansion());
-    result.current.isStackExpanded('plex');
-    expect(mockIsExpanded).toHaveBeenCalledWith('plex');
+  it('returns false for unexpanded stacks by default', () => {
+    const wrapper = createTestWrapper();
+    const { result } = renderHook(() => useStackExpansion(), { wrapper });
+    expect(result.current.isStackExpanded('plex')).toBe(false);
   });
 
-  it('delegates toggleStackExpanded to useSettings', () => {
-    const { result } = renderHook(() => useStackExpansion());
+  it('toggles stack expansion state', () => {
+    const wrapper = createTestWrapper();
+    const { result } = renderHook(() => useStackExpansion(), { wrapper });
     act(() => {
+      result.current.toggleStackExpanded('plex');
+    });
+    expect(result.current.isStackExpanded('plex')).toBe(true);
+    act(() => {
+      result.current.toggleStackExpanded('plex');
+    });
+    expect(result.current.isStackExpanded('plex')).toBe(false);
+  });
+
+  it('tracks multiple stacks independently', () => {
+    const wrapper = createTestWrapper();
+    const { result } = renderHook(() => useStackExpansion(), { wrapper });
+    act(() => {
+      result.current.toggleStackExpanded('plex');
       result.current.toggleStackExpanded('traefik');
     });
-    expect(mockToggle).toHaveBeenCalledWith('traefik');
+    expect(result.current.isStackExpanded('plex')).toBe(true);
+    expect(result.current.isStackExpanded('traefik')).toBe(true);
+    expect(result.current.isStackExpanded('grafana')).toBe(false);
   });
 });
 ```
@@ -959,7 +1036,7 @@ feat: add SyncStatusBadge component with deploy status colors
 Create `src/components/stacks/StackRow.tsx`:
 
 ```typescript
-import { memo, useState } from 'react';
+import { useState } from 'react';
 import { Chip, Collapse } from '@mui/material';
 import { ChevronRight, Layers } from 'lucide-react';
 import type { StackSummary } from '@/types/stacks';
@@ -986,9 +1063,11 @@ function formatRelativeTime(isoDate: string | null): string {
   return `${days}d ago`;
 }
 
-export default memo(function StackRow({ stack, expanded, onToggle }: StackRowProps) {
+// Per CLAUDE.md gotcha #5: Do not use React.memo on components receiving streaming/frequently-updated data.
+// Incorrect memoization can freeze streaming updates.
+export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
   const [iconError, setIconError] = useState(false);
-  const iconUrl = stack.icon ? getIconUrl(stack.icon, null) : null;
+  const iconUrl = stack.icon ? getIconUrl(stack.icon, '') : null;
 
   return (
     <div>
@@ -1061,7 +1140,7 @@ export default memo(function StackRow({ stack, expanded, onToggle }: StackRowPro
       </Collapse>
     </div>
   );
-});
+}
 ```
 
 - [ ] **Step 2: Create test**
@@ -1168,10 +1247,10 @@ Create `src/components/stacks/StackDetail.tsx`:
 ```typescript
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Button, Paper, Typography, CircularProgress } from '@mui/material';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Paper, Typography, CircularProgress } from '@mui/material';
 import { Play, Square, RotateCcw, FileEdit, Clock } from 'lucide-react';
 import { getStackDetail, triggerDeploy, getDeployHistory } from '@/data/stacks.functions';
-import { STACKS_QUERY_KEY } from '@/routes/docker.stacks';
+import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys';
 import type { DeployRecord, UIDeployRequest } from '@/types/stacks';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
 import SyncStatusBadge from '@/components/stacks/SyncStatusBadge';
@@ -1184,6 +1263,7 @@ interface StackDetailProps {
 export default function StackDetail({ stackName }: StackDetailProps) {
   const queryClient = useQueryClient();
   const [showEditor, setShowEditor] = useState(false);
+  const [teardownConfirmOpen, setTeardownConfirmOpen] = useState(false);
 
   const { data: detail, isLoading: detailLoading } = useQuery({
     queryKey: ['stack-detail', stackName],
@@ -1266,7 +1346,7 @@ export default function StackDetail({ stackName }: StackDetailProps) {
           variant="outlined"
           color="error"
           startIcon={<Square size={14} />}
-          onClick={() => handleAction('teardown')}
+          onClick={() => setTeardownConfirmOpen(true)}
           disabled={deployMutation.isPending}
           className="!normal-case"
         >
@@ -1320,6 +1400,36 @@ export default function StackDetail({ stackName }: StackDetailProps) {
         records={history ?? []}
         isLoading={historyLoading}
       />
+
+      {/* Teardown confirmation dialog */}
+      <Dialog
+        open={teardownConfirmOpen}
+        onClose={() => setTeardownConfirmOpen(false)}
+      >
+        <DialogTitle>Confirm Teardown</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to tear down the <strong>{stackName}</strong> stack?
+            This will stop and remove all containers in the stack.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTeardownConfirmOpen(false)} className="!normal-case">
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              setTeardownConfirmOpen(false);
+              handleAction('teardown');
+            }}
+            className="!normal-case"
+          >
+            Teardown
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }
@@ -1561,9 +1671,9 @@ Monaco must be dynamically imported to avoid bundle bloat. Use `React.lazy` for 
 
 - [ ] **Step 1: Install Monaco dependencies**
 
-Run: `bun add @monaco-editor/react`
+Run: `bun add @monaco-editor/react monaco-yaml`
 
-Note: `@monaco-editor/react` provides a React wrapper around Monaco with automatic lazy loading. It handles the web worker setup internally.
+Note: `@monaco-editor/react` provides a React wrapper around Monaco with automatic lazy loading. It handles the web worker setup internally. `monaco-yaml` adds YAML language features including Docker Compose schema validation.
 
 - [ ] **Step 2: Create VariablesPanel component**
 
@@ -1647,7 +1757,7 @@ interface ComposeEditorProps {
 
 /** Parse ${VAR} and ${VAR:-default} patterns from compose content */
 function parseVariables(content: string): string[] {
-  const regex = /\$\{([A-Z_][A-Z0-9_]*)(?::-[^}]*)?\}/g;
+  const regex = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::-[^}]*)?\}/g;
   const vars = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
@@ -1671,8 +1781,21 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
     },
   });
 
-  const handleEditorMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
+  const handleEditorMount = useCallback((editor: editor.IStandaloneCodeEditor, monaco: typeof import('monaco-editor')) => {
     editorRef.current = editor;
+
+    // Configure monaco-yaml for Docker Compose schema validation
+    import('monaco-yaml').then(({ configureMonacoYaml }) => {
+      configureMonacoYaml(monaco, {
+        enableSchemaRequest: true,
+        schemas: [
+          {
+            uri: 'https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json',
+            fileMatch: ['*'],
+          },
+        ],
+      });
+    });
   }, []);
 
   const handleChange = useCallback((value: string | undefined) => {
@@ -1842,7 +1965,7 @@ import { describe, it, expect } from 'bun:test';
 describe('parseVariables (compose variable detection)', () => {
   // Regex-based variable detection (same logic as ComposeEditor)
   function parseVariables(content: string): string[] {
-    const regex = /\$\{([A-Z_][A-Z0-9_]*)(?::-[^}]*)?\}/g;
+    const regex = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::-[^}]*)?\}/g;
     const vars = new Set<string>();
     let match: RegExpExecArray | null;
     while ((match = regex.exec(content)) !== null) {
@@ -1875,9 +1998,9 @@ describe('parseVariables (compose variable detection)', () => {
     expect(parseVariables(content)).toEqual(['ALPHA', 'MIDDLE', 'ZEBRA']);
   });
 
-  it('ignores lowercase variable names', () => {
-    const content = '${lowercase}';
-    expect(parseVariables(content)).toEqual([]);
+  it('matches lowercase and mixed-case variable names', () => {
+    const content = '${lowercase}\n${Mixed_Case}\n${UPPER}';
+    expect(parseVariables(content)).toEqual(['Mixed_Case', 'UPPER', 'lowercase']);
   });
 });
 ```
@@ -2015,45 +2138,26 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackSummary } from '@/types/stacks';
 
-// Mock StackDetail
+/**
+ * Per CLAUDE.md: Do NOT use mock.module on framework modules like @tanstack/react-virtual.
+ * It pollutes globally across concurrent tests.
+ *
+ * Instead, test the non-virtualized states (loading, error, empty) directly,
+ * and for populated states, set up a scrollable container so the real virtualizer works.
+ * The virtualizer needs a window with scroll dimensions, which Happy-DOM provides.
+ */
+
+// Narrow-scope mocks for leaf components only (not framework modules)
 mock.module('@/components/stacks/StackDetail', () => ({
   default: ({ stackName }: { stackName: string }) => <div data-testid="stack-detail">{stackName}</div>,
 }));
 
-// Mock useStackExpansion
-let expandedStacks = new Set<string>();
-mock.module('@/hooks/useStackExpansion', () => ({
-  useStackExpansion: () => ({
-    isStackExpanded: (name: string) => expandedStacks.has(name),
-    toggleStackExpanded: (name: string) => {
-      if (expandedStacks.has(name)) expandedStacks.delete(name);
-      else expandedStacks.add(name);
-    },
-  }),
-}));
-
-// Mock icon resolver
 mock.module('@/lib/utils/icon-resolver', () => ({
   getIconUrl: () => '/icons/test.svg',
   FALLBACK_ICON_URL: '/icons/fallback.svg',
 }));
 
-// Mock window virtualizer to render all items
-mock.module('@tanstack/react-virtual', () => ({
-  useWindowVirtualizer: ({ count }: { count: number }) => ({
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, i) => ({
-        index: i,
-        key: `item-${i}`,
-        start: i * 48,
-        size: 48,
-      })),
-    getTotalSize: () => count * 48,
-    measureElement: () => {},
-    options: { scrollMargin: 0 },
-  }),
-}));
-
+import { Provider } from 'jotai';
 import StacksTable from '../StacksTable';
 
 const mockStacks: StackSummary[] = [
@@ -2079,47 +2183,41 @@ const mockStacks: StackSummary[] = [
   },
 ];
 
-function renderWithQuery(ui: React.ReactElement) {
+function renderWithProviders(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+  const { createStore } = require('jotai');
+  const store = createStore();
+  return render(
+    <Provider store={store}>
+      <QueryClientProvider client={qc}>{ui}</QueryClientProvider>
+    </Provider>,
+  );
 }
 
 describe('StacksTable', () => {
-  beforeEach(() => {
-    expandedStacks = new Set();
-  });
-
   it('renders loading state', () => {
-    const { container } = renderWithQuery(
+    const { container } = renderWithProviders(
       <StacksTable stacks={[]} isLoading={true} error={null} />,
     );
     expect(container.querySelector('.MuiCircularProgress-root')).toBeDefined();
   });
 
   it('renders error state', () => {
-    renderWithQuery(
+    renderWithProviders(
       <StacksTable stacks={[]} isLoading={false} error={new Error('Connection failed')} />,
     );
     expect(screen.getByText(/Connection failed/)).toBeDefined();
   });
 
   it('renders empty state', () => {
-    renderWithQuery(
+    renderWithProviders(
       <StacksTable stacks={[]} isLoading={false} error={null} />,
     );
     expect(screen.getByText(/No stacks found/)).toBeDefined();
   });
 
-  it('renders stack rows', () => {
-    renderWithQuery(
-      <StacksTable stacks={mockStacks} isLoading={false} error={null} />,
-    );
-    expect(screen.getByText('plex')).toBeDefined();
-    expect(screen.getByText('traefik')).toBeDefined();
-  });
-
-  it('renders column headers', () => {
-    renderWithQuery(
+  it('renders column headers when stacks provided', () => {
+    renderWithProviders(
       <StacksTable stacks={mockStacks} isLoading={false} error={null} />,
     );
     expect(screen.getByText('Stack')).toBeDefined();
@@ -2128,18 +2226,10 @@ describe('StacksTable', () => {
     expect(screen.getByText('Mode')).toBeDefined();
     expect(screen.getByText('Last Deploy')).toBeDefined();
   });
-
-  it('sorts stacks alphabetically', () => {
-    renderWithQuery(
-      <StacksTable stacks={mockStacks} isLoading={false} error={null} />,
-    );
-    const stackNames = screen.getAllByText(/plex|traefik/);
-    // plex should come before traefik alphabetically
-    expect(stackNames[0].textContent).toBe('plex');
-    expect(stackNames[1].textContent).toBe('traefik');
-  });
 });
 ```
+
+Note: The virtualized row rendering tests (checking that rows appear and are sorted) are omitted here because testing `useWindowVirtualizer` requires a real scroll context. These are better covered in an E2E test or by testing `StackRow` in isolation (see Task 4.2 tests). Do NOT mock `@tanstack/react-virtual` globally -- per CLAUDE.md gotcha, `mock.module` on broadly-used/framework modules pollutes across concurrent tests.
 
 - [ ] **Step 2: Verify**
 
@@ -2160,7 +2250,7 @@ Run: `bun run typecheck`
 Fix any remaining type errors. Common issues:
 - Missing imports for `Link` from `@tanstack/react-router`
 - `getCssVar` import path may need verification
-- `STACKS_QUERY_KEY` circular import (if needed, move to a constants file)
+- `STACKS_QUERY_KEY` is in `src/lib/constants/stacks-keys.ts` -- import from there, never from the route file
 
 - [ ] **Step 2: Run full test suite**
 
@@ -2189,11 +2279,12 @@ fix: resolve typecheck and test issues for stacks page
 ### New Files Created
 | File | Purpose |
 |------|---------|
+| `src/lib/constants/stacks-keys.ts` | Stacks query key constants (avoids circular imports) |
 | `src/lib/utils/feature-flags.ts` | Feature flag utility |
 | `src/lib/utils/__tests__/feature-flags.test.ts` | Feature flag tests |
 | `src/types/stacks.ts` | Stack type definitions |
-| `src/data/stacks.functions.ts` | Real server functions (delegates to stack-service) |
-| `src/lib/mock/functions/stacks.functions.ts` | Mock server functions for demo mode |
+| `src/data/stacks.functions.tsx` | Real server functions using `createServerFn()` (delegates to stack-service) |
+| `src/lib/mock/functions/stacks.functions.tsx` | Mock server functions for demo mode |
 | `src/routes/docker.stacks.tsx` | Stacks page route |
 | `src/components/stacks/StacksTable.tsx` | Virtualized stack list |
 | `src/components/stacks/StackRow.tsx` | Individual stack row with badges |
@@ -2226,3 +2317,4 @@ fix: resolve typecheck and test issues for stacks page
 | Package | Reason |
 |---------|--------|
 | `@monaco-editor/react` | Monaco editor React wrapper (lazy loaded) |
+| `monaco-yaml` | YAML language features + Docker Compose schema validation for Monaco |
