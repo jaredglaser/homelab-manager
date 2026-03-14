@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS managed_hosts (
   socket_proxy_url TEXT NOT NULL,
   agent_version TEXT,
   status TEXT NOT NULL DEFAULT 'pending',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
@@ -86,23 +87,25 @@ function createMockPool() {
 const sampleHost: ManagedHost = {
   id: 1,
   name: 'homeserver',
-  agent_url: 'http://homeserver-agent:9090',
+  agent_url: 'http://192.168.1.10:9090',
   agent_token_hash: '$2b$10$hashedtoken',
   socket_proxy_url: 'tcp://192.168.1.10:2375',
   agent_version: '0.1.0',
   status: 'online',
   created_at: new Date('2026-01-01T00:00:00Z'),
+  updated_at: new Date('2026-01-01T00:00:00Z'),
 };
 
 const sampleRow = {
-  id: '1', // BIGINT returns string from pg
+  id: 1, // SERIAL (INT4) returns number from node-postgres (only BIGINT returns strings)
   name: 'homeserver',
-  agent_url: 'http://homeserver-agent:9090',
+  agent_url: 'http://192.168.1.10:9090',
   agent_token_hash: '$2b$10$hashedtoken',
   socket_proxy_url: 'tcp://192.168.1.10:2375',
   agent_version: '0.1.0',
   status: 'online',
   created_at: new Date('2026-01-01T00:00:00Z'),
+  updated_at: new Date('2026-01-01T00:00:00Z'),
 };
 
 describe('HostRepository', () => {
@@ -120,7 +123,7 @@ describe('HostRepository', () => {
 
       const input: CreateHostInput = {
         name: 'homeserver',
-        agent_url: 'http://homeserver-agent:9090',
+        agent_url: 'http://192.168.1.10:9090',
         agent_token_hash: '$2b$10$hashedtoken',
         socket_proxy_url: 'tcp://192.168.1.10:2375',
       };
@@ -129,7 +132,7 @@ describe('HostRepository', () => {
 
       expect(result.id).toBe(1);
       expect(result.name).toBe('homeserver');
-      expect(result.agent_url).toBe('http://homeserver-agent:9090');
+      expect(result.agent_url).toBe('http://192.168.1.10:9090');
       expect(result.status).toBe('online');
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
       expect(mock.queries[0].sql).toContain('RETURNING');
@@ -147,7 +150,7 @@ describe('HostRepository', () => {
     it('returns all hosts sorted by name', async () => {
       mock.pushResult([
         { ...sampleRow, name: 'alpha' },
-        { ...sampleRow, id: '2', name: 'beta' },
+        { ...sampleRow, id: 2, name: 'beta' },
       ]);
 
       const result = await repo.findAll();
@@ -183,7 +186,7 @@ describe('HostRepository', () => {
       expect(result).toBeNull();
     });
 
-    it('returns host when found and converts id from string', async () => {
+    it('returns host when found', async () => {
       mock.pushResult([sampleRow]);
       const result = await repo.findById(1);
       expect(result).not.toBeNull();
@@ -192,10 +195,11 @@ describe('HostRepository', () => {
   });
 
   describe('updateStatus', () => {
-    it('updates the status field', async () => {
+    it('updates the status field and updated_at', async () => {
       mock.pushResult([]); // UPDATE returns no rows
       await repo.updateStatus(1, 'offline');
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
+      expect(mock.queries[0].sql).toContain('updated_at');
       expect(mock.queries[0].params).toContain('offline');
       expect(mock.queries[0].params).toContain(1);
     });
@@ -253,6 +257,7 @@ export interface ManagedHost {
   agent_version: string | null;
   status: string;
   created_at: Date;
+  updated_at: Date;
 }
 
 export interface CreateHostInput {
@@ -262,20 +267,13 @@ export interface CreateHostInput {
   socket_proxy_url: string;
 }
 
-interface ManagedHostRow {
-  id: string; // PostgreSQL SERIAL returns string via node-postgres
-  name: string;
-  agent_url: string;
-  agent_token_hash: string;
-  socket_proxy_url: string;
-  agent_version: string | null;
-  status: string;
-  created_at: Date;
-}
+// No separate ManagedHostRow needed — SERIAL (INT4) returns JavaScript numbers
+// from node-postgres, unlike BIGINT which returns strings. The query result
+// rows match ManagedHost directly.
 
-function rowToHost(row: ManagedHostRow): ManagedHost {
+function rowToHost(row: ManagedHost): ManagedHost {
   return {
-    id: Number(row.id),
+    id: row.id,
     name: row.name,
     agent_url: row.agent_url,
     agent_token_hash: row.agent_token_hash,
@@ -283,6 +281,7 @@ function rowToHost(row: ManagedHostRow): ManagedHost {
     agent_version: row.agent_version,
     status: row.status,
     created_at: row.created_at,
+    updated_at: row.updated_at,
   };
 }
 
@@ -296,14 +295,14 @@ export class HostRepository {
        RETURNING *`,
       [input.name, input.agent_url, input.agent_token_hash, input.socket_proxy_url]
     );
-    return rowToHost(result.rows[0] as ManagedHostRow);
+    return rowToHost(result.rows[0] as ManagedHost);
   }
 
   async findAll(): Promise<ManagedHost[]> {
     const result = await this.pool.query(
       'SELECT * FROM managed_hosts ORDER BY name ASC'
     );
-    return (result.rows as ManagedHostRow[]).map(rowToHost);
+    return (result.rows as ManagedHost[]).map(rowToHost);
   }
 
   async findByName(name: string): Promise<ManagedHost | null> {
@@ -311,7 +310,7 @@ export class HostRepository {
       'SELECT * FROM managed_hosts WHERE name = $1',
       [name]
     );
-    return result.rows.length > 0 ? rowToHost(result.rows[0] as ManagedHostRow) : null;
+    return result.rows.length > 0 ? rowToHost(result.rows[0] as ManagedHost) : null;
   }
 
   async findById(id: number): Promise<ManagedHost | null> {
@@ -319,26 +318,26 @@ export class HostRepository {
       'SELECT * FROM managed_hosts WHERE id = $1',
       [id]
     );
-    return result.rows.length > 0 ? rowToHost(result.rows[0] as ManagedHostRow) : null;
+    return result.rows.length > 0 ? rowToHost(result.rows[0] as ManagedHost) : null;
   }
 
   async updateStatus(id: number, status: string): Promise<void> {
     await this.pool.query(
-      'UPDATE managed_hosts SET status = $1 WHERE id = $2',
+      'UPDATE managed_hosts SET status = $1, updated_at = NOW() WHERE id = $2',
       [status, id]
     );
   }
 
   async updateAgentVersion(id: number, version: string): Promise<void> {
     await this.pool.query(
-      'UPDATE managed_hosts SET agent_version = $1 WHERE id = $2',
+      'UPDATE managed_hosts SET agent_version = $1, updated_at = NOW() WHERE id = $2',
       [version, id]
     );
   }
 
   async updateTokenHash(id: number, tokenHash: string): Promise<void> {
     await this.pool.query(
-      'UPDATE managed_hosts SET agent_token_hash = $1 WHERE id = $2',
+      'UPDATE managed_hosts SET agent_token_hash = $1, updated_at = NOW() WHERE id = $2',
       [tokenHash, id]
     );
   }
@@ -718,10 +717,10 @@ describe('AgentProvisioningService', () => {
       expect(mockDocker.startedContainers).toHaveLength(1);
     });
 
-    it('returns the agent URL and container name', async () => {
+    it('returns the agent URL using host IP from socket proxy URL', async () => {
       const result = await service.provision(mockDocker.docker, defaultOptions);
       expect(result.containerName).toBe('homelab-agent-homeserver');
-      expect(result.agentUrl).toContain('9090');
+      expect(result.agentUrl).toBe('http://192.168.1.10:9090');
     });
 
     it('removes existing container before creating new one', async () => {
@@ -842,9 +841,11 @@ export class AgentProvisioningService {
 
     await container.start();
 
-    // The agent URL uses the container name for Docker network resolution.
-    // The socket proxy host is extracted from the URL for the agent's reachable address.
-    const agentUrl = `http://${containerName}:${options.agentPort}`;
+    // The agent URL must use the host's IP/hostname (not the container name),
+    // because the container DNS name is only resolvable within the same Docker
+    // network. Extract the host from the socket proxy URL.
+    const proxyUrl = new URL(options.socketProxyUrl.replace(/^tcp:\/\//, 'http://'));
+    const agentUrl = `http://${proxyUrl.hostname}:${options.agentPort}`;
 
     return { containerName, agentUrl };
   }
@@ -928,20 +929,16 @@ git commit -m "feat(hosts): add AgentProvisioningService for deploying agent con
 Create `src/lib/services/__tests__/agent-health-service.test.ts`:
 
 ```typescript
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import { checkAgentHealth, type AgentHealthResult } from '../agent-health-service';
 
-// Save original fetch
-const originalFetch = globalThis.fetch;
+// Use dependency injection (fetchFn parameter) instead of global fetch mock
+// per CLAUDE.md rule 7: avoid globalThis mocks, use narrow-scope DI instead.
 
 describe('agent-health-service', () => {
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   describe('checkAgentHealth', () => {
     it('returns healthy result when agent responds with 200', async () => {
-      globalThis.fetch = mock(async () =>
+      const fetchFn = mock(async () =>
         new Response(
           JSON.stringify({
             status: 'ok',
@@ -953,7 +950,7 @@ describe('agent-health-service', () => {
         )
       ) as typeof fetch;
 
-      const result = await checkAgentHealth('http://agent:9090');
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(true);
       expect(result.version).toBe('0.1.0');
@@ -962,22 +959,22 @@ describe('agent-health-service', () => {
     });
 
     it('returns unhealthy result when agent responds with non-200', async () => {
-      globalThis.fetch = mock(async () =>
+      const fetchFn = mock(async () =>
         new Response('Internal Server Error', { status: 500 })
       ) as typeof fetch;
 
-      const result = await checkAgentHealth('http://agent:9090');
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
       expect(result.error).toContain('500');
     });
 
     it('returns unhealthy result when fetch throws (network error)', async () => {
-      globalThis.fetch = mock(async () => {
+      const fetchFn = mock(async () => {
         throw new Error('ECONNREFUSED');
       }) as typeof fetch;
 
-      const result = await checkAgentHealth('http://agent:9090');
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
       expect(result.error).toContain('ECONNREFUSED');
@@ -985,7 +982,7 @@ describe('agent-health-service', () => {
 
     it('calls the correct URL with /health path', async () => {
       let calledUrl = '';
-      globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const fetchFn = mock(async (input: string | URL | Request) => {
         calledUrl = typeof input === 'string' ? input : input.toString();
         return new Response(
           JSON.stringify({ status: 'ok', version: '0.1.0' }),
@@ -993,12 +990,12 @@ describe('agent-health-service', () => {
         );
       }) as typeof fetch;
 
-      await checkAgentHealth('http://agent:9090');
+      await checkAgentHealth('http://agent:9090', undefined, fetchFn);
       expect(calledUrl).toBe('http://agent:9090/health');
     });
 
     it('uses a timeout via AbortSignal', async () => {
-      globalThis.fetch = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+      const fetchFn = mock(async (_input: string | URL | Request, init?: RequestInit) => {
         expect(init?.signal).toBeDefined();
         return new Response(
           JSON.stringify({ status: 'ok', version: '0.1.0' }),
@@ -1006,17 +1003,17 @@ describe('agent-health-service', () => {
         );
       }) as typeof fetch;
 
-      await checkAgentHealth('http://agent:9090');
+      await checkAgentHealth('http://agent:9090', undefined, fetchFn);
     });
 
     it('returns unhealthy on timeout (AbortError)', async () => {
-      globalThis.fetch = mock(async () => {
+      const fetchFn = mock(async () => {
         const err = new Error('The operation was aborted');
         err.name = 'AbortError';
         throw err;
       }) as typeof fetch;
 
-      const result = await checkAgentHealth('http://agent:9090');
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
       expect(result.error).toContain('timed out');
@@ -1055,13 +1052,16 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
  * Check the health of an agent by calling its /health endpoint.
  * Returns a result object indicating health status and version info.
  * Never throws — all errors are captured in the result.
+ *
+ * @param fetchFn - Injectable fetch function for testing (defaults to globalThis.fetch)
  */
 export async function checkAgentHealth(
   agentUrl: string,
-  timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS
+  timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS,
+  fetchFn: typeof fetch = globalThis.fetch
 ): Promise<AgentHealthResult> {
   try {
-    const response = await fetch(`${agentUrl}/health`, {
+    const response = await fetchFn(`${agentUrl}/health`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
 
@@ -1122,11 +1122,8 @@ git commit -m "feat(hosts): add agent health check service with timeout support"
 Create `src/lib/services/__tests__/agent-update-service.test.ts`:
 
 ```typescript
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { AgentUpdateService } from '../agent-update-service';
-
-// Save original fetch for health checks
-const originalFetch = globalThis.fetch;
 
 function createMockDockerode() {
   const pulledImages: string[] = [];
@@ -1200,60 +1197,40 @@ describe('AgentUpdateService', () => {
     mockDocker = createMockDockerode();
   });
 
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
+  // Use dependency injection (fetchFn) instead of global fetch mock
+  const mockFetchFn = mock(async () =>
+    new Response(JSON.stringify({ status: 'ok', version: '0.2.0' }), { status: 200 })
+  ) as typeof fetch;
 
   describe('updateAgent', () => {
     it('pulls the new image via socket proxy', async () => {
-      // Mock health check
-      globalThis.fetch = mock(async () =>
-        new Response(JSON.stringify({ status: 'ok', version: '0.2.0' }), { status: 200 })
-      ) as typeof fetch;
-
-      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest');
+      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
 
       expect(mockDocker.pulledImages).toContain('ghcr.io/org/homelab-manager-agent:latest');
     });
 
     it('stops and removes the old container', async () => {
-      globalThis.fetch = mock(async () =>
-        new Response(JSON.stringify({ status: 'ok', version: '0.2.0' }), { status: 200 })
-      ) as typeof fetch;
-
-      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest');
+      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
 
       expect(mockDocker.stoppedContainers).toHaveLength(1);
       expect(mockDocker.removedContainers).toHaveLength(1);
     });
 
     it('creates a new container with the same config', async () => {
-      globalThis.fetch = mock(async () =>
-        new Response(JSON.stringify({ status: 'ok', version: '0.2.0' }), { status: 200 })
-      ) as typeof fetch;
-
-      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest');
+      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
 
       expect(mockDocker.createdContainers).toHaveLength(1);
       expect(mockDocker.createdContainers[0].name).toBe('homelab-agent-homeserver');
     });
 
     it('starts the new container', async () => {
-      globalThis.fetch = mock(async () =>
-        new Response(JSON.stringify({ status: 'ok', version: '0.2.0' }), { status: 200 })
-      ) as typeof fetch;
-
-      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest');
+      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
 
       expect(mockDocker.startedContainers).toHaveLength(1);
     });
 
     it('preserves env vars from the old container', async () => {
-      globalThis.fetch = mock(async () =>
-        new Response(JSON.stringify({ status: 'ok', version: '0.2.0' }), { status: 200 })
-      ) as typeof fetch;
-
-      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest');
+      await service.updateAgent(mockDocker.docker, 'homeserver', 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
 
       const config = mockDocker.createdContainers[0].config;
       const env = config.Env as string[];
@@ -1262,14 +1239,11 @@ describe('AgentUpdateService', () => {
     });
 
     it('returns the new version from health check', async () => {
-      globalThis.fetch = mock(async () =>
-        new Response(JSON.stringify({ status: 'ok', version: '0.2.0' }), { status: 200 })
-      ) as typeof fetch;
-
       const result = await service.updateAgent(
         mockDocker.docker,
         'homeserver',
-        'ghcr.io/org/homelab-manager-agent:latest'
+        'ghcr.io/org/homelab-manager-agent:latest',
+        mockFetchFn
       );
 
       expect(result.version).toBe('0.2.0');
@@ -1293,7 +1267,7 @@ import type Dockerode from 'dockerode';
 import { checkAgentHealth, type AgentHealthResult } from './agent-health-service';
 
 const CONTAINER_NAME_PREFIX = 'homelab-agent-';
-const POST_UPDATE_HEALTH_CHECK_DELAY_MS = 2000;
+const HEALTH_CHECK_RETRY_DELAYS_MS = [500, 1000, 2000]; // Exponential backoff
 const POST_UPDATE_HEALTH_CHECK_TIMEOUT_MS = 10000;
 
 export interface AgentUpdateResult extends AgentHealthResult {
@@ -1321,7 +1295,8 @@ export class AgentUpdateService {
   async updateAgent(
     docker: Dockerode,
     hostName: string,
-    newImage: string
+    newImage: string,
+    fetchFn: typeof fetch = globalThis.fetch
   ): Promise<AgentUpdateResult> {
     const containerName = `${CONTAINER_NAME_PREFIX}${hostName}`;
 
@@ -1357,13 +1332,21 @@ export class AgentUpdateService {
     // 5. Start the new container
     await newContainer.start();
 
-    // 6. Wait briefly, then verify health
-    await new Promise((resolve) => setTimeout(resolve, POST_UPDATE_HEALTH_CHECK_DELAY_MS));
-
-    // Derive agent URL from port bindings
+    // 6. Verify health with exponential backoff retry (matches BaseCollector pattern)
     const agentPort = this.extractAgentPort(oldHostConfig.PortBindings);
-    const agentUrl = `http://${containerName}:${agentPort}`;
-    const healthResult = await checkAgentHealth(agentUrl, POST_UPDATE_HEALTH_CHECK_TIMEOUT_MS);
+    const dockerHost = this.extractHostFromEnv(oldEnv);
+    const agentUrl = `http://${dockerHost}:${agentPort}`;
+
+    let healthResult: Awaited<ReturnType<typeof checkAgentHealth>> = {
+      healthy: false,
+      error: 'Health check not attempted',
+    };
+
+    for (const delayMs of HEALTH_CHECK_RETRY_DELAYS_MS) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      healthResult = await checkAgentHealth(agentUrl, POST_UPDATE_HEALTH_CHECK_TIMEOUT_MS, fetchFn);
+      if (healthResult.healthy) break;
+    }
 
     return {
       ...healthResult,
@@ -1388,6 +1371,19 @@ export class AgentUpdateService {
     const binding = portBindings[keys[0]];
     if (!binding || binding.length === 0) return 9090;
     return Number(binding[0].HostPort) || 9090;
+  }
+
+  private extractHostFromEnv(env: string[]): string {
+    // Extract hostname from DOCKER_HOST env var (e.g., "tcp://192.168.1.10:2375")
+    const dockerHostEntry = env.find((e) => e.startsWith('DOCKER_HOST='));
+    if (!dockerHostEntry) return 'localhost';
+    const dockerHostUrl = dockerHostEntry.split('=')[1];
+    try {
+      const parsed = new URL(dockerHostUrl.replace(/^tcp:\/\//, 'http://'));
+      return parsed.hostname;
+    } catch {
+      return 'localhost';
+    }
   }
 }
 ```
@@ -1424,45 +1420,125 @@ git commit -m "feat(hosts): add AgentUpdateService for updating agents via socke
 Create `src/data/__tests__/hosts.functions.test.ts`:
 
 ```typescript
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
 /**
  * Server function tests for host management.
  *
- * These test the exported function signatures and input validation schemas.
+ * These test exports, input validation schemas, and feature flag gating.
  * Full integration tests require a running database and are covered by
- * the E2E test suite. Unit tests here verify the module exports and
- * schema validation shapes.
+ * the E2E test suite.
  */
 describe('hosts.functions module', () => {
-  it('exports addHost server function', async () => {
-    const mod = await import('../hosts.functions');
-    expect(mod.addHost).toBeDefined();
-    expect(typeof mod.addHost).toBe('function');
+  const originalEnv = process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
+    } else {
+      process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = originalEnv;
+    }
   });
 
-  it('exports removeHost server function', async () => {
-    const mod = await import('../hosts.functions');
-    expect(mod.removeHost).toBeDefined();
-    expect(typeof mod.removeHost).toBe('function');
+  describe('exports', () => {
+    it('exports addHost server function', async () => {
+      const mod = await import('../hosts.functions');
+      expect(mod.addHost).toBeDefined();
+      expect(typeof mod.addHost).toBe('function');
+    });
+
+    it('exports removeHost server function', async () => {
+      const mod = await import('../hosts.functions');
+      expect(mod.removeHost).toBeDefined();
+      expect(typeof mod.removeHost).toBe('function');
+    });
+
+    it('exports listHosts server function', async () => {
+      const mod = await import('../hosts.functions');
+      expect(mod.listHosts).toBeDefined();
+      expect(typeof mod.listHosts).toBe('function');
+    });
+
+    it('exports updateAgent server function', async () => {
+      const mod = await import('../hosts.functions');
+      expect(mod.updateAgent).toBeDefined();
+      expect(typeof mod.updateAgent).toBe('function');
+    });
+
+    it('exports checkHostHealth server function', async () => {
+      const mod = await import('../hosts.functions');
+      expect(mod.checkHostHealth).toBeDefined();
+      expect(typeof mod.checkHostHealth).toBe('function');
+    });
   });
 
-  it('exports listHosts server function', async () => {
-    const mod = await import('../hosts.functions');
-    expect(mod.listHosts).toBeDefined();
-    expect(typeof mod.listHosts).toBe('function');
+  describe('feature flag gating', () => {
+    it('addHost throws when feature flag is off', async () => {
+      delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
+      const mod = await import('../hosts.functions');
+      await expect(
+        mod.addHost({ data: { name: 'test', socketProxyUrl: 'tcp://192.168.1.10:2375' } })
+      ).rejects.toThrow('Docker management feature is not enabled');
+    });
+
+    it('removeHost throws when feature flag is off', async () => {
+      delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
+      const mod = await import('../hosts.functions');
+      await expect(
+        mod.removeHost({ data: { hostId: 1 } })
+      ).rejects.toThrow('Docker management feature is not enabled');
+    });
+
+    it('checkHostHealth throws when feature flag is off', async () => {
+      delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
+      const mod = await import('../hosts.functions');
+      await expect(
+        mod.checkHostHealth({ data: { hostId: 1 } })
+      ).rejects.toThrow('Docker management feature is not enabled');
+    });
+
+    it('listHosts throws when feature flag is off', async () => {
+      delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
+      const mod = await import('../hosts.functions');
+      await expect(
+        mod.listHosts({})
+      ).rejects.toThrow('Docker management feature is not enabled');
+    });
   });
 
-  it('exports updateAgent server function', async () => {
-    const mod = await import('../hosts.functions');
-    expect(mod.updateAgent).toBeDefined();
-    expect(typeof mod.updateAgent).toBe('function');
-  });
+  describe('input validation', () => {
+    it('addHost rejects empty name', async () => {
+      process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
+      const mod = await import('../hosts.functions');
+      await expect(
+        mod.addHost({ data: { name: '', socketProxyUrl: 'tcp://192.168.1.10:2375' } })
+      ).rejects.toThrow();
+    });
 
-  it('exports checkHostHealth server function', async () => {
-    const mod = await import('../hosts.functions');
-    expect(mod.checkHostHealth).toBeDefined();
-    expect(typeof mod.checkHostHealth).toBe('function');
+    it('addHost rejects invalid socketProxyUrl scheme', async () => {
+      process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
+      const mod = await import('../hosts.functions');
+      await expect(
+        mod.addHost({ data: { name: 'test', socketProxyUrl: 'ftp://192.168.1.10:2375' } })
+      ).rejects.toThrow();
+    });
+
+    it('addHost accepts tcp:// socketProxyUrl', async () => {
+      process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
+      const mod = await import('../hosts.functions');
+      // Will fail at Dockerode connection, not at validation
+      await expect(
+        mod.addHost({ data: { name: 'test', socketProxyUrl: 'tcp://192.168.1.10:2375' } })
+      ).rejects.not.toThrow(/scheme/);
+    });
+
+    it('removeHost rejects non-positive hostId', async () => {
+      process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
+      const mod = await import('../hosts.functions');
+      await expect(
+        mod.removeHost({ data: { hostId: 0 } })
+      ).rejects.toThrow();
+    });
   });
 });
 ```
@@ -1482,9 +1558,16 @@ import { z } from 'zod';
 
 // ----- Schemas -----
 
+// Custom validator for socket proxy URLs — Zod's .url() only accepts http/https
+// but Docker socket proxies use tcp:// scheme
+const socketProxyUrlSchema = z.string().min(1).refine(
+  (val) => /^(tcp|http|https):\/\/.+/.test(val),
+  { message: 'Must be a valid URL with tcp://, http://, or https:// scheme' }
+);
+
 const addHostSchema = z.object({
   name: z.string().min(1).max(100),
-  socketProxyUrl: z.string().url(),
+  socketProxyUrl: socketProxyUrlSchema,
   agentPort: z.number().int().min(1).max(65535).optional().default(9090),
 });
 
@@ -1510,6 +1593,7 @@ export interface HostListItem {
   agentVersion: string | null;
   status: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface AddHostResult {
@@ -1544,6 +1628,12 @@ function getAgentImage(): string {
 
 // ----- Server Functions -----
 
+// NOTE: Per CLAUDE.md rule 3, all server logic should use createServerFn() + middleware
+// injection. When the codebase establishes a middleware pattern (e.g., for auth or
+// database connection injection), these server functions should be updated to use
+// .middleware([authMiddleware, dbMiddleware]) instead of manually importing and
+// constructing dependencies inside each handler.
+
 /**
  * Add a new managed host: connect to socket proxy, provision agent, store in DB.
  *
@@ -1554,7 +1644,7 @@ function getAgentImage(): string {
  * 4. Provision agent container
  * 5. Store host record in managed_hosts
  * 6. Verify agent health
- * 7. Update status to 'online' or 'degraded'
+ * 7. Rollback on failure, or update status to 'online'
  */
 export const addHost = createServerFn()
   .inputValidator(addHostSchema)
@@ -1620,11 +1710,30 @@ export const addHost = createServerFn()
       socket_proxy_url: data.socketProxyUrl,
     });
 
-    // Health check (wait a moment for agent startup)
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    const healthResult = await checkAgentHealth(provisionResult.agentUrl);
+    // Health check with exponential backoff retry (matches BaseCollector pattern)
+    const healthRetryDelays = [500, 1000, 2000];
+    let healthResult = { healthy: false, version: undefined as string | undefined, error: 'Health check not attempted' };
+    for (const delayMs of healthRetryDelays) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      healthResult = await checkAgentHealth(provisionResult.agentUrl);
+      if (healthResult.healthy) break;
+    }
 
-    const status = healthResult.healthy ? 'online' : 'degraded';
+    // If health check failed after all retries, rollback: remove container and DB record
+    if (!healthResult.healthy) {
+      try {
+        const provisioningServiceCleanup = new AgentProvisioningService();
+        await provisioningServiceCleanup.removeAgent(docker, data.name);
+      } catch {
+        // Best-effort cleanup
+      }
+      await repo.delete(host.id);
+      throw new Error(
+        `Agent provisioned but health check failed after ${healthRetryDelays.length} retries: ${healthResult.error}. Host record and container have been cleaned up.`
+      );
+    }
+
+    const status = 'online';
     await repo.updateStatus(host.id, status);
 
     if (healthResult.version) {
@@ -1640,6 +1749,7 @@ export const addHost = createServerFn()
         agentVersion: healthResult.version || null,
         status,
         createdAt: host.created_at.toISOString(),
+        updatedAt: host.updated_at.toISOString(),
       },
       healthy: healthResult.healthy,
       error: healthResult.error,
@@ -1710,6 +1820,10 @@ export const removeHost = createServerFn()
 
 /**
  * List all managed hosts with their current status.
+ * Throws when the feature flag is off, consistent with all other host
+ * management functions. The UI should check isDockerManagementEnabled()
+ * on the client side before calling this function to avoid showing
+ * errors in navigation/sidebar.
  */
 export const listHosts = createServerFn()
   .handler(async (): Promise<HostListItem[]> => {
@@ -1717,7 +1831,7 @@ export const listHosts = createServerFn()
       '@/lib/config/feature-flags'
     );
     if (!isDockerManagementEnabled()) {
-      return [];
+      throw new Error('Docker management feature is not enabled');
     }
 
     const { databaseConnectionManager } = await import(
@@ -1744,6 +1858,7 @@ export const listHosts = createServerFn()
       agentVersion: h.agent_version,
       status: h.status,
       createdAt: h.created_at.toISOString(),
+      updatedAt: h.updated_at.toISOString(),
     }));
   });
 
@@ -1911,20 +2026,22 @@ const mockHosts: HostListItem[] = [
   {
     id: 1,
     name: 'homeserver',
-    agentUrl: 'http://homelab-agent-homeserver:9090',
-    socketProxyUrl: 'http://192.168.1.10:2375',
+    agentUrl: 'http://192.168.1.10:9090',
+    socketProxyUrl: 'tcp://192.168.1.10:2375',
     agentVersion: '0.1.0',
     status: 'online',
     createdAt: '2026-01-15T10:00:00Z',
+    updatedAt: '2026-01-15T10:00:00Z',
   },
   {
     id: 2,
     name: 'media-server',
-    agentUrl: 'http://homelab-agent-media-server:9090',
-    socketProxyUrl: 'http://192.168.1.20:2375',
+    agentUrl: 'http://192.168.1.20:9090',
+    socketProxyUrl: 'tcp://192.168.1.20:2375',
     agentVersion: '0.1.0',
     status: 'online',
     createdAt: '2026-02-01T14:30:00Z',
+    updatedAt: '2026-02-01T14:30:00Z',
   },
 ];
 
@@ -1933,14 +2050,16 @@ export async function addHost(_data: {
   socketProxyUrl: string;
   agentPort?: number;
 }): Promise<AddHostResult> {
+  const now = new Date().toISOString();
   const newHost: HostListItem = {
     id: mockHosts.length + 1,
     name: _data.name,
-    agentUrl: `http://homelab-agent-${_data.name}:${_data.agentPort ?? 9090}`,
+    agentUrl: `http://mock-host:${_data.agentPort ?? 9090}`,
     socketProxyUrl: _data.socketProxyUrl,
     agentVersion: '0.1.0',
     status: 'online',
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    updatedAt: now,
   };
   return { host: newHost, healthy: true };
 }
@@ -2063,7 +2182,13 @@ git commit -m "docs(config): document DOCKER_HOST_N migration path with managed 
 - **Token:** `crypto.randomUUID()` for generation, `Bun.password.hash()` (bcrypt, cost 10) for storage
 - **Socket proxy URL parsing:** `new URL()` to extract host/port for Dockerode connection
 - **Health check:** 5s timeout for on-demand checks, 10s timeout after agent update
-- **Error handling:** Container removal errors during host removal are logged but don't block DB cleanup
-- **Feature flag:** All server functions check `isDockerManagementEnabled()` and throw or return empty when off
-- **SERIAL id:** PostgreSQL SERIAL (not BIGINT), but `Number()` conversion is applied in `rowToHost()` for safety since node-postgres returns numeric types as strings for large values
+- **Error handling:** Container removal errors during host removal are logged but don't block DB cleanup. Failed provisioning rolls back (removes container + DB record).
+- **Feature flag:** All server functions check `isDockerManagementEnabled()` and throw when off (consistent behavior)
+- **SERIAL id:** PostgreSQL SERIAL (INT4) returns JavaScript numbers from node-postgres — no `Number()` coercion needed (unlike BIGINT which returns strings)
+- **Agent URL:** Uses host IP extracted from socket proxy URL (not container DNS name, which is unreachable from outside the Docker network)
+- **Health check retry:** Exponential backoff (500ms/1s/2s) instead of fixed delay, matching BaseCollector pattern
+- **Fetch DI:** `checkAgentHealth` and `updateAgent` accept injectable `fetchFn` parameter for testing without global mock pollution
+- **Zod validation:** Socket proxy URLs use custom `.refine()` to accept `tcp://` scheme (Zod `.url()` rejects non-http schemes)
+- **Middleware:** Note added for future middleware injection pattern per CLAUDE.md rule 3
+- **updated_at column:** Tracks last status/version/token change for debugging connectivity issues
 - **Dynamic imports:** All server-only modules (pg, Dockerode, services) use `await import()` inside handlers per project convention
