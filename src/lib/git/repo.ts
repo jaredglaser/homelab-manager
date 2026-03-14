@@ -278,3 +278,91 @@ async function buildTree(
     })),
   });
 }
+
+export interface LogEntry {
+  oid: string;
+  message: string;
+  author: { name: string; email: string; timestamp: number };
+}
+
+/**
+ * Get the commit log for the repository.
+ */
+export async function getLog(
+  repoPath: string,
+  depth: number = 20,
+  ref: string = 'HEAD',
+): Promise<LogEntry[]> {
+  const commits = await git.log({ fs, gitdir: repoPath, ref, depth });
+  return commits.map((c) => ({
+    oid: c.oid,
+    message: c.commit.message.trim(),
+    author: {
+      name: c.commit.author.name,
+      email: c.commit.author.email,
+      timestamp: c.commit.author.timestamp,
+    },
+  }));
+}
+
+/**
+ * Diff two commits and return a list of changed file paths.
+ * Compares the full trees of both commits.
+ */
+export async function diffCommits(
+  repoPath: string,
+  fromOid: string,
+  toOid: string,
+): Promise<string[]> {
+  const fromCommit = await git.readCommit({ fs, gitdir: repoPath, oid: fromOid });
+  const toCommit = await git.readCommit({ fs, gitdir: repoPath, oid: toOid });
+
+  const fromTree = await git.readTree({ fs, gitdir: repoPath, oid: fromCommit.commit.tree });
+  const toTree = await git.readTree({ fs, gitdir: repoPath, oid: toCommit.commit.tree });
+
+  const fromFiles = await flattenTree(repoPath, fromTree.tree, '');
+  const toFiles = await flattenTree(repoPath, toTree.tree, '');
+
+  const changed: string[] = [];
+
+  // Check for modified or added files
+  for (const [path, oid] of toFiles) {
+    const fromOidValue = fromFiles.get(path);
+    if (fromOidValue !== oid) {
+      changed.push(path);
+    }
+  }
+
+  // Check for deleted files
+  for (const [path] of fromFiles) {
+    if (!toFiles.has(path)) {
+      changed.push(path);
+    }
+  }
+
+  return changed.sort();
+}
+
+/** Flatten a tree into a Map<filePath, blobOid>. */
+async function flattenTree(
+  repoPath: string,
+  tree: TreeEntry[],
+  prefix: string,
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+
+  for (const entry of tree) {
+    const fullPath = prefix ? `${prefix}/${entry.path}` : entry.path;
+    if (entry.type === 'blob') {
+      result.set(fullPath, entry.oid);
+    } else if (entry.type === 'tree') {
+      const subtree = await git.readTree({ fs, gitdir: repoPath, oid: entry.oid });
+      const subFiles = await flattenTree(repoPath, subtree.tree, fullPath);
+      for (const [k, v] of subFiles) {
+        result.set(k, v);
+      }
+    }
+  }
+
+  return result;
+}
