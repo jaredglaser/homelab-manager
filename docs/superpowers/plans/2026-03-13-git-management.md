@@ -543,6 +543,10 @@ export interface CommitOptions {
  * Commit files to a bare repository.
  * Builds a tree from scratch each time (full snapshot), writes it, and creates a commit
  * pointing to the current HEAD (if any) as parent.
+ *
+ * Note: This reads the entire existing tree into memory to overlay new files.
+ * This is acceptable for v1 since repos only contain small compose files and manifests.
+ * For optimization later, compare blob OIDs instead of reading content to skip unchanged files.
  */
 export async function commitFiles(
   repoPath: string,
@@ -608,7 +612,9 @@ export async function commitFiles(
 }
 
 /**
- * Read a file's content from the repo at HEAD.
+ * Read a file's content from the repo at a given ref.
+ * Note: `git.resolveRef` accepts both symbolic refs (e.g., 'HEAD', 'refs/heads/main')
+ * and raw commit SHAs, so passing a commit OID directly works.
  */
 export async function readFileFromRepo(
   repoPath: string,
@@ -1578,8 +1584,11 @@ Create `src/lib/git/git-server.ts`:
 /**
  * Git HTTP smart protocol handlers.
  * Shells out to `git upload-pack` and `git receive-pack` via Bun.spawn().
- * These are server-only modules -- ALWAYS dynamically import in routes.
+ * This is a server-only module (uses Bun.spawn), so static imports are fine.
+ * Dynamic imports are only needed in route files to avoid client bundle pollution.
  */
+import git from 'isomorphic-git';
+import fs from 'fs';
 
 const VALID_SERVICES = ['git-upload-pack', 'git-receive-pack'] as const;
 
@@ -1654,9 +1663,7 @@ export async function handleReceivePack(
  */
 export async function getHeadOid(repoPath: string): Promise<string | null> {
   try {
-    const git = await import('isomorphic-git');
-    const fs = await import('fs');
-    return await git.default.resolveRef({ fs: fs.default, gitdir: repoPath, ref: 'HEAD' });
+    return await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
   } catch {
     return null;
   }
@@ -1667,15 +1674,20 @@ async function runGitService(
   repoPath: string,
   body: ReadableStream<Uint8Array> | null,
 ): Promise<Response> {
-  const stdin = body ? await streamToBuffer(body) : undefined;
+  const stdinBuffer = body ? await streamToBuffer(body) : undefined;
 
   const proc = Bun.spawn([service, '--stateless-rpc', repoPath], {
-    stdin: stdin ?? 'pipe',
+    stdin: 'pipe',
     stdout: 'pipe',
     stderr: 'pipe',
   });
 
-  if (!stdin && proc.stdin) {
+  // Bun.spawn() does not accept a Buffer for stdin directly.
+  // Instead, spawn with stdin: "pipe", write the buffer, and close.
+  if (stdinBuffer && proc.stdin) {
+    proc.stdin.write(stdinBuffer);
+  }
+  if (proc.stdin) {
     proc.stdin.end();
   }
 
@@ -1718,12 +1730,42 @@ async function streamToBuffer(
 Run: `bun test src/lib/git/__tests__/git-server.test.ts`
 Expected: All tests pass (requires `git` binary on PATH)
 
+> **Note:** These are smoke tests that verify correct content types and basic response codes. Real git protocol testing (actual `git clone`, `git push` round-trips) requires integration tests with a running server and a git client, which is out of scope for unit tests.
+
 - [ ] **Step 5: Create the TanStack Router route**
 
 Create `src/routes/api/git.$.ts`:
 
 ```typescript
 import { createFileRoute } from '@tanstack/react-router';
+
+/**
+ * Authenticate git HTTP requests via Bearer token.
+ * CRITICAL: Pushes can trigger auto-deploys, so this endpoint must be authenticated.
+ * Uses GIT_SERVER_TOKEN env var. Returns null if authenticated, or an error Response.
+ */
+function authenticateRequest(request: Request): Response | null {
+  const token = process.env.GIT_SERVER_TOKEN;
+  if (!token) {
+    // If no token is configured, reject all requests for safety
+    return new Response('Git server token not configured', { status: 500 });
+  }
+
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return new Response('Unauthorized', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Bearer' },
+    });
+  }
+
+  const providedToken = authHeader.slice('Bearer '.length);
+  if (providedToken !== token) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
+  return null;
+}
 
 export const Route = createFileRoute('/api/git/$')({
   server: {
@@ -1732,6 +1774,9 @@ export const Route = createFileRoute('/api/git/$')({
         if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
           return new Response('Not Found', { status: 404 });
         }
+
+        const authError = authenticateRequest(request);
+        if (authError) return authError;
 
         const { loadGitConfig } = await import('@/lib/config/git-config');
         const { parseGitPath, isGitInfoRefsRequest } = await import(
@@ -1765,10 +1810,16 @@ export const Route = createFileRoute('/api/git/$')({
         return handleInfoRefs(repoPath, service);
       },
 
+      // NOTE: Post-receive wiring is added in Task 10 Step 5 after
+      // post-receive-handler.ts exists. This initial version handles
+      // only upload-pack and receive-pack without post-receive hooks.
       POST: async ({ request }) => {
         if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
           return new Response('Not Found', { status: 404 });
         }
+
+        const authError = authenticateRequest(request);
+        if (authError) return authError;
 
         const { loadGitConfig } = await import('@/lib/config/git-config');
         const {
@@ -1779,12 +1830,8 @@ export const Route = createFileRoute('/api/git/$')({
         const {
           handleUploadPack,
           handleReceivePack,
-          getHeadOid,
         } = await import('@/lib/git/git-server');
         const { initBareRepo } = await import('@/lib/git/repo');
-        const { processPostReceive } = await import(
-          '@/lib/git/post-receive-handler'
-        );
 
         const url = new URL(request.url);
         const pathInfo = parseGitPath(url.pathname);
@@ -1803,20 +1850,7 @@ export const Route = createFileRoute('/api/git/$')({
         }
 
         if (isGitReceivePackRequest('POST', pathInfo.action)) {
-          // Capture HEAD before push for diffing
-          const oldHead = await getHeadOid(repoPath);
-
-          const response = await handleReceivePack(repoPath, request.body);
-
-          // Post-receive: diff and trigger deploys (non-blocking)
-          const newHead = await getHeadOid(repoPath);
-          if (oldHead && newHead && oldHead !== newHead) {
-            processPostReceive(repoPath, oldHead, newHead).catch((err) => {
-              console.error('[GitServer] Post-receive error:', err);
-            });
-          }
-
-          return response;
+          return handleReceivePack(repoPath, request.body);
         }
 
         return new Response('Not Found', { status: 404 });
@@ -1828,16 +1862,13 @@ export const Route = createFileRoute('/api/git/$')({
 
 - [ ] **Step 6: Add git to the Dockerfile**
 
-Modify `Dockerfile` to install git in the deps stage:
+Modify `Dockerfile` to install git in the **final runtime stage** (not just the deps/build stage). The `git` binary is needed at runtime for `git upload-pack` and `git receive-pack` via `Bun.spawn()`. Check the existing Dockerfile for the final stage name and add:
 
 ```dockerfile
-FROM oven/bun:1 AS deps
-WORKDIR /app
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
-EXPOSE 3000
 ```
+
+to the final runtime stage. If the final stage uses a minimal base image (e.g., `oven/bun:1-slim` or `distroless`), ensure `git` is available there, not just in intermediate build stages that get discarded.
 
 - [ ] **Step 7: Run full typecheck and tests**
 
@@ -1972,10 +2003,42 @@ export async function processPostReceive(
 Run: `bun test src/lib/git/__tests__/post-receive-handler.test.ts`
 Expected: All tests pass
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Wire post-receive handler into the git route**
+
+Now that `post-receive-handler.ts` exists, update `src/routes/api/git.$.ts` POST handler to import and call it. Replace the POST handler's receive-pack branch with:
+
+```typescript
+        if (isGitReceivePackRequest('POST', pathInfo.action)) {
+          const { getHeadOid } = await import('@/lib/git/git-server');
+          const { processPostReceive } = await import(
+            '@/lib/git/post-receive-handler'
+          );
+
+          // Capture HEAD before push for diffing
+          const oldHead = await getHeadOid(repoPath);
+
+          const response = await handleReceivePack(repoPath, request.body);
+
+          // Post-receive: diff and trigger deploys (non-blocking)
+          const newHead = await getHeadOid(repoPath);
+          if (oldHead && newHead && oldHead !== newHead) {
+            processPostReceive(repoPath, oldHead, newHead).catch((err) => {
+              console.error('[GitServer] Post-receive error:', err);
+            });
+          }
+
+          return response;
+        }
+```
+
+Also add `handleReceivePack` to the existing `git-server` import at the top of the POST handler.
+
+> **Note on error visibility (Issue 7):** The `.catch(console.error)` pattern means post-receive errors (e.g., deploy failures) are only visible in server logs. The git protocol does not support sending error details back to the client after the pack response has already been sent. Deploy failures should instead be tracked via the `deploy_history` table and surfaced in the UI dashboard, which will be implemented in the deploy pipeline chunk.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/lib/git/post-receive-handler.ts src/lib/git/__tests__/post-receive-handler.test.ts
+git add src/lib/git/post-receive-handler.ts src/lib/git/__tests__/post-receive-handler.test.ts src/routes/api/git.$.ts
 git commit -m "feat(git): add post-receive handler for push event orchestration"
 ```
 
@@ -2055,6 +2118,8 @@ Expected: FAIL -- module not found
 Create `src/lib/git/init-repo.ts`:
 
 ```typescript
+import git from 'isomorphic-git';
+import fs from 'fs';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { initBareRepo, repoExists, commitFiles } from '@/lib/git/repo';
 
@@ -2078,6 +2143,8 @@ export async function ensureRepoInitialized(): Promise<void> {
   await initBareRepo(repoPath);
 
   // Check if repo has any commits; if not, seed with initial manifest
+  // repoExists checks for HEAD file but not whether HEAD resolves to a commit.
+  // Use resolveRef to determine if there are actual commits.
   const hasCommits = await hasAnyCommits(repoPath);
   if (!hasCommits) {
     await commitFiles(repoPath, {
@@ -2093,9 +2160,7 @@ export async function ensureRepoInitialized(): Promise<void> {
 
 async function hasAnyCommits(repoPath: string): Promise<boolean> {
   try {
-    const git = await import('isomorphic-git');
-    const fs = await import('fs');
-    await git.default.resolveRef({ fs: fs.default, gitdir: repoPath, ref: 'HEAD' });
+    await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
     return true;
   } catch {
     return false;
@@ -2544,11 +2609,12 @@ Append the following to `.env.example`:
 # Docker Stack Management (feature-flagged, undocumented for v1)
 # DOCKER_MANAGEMENT_FEATURE_FLAG="true"
 # GIT_REPOS_DIR="/data/repos"
+# GIT_SERVER_TOKEN="<random-token-here>"  # Required for git clone/push authentication
 ```
 
-- [ ] **Step 2: Verify Dockerfile has git installed** (done in Task 9 Step 6)
+- [ ] **Step 2: Verify Dockerfile has git installed in the runtime stage** (done in Task 9 Step 6)
 
-Confirm the `deps` stage includes:
+Confirm the **final runtime stage** (not just deps/build) includes:
 ```dockerfile
 RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 ```
