@@ -1,0 +1,47 @@
+# Docker management feature services (use with DOCKER_MANAGEMENT_FEATURE_FLAG=true)
+# Usage: docker compose -f docker-compose.local.yml -f docker-compose.agent.yml up
+services:
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - homelab-network
+
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    environment:
+      DOCKER_HOST: "tcp://socket-proxy:2375"
+      AGENT_TOKEN: "dev-agent-token"
+      AGENT_PORT: "9090"
+      STACKS_DIR: "/opt/homelab-manager/stacks"
+    ports:
+      - "9090:9090"
+    volumes:
+      - homelab-stacks:/opt/homelab-manager/stacks
+      - ./agent/src:/app/src  # Hot reload in dev
+    depends_on:
+      - socket-proxy
+    networks:
+      - homelab-network
+
+  openbao:
+    image: openbao/openbao
+    command: server -dev
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: "dev-root-token"
+    ports:
+      - "8200:8200"
+    networks:
+      - homelab-network
+
+volumes:
+  homelab-stacks:
