@@ -106,6 +106,22 @@ services:
       - "${WEB_PORT}:3000"
     environment:
       <<: *postgres-env
+      OPENBAO_URL: ${OPENBAO_URL:-}
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+
+  # OpenBao dev server (secrets management, optional)
+  openbao:
+    image: openbao/openbao
+    container_name: homelab-openbao
+    command: server -dev
+    environment:
+      BAO_DEV_ROOT_TOKEN_ID: "dev-root-token"
+    ports:
+      - "8200:8200"
+    networks:
+      - homelab-network
+    profiles:
+      - management
 
 volumes:
   node_modules:
