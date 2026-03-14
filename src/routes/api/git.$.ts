@@ -91,6 +91,7 @@ export const Route = createFileRoute('/api/git/$')({
         const {
           handleUploadPack,
           handleReceivePack,
+          getHeadOid,
         } = await import('@/lib/git/git-server');
         const { initBareRepo } = await import('@/lib/git/repo');
 
@@ -111,7 +112,24 @@ export const Route = createFileRoute('/api/git/$')({
         }
 
         if (isGitReceivePackRequest('POST', pathInfo.action)) {
-          return handleReceivePack(repoPath, request.body);
+          const { processPostReceive } = await import(
+            '@/lib/git/post-receive-handler'
+          );
+
+          // Capture HEAD before push for diffing
+          const oldHead = await getHeadOid(repoPath);
+
+          const response = await handleReceivePack(repoPath, request.body);
+
+          // Post-receive: diff and trigger deploys (non-blocking)
+          const newHead = await getHeadOid(repoPath);
+          if (oldHead && newHead && oldHead !== newHead) {
+            processPostReceive(repoPath, oldHead, newHead).catch((err) => {
+              console.error('[GitServer] Post-receive error:', err);
+            });
+          }
+
+          return response;
         }
 
         return new Response('Not Found', { status: 404 });
