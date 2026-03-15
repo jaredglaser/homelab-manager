@@ -1,83 +1,123 @@
+import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
-import { RateCalculator } from '../rate-calculator';
 
-const DEFAULT_POLL_INTERVAL_MS = 1000;
+const CONTAINER_REFRESH_INTERVAL_MS = 60_000;
 
-/**
- * Open a Server-Sent Events stream that periodically polls Docker containers for stats and emits per-container usage rate events.
- *
- * @param docker - Dockerode client used to list containers and retrieve stats
- * @param request - Incoming Request whose abort signal will stop the stream
- * @param pollIntervalMs - Interval in milliseconds between polls (defaults to 1000)
- * @returns A Response whose body is an SSE ReadableStream. The stream emits `data` events containing objects with `containerId`, `containerName`, `image`, computed rate fields, and `timestamp`. On errors the stream emits an `error` event with `{ error: string }`
- */
-export function handleStatsStream(
-  docker: Dockerode,
-  request: Request,
-  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
-): Response {
+export function handleStatsStream(docker: Dockerode, request: Request): Response {
   let closed = false;
-  const rateCalculator = new RateCalculator();
   const encoder = new TextEncoder();
+  const containerStreams: Readable[] = [];
 
   const stream = new ReadableStream({
     async start(controller) {
       request.signal.addEventListener('abort', () => {
         closed = true;
-        rateCalculator.clear();
+        for (const s of containerStreams) {
+          if (typeof s.destroy === 'function') s.destroy();
+        }
         try {
           controller.close();
         } catch {
-          // controller may already be closed if the poll loop exited first
+          // controller may already be closed
         }
       });
 
-      const poll = async () => {
-        while (!closed) {
-          try {
-            const containers = await docker.listContainers({ all: false });
-            const activeIds = new Set(containers.map((c) => c.Id));
-            rateCalculator.pruneExcept(activeIds);
-            const snapshots = await Promise.allSettled(
-              containers.map(async (container) => {
-                const dockerContainer = docker.getContainer(container.Id);
-                const stats = await dockerContainer.stats({ stream: false });
-                return { container, stats };
-              })
-            );
+      try {
+        let containers = await docker.listContainers({ all: false });
+        let lastRefresh = Date.now();
 
-            for (const result of snapshots) {
-              if (closed) break;
-              if (result.status !== 'fulfilled') continue;
-              const { container, stats } = result.value;
-              const id = container.Id;
-              const name = container.Names[0]?.replace(/^\//, '') ?? id;
-              const rates = rateCalculator.calculate(id, stats);
-              if (!rates) continue;
+        const openStream = (containerInfo: Dockerode.ContainerInfo) => {
+          const id = containerInfo.Id;
+          const name = containerInfo.Names[0]?.replace(/^\//, '') ?? id;
+          const image = containerInfo.Image;
+          const container = docker.getContainer(id);
 
-              const data = {
-                containerId: id,
-                containerName: name,
-                image: container.Image,
-                ...rates,
-                timestamp: new Date().toISOString(),
-              };
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-            }
-          } catch (error) {
+          container.stats({ stream: true }).then((statsStream) => {
+            const readable = statsStream as unknown as Readable;
+            containerStreams.push(readable);
+
+            let buffer = '';
+            readable.on('data', (chunk: Buffer) => {
+              if (closed) return;
+              buffer += chunk.toString();
+
+              let newlineIdx;
+              while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+                const line = buffer.slice(0, newlineIdx).trim();
+                buffer = buffer.slice(newlineIdx + 1);
+                if (!line) continue;
+
+                try {
+                  const stats = JSON.parse(line);
+                  const event = { containerId: id, containerName: name, image, stats };
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                } catch {
+                  // malformed JSON frame, skip
+                }
+              }
+            });
+
+            readable.on('error', (error: Error) => {
+              if (!closed) {
+                controller.enqueue(
+                  encoder.encode(`event: container-error\ndata: ${JSON.stringify({ containerId: id, error: error.message })}\n\n`)
+                );
+              }
+            });
+
+            readable.on('end', () => {
+              const idx = containerStreams.indexOf(readable);
+              if (idx !== -1) containerStreams.splice(idx, 1);
+            });
+          }).catch((error: Error) => {
             if (!closed) {
-              const msg = error instanceof Error ? error.message : String(error);
-              controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`));
+              controller.enqueue(
+                encoder.encode(`event: container-error\ndata: ${JSON.stringify({ containerId: id, error: error.message })}\n\n`)
+              );
             }
-          }
+          });
+        };
 
-          if (!closed) {
-            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        for (const c of containers) {
+          openStream(c);
+        }
+
+        // Periodically check for container changes
+        while (!closed) {
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+          if (closed) break;
+
+          const now = Date.now();
+          if (now - lastRefresh < CONTAINER_REFRESH_INTERVAL_MS) continue;
+          lastRefresh = now;
+
+          try {
+            const current = await docker.listContainers({ all: false });
+            const currentIds = new Set(current.map(c => c.Id));
+            const previousIds = new Set(containers.map(c => c.Id));
+
+            for (const c of current) {
+              if (!previousIds.has(c.Id)) openStream(c);
+            }
+
+            containers = current;
+
+            if (!closed) {
+              controller.enqueue(
+                encoder.encode(`event: containers\ndata: ${JSON.stringify({ ids: [...currentIds] })}\n\n`)
+              );
+            }
+          } catch {
+            // transient error listing containers, will retry next interval
           }
         }
-      };
-
-      poll();
+      } catch (error) {
+        if (!closed) {
+          const msg = error instanceof Error ? error.message : String(error);
+          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`));
+          controller.close();
+        }
+      }
     },
   });
 
