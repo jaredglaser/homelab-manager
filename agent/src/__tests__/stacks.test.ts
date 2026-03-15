@@ -72,6 +72,15 @@ describe('handleStackDeploy', () => {
     const envPath = join(TEST_STACKS_DIR, 'plex', '.env');
     expect(existsSync(envPath)).toBe(true);
     expect(readFileSync(envPath, 'utf-8')).toBe(body.envContent);
+
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+    expect(mockSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cmd: ['docker', 'compose', '-f', composePath, 'up', '-d', '--remove-orphans'],
+        cwd: join(TEST_STACKS_DIR, 'plex'),
+        env: expect.objectContaining({ COMPOSE_PROJECT_NAME: 'plex' }),
+      })
+    );
   });
 
   test('returns 400 for missing stack name', async () => {
@@ -110,6 +119,34 @@ describe('handleStackDeploy', () => {
 
     const response = await handleStackDeploy(request, TEST_STACKS_DIR, mockSpawn as any);
     expect(response.status).toBe(500);
+  });
+});
+
+describe('handleStackDeploy — payload size limits', () => {
+  test('returns 413 for oversized composeContent', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex', composeContent: 'x'.repeat(1_048_577) }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(413);
+    const result = await response.json();
+    expect(result.error).toBe('composeContent too large');
+  });
+
+  test('returns 413 for oversized envContent', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex', composeContent: 'services: {}', envContent: 'x'.repeat(65_537) }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(413);
+    const result = await response.json();
+    expect(result.error).toBe('envContent too large');
   });
 });
 
@@ -187,6 +224,14 @@ describe('handleStackTeardown', () => {
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result.status).toBe('success');
+
+    expect(successSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cmd: ['docker', 'compose', '-f', join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), 'down'],
+        cwd: join(TEST_STACKS_DIR, 'plex'),
+        env: expect.objectContaining({ COMPOSE_PROJECT_NAME: 'plex' }),
+      })
+    );
   });
 
   test('returns 500 when docker compose down fails', async () => {
@@ -268,6 +313,14 @@ describe('handleStackRestart', () => {
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result.status).toBe('success');
+
+    expect(successSpawn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cmd: ['docker', 'compose', '-f', join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'restart'],
+        cwd: join(TEST_STACKS_DIR, 'traefik'),
+        env: expect.objectContaining({ COMPOSE_PROJECT_NAME: 'traefik' }),
+      })
+    );
   });
 
   test('returns 500 when docker compose restart fails', async () => {

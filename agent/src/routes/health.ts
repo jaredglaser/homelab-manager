@@ -31,7 +31,7 @@ export async function handleHealth(docker: Dockerode): Promise<Response> {
       {
         status: 'unhealthy',
         agentVersion: version,
-        error: error instanceof Error ? error.message : String(error),
+        error: 'docker_unreachable',
       },
       { status: 503 }
     );

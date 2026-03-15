@@ -31,13 +31,17 @@ export function authenticateRequest(
     return null;
   }
 
+  if (!expectedToken.trim()) {
+    return new Response('Internal Server Error', { status: 500 });
+  }
+
   const authHeader = headers.get('Authorization');
   if (!authHeader) {
     return new Response('Unauthorized', { status: 401 });
   }
 
   const [scheme, token] = authHeader.split(' ', 2);
-  if (scheme !== 'Bearer' || !token || !constantTimeEqual(token, expectedToken)) {
+  if (scheme !== 'Bearer' || !token?.trim() || !constantTimeEqual(token, expectedToken)) {
     return new Response('Unauthorized', { status: 401 });
   }
 

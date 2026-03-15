@@ -2,6 +2,8 @@ import { mkdirSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+const MAX_COMPOSE_SIZE_BYTES = 1_048_576; // 1 MB
+const MAX_ENV_SIZE_BYTES = 65_536; // 64 KB
 
 /**
  * Validate a stack name and produce an HTTP 400 response when it is missing or invalid.
@@ -51,6 +53,13 @@ export async function handleStackDeploy(
       { error: 'Missing required fields: stack, composeContent' },
       { status: 400 }
     );
+  }
+
+  if (Buffer.byteLength(body.composeContent) > MAX_COMPOSE_SIZE_BYTES) {
+    return Response.json({ error: 'composeContent too large' }, { status: 413 });
+  }
+  if (body.envContent && Buffer.byteLength(body.envContent) > MAX_ENV_SIZE_BYTES) {
+    return Response.json({ error: 'envContent too large' }, { status: 413 });
   }
 
   const nameError = validateStackName(body.stack);

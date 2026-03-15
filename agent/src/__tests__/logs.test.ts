@@ -128,6 +128,41 @@ describe('handleLogStream', () => {
     expect(body).toContain(`data: ${JSON.stringify({ stream: 'stderr', text: 'stderr line' })}`);
   });
 
+  test('muxed mode: handles frames split across chunks', async () => {
+    const logEmitter = new EventEmitter();
+
+    const mockContainer = {
+      inspect: mock(() => Promise.resolve({ Config: { Tty: false } })),
+      logs: mock(() => Promise.resolve(logEmitter)),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest();
+    const response = handleLogStream(mockDocker as any, 'abc123', request);
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Build a muxed frame for "split across chunks"
+    const payload = Buffer.from('split across chunks');
+    const header = Buffer.alloc(8);
+    header[0] = 1; // stdout
+    header.writeUInt32BE(payload.length, 4);
+    const fullFrame = Buffer.concat([header, payload]);
+
+    // Split the frame in the middle of the payload
+    const splitPoint = 12; // 8-byte header + 4 bytes of payload
+    const chunk1 = fullFrame.subarray(0, splitPoint);
+    const chunk2 = fullFrame.subarray(splitPoint);
+
+    logEmitter.emit('data', chunk1);
+    logEmitter.emit('data', chunk2);
+    logEmitter.emit('end');
+
+    const body = await drainStream(response);
+
+    expect(body).toContain(`data: ${JSON.stringify({ stream: 'stdout', text: 'split across chunks' })}`);
+  });
+
   test('stream end: closes the SSE stream cleanly', async () => {
     const logEmitter = new EventEmitter();
 

@@ -37,6 +37,27 @@ describe('authenticateRequest', () => {
     expect(result).toBeNull();
   });
 
+  test('returns 500 when expectedToken is empty', () => {
+    const headers = new Headers({ Authorization: 'Bearer ' });
+    const result = authenticateRequest(headers, '');
+    expect(result).toBeInstanceOf(Response);
+    expect(result!.status).toBe(500);
+  });
+
+  test('returns 500 when expectedToken is whitespace', () => {
+    const headers = new Headers({ Authorization: 'Bearer valid' });
+    const result = authenticateRequest(headers, '   ');
+    expect(result).toBeInstanceOf(Response);
+    expect(result!.status).toBe(500);
+  });
+
+  test('returns 401 for whitespace-only bearer token', () => {
+    const headers = new Headers({ Authorization: 'Bearer    ' });
+    const result = authenticateRequest(headers, validToken);
+    expect(result).toBeInstanceOf(Response);
+    expect(result!.status).toBe(401);
+  });
+
   test('returns 401 for token with matching prefix but different length', () => {
     const headers = new Headers({ Authorization: `Bearer ${validToken}-extra` });
     const result = authenticateRequest(headers, validToken);

@@ -41,12 +41,22 @@ export function handleLogStream(
           timestamps: true,
         })) as unknown as Readable;
 
+        let muxedRemainder: Buffer = Buffer.alloc(0);
+
         logStream.on('data', (chunk: Buffer) => {
           if (closed) return;
 
-          const lines = isTty
-            ? parseTtyChunk(chunk)
-            : parseMuxedChunk(chunk);
+          let lines: LogLine[];
+          if (isTty) {
+            lines = parseTtyChunk(chunk);
+          } else {
+            const input = muxedRemainder.length > 0
+              ? Buffer.concat([muxedRemainder, chunk])
+              : chunk;
+            const result = parseMuxedChunk(input);
+            lines = result.lines;
+            muxedRemainder = result.remainder;
+          }
 
           for (const line of lines) {
             controller.enqueue(
@@ -115,23 +125,31 @@ function parseTtyChunk(chunk: Buffer): LogLine[] {
     .map((text) => ({ stream: 'stdout' as const, text }));
 }
 
+interface MuxedParseResult {
+  lines: LogLine[];
+  remainder: Buffer;
+}
+
 /**
  * Parse a Docker multiplexed log buffer into individual log lines with stream metadata.
  *
+ * Returns any incomplete frame bytes as `remainder` so the caller can prepend them
+ * to the next chunk, preventing data loss at chunk boundaries.
+ *
  * @param chunk - A buffer containing Docker's multiplexed log frames (8-byte headers followed by payloads).
- * @returns An array of LogLine objects where each element has `stream` set to `'stdout'` or `'stderr'` and `text` containing the log message; empty messages are omitted.
+ * @returns An object with parsed `lines` and any incomplete `remainder` bytes.
  */
-function parseMuxedChunk(chunk: Buffer): LogLine[] {
+function parseMuxedChunk(chunk: Buffer): MuxedParseResult {
   const lines: LogLine[] = [];
   let offset = 0;
 
   while (offset + 8 <= chunk.length) {
     const streamType = chunk[offset] === 2 ? 'stderr' : 'stdout';
     const size = chunk.readUInt32BE(offset + 4);
+
+    if (offset + 8 + size > chunk.length) break;
+
     offset += 8;
-
-    if (offset + size > chunk.length) break;
-
     const text = chunk.subarray(offset, offset + size).toString().trimEnd();
     if (text.length > 0) {
       lines.push({ stream: streamType, text });
@@ -139,5 +157,6 @@ function parseMuxedChunk(chunk: Buffer): LogLine[] {
     offset += size;
   }
 
-  return lines;
+  const remainder = offset < chunk.length ? chunk.subarray(offset) : Buffer.alloc(0);
+  return { lines, remainder };
 }
