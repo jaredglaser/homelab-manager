@@ -27,10 +27,12 @@ try {
   console.error(`Invalid DOCKER_HOST URL: '${DOCKER_HOST}'. Expected format: tcp://host:port`);
   process.exit(1);
 }
+const isHttps = dockerUrl.protocol === 'https:';
+const dockerPort = Number(dockerUrl.port) || (isHttps ? 2376 : 2375);
 const docker = new Dockerode({
   host: dockerUrl.hostname,
-  port: Number(dockerUrl.port),
-  protocol: dockerUrl.protocol === 'https:' ? 'https' : 'http',
+  port: dockerPort,
+  protocol: isHttps ? 'https' : 'http',
 });
 
 Bun.serve({

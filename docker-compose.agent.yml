@@ -51,3 +51,7 @@ services:
 
 volumes:
   homelab-stacks:
+
+networks:
+  homelab-network:
+    external: true
