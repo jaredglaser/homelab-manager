@@ -1,9 +1,21 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
 
-const CONTAINER_REFRESH_INTERVAL_MS = 60_000;
+const DEFAULT_REFRESH_INTERVAL_MS = 60_000;
+const DEFAULT_POLL_INTERVAL_MS = 5_000;
 
-export function handleStatsStream(docker: Dockerode, request: Request): Response {
+export interface StatsStreamOptions {
+  refreshIntervalMs?: number;
+  pollIntervalMs?: number;
+}
+
+export function handleStatsStream(
+  docker: Dockerode,
+  request: Request,
+  options: StatsStreamOptions = {}
+): Response {
+  const refreshIntervalMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   let closed = false;
   const encoder = new TextEncoder();
   const containerStreams = new Map<string, Readable>();
@@ -94,11 +106,11 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
 
         // Periodically check for container changes
         while (!closed) {
-          await new Promise((resolve) => setTimeout(resolve, 5000));
+          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
           if (closed) break;
 
           const now = Date.now();
-          if (now - lastRefresh < CONTAINER_REFRESH_INTERVAL_MS) continue;
+          if (now - lastRefresh < refreshIntervalMs) continue;
           lastRefresh = now;
 
           try {

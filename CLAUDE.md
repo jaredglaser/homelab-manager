@@ -14,14 +14,23 @@ bun run dev:local:up          # Start postgres + worker in Docker
 bun dev                       # Start web server on port 3000 with HMR
 bun run dev:local:down        # Stop Docker services
 bun run dev:local:rebuild     # Rebuild and restart Docker services
+bun run dev:local:wipe        # Stop Docker services and delete volumes
+bun run dev:local:logs        # Tail all Docker service logs
 
 # Testing & Build
 bun run typecheck             # TypeScript type checking
-bun test                      # Run all tests (enforces 95%/99% coverage)
+bun test                      # Run all tests (enforces 96%/99% coverage)
+bun test --watch              # Run tests in watch mode
 bun build                     # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)
 bun worker                    # Run background collector locally
 bun icons:download            # Download dashboard icons from homarr-labs/dashboard-icons
+
+# Agent (separate package in agent/)
+cd agent && bun dev            # Run agent with --watch
+cd agent && bun test           # Run agent tests
+cd agent && bun run test:coverage  # Agent tests with coverage enforcement (96%/99%)
+cd agent && bun run typecheck  # Agent type checking
 ```
 
 ## Critical Rules
@@ -32,7 +41,7 @@ bun icons:download            # Download dashboard icons from homarr-labs/dashbo
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app with `node:async_hooks` errors.
 5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Use div-based rows (not `<table>/<tr>/<td>`). Server handles client disconnect via `request.signal`. Never use TanStack Start streaming server functions for real-time data.
 6. **File Creation**: PREFER editing existing files over creating new ones.
-7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 95% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead.
+7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 96% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead.
 8. **Logging**: Be purposeful with console methods. Use `console.error` for actual errors, `console.info` for operational messages (startup, shutdown), and `console.log` sparingly for temporary debugging only (do not commit). No drive-by `console.log` statements in committed code.
 9. **Routing**: Never edit `routeTree.gen.ts` (auto-generated). `AppShell` renders in root layout (`__root.tsx`) - never wrap individual routes with it. All routes use `ssr: false`. QueryClient is a singleton in `AppShell.tsx` - never create per-route.
 10. **Entity IDs**: Always use entity IDs with host prefix (e.g., `server1/tank`, `192.168.1.10/abc123`) for state keys and uniqueness checks. Never use display names - they collide across hosts.
@@ -69,6 +78,8 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 
 Pattern: `createFileRoute` with `server.handlers.GET` → dynamic import server-init + poll service → `ReadableStream` + subscribe → cleanup on `request.signal` abort. Track `closed` flag to prevent enqueue-after-close.
 
+Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `settings`, `docker-logs.$containerId` (parameterized).
+
 ```typescript
 // ALWAYS dynamic import - static imports break the client bundle:
 const { statsPollService } = await import('@/lib/database/subscription-service');
@@ -82,6 +93,10 @@ const { statsPollService } = await import('@/lib/database/subscription-service')
 - **Demo mode**: `VITE_DEMO_MODE=true` swaps server functions via Vite aliases and patches `EventSource`. Zero changes to routes/hooks/components. Mock entities defined in `src/lib/mock/entities.ts`.
 - **Worker**: Collectors extend `BaseCollector` (AsyncDisposable, exponential backoff). Entry point uses `AsyncDisposableStack` for cleanup.
 - **Entity IDs**: Docker=`host/container_id`, ZFS=`host/pool/vdev/disk` (hierarchy via indent: 0=pool, 2=vdev, 4+=disk), Proxmox=varies by type.
+
+### Agent (`agent/`)
+
+Separate Bun package that runs as a sidecar container alongside Docker hosts. Provides a REST/SSE API for Docker management operations (deploy, logs, stats streaming). Uses raw `Bun.serve()` with manual route matching and timing-safe auth middleware — zero framework dependencies beyond Dockerode. The agent replaces direct Docker API calls from the worker — the main app communicates with agents rather than Docker hosts directly.
 
 ### Database Tables
 

@@ -1,6 +1,6 @@
 import { describe, expect, test, mock } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { handleStatsStream } from '../routes/stats';
+import { handleStatsStream, type StatsStreamOptions } from '../routes/stats';
 
 // Read chunks from the stream until predicate is satisfied or timeout
 async function readUntil(
@@ -175,6 +175,90 @@ describe('handleStatsStream', () => {
     expect(text).toContain('"error":"stats unavailable"');
   });
 
+  test('emits container-error SSE event when stats stream emits error', async () => {
+    const statsEmitter = new EventEmitter();
+    const container = { Id: 'err1', Names: ['/errtest'], Image: 'test:latest' };
+
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve([container])),
+      getContainer: mock(() => ({
+        stats: mock(() => Promise.resolve(statsEmitter)),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request);
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    statsEmitter.emit('error', new Error('connection reset'));
+
+    const text = await readUntil(response, (s) => s.includes('container-error'));
+    ac.abort();
+
+    expect(text).toContain('event: container-error');
+    expect(text).toContain('"containerId":"err1"');
+    expect(text).toContain('"error":"connection reset"');
+  });
+
+  test('cleans up container stream on end event', async () => {
+    const statsEmitter = new EventEmitter();
+    const destroySpy = mock(() => {});
+    (statsEmitter as any).destroy = destroySpy;
+
+    const container = { Id: 'end1', Names: ['/endtest'], Image: 'test:latest' };
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve([container])),
+      getContainer: mock(() => ({
+        stats: mock(() => Promise.resolve(statsEmitter)),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    handleStatsStream(mockDocker as any, request);
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Emit end — the stream should be cleaned up
+    statsEmitter.emit('end');
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Now abort — destroy should NOT be called since stream already ended and was removed
+    ac.abort();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(destroySpy).not.toHaveBeenCalled();
+  });
+
+  test('skips malformed JSON frames without crashing', async () => {
+    const statsEmitter = new EventEmitter();
+    const container = { Id: 'json1', Names: ['/jsontest'], Image: 'test:latest' };
+
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve([container])),
+      getContainer: mock(() => ({
+        stats: mock(() => Promise.resolve(statsEmitter)),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request);
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Send malformed JSON followed by valid JSON
+    statsEmitter.emit('data', Buffer.from('not valid json\n' + makeStatsJson() + '\n'));
+
+    const text = await readUntil(response, (s) => s.includes('"containerId"'));
+    ac.abort();
+
+    // The valid frame should still come through
+    expect(text).toContain('"containerId":"json1"');
+  });
+
   test('forwards multiple NDJSON frames from a single chunk', async () => {
     const statsEmitter = new EventEmitter();
 
@@ -205,5 +289,98 @@ describe('handleStatsStream', () => {
 
     const events = text.split('\n\n').filter(Boolean);
     expect(events.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+const fastOptions: StatsStreamOptions = { refreshIntervalMs: 0, pollIntervalMs: 10 };
+
+describe('handleStatsStream — container refresh', () => {
+  test('detects new containers and opens streams for them', async () => {
+    const container1 = { Id: 'c1', Names: ['/first'], Image: 'a:latest' };
+    const container2 = { Id: 'c2', Names: ['/second'], Image: 'b:latest' };
+    const emitter1 = new EventEmitter();
+    const emitter2 = new EventEmitter();
+
+    let callCount = 0;
+    const mockDocker = {
+      listContainers: mock(() => {
+        callCount++;
+        // First call returns 1 container, second returns 2
+        return Promise.resolve(callCount <= 1 ? [container1] : [container1, container2]);
+      }),
+      getContainer: mock((id: string) => ({
+        stats: mock(() => Promise.resolve(id === 'c1' ? emitter1 : emitter2)),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request, fastOptions);
+
+    // Wait for initial load + at least one refresh cycle
+    await new Promise((r) => setTimeout(r, 80));
+
+    // Emit data from the new container
+    emitter2.emit('data', Buffer.from(makeStatsJson() + '\n'));
+
+    const text = await readUntil(response, (s) =>
+      s.includes('event: containers') && s.includes('"c2"')
+    );
+    ac.abort();
+
+    expect(text).toContain('event: containers');
+    expect(text).toContain('"c2"');
+  });
+
+  test('destroys streams for removed containers', async () => {
+    const container1 = { Id: 'rm1', Names: ['/removeme'], Image: 'x:latest' };
+    const emitter1 = new EventEmitter();
+    const destroySpy = mock(() => {});
+    (emitter1 as any).destroy = destroySpy;
+
+    let callCount = 0;
+    const mockDocker = {
+      listContainers: mock(() => {
+        callCount++;
+        // First call returns container, second returns empty
+        return Promise.resolve(callCount <= 1 ? [container1] : []);
+      }),
+      getContainer: mock(() => ({
+        stats: mock(() => Promise.resolve(emitter1)),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request, fastOptions);
+
+    // Wait for initial + refresh
+    const text = await readUntil(response, (s) => s.includes('event: containers'), 2000);
+    ac.abort();
+
+    expect(destroySpy).toHaveBeenCalledTimes(1);
+    expect(text).toContain('event: containers');
+  });
+
+  test('emits refresh_failed event on container list error during refresh', async () => {
+    let callCount = 0;
+    const mockDocker = {
+      listContainers: mock(() => {
+        callCount++;
+        if (callCount <= 1) return Promise.resolve([]);
+        return Promise.reject(new Error('Docker daemon down'));
+      }),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request, fastOptions);
+
+    const text = await readUntil(response, (s) => s.includes('refresh_failed'), 2000);
+    ac.abort();
+
+    expect(text).toContain('event: container-error');
+    expect(text).toContain('"type":"refresh_failed"');
+    expect(text).toContain('"error":"Docker daemon down"');
   });
 });
