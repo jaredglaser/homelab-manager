@@ -101,6 +101,7 @@ export function handleLogStream(
               `event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`
             )
           );
+          closed = true;
           controller.close();
         } catch {
           // controller may already be closed

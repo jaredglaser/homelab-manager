@@ -27,11 +27,13 @@ export async function handleHealth(docker: Dockerode): Promise<Response> {
     );
   } catch (error) {
     console.error('Health check failed:', error);
+    const detail = error instanceof Error ? error.message : String(error);
     return Response.json(
       {
         status: 'unhealthy',
         agentVersion: version,
         error: 'docker_unreachable',
+        detail,
       },
       { status: 503 }
     );

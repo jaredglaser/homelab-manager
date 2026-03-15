@@ -65,7 +65,7 @@ export function handleStatsStream(
                   const event = { containerId: id, containerName: name, image, stats };
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
                 } catch {
-                  // malformed JSON frame, skip
+                  console.error(`Malformed stats JSON from container ${id}, skipping frame`);
                 }
               }
             });
@@ -88,6 +88,7 @@ export function handleStatsStream(
               containerStreams.delete(id);
             });
           }).catch((error: Error) => {
+            console.error(`Failed to open stats stream for container ${id}:`, error.message);
             if (!closed) {
               try {
                 controller.enqueue(
@@ -157,10 +158,15 @@ export function handleStatsStream(
           }
         }
       } catch (error) {
+        console.error('Failed to start stats stream:', error);
         if (!closed) {
-          const msg = error instanceof Error ? error.message : String(error);
-          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`));
-          controller.close();
+          try {
+            const msg = error instanceof Error ? error.message : String(error);
+            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`));
+            controller.close();
+          } catch {
+            // controller may already be closed
+          }
         }
       }
     },

@@ -34,5 +34,6 @@ describe('handleHealth', () => {
     expect(response.status).toBe(503);
     expect(body.status).toBe('unhealthy');
     expect(body.error).toBe('docker_unreachable');
+    expect(body.detail).toBe('Connection refused');
   });
 });

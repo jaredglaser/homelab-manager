@@ -81,27 +81,36 @@ export async function handleStackDeploy(
     return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
   }
 
-  const proc = spawn({
-    cmd: [
-      'docker',
-      'compose',
-      '-f',
-      join(stackDir, 'docker-compose.yml'),
-      'up',
-      '-d',
-      '--remove-orphans',
-    ],
-    cwd: stackDir,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
-  });
+  let exitCode: number;
+  let stdout: string;
+  let stderr: string;
+  try {
+    const proc = spawn({
+      cmd: [
+        'docker',
+        'compose',
+        '-f',
+        join(stackDir, 'docker-compose.yml'),
+        'up',
+        '-d',
+        '--remove-orphans',
+      ],
+      cwd: stackDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
+    });
 
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
+    [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to execute docker compose for ${body.stack}:`, error);
+    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+  }
 
   if (exitCode !== 0) {
     return Response.json(
@@ -158,19 +167,28 @@ export async function handleStackTeardown(
     );
   }
 
-  const proc = spawn({
-    cmd: ['docker', 'compose', '-f', composePath, 'down'],
-    cwd: stackDir,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
-  });
+  let exitCode: number;
+  let stdout: string;
+  let stderr: string;
+  try {
+    const proc = spawn({
+      cmd: ['docker', 'compose', '-f', composePath, 'down'],
+      cwd: stackDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
+    });
 
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
+    [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to execute docker compose for ${body.stack}:`, error);
+    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+  }
 
   if (exitCode !== 0) {
     return Response.json(
@@ -235,19 +253,28 @@ export async function handleStackRestart(
     );
   }
 
-  const proc = spawn({
-    cmd: ['docker', 'compose', '-f', composePath, 'restart'],
-    cwd: stackDir,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
-  });
+  let exitCode: number;
+  let stdout: string;
+  let stderr: string;
+  try {
+    const proc = spawn({
+      cmd: ['docker', 'compose', '-f', composePath, 'restart'],
+      cwd: stackDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
+    });
 
-  const [exitCode, stdout, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
+    [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to execute docker compose for ${body.stack}:`, error);
+    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+  }
 
   if (exitCode !== 0) {
     return Response.json(
@@ -279,6 +306,7 @@ export async function handleStackStatus(
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
+    if (!VALID_STACK_NAME.test(entry.name)) continue;
 
     const composePath = join(stacksDir, entry.name, 'docker-compose.yml');
     if (!existsSync(composePath)) continue;

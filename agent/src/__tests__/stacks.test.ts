@@ -19,6 +19,7 @@ const successSpawn = mock(() => ({
 }));
 
 beforeEach(() => {
+  successSpawn.mockClear();
   mkdirSync(TEST_STACKS_DIR, { recursive: true });
 });
 
@@ -174,6 +175,29 @@ describe('handleStackDeploy — path traversal', () => {
   });
 });
 
+describe('handleStackDeploy — spawn failure', () => {
+  test('returns 500 with detail when spawn throws', async () => {
+    const throwSpawn = mock(() => { throw new Error('docker: not found'); });
+
+    const body = {
+      stack: 'plex',
+      composeContent: 'services:\n  plex:\n    image: nginx',
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, throwSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to execute docker compose');
+    expect(result.error).toContain('docker: not found');
+  });
+});
+
 describe('handleStackTeardown', () => {
   test('returns 400 for invalid JSON body', async () => {
     const request = new Request('http://localhost/stacks/teardown', {
@@ -263,6 +287,26 @@ describe('handleStackTeardown', () => {
   });
 });
 
+describe('handleStackTeardown — spawn failure', () => {
+  test('returns 500 with detail when spawn throws', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), 'services: {}');
+
+    const throwSpawn = mock(() => { throw new Error('ENOENT'); });
+
+    const request = new Request('http://localhost/stacks/teardown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex' }),
+    });
+
+    const response = await handleStackTeardown(request, TEST_STACKS_DIR, throwSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to execute docker compose');
+  });
+});
+
 describe('handleStackRestart', () => {
   test('returns 400 for invalid JSON body', async () => {
     const request = new Request('http://localhost/stacks/restart', {
@@ -349,6 +393,26 @@ describe('handleStackRestart', () => {
     const result = await response.json();
     expect(result.status).toBe('failed');
     expect(result.exitCode).toBe(1);
+  });
+});
+
+describe('handleStackRestart — spawn failure', () => {
+  test('returns 500 with detail when spawn throws', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    const throwSpawn = mock(() => { throw new Error('EACCES'); });
+
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik' }),
+    });
+
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, throwSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to execute docker compose');
   });
 });
 

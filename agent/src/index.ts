@@ -5,7 +5,15 @@ import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
 import { handleStackDeploy, handleStackTeardown, handleStackRestart, handleStackStatus } from './routes/stacks';
 
-const PORT = Number(process.env.AGENT_PORT) || 9090;
+const portEnv = process.env.AGENT_PORT;
+let PORT = 9090;
+if (portEnv !== undefined && portEnv !== '') {
+  PORT = Number(portEnv);
+  if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+    console.error(`Invalid AGENT_PORT: '${portEnv}'. Must be an integer between 1 and 65535.`);
+    process.exit(1);
+  }
+}
 const STACKS_DIR = process.env.STACKS_DIR || '/opt/homelab-manager/stacks';
 const AGENT_TOKEN = process.env.AGENT_TOKEN;
 const DOCKER_HOST = process.env.DOCKER_HOST;
@@ -68,8 +76,9 @@ Bun.serve({
 
       return new Response('Not Found', { status: 404 });
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
       console.error('Unhandled error in request handler:', error);
-      return Response.json({ error: 'Internal server error' }, { status: 500 });
+      return Response.json({ error: 'Internal server error', detail }, { status: 500 });
     }
   },
 });
