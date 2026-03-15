@@ -23,7 +23,7 @@ describe('handleHealth', () => {
     expect(body.docker.apiVersion).toBe('1.43');
   });
 
-  test('returns 503 when Docker is unreachable', async () => {
+  test('returns 503 with error message when Docker is unreachable', async () => {
     const mockDocker = {
       version: mock(() => Promise.reject(new Error('Connection refused'))),
     };
@@ -33,6 +33,6 @@ describe('handleHealth', () => {
 
     expect(response.status).toBe(503);
     expect(body.status).toBe('unhealthy');
-    expect(body.error).toBeUndefined();
+    expect(body.error).toBe('Connection refused');
   });
 });

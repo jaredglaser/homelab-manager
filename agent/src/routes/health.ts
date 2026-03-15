@@ -23,6 +23,7 @@ export async function handleHealth(docker: Dockerode): Promise<Response> {
       {
         status: 'unhealthy',
         agentVersion: version,
+        error: error instanceof Error ? error.message : String(error),
       },
       { status: 503 }
     );
