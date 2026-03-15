@@ -25,7 +25,11 @@ export function handleLogStream(
         if (typeof logStream?.destroy === 'function') {
           logStream.destroy();
         }
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // controller may already be closed
+        }
       });
 
       try {
@@ -58,10 +62,14 @@ export function handleLogStream(
             muxedRemainder = result.remainder;
           }
 
-          for (const line of lines) {
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify(line)}\n\n`)
-            );
+          try {
+            for (const line of lines) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify(line)}\n\n`)
+              );
+            }
+          } catch {
+            // enqueue-after-close race — client already disconnected
           }
         });
 
@@ -85,13 +93,18 @@ export function handleLogStream(
           }
         });
       } catch (error) {
+        console.error(`Failed to start log stream for container ${containerId}:`, error);
         const msg = error instanceof Error ? error.message : String(error);
-        controller.enqueue(
-          encoder.encode(
-            `event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`
-          )
-        );
-        controller.close();
+        try {
+          controller.enqueue(
+            encoder.encode(
+              `event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`
+            )
+          );
+          controller.close();
+        } catch {
+          // controller may already be closed
+        }
       }
     },
   });

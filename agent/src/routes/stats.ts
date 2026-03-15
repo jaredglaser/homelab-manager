@@ -59,10 +59,15 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
             });
 
             readable.on('error', (error: Error) => {
+              console.error(`Stats stream error for container ${id}:`, error.message);
               if (!closed) {
-                controller.enqueue(
-                  encoder.encode(`event: container-error\ndata: ${JSON.stringify({ containerId: id, error: error.message })}\n\n`)
-                );
+                try {
+                  controller.enqueue(
+                    encoder.encode(`event: container-error\ndata: ${JSON.stringify({ containerId: id, error: error.message })}\n\n`)
+                  );
+                } catch {
+                  // enqueue-after-close race
+                }
               }
               containerStreams.delete(id);
             });
@@ -119,6 +124,16 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
             }
           } catch (error) {
             console.error('Failed to refresh container list:', error);
+            if (!closed) {
+              try {
+                const msg = error instanceof Error ? error.message : String(error);
+                controller.enqueue(
+                  encoder.encode(`event: container-error\ndata: ${JSON.stringify({ error: msg, type: 'refresh_failed' })}\n\n`)
+                );
+              } catch {
+                // enqueue-after-close race
+              }
+            }
           }
         }
       } catch (error) {

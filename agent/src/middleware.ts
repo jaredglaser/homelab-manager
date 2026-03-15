@@ -22,7 +22,7 @@ function constantTimeEqual(a: string, b: string): boolean {
  * @param headers - The request headers to inspect for an `Authorization` entry
  * @param expectedToken - The expected bearer token value to verify
  * @param pathname - Optional request path; authentication is skipped when this equals `/health`
- * @returns A `Response` with status 401 when authentication fails, or `null` when authentication succeeds or is bypassed
+ * @returns A `Response` with status 500 when `expectedToken` is blank, 401 when authentication fails, or `null` when authentication succeeds or is bypassed
  */
 export function authenticateRequest(
   headers: Headers,

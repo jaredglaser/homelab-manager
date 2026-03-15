@@ -275,6 +275,7 @@ export async function handleStackStatus(
     if (!existsSync(composePath)) continue;
 
     let containers: unknown[] = [];
+    let error: string | undefined;
     try {
       const proc = spawn({
         cmd: [
@@ -292,7 +293,7 @@ export async function handleStackStatus(
         env: { ...process.env, COMPOSE_PROJECT_NAME: entry.name },
       });
 
-      const [exitCode, output] = await Promise.all([
+      const [exitCode, output, stderrOutput] = await Promise.all([
         proc.exited,
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
@@ -309,18 +310,22 @@ export async function handleStackStatus(
                 .map(line => JSON.parse(line));
             } catch (parseError) {
               console.error(`Failed to parse docker compose ps output for ${entry.name}:`, parseError);
+              error = 'Failed to parse status output';
             }
           }
         }
+      } else {
+        console.error(`docker compose ps failed for ${entry.name} (exit ${exitCode}): ${stderrOutput}`);
+        error = stderrOutput.trim() || `Exit code ${exitCode}`;
       }
-    } catch (error) {
-      console.error(`Failed to get status for stack ${entry.name}:`, error);
+    } catch (spawnError) {
+      console.error(`Failed to get status for stack ${entry.name}:`, spawnError);
+      error = spawnError instanceof Error ? spawnError.message : String(spawnError);
     }
 
-    stacks.push({
-      name: entry.name,
-      containers,
-    });
+    const stackEntry: Record<string, unknown> = { name: entry.name, containers };
+    if (error) stackEntry.error = error;
+    stacks.push(stackEntry);
   }
 
   return Response.json({ stacks });
