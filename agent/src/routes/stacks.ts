@@ -146,6 +146,9 @@ export async function handleStackTeardown(
   if (nameError) return nameError;
 
   const stackDir = join(stacksDir, body.stack);
+  if (!stackDir.startsWith(stacksDir + '/')) {
+    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+  }
   const composePath = join(stackDir, 'docker-compose.yml');
 
   if (!existsSync(composePath)) {
@@ -220,6 +223,9 @@ export async function handleStackRestart(
   if (nameError) return nameError;
 
   const stackDir = join(stacksDir, body.stack);
+  if (!stackDir.startsWith(stacksDir + '/')) {
+    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+  }
   const composePath = join(stackDir, 'docker-compose.yml');
 
   if (!existsSync(composePath)) {
