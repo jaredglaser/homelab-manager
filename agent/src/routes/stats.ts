@@ -28,6 +28,8 @@ export function handleStatsStream(
         while (!closed) {
           try {
             const containers = await docker.listContainers({ all: false });
+            const activeIds = new Set(containers.map((c) => c.Id));
+            rateCalculator.pruneExcept(activeIds);
             const snapshots = await Promise.allSettled(
               containers.map(async (container) => {
                 const dockerContainer = docker.getContainer(container.Id);

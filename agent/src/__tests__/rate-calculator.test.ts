@@ -60,6 +60,17 @@ describe('RateCalculator', () => {
     expect(calculator.calculate('container1', createMockStats({}))).toBeNull();
   });
 
+  test('pruneExcept removes stale container entries', () => {
+    calculator.calculate('c1', createMockStats({}));
+    calculator.calculate('c2', createMockStats({}));
+    calculator.calculate('c3', createMockStats({}));
+    calculator.pruneExcept(new Set(['c1', 'c3']));
+    currentTime += 1000;
+    expect(calculator.calculate('c1', createMockStats({}))).not.toBeNull();
+    expect(calculator.calculate('c2', createMockStats({}))).toBeNull();
+    expect(calculator.calculate('c3', createMockStats({}))).not.toBeNull();
+  });
+
   test('clear removes all cached data', () => {
     calculator.calculate('c1', createMockStats({}));
     calculator.calculate('c2', createMockStats({}));

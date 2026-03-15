@@ -72,6 +72,12 @@ export class RateCalculator {
     this.previous.delete(containerId);
   }
 
+  pruneExcept(activeIds: Set<string>): void {
+    for (const key of this.previous.keys()) {
+      if (!activeIds.has(key)) this.previous.delete(key);
+    }
+  }
+
   clear(): void {
     this.previous.clear();
   }
