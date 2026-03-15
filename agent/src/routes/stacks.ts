@@ -232,11 +232,18 @@ export async function handleStackStatus(
       ]);
       if (exitCode === 0) {
         if (output.trim()) {
-          containers = JSON.parse(output);
+          try {
+            const parsed = JSON.parse(output);
+            containers = Array.isArray(parsed) ? parsed : [parsed];
+          } catch {
+            containers = output.trim().split('\n')
+              .filter(line => line.trim())
+              .map(line => JSON.parse(line));
+          }
         }
       }
     } catch {
-      // Stack may not be running
+      // docker compose ps may fail (stack not running, spawn error, etc.)
     }
 
     stacks.push({

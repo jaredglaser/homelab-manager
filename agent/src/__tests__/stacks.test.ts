@@ -347,6 +347,32 @@ describe('handleStackStatus', () => {
     expect(result.stacks[0].name).toBe('has-compose');
   });
 
+  test('parses NDJSON output from docker compose ps', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'multi'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'multi', 'docker-compose.yml'), 'services: {}');
+
+    const container1 = { Name: 'multi-web-1', State: 'running', Service: 'web' };
+    const container2 = { Name: 'multi-db-1', State: 'running', Service: 'db' };
+    const ndjson = JSON.stringify(container1) + '\n' + JSON.stringify(container2);
+
+    const ndjsonSpawn = mock(() => ({
+      exited: Promise.resolve(0),
+      stdout: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(ndjson));
+          controller.close();
+        },
+      }),
+      stderr: emptyStream(),
+    }));
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, ndjsonSpawn as any);
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].containers).toEqual([container1, container2]);
+  });
+
   test('returns empty containers when docker compose ps fails', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'broken'), { recursive: true });
     await Bun.write(join(TEST_STACKS_DIR, 'broken', 'docker-compose.yml'), 'services: {}');
