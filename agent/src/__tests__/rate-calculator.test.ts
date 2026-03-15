@@ -1,14 +1,20 @@
-import { describe, expect, test, beforeEach, spyOn } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test';
+import type { Mock } from 'bun:test';
 import { RateCalculator } from '../rate-calculator';
 
 describe('RateCalculator', () => {
   let calculator: RateCalculator;
   let currentTime: number;
+  let dateNowSpy: Mock<() => number>;
 
   beforeEach(() => {
     calculator = new RateCalculator();
     currentTime = 1000000;
-    spyOn(Date, 'now').mockImplementation(() => currentTime);
+    dateNowSpy = spyOn(Date, 'now').mockImplementation(() => currentTime);
+  });
+
+  afterEach(() => {
+    dateNowSpy.mockRestore();
   });
 
   test('returns null on first call (no previous data)', () => {

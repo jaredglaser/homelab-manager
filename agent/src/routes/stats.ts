@@ -1,9 +1,13 @@
 import type Dockerode from 'dockerode';
 import { RateCalculator } from '../rate-calculator';
 
-const POLL_INTERVAL_MS = 1000;
+const DEFAULT_POLL_INTERVAL_MS = 1000;
 
-export function handleStatsStream(docker: Dockerode, request: Request): Response {
+export function handleStatsStream(
+  docker: Dockerode,
+  request: Request,
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+): Response {
   let closed = false;
   const rateCalculator = new RateCalculator();
   const encoder = new TextEncoder();
@@ -13,7 +17,11 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
       request.signal.addEventListener('abort', () => {
         closed = true;
         rateCalculator.clear();
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // controller may already be closed if the poll loop exited first
+        }
       });
 
       const poll = async () => {
@@ -54,7 +62,7 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
           }
 
           if (!closed) {
-            await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
           }
         }
       };

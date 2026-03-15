@@ -33,6 +33,19 @@ afterEach(() => {
 });
 
 describe('handleStackDeploy', () => {
+  test('returns 400 for invalid JSON body', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, noopSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Invalid JSON');
+  });
+
   test('writes compose file and .env to stack directory', async () => {
     const mockSpawn = mock(() => ({
       exited: Promise.resolve(0),
@@ -131,6 +144,19 @@ describe('handleStackDeploy — path traversal', () => {
 });
 
 describe('handleStackTeardown', () => {
+  test('returns 400 for invalid JSON body', async () => {
+    const request = new Request('http://localhost/stacks/teardown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+
+    const response = await handleStackTeardown(request, TEST_STACKS_DIR, noopSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Invalid JSON');
+  });
+
   test('returns 400 for missing stack name', async () => {
     const request = new Request('http://localhost/stacks/teardown', {
       method: 'POST',
@@ -168,9 +194,50 @@ describe('handleStackTeardown', () => {
     const result = await response.json();
     expect(result.status).toBe('success');
   });
+
+  test('returns 500 when docker compose down fails', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), 'services: {}');
+
+    const failSpawn = mock(() => ({
+      exited: Promise.resolve(1),
+      stdout: emptyStream(),
+      stderr: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('Error: compose down failed'));
+          controller.close();
+        },
+      }),
+    }));
+
+    const request = new Request('http://localhost/stacks/teardown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex' }),
+    });
+
+    const response = await handleStackTeardown(request, TEST_STACKS_DIR, failSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.status).toBe('failed');
+    expect(result.exitCode).toBe(1);
+  });
 });
 
 describe('handleStackRestart', () => {
+  test('returns 400 for invalid JSON body', async () => {
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, noopSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Invalid JSON');
+  });
+
   test('returns 400 for missing stack name', async () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
@@ -207,6 +274,34 @@ describe('handleStackRestart', () => {
     expect(response.status).toBe(200);
     const result = await response.json();
     expect(result.status).toBe('success');
+  });
+
+  test('returns 500 when docker compose restart fails', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    const failSpawn = mock(() => ({
+      exited: Promise.resolve(1),
+      stdout: emptyStream(),
+      stderr: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('Error: compose restart failed'));
+          controller.close();
+        },
+      }),
+    }));
+
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik' }),
+    });
+
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, failSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.status).toBe('failed');
+    expect(result.exitCode).toBe(1);
   });
 });
 
