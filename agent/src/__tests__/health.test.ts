@@ -1,5 +1,6 @@
 import { describe, expect, test, mock } from 'bun:test';
 import { handleHealth } from '../routes/health';
+import pkg from '../../package.json';
 
 describe('handleHealth', () => {
   test('returns 200 with agent version and status', async () => {
@@ -17,7 +18,7 @@ describe('handleHealth', () => {
 
     expect(response.status).toBe(200);
     expect(body.status).toBe('healthy');
-    expect(body.agentVersion).toBe('0.1.0');
+    expect(body.agentVersion).toBe(pkg.version);
     expect(body.docker.version).toBe('24.0.7');
     expect(body.docker.apiVersion).toBe('1.43');
   });
@@ -32,6 +33,6 @@ describe('handleHealth', () => {
 
     expect(response.status).toBe(503);
     expect(body.status).toBe('unhealthy');
-    expect(body.error).toBe('Connection refused');
+    expect(body.error).toBeUndefined();
   });
 });

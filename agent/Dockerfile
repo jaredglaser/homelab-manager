@@ -5,6 +5,7 @@ ARG DOCKER_CLI_VERSION=24.0.9
 ARG DOCKER_COMPOSE_VERSION=2.32.4
 
 # Install Docker CLI (static binary — no daemon) and Docker Compose v2 plugin
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     # Docker CLI static binary
@@ -33,6 +34,13 @@ ENV STACKS_DIR=/opt/homelab-manager/stacks
 
 EXPOSE 9090
 
-RUN mkdir -p /opt/homelab-manager/stacks
+RUN adduser --disabled-password --gecos "" agent && \
+    mkdir -p /opt/homelab-manager/stacks && \
+    chown -R agent:agent /opt/homelab-manager/stacks /app
+
+USER agent
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD bun -e "fetch('http://localhost:' + (process.env.AGENT_PORT || 9090) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["bun", "src/index.ts"]

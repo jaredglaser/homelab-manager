@@ -67,6 +67,19 @@ describe('RateCalculator', () => {
     expect(calculator.calculate('c1', createMockStats({}))).toBeNull();
     expect(calculator.calculate('c2', createMockStats({}))).toBeNull();
   });
+
+  test('clamps negative rates to zero on counter reset', () => {
+    const stats1 = createMockStats({ rxBytes: 5000, txBytes: 3000, readBytes: 2000, writeBytes: 1000 });
+    calculator.calculate('container1', stats1);
+    currentTime += 1000;
+    const stats2 = createMockStats({ rxBytes: 100, txBytes: 50, readBytes: 0, writeBytes: 0 });
+    const result = calculator.calculate('container1', stats2);
+    expect(result).not.toBeNull();
+    expect(result!.networkRxBytesPerSec).toBe(0);
+    expect(result!.networkTxBytesPerSec).toBe(0);
+    expect(result!.blockReadBytesPerSec).toBe(0);
+    expect(result!.blockWriteBytesPerSec).toBe(0);
+  });
 });
 
 function createMockStats(overrides: {

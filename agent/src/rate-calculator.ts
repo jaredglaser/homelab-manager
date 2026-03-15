@@ -61,10 +61,10 @@ export class RateCalculator {
       memoryUsage: memUsage,
       memoryLimit: memLimit,
       memoryPercent: memLimit > 0 ? (memUsage / memLimit) * 100 : 0,
-      networkRxBytesPerSec: (rxBytes - prev.rxBytes) / timeDeltaSec,
-      networkTxBytesPerSec: (txBytes - prev.txBytes) / timeDeltaSec,
-      blockReadBytesPerSec: (readBytes - prev.readBytes) / timeDeltaSec,
-      blockWriteBytesPerSec: (writeBytes - prev.writeBytes) / timeDeltaSec,
+      networkRxBytesPerSec: Math.max(0, (rxBytes - prev.rxBytes) / timeDeltaSec),
+      networkTxBytesPerSec: Math.max(0, (txBytes - prev.txBytes) / timeDeltaSec),
+      blockReadBytesPerSec: Math.max(0, (readBytes - prev.readBytes) / timeDeltaSec),
+      blockWriteBytesPerSec: Math.max(0, (writeBytes - prev.writeBytes) / timeDeltaSec),
     };
   }
 

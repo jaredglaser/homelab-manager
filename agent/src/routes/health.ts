@@ -18,11 +18,11 @@ export async function handleHealth(docker: Dockerode): Promise<Response> {
       { status: 200 }
     );
   } catch (error) {
+    console.error('Health check failed:', error);
     return Response.json(
       {
         status: 'unhealthy',
         agentVersion: version,
-        error: error instanceof Error ? error.message : String(error),
       },
       { status: 503 }
     );
