@@ -74,4 +74,4 @@ Bun.serve({
   },
 });
 
-console.error(`Agent listening on port ${PORT}`);
+console.info(`Agent listening on port ${PORT}`);

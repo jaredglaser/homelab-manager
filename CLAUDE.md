@@ -33,7 +33,7 @@ bun icons:download            # Download dashboard icons from homarr-labs/dashbo
 5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Use div-based rows (not `<table>/<tr>/<td>`). Server handles client disconnect via `request.signal`. Never use TanStack Start streaming server functions for real-time data.
 6. **File Creation**: PREFER editing existing files over creating new ones.
 7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 95% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead.
-8. **No Logging**: No `console.log` in committed code. Only `console.error` for actual errors.
+8. **Logging**: Be purposeful with console methods. Use `console.error` for actual errors, `console.info` for operational messages (startup, shutdown), and `console.log` sparingly for temporary debugging only (do not commit). No drive-by `console.log` statements in committed code.
 9. **Routing**: Never edit `routeTree.gen.ts` (auto-generated). `AppShell` renders in root layout (`__root.tsx`) - never wrap individual routes with it. All routes use `ssr: false`. QueryClient is a singleton in `AppShell.tsx` - never create per-route.
 10. **Entity IDs**: Always use entity IDs with host prefix (e.g., `server1/tank`, `192.168.1.10/abc123`) for state keys and uniqueness checks. Never use display names - they collide across hosts.
 
