@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { Mock } from 'bun:test';
 import { RateCalculator } from '../rate-calculator';
+import type { ContainerStatsInput } from '../rate-calculator';
 
 describe('RateCalculator', () => {
   let calculator: RateCalculator;
@@ -117,15 +118,10 @@ function createMockStats(overrides: {
   rxBytes?: number; txBytes?: number; readBytes?: number; writeBytes?: number;
 }) {
   return {
-    read: new Date().toISOString(),
     cpu_stats: {
       cpu_usage: { total_usage: overrides.cpuTotal ?? 0 },
       system_cpu_usage: overrides.systemCpu ?? 0,
       online_cpus: overrides.onlineCpus ?? 1,
-    },
-    precpu_stats: {
-      cpu_usage: { total_usage: (overrides.cpuTotal ?? 0) - (overrides.cpuDelta ?? 0) },
-      system_cpu_usage: (overrides.systemCpu ?? 0) - (overrides.systemDelta ?? 0),
     },
     memory_stats: { usage: overrides.memUsage ?? 0, limit: overrides.memLimit ?? 1 },
     networks: { eth0: { rx_bytes: overrides.rxBytes ?? 0, tx_bytes: overrides.txBytes ?? 0 } },
@@ -135,5 +131,5 @@ function createMockStats(overrides: {
         { op: 'write', value: overrides.writeBytes ?? 0 },
       ],
     },
-  };
+  } satisfies ContainerStatsInput;
 }

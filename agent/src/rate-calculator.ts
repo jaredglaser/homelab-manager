@@ -1,3 +1,19 @@
+export interface ContainerStatsInput {
+  cpu_stats?: {
+    cpu_usage?: { total_usage?: number };
+    system_cpu_usage?: number;
+    online_cpus?: number;
+  };
+  memory_stats?: {
+    usage?: number;
+    limit?: number;
+  };
+  networks?: Record<string, { rx_bytes?: number; tx_bytes?: number }>;
+  blkio_stats?: {
+    io_service_bytes_recursive?: Array<{ op?: string; value: number }>;
+  };
+}
+
 export interface ContainerRates {
   cpuPercent: number;
   memoryUsage: number;
@@ -22,7 +38,7 @@ interface PreviousStats {
 export class RateCalculator {
   private previous = new Map<string, PreviousStats>();
 
-  calculate(containerId: string, stats: any): ContainerRates | null {
+  calculate(containerId: string, stats: ContainerStatsInput): ContainerRates | null {
     const now = Date.now();
     const cpuTotal = stats.cpu_stats?.cpu_usage?.total_usage ?? 0;
     const systemCpu = stats.cpu_stats?.system_cpu_usage ?? 0;
@@ -32,7 +48,7 @@ export class RateCalculator {
 
     let rxBytes = 0, txBytes = 0;
     if (stats.networks) {
-      for (const net of Object.values(stats.networks) as any[]) {
+      for (const net of Object.values(stats.networks)) {
         rxBytes += net.rx_bytes ?? 0;
         txBytes += net.tx_bytes ?? 0;
       }
