@@ -6,7 +6,7 @@ const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 function validateStackName(name: string): Response | null {
   if (!name || !VALID_STACK_NAME.test(name)) {
     return Response.json(
-      { error: 'Invalid stack name. Use only alphanumeric, hyphens, and underscores.' },
+      { error: 'Invalid stack name. Must start with alphanumeric and contain only alphanumeric, hyphens, and underscores.' },
       { status: 400 }
     );
   }
