@@ -30,9 +30,10 @@ services:
       STACKS_DIR: "/opt/homelab-manager/stacks"
     ports:
       - "9090:9090"
+    command: ["bun", "--watch", "src/index.ts"]
     volumes:
       - homelab-stacks:/opt/homelab-manager/stacks
-      - ./agent/src:/app/src  # Hot reload in dev
+      - ./agent/src:/app/src
     depends_on:
       - socket-proxy
     networks:
@@ -50,7 +51,3 @@ services:
 
 volumes:
   homelab-stacks:
-
-networks:
-  homelab-network:
-    external: true

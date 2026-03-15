@@ -52,8 +52,8 @@ export class RateCalculator {
     const timeDeltaSec = (now - prev.timestamp) / 1000;
     if (timeDeltaSec <= 0) return null;
 
-    const cpuDelta = cpuTotal - prev.cpuTotal;
-    const systemDelta = systemCpu - prev.systemCpu;
+    const cpuDelta = Math.max(0, cpuTotal - prev.cpuTotal);
+    const systemDelta = Math.max(0, systemCpu - prev.systemCpu);
     const cpuPercent = systemDelta > 0 ? (cpuDelta / systemDelta) * onlineCpus * 100 : 0;
 
     return {
