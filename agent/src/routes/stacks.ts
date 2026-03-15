@@ -62,9 +62,11 @@ export async function handleStackDeploy(
     env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
   });
 
-  const exitCode = await proc.exited;
-  const stderr = await new Response(proc.stderr).text();
-  const stdout = await new Response(proc.stdout).text();
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
 
   if (exitCode !== 0) {
     return Response.json(
@@ -116,9 +118,11 @@ export async function handleStackTeardown(
     env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
   });
 
-  const exitCode = await proc.exited;
-  const stderr = await new Response(proc.stderr).text();
-  const stdout = await new Response(proc.stdout).text();
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
 
   if (exitCode !== 0) {
     return Response.json(
@@ -170,9 +174,11 @@ export async function handleStackRestart(
     env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
   });
 
-  const exitCode = await proc.exited;
-  const stderr = await new Response(proc.stderr).text();
-  const stdout = await new Response(proc.stdout).text();
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
 
   if (exitCode !== 0) {
     return Response.json(
@@ -219,9 +225,12 @@ export async function handleStackStatus(
         env: { ...process.env, COMPOSE_PROJECT_NAME: entry.name },
       });
 
-      const exitCode = await proc.exited;
+      const [exitCode, output] = await Promise.all([
+        proc.exited,
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
       if (exitCode === 0) {
-        const output = await new Response(proc.stdout).text();
         if (output.trim()) {
           containers = JSON.parse(output);
         }
