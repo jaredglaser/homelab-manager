@@ -20,7 +20,13 @@ if (!DOCKER_HOST) {
   process.exit(1);
 }
 
-const dockerUrl = new URL(DOCKER_HOST.replace('tcp://', 'http://'));
+let dockerUrl: URL;
+try {
+  dockerUrl = new URL(DOCKER_HOST.replace('tcp://', 'http://'));
+} catch {
+  console.error(`Invalid DOCKER_HOST URL: '${DOCKER_HOST}'. Expected format: tcp://host:port`);
+  process.exit(1);
+}
 const docker = new Dockerode({
   host: dockerUrl.hostname,
   port: Number(dockerUrl.port),
