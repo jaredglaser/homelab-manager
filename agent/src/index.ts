@@ -30,34 +30,39 @@ const docker = new Dockerode({
 Bun.serve({
   port: PORT,
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
+    try {
+      const url = new URL(request.url);
 
-    const authError = authenticateRequest(
-      request.headers,
-      AGENT_TOKEN,
-      url.pathname
-    );
-    if (authError) return authError;
+      const authError = authenticateRequest(
+        request.headers,
+        AGENT_TOKEN,
+        url.pathname
+      );
+      if (authError) return authError;
 
-    if (url.pathname === '/health' && request.method === 'GET') {
-      return handleHealth(docker);
+      if (url.pathname === '/health' && request.method === 'GET') {
+        return handleHealth(docker);
+      }
+
+      if (url.pathname === '/stats/stream' && request.method === 'GET') {
+        return handleStatsStream(docker, request);
+      }
+
+      const logsMatch = url.pathname.match(/^\/logs\/([a-zA-Z0-9_.-]+)$/);
+      if (logsMatch && request.method === 'GET') {
+        return handleLogStream(docker, logsMatch[1], request);
+      }
+
+      if (url.pathname === '/stacks/deploy' && request.method === 'POST') return handleStackDeploy(request, STACKS_DIR);
+      if (url.pathname === '/stacks/teardown' && request.method === 'POST') return handleStackTeardown(request, STACKS_DIR);
+      if (url.pathname === '/stacks/restart' && request.method === 'POST') return handleStackRestart(request, STACKS_DIR);
+      if (url.pathname === '/stacks/status' && request.method === 'GET') return handleStackStatus(STACKS_DIR);
+
+      return new Response('Not Found', { status: 404 });
+    } catch (error) {
+      console.error('Unhandled error in request handler:', error);
+      return Response.json({ error: 'Internal server error' }, { status: 500 });
     }
-
-    if (url.pathname === '/stats/stream' && request.method === 'GET') {
-      return handleStatsStream(docker, request);
-    }
-
-    const logsMatch = url.pathname.match(/^\/logs\/([a-zA-Z0-9_.-]+)$/);
-    if (logsMatch && request.method === 'GET') {
-      return handleLogStream(docker, logsMatch[1], request);
-    }
-
-    if (url.pathname === '/stacks/deploy' && request.method === 'POST') return handleStackDeploy(request, STACKS_DIR);
-    if (url.pathname === '/stacks/teardown' && request.method === 'POST') return handleStackTeardown(request, STACKS_DIR);
-    if (url.pathname === '/stacks/restart' && request.method === 'POST') return handleStackRestart(request, STACKS_DIR);
-    if (url.pathname === '/stacks/status' && request.method === 'GET') return handleStackStatus(STACKS_DIR);
-
-    return new Response('Not Found', { status: 404 });
   },
 });
 
