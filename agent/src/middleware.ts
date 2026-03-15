@@ -1,3 +1,10 @@
+import { timingSafeEqual } from 'crypto';
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 export function authenticateRequest(
   headers: Headers,
   expectedToken: string,
@@ -13,7 +20,7 @@ export function authenticateRequest(
   }
 
   const [scheme, token] = authHeader.split(' ', 2);
-  if (scheme !== 'Bearer' || token !== expectedToken) {
+  if (scheme !== 'Bearer' || !token || !constantTimeEqual(token, expectedToken)) {
     return new Response('Unauthorized', { status: 401 });
   }
 

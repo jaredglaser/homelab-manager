@@ -36,4 +36,11 @@ describe('authenticateRequest', () => {
     const result = authenticateRequest(headers, validToken, '/health');
     expect(result).toBeNull();
   });
+
+  test('returns 401 for token with matching prefix but different length', () => {
+    const headers = new Headers({ Authorization: `Bearer ${validToken}-extra` });
+    const result = authenticateRequest(headers, validToken);
+    expect(result).toBeInstanceOf(Response);
+    expect(result!.status).toBe(401);
+  });
 });
