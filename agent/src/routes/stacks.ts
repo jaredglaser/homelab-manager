@@ -66,12 +66,16 @@ export async function handleStackDeploy(
   if (nameError) return nameError;
 
   const stackDir = join(stacksDir, body.stack);
-  mkdirSync(stackDir, { recursive: true });
-
-  await Bun.write(join(stackDir, 'docker-compose.yml'), body.composeContent);
-
-  if (body.envContent) {
-    await Bun.write(join(stackDir, '.env'), body.envContent);
+  try {
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), body.composeContent);
+    if (body.envContent) {
+      await Bun.write(join(stackDir, '.env'), body.envContent);
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to write stack files for ${body.stack}:`, error);
+    return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
   }
 
   const proc = spawn({
@@ -209,8 +213,8 @@ export async function handleStackRestart(
     );
   }
 
-  const nameError2 = validateStackName(body.stack);
-  if (nameError2) return nameError2;
+  const nameError = validateStackName(body.stack);
+  if (nameError) return nameError;
 
   const stackDir = join(stacksDir, body.stack);
   const composePath = join(stackDir, 'docker-compose.yml');
@@ -299,14 +303,18 @@ export async function handleStackStatus(
             const parsed = JSON.parse(output);
             containers = Array.isArray(parsed) ? parsed : [parsed];
           } catch {
-            containers = output.trim().split('\n')
-              .filter(line => line.trim())
-              .map(line => JSON.parse(line));
+            try {
+              containers = output.trim().split('\n')
+                .filter(line => line.trim())
+                .map(line => JSON.parse(line));
+            } catch (parseError) {
+              console.error(`Failed to parse docker compose ps output for ${entry.name}:`, parseError);
+            }
           }
         }
       }
-    } catch {
-      // docker compose ps may fail (stack not running, spawn error, etc.)
+    } catch (error) {
+      console.error(`Failed to get status for stack ${entry.name}:`, error);
     }
 
     stacks.push({

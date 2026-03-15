@@ -56,7 +56,7 @@ Bun.serve({
         return handleStatsStream(docker, request);
       }
 
-      const logsMatch = url.pathname.match(/^\/logs\/([a-zA-Z0-9_.-]+)$/);
+      const logsMatch = url.pathname.match(/^\/logs\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)$/);
       if (logsMatch && request.method === 'GET') {
         return handleLogStream(docker, logsMatch[1], request);
       }

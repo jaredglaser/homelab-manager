@@ -6,15 +6,16 @@ const CONTAINER_REFRESH_INTERVAL_MS = 60_000;
 export function handleStatsStream(docker: Dockerode, request: Request): Response {
   let closed = false;
   const encoder = new TextEncoder();
-  const containerStreams: Readable[] = [];
+  const containerStreams = new Map<string, Readable>();
 
   const stream = new ReadableStream({
     async start(controller) {
       request.signal.addEventListener('abort', () => {
         closed = true;
-        for (const s of containerStreams) {
+        for (const s of containerStreams.values()) {
           if (typeof s.destroy === 'function') s.destroy();
         }
+        containerStreams.clear();
         try {
           controller.close();
         } catch {
@@ -34,7 +35,7 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
 
           container.stats({ stream: true }).then((statsStream) => {
             const readable = statsStream as unknown as Readable;
-            containerStreams.push(readable);
+            containerStreams.set(id, readable);
 
             let buffer = '';
             readable.on('data', (chunk: Buffer) => {
@@ -63,11 +64,11 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
                   encoder.encode(`event: container-error\ndata: ${JSON.stringify({ containerId: id, error: error.message })}\n\n`)
                 );
               }
+              containerStreams.delete(id);
             });
 
             readable.on('end', () => {
-              const idx = containerStreams.indexOf(readable);
-              if (idx !== -1) containerStreams.splice(idx, 1);
+              containerStreams.delete(id);
             });
           }).catch((error: Error) => {
             if (!closed) {
@@ -96,6 +97,15 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
             const currentIds = new Set(current.map(c => c.Id));
             const previousIds = new Set(containers.map(c => c.Id));
 
+            // Destroy streams for removed containers
+            for (const prevId of previousIds) {
+              if (!currentIds.has(prevId)) {
+                const stale = containerStreams.get(prevId);
+                if (stale && typeof stale.destroy === 'function') stale.destroy();
+                containerStreams.delete(prevId);
+              }
+            }
+
             for (const c of current) {
               if (!previousIds.has(c.Id)) openStream(c);
             }
@@ -107,8 +117,8 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
                 encoder.encode(`event: containers\ndata: ${JSON.stringify({ ids: [...currentIds] })}\n\n`)
               );
             }
-          } catch {
-            // transient error listing containers, will retry next interval
+          } catch (error) {
+            console.error('Failed to refresh container list:', error);
           }
         }
       } catch (error) {

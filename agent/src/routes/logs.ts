@@ -73,6 +73,7 @@ export function handleLogStream(
         });
 
         logStream.on('error', (error: Error) => {
+          console.error(`Log stream error for container ${containerId}:`, error);
           if (!closed) {
             controller.enqueue(
               encoder.encode(
