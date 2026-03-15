@@ -8,8 +8,10 @@ import { timingSafeEqual } from 'crypto';
  * @returns `true` if the strings are equal, `false` otherwise. If the strings have different lengths, returns `false`.
  */
 function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }
 
 /**
