@@ -3,6 +3,12 @@ import { join } from 'path';
 
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 
+/**
+ * Validate a stack name and produce an HTTP 400 response when it is missing or invalid.
+ *
+ * @param name - The candidate stack name; must start with an alphanumeric character and may contain alphanumeric characters, hyphens, and underscores.
+ * @returns An HTTP 400 `Response` with an error message when `name` is missing or does not match the allowed pattern, `null` if the name is valid.
+ */
 function validateStackName(name: string): Response | null {
   if (!name || !VALID_STACK_NAME.test(name)) {
     return Response.json(
@@ -15,6 +21,18 @@ function validateStackName(name: string): Response | null {
 
 type SpawnFn = typeof Bun.spawn;
 
+/**
+ * Deploys a Docker Compose stack described in the request JSON and returns the deployment result.
+ *
+ * Expects a JSON body with `stack` (name) and `composeContent` (docker-compose YAML); `envContent` is optional.
+ *
+ * @param stacksDir - Filesystem directory under which per-stack directories are created
+ * @param spawn - Optional process spawn function override (defaults to Bun.spawn)
+ * @returns A Response whose JSON body indicates the outcome:
+ * - On success: `{ status: "success", stdout, stderr }` with HTTP 200.
+ * - On failure: either a JSON error message for client errors (e.g., invalid JSON or missing fields) or
+ *   `{ status: "failed", exitCode, stdout, stderr }` for process failures with an appropriate HTTP status (e.g., 400 or 500).
+ */
 export async function handleStackDeploy(
   request: Request,
   stacksDir: string,
@@ -79,6 +97,15 @@ export async function handleStackDeploy(
   return Response.json({ status: 'success', stdout, stderr });
 }
 
+/**
+ * Tear down a Docker Compose stack identified in the request body by running `docker compose down`.
+ *
+ * Expects a JSON body with a `stack` field. Returns a 400 response for invalid JSON or a missing `stack` field, a 404 response if the stack's docker-compose.yml is not found, and a 500 response with execution details if the compose command fails.
+ *
+ * @param stacksDir - Filesystem directory under which stack subdirectories (each containing a docker-compose.yml) are located
+ * @param spawn - Optional process spawn function used to invoke the compose command
+ * @returns On success, a JSON response with `{ status: "success", stdout, stderr }`. On failure due to the compose command, a JSON response with `{ status: "failed", exitCode, stdout, stderr }`. Error responses for bad input or missing stack use appropriate HTTP status codes and an `error` message.
+ */
 export async function handleStackTeardown(
   request: Request,
   stacksDir: string,
@@ -136,6 +163,23 @@ export async function handleStackTeardown(
   return Response.json({ status: 'success', stdout, stderr });
 }
 
+/**
+ * Restart the Docker Compose stack specified in the request body.
+ *
+ * Parses JSON from the request expecting a `stack` name, validates the name,
+ * ensures the stack's docker-compose.yml exists under `stacksDir`, and runs
+ * `docker compose -f <composePath> restart` with `COMPOSE_PROJECT_NAME` set to
+ * the stack name.
+ *
+ * @param request - HTTP request whose JSON body must include `stack`
+ * @param stacksDir - Path to the directory containing stack subdirectories
+ * @param spawn - Optional process spawn function used to run Docker commands
+ * @returns On success, a 200 Response with `{ status: "success", stdout, stderr }`.
+ *          If the Docker command exits non-zero, a 500 Response with
+ *          `{ status: "failed", exitCode, stdout, stderr }`.
+ *          Returns 400 with `{ error: ... }` for invalid JSON or missing `stack`,
+ *          and 404 with `{ error: ... }` if the stack's compose file is not found.
+ */
 export async function handleStackRestart(
   request: Request,
   stacksDir: string,
@@ -193,6 +237,13 @@ export async function handleStackRestart(
   return Response.json({ status: 'success', stdout, stderr });
 }
 
+/**
+ * Collects status information for all Docker Compose stacks found in a directory.
+ *
+ * @param stacksDir - Path to the directory containing stack subdirectories (each expected to include a `docker-compose.yml`).
+ * @param spawn - Optional process spawn function used to run Docker Compose commands; defaults to Bun.spawn.
+ * @returns A Response whose JSON body is an object `{ stacks }` where `stacks` is an array of objects each containing `name` (the stack directory name) and `containers` (an array of container info parsed from `docker compose ps`; empty if no data or on error).
+ */
 export async function handleStackStatus(
   stacksDir: string,
   spawn: SpawnFn = Bun.spawn

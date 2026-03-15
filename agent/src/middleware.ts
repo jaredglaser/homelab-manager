@@ -1,10 +1,25 @@
 import { timingSafeEqual } from 'crypto';
 
+/**
+ * Compares two strings for equality using a timing-safe algorithm to prevent timing attacks.
+ *
+ * @param a - First string to compare.
+ * @param b - Second string to compare.
+ * @returns `true` if the strings are equal, `false` otherwise. If the strings have different lengths, returns `false`.
+ */
 function constantTimeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
+/**
+ * Validate an HTTP request's Authorization header against an expected Bearer token, bypassing the /health path.
+ *
+ * @param headers - The request headers to inspect for an `Authorization` entry
+ * @param expectedToken - The expected bearer token value to verify
+ * @param pathname - Optional request path; authentication is skipped when this equals `/health`
+ * @returns A `Response` with status 401 when authentication fails, or `null` when authentication succeeds or is bypassed
+ */
 export function authenticateRequest(
   headers: Headers,
   expectedToken: string,

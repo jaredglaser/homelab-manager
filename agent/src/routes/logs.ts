@@ -1,6 +1,14 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
 
+/**
+ * Stream a Docker container's logs to the client over a Server-Sent Events (SSE) connection.
+ *
+ * Streams recent and live stdout/stderr output from the specified container as SSE `data` events containing JSON-encoded log objects; emits SSE `error` events on failures and closes the stream when the request is aborted or the log stream ends.
+ *
+ * @param containerId - The ID or name of the container whose logs will be streamed
+ * @returns A Response exposing an SSE stream that emits JSON-encoded log lines and error events
+ */
 export function handleLogStream(
   docker: Dockerode,
   containerId: string,
@@ -91,6 +99,14 @@ interface LogLine {
   text: string;
 }
 
+/**
+ * Parse a TTY-mode Docker log chunk into individual log lines.
+ *
+ * Splits the chunk by newline, discards empty lines, and marks every line as `stdout`.
+ *
+ * @param chunk - Raw buffer read from a container's TTY log stream
+ * @returns An array of `LogLine` objects where `stream` is `'stdout'` and `text` is each non-empty line from the chunk
+ */
 function parseTtyChunk(chunk: Buffer): LogLine[] {
   return chunk
     .toString()
@@ -99,6 +115,12 @@ function parseTtyChunk(chunk: Buffer): LogLine[] {
     .map((text) => ({ stream: 'stdout' as const, text }));
 }
 
+/**
+ * Parse a Docker multiplexed log buffer into individual log lines with stream metadata.
+ *
+ * @param chunk - A buffer containing Docker's multiplexed log frames (8-byte headers followed by payloads).
+ * @returns An array of LogLine objects where each element has `stream` set to `'stdout'` or `'stderr'` and `text` containing the log message; empty messages are omitted.
+ */
 function parseMuxedChunk(chunk: Buffer): LogLine[] {
   const lines: LogLine[] = [];
   let offset = 0;

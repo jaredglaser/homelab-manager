@@ -3,6 +3,14 @@ import { RateCalculator } from '../rate-calculator';
 
 const DEFAULT_POLL_INTERVAL_MS = 1000;
 
+/**
+ * Open a Server-Sent Events stream that periodically polls Docker containers for stats and emits per-container usage rate events.
+ *
+ * @param docker - Dockerode client used to list containers and retrieve stats
+ * @param request - Incoming Request whose abort signal will stop the stream
+ * @param pollIntervalMs - Interval in milliseconds between polls (defaults to 1000)
+ * @returns A Response whose body is an SSE ReadableStream. The stream emits `data` events containing objects with `containerId`, `containerName`, `image`, computed rate fields, and `timestamp`. On errors the stream emits an `error` event with `{ error: string }`
+ */
 export function handleStatsStream(
   docker: Dockerode,
   request: Request,
