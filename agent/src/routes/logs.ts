@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
 
 export function handleLogStream(
@@ -6,12 +7,16 @@ export function handleLogStream(
   request: Request
 ): Response {
   let closed = false;
+  let logStream: Readable | null = null;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
       request.signal.addEventListener('abort', () => {
         closed = true;
+        if (typeof logStream?.destroy === 'function') {
+          logStream.destroy();
+        }
         controller.close();
       });
 
@@ -20,13 +25,13 @@ export function handleLogStream(
         const info = await container.inspect();
         const isTty = info.Config?.Tty ?? false;
 
-        const logStream = (await container.logs({
+        logStream = (await container.logs({
           follow: true,
           stdout: true,
           stderr: true,
           tail: 200,
           timestamps: true,
-        })) as NodeJS.ReadableStream;
+        })) as unknown as Readable;
 
         logStream.on('data', (chunk: Buffer) => {
           if (closed) return;

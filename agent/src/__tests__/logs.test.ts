@@ -204,6 +204,29 @@ describe('handleLogStream', () => {
     expect(body).toContain(`data: ${JSON.stringify({ error: 'string error' })}`);
   });
 
+  test('abort signal: destroys the underlying Docker log stream', async () => {
+    const logEmitter = new EventEmitter();
+    const destroySpy = mock(() => {});
+    (logEmitter as any).destroy = destroySpy;
+    const abortController = new AbortController();
+
+    const mockContainer = {
+      inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
+      logs: mock(() => Promise.resolve(logEmitter)),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest(abortController);
+    handleLogStream(mockDocker as any, 'abc123', request);
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    abortController.abort();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(destroySpy).toHaveBeenCalledTimes(1);
+  });
+
   test('abort signal: stops enqueuing data after client disconnects', async () => {
     const logEmitter = new EventEmitter();
     const abortController = new AbortController();
