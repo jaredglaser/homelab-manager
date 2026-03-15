@@ -65,8 +65,6 @@ export default defineConfig({
     // Allow host.docker.internal so the Playwright MCP browser (in Docker) can reach the dev server
     allowedHosts: ['host.docker.internal'],
     watch: {
-      usePolling: true,
-      // 2600+ dashboard icon SVGs cause slow startup through WSL file mount
       ignored: ['**/public/icons/**'],
     },
     warmup: {
