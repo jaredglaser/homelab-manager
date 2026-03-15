@@ -79,6 +79,17 @@ describe('RateCalculator', () => {
     expect(calculator.calculate('c2', createMockStats({}))).toBeNull();
   });
 
+  test('calculates block I/O bytes per second', () => {
+    const stats1 = createMockStats({ readBytes: 4096, writeBytes: 2048 });
+    calculator.calculate('container1', stats1);
+    currentTime += 1000;
+    const stats2 = createMockStats({ readBytes: 8192, writeBytes: 6144 });
+    const result = calculator.calculate('container1', stats2);
+    expect(result).not.toBeNull();
+    expect(result!.blockReadBytesPerSec).toBe(4096);
+    expect(result!.blockWriteBytesPerSec).toBe(4096);
+  });
+
   test('clamps negative rates to zero on counter reset', () => {
     const stats1 = createMockStats({ rxBytes: 5000, txBytes: 3000, readBytes: 2000, writeBytes: 1000 });
     calculator.calculate('container1', stats1);

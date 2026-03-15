@@ -12,12 +12,6 @@ const TEST_STACKS_DIR = join(import.meta.dir, '../../.test-stacks');
 
 const emptyStream = () => new ReadableStream({ start(c) { c.close(); } });
 
-const noopSpawn = mock(() => ({
-  exited: Promise.resolve(0),
-  stdout: emptyStream(),
-  stderr: emptyStream(),
-}));
-
 const successSpawn = mock(() => ({
   exited: Promise.resolve(0),
   stdout: emptyStream(),
@@ -40,7 +34,7 @@ describe('handleStackDeploy', () => {
       body: 'not json',
     });
 
-    const response = await handleStackDeploy(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
     const result = await response.json();
     expect(result.error).toBe('Invalid JSON');
@@ -87,7 +81,7 @@ describe('handleStackDeploy', () => {
       body: JSON.stringify({ composeContent: 'services: {}' }),
     });
 
-    const response = await handleStackDeploy(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
   });
 
@@ -127,7 +121,7 @@ describe('handleStackDeploy — path traversal', () => {
       body: JSON.stringify({ stack: '../../etc', composeContent: 'services: {}' }),
     });
 
-    const response = await handleStackDeploy(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
   });
 
@@ -138,7 +132,7 @@ describe('handleStackDeploy — path traversal', () => {
       body: JSON.stringify({ stack: '.hidden', composeContent: 'services: {}' }),
     });
 
-    const response = await handleStackDeploy(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
   });
 });
@@ -151,7 +145,7 @@ describe('handleStackTeardown', () => {
       body: 'not json',
     });
 
-    const response = await handleStackTeardown(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackTeardown(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
     const result = await response.json();
     expect(result.error).toBe('Invalid JSON');
@@ -164,7 +158,7 @@ describe('handleStackTeardown', () => {
       body: JSON.stringify({}),
     });
 
-    const response = await handleStackTeardown(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackTeardown(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
   });
 
@@ -175,7 +169,7 @@ describe('handleStackTeardown', () => {
       body: JSON.stringify({ stack: 'nonexistent' }),
     });
 
-    const response = await handleStackTeardown(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackTeardown(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(404);
   });
 
@@ -232,7 +226,7 @@ describe('handleStackRestart', () => {
       body: 'not json',
     });
 
-    const response = await handleStackRestart(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
     const result = await response.json();
     expect(result.error).toBe('Invalid JSON');
@@ -245,7 +239,7 @@ describe('handleStackRestart', () => {
       body: JSON.stringify({}),
     });
 
-    const response = await handleStackRestart(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
   });
 
@@ -256,7 +250,7 @@ describe('handleStackRestart', () => {
       body: JSON.stringify({ stack: 'nonexistent' }),
     });
 
-    const response = await handleStackRestart(request, TEST_STACKS_DIR, noopSpawn as any);
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(404);
   });
 
@@ -306,32 +300,68 @@ describe('handleStackRestart', () => {
 });
 
 describe('handleStackStatus', () => {
-  test('returns list of stacks with directories', async () => {
+  test('returns stack with container details', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
-    await Bun.write(
-      join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'),
-      'services: {}'
-    );
+    await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), 'services: {}');
 
+    const containers = [{ Name: 'plex-app-1', State: 'running', Service: 'app' }];
     const statusSpawn = mock(() => ({
       exited: Promise.resolve(0),
       stdout: new ReadableStream({
         start(controller) {
-          controller.enqueue(
-            new TextEncoder().encode(JSON.stringify([
-              { Name: 'plex-app-1', State: 'running', Service: 'app' },
-            ]))
-          );
+          controller.enqueue(new TextEncoder().encode(JSON.stringify(containers)));
           controller.close();
         },
       }),
-      stderr: new ReadableStream(),
+      stderr: emptyStream(),
     }));
 
     const response = await handleStackStatus(TEST_STACKS_DIR, statusSpawn as any);
     const result = await response.json();
 
     expect(response.status).toBe(200);
-    expect(result.stacks).toBeArray();
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('plex');
+    expect(result.stacks[0].containers).toEqual(containers);
+  });
+
+  test('returns empty array for nonexistent stacks directory', async () => {
+    rmSync(TEST_STACKS_DIR, { recursive: true, force: true });
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, successSpawn as any);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.stacks).toEqual([]);
+  });
+
+  test('skips directories without docker-compose.yml', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'no-compose'), { recursive: true });
+    mkdirSync(join(TEST_STACKS_DIR, 'has-compose'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'has-compose', 'docker-compose.yml'), 'services: {}');
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, successSpawn as any);
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('has-compose');
+  });
+
+  test('returns empty containers when docker compose ps fails', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'broken'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'broken', 'docker-compose.yml'), 'services: {}');
+
+    const failSpawn = mock(() => ({
+      exited: Promise.resolve(1),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+    }));
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, failSpawn as any);
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('broken');
+    expect(result.stacks[0].containers).toEqual([]);
   });
 });
