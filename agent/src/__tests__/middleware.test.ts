@@ -37,18 +37,22 @@ describe('authenticateRequest', () => {
     expect(result).toBeNull();
   });
 
-  test('returns 500 when expectedToken is empty', () => {
+  test('returns 500 JSON when expectedToken is empty', async () => {
     const headers = new Headers({ Authorization: 'Bearer ' });
     const result = authenticateRequest(headers, '');
     expect(result).toBeInstanceOf(Response);
     expect(result!.status).toBe(500);
+    const body = await result!.json();
+    expect(body.error).toBe('Server misconfigured');
   });
 
-  test('returns 500 when expectedToken is whitespace', () => {
+  test('returns 500 JSON when expectedToken is whitespace', async () => {
     const headers = new Headers({ Authorization: 'Bearer valid' });
     const result = authenticateRequest(headers, '   ');
     expect(result).toBeInstanceOf(Response);
     expect(result!.status).toBe(500);
+    const body = await result!.json();
+    expect(body.error).toBe('Server misconfigured');
   });
 
   test('returns 401 for whitespace-only bearer token', () => {

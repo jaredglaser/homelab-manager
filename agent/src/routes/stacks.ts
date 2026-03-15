@@ -66,6 +66,9 @@ export async function handleStackDeploy(
   if (nameError) return nameError;
 
   const stackDir = join(stacksDir, body.stack);
+  if (!stackDir.startsWith(stacksDir + '/')) {
+    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+  }
   try {
     mkdirSync(stackDir, { recursive: true });
     await Bun.write(join(stackDir, 'docker-compose.yml'), body.composeContent);
@@ -323,9 +326,7 @@ export async function handleStackStatus(
       error = spawnError instanceof Error ? spawnError.message : String(spawnError);
     }
 
-    const stackEntry: Record<string, unknown> = { name: entry.name, containers };
-    if (error) stackEntry.error = error;
-    stacks.push(stackEntry);
+    stacks.push({ name: entry.name, containers, ...(error ? { error } : {}) });
   }
 
   return Response.json({ stacks });

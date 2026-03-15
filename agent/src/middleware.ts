@@ -34,7 +34,8 @@ export function authenticateRequest(
   }
 
   if (!expectedToken.trim()) {
-    return new Response('Internal Server Error', { status: 500 });
+    console.error('AGENT_TOKEN is empty or whitespace — rejecting all requests');
+    return Response.json({ error: 'Server misconfigured' }, { status: 500 });
   }
 
   const authHeader = headers.get('Authorization');

@@ -31,6 +31,9 @@ COPY tsconfig.json package.json ./
 
 ENV AGENT_PORT=9090
 ENV STACKS_DIR=/opt/homelab-manager/stacks
+# DOCKER_HOST must be set at runtime (e.g., tcp://socket-proxy:2375).
+# Required by both the agent server and docker compose subprocesses.
+# The agent validates this at startup and exits if missing.
 
 EXPOSE 9090
 

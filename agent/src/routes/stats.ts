@@ -77,9 +77,13 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
             });
           }).catch((error: Error) => {
             if (!closed) {
-              controller.enqueue(
-                encoder.encode(`event: container-error\ndata: ${JSON.stringify({ containerId: id, error: error.message })}\n\n`)
-              );
+              try {
+                controller.enqueue(
+                  encoder.encode(`event: container-error\ndata: ${JSON.stringify({ containerId: id, error: error.message })}\n\n`)
+                );
+              } catch {
+                // enqueue-after-close race
+              }
             }
           });
         };
@@ -118,9 +122,13 @@ export function handleStatsStream(docker: Dockerode, request: Request): Response
             containers = current;
 
             if (!closed) {
-              controller.enqueue(
-                encoder.encode(`event: containers\ndata: ${JSON.stringify({ ids: [...currentIds] })}\n\n`)
-              );
+              try {
+                controller.enqueue(
+                  encoder.encode(`event: containers\ndata: ${JSON.stringify({ ids: [...currentIds] })}\n\n`)
+                );
+              } catch {
+                // enqueue-after-close race
+              }
             }
           } catch (error) {
             console.error('Failed to refresh container list:', error);
