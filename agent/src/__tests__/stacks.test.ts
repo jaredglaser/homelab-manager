@@ -37,7 +37,7 @@ describe('handleStackDeploy', () => {
     const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
     const result = await response.json();
-    expect(result.error).toBe('Invalid JSON');
+    expect(result.error).toStartWith('Invalid JSON:');
   });
 
   test('writes compose file and .env to stack directory', async () => {
@@ -148,7 +148,7 @@ describe('handleStackTeardown', () => {
     const response = await handleStackTeardown(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
     const result = await response.json();
-    expect(result.error).toBe('Invalid JSON');
+    expect(result.error).toStartWith('Invalid JSON:');
   });
 
   test('returns 400 for missing stack name', async () => {
@@ -229,7 +229,7 @@ describe('handleStackRestart', () => {
     const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
     const result = await response.json();
-    expect(result.error).toBe('Invalid JSON');
+    expect(result.error).toStartWith('Invalid JSON:');
   });
 
   test('returns 400 for missing stack name', async () => {

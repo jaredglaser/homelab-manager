@@ -23,8 +23,9 @@ export async function handleStackDeploy(
   let body: { stack?: string; composeContent?: string; envContent?: string };
   try {
     body = await request.json();
-  } catch {
-    return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
   }
 
   if (!body.stack || !body.composeContent) {
@@ -86,8 +87,9 @@ export async function handleStackTeardown(
   let body: { stack?: string };
   try {
     body = await request.json();
-  } catch {
-    return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
   }
 
   if (!body.stack) {
@@ -142,8 +144,9 @@ export async function handleStackRestart(
   let body: { stack?: string };
   try {
     body = await request.json();
-  } catch {
-    return Response.json({ error: 'Invalid JSON' }, { status: 400 });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
   }
 
   if (!body.stack) {
