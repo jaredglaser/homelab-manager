@@ -9,8 +9,8 @@ on:
     branches: [main]
 
 jobs:
-  build-test-license:
-    name: Build, Test & License Check
+  build-test:
+    name: Build & Test
     runs-on: ubuntu-latest
 
     steps:
@@ -27,7 +27,6 @@ jobs:
             dependencies:
               - 'package.json'
               - 'bun.lock'
-              - 'agent/package.json'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -40,17 +39,6 @@ jobs:
 
       - name: Run tests with coverage check
         run: bun run test
-        env:
-          NODE_ENV: test
-
-      - name: Install agent dependencies
-        run: cd agent && bun install --frozen-lockfile
-
-      - name: Agent typecheck
-        run: cd agent && bun run typecheck
-
-      - name: Run agent tests with coverage check
-        run: cd agent && bun run test:coverage
         env:
           NODE_ENV: test
 
@@ -75,10 +63,64 @@ jobs:
           path: license-report.json
           retention-days: 30
 
+  agent:
+    name: Agent Test & License Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect dependency changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            dependencies:
+              - 'agent/package.json'
+              - 'bun.lock'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: cd agent && bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: cd agent && bun run typecheck
+
+      - name: Run tests with coverage check
+        run: cd agent && bun run test:coverage
+        env:
+          NODE_ENV: test
+
+      - name: Check licenses
+        if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
+        run: |
+          cd agent && bunx license-checker-rseidelsohn \
+            --onlyAllow "MIT;ISC;BSD-3-Clause;BSD-2-Clause;Apache-2.0;MIT-0;Unlicense;MPL-2.0;OFL-1.1;Python-2.0;CC-BY-4.0;BlueOak-1.0.0;CC0-1.0;0BSD" \
+            --summary
+
+      - name: Generate license report
+        if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
+        run: |
+          cd agent && bunx license-checker-rseidelsohn --json > license-report.json
+          cd agent && bunx license-checker-rseidelsohn --summary
+
+      - name: Upload license report
+        if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-license-report
+          path: agent/license-report.json
+          retention-days: 30
+
   publish:
     name: Publish Docker Images
     runs-on: ubuntu-latest
-    needs: build-test-license
+    needs: [build-test, agent]
     if: github.event_name == 'push'
     permissions:
       contents: read
@@ -145,7 +187,7 @@ jobs:
   deploy-demo:
     name: Deploy Demo to GitHub Pages
     runs-on: ubuntu-latest
-    needs: build-test-license
+    needs: [build-test, agent]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     concurrency:
       group: pages
