@@ -14,6 +14,8 @@ interface GitTriggerInput {
  * that exists in the manifest.
  */
 export class GitTriggerBuilder {
+  /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
+  constructor() {}
   build(input: GitTriggerInput): DeployRequest[] {
     const requests: DeployRequest[] = [];
 

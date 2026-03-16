@@ -404,6 +404,103 @@ if (isCI) {
         });
     });
 
+    describe('setUpdateInterval', () => {
+        it('should update updateInterval state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setUpdateInterval(5000);
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: SETTINGS_KEYS.general.updateIntervalMs, value: '5000' },
+            });
+        });
+    });
+
+    describe('ZFS host expansion', () => {
+        it('should return true for single ZFS host', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isZfsHostExpanded('zfs-host-1', 1)).toBe(true);
+        });
+
+        it('should toggle ZFS host expanded state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleZfsHostExpanded('zfs-host-1');
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: SETTINGS_KEYS.zfs.expandedHosts, value: '["zfs-host-1"]' },
+            });
+        });
+    });
+
+    describe('vdev expansion', () => {
+        it('should toggle vdev expanded state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isVdevExpanded('vdev-1')).toBe(false);
+
+            act(() => {
+                result.current.toggleVdevExpanded('vdev-1');
+            });
+
+            expect(result.current.isVdevExpanded('vdev-1')).toBe(true);
+        });
+    });
+
+    describe('setChartWindowSeconds', () => {
+        it('should update chart window seconds', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setChartWindowSeconds(120);
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: SETTINGS_KEYS.docker.chartWindowSeconds, value: '120' },
+            });
+        });
+    });
+
+    describe('setProxmoxUpdateInterval', () => {
+        it('should update proxmox update interval', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setProxmoxUpdateInterval(10000);
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: SETTINGS_KEYS.proxmox.updateInterval, value: '10000' },
+            });
+        });
+    });
+
+    describe('setRetention', () => {
+        it('should update retention settings', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setRetention('rawDataHours', 48);
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: SETTINGS_KEYS.retention.rawDataHours, value: '48' },
+            });
+        });
+    });
+
     describe('ZFS decimal settings', () => {
         it('should update ZFS decimal settings', () => {
             const { wrapper } = createWrapper();

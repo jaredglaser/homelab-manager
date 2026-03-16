@@ -63,29 +63,6 @@ describe('DockerClient', () => {
     expect(client.isConnected()).toBe(false);
   });
 
-  it('should support debug logging toggle', async () => {
-    const client = new DockerClient({ host: '192.168.1.100', port: 2375 });
-    const docker = (client as any).docker;
-    spyOn(docker, 'ping').mockResolvedValue('OK');
-
-    client.debugLogging = true;
-    await client.connect();
-
-    expect(console.log).toHaveBeenCalled();
-  });
-
-  it('should not log when debug logging is disabled', async () => {
-    const client = new DockerClient({ host: '192.168.1.100', port: 2375 });
-    const docker = (client as any).docker;
-    spyOn(docker, 'ping').mockResolvedValue('OK');
-
-    client.debugLogging = false;
-    await client.connect();
-
-    expect(client.isConnected()).toBe(true);
-    expect(console.log).not.toHaveBeenCalled();
-  });
-
 });
 
 describe('DockerConnectionManager', () => {

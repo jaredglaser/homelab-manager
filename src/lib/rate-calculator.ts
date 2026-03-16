@@ -26,6 +26,8 @@ interface DockerRateInput {
 }
 
 export class DockerRateCalculator implements RateCalculator<DockerRateInput, ContainerStatsWithRates> {
+  /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
+  constructor() {}
   private cache = new Map<string, PreviousStatsEntry>();
 
   calculate(id: string, current: DockerRateInput): ContainerStatsWithRates {

@@ -289,6 +289,20 @@ describe('ProxmoxClient', () => {
       const client = new ProxmoxClient(createConfig());
       await expect(client.getClusterStatus()).rejects.toThrow('Proxmox API error: 401');
     });
+
+    it('should handle response.text() failure gracefully in error', async () => {
+      // Create a Response-like object whose text() throws
+      const badResponse = {
+        ok: false,
+        status: 500,
+        statusText: 'Internal Server Error',
+        text: () => Promise.reject(new Error('stream consumed')),
+      };
+      fetchSpy.mockResolvedValueOnce(badResponse as unknown as Response);
+
+      const client = new ProxmoxClient(createConfig());
+      await expect(client.getClusterStatus()).rejects.toThrow('Proxmox API error: 500');
+    });
   });
 
   describe('self-signed cert options', () => {

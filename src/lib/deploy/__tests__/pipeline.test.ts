@@ -224,5 +224,73 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('succeeded');
       expect(deployRepo.deduplicatePending).toHaveBeenCalled();
     });
+
+    it('catches dispatch errors and records failure', async () => {
+      agentClientFactory = mock().mockReturnValue({
+        deploy: mock().mockRejectedValue(new Error('connection refused')),
+        teardown: mock(),
+        restart: mock(),
+        health: mock(),
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toBe('connection refused');
+      expect(deployRepo.updateStatus).toHaveBeenCalledWith(1, 'failed', 'connection refused');
+    });
+
+    it('handles non-Error throw in dispatch', async () => {
+      agentClientFactory = mock().mockReturnValue({
+        deploy: mock().mockRejectedValue('string error'),
+        teardown: mock(),
+        restart: mock(),
+        health: mock(),
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toBe('string error');
+    });
+  });
+
+  describe('resumePending', () => {
+    it('marks deploy as in_progress and dispatches to agent', async () => {
+      const result = await pipeline.resumePending(42, testHost, testRequest);
+
+      expect(result.status).toBe('succeeded');
+      expect(deployRepo.updateStatus).toHaveBeenCalledWith(42, 'in_progress');
+      expect(agentClientFactory).toHaveBeenCalled();
+    });
+
+    it('records failure when agent dispatch fails during resume', async () => {
+      agentClientFactory = mock().mockReturnValue({
+        deploy: mock().mockRejectedValue(new Error('agent down')),
+        teardown: mock(),
+        restart: mock(),
+        health: mock(),
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+      });
+
+      const result = await pipeline.resumePending(42, testHost, testRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toBe('agent down');
+    });
   });
 });

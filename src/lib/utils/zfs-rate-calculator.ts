@@ -14,6 +14,8 @@ interface PreviousZFSStats {
  * so we mainly track for consistency and add utilization percentage calculations
  */
 export class ZFSRateCalculator implements RateCalculator<ZFSIOStatRaw, ZFSIOStatWithRates> {
+  /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
+  constructor() {}
   private cache = new Map<string, PreviousZFSStats>();
 
   calculate(id: string, current: ZFSIOStatRaw): ZFSIOStatWithRates {

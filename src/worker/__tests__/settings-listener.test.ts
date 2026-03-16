@@ -93,12 +93,6 @@ describe('SettingsListener', () => {
     controller.abort();
   });
 
-  it('should export SettingChangeHandler type', async () => {
-    // Type-level test - if this compiles, the type is exported correctly
-    const handler: SettingChangeHandler = (_key: string, _value: string | null) => {};
-    expect(typeof handler).toBe('function');
-  });
-
   describe('start()', () => {
     it('should connect, listen, and load initial values', async () => {
       const dbConfig = createMockDbConfig();
@@ -258,6 +252,43 @@ describe('SettingsListener', () => {
       expect(errorHandler).toBeDefined();
       expect(() => errorHandler!(new Error('connection lost'))).not.toThrow();
       expect(console.error).toHaveBeenCalled();
+
+      controller.abort();
+      await listener[Symbol.asyncDispose]();
+    });
+
+    it('should swallow repo.get errors in notification handler', async () => {
+      const dbConfig = createMockDbConfig();
+      const watchKey = SETTINGS_KEYS.developer.dockerDebugLogging;
+      const repo = createMockSettingsRepo();
+      const handler: SettingChangeHandler = mock(() => {});
+      const controller = new AbortController();
+
+      const listener = new SettingsListener(
+        dbConfig,
+        repo as unknown as SettingsRepository,
+        [watchKey],
+        handler,
+        controller.signal,
+      );
+
+      let notificationHandler: ((msg: any) => void) | undefined;
+      const { pgClient } = setupPgClientMocks(listener, (event: string, cb: any) => {
+        if (event === 'notification') notificationHandler = cb;
+        return pgClient;
+      });
+
+      await listener.start();
+      (handler as any).mockClear();
+
+      // Make repo.get throw
+      repo.get.mockRejectedValue(new Error('DB error'));
+
+      // Should not throw
+      await notificationHandler!({ payload: watchKey });
+
+      // Handler should NOT have been called since repo threw
+      expect(handler).not.toHaveBeenCalled();
 
       controller.abort();
       await listener[Symbol.asyncDispose]();

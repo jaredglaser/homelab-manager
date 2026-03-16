@@ -83,6 +83,8 @@ export class DockerClient implements StreamingClient {
  * Manages connection pooling and lifecycle
  */
 class DockerConnectionManager {
+  /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
+  constructor() {}
   private connections = new Map<string, DockerClient>();
   private _debugLogging = false;
 
