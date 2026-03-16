@@ -1,0 +1,22 @@
+{
+  "name": "@homelab-manager/agent",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage 2>&1 | node ../scripts/check-coverage.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dockerode": "^4.0.9"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.38",
+    "@types/bun": "^1.3.10",
+    "typescript": "^5.8.2"
+  }
+}
