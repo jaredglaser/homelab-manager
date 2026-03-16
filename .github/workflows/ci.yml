@@ -10,7 +10,7 @@ on:
 
 jobs:
   build-test:
-    name: Build & Test
+    name: Build, Test & License Check
     runs-on: ubuntu-latest
 
     steps:
