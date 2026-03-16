@@ -262,6 +262,34 @@ describe('handleLogStream', () => {
     expect(destroySpy).toHaveBeenCalledTimes(1);
   });
 
+  test('abort after stream error does not throw (double close)', async () => {
+    const logEmitter = new EventEmitter();
+    const abortController = new AbortController();
+
+    const mockContainer = {
+      inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
+      logs: mock(() => Promise.resolve(logEmitter)),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest(abortController);
+    const response = handleLogStream(mockDocker as any, 'abc123', request);
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Stream error closes the controller
+    logEmitter.emit('error', new Error('pipe broken'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Abort after error — controller.close() will throw TypeError (already closed)
+    abortController.abort();
+    await new Promise((r) => setTimeout(r, 10));
+
+    const body = await drainStream(response);
+    expect(body).toContain('event: error');
+    expect(body).toContain('pipe broken');
+  });
+
   test('abort signal: stops enqueuing data after client disconnects', async () => {
     const logEmitter = new EventEmitter();
     const abortController = new AbortController();

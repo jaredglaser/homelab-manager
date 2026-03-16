@@ -76,11 +76,11 @@ Bun.serve({
 
       return new Response('Not Found', { status: 404 });
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
       console.error('Unhandled error in request handler:', error);
-      return Response.json({ error: 'Internal server error', detail }, { status: 500 });
+      return Response.json({ error: 'Internal server error' }, { status: 500 });
     }
   },
 });
 
+console.info(`Using stacks directory: ${STACKS_DIR}`);
 console.info(`Agent listening on port ${PORT}`);

@@ -232,6 +232,38 @@ describe('handleStatsStream', () => {
     expect(destroySpy).not.toHaveBeenCalled();
   });
 
+  test('falls back to container ID when Names is empty', async () => {
+    const statsEmitter = new EventEmitter();
+
+    const container = {
+      Id: 'noname123',
+      Names: [],
+      Image: 'test:latest',
+    };
+
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve([container])),
+      getContainer: mock(() => ({
+        stats: mock(() => Promise.resolve(statsEmitter)),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request);
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    statsEmitter.emit('data', Buffer.from(makeStatsJson() + '\n'));
+
+    const text = await readUntil(response, (s) => s.includes('"containerId"'));
+    ac.abort();
+
+    const eventData = text.split('\n\n').filter(Boolean)[0];
+    const parsed = JSON.parse(eventData.replace(/^data:\s*/, ''));
+    expect(parsed.containerName).toBe('noname123');
+  });
+
   test('skips malformed JSON frames without crashing', async () => {
     const statsEmitter = new EventEmitter();
     const container = { Id: 'json1', Names: ['/jsontest'], Image: 'test:latest' };
@@ -360,6 +392,33 @@ describe('handleStatsStream — container refresh', () => {
 
     expect(destroySpy).toHaveBeenCalledTimes(1);
     expect(text).toContain('event: containers');
+  });
+
+  test('closes stream after max consecutive refresh failures (circuit breaker)', async () => {
+    let callCount = 0;
+    const mockDocker = {
+      listContainers: mock(() => {
+        callCount++;
+        if (callCount <= 1) return Promise.resolve([]);
+        return Promise.reject(new Error('daemon gone'));
+      }),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request, {
+      ...fastOptions,
+      maxConsecutiveFailures: 3,
+    });
+
+    const text = await readUntil(response, (s) => s.includes('event: error'), 5000);
+    ac.abort();
+
+    expect(text).toContain('event: error');
+    expect(text).toContain('Docker daemon unreachable, stream closed');
+    // Should have 3 refresh_failed events before the final error
+    const refreshFailures = (text.match(/refresh_failed/g) || []).length;
+    expect(refreshFailures).toBe(3);
   });
 
   test('emits refresh_failed event on container list error during refresh', async () => {

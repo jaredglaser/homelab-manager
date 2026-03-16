@@ -9,7 +9,7 @@ const { version } = pkg;
  * @param docker - Dockerode client used to query the Docker daemon
  * @returns An HTTP Response whose JSON body is:
  * - On success (HTTP 200): `{ status: "healthy", agentVersion, docker: { version, apiVersion } }`
- * - On failure (HTTP 503): `{ status: "unhealthy", agentVersion, error: "docker_unreachable" }`
+ * - On failure (HTTP 503): `{ status: "unhealthy", agentVersion, error: "docker_unreachable", detail: string }`
  */
 export async function handleHealth(docker: Dockerode): Promise<Response> {
   try {

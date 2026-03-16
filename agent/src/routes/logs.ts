@@ -4,9 +4,16 @@ import type Dockerode from 'dockerode';
 /**
  * Stream a Docker container's logs to the client over a Server-Sent Events (SSE) connection.
  *
- * Streams recent and live stdout/stderr output from the specified container as SSE `data` events containing JSON-encoded log objects; emits SSE `error` events on failures and closes the stream when the request is aborted or the log stream ends.
+ * Streams recent and live stdout/stderr output from the specified container as SSE `data` events
+ * containing JSON-encoded log objects; emits SSE `error` events on failures and closes the stream
+ * when the request is aborted or the log stream ends.
  *
+ * Clients MUST handle the `error` SSE event since the HTTP status is always 200
+ * (the Response is returned before the async start() runs).
+ *
+ * @param docker - Dockerode client used to interact with the Docker daemon
  * @param containerId - The ID or name of the container whose logs will be streamed
+ * @param request - The HTTP request; its abort signal is used to clean up the log stream on client disconnect
  * @returns A Response exposing an SSE stream that emits JSON-encoded log lines and error events
  */
 export function handleLogStream(
@@ -28,7 +35,7 @@ export function handleLogStream(
         try {
           controller.close();
         } catch {
-          // controller may already be closed
+          // controller already closed
         }
       });
 
@@ -68,8 +75,8 @@ export function handleLogStream(
                 encoder.encode(`data: ${JSON.stringify(line)}\n\n`)
               );
             }
-          } catch {
-            // enqueue-after-close race — client already disconnected
+          } catch (err) {
+            if (!(err instanceof TypeError)) console.error('Unexpected error enqueuing log line:', err);
           }
         });
 
@@ -104,7 +111,7 @@ export function handleLogStream(
           closed = true;
           controller.close();
         } catch {
-          // controller may already be closed
+          // controller already closed
         }
       }
     },
@@ -128,6 +135,8 @@ interface LogLine {
  * Parse a TTY-mode Docker log chunk into individual log lines.
  *
  * Splits the chunk by newline, discards empty lines, and marks every line as `stdout`.
+ * In TTY mode, Docker multiplexes stdout and stderr into a single stream with no
+ * framing headers, so individual lines cannot be attributed to a specific stream.
  *
  * @param chunk - Raw buffer read from a container's TTY log stream
  * @returns An array of `LogLine` objects where `stream` is `'stdout'` and `text` is each non-empty line from the chunk

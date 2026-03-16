@@ -416,6 +416,39 @@ describe('handleStackRestart — spawn failure', () => {
   });
 });
 
+describe('handleStackDeploy — without envContent', () => {
+  test('deploys stack without creating .env file when envContent is absent', async () => {
+    const mockSpawn = mock(() => ({
+      exited: Promise.resolve(0),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+    }));
+
+    const body = {
+      stack: 'nginx',
+      composeContent: 'services:\n  nginx:\n    image: nginx',
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, mockSpawn as any);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.status).toBe('success');
+
+    const composePath = join(TEST_STACKS_DIR, 'nginx', 'docker-compose.yml');
+    expect(existsSync(composePath)).toBe(true);
+
+    const envPath = join(TEST_STACKS_DIR, 'nginx', '.env');
+    expect(existsSync(envPath)).toBe(false);
+  });
+});
+
 describe('handleStackStatus', () => {
   test('returns stack with container details', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
@@ -506,5 +539,145 @@ describe('handleStackStatus', () => {
     expect(result.stacks).toHaveLength(1);
     expect(result.stacks[0].name).toBe('broken');
     expect(result.stacks[0].containers).toEqual([]);
+    expect(result.hasErrors).toBe(true);
+  });
+
+  test('sets hasErrors when any stack has an error', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'good'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'good', 'docker-compose.yml'), 'services: {}');
+    mkdirSync(join(TEST_STACKS_DIR, 'bad'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'bad', 'docker-compose.yml'), 'services: {}');
+
+    let callIdx = 0;
+    const mixedSpawn = mock(() => {
+      callIdx++;
+      if (callIdx === 1) {
+        return {
+          exited: Promise.resolve(0),
+          stdout: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('[]')); c.close(); } }),
+          stderr: emptyStream(),
+        };
+      }
+      return {
+        exited: Promise.resolve(1),
+        stdout: emptyStream(),
+        stderr: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('compose error')); c.close(); } }),
+      };
+    });
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, mixedSpawn as any);
+    const result = await response.json();
+
+    expect(result.hasErrors).toBe(true);
+    const errStack = result.stacks.find((s: any) => s.error);
+    expect(errStack).toBeDefined();
+  });
+
+  test('does not set hasErrors when all stacks succeed', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'ok'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'ok', 'docker-compose.yml'), 'services: {}');
+
+    const okSpawn = mock(() => ({
+      exited: Promise.resolve(0),
+      stdout: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('[]')); c.close(); } }),
+      stderr: emptyStream(),
+    }));
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, okSpawn as any);
+    const result = await response.json();
+
+    expect(result.hasErrors).toBeUndefined();
+  });
+
+  test('returns error when spawn throws', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'crash'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'crash', 'docker-compose.yml'), 'services: {}');
+
+    const throwSpawn = mock(() => { throw new Error('docker: not found'); });
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, throwSpawn as any);
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('crash');
+    expect(result.stacks[0].containers).toEqual([]);
+    expect(result.stacks[0].error).toContain('docker: not found');
+    expect(result.hasErrors).toBe(true);
+  });
+
+  test('returns error for completely unparseable output', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'garbled'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'garbled', 'docker-compose.yml'), 'services: {}');
+
+    const garbageSpawn = mock(() => ({
+      exited: Promise.resolve(0),
+      stdout: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('not json at all\nstill not json'));
+          controller.close();
+        },
+      }),
+      stderr: emptyStream(),
+    }));
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, garbageSpawn as any);
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('garbled');
+    expect(result.stacks[0].error).toBe('Failed to parse status output');
+    expect(result.stacks[0].containers).toEqual([]);
+    expect(result.hasErrors).toBe(true);
+  });
+
+  test('skips directories with invalid names', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, '.hidden'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, '.hidden', 'docker-compose.yml'), 'services: {}');
+    mkdirSync(join(TEST_STACKS_DIR, 'valid-stack'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'valid-stack', 'docker-compose.yml'), 'services: {}');
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, successSpawn as any);
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('valid-stack');
+  });
+
+  test('returns 500 when stacks directory is unreadable', async () => {
+    // Use a path that exists but isn't a directory (a regular file)
+    const filePath = join(TEST_STACKS_DIR, 'not-a-dir');
+    await Bun.write(filePath, 'file');
+
+    const response = await handleStackStatus(filePath, successSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to read stacks directory');
+  });
+
+  test('runs status checks concurrently', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'a-stack'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'a-stack', 'docker-compose.yml'), 'services: {}');
+    mkdirSync(join(TEST_STACKS_DIR, 'b-stack'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'b-stack', 'docker-compose.yml'), 'services: {}');
+
+    const startTimes: number[] = [];
+    const delayedSpawn = mock(() => {
+      startTimes.push(Date.now());
+      return {
+        exited: new Promise<number>((r) => setTimeout(() => r(0), 50)),
+        stdout: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('[]')); c.close(); } }),
+        stderr: emptyStream(),
+      };
+    });
+
+    const start = Date.now();
+    const response = await handleStackStatus(TEST_STACKS_DIR, delayedSpawn as any);
+    const elapsed = Date.now() - start;
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(2);
+    // If concurrent, both spawns start nearly simultaneously and total time ≈ 50ms
+    // If sequential, total time ≈ 100ms
+    expect(elapsed).toBeLessThan(90);
   });
 });

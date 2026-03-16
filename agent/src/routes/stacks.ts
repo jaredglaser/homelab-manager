@@ -31,9 +31,10 @@ type SpawnFn = typeof Bun.spawn;
  * @param stacksDir - Filesystem directory under which per-stack directories are created
  * @param spawn - Optional process spawn function override (defaults to Bun.spawn)
  * @returns A Response whose JSON body indicates the outcome:
- * - On success: `{ status: "success", stdout, stderr }` with HTTP 200.
- * - On failure: either a JSON error message for client errors (e.g., invalid JSON or missing fields) or
- *   `{ status: "failed", exitCode, stdout, stderr }` for process failures with an appropriate HTTP status (e.g., 400 or 500).
+ * - HTTP 200: `{ status: "success", stdout, stderr }`
+ * - HTTP 400: `{ error }` for invalid JSON, missing fields, or invalid stack name
+ * - HTTP 413: `{ error }` if `composeContent` exceeds 1 MB or `envContent` exceeds 64 KB
+ * - HTTP 500: `{ status: "failed", exitCode, stdout, stderr }` for process failures, or `{ error }` for write/spawn failures
  */
 export async function handleStackDeploy(
   request: Request,
@@ -291,7 +292,10 @@ export async function handleStackRestart(
  *
  * @param stacksDir - Path to the directory containing stack subdirectories (each expected to include a `docker-compose.yml`).
  * @param spawn - Optional process spawn function used to run Docker Compose commands; defaults to Bun.spawn.
- * @returns A Response whose JSON body is an object `{ stacks }` where `stacks` is an array of objects each containing `name` (the stack directory name) and `containers` (an array of container info parsed from `docker compose ps`; empty if no data or on error).
+ * @returns A Response whose JSON body is `{ stacks, hasErrors? }` where `stacks` is an array of objects
+ *   each containing `name`, `containers` (parsed from `docker compose ps`; empty on error),
+ *   and optionally `error` (a string describing why status retrieval failed).
+ *   `hasErrors` is `true` when any stack encountered an error.
  */
 export async function handleStackStatus(
   stacksDir: string,
@@ -301,67 +305,83 @@ export async function handleStackStatus(
     return Response.json({ stacks: [] });
   }
 
-  const entries = readdirSync(stacksDir, { withFileTypes: true });
-  const stacks = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (!VALID_STACK_NAME.test(entry.name)) continue;
-
-    const composePath = join(stacksDir, entry.name, 'docker-compose.yml');
-    if (!existsSync(composePath)) continue;
-
-    let containers: unknown[] = [];
-    let error: string | undefined;
-    try {
-      const proc = spawn({
-        cmd: [
-          'docker',
-          'compose',
-          '-f',
-          composePath,
-          'ps',
-          '--format',
-          'json',
-        ],
-        cwd: join(stacksDir, entry.name),
-        stdout: 'pipe',
-        stderr: 'pipe',
-        env: { ...process.env, COMPOSE_PROJECT_NAME: entry.name },
-      });
-
-      const [exitCode, output, stderrOutput] = await Promise.all([
-        proc.exited,
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
-      ]);
-      if (exitCode === 0) {
-        if (output.trim()) {
-          try {
-            const parsed = JSON.parse(output);
-            containers = Array.isArray(parsed) ? parsed : [parsed];
-          } catch {
-            try {
-              containers = output.trim().split('\n')
-                .filter(line => line.trim())
-                .map(line => JSON.parse(line));
-            } catch (parseError) {
-              console.error(`Failed to parse docker compose ps output for ${entry.name}:`, parseError);
-              error = 'Failed to parse status output';
-            }
-          }
-        }
-      } else {
-        console.error(`docker compose ps failed for ${entry.name} (exit ${exitCode}): ${stderrOutput}`);
-        error = stderrOutput.trim() || `Exit code ${exitCode}`;
-      }
-    } catch (spawnError) {
-      console.error(`Failed to get status for stack ${entry.name}:`, spawnError);
-      error = spawnError instanceof Error ? spawnError.message : String(spawnError);
-    }
-
-    stacks.push({ name: entry.name, containers, ...(error ? { error } : {}) });
+  let entries;
+  try {
+    entries = readdirSync(stacksDir, { withFileTypes: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Failed to read stacks directory '${stacksDir}':`, err);
+    return Response.json({ error: `Failed to read stacks directory: ${msg}` }, { status: 500 });
   }
 
-  return Response.json({ stacks });
+  const stackDirs = entries.filter(
+    (entry) => entry.isDirectory() && VALID_STACK_NAME.test(entry.name) && existsSync(join(stacksDir, entry.name, 'docker-compose.yml'))
+  );
+
+  const results = await Promise.allSettled(
+    stackDirs.map(async (entry) => {
+      const composePath = join(stacksDir, entry.name, 'docker-compose.yml');
+      let containers: unknown[] = [];
+      let error: string | undefined;
+
+      try {
+        const proc = spawn({
+          cmd: [
+            'docker',
+            'compose',
+            '-f',
+            composePath,
+            'ps',
+            '--format',
+            'json',
+          ],
+          cwd: join(stacksDir, entry.name),
+          stdout: 'pipe',
+          stderr: 'pipe',
+          env: { ...process.env, COMPOSE_PROJECT_NAME: entry.name },
+        });
+
+        const [exitCode, output, stderrOutput] = await Promise.all([
+          proc.exited,
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ]);
+        if (exitCode === 0) {
+          if (output.trim()) {
+            try {
+              const parsed = JSON.parse(output);
+              containers = Array.isArray(parsed) ? parsed : [parsed];
+            } catch {
+              // JSON array parse failed, trying NDJSON (Docker outputs vary by version)
+              try {
+                containers = output.trim().split('\n')
+                  .filter(line => line.trim())
+                  .map(line => JSON.parse(line));
+              } catch (parseError) {
+                console.error(`Failed to parse docker compose ps output for ${entry.name}:`, parseError);
+                error = 'Failed to parse status output';
+              }
+            }
+          }
+        } else {
+          console.error(`docker compose ps failed for ${entry.name} (exit ${exitCode}): ${stderrOutput}`);
+          error = stderrOutput.trim() || `Exit code ${exitCode}`;
+        }
+      } catch (spawnError) {
+        console.error(`Failed to get status for stack ${entry.name}:`, spawnError);
+        error = spawnError instanceof Error ? spawnError.message : String(spawnError);
+      }
+
+      return { name: entry.name, containers, ...(error ? { error } : {}) };
+    })
+  );
+
+  const stacks = results.map((r, i) =>
+    r.status === 'fulfilled'
+      ? r.value
+      : { name: stackDirs[i].name, containers: [], error: String((r as PromiseRejectedResult).reason) }
+  );
+  const hasErrors = stacks.some(s => 'error' in s);
+
+  return Response.json({ stacks, ...(hasErrors ? { hasErrors: true } : {}) });
 }
