@@ -45,11 +45,11 @@ export class DeployRepository {
     return toDeployRecord(result.rows[0]);
   }
 
-  async hasActiveDeployForStack(stack: string): Promise<boolean> {
+  async hasActiveDeployForStack(stack: string, host: string): Promise<boolean> {
     const result = await this.pool.query(
       `SELECT COUNT(*) as count FROM deploy_history
-       WHERE stack = $1 AND status IN ('pending', 'in_progress')`,
-      [stack]
+       WHERE stack = $1 AND host = $2 AND status IN ('pending', 'in_progress')`,
+      [stack, host]
     );
     return Number(result.rows[0].count) > 0;
   }
@@ -65,11 +65,11 @@ export class DeployRepository {
     return result.rows.map(toDeployRecord);
   }
 
-  async deduplicatePending(stack: string, keepId: number): Promise<void> {
+  async deduplicatePending(stack: string, host: string, keepId: number): Promise<void> {
     await this.pool.query(
       `DELETE FROM deploy_history
-       WHERE stack = $1 AND status = $2 AND id != $3`,
-      [stack, 'pending', keepId]
+       WHERE stack = $1 AND host = $2 AND status = $3 AND id != $4`,
+      [stack, host, 'pending', keepId]
     );
   }
 

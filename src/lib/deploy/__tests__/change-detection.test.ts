@@ -19,7 +19,7 @@ describe('computeHash', () => {
 
   it('returns a hex string', () => {
     const hash = computeHash('test');
-    expect(hash).toMatch(/^[0-9a-f]+$/);
+    expect(hash).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 

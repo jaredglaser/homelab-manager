@@ -1,5 +1,3 @@
-// src/lib/clients/__tests__/agent-client.test.ts
-
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { AgentClient, AgentClientError } from '../agent-client';
 
@@ -20,7 +18,7 @@ describe('AgentClient', () => {
   describe('deploy', () => {
     it('sends POST to /stacks/deploy with correct headers and body', async () => {
       fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify({ success: true, logs: 'deployed' }), {
+        new Response(JSON.stringify({ status: 'success', stdout: 'deployed', stderr: '' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -75,7 +73,7 @@ describe('AgentClient', () => {
   describe('teardown', () => {
     it('sends POST to /stacks/teardown', async () => {
       fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify({ success: true, logs: 'torn down' }), {
+        new Response(JSON.stringify({ status: 'success', stdout: 'torn down', stderr: '' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -92,7 +90,7 @@ describe('AgentClient', () => {
   describe('restart', () => {
     it('sends POST to /stacks/restart', async () => {
       fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify({ success: true, logs: 'restarted' }), {
+        new Response(JSON.stringify({ status: 'success', stdout: 'restarted', stderr: '' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -109,7 +107,11 @@ describe('AgentClient', () => {
   describe('health', () => {
     it('returns health info from GET /health', async () => {
       fetchMock.mockResolvedValueOnce(
-        new Response(JSON.stringify({ status: 'healthy', version: '0.1.0' }), {
+        new Response(JSON.stringify({
+          status: 'healthy',
+          agentVersion: '0.1.0',
+          docker: { version: '24.0.7', apiVersion: '1.43' },
+        }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         })

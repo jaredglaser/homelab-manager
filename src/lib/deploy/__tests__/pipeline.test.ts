@@ -83,6 +83,7 @@ describe('DeployPipeline', () => {
       hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
       agentClientFactory,
       secretResolver,
+      tokenResolver: () => 'test-token',
     });
   });
 
@@ -122,6 +123,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
         agentClientFactory,
         secretResolver,
+        tokenResolver: () => 'test-token',
       });
 
       const result = await pipeline.execute(testRequest);
@@ -135,6 +137,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
         agentClientFactory,
         secretResolver,
+        tokenResolver: () => 'test-token',
       });
 
       const result = await pipeline.execute(testRequest);
@@ -151,6 +154,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
         agentClientFactory,
         secretResolver,
+        tokenResolver: () => 'test-token',
       });
 
       const result = await pipeline.execute(testRequest);
@@ -176,6 +180,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
         agentClientFactory,
         secretResolver,
+        tokenResolver: () => 'test-token',
       });
 
       const result = await pipeline.execute(testRequest);
@@ -212,6 +217,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
         agentClientFactory,
         secretResolver: resolver,
+        tokenResolver: () => 'test-token',
       });
 
       const result = await pipeline.execute(requestWithVars);
@@ -237,6 +243,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
         agentClientFactory,
         secretResolver,
+        tokenResolver: () => 'test-token',
       });
 
       const result = await pipeline.execute(testRequest);
@@ -257,6 +264,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
         agentClientFactory,
         secretResolver,
+        tokenResolver: () => 'test-token',
       });
 
       const result = await pipeline.execute(testRequest);
@@ -286,6 +294,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
         agentClientFactory,
         secretResolver,
+        tokenResolver: () => 'test-token',
       });
 
       const result = await pipeline.resumePending(42, testHost, testRequest);

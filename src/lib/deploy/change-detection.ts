@@ -10,7 +10,7 @@ export function computeHash(content: string): string {
   return hasher.digest('hex');
 }
 
-interface ChangeDetectionResult {
+export interface ChangeDetectionResult {
   changed: boolean;
   composeHash: string;
   envHash: string;

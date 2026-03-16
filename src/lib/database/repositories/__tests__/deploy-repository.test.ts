@@ -1,5 +1,3 @@
-// src/lib/database/repositories/__tests__/deploy-repository.test.ts
-
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { DeployRepository } from '../deploy-repository';
 
@@ -98,13 +96,14 @@ describe('DeployRepository', () => {
   describe('hasActiveDeployForStack', () => {
     it('returns false when no active deploy exists', async () => {
       mock.pushResult([{ count: '0' }]);
-      const result = await repo.hasActiveDeployForStack('plex');
+      const result = await repo.hasActiveDeployForStack('plex', 'homeserver');
       expect(result).toBe(false);
+      expect(mock.queries[0].params).toEqual(['plex', 'homeserver']);
     });
 
     it('returns true when an active deploy exists', async () => {
       mock.pushResult([{ count: '1' }]);
-      const result = await repo.hasActiveDeployForStack('plex');
+      const result = await repo.hasActiveDeployForStack('plex', 'homeserver');
       expect(result).toBe(true);
     });
   });
@@ -132,12 +131,12 @@ describe('DeployRepository', () => {
   });
 
   describe('deduplicatePending', () => {
-    it('deletes older pending deploys for the same stack, keeping the latest', async () => {
+    it('deletes older pending deploys for the same stack and host, keeping the latest', async () => {
       mock.pushResult([]);
-      await repo.deduplicatePending('plex', 42);
+      await repo.deduplicatePending('plex', 'homeserver', 42);
 
       expect(mock.queries[0].sql).toContain('DELETE FROM deploy_history');
-      expect(mock.queries[0].params).toEqual(['plex', 'pending', 42]);
+      expect(mock.queries[0].params).toEqual(['plex', 'homeserver', 'pending', 42]);
     });
   });
 

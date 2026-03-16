@@ -16,6 +16,8 @@ interface PipelineDeps {
   hostsRepo: ManagedHostsRepository;
   agentClientFactory: (agentUrl: string, agentToken: string) => AgentClient;
   secretResolver: SecretResolver;
+  /** Resolve the agent bearer token for a given host. */
+  tokenResolver: (host: ManagedHost) => Promise<string> | string;
 }
 
 /**
@@ -27,12 +29,14 @@ export class DeployPipeline {
   private readonly hostsRepo: ManagedHostsRepository;
   private readonly agentClientFactory: PipelineDeps['agentClientFactory'];
   private readonly secretResolver: SecretResolver;
+  private readonly tokenResolver: PipelineDeps['tokenResolver'];
 
   constructor(deps: PipelineDeps) {
     this.deployRepo = deps.deployRepo;
     this.hostsRepo = deps.hostsRepo;
     this.agentClientFactory = deps.agentClientFactory;
     this.secretResolver = deps.secretResolver;
+    this.tokenResolver = deps.tokenResolver;
   }
 
   async execute(request: DeployRequest): Promise<PipelineResult> {
@@ -42,8 +46,8 @@ export class DeployPipeline {
       return { status: 'failed', logs: `Host "${request.host}" not found in managed_hosts` };
     }
 
-    // 2. Concurrency check: one deploy per stack at a time
-    const hasActive = await this.deployRepo.hasActiveDeployForStack(request.stack);
+    // 2. Concurrency check: one deploy per stack+host at a time
+    const hasActive = await this.deployRepo.hasActiveDeployForStack(request.stack, request.host);
     if (hasActive) {
       return { status: 'failed', logs: `Stack "${request.stack}" already has an active deploy` };
     }
@@ -51,16 +55,9 @@ export class DeployPipeline {
     // 3. Change detection (skip for teardown/restart -- always execute those)
     let composeHash = '';
     let envHash = '';
-    let resolvedEnvContent = request.envContent;
+    const resolvedEnvContent = await this.resolveEnv(request);
 
     if (request.action === 'deploy') {
-      // Resolve secrets
-      const variables = extractVariableReferences(request.composeContent);
-      if (variables.length > 0) {
-        const secrets = await this.secretResolver.resolve(request.stack, variables);
-        resolvedEnvContent = buildEnvContent(request.envContent, secrets);
-      }
-
       const previousDeploy = await this.deployRepo.getLatestSuccessful(request.stack, request.host);
       const changeResult = detectChanges(request.composeContent, resolvedEnvContent, previousDeploy);
       composeHash = changeResult.composeHash;
@@ -91,8 +88,8 @@ export class DeployPipeline {
       trigger: request.trigger,
     });
 
-    // Deduplicate older pending deploys for this stack
-    await this.deployRepo.deduplicatePending(request.stack, deployId);
+    // Deduplicate older pending deploys for this stack+host
+    await this.deployRepo.deduplicatePending(request.stack, request.host, deployId);
 
     // 5. If not auto-approved, stop here (UI will show pending state)
     if (!request.autoApproved) {
@@ -108,10 +105,23 @@ export class DeployPipeline {
 
   /**
    * Resume a pending deploy (after manual approval).
+   * Performs the same env merge / secret resolution that execute uses.
    */
   async resumePending(deployId: number, host: ManagedHost, request: DeployRequest): Promise<PipelineResult> {
     await this.deployRepo.updateStatus(deployId, 'in_progress');
-    return this.dispatch(host, request, request.envContent, deployId);
+
+    const resolvedEnvContent = await this.resolveEnv(request);
+    return this.dispatch(host, request, resolvedEnvContent, deployId);
+  }
+
+  private async resolveEnv(request: DeployRequest): Promise<string> {
+    if (request.action !== 'deploy') return request.envContent;
+
+    const variables = extractVariableReferences(request.composeContent);
+    if (variables.length === 0) return request.envContent;
+
+    const secrets = await this.secretResolver.resolve(request.stack, variables);
+    return buildEnvContent(request.envContent, secrets);
   }
 
   private async dispatch(
@@ -121,7 +131,8 @@ export class DeployPipeline {
     deployId: number,
   ): Promise<PipelineResult> {
     try {
-      const agent = this.agentClientFactory(host.agentUrl, '');
+      const token = await this.tokenResolver(host);
+      const agent = this.agentClientFactory(host.agentUrl, token);
 
       let result;
       switch (request.action) {

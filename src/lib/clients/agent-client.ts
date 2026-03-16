@@ -1,5 +1,4 @@
-// src/lib/clients/agent-client.ts
-
+import type { AgentStackResponse, AgentHealthCheckResponse } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse } from '@/lib/deploy/types';
 
 export class AgentClientError extends Error {
@@ -22,7 +21,7 @@ interface AgentClientConfig {
   fetchFn?: typeof fetch;
 }
 
-interface AgentHealthResponse {
+export interface AgentHealthResponse {
   status: string;
   version: string;
 }
@@ -30,6 +29,7 @@ interface AgentHealthResponse {
 /**
  * Thin HTTP client for communicating with the homelab-manager agent.
  * All requests include the bearer token and a timeout via AbortSignal.
+ * Adapts the raw agent JSON into the internal AgentDeployResponse / AgentHealthResponse shapes.
  */
 export class AgentClient {
   private readonly agentUrl: string;
@@ -46,19 +46,26 @@ export class AgentClient {
   }
 
   async deploy(payload: AgentDeployPayload): Promise<AgentDeployResponse> {
-    return this.postJson<AgentDeployResponse>('/stacks/deploy', payload);
+    const raw = await this.postJson<AgentStackResponse>('/stacks/deploy', payload);
+    return adaptDeployResponse(raw);
   }
 
   async teardown(stack: string): Promise<AgentDeployResponse> {
-    return this.postJson<AgentDeployResponse>('/stacks/teardown', { stack });
+    const raw = await this.postJson<AgentStackResponse>('/stacks/teardown', { stack });
+    return adaptDeployResponse(raw);
   }
 
   async restart(stack: string): Promise<AgentDeployResponse> {
-    return this.postJson<AgentDeployResponse>('/stacks/restart', { stack });
+    const raw = await this.postJson<AgentStackResponse>('/stacks/restart', { stack });
+    return adaptDeployResponse(raw);
   }
 
   async health(): Promise<AgentHealthResponse> {
-    return this.getJson<AgentHealthResponse>('/health');
+    const raw = await this.getJson<AgentHealthCheckResponse>('/health');
+    const version = raw.status === 'healthy'
+      ? raw.agentVersion ?? raw.docker.version
+      : raw.agentVersion;
+    return { status: raw.status, version };
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
@@ -109,4 +116,12 @@ export class AgentClient {
 
     return response.json() as Promise<T>;
   }
+}
+
+/** Map the agent's raw `{ status, stdout, stderr }` to internal `{ success, logs }`. */
+function adaptDeployResponse(raw: AgentStackResponse): AgentDeployResponse {
+  return {
+    success: raw.status === 'success',
+    logs: [raw.stdout, raw.stderr].filter(Boolean).join('\n'),
+  };
 }

@@ -1,5 +1,3 @@
-// src/lib/deploy/__tests__/secret-resolver.test.ts
-
 import { describe, it, expect } from 'bun:test';
 import { NoOpSecretResolver, extractVariableReferences } from '../secret-resolver';
 

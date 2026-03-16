@@ -1,5 +1,3 @@
-// src/lib/database/repositories/__tests__/managed-hosts-repository.test.ts
-
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { ManagedHostsRepository } from '../managed-hosts-repository';
 

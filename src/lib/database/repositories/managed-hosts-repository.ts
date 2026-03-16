@@ -1,7 +1,7 @@
 // src/lib/database/repositories/managed-hosts-repository.ts
 
 import type { Pool } from 'pg';
-import type { ManagedHost } from '@/lib/deploy/types';
+import type { ManagedHost, ManagedHostStatus } from '@/lib/deploy/types';
 
 interface InsertHostParams {
   name: string;
@@ -39,7 +39,7 @@ export class ManagedHostsRepository {
     return Number(result.rows[0].id);
   }
 
-  async updateStatus(id: number, status: string): Promise<void> {
+  async updateStatus(id: number, status: ManagedHostStatus): Promise<void> {
     await this.pool.query(
       `UPDATE managed_hosts SET status = $2 WHERE id = $1`,
       [id, status]
@@ -62,7 +62,7 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     agentTokenHash: row.agent_token_hash as string,
     socketProxyUrl: row.socket_proxy_url as string,
     agentVersion: (row.agent_version as string) ?? null,
-    status: row.status as string,
+    status: row.status as ManagedHostStatus,
     createdAt: row.created_at as Date,
   };
 }

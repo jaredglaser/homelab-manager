@@ -17,11 +17,13 @@ export class NoOpSecretResolver implements SecretResolver {
 
 /**
  * Extract variable references from Docker Compose content.
- * Supports variable substitution syntax, including default values.
+ * Matches `${VAR_NAME}` and `${VAR_NAME:-default}` (with `:`, `?`, `+`, `-` expansions).
+ * Variable names must start with a letter or underscore, followed by alphanumerics/underscores.
+ * Both upper- and lowercase identifiers are supported (e.g. `${db_name}`, `${API_TOKEN}`).
  * Returns deduplicated variable names.
  */
 export function extractVariableReferences(composeContent: string): string[] {
-  const regex = /\$\{([A-Z_][A-Z0-9_]*)(?:[:?+-][^}]*)?\}/g;
+  const regex = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?:[:?+-][^}]*)?\}/g;
   const vars = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = regex.exec(composeContent)) !== null) {

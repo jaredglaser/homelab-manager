@@ -33,6 +33,8 @@ export interface DeployRecord {
   createdAt: Date;
 }
 
+export type ManagedHostStatus = 'pending' | 'healthy' | 'unhealthy' | 'error';
+
 export interface ManagedHost {
   id: number;
   name: string;
@@ -40,7 +42,7 @@ export interface ManagedHost {
   agentTokenHash: string;
   socketProxyUrl: string;
   agentVersion: string | null;
-  status: string;
+  status: ManagedHostStatus;
   createdAt: Date;
 }
 
