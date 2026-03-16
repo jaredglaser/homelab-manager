@@ -27,6 +27,7 @@ jobs:
             dependencies:
               - 'package.json'
               - 'bun.lock'
+              - 'agent/package.json'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -39,6 +40,17 @@ jobs:
 
       - name: Run tests with coverage check
         run: bun run test
+        env:
+          NODE_ENV: test
+
+      - name: Install agent dependencies
+        run: cd agent && bun install --frozen-lockfile
+
+      - name: Agent typecheck
+        run: cd agent && bun run typecheck
+
+      - name: Run agent tests with coverage check
+        run: cd agent && bun run test:coverage
         env:
           NODE_ENV: test
 
