@@ -107,8 +107,9 @@ jobs:
       - name: Generate license report
         if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
         run: |
-          cd agent && bunx license-checker-rseidelsohn --json > license-report.json
-          cd agent && bunx license-checker-rseidelsohn --summary
+          cd agent
+          bunx license-checker-rseidelsohn --json > license-report.json
+          bunx license-checker-rseidelsohn --summary
 
       - name: Upload license report
         if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
