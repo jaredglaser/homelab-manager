@@ -1,6 +1,10 @@
-import { describe, expect, test, mock } from 'bun:test';
+import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { handleHealth } from '../routes/health';
 import pkg from '../../package.json';
+
+beforeAll(() => {
+  console.error = mock(() => {});
+});
 
 describe('handleHealth', () => {
   test('returns 200 with agent version and status', async () => {

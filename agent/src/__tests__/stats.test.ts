@@ -1,6 +1,10 @@
-import { describe, expect, test, mock } from 'bun:test';
+import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { handleStatsStream, type StatsStreamOptions } from '../routes/stats';
+
+beforeAll(() => {
+  console.error = mock(() => {});
+});
 
 // Read chunks from the stream until predicate is satisfied or timeout
 async function readUntil(

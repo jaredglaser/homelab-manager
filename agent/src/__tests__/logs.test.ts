@@ -1,6 +1,10 @@
-import { describe, expect, test, mock } from 'bun:test';
+import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { handleLogStream } from '../routes/logs';
+
+beforeAll(() => {
+  console.error = mock(() => {});
+});
 
 function makeRequest(abortController?: AbortController): Request {
   const ctrl = abortController ?? new AbortController();

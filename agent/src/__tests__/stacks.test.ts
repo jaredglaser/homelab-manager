@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, expect, test, mock, beforeAll, beforeEach, afterEach } from 'bun:test';
 import {
   handleStackDeploy,
   handleStackTeardown,
@@ -7,6 +7,10 @@ import {
 } from '../routes/stacks';
 import { mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+
+beforeAll(() => {
+  console.error = mock(() => {});
+});
 
 const TEST_STACKS_DIR = join(import.meta.dir, '../../.test-stacks');
 

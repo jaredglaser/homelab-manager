@@ -1,5 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { authenticateRequest } from '../middleware';
+
+beforeAll(() => {
+  console.error = mock(() => {});
+});
 
 describe('authenticateRequest', () => {
   const validToken = 'test-token-123';
