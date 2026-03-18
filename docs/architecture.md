@@ -97,3 +97,178 @@ Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` disc
 - **Bidirectional conversion**: `overviewToRows()` converts the Proxmox API overview to flat DB rows; `buildProxmoxOverview()` reconstructs the overview from latest rows per entity
 - **Runtime-configurable interval**: The Proxmox poll interval (1s or 10s) can be changed via the settings UI; changes propagate via `SettingsListener` → `ProxmoxCollector.pollInterval` setter
 - **Entity ID convention**: nodes use `node` name, guests use `vmid`, storages use `${node}/${storage}` for cross-node uniqueness
+
+## Docker Stack Management
+
+> Feature-flagged behind `DOCKER_MANAGEMENT_FEATURE_FLAG=true`. When off, the existing monitoring-only Docker page is unaffected.
+
+GitOps-style Docker stack management. Users define stacks as docker-compose files in a git repository managed by homelab-manager. Changes — via an in-app editor or `git push` — trigger deployments to Docker hosts through lightweight agent containers.
+
+### High-Level Flow
+
+```
+User's IDE ──git push──▶ homelab-manager git server ──post-receive──┐
+                                                                     ▼
+User's Browser ──UI edit──▶ homelab-manager commits ──────────────▶ Deploy Pipeline
+                                                                     │
+                                         ┌───────────────────────────┤
+                                         ▼                           ▼
+                                    Agent (host-1)              Agent (host-2)
+                                    via socket proxy            via socket proxy
+```
+
+### Components
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| Agent container | `agent/` | Merged (PR #50) |
+| Deploy pipeline | `src/lib/deploy/` | Merged (PR #51) |
+| Git management | `src/lib/git/` | PR #52 |
+| OpenBao secrets | `src/lib/clients/openbao-client.ts` | PR #53 (planned) |
+| Host management + UI | `src/lib/services/`, `src/components/stacks/` | PR #54 (planned) |
+
+### Agent Container (`agent/`)
+
+A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode.
+
+**Architecture:**
+- Bearer token authentication
+- Connects to Docker via `DOCKER_HOST` env var (socket proxy recommended)
+- Subprocess timeout (5 minutes) for `docker compose` operations
+
+**Endpoints:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/health` | Docker version check + heartbeat |
+| GET | `/stats/stream` | SSE container stats streaming |
+| GET | `/logs/:containerId` | SSE container log streaming |
+| POST | `/stacks/deploy` | Run `docker compose up -d` |
+| POST | `/stacks/teardown` | Run `docker compose down` |
+| POST | `/stacks/restart` | Run `docker compose restart` |
+| GET | `/stacks/status` | List stacks in working directory |
+
+**Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work.
+
+### Deploy Pipeline (`src/lib/deploy/`)
+
+Trigger-agnostic orchestration layer. Accepts `DeployRequest` objects from either `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (future UI actions).
+
+**Pipeline stages:**
+
+```
+DeployRequest → Validate → Resolve Secrets → Dispatch to Agent → Record Result
+```
+
+- **Change detection:** Content hashing to skip no-op deploys
+- **Secret resolution:** Pluggable interface — no-op by default, OpenBao when configured
+- **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host
+- **Agent client:** HTTP wrapper for communicating with agents (deploy/teardown/restart)
+
+**Database tables:**
+- `managed_hosts` — registered Docker hosts with agent connection details
+- `deploy_history` — deploy records with status tracking (pending → running → success/failed)
+
+### Git Management (`src/lib/git/`)
+
+Server-side git repository using isomorphic-git for repo operations and git CLI for HTTP smart protocol.
+
+**Startup:**
+
+```
+Server boots
+  → DOCKER_MANAGEMENT_FEATURE_FLAG=true?
+    → ensureRepoInitialized()
+      → initBareRepo (create /data/repos/stacks.git if needed)
+      → No commits? Seed manifest.yaml with "stacks: {}"
+```
+
+**Git HTTP smart protocol** (`src/routes/api/git.$.ts`):
+
+Exposes a standard git HTTP endpoint at `/api/git/stacks/...` for clone, fetch, and push operations.
+
+```
+Clone/Fetch:
+  GET  /api/git/stacks/info/refs?service=git-upload-pack
+  POST /api/git/stacks/git-upload-pack
+
+Push:
+  GET  /api/git/stacks/info/refs?service=git-receive-pack
+  POST /api/git/stacks/git-receive-pack
+```
+
+- Bearer token authentication
+- Repo name validation and path traversal protection
+- Request body size limit (50MB)
+- Subprocess exit code checking
+
+**Post-receive flow** (after `git push`):
+
+```mermaid
+flowchart TD
+    A[Push accepted] --> B[Capture oldHead and newHead]
+    B --> C{oldHead != newHead?}
+    C -->|No| D[Done - no changes]
+    C -->|Yes| E[diffCommits - compare tree snapshots]
+    E --> F[identifyChangedStacks - extract top-level dirs]
+    F --> G{Any stack dirs changed?}
+    G -->|No| H["Return [] - manifest-only changes skip"]
+    G -->|Yes| I[Read manifest.yaml from newHead]
+    I --> J[Validate manifest]
+    J --> K{Stack in manifest?}
+    K -->|No| L[Log: not in manifest - skip]
+    K -->|Yes| M[Build DeployRequest]
+    M --> N["Log deploy request (TODO: dispatch to pipeline)"]
+```
+
+**Manifest format** (`manifest.yaml`):
+
+```yaml
+stacks:
+  plex:
+    host: homeserver
+    auto_deploy: true
+  traefik:
+    host: homeserver
+    auto_deploy: false
+```
+
+**In-app editor operations** (`src/lib/git/editor-operations.ts`):
+
+- `saveAndCommitFile` — save a compose file and create a commit
+- `updateManifest` — add/update a stack entry in manifest.yaml
+
+**Concurrency safety:** Commits are serialized per-repo via an async mutex to prevent lost updates from concurrent writes.
+
+**Key modules:**
+
+| Module | Purpose |
+|--------|---------|
+| `repo.ts` | Bare repo init, commit, read, list, log, diff (isomorphic-git) |
+| `git-server.ts` | HTTP smart protocol handlers via `Bun.spawn` |
+| `git-http.ts` | Path parsing and request type classification |
+| `manifest.ts` | YAML manifest parsing and validation |
+| `post-receive.ts` | Change detection and deploy request builder |
+| `post-receive-handler.ts` | Post-receive orchestration (TODO: pipeline dispatch) |
+| `init-repo.ts` | Startup initialization with seed manifest |
+| `editor-operations.ts` | In-app file save/commit and manifest updates |
+| `git-server-functions.ts` | File tree builder for UI (future) |
+
+### OpenBao Secrets (PR #53 — planned)
+
+Secret management via [OpenBao](https://openbao.org/) (open-source Vault fork).
+
+- KV v2 HTTP client for secret CRUD
+- Pluggable `SecretResolver` interface — auto-detects OpenBao when `OPENBAO_URL` is set, falls back to no-op
+- Deploy pipeline resolves `${SECRET:path/key}` variable references in compose files before dispatching to agents
+- OpenBao dev server in docker-compose for local development (management profile)
+
+### Host Management + UI (PR #54 — planned)
+
+End-user host management and stacks UI.
+
+- **HostRepository** — CRUD for managed_hosts table with agent token generation
+- **AgentProvisioningService** — deploy agent containers to new hosts via socket proxy
+- **AgentHealthCheckService** — periodic health checks with timeout support
+- **AgentStatsCollector** — SSE-based stats collection from managed hosts, integrated into worker startup
+- **Stacks UI** — StacksTable, StackDetail, ComposeEditor (Monaco with monaco-yaml), DeployHistoryList, VariablesPanel, SyncStatusBadge
