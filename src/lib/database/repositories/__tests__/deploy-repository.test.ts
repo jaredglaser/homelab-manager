@@ -63,10 +63,16 @@ describe('DeployRepository', () => {
 
   describe('updateStatus', () => {
     it('updates status and logs for a deploy record', async () => {
+      mock.pushResult([{}]); // 1 row affected
       await repo.updateStatus(42, 'succeeded', 'deployment complete');
 
       expect(mock.queries[0].sql).toContain('UPDATE deploy_history');
       expect(mock.queries[0].params).toEqual([42, 'succeeded', 'deployment complete']);
+    });
+
+    it('throws when deploy record does not exist', async () => {
+      mock.pushResult([]); // 0 rows affected
+      expect(repo.updateStatus(999, 'failed')).rejects.toThrow('Deploy record 999 not found');
     });
   });
 

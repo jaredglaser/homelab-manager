@@ -48,10 +48,13 @@ export class DeployRepository {
   }
 
   async updateStatus(id: number, status: DeployStatus, logs?: string): Promise<void> {
-    await this.pool.query(
+    const result = await this.pool.query(
       `UPDATE deploy_history SET status = $2, logs = $3 WHERE id = $1`,
       [id, status, logs ?? null]
     );
+    if (result.rowCount === 0) {
+      throw new Error(`Deploy record ${id} not found when updating status to "${status}"`);
+    }
   }
 
   async getLatestSuccessful(stack: string, host: string): Promise<DeployRecord | null> {

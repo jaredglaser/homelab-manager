@@ -12,7 +12,7 @@ export function createMockPool(defaultRows: Record<string, unknown>[] = []) {
       query: async (sql: string, params?: unknown[]) => {
         queries.push({ sql, params: params ?? [] });
         const result = queuedResults.length > 0 ? queuedResults.shift()! : defaultRows;
-        return { rows: result };
+        return { rows: result, rowCount: result.length };
       },
     } as any,
     queries,
