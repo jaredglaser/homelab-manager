@@ -22,8 +22,8 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": [".\\src\\*"],
-      "@homelab-manager/agent/*": [".\\agent\\src\\*"]
+      "@/*": ["./src/*"],
+      "@homelab-manager/agent/*": ["./agent/src/*"]
     }
   }
 }

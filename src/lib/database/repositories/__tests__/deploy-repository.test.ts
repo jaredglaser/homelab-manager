@@ -1,29 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { DeployRepository } from '../deploy-repository';
-
-interface QueryCall {
-  sql: string;
-  params: unknown[];
-}
-
-function createMockPool(defaultRows: Record<string, unknown>[] = []) {
-  const queries: QueryCall[] = [];
-  const queuedResults: Record<string, unknown>[][] = [];
-
-  return {
-    pool: {
-      query: async (sql: string, params?: unknown[]) => {
-        queries.push({ sql, params: params ?? [] });
-        const result = queuedResults.length > 0 ? queuedResults.shift()! : defaultRows;
-        return { rows: result };
-      },
-    } as any,
-    queries,
-    pushResult(r: Record<string, unknown>[]) {
-      queuedResults.push(r);
-    },
-  };
-}
+import { createMockPool } from '@/lib/test/mock-pool';
 
 describe('DeployRepository', () => {
   let repo: DeployRepository;
@@ -123,7 +100,7 @@ describe('DeployRepository', () => {
         },
       ]);
 
-      const records = await repo.getDeployHistory('plex', 50);
+      const records = await repo.getDeployHistory('plex', 'homeserver', 50);
       expect(records).toHaveLength(2);
       expect(records[0].id).toBe(2);
       expect(records[1].id).toBe(1);

@@ -77,14 +77,14 @@ export class DeployPipeline {
       }
     }
 
-    // 4. Insert deploy record
+    // 4. Insert deploy record (always as pending; promoted below if auto-approved)
     const deployId = await this.deployRepo.insertDeploy({
       stack: request.stack,
       host: request.host,
       commitSha: request.commitSha,
       composeHash,
       envHash,
-      status: request.autoApproved ? 'in_progress' : 'pending',
+      status: 'pending',
       trigger: request.trigger,
     });
 

@@ -212,10 +212,12 @@ describe('DeployPipeline', () => {
       const resolver: SecretResolver = {
         resolve: mock().mockResolvedValue({ API_TOKEN: 'secret-value' }),
       };
+      const mockAgent = createMockAgentClient(true);
+      const capturedFactory = mock().mockReturnValue(mockAgent);
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
         hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
-        agentClientFactory,
+        agentClientFactory: capturedFactory,
         secretResolver: resolver,
         tokenResolver: () => 'test-token',
       });
@@ -223,6 +225,9 @@ describe('DeployPipeline', () => {
       const result = await pipeline.execute(requestWithVars);
       expect(result.status).toBe('succeeded');
       expect(resolver.resolve).toHaveBeenCalledWith('plex', ['API_TOKEN']);
+      // Verify the resolved secret was passed to the agent deploy call
+      const deployCall = (mockAgent.deploy as ReturnType<typeof mock>).mock.calls[0] as [any];
+      expect(deployCall[0].envContent).toContain('API_TOKEN=secret-value');
     });
 
     it('deduplicates pending deploys for the same stack', async () => {

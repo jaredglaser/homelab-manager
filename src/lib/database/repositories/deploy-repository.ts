@@ -1,5 +1,3 @@
-// src/lib/database/repositories/deploy-repository.ts
-
 import type { Pool } from 'pg';
 import type { DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 
@@ -54,13 +52,13 @@ export class DeployRepository {
     return Number(result.rows[0].count) > 0;
   }
 
-  async getDeployHistory(stack: string, limit: number): Promise<DeployRecord[]> {
+  async getDeployHistory(stack: string, host: string, limit: number): Promise<DeployRecord[]> {
     const result = await this.pool.query(
       `SELECT * FROM deploy_history
-       WHERE stack = $1
+       WHERE stack = $1 AND host = $2
        ORDER BY created_at DESC
-       LIMIT $2`,
-      [stack, limit]
+       LIMIT $3`,
+      [stack, host, limit]
     );
     return result.rows.map(toDeployRecord);
   }

@@ -21,11 +21,13 @@ export interface AgentHealthyResponse {
   };
 }
 
+export type AgentUnhealthyError = 'docker_unreachable' | 'auth_failed' | 'timeout';
+
 /** Failed /health response (HTTP 503). */
 export interface AgentUnhealthyResponse {
   status: 'unhealthy';
   agentVersion: string;
-  error: 'docker_unreachable';
+  error: AgentUnhealthyError;
   detail: string;
 }
 

@@ -1,5 +1,3 @@
-// src/lib/database/repositories/managed-hosts-repository.ts
-
 import type { Pool } from 'pg';
 import type { ManagedHost, ManagedHostStatus } from '@/lib/deploy/types';
 
