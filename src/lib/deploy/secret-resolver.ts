@@ -12,9 +12,9 @@ export class NoOpSecretResolver implements SecretResolver {
   constructor() {}
   async resolve(_stack: string, variables: string[]): Promise<Record<string, string>> {
     if (variables.length > 0) {
-      console.error(
-        `NoOpSecretResolver: ${variables.length} secret(s) requested (${variables.join(', ')}) ` +
-        `but no secret backend is configured. These variables will be empty.`
+      throw new Error(
+        `${variables.length} secret(s) requested (${variables.join(', ')}) ` +
+        `but no secret backend is configured. Set up OpenBao or remove secret references from the compose file.`
       );
     }
     return {};

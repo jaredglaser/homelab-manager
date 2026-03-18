@@ -135,7 +135,7 @@ export class DeployPipeline {
   }
 
   private async resolveEnv(request: DeployRequest): Promise<string> {
-    if (request.action !== 'deploy') return request.envContent;
+    if (request.action !== 'deploy') return '';
 
     const variables = extractVariableReferences(request.composeContent);
     if (variables.length === 0) return request.envContent;
@@ -205,7 +205,7 @@ function buildEnvContent(existingEnv: string, secrets: Record<string, string>): 
 
   for (const [key, value] of Object.entries(secrets)) {
     if (!existingKeys.has(key)) {
-      lines.push(`${key}=${value}`);
+      lines.push(`${key}=${value.replace(/[\r\n]/g, '')}`);
     }
   }
 

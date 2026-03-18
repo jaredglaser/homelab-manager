@@ -4,6 +4,7 @@ import { join } from 'path';
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const MAX_COMPOSE_SIZE_BYTES = 1_048_576; // 1 MB
 const MAX_ENV_SIZE_BYTES = 65_536; // 64 KB
+const COMPOSE_TIMEOUT_MS = 300_000; // 5 minutes
 
 /**
  * Validate a stack name and produce an HTTP 400 response when it is missing or invalid.
@@ -22,6 +23,37 @@ function validateStackName(name: string): Response | null {
 }
 
 type SpawnFn = typeof Bun.spawn;
+
+interface SpawnResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+}
+
+/**
+ * Spawn a subprocess with a timeout. Kills the process if it exceeds the deadline.
+ */
+async function spawnWithTimeout(
+  spawn: SpawnFn,
+  options: { cmd: string[]; cwd?: string; stdout?: 'pipe'; stderr?: 'pipe'; env?: Record<string, string | undefined> },
+  timeoutMs: number = COMPOSE_TIMEOUT_MS,
+): Promise<SpawnResult> {
+  const proc = spawn(options);
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; proc.kill?.(); }, timeoutMs);
+
+  try {
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    return { exitCode, stdout, stderr, timedOut };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Deploys a Docker Compose stack described in the request JSON and returns the deployment result.
@@ -85,11 +117,9 @@ export async function handleStackDeploy(
     return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
   }
 
-  let exitCode: number;
-  let stdout: string;
-  let stderr: string;
+  let result: SpawnResult;
   try {
-    const proc = spawn({
+    result = await spawnWithTimeout(spawn, {
       cmd: [
         'docker',
         'compose',
@@ -104,26 +134,27 @@ export async function handleStackDeploy(
       stderr: 'pipe',
       env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
     });
-
-    [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${body.stack}:`, error);
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  if (exitCode !== 0) {
+  if (result.timedOut) {
     return Response.json(
-      { status: 'failed', exitCode, stderr, stdout },
+      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
       { status: 500 }
     );
   }
 
-  return Response.json({ status: 'success', stdout, stderr });
+  if (result.exitCode !== 0) {
+    return Response.json(
+      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
+      { status: 500 }
+    );
+  }
+
+  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr });
 }
 
 /**
@@ -171,37 +202,36 @@ export async function handleStackTeardown(
     );
   }
 
-  let exitCode: number;
-  let stdout: string;
-  let stderr: string;
+  let result: SpawnResult;
   try {
-    const proc = spawn({
+    result = await spawnWithTimeout(spawn, {
       cmd: ['docker', 'compose', '-f', composePath, 'down'],
       cwd: stackDir,
       stdout: 'pipe',
       stderr: 'pipe',
       env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
     });
-
-    [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${body.stack}:`, error);
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  if (exitCode !== 0) {
+  if (result.timedOut) {
     return Response.json(
-      { status: 'failed', exitCode, stderr, stdout },
+      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
       { status: 500 }
     );
   }
 
-  return Response.json({ status: 'success', stdout, stderr });
+  if (result.exitCode !== 0) {
+    return Response.json(
+      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
+      { status: 500 }
+    );
+  }
+
+  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr });
 }
 
 /**
@@ -257,37 +287,36 @@ export async function handleStackRestart(
     );
   }
 
-  let exitCode: number;
-  let stdout: string;
-  let stderr: string;
+  let result: SpawnResult;
   try {
-    const proc = spawn({
+    result = await spawnWithTimeout(spawn, {
       cmd: ['docker', 'compose', '-f', composePath, 'restart'],
       cwd: stackDir,
       stdout: 'pipe',
       stderr: 'pipe',
       env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
     });
-
-    [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${body.stack}:`, error);
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  if (exitCode !== 0) {
+  if (result.timedOut) {
     return Response.json(
-      { status: 'failed', exitCode, stderr, stdout },
+      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
       { status: 500 }
     );
   }
 
-  return Response.json({ status: 'success', stdout, stderr });
+  if (result.exitCode !== 0) {
+    return Response.json(
+      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
+      { status: 500 }
+    );
+  }
+
+  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr });
 }
 
 /**

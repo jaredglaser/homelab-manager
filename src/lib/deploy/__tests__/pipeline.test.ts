@@ -245,6 +245,28 @@ describe('DeployPipeline', () => {
       expect(deployCall[0].envContent).toContain('API_TOKEN=secret-value');
     });
 
+    it('sanitizes newlines in secret values when building env content', async () => {
+      const composeWithVars = 'services:\n  app:\n    environment:\n      - KEY=${PEM_KEY}';
+      const requestWithVars = { ...testRequest, composeContent: composeWithVars };
+
+      const resolver: SecretResolver = {
+        resolve: mock().mockResolvedValue({ PEM_KEY: 'line1\nline2\rline3' }),
+      };
+      const mockAgent = createMockAgentClient(true);
+      const capturedFactory = mock().mockReturnValue(mockAgent);
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory: capturedFactory,
+        secretResolver: resolver,
+        tokenResolver: () => 'test-token',
+      });
+
+      await pipeline.execute(requestWithVars);
+      const deployCall = (mockAgent.deploy as ReturnType<typeof mock>).mock.calls[0] as [any];
+      expect(deployCall[0].envContent).toBe('PEM_KEY=line1line2line3');
+    });
+
     it('deduplicates pending deploys for the same stack', async () => {
       const result = await pipeline.execute(testRequest);
       expect(result.status).toBe('succeeded');

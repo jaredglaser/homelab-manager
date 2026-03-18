@@ -9,16 +9,29 @@ export type DeployStatus =
 
 export type DeployTrigger = 'git_push' | 'ui' | 'manual_rollback';
 
-export interface DeployRequest {
+interface BaseDeployRequest {
   stack: string;
   host: string;
-  composeContent: string;
   commitSha: string;
-  envContent: string;
-  action: DeployAction;
   trigger: DeployTrigger;
   autoApproved: boolean;
 }
+
+export interface DeployActionRequest extends BaseDeployRequest {
+  action: 'deploy';
+  composeContent: string;
+  envContent: string;
+}
+
+export interface TeardownRequest extends BaseDeployRequest {
+  action: 'teardown';
+}
+
+export interface RestartRequest extends BaseDeployRequest {
+  action: 'restart';
+}
+
+export type DeployRequest = DeployActionRequest | TeardownRequest | RestartRequest;
 
 export interface DeployRecord {
   id: number;

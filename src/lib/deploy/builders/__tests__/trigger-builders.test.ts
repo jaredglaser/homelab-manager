@@ -38,7 +38,7 @@ describe('GitTriggerBuilder', () => {
     expect(plexReq.trigger).toBe('git_push');
     expect(plexReq.autoApproved).toBe(true);
     expect(plexReq.action).toBe('deploy');
-    expect(plexReq.composeContent).toContain('plexinc/pms-docker');
+    expect(plexReq.action === 'deploy' && plexReq.composeContent).toContain('plexinc/pms-docker');
 
     const traefikReq = requests.find(r => r.stack === 'traefik')!;
     expect(traefikReq.autoApproved).toBe(false);

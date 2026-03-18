@@ -2,9 +2,16 @@ import { describe, it, expect } from 'bun:test';
 import { NoOpSecretResolver, extractVariableReferences } from '../secret-resolver';
 
 describe('NoOpSecretResolver', () => {
-  it('returns an empty record for any stack and variables', async () => {
+  it('throws when variables are requested without a configured backend', async () => {
     const resolver = new NoOpSecretResolver();
-    const result = await resolver.resolve('plex', ['MY_SECRET', 'OTHER_VAR']);
+    await expect(resolver.resolve('plex', ['MY_SECRET', 'OTHER_VAR'])).rejects.toThrow(
+      'no secret backend is configured'
+    );
+  });
+
+  it('returns an empty record when no variables are requested', async () => {
+    const resolver = new NoOpSecretResolver();
+    const result = await resolver.resolve('plex', []);
     expect(result).toEqual({});
   });
 });

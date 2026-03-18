@@ -23,16 +23,17 @@ export class UITriggerBuilder {
   /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
   constructor() {}
   build(input: UITriggerInput): DeployRequest {
-    return {
+    const base = {
       stack: input.stack,
       host: input.host,
-      composeContent: input.composeContent,
       commitSha: input.commitSha,
-      envContent: '',
-      action: input.action,
-      trigger: 'ui',
+      trigger: 'ui' as const,
       autoApproved: true,
     };
+    if (input.action === 'deploy') {
+      return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '' };
+    }
+    return { ...base, action: input.action };
   }
 
   buildRollback(input: UIRollbackInput): DeployRequest {

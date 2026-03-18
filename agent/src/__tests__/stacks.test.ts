@@ -179,6 +179,36 @@ describe('handleStackDeploy — path traversal', () => {
   });
 });
 
+describe('handleStackDeploy — subprocess timeout', () => {
+  test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => setTimeout(() => resolve(137), 500)),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => {}),
+    }));
+
+    const body = {
+      stack: 'slow',
+      composeContent: 'services:\n  slow:\n    image: nginx',
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    // Pass a very short timeout to trigger it quickly
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, hangingSpawn as any);
+    const result = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.exitCode).toBe(137);
+  });
+});
+
 describe('handleStackDeploy — spawn failure', () => {
   test('returns 500 with detail when spawn throws', async () => {
     const throwSpawn = mock(() => { throw new Error('docker: not found'); });
