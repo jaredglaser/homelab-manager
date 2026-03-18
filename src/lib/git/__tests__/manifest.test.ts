@@ -85,6 +85,14 @@ extra_field: true
     expect(() => parseManifest(yaml)).toThrow();
   });
 
+  it('should parse manifest with empty stacks object', () => {
+    const yaml = `
+stacks: {}
+`;
+    const result = parseManifest(yaml);
+    expect(Object.keys(result.stacks)).toHaveLength(0);
+  });
+
   it('should reject stacks with empty host string', () => {
     const yaml = `
 stacks:

@@ -6,6 +6,10 @@ import { buildDeployRequests, type DeployRequest } from '@/lib/git/post-receive'
  *
  * TODO: Dispatch to deploy pipeline once wired up.
  * For now it returns the requests for the caller to handle.
+ *
+ * @throws {Error} If manifest.yaml is missing from the repo
+ * @throws {YAMLException} If manifest.yaml has invalid YAML syntax
+ * @throws {ZodError} If manifest.yaml structure doesn't match schema
  */
 export async function processPostReceive(
   repoPath: string,

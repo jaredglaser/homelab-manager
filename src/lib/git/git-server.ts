@@ -7,6 +7,7 @@
  */
 import git from 'isomorphic-git';
 import fs from 'fs';
+import { withRepoLock } from '@/lib/git/repo';
 
 const VALID_SERVICES = ['git-upload-pack', 'git-receive-pack'] as const;
 
@@ -78,7 +79,7 @@ export async function handleReceivePack(
   repoPath: string,
   body: ReadableStream<Uint8Array> | null,
 ): Promise<Response> {
-  return runGitService('git-receive-pack', repoPath, body);
+  return withRepoLock(repoPath, () => runGitService('git-receive-pack', repoPath, body));
 }
 
 /**

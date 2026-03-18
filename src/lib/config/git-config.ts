@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { join } from 'path';
+import { isDockerManagementEnabled } from '@/lib/deploy/feature-flag';
 
 const GitConfigSchema = z.object({
   enabled: z.boolean(),
@@ -17,7 +18,7 @@ export type GitConfig = z.infer<typeof GitConfigSchema>;
  * @returns Validated git configuration
  */
 export function loadGitConfig(): GitConfig {
-  const enabled = process.env.DOCKER_MANAGEMENT_FEATURE_FLAG === 'true';
+  const enabled = isDockerManagementEnabled();
   const reposDir = process.env.GIT_REPOS_DIR || '/data/repos';
   const repoName = 'stacks';
   const repoPath = join(reposDir, `${repoName}.git`);

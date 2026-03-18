@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'fs';
 
 const repoLocks = new Map<string, Promise<void>>();
 
-async function withRepoLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
+export async function withRepoLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
   const previous = repoLocks.get(repoPath) ?? Promise.resolve();
   let release: () => void;
   const current = new Promise<void>((resolve) => {

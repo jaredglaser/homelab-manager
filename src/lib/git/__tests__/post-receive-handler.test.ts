@@ -78,4 +78,20 @@ describe('processPostReceive', () => {
 
     infoSpy.mockRestore();
   });
+
+  it('should throw when manifest.yaml is missing', async () => {
+    const sha1 = await commitFiles(repoPath, {
+      files: [{ path: 'plex/docker-compose.yml', content: 'v1' }],
+      message: 'initial without manifest',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+
+    const sha2 = await commitFiles(repoPath, {
+      files: [{ path: 'plex/docker-compose.yml', content: 'v2' }],
+      message: 'update plex',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+
+    await expect(processPostReceive(repoPath, sha1, sha2)).rejects.toThrow();
+  });
 });
