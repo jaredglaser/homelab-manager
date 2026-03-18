@@ -13,7 +13,8 @@
 bun run dev:local:up          # Start postgres + worker in Docker
 bun dev                       # Start web server on port 3000 with HMR
 bun run dev:local:down        # Stop Docker services
-bun run dev:local:rebuild     # Rebuild and restart Docker services
+bun run dev:local:restart      # Restart Docker services (rebuild)
+bun run dev:local:rebuild     # Full rebuild (no cache) and restart
 bun run dev:local:wipe        # Stop Docker services and delete volumes
 bun run dev:local:logs        # Tail all Docker service logs
 
@@ -78,7 +79,7 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 
 Pattern: `createFileRoute` with `server.handlers.GET` → dynamic import server-init + poll service → `ReadableStream` + subscribe → cleanup on `request.signal` abort. Track `closed` flag to prevent enqueue-after-close.
 
-Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `settings`, `docker-logs.$containerId` (parameterized).
+Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `settings`, `docker-logs.$containerId` (parameterized), `git.$` (git HTTP smart protocol, feature-flagged).
 
 ```typescript
 // ALWAYS dynamic import - static imports break the client bundle:
@@ -98,9 +99,17 @@ const { statsPollService } = await import('@/lib/database/subscription-service')
 
 Separate Bun package that runs as a sidecar container alongside Docker hosts. Provides a REST/SSE API for Docker management operations (deploy, logs, stats streaming). Uses raw `Bun.serve()` with manual route matching and timing-safe auth middleware — zero framework dependencies beyond Dockerode. The agent replaces direct Docker API calls from the worker — the main app communicates with agents rather than Docker hosts directly.
 
+### Deploy Pipeline (`src/lib/deploy/`)
+
+Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Feature-flagged behind `DOCKER_MANAGEMENT_FEATURE_FLAG=true`. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index.
+
+### Git Management (`src/lib/git/`)
+
+Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/git/stacks/...` via `Bun.spawn`. Post-receive hook diffs commits, identifies changed stacks, and builds deploy requests. Commits serialized per-repo via async mutex. Feature-flagged behind `DOCKER_MANAGEMENT_FEATURE_FLAG=true`.
+
 ### Database Tables
 
-Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`. Plus `entity_metadata` (icons/labels) and `settings` (KV with NOTIFY trigger). Schema details in `migrations/`.
+Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`. Plus `entity_metadata` (icons/labels), `settings` (KV with NOTIFY trigger), `managed_hosts` (Docker hosts with agent connection details), and `deploy_history` (deploy records with status tracking). Schema details in `migrations/`.
 
 ## Gotchas
 
