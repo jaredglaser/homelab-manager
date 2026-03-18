@@ -8,6 +8,7 @@ import type { AgentClient } from '@/lib/clients/agent-client';
 function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): DeployRepository {
   return {
     insertDeploy: mock().mockResolvedValue(1),
+    insertDeployIfNoActive: mock().mockResolvedValue(1),
     updateStatus: mock().mockResolvedValue(undefined),
     getLatestSuccessful: mock().mockResolvedValue(null),
     hasActiveDeployForStack: mock().mockResolvedValue(false),
@@ -93,7 +94,7 @@ describe('DeployPipeline', () => {
 
       expect(result.status).toBe('succeeded');
       expect(result.logs).toBe('deployed ok');
-      expect(deployRepo.insertDeploy).toHaveBeenCalledTimes(1);
+      expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(1);
       expect(deployRepo.updateStatus).toHaveBeenCalledTimes(2); // in_progress + succeeded
     });
 
@@ -147,7 +148,7 @@ describe('DeployPipeline', () => {
 
     it('rejects deploy when another deploy is active for the stack', async () => {
       deployRepo = createMockDeployRepo({
-        hasActiveDeployForStack: mock().mockResolvedValue(true) as any,
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
@@ -167,7 +168,7 @@ describe('DeployPipeline', () => {
       const result = await pipeline.execute(manualRequest);
 
       expect(result.status).toBe('pending');
-      expect(deployRepo.insertDeploy).toHaveBeenCalledTimes(1);
+      expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(1);
       // Should NOT have dispatched to agent
       expect(agentClientFactory).not.toHaveBeenCalled();
     });

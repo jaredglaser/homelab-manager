@@ -24,6 +24,20 @@ export class DeployRepository {
     return Number(result.rows[0].id);
   }
 
+  /**
+   * Atomically insert a deploy record, relying on the partial unique index
+   * (idx_deploy_one_active_per_stack_host) to reject duplicates.
+   * Returns the new deploy id, or null if an active deploy already exists.
+   */
+  async insertDeployIfNoActive(params: InsertDeployParams): Promise<number | null> {
+    try {
+      return await this.insertDeploy(params);
+    } catch (err: unknown) {
+      if (isUniqueViolation(err)) return null;
+      throw err;
+    }
+  }
+
   async updateStatus(id: number, status: DeployStatus, logs?: string): Promise<void> {
     await this.pool.query(
       `UPDATE deploy_history SET status = $2, logs = $3 WHERE id = $1`,
@@ -79,6 +93,11 @@ export class DeployRepository {
     );
     return result.rows.map(toDeployRecord);
   }
+}
+
+/** PostgreSQL unique_violation error code. */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as Record<string, unknown>).code === '23505';
 }
 
 function toDeployRecord(row: Record<string, unknown>): DeployRecord {

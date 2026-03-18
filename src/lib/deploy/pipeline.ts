@@ -46,13 +46,7 @@ export class DeployPipeline {
       return { status: 'failed', logs: `Host "${request.host}" not found in managed_hosts` };
     }
 
-    // 2. Concurrency check: one deploy per stack+host at a time
-    const hasActive = await this.deployRepo.hasActiveDeployForStack(request.stack, request.host);
-    if (hasActive) {
-      return { status: 'failed', logs: `Stack "${request.stack}" already has an active deploy` };
-    }
-
-    // 3. Change detection (skip for teardown/restart -- always execute those)
+    // 2. Change detection (skip for teardown/restart -- always execute those)
     let composeHash = '';
     let envHash = '';
     const resolvedEnvContent = await this.resolveEnv(request);
@@ -77,8 +71,8 @@ export class DeployPipeline {
       }
     }
 
-    // 4. Insert deploy record (always as pending; promoted below if auto-approved)
-    const deployId = await this.deployRepo.insertDeploy({
+    // 3. Atomic insert — the partial unique index rejects if an active deploy exists
+    const deployId = await this.deployRepo.insertDeployIfNoActive({
       stack: request.stack,
       host: request.host,
       commitSha: request.commitSha,
@@ -87,6 +81,10 @@ export class DeployPipeline {
       status: 'pending',
       trigger: request.trigger,
     });
+
+    if (deployId === null) {
+      return { status: 'failed', logs: `Stack "${request.stack}" already has an active deploy` };
+    }
 
     // Deduplicate older pending deploys for this stack+host
     await this.deployRepo.deduplicatePending(request.stack, request.host, deployId);

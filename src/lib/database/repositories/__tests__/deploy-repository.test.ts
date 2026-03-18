@@ -85,6 +85,48 @@ describe('DeployRepository', () => {
     });
   });
 
+  describe('insertDeployIfNoActive', () => {
+    const insertParams = {
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha: 'abc123',
+      composeHash: 'hash1',
+      envHash: 'hash2',
+      status: 'pending' as const,
+      trigger: 'git_push' as const,
+    };
+
+    it('returns the deploy id when no active deploy exists', async () => {
+      mock.pushResult([{ id: '42' }]);
+      const id = await repo.insertDeployIfNoActive(insertParams);
+      expect(id).toBe(42);
+    });
+
+    it('returns null on unique constraint violation (code 23505)', async () => {
+      // Override the pool to throw a unique violation
+      const violationPool = {
+        query: async () => {
+          const err = new Error('duplicate key') as Error & { code: string };
+          err.code = '23505';
+          throw err;
+        },
+      } as any;
+      const violationRepo = new DeployRepository(violationPool);
+
+      const id = await violationRepo.insertDeployIfNoActive(insertParams);
+      expect(id).toBeNull();
+    });
+
+    it('re-throws non-unique-violation errors', async () => {
+      const errorPool = {
+        query: async () => { throw new Error('connection lost'); },
+      } as any;
+      const errorRepo = new DeployRepository(errorPool);
+
+      expect(errorRepo.insertDeployIfNoActive(insertParams)).rejects.toThrow('connection lost');
+    });
+  });
+
   describe('getDeployHistory', () => {
     it('returns deploy records for a stack ordered by created_at desc', async () => {
       mock.pushResult([
