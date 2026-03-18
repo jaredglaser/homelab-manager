@@ -131,12 +131,12 @@ describe('DeployRepository', () => {
       expect(id).toBe(42);
     });
 
-    it('returns null on unique constraint violation (code 23505)', async () => {
-      // Override the pool to throw a unique violation
+    it('returns null when the active-deploy unique constraint is violated', async () => {
       const violationPool = {
         query: async () => {
-          const err = new Error('duplicate key') as Error & { code: string };
+          const err = new Error('duplicate key') as Error & { code: string; constraint: string };
           err.code = '23505';
+          err.constraint = 'idx_deploy_one_active_per_stack_host';
           throw err;
         },
       } as any;
@@ -144,6 +144,20 @@ describe('DeployRepository', () => {
 
       const id = await violationRepo.insertDeployIfNoActive(insertParams);
       expect(id).toBeNull();
+    });
+
+    it('re-throws unique violations from other constraints', async () => {
+      const violationPool = {
+        query: async () => {
+          const err = new Error('duplicate key') as Error & { code: string; constraint: string };
+          err.code = '23505';
+          err.constraint = 'some_other_unique_index';
+          throw err;
+        },
+      } as any;
+      const violationRepo = new DeployRepository(violationPool);
+
+      expect(violationRepo.insertDeployIfNoActive(insertParams)).rejects.toThrow('duplicate key');
     });
 
     it('re-throws non-unique-violation errors', async () => {

@@ -150,11 +150,11 @@ export class DeployPipeline {
     envContent: string,
     deployId: number,
   ): Promise<PipelineResult> {
+    let result;
     try {
       const token = await this.tokenResolver(host);
       const agent = this.agentClientFactory(host.agentUrl, token);
 
-      let result;
       switch (request.action) {
         case 'deploy':
           result = await agent.deploy({
@@ -171,11 +171,6 @@ export class DeployPipeline {
           result = await agent.restart(request.stack);
           break;
       }
-
-      const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
-      await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
-
-      return { status: finalStatus, logs: result.logs, deployId };
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       console.error(`Deploy dispatch failed for stack "${request.stack}" on host "${host.name}":`, err);
@@ -186,6 +181,12 @@ export class DeployPipeline {
       }
       return { status: 'failed', logs: errorMsg, deployId };
     }
+
+    // Record result outside try — a DB failure here must not be misattributed to the agent
+    const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
+    await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
+
+    return { status: finalStatus, logs: result.logs, deployId };
   }
 }
 

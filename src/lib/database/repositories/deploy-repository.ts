@@ -33,7 +33,7 @@ export class DeployRepository {
     try {
       return await this.insertDeploy(params);
     } catch (err: unknown) {
-      if (isUniqueViolation(err)) return null;
+      if (isActiveDeployConflict(err)) return null;
       throw err;
     }
   }
@@ -104,9 +104,11 @@ export class DeployRepository {
   }
 }
 
-/** PostgreSQL unique_violation error code. */
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as Record<string, unknown>).code === '23505';
+/** Check for the specific active-deploy unique constraint violation. */
+function isActiveDeployConflict(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const pg = err as Record<string, unknown>;
+  return pg.code === '23505' && pg.constraint === 'idx_deploy_one_active_per_stack_host';
 }
 
 function toDeployRecord(row: Record<string, unknown>): DeployRecord {
