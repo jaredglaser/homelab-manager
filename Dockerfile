@@ -5,6 +5,7 @@
 FROM oven/bun:1 AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
+COPY agent/package.json agent/
 RUN bun install --frozen-lockfile
 EXPOSE 3000
 
