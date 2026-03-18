@@ -151,6 +151,66 @@ describe('MockEventSource', () => {
     });
   });
 
+  describe('dispatchEvent', () => {
+    it('dispatches events to listeners', async () => {
+      instance = new MockEventSource(`${ORIGIN}/api/docker-stats`);
+      await new Promise<void>((resolve) => {
+        instance.onopen = () => resolve();
+      });
+
+      let received = false;
+      instance.addEventListener('custom', () => {
+        received = true;
+      });
+
+      const result = instance.dispatchEvent(new Event('custom'));
+      expect(result).toBe(true);
+      expect(received).toBe(true);
+    });
+
+    it('returns false when closed', async () => {
+      instance = new MockEventSource(`${ORIGIN}/api/docker-stats`);
+      await new Promise<void>((resolve) => {
+        instance.onopen = () => resolve();
+      });
+
+      instance.close();
+      const result = instance.dispatchEvent(new Event('custom'));
+      expect(result).toBe(false);
+    });
+
+    it('supports handleEvent listener objects', async () => {
+      instance = new MockEventSource(`${ORIGIN}/api/docker-stats`);
+      await new Promise<void>((resolve) => {
+        instance.onopen = () => resolve();
+      });
+
+      let received = false;
+      const listener = { handleEvent: () => { received = true; } };
+      instance.addEventListener('custom', listener);
+
+      instance.dispatchEvent(new Event('custom'));
+      expect(received).toBe(true);
+    });
+  });
+
+  describe('interval-based stats emission', () => {
+    it('emits multiple docker-stats snapshots over time', async () => {
+      instance = new MockEventSource(`${ORIGIN}/api/docker-stats`);
+      const messages: unknown[] = [];
+
+      await new Promise<void>((resolve) => {
+        instance.onmessage = (event) => {
+          messages.push(JSON.parse(event.data as string));
+          if (messages.length >= 2) resolve();
+        };
+      });
+
+      expect(messages.length).toBeGreaterThanOrEqual(2);
+    });
+
+  });
+
   describe('unknown paths', () => {
     it('opens but does not emit messages for unknown paths', async () => {
       instance = new MockEventSource(`${ORIGIN}/api/unknown-endpoint`);

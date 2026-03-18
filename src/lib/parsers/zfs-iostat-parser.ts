@@ -112,6 +112,8 @@ export function parseZFSIOStat(
  * ZFS iostat parser class implementing StreamParser interface
  */
 export class ZFSIOStatParser implements StreamParser<ZFSIOStatRaw> {
+  /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
+  constructor() {}
   private headersSeen = 0;
 
   parseLine(line: string, _context?: ParseContext): ZFSIOStatRaw | null {

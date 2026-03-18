@@ -1,4 +1,4 @@
-import type { StackSummary, StackDetail, DeployRecord } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
 
 /** List all stacks from the manifest with current sync status. */
 export async function getStackSummaries(): Promise<StackSummary[]> {
@@ -28,7 +28,7 @@ export async function triggerStackDeploy(params: {
 export async function getStackDeployHistory(
   stackName: string,
   limit: number,
-): Promise<DeployRecord[]> {
+): Promise<StackDeployRecord[]> {
   void stackName;
   void limit;
   // TODO: query deploy_history table

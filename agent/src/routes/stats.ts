@@ -232,6 +232,15 @@ export function handleStatsStream(
             }
           }
         }
+
+        // Clean up after while loop exits (circuit breaker or normal shutdown)
+        destroyAllStreams(ctx.containerStreams);
+        ctx.closed = true;
+        try {
+          controller.close();
+        } catch (err) {
+          if (!(err instanceof TypeError)) console.error('Unexpected error closing controller:', err);
+        }
       } catch (error) {
         console.error('Failed to start stats stream:', error);
         const msg = error instanceof Error ? error.message : String(error);

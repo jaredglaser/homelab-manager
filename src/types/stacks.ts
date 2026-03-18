@@ -19,8 +19,8 @@ export interface StackDetail {
   hosts: StackSummary['hosts'];
 }
 
-/** A single deploy history record. */
-export interface DeployRecord {
+/** UI-facing deploy history entry, distinct from the internal DeployRecord in lib/deploy/types. */
+export interface StackDeployRecord {
   id: number;
   stackName: string;
   host: string;

@@ -2,6 +2,7 @@
   "name": "homelab-manager",
   "private": true,
   "type": "module",
+  "workspaces": ["agent"],
   "scripts": {
     "dev": "vite dev --port 3000",
     "dev:demo": "cross-env VITE_DEMO_MODE=true vite dev --port 3000",

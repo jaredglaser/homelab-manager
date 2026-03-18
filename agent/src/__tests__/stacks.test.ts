@@ -179,6 +179,59 @@ describe('handleStackDeploy — path traversal', () => {
   });
 });
 
+describe('handleStackDeploy — file write failure', () => {
+  test('returns 500 when writing stack files fails', async () => {
+    // Create a file where the stack directory should be, so mkdirSync fails
+    await Bun.write(join(TEST_STACKS_DIR, 'plex'), 'not a directory');
+
+    const body = {
+      stack: 'plex',
+      composeContent: 'services:\n  plex:\n    image: nginx',
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to write stack files');
+  });
+});
+
+describe('handleStackDeploy — subprocess timeout', () => {
+  test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const body = {
+      stack: 'slow',
+      composeContent: 'services:\n  slow:\n    image: nginx',
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stderr).toContain('timed out');
+  });
+});
+
 describe('handleStackDeploy — spawn failure', () => {
   test('returns 500 with detail when spawn throws', async () => {
     const throwSpawn = mock(() => { throw new Error('docker: not found'); });
@@ -291,6 +344,34 @@ describe('handleStackTeardown', () => {
   });
 });
 
+describe('handleStackTeardown — subprocess timeout', () => {
+  test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), 'services: {}');
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const request = new Request('http://localhost/stacks/teardown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex' }),
+    });
+
+    const response = await handleStackTeardown(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stderr).toContain('timed out');
+  });
+});
+
 describe('handleStackTeardown — spawn failure', () => {
   test('returns 500 with detail when spawn throws', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
@@ -397,6 +478,34 @@ describe('handleStackRestart', () => {
     const result = await response.json();
     expect(result.status).toBe('failed');
     expect(result.exitCode).toBe(1);
+  });
+});
+
+describe('handleStackRestart — subprocess timeout', () => {
+  test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik' }),
+    });
+
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stderr).toContain('timed out');
   });
 });
 

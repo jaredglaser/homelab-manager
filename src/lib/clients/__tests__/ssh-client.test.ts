@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn, jest } from 'bun:test';
 import { SSHClient } from '../ssh-client';
 import type { SSHConnectionConfig } from '../../streaming/types';
 
@@ -88,6 +88,125 @@ describe('SSHClient', () => {
     });
 
     await expect(client.connect()).rejects.toThrow('Auth failed');
+    expect(client.isConnected()).toBe(false);
+  });
+
+  it('should handle banner event during connect', async () => {
+    const config = createSSHConfig();
+    const client = new SSHClient(config);
+
+    const internalClient = (client as any).client;
+
+    spyOn(internalClient, 'connect').mockImplementation(() => {
+      process.nextTick(() => {
+        internalClient.emit('banner', 'Welcome to SSH server');
+        internalClient.emit('ready');
+      });
+    });
+
+    await client.connect();
+    expect(client.isConnected()).toBe(true);
+    expect(console.log).toHaveBeenCalled();
+  });
+
+  it('should handle close event after connect', async () => {
+    const config = createSSHConfig();
+    const client = new SSHClient(config);
+
+    const internalClient = (client as any).client;
+
+    spyOn(internalClient, 'connect').mockImplementation(() => {
+      process.nextTick(() => internalClient.emit('ready'));
+    });
+
+    await client.connect();
+    expect(client.isConnected()).toBe(true);
+
+    // Simulate remote close
+    internalClient.emit('close');
+    expect(client.isConnected()).toBe(false);
+  });
+
+  it('should reject on connection timeout after 10 seconds', async () => {
+    jest.useFakeTimers();
+    try {
+      const config = createSSHConfig();
+      const client = new SSHClient(config);
+
+      const internalClient = (client as any).client;
+
+      // Mock connect but never emit 'ready' or 'error' — let the timeout fire
+      spyOn(internalClient, 'connect').mockImplementation(() => {});
+      spyOn(internalClient, 'end').mockImplementation(() => {});
+
+      const connectPromise = client.connect();
+
+      // Advance past the 10s timeout
+      jest.advanceTimersByTime(11_000);
+
+      await expect(connectPromise).rejects.toThrow('SSH connection timeout');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('should handle channel close and stderr events during exec', async () => {
+    const config = createSSHConfig();
+    const client = new SSHClient(config);
+    (client as any).connected = true;
+
+    let channelCloseCallback: (() => void) | undefined;
+    let stderrCallback: ((data: Buffer) => void) | undefined;
+
+    const mockChannel = {
+      on: mock(function(this: any, event: string, cb: any) {
+        if (event === 'close') channelCloseCallback = cb;
+        return this;
+      }),
+      stderr: {
+        on: mock(function(this: any, event: string, cb: any) {
+          if (event === 'data') stderrCallback = cb;
+          return this;
+        }),
+      },
+      close: mock(() => {}),
+    };
+
+    const internalClient = (client as any).client;
+    spyOn(internalClient, 'exec').mockImplementation((_cmd: string, cb: any) => {
+      cb(null, mockChannel);
+    });
+
+    await client.exec('ls -la');
+    expect(client.hasActiveChannels()).toBe(true);
+
+    // Trigger stderr
+    stderrCallback!(Buffer.from('warning: something'));
+    expect(console.error).toHaveBeenCalled();
+
+    // Trigger channel close
+    channelCloseCallback!();
+    expect(client.hasActiveChannels()).toBe(false);
+
+    spyOn(internalClient, 'end').mockImplementation(() => {});
+    await client.close();
+  });
+
+  it('should handle close with channel that throws on close', async () => {
+    const config = createSSHConfig();
+    const client = new SSHClient(config);
+    (client as any).connected = true;
+
+    const throwingChannel = {
+      close: mock(() => { throw new Error('already closed'); }),
+    };
+    (client as any).channels.add(throwingChannel);
+
+    const internalClient = (client as any).client;
+    spyOn(internalClient, 'end').mockImplementation(() => {});
+
+    // Should not throw despite channel.close() throwing
+    await client.close();
     expect(client.isConnected()).toBe(false);
   });
 
@@ -351,5 +470,54 @@ describe('SSHConnectionManager', () => {
     // Should not throw even if called multiple times
     sshConnectionManager.stopCleanup();
     sshConnectionManager.stopCleanup();
+  });
+
+  it('should clean up stale connections via startCleanup interval', async () => {
+    jest.useFakeTimers();
+    try {
+      const { sshConnectionManager } = await import('../ssh-client');
+
+      const config = createSSHConfig({ host: '10.0.0.90' });
+      const client = new SSHClient(config);
+      (client as any).connected = true;
+      // Set lastUsed to more than TTL (60s) ago
+      (client as any).lastUsed = Date.now() - 120_000;
+
+      const internalClient = (client as any).client;
+      spyOn(internalClient, 'end').mockImplementation(() => {});
+
+      (sshConnectionManager as any).connections.set('root@10.0.0.90:22', client);
+
+      // Restart cleanup to create a fresh interval under fake timers
+      sshConnectionManager.stopCleanup();
+      (sshConnectionManager as any).startCleanup();
+
+      // Advance time past the 60s interval
+      jest.advanceTimersByTime(61_000);
+
+      // The stale client should be cleaned up
+      expect((sshConnectionManager as any).connections.has('root@10.0.0.90:22')).toBe(false);
+
+      sshConnectionManager.stopCleanup();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('should build SSH config for privateKeyPath auth', () => {
+    const config = createSSHConfig({
+      auth: {
+        type: 'privateKey',
+        username: 'admin',
+        privateKeyPath: '/dev/null',
+      },
+    });
+    const client = new SSHClient(config);
+    const sshConfig = (client as any).buildSSHConfig();
+
+    expect(sshConfig.username).toBe('admin');
+    // privateKey should be read from the path (Buffer)
+    expect(sshConfig.privateKey).toBeDefined();
+    expect(sshConfig.passphrase).toBeUndefined();
   });
 });

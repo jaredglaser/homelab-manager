@@ -489,30 +489,94 @@ describe('DockerCollector', () => {
 
       controller.abort();
     });
-  });
 
-  describe('debug logging', () => {
-    it('should support docker debug logging toggle', () => {
+    it('should handle stream error in streamContainerStats gracefully', async () => {
       const db = createMockDb();
       const controller = new AbortController();
       const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
-      // Should not throw
-      collector.dockerDebugLogging = true;
-      collector.dockerDebugLogging = false;
+      spyOn((collector as any).repository, 'insertDockerStats').mockImplementation(async () => {});
+      spyOn((collector as any).repository, 'upsertEntityMetadata').mockImplementation(async () => {});
 
+      // Create a stream that emits an error
+      const errorStream = new Readable({
+        read() {
+          this.destroy(new Error('stream broken'));
+        },
+      });
+
+      const containerInfoData = {
+        Id: 'errorcontainer123',
+        Names: ['/errored'],
+        Image: 'alpine:latest',
+        Labels: {},
+      };
+
+      const mockDocker = {
+        listContainers: mock(async () => [containerInfoData]),
+        getContainer: mock(() => ({ stats: mock(async () => errorStream) })),
+      };
+
+      const closeMock = mock(async () => {});
+      spyOn(dockerConnectionManager, 'getClient').mockResolvedValue({
+        getDocker: () => mockDocker,
+        close: closeMock,
+        isConnected: () => true,
+      } as any);
+
+      // Should not throw - error is caught inside streamContainerStats
+      await (collector as any).collect();
+
+      expect(closeMock).toHaveBeenCalled();
       controller.abort();
     });
 
-    it('should support db flush debug logging toggle', () => {
+    it('should detect container changes and break to reconnect', async () => {
       const db = createMockDb();
       const controller = new AbortController();
       const collector = new DockerCollector(db as unknown as DatabaseClient, createMockConfig(), createHostConfig(), controller);
 
-      collector.dbFlushDebugLogging = true;
-      collector.dbFlushDebugLogging = false;
+      const writtenRows: any[][] = [];
+      spyOn((collector as any).repository, 'insertDockerStats').mockImplementation(async (rows: any[]) => {
+        writtenRows.push(rows);
+      });
+      spyOn((collector as any).repository, 'upsertEntityMetadata').mockImplementation(async () => {});
 
+      // Create a stream that emits many stats to trigger container refresh
+      const stats = createMockContainerStats(100000000, 10000000000);
+      const statsStream = Readable.from(JSON.stringify(stats));
+
+      const containerInfo = {
+        Id: 'original123456789',
+        Names: ['/original'],
+        Image: 'nginx:latest',
+        Labels: {},
+      };
+
+      // Second call to listContainers returns a different container (simulating change)
+      let listCallCount = 0;
+      const mockDocker = {
+        listContainers: mock(async () => {
+          listCallCount++;
+          if (listCallCount === 1) return [containerInfo];
+          // New container appeared
+          return [containerInfo, { Id: 'newcontainer789', Names: ['/new'], Image: 'redis:latest', Labels: {} }];
+        }),
+        getContainer: mock(() => ({ stats: mock(async () => statsStream) })),
+      };
+
+      const closeMock = mock(async () => {});
+      spyOn(dockerConnectionManager, 'getClient').mockResolvedValue({
+        getDocker: () => mockDocker,
+        close: closeMock,
+        isConnected: () => true,
+      } as any);
+
+      await (collector as any).collect();
+
+      expect(closeMock).toHaveBeenCalled();
       controller.abort();
     });
   });
+
 });

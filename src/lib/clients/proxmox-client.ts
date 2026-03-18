@@ -1,4 +1,3 @@
-import { Agent } from 'undici';
 import type { ProxmoxConfig } from '../config/proxmox-config';
 import type {
   ProxmoxResponse,
@@ -13,7 +12,7 @@ import type {
 // Covers both Bun's native fetch (`tls`) and Node.js-compat/undici fetch (`dispatcher`)
 interface CrossRuntimeRequestInit extends RequestInit {
   tls?: { rejectUnauthorized?: boolean };
-  dispatcher?: Agent;
+  dispatcher?: unknown;
 }
 
 /**
@@ -37,7 +36,16 @@ export class ProxmoxClient {
       // `dispatcher` is the undici Agent option (used in Vite SSR dev mode via Node.js-compat fetch)
       // Both are set so the correct one is picked up by whichever fetch implementation is active
       this.fetchOptions.tls = { rejectUnauthorized: false };
-      this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { Agent } = require('undici') as { Agent: new (opts: Record<string, unknown>) => unknown };
+        this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+      } catch (err: unknown) {
+        // Only swallow missing-module errors (Bun where `tls` is used instead)
+        if (!(err instanceof Error && 'code' in err && err.code === 'MODULE_NOT_FOUND')) {
+          throw err;
+        }
+      }
     }
   }
 
