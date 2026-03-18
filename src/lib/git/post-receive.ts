@@ -37,27 +37,22 @@ export async function buildDeployRequests(
   fromOid: string,
   toOid: string,
 ): Promise<DeployRequest[]> {
-  // 1. Diff the commits to find changed files
   const changedFiles = await diffCommits(repoPath, fromOid, toOid);
-
-  // 2. Identify which stacks have changes
   const changedStacks = identifyChangedStacks(changedFiles);
 
   if (changedStacks.length === 0) {
     return [];
   }
 
-  // 3. Read and parse manifest from the new commit
   const manifestContent = await readFileFromRepo(repoPath, 'manifest.yaml', toOid);
   const manifest = parseManifest(manifestContent);
 
-  // 4. Build deploy requests for stacks that exist in the manifest
   const requests: DeployRequest[] = [];
 
   for (const stackName of changedStacks) {
     const stackConfig = manifest.stacks[stackName];
     if (!stackConfig) {
-      // Stack directory changed but not in manifest -- skip
+      console.info(`[PostReceive] Stack "${stackName}" changed but not in manifest — skipping`);
       continue;
     }
 

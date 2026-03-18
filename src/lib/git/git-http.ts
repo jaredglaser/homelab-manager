@@ -18,7 +18,7 @@ export function parseGitPath(pathname: string): GitPathInfo | null {
 
   const rest = pathname.slice(prefix.length);
 
-  // Try each valid action (longest first to match info/refs before other patterns)
+  // Try each valid action as a suffix match
   for (const action of VALID_ACTIONS) {
     if (rest.endsWith(`/${action}`)) {
       const repo = rest.slice(0, -(action.length + 1));

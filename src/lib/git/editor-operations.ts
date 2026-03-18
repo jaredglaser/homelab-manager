@@ -44,17 +44,14 @@ export async function updateManifest(
   repoPath: string,
   options: UpdateManifestOptions,
 ): Promise<SaveResult> {
-  // Read current manifest
   const manifestContent = await readFileFromRepo(repoPath, 'manifest.yaml');
   const manifest = parseManifest(manifestContent);
 
-  // Update the stack entry
   manifest.stacks[options.stackName] = {
     host: options.host,
     auto_deploy: options.autoDeploy,
   };
 
-  // Serialize back to YAML
   const newContent = yaml.dump(manifest, {
     indent: 2,
     lineWidth: -1,

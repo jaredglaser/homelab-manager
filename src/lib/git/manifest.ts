@@ -18,7 +18,8 @@ export type StackManifest = z.infer<typeof ManifestSchema>;
  *
  * @param content - Raw YAML string
  * @returns Validated StackManifest
- * @throws {Error} If YAML is invalid or doesn't match schema
+ * @throws {YAMLException} If YAML syntax is invalid
+ * @throws {ZodError} If YAML structure doesn't match schema
  */
 export function parseManifest(content: string): StackManifest {
   const parsed = yaml.load(content);

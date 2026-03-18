@@ -110,4 +110,25 @@ describe('diffCommits', () => {
     const changed = await diffCommits(repoPath, sha1, sha2);
     expect(changed).toContain('traefik/docker-compose.yml');
   });
+
+  it('should detect deleted files', async () => {
+    // sha1 has only manifest, sha2 adds traefik on top
+    // Diffing sha2→sha1 exercises the deletion detection code path
+    const sha1 = await commitFiles(repoPath, {
+      files: [{ path: 'manifest.yaml', content: 'stacks: {}' }],
+      message: 'initial',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+
+    const sha2 = await commitFiles(repoPath, {
+      files: [{ path: 'traefik/docker-compose.yml', content: 'services: {}' }],
+      message: 'add traefik',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+
+    // Reverse diff: from sha2 (has traefik) to sha1 (no traefik) = traefik deleted
+    const changed = await diffCommits(repoPath, sha2, sha1);
+    expect(changed).toContain('traefik/docker-compose.yml');
+    expect(changed).not.toContain('manifest.yaml');
+  });
 });

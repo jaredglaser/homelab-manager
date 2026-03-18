@@ -1,4 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { createHash, timingSafeEqual } from 'crypto';
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const hashA = createHash('sha256').update(a).digest();
+  const hashB = createHash('sha256').update(b).digest();
+  return timingSafeEqual(hashA, hashB);
+}
 
 /**
  * Authenticate git HTTP requests via Bearer token.
@@ -8,7 +15,6 @@ import { createFileRoute } from '@tanstack/react-router';
 function authenticateRequest(request: Request): Response | null {
   const token = process.env.GIT_SERVER_TOKEN;
   if (!token) {
-    // If no token is configured, reject all requests for safety
     return new Response('Git server token not configured', { status: 500 });
   }
 
@@ -21,7 +27,7 @@ function authenticateRequest(request: Request): Response | null {
   }
 
   const providedToken = authHeader.slice('Bearer '.length);
-  if (providedToken !== token) {
+  if (!constantTimeEqual(providedToken, token)) {
     return new Response('Forbidden', { status: 403 });
   }
 
@@ -58,9 +64,11 @@ export const Route = createFileRoute('/api/git/$')({
         }
 
         const config = loadGitConfig();
+        if (pathInfo.repo !== config.repoName) {
+          return new Response('Not Found', { status: 404 });
+        }
         const repoPath = config.repoPath;
 
-        // Ensure repo exists
         await initBareRepo(repoPath);
 
         const service = url.searchParams.get('service');
@@ -71,9 +79,6 @@ export const Route = createFileRoute('/api/git/$')({
         return handleInfoRefs(repoPath, service);
       },
 
-      // NOTE: Post-receive wiring is added in Task 10 Step 5 after
-      // post-receive-handler.ts exists. This initial version handles
-      // only upload-pack and receive-pack without post-receive hooks.
       POST: async ({ request }) => {
         if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
           return new Response('Not Found', { status: 404 });
@@ -103,6 +108,9 @@ export const Route = createFileRoute('/api/git/$')({
         }
 
         const config = loadGitConfig();
+        if (pathInfo.repo !== config.repoName) {
+          return new Response('Not Found', { status: 404 });
+        }
         const repoPath = config.repoPath;
 
         await initBareRepo(repoPath);
@@ -125,7 +133,11 @@ export const Route = createFileRoute('/api/git/$')({
           const newHead = await getHeadOid(repoPath);
           if (oldHead && newHead && oldHead !== newHead) {
             processPostReceive(repoPath, oldHead, newHead).catch((err) => {
-              console.error('[GitServer] Post-receive error:', err);
+              console.error(
+                `[GitServer] Post-receive failed for ${oldHead}..${newHead}:`,
+                err instanceof Error ? err.message : err,
+                err instanceof Error ? err.stack : '',
+              );
             });
           }
 

@@ -12,7 +12,7 @@ export type GitConfig = z.infer<typeof GitConfigSchema>;
 
 /**
  * Load git management configuration from environment variables.
- * Only active when DOCKER_MANAGEMENT_FEATURE_FLAG is set.
+ * The `enabled` field reflects whether DOCKER_MANAGEMENT_FEATURE_FLAG is 'true'.
  *
  * @returns Validated git configuration
  */

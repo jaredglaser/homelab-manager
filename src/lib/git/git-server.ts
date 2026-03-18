@@ -1,7 +1,8 @@
 /**
  * Git HTTP smart protocol handlers.
- * Shells out to `git upload-pack` and `git receive-pack` via Bun.spawn().
- * This is a server-only module (uses Bun.spawn), so static imports are fine.
+ * Shells out to `git upload-pack` and `git receive-pack` via Bun.spawn(),
+ * and uses isomorphic-git for ref resolution.
+ * This is a server-only module, so static imports are fine.
  * Dynamic imports are only needed in route files to avoid client bundle pollution.
  */
 import git from 'isomorphic-git';
@@ -26,11 +27,13 @@ export async function handleInfoRefs(
     stderr: 'pipe',
   });
 
-  const stdout = await new Response(proc.stdout).arrayBuffer();
-  const exitCode = await proc.exited;
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).arrayBuffer(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
 
   if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
     console.error(`[GitServer] ${service} --advertise-refs failed:`, stderr);
     return new Response('Internal server error', { status: 500 });
   }
@@ -81,7 +84,12 @@ export async function handleReceivePack(
 export async function getHeadOid(repoPath: string): Promise<string | null> {
   try {
     return await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Could not resolve') || message.includes('resolve ref')) {
+      return null;
+    }
+    console.error('[GitServer] Unexpected error resolving HEAD:', message);
     return null;
   }
 }
@@ -108,8 +116,16 @@ async function runGitService(
     proc.stdin.end();
   }
 
-  const stdout = await new Response(proc.stdout).arrayBuffer();
-  await proc.exited;
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).arrayBuffer(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+
+  if (exitCode !== 0) {
+    console.error(`[GitServer] ${service} failed (exit ${exitCode}):`, stderr);
+    return new Response('Internal server error', { status: 500 });
+  }
 
   return new Response(stdout, {
     status: 200,

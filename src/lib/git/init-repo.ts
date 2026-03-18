@@ -22,9 +22,6 @@ export async function ensureRepoInitialized(): Promise<void> {
 
   await initBareRepo(repoPath);
 
-  // Check if repo has any commits; if not, seed with initial manifest
-  // repoExists checks for HEAD file but not whether HEAD resolves to a commit.
-  // Use resolveRef to determine if there are actual commits.
   const hasCommits = await hasAnyCommits(repoPath);
   if (!hasCommits) {
     await commitFiles(repoPath, {
@@ -42,7 +39,12 @@ async function hasAnyCommits(repoPath: string): Promise<boolean> {
   try {
     await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
     return true;
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Could not resolve') || message.includes('resolve ref')) {
+      return false;
+    }
+    console.error('[GitInit] Unexpected error checking HEAD:', message);
     return false;
   }
 }

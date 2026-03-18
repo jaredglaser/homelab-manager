@@ -1,7 +1,6 @@
 /**
- * Server functions for git operations.
- * These are called from the frontend via createServerFn (future task)
- * and contain the shared utility logic.
+ * Shared utility logic for git operations.
+ * Intended for use by server functions (not yet wired to frontend).
  *
  * All modules that use isomorphic-git, fs, or other server-only packages
  * must be dynamically imported inside the server function body.
@@ -16,7 +15,7 @@ export interface FileTreeNode {
 
 /**
  * Build a nested file tree structure from flat file paths.
- * Used by the UI to display the repository file browser.
+ * Directories are sorted before files at each level.
  */
 export function buildFileTree(filePaths: string[]): FileTreeNode[] {
   const root: FileTreeNode[] = [];

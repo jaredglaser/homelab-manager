@@ -25,13 +25,16 @@ export async function repoExists(repoPath: string): Promise<boolean> {
   }
 
   try {
-    // A bare repo has HEAD at the top level
     await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
     return true;
-  } catch {
-    // resolveRef throws if HEAD doesn't exist yet (empty repo)
-    // but the repo can still be valid - check for HEAD file
-    return existsSync(`${repoPath}/HEAD`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes('Could not resolve') || message.includes('resolve ref')) {
+      // HEAD doesn't resolve to a commit yet (empty repo) — check for HEAD file
+      return existsSync(`${repoPath}/HEAD`);
+    }
+    console.error('[Git] Unexpected error checking repo:', message);
+    return false;
   }
 }
 
@@ -61,15 +64,17 @@ export async function commitFiles(
 ): Promise<string> {
   const { files, message, author } = options;
 
-  // Read existing tree if HEAD exists
   let existingFiles = new Map<string, string>();
   let parentCommit: string | undefined;
   try {
     parentCommit = await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
+  } catch {
+    // No HEAD yet — first commit, existingFiles stays empty
+  }
+
+  if (parentCommit) {
     const { tree } = await git.readTree({ fs, gitdir: repoPath, oid: parentCommit });
     existingFiles = await readTreeRecursive(repoPath, tree, '');
-  } catch {
-    // No HEAD yet -- first commit
   }
 
   // Overlay new files onto existing files
