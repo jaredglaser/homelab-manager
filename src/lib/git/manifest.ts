@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import yaml from 'js-yaml';
 
-const StackEntrySchema = z.object({
+const StackEntrySchema = z.strictObject({
   host: z.string().min(1),
   auto_deploy: z.boolean().default(false),
 });
 
-const ManifestSchema = z.object({
+const ManifestSchema = z.strictObject({
   stacks: z.record(z.string(), StackEntrySchema),
 });
 

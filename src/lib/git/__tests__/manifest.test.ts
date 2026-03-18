@@ -65,6 +65,26 @@ stacks:
     expect(result.stacks.pihole.host).toBe('pihole-host');
   });
 
+  it('should reject unknown keys in stack entries (catches typos)', () => {
+    const yaml = `
+stacks:
+  plex:
+    host: homeserver
+    autoDeploy: true
+`;
+    expect(() => parseManifest(yaml)).toThrow();
+  });
+
+  it('should reject unknown keys at manifest level', () => {
+    const yaml = `
+stacks:
+  plex:
+    host: homeserver
+extra_field: true
+`;
+    expect(() => parseManifest(yaml)).toThrow();
+  });
+
   it('should reject stacks with empty host string', () => {
     const yaml = `
 stacks:
