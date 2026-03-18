@@ -71,7 +71,8 @@ async function spawnWithTimeout(
 export async function handleStackDeploy(
   request: Request,
   stacksDir: string,
-  spawn: SpawnFn = Bun.spawn
+  spawn: SpawnFn = Bun.spawn,
+  timeoutMs: number = COMPOSE_TIMEOUT_MS,
 ): Promise<Response> {
   let body: { stack?: string; composeContent?: string; envContent?: string };
   try {
@@ -133,7 +134,7 @@ export async function handleStackDeploy(
       stdout: 'pipe',
       stderr: 'pipe',
       env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
-    });
+    }, timeoutMs);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${body.stack}:`, error);
@@ -169,7 +170,8 @@ export async function handleStackDeploy(
 export async function handleStackTeardown(
   request: Request,
   stacksDir: string,
-  spawn: SpawnFn = Bun.spawn
+  spawn: SpawnFn = Bun.spawn,
+  timeoutMs: number = COMPOSE_TIMEOUT_MS,
 ): Promise<Response> {
   let body: { stack?: string };
   try {
@@ -210,7 +212,7 @@ export async function handleStackTeardown(
       stdout: 'pipe',
       stderr: 'pipe',
       env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
-    });
+    }, timeoutMs);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${body.stack}:`, error);
@@ -254,7 +256,8 @@ export async function handleStackTeardown(
 export async function handleStackRestart(
   request: Request,
   stacksDir: string,
-  spawn: SpawnFn = Bun.spawn
+  spawn: SpawnFn = Bun.spawn,
+  timeoutMs: number = COMPOSE_TIMEOUT_MS,
 ): Promise<Response> {
   let body: { stack?: string };
   try {
@@ -295,7 +298,7 @@ export async function handleStackRestart(
       stdout: 'pipe',
       stderr: 'pipe',
       env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
-    });
+    }, timeoutMs);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to execute docker compose for ${body.stack}:`, error);
