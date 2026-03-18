@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -20,6 +20,8 @@ describe('processPostReceive', () => {
   });
 
   it('should return deploy requests for changed stacks', async () => {
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+
     const sha1 = await commitFiles(repoPath, {
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
@@ -39,9 +41,17 @@ describe('processPostReceive', () => {
     expect(requests).toHaveLength(1);
     expect(requests[0].stack).toBe('plex');
     expect(requests[0].autoApproved).toBe(true);
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[PostReceive] Deploy request: deploy plex on homeserver (auto=true)'),
+    );
+
+    infoSpy.mockRestore();
   });
 
   it('should handle manifest-only changes gracefully', async () => {
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+
     const sha1 = await commitFiles(repoPath, {
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
@@ -61,5 +71,11 @@ describe('processPostReceive', () => {
 
     const requests = await processPostReceive(repoPath, sha1, sha2);
     expect(requests).toHaveLength(0);
+
+    expect(infoSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('[PostReceive]'),
+    );
+
+    infoSpy.mockRestore();
   });
 });

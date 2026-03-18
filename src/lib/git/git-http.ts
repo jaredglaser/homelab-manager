@@ -23,6 +23,10 @@ export function parseGitPath(pathname: string): GitPathInfo | null {
     if (rest.endsWith(`/${action}`)) {
       const repo = rest.slice(0, -(action.length + 1));
       if (repo.length > 0) {
+        const segments = repo.split('/');
+        if (segments.some(s => s === '' || s === '.' || s === '..')) {
+          return null;
+        }
         return { repo, action };
       }
     }

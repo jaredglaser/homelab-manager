@@ -21,7 +21,8 @@ export function buildFileTree(filePaths: string[]): FileTreeNode[] {
   const root: FileTreeNode[] = [];
 
   for (const filePath of filePaths) {
-    const parts = filePath.split('/');
+    const parts = filePath.split('/').filter(p => p !== '' && p !== '.' && p !== '..');
+    if (parts.length === 0) continue;
     let currentLevel = root;
 
     for (let i = 0; i < parts.length; i++) {

@@ -18,5 +18,11 @@ export async function processPostReceive(
   // For auto-approved requests: send directly to pipeline
   // For manual-approval requests: create pending deploy record in PostgreSQL
 
+  for (const req of requests) {
+    console.info(
+      `[PostReceive] Deploy request: ${req.action} ${req.stack} on ${req.host} (auto=${req.autoApproved})`,
+    );
+  }
+
   return requests;
 }

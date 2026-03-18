@@ -3,9 +3,9 @@ import { join } from 'path';
 
 const GitConfigSchema = z.object({
   enabled: z.boolean(),
-  reposDir: z.string(),
-  repoName: z.string(),
-  repoPath: z.string(),
+  reposDir: z.string().trim().min(1),
+  repoName: z.string().trim().min(1),
+  repoPath: z.string().trim().min(1),
 });
 
 export type GitConfig = z.infer<typeof GitConfigSchema>;

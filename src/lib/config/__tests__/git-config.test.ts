@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { join } from 'path';
 import { loadGitConfig } from '../git-config';
 
 describe('loadGitConfig', () => {
@@ -49,6 +50,12 @@ describe('loadGitConfig', () => {
     process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
     process.env.GIT_REPOS_DIR = '/data/repos';
     const config = loadGitConfig();
-    expect(config.repoPath).toBe('/data/repos/stacks.git');
+    expect(config.repoPath).toBe(join('/data/repos', 'stacks.git'));
+  });
+
+  it('should reject empty or whitespace-only values', () => {
+    process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
+    process.env.GIT_REPOS_DIR = '   ';
+    expect(() => loadGitConfig()).toThrow();
   });
 });

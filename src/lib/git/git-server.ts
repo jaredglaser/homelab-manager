@@ -10,6 +10,9 @@ import fs from 'fs';
 
 const VALID_SERVICES = ['git-upload-pack', 'git-receive-pack'] as const;
 
+/** 50 MB — git pack files for compose files and manifests should be well under this. */
+const MAX_GIT_BODY_SIZE = 50 * 1024 * 1024;
+
 /**
  * Handle GET /info/refs?service=<service>
  * Returns ref advertisement for the requested service.
@@ -86,7 +89,7 @@ export async function getHeadOid(repoPath: string): Promise<string | null> {
     return await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('Could not resolve') || message.includes('resolve ref')) {
+    if (message.includes('Could not resolve') || message.includes('Could not find') || message.includes('resolve ref')) {
       return null;
     }
     console.error('[GitServer] Unexpected error resolving HEAD:', message);
@@ -99,7 +102,12 @@ async function runGitService(
   repoPath: string,
   body: ReadableStream<Uint8Array> | null,
 ): Promise<Response> {
-  const stdinBuffer = body ? await streamToBuffer(body) : undefined;
+  let stdinBuffer: Buffer | undefined;
+  try {
+    stdinBuffer = body ? await streamToBuffer(body) : undefined;
+  } catch {
+    return new Response('Payload too large', { status: 413 });
+  }
 
   const proc = Bun.spawn([service, '--stateless-rpc', repoPath], {
     stdin: 'pipe',
@@ -144,14 +152,23 @@ function pktLineEncode(str: string): string {
 
 async function streamToBuffer(
   stream: ReadableStream<Uint8Array>,
+  maxBytes: number = MAX_GIT_BODY_SIZE,
 ): Promise<Buffer> {
   const chunks: Uint8Array[] = [];
   const reader = stream.getReader();
+  let totalSize = 0;
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    if (value) chunks.push(value);
+    if (value) {
+      totalSize += value.byteLength;
+      if (totalSize > maxBytes) {
+        reader.cancel();
+        throw new Error('Request body too large');
+      }
+      chunks.push(value);
+    }
   }
 
   return Buffer.concat(chunks);

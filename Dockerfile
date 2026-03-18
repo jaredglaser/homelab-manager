@@ -18,7 +18,7 @@ FROM base AS production
 ENV NODE_ENV=production
 
 # git is needed at runtime for git-upload-pack and git-receive-pack (Git HTTP smart protocol)
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 
 RUN bun run build
 

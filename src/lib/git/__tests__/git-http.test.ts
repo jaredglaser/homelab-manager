@@ -31,6 +31,22 @@ describe('parseGitPath', () => {
     const result = parseGitPath('/api/git/stacks/unknown');
     expect(result).toBeNull();
   });
+
+  it('should return null for path traversal with ..', () => {
+    expect(parseGitPath('/api/git/../info/refs')).toBeNull();
+  });
+
+  it('should return null for traversal in multi-segment repo', () => {
+    expect(parseGitPath('/api/git/stacks/../other/info/refs')).toBeNull();
+  });
+
+  it('should return null for empty segment from double slash', () => {
+    expect(parseGitPath('/api/git/stacks//info/refs')).toBeNull();
+  });
+
+  it('should return null for dot segment', () => {
+    expect(parseGitPath('/api/git/./info/refs')).toBeNull();
+  });
 });
 
 describe('request type checks', () => {

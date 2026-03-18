@@ -41,7 +41,7 @@ async function hasAnyCommits(repoPath: string): Promise<boolean> {
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('Could not resolve') || message.includes('resolve ref')) {
+    if (message.includes('Could not resolve') || message.includes('Could not find') || message.includes('resolve ref')) {
       return false;
     }
     console.error('[GitInit] Unexpected error checking HEAD:', message);

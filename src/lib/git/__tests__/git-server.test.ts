@@ -72,8 +72,7 @@ describe('handleUploadPack', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('should return correct content type', async () => {
-    // Create a minimal upload-pack request body
+  it('should return 500 for empty request body', async () => {
     const body = new ReadableStream({
       start(controller) {
         controller.close();
@@ -81,8 +80,7 @@ describe('handleUploadPack', () => {
     });
 
     const response = await handleUploadPack(repoPath, body);
-    const contentType = response.headers.get('Content-Type');
-    expect(contentType).toBe('application/x-git-upload-pack-result');
+    expect(response.status).toBe(500);
   });
 });
 
@@ -105,7 +103,7 @@ describe('handleReceivePack', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('should return correct content type', async () => {
+  it('should return 500 for empty request body', async () => {
     const body = new ReadableStream({
       start(controller) {
         controller.close();
@@ -113,8 +111,49 @@ describe('handleReceivePack', () => {
     });
 
     const response = await handleReceivePack(repoPath, body);
-    const contentType = response.headers.get('Content-Type');
-    expect(contentType).toBe('application/x-git-receive-pack-result');
+    expect(response.status).toBe(500);
+  });
+});
+
+describe('request body size limit', () => {
+  let testDir: string;
+  let repoPath: string;
+
+  beforeEach(async () => {
+    testDir = mkdtempSync(join(tmpdir(), 'git-size-'));
+    repoPath = join(testDir, 'test.git');
+    await initBareRepo(repoPath);
+    await commitFiles(repoPath, {
+      files: [{ path: 'test.txt', content: 'hello' }],
+      message: 'initial',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('should return 413 when request body exceeds MAX_GIT_BODY_SIZE', async () => {
+    // Create a stream that produces more than 50 MB
+    const chunkSize = 1024 * 1024; // 1 MB chunks
+    const totalChunks = 52; // 52 MB total
+    let sent = 0;
+
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent < totalChunks) {
+          controller.enqueue(new Uint8Array(chunkSize));
+          sent++;
+        } else {
+          controller.close();
+        }
+      },
+    });
+
+    const response = await handleReceivePack(repoPath, body);
+    expect(response.status).toBe(413);
+    expect(await response.text()).toBe('Payload too large');
   });
 });
 

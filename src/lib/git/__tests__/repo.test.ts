@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -8,6 +8,7 @@ import {
   readFileFromRepo,
   listFilesInRepo,
   commitFiles,
+  getLog,
 } from '../repo';
 
 describe('repo initialization', () => {
@@ -37,6 +38,13 @@ describe('repo initialization', () => {
   it('should return false for non-existent repo', async () => {
     const repoPath = join(testDir, 'nonexistent.git');
     expect(await repoExists(repoPath)).toBe(false);
+  });
+
+  it('should return false for directory with only HEAD file (missing objects/refs)', async () => {
+    const fakePath = join(testDir, 'fake.git');
+    mkdirSync(fakePath, { recursive: true });
+    writeFileSync(join(fakePath, 'HEAD'), 'ref: refs/heads/main\n');
+    expect(await repoExists(fakePath)).toBe(false);
   });
 });
 
@@ -112,5 +120,50 @@ describe('listFilesInRepo', () => {
   it('should list files in a subdirectory', async () => {
     const files = await listFilesInRepo(repoPath, 'plex');
     expect(files).toEqual(['plex/docker-compose.yml']);
+  });
+});
+
+describe('commitFiles mutex', () => {
+  let testDir: string;
+  let repoPath: string;
+
+  beforeEach(async () => {
+    testDir = mkdtempSync(join(tmpdir(), 'git-mutex-'));
+    repoPath = join(testDir, 'test.git');
+    await initBareRepo(repoPath);
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('should serialize concurrent commits without data loss', async () => {
+    const author = { name: 'test', email: 'test@test.com' };
+
+    const [oid1, oid2] = await Promise.all([
+      commitFiles(repoPath, {
+        files: [{ path: 'a.txt', content: 'file-a' }],
+        message: 'add a',
+        author,
+      }),
+      commitFiles(repoPath, {
+        files: [{ path: 'b.txt', content: 'file-b' }],
+        message: 'add b',
+        author,
+      }),
+    ]);
+
+    expect(oid1).not.toBe(oid2);
+
+    const log = await getLog(repoPath, 10);
+    expect(log).toHaveLength(2);
+
+    const files = await listFilesInRepo(repoPath);
+    expect(files.sort()).toEqual(['a.txt', 'b.txt']);
+
+    const contentA = await readFileFromRepo(repoPath, 'a.txt');
+    const contentB = await readFileFromRepo(repoPath, 'b.txt');
+    expect(contentA).toBe('file-a');
+    expect(contentB).toBe('file-b');
   });
 });

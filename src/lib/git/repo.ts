@@ -3,6 +3,23 @@ import type { TreeEntry } from 'isomorphic-git';
 import * as fs from 'fs';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 
+const repoLocks = new Map<string, Promise<void>>();
+
+async function withRepoLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
+  const previous = repoLocks.get(repoPath) ?? Promise.resolve();
+  let release: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  repoLocks.set(repoPath, current);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release!();
+  }
+}
+
 /**
  * Initialize a bare git repository at the given path.
  * Creates the directory if it does not exist.
@@ -29,9 +46,9 @@ export async function repoExists(repoPath: string): Promise<boolean> {
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('Could not resolve') || message.includes('resolve ref')) {
+    if (message.includes('Could not resolve') || message.includes('resolve ref') || message.includes('Could not find')) {
       // HEAD doesn't resolve to a commit yet (empty repo) — check for HEAD file
-      return existsSync(`${repoPath}/HEAD`);
+      return existsSync(`${repoPath}/HEAD`) && existsSync(`${repoPath}/objects`) && existsSync(`${repoPath}/refs`);
     }
     console.error('[Git] Unexpected error checking repo:', message);
     return false;
@@ -62,65 +79,62 @@ export async function commitFiles(
   repoPath: string,
   options: CommitOptions,
 ): Promise<string> {
-  const { files, message, author } = options;
+  return withRepoLock(repoPath, async () => {
+    const { files, message, author } = options;
 
-  let existingFiles = new Map<string, string>();
-  let parentCommit: string | undefined;
-  try {
-    parentCommit = await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
-  } catch {
-    // No HEAD yet — first commit, existingFiles stays empty
-  }
+    let existingFiles = new Map<string, string>();
+    let parentCommit: string | undefined;
+    try {
+      parentCommit = await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
+    } catch {
+      // No HEAD yet — first commit, existingFiles stays empty
+    }
 
-  if (parentCommit) {
-    const { tree } = await git.readTree({ fs, gitdir: repoPath, oid: parentCommit });
-    existingFiles = await readTreeRecursive(repoPath, tree, '');
-  }
+    if (parentCommit) {
+      const { tree } = await git.readTree({ fs, gitdir: repoPath, oid: parentCommit });
+      existingFiles = await readTreeRecursive(repoPath, tree, '');
+    }
 
-  // Overlay new files onto existing files
-  for (const file of files) {
-    existingFiles.set(file.path, file.content);
-  }
+    for (const file of files) {
+      existingFiles.set(file.path, file.content);
+    }
 
-  // Build tree objects bottom-up
-  const treeOid = await buildTree(repoPath, existingFiles);
+    const treeOid = await buildTree(repoPath, existingFiles);
 
-  // Create commit
-  const commitOid = await git.writeCommit({
-    fs,
-    gitdir: repoPath,
-    commit: {
-      message,
-      tree: treeOid,
-      parent: parentCommit ? [parentCommit] : [],
-      author: {
-        name: author.name,
-        email: author.email,
-        timestamp: Math.floor(Date.now() / 1000),
-        timezoneOffset: 0,
+    const commitOid = await git.writeCommit({
+      fs,
+      gitdir: repoPath,
+      commit: {
+        message,
+        tree: treeOid,
+        parent: parentCommit ? [parentCommit] : [],
+        author: {
+          name: author.name,
+          email: author.email,
+          timestamp: Math.floor(Date.now() / 1000),
+          timezoneOffset: 0,
+        },
+        committer: {
+          name: author.name,
+          email: author.email,
+          timestamp: Math.floor(Date.now() / 1000),
+          timezoneOffset: 0,
+        },
       },
-      committer: {
-        name: author.name,
-        email: author.email,
-        timestamp: Math.floor(Date.now() / 1000),
-        timezoneOffset: 0,
-      },
-    },
+    });
+
+    await git.writeRef({
+      fs,
+      gitdir: repoPath,
+      ref: 'refs/heads/main',
+      value: commitOid,
+      force: true,
+    });
+
+    writeFileSync(`${repoPath}/HEAD`, 'ref: refs/heads/main\n');
+
+    return commitOid;
   });
-
-  // Update HEAD -> main -> commitOid
-  await git.writeRef({
-    fs,
-    gitdir: repoPath,
-    ref: 'refs/heads/main',
-    value: commitOid,
-    force: true,
-  });
-
-  // Ensure HEAD points to refs/heads/main
-  writeFileSync(`${repoPath}/HEAD`, 'ref: refs/heads/main\n');
-
-  return commitOid;
 }
 
 /**
