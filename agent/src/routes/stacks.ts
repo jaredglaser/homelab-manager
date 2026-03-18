@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readdirSync } from 'fs';
+import { mkdirSync, existsSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
@@ -75,6 +75,9 @@ export async function handleStackDeploy(
     await Bun.write(join(stackDir, 'docker-compose.yml'), body.composeContent);
     if (body.envContent) {
       await Bun.write(join(stackDir, '.env'), body.envContent);
+    } else {
+      const envPath = join(stackDir, '.env');
+      if (existsSync(envPath)) unlinkSync(envPath);
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

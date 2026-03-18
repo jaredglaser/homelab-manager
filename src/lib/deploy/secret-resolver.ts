@@ -10,7 +10,13 @@ import type { SecretResolver } from '@/lib/deploy/types';
 export class NoOpSecretResolver implements SecretResolver {
   /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
   constructor() {}
-  async resolve(_stack: string, _variables: string[]): Promise<Record<string, string>> {
+  async resolve(_stack: string, variables: string[]): Promise<Record<string, string>> {
+    if (variables.length > 0) {
+      console.error(
+        `NoOpSecretResolver: ${variables.length} secret(s) requested (${variables.join(', ')}) ` +
+        `but no secret backend is configured. These variables will be empty.`
+      );
+    }
     return {};
   }
 }

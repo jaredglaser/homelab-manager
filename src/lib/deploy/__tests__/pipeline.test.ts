@@ -5,11 +5,25 @@ import type { DeployRepository } from '@/lib/database/repositories/deploy-reposi
 import type { ManagedHostsRepository } from '@/lib/database/repositories/managed-hosts-repository';
 import type { AgentClient } from '@/lib/clients/agent-client';
 
+const defaultPendingRecord = {
+  id: 42,
+  stack: 'plex',
+  host: 'homeserver',
+  commitSha: 'abc123',
+  composeHash: '',
+  envHash: '',
+  status: 'pending' as const,
+  trigger: 'git_push' as const,
+  logs: null,
+  createdAt: new Date(),
+};
+
 function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): DeployRepository {
   return {
     insertDeploy: mock().mockResolvedValue(1),
     insertDeployIfNoActive: mock().mockResolvedValue(1),
     updateStatus: mock().mockResolvedValue(undefined),
+    getById: mock().mockResolvedValue(defaultPendingRecord),
     getLatestSuccessful: mock().mockResolvedValue(null),
     hasActiveDeployForStack: mock().mockResolvedValue(false),
     deduplicatePending: mock().mockResolvedValue(undefined),
@@ -237,6 +251,22 @@ describe('DeployPipeline', () => {
       expect(deployRepo.deduplicatePending).toHaveBeenCalled();
     });
 
+    it('continues when deduplicatePending fails', async () => {
+      deployRepo = createMockDeployRepo({
+        deduplicatePending: mock().mockRejectedValue(new Error('db timeout')) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('succeeded');
+    });
+
     it('catches dispatch errors and records failure', async () => {
       agentClientFactory = mock().mockReturnValue({
         deploy: mock().mockRejectedValue(new Error('connection refused')),
@@ -286,6 +316,61 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('succeeded');
       expect(deployRepo.updateStatus).toHaveBeenCalledWith(42, 'in_progress');
       expect(agentClientFactory).toHaveBeenCalled();
+    });
+
+    it('rejects resume when deploy is not in pending state', async () => {
+      deployRepo = createMockDeployRepo({
+        getById: mock().mockResolvedValue({ ...defaultPendingRecord, status: 'succeeded' }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+      });
+
+      const result = await pipeline.resumePending(42, testHost, testRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toContain('not in pending state');
+      expect(deployRepo.updateStatus).not.toHaveBeenCalled();
+    });
+
+    it('rejects resume when deploy is not found', async () => {
+      deployRepo = createMockDeployRepo({
+        getById: mock().mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+      });
+
+      const result = await pipeline.resumePending(99, testHost, testRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toContain('not in pending state');
+    });
+
+    it('handles secret resolution failure during resume', async () => {
+      const failResolver: SecretResolver = {
+        resolve: mock().mockRejectedValue(new Error('vault unreachable')),
+      };
+      const composeWithVars = 'services:\n  app:\n    environment:\n      - TOKEN=${API_TOKEN}';
+      const requestWithVars = { ...testRequest, composeContent: composeWithVars };
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver: failResolver,
+        tokenResolver: () => 'test-token',
+      });
+
+      const result = await pipeline.resumePending(42, testHost, requestWithVars);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toContain('Secret resolution failed');
+      expect(deployRepo.updateStatus).toHaveBeenCalledWith(42, 'failed', expect.stringContaining('vault unreachable'));
     });
 
     it('records failure when agent dispatch fails during resume', async () => {

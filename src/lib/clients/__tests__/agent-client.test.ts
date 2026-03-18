@@ -58,6 +58,22 @@ describe('AgentClient', () => {
       })).rejects.toThrow(AgentClientError);
     });
 
+    it('throws AgentClientError on invalid JSON response', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('<html>Bad Gateway</html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        })
+      );
+
+      await expect(client.deploy({
+        stack: 'plex',
+        composeContent: 'version: "3"',
+        envContent: '',
+        action: 'deploy',
+      })).rejects.toThrow(/invalid JSON.*\/stacks\/deploy/);
+    });
+
     it('throws AgentClientError on fetch failure (network error)', async () => {
       fetchMock.mockRejectedValueOnce(new Error('Connection refused'));
 

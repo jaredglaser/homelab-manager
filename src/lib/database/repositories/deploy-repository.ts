@@ -38,6 +38,15 @@ export class DeployRepository {
     }
   }
 
+  async getById(id: number): Promise<DeployRecord | null> {
+    const result = await this.pool.query(
+      `SELECT * FROM deploy_history WHERE id = $1`,
+      [id]
+    );
+    if (result.rows.length === 0) return null;
+    return toDeployRecord(result.rows[0]);
+  }
+
   async updateStatus(id: number, status: DeployStatus, logs?: string): Promise<void> {
     await this.pool.query(
       `UPDATE deploy_history SET status = $2, logs = $3 WHERE id = $1`,

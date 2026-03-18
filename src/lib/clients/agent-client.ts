@@ -22,7 +22,7 @@ interface AgentClientConfig {
 }
 
 export interface AgentHealthResponse {
-  status: string;
+  status: 'healthy' | 'unhealthy';
   version: string;
 }
 
@@ -114,7 +114,16 @@ export class AgentClient {
       );
     }
 
-    return response.json() as Promise<T>;
+    const text = await response.text();
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new AgentClientError(
+        `Agent returned invalid JSON from ${path}: ${text.slice(0, 200)}`,
+        response.status,
+        url,
+      );
+    }
   }
 }
 

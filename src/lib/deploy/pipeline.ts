@@ -87,7 +87,11 @@ export class DeployPipeline {
     }
 
     // Deduplicate older pending deploys for this stack+host
-    await this.deployRepo.deduplicatePending(request.stack, request.host, deployId);
+    try {
+      await this.deployRepo.deduplicatePending(request.stack, request.host, deployId);
+    } catch (err) {
+      console.error(`Failed to deduplicate pending deploys for stack "${request.stack}":`, err);
+    }
 
     // 5. If not auto-approved, stop here (UI will show pending state)
     if (!request.autoApproved) {
@@ -106,9 +110,27 @@ export class DeployPipeline {
    * Performs the same env merge / secret resolution that execute uses.
    */
   async resumePending(deployId: number, host: ManagedHost, request: DeployRequest): Promise<PipelineResult> {
+    const deploy = await this.deployRepo.getById(deployId);
+    if (!deploy || deploy.status !== 'pending') {
+      return { status: 'failed', logs: `Deploy ${deployId} is not in pending state`, deployId };
+    }
+
     await this.deployRepo.updateStatus(deployId, 'in_progress');
 
-    const resolvedEnvContent = await this.resolveEnv(request);
+    let resolvedEnvContent: string;
+    try {
+      resolvedEnvContent = await this.resolveEnv(request);
+    } catch (err) {
+      const errorMsg = `Secret resolution failed: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(errorMsg, err);
+      try {
+        await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+      } catch (dbErr) {
+        console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
+      }
+      return { status: 'failed', logs: errorMsg, deployId };
+    }
+
     return this.dispatch(host, request, resolvedEnvContent, deployId);
   }
 
@@ -156,7 +178,12 @@ export class DeployPipeline {
       return { status: finalStatus, logs: result.logs, deployId };
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+      console.error(`Deploy dispatch failed for stack "${request.stack}" on host "${host.name}":`, err);
+      try {
+        await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+      } catch (dbErr) {
+        console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
+      }
       return { status: 'failed', logs: errorMsg, deployId };
     }
   }

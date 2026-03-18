@@ -32,6 +32,35 @@ describe('DeployRepository', () => {
     });
   });
 
+  describe('getById', () => {
+    it('returns null when deploy does not exist', async () => {
+      mock.pushResult([]);
+      const result = await repo.getById(999);
+      expect(result).toBeNull();
+    });
+
+    it('returns the deploy record with Number-coerced id', async () => {
+      mock.pushResult([{
+        id: '42',
+        stack: 'plex',
+        host: 'homeserver',
+        commit_sha: 'abc123',
+        compose_hash: 'hash1',
+        env_hash: 'hash2',
+        status: 'pending',
+        trigger: 'git_push',
+        logs: null,
+        created_at: new Date('2026-01-01'),
+      }]);
+
+      const result = await repo.getById(42);
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe(42);
+      expect(result!.stack).toBe('plex');
+      expect(result!.status).toBe('pending');
+    });
+  });
+
   describe('updateStatus', () => {
     it('updates status and logs for a deploy record', async () => {
       await repo.updateStatus(42, 'succeeded', 'deployment complete');
