@@ -306,6 +306,19 @@ describe('ProxmoxClient', () => {
   });
 
   describe('self-signed cert options', () => {
+    it('should set TLS options when allowSelfSignedCerts is true', async () => {
+      const config = createConfig({ allowSelfSignedCerts: true });
+      const client = new ProxmoxClient(config);
+
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: {} }), { status: 200 })
+      );
+      await client.testConnection();
+
+      const callInit = fetchSpy.mock.calls[0][1] as any;
+      expect(callInit.tls).toEqual({ rejectUnauthorized: false });
+    });
+
     it('should not set TLS options when allowSelfSignedCerts is false', () => {
       const config = createConfig({ allowSelfSignedCerts: false });
       const client = new ProxmoxClient(config);

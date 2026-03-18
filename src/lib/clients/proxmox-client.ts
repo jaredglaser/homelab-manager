@@ -40,8 +40,11 @@ export class ProxmoxClient {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { Agent } = require('undici') as { Agent: new (opts: Record<string, unknown>) => unknown };
         this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
-      } catch {
-        // undici unavailable (e.g. running under Bun where `tls` is used instead)
+      } catch (err: unknown) {
+        // Only swallow missing-module errors (Bun where `tls` is used instead)
+        if (!(err instanceof Error && 'code' in err && err.code === 'MODULE_NOT_FOUND')) {
+          throw err;
+        }
       }
     }
   }

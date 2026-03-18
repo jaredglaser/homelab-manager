@@ -72,7 +72,7 @@ describe('DeployRepository', () => {
 
     it('throws when deploy record does not exist', async () => {
       mock.pushResult([]); // 0 rows affected
-      expect(repo.updateStatus(999, 'failed')).rejects.toThrow('Deploy record 999 not found');
+      await expect(repo.updateStatus(999, 'failed')).rejects.toThrow('Deploy record 999 not found');
     });
   });
 
@@ -163,7 +163,7 @@ describe('DeployRepository', () => {
       } as any;
       const violationRepo = new DeployRepository(violationPool);
 
-      expect(violationRepo.insertDeployIfNoActive(insertParams)).rejects.toThrow('duplicate key');
+      await expect(violationRepo.insertDeployIfNoActive(insertParams)).rejects.toThrow('duplicate key');
     });
 
     it('re-throws non-unique-violation errors', async () => {
@@ -172,7 +172,7 @@ describe('DeployRepository', () => {
       } as any;
       const errorRepo = new DeployRepository(errorPool);
 
-      expect(errorRepo.insertDeployIfNoActive(insertParams)).rejects.toThrow('connection lost');
+      await expect(errorRepo.insertDeployIfNoActive(insertParams)).rejects.toThrow('connection lost');
     });
   });
 
