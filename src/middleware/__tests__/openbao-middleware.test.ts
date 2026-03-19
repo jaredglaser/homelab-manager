@@ -35,6 +35,25 @@ describe('openBaoMiddleware', () => {
     expect(nextFn).not.toHaveBeenCalled();
   });
 
+  test('throws when only OPENBAO_URL is set without token', async () => {
+    process.env.OPENBAO_URL = 'http://openbao:8200';
+    delete process.env.OPENBAO_TOKEN;
+
+    const { openBaoMiddleware } = await import(
+      '@/middleware/openbao-middleware'
+    );
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const serverHandler = openBaoMiddleware.options.server as any;
+    const nextFn = mock();
+
+    await expect(
+      serverHandler({ next: nextFn }),
+    ).rejects.toThrow('OpenBao is not configured');
+
+    expect(nextFn).not.toHaveBeenCalled();
+  });
+
   test('creates client and calls next with openBaoClient in context when configured', async () => {
     process.env.OPENBAO_URL = 'http://openbao:8200';
     process.env.OPENBAO_TOKEN = 'dev-root-token';

@@ -13,7 +13,7 @@ export const openBaoMiddleware = createMiddleware().server(
     );
 
     if (!isOpenBaoConfigured()) {
-      throw new Error('OpenBao is not configured (OPENBAO_URL not set)');
+      throw new Error('OpenBao is not configured');
     }
 
     const config = loadOpenBaoConfig();

@@ -29,8 +29,8 @@ export function loadOpenBaoConfig(): OpenBaoConfig {
 }
 
 /**
- * Check if OpenBao configuration is available (OPENBAO_URL env var set)
+ * Check if OpenBao configuration is available (both OPENBAO_URL and OPENBAO_TOKEN set)
  */
 export function isOpenBaoConfigured(): boolean {
-  return !!process.env.OPENBAO_URL;
+  return !!process.env.OPENBAO_URL && !!process.env.OPENBAO_TOKEN;
 }

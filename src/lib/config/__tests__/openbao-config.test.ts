@@ -54,18 +54,33 @@ describe('isOpenBaoConfigured', () => {
     process.env = { ...originalEnv };
   });
 
-  test('returns true when OPENBAO_URL is set', () => {
+  test('returns true when both OPENBAO_URL and OPENBAO_TOKEN are set', () => {
     process.env.OPENBAO_URL = 'http://openbao:8200';
+    process.env.OPENBAO_TOKEN = 'dev-root-token';
     expect(isOpenBaoConfigured()).toBe(true);
   });
 
   test('returns false when OPENBAO_URL is not set', () => {
     delete process.env.OPENBAO_URL;
+    process.env.OPENBAO_TOKEN = 'dev-root-token';
     expect(isOpenBaoConfigured()).toBe(false);
   });
 
   test('returns false when OPENBAO_URL is empty string', () => {
     process.env.OPENBAO_URL = '';
+    process.env.OPENBAO_TOKEN = 'dev-root-token';
+    expect(isOpenBaoConfigured()).toBe(false);
+  });
+
+  test('returns false when OPENBAO_TOKEN is not set', () => {
+    process.env.OPENBAO_URL = 'http://openbao:8200';
+    delete process.env.OPENBAO_TOKEN;
+    expect(isOpenBaoConfigured()).toBe(false);
+  });
+
+  test('returns false when OPENBAO_TOKEN is empty string', () => {
+    process.env.OPENBAO_URL = 'http://openbao:8200';
+    process.env.OPENBAO_TOKEN = '';
     expect(isOpenBaoConfigured()).toBe(false);
   });
 });

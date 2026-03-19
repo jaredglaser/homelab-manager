@@ -26,6 +26,14 @@ describe('createSecretResolver', () => {
     expect(resolver).toBeInstanceOf(NoOpSecretResolver);
   });
 
+  test('returns NoOpSecretResolver when only OPENBAO_URL is set', () => {
+    process.env.OPENBAO_URL = 'http://openbao:8200';
+    delete process.env.OPENBAO_TOKEN;
+
+    const resolver = createSecretResolver();
+    expect(resolver).toBeInstanceOf(NoOpSecretResolver);
+  });
+
   test('returns OpenBaoSecretResolver when OpenBao is configured', () => {
     process.env.OPENBAO_URL = 'http://openbao:8200';
     process.env.OPENBAO_TOKEN = 'dev-root-token';

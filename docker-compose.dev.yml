@@ -108,6 +108,12 @@ services:
       <<: *postgres-env
       OPENBAO_URL: ${OPENBAO_URL:-}
       OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      openbao:
+        condition: service_healthy
+        required: false
 
   # OpenBao dev server (secrets management, optional)
   openbao:
@@ -118,6 +124,12 @@ services:
       BAO_DEV_ROOT_TOKEN_ID: "dev-root-token"
     ports:
       - "8200:8200"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - homelab-network
     profiles:

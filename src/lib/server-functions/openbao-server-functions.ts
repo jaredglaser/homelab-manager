@@ -25,7 +25,7 @@ export async function handleListStackSecrets(
   data: { stack: string },
 ): Promise<string[]> {
   const keys = await client.listSecrets(data.stack);
-  return keys.sort();
+  return [...keys].sort();
 }
 
 /** Get a single secret value. Throws if not found. */
@@ -78,7 +78,7 @@ export const listStackSecrets = createServerFn({ method: 'GET' })
  * Get a single secret value (for reveal in UI).
  * Returns the value directly — the frontend should display it briefly and discard.
  */
-export const getStackSecret = createServerFn({ method: 'GET' })
+export const getStackSecret = createServerFn({ method: 'POST' })
   .middleware([openBaoMiddleware])
   .inputValidator((data: unknown) => stackKeyInput.parse(data))
   .handler(async ({ context, data }) => {
