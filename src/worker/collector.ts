@@ -7,8 +7,10 @@ import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
+import { isDockerManagementEnabled } from '@/lib/config/feature-flags';
+import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { createCollectors } from './collector-factory';
+import { createCollectors, createCollectorsForManagedHosts } from './collector-factory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 
@@ -59,8 +61,8 @@ async function main() {
       const raw = await settingsRepo.get(SETTINGS_KEYS.proxmox.updateInterval);
       const parsed = raw ? parseInt(raw, 10) : 10_000;
       if (parsed === 1000 || parsed === 10000) proxmoxPollIntervalMs = parsed;
-    } catch {
-      // Keep default
+    } catch (err) {
+      console.error('[Worker] Failed to read Proxmox poll interval from settings, using default:', err instanceof Error ? err.message : err);
     }
 
     // Shared AbortController - SIGTERM aborts all collectors instantly
@@ -78,6 +80,16 @@ async function main() {
       await using stack = new AsyncDisposableStack();
 
       const { collectors, runners } = createCollectors(db, workerConfig, shutdownController, stack, proxmoxPollIntervalMs);
+
+      // Also start AgentStatsCollectors for managed hosts (if feature flag is on)
+      const hostRepo = new HostRepository(db.getPool());
+      const { collectors: managedCollectors, runners: managedRunners } = await createCollectorsForManagedHosts(
+        db, workerConfig, shutdownController, stack,
+        isDockerManagementEnabled,
+        () => hostRepo.findAll(),
+      );
+      collectors.push(...managedCollectors);
+      runners.push(...managedRunners);
 
       if (runners.length === 0) {
         console.log('[Worker] No collectors enabled, exiting');
