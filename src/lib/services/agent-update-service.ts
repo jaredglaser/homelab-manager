@@ -1,5 +1,6 @@
 import type Dockerode from 'dockerode';
 import { checkAgentHealth, type AgentHealthResult } from '@/lib/services/agent-health-service';
+import { pullImage } from '@/lib/services/docker-image-utils';
 
 const CONTAINER_NAME_PREFIX = 'homelab-agent-';
 const HEALTH_CHECK_RETRY_DELAYS_MS = [500, 1000, 2000]; // Exponential backoff
@@ -34,7 +35,7 @@ export class AgentUpdateService {
     const containerName = `${CONTAINER_NAME_PREFIX}${hostName}`;
 
     // 1. Pull the new image
-    await this.pullImage(docker, newImage);
+    await pullImage(docker, newImage);
 
     // 2. Inspect the existing container to capture its config
     const existingContainer = docker.getContainer(containerName);
@@ -43,6 +44,11 @@ export class AgentUpdateService {
     const oldEnv = inspectData.Config.Env || [];
     const oldHostConfig = inspectData.HostConfig;
 
+    // TODO: The old container is destroyed before the new one is verified healthy.
+    // A safer approach would be to start the new container first, verify health,
+    // then remove the old one — but this requires different container names and
+    // port handling. For now, the restart policy and health check retries mitigate
+    // the risk.
     // 3. Stop and remove the old container
     if (inspectData.State.Running) {
       await existingContainer.stop();
@@ -90,16 +96,6 @@ export class AgentUpdateService {
     };
   }
 
-  private async pullImage(docker: Dockerode, image: string): Promise<void> {
-    const stream = await docker.pull(image);
-    await new Promise<void>((resolve, reject) => {
-      docker.modem.followProgress(stream, (err: Error | null) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-  }
-
   private extractAgentPort(portBindings: Record<string, { HostPort: string }[]>): number {
     const keys = Object.keys(portBindings);
     if (keys.length === 0) {
@@ -121,7 +117,7 @@ export class AgentUpdateService {
     if (!dockerHostEntry) {
       throw new Error('Container env is missing DOCKER_HOST; cannot determine agent host for health check');
     }
-    const dockerHostUrl = dockerHostEntry.split('=')[1];
+    const dockerHostUrl = dockerHostEntry.substring(dockerHostEntry.indexOf('=') + 1);
     const parsed = new URL(dockerHostUrl.replace(/^tcp:\/\//, 'http://'));
     return parsed.hostname;
   }

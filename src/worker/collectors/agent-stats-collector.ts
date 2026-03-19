@@ -125,7 +125,7 @@ export class AgentStatsCollector extends BaseCollector {
 
           // Map agent event to DockerStatsRow
           const row: DockerStatsRow = {
-            time: new Date(),
+            time: new Date(event.timestamp),
             host: this.host.name,
             container_id: event.containerId,
             container_name: event.containerName,

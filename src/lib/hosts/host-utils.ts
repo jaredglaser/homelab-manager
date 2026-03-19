@@ -80,6 +80,8 @@ export async function retryHealthCheck(
 ): Promise<HealthCheckOutcome> {
   let result: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
   for (let i = 0; i < delays.length; i++) {
+    // Delay before each attempt (including the first) is intentional: the agent
+    // container needs startup time before it can respond to health checks.
     await new Promise((resolve) => setTimeout(resolve, delays[i]));
     result = await checkFn(agentUrl);
     if (result.healthy) break;

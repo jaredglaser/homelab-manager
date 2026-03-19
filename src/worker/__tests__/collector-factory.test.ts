@@ -7,6 +7,7 @@ import { BaseCollector } from '../collectors/base-collector';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
+const originalConsoleInfo = console.info;
 const originalConsoleError = console.error;
 
 function createMockDb() {
@@ -19,9 +20,9 @@ function createMockDb() {
   };
 }
 
-/** Extract first argument from each console.log mock call */
-function getMockLogCalls(): unknown[] {
-  const mockFn = console.log as unknown as { mock: { calls: unknown[][] } };
+/** Extract first argument from each console.info mock call */
+function getMockInfoCalls(): unknown[] {
+  const mockFn = console.info as unknown as { mock: { calls: unknown[][] } };
   return mockFn.mock.calls.map((c) => c[0]);
 }
 
@@ -72,6 +73,7 @@ describe('createCollectors', () => {
   beforeEach(() => {
     db = createMockDb();
     console.log = mock(() => {});
+    console.info = mock(() => {});
     console.error = mock(() => {});
     // Prevent collectors from actually running (and making real network calls)
     runSpy = spyOn(BaseCollector.prototype, 'run').mockResolvedValue(undefined);
@@ -82,6 +84,7 @@ describe('createCollectors', () => {
 
   afterEach(() => {
     console.log = originalConsoleLog;
+    console.info = originalConsoleInfo;
     console.error = originalConsoleError;
     runSpy.mockRestore();
     restoreEnv();
@@ -109,7 +112,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ docker: { enabled: false }, zfs: { enabled: false } });
     createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Docker collector disabled');
     expect(logCalls).toContain('[Worker] ZFS collector disabled');
 
@@ -124,7 +127,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ docker: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Docker enabled but no hosts configured');
     expect(collectors).toHaveLength(0);
     expect(runners).toHaveLength(0);
@@ -158,7 +161,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ zfs: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] ZFS enabled but no hosts configured');
     expect(collectors).toHaveLength(0);
     expect(runners).toHaveLength(0);
@@ -234,7 +237,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ proxmox: { enabled: false } });
     createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Proxmox collector disabled');
 
     controller.abort();
@@ -248,7 +251,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ proxmox: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Proxmox enabled but not configured');
     expect(collectors).toHaveLength(0);
     expect(runners).toHaveLength(0);
@@ -311,12 +314,14 @@ describe('createCollectorsForManagedHosts', () => {
   beforeEach(() => {
     db = createMockDb();
     console.log = mock(() => {});
+    console.info = mock(() => {});
     console.error = mock(() => {});
     runSpy = spyOn(BaseCollector.prototype, 'run').mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     console.log = originalConsoleLog;
+    console.info = originalConsoleInfo;
     console.error = originalConsoleError;
     runSpy.mockRestore();
   });

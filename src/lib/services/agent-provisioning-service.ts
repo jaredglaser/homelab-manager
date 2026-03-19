@@ -1,4 +1,5 @@
 import type Dockerode from 'dockerode';
+import { pullImage } from '@/lib/services/docker-image-utils';
 
 export interface ProvisionAgentOptions {
   hostName: string;
@@ -44,7 +45,7 @@ export class AgentProvisioningService {
     const containerName = this.getContainerName(options.hostName);
 
     // Pull the agent image
-    await this.pullImage(docker, options.agentImage);
+    await pullImage(docker, options.agentImage);
 
     // Remove existing agent container if present
     await this.removeExistingContainer(docker, containerName);
@@ -89,16 +90,6 @@ export class AgentProvisioningService {
   async removeAgent(docker: Dockerode, hostName: string): Promise<void> {
     const containerName = this.getContainerName(hostName);
     await this.removeExistingContainer(docker, containerName);
-  }
-
-  private async pullImage(docker: Dockerode, image: string): Promise<void> {
-    const stream = await docker.pull(image);
-    await new Promise<void>((resolve, reject) => {
-      docker.modem.followProgress(stream, (err: Error | null) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
   }
 
   private async removeExistingContainer(

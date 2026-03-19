@@ -34,11 +34,14 @@ export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
   return (
     <div>
       <div
+        role="button"
+        tabIndex={0}
         onClick={onToggle}
-        className={`group ${STACKS_GRID} items-center cursor-pointer border-t border-neutral-200 dark:border-neutral-700 transition-[background-color,box-shadow] duration-150 ${
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+        className={`group ${STACKS_GRID} items-center cursor-pointer border-t border-[var(--mui-palette-divider)] transition-[background-color,box-shadow] duration-150 ${
           expanded
             ? 'bg-[var(--mui-palette-action-hover)]'
-            : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
+            : 'hover:bg-[var(--mui-palette-action-hover)] hover:shadow-[inset_0_0_0_1px_var(--mui-palette-action-selected)]'
         }`}
       >
         {/* Stack name + icon */}

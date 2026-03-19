@@ -28,6 +28,11 @@ export interface CreateHostInput {
 // from node-postgres, unlike BIGINT which returns strings. The query result
 // rows match ManagedHost directly.
 
+/**
+ * Intentionally explicit field mapping (identity for now). Ensures the returned
+ * object only contains known ManagedHost fields and guards against future column
+ * additions leaking through via SELECT *.
+ */
 function rowToHost(row: ManagedHost): ManagedHost {
   return {
     id: row.id,

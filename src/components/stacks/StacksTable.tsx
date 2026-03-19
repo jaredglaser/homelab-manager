@@ -26,7 +26,7 @@ export default function StacksTable({ stacks, isLoading, error }: StacksTablePro
   );
 
   const groupHeights = useMemo(
-    () => sortedStacks.map((s) => isStackExpanded(s.name) ? EXPANDED_ROW_HEIGHT_ESTIMATE : ROW_HEIGHT_ESTIMATE),
+    () => sortedStacks.map((s) => isStackExpanded(`${s.host}/${s.name}`) ? EXPANDED_ROW_HEIGHT_ESTIMATE : ROW_HEIGHT_ESTIMATE),
     [sortedStacks, isStackExpanded],
   );
 
@@ -37,7 +37,7 @@ export default function StacksTable({ stacks, isLoading, error }: StacksTablePro
     estimateSize: (index: number) => groupHeights[index],
     overscan: OVERSCAN,
     scrollMargin: listRef.current?.offsetTop ?? 0,
-    getItemKey: (index: number) => `stack-${sortedStacks[index].name}`,
+    getItemKey: (index: number) => `stack-${sortedStacks[index].host}/${sortedStacks[index].name}`,
   });
 
   const items = virtualizer.getVirtualItems();
@@ -119,8 +119,8 @@ export default function StacksTable({ stacks, isLoading, error }: StacksTablePro
                     >
                       <StackRow
                         stack={stack}
-                        expanded={isStackExpanded(stack.name)}
-                        onToggle={() => toggleStackExpanded(stack.name)}
+                        expanded={isStackExpanded(`${stack.host}/${stack.name}`)}
+                        onToggle={() => toggleStackExpanded(`${stack.host}/${stack.name}`)}
                       />
                     </div>
                   );

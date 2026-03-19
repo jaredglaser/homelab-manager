@@ -53,6 +53,8 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
           },
         ],
       });
+    }).catch((err) => {
+      console.error('[ComposeEditor] Failed to load monaco-yaml:', err);
     });
   }, []);
 
@@ -62,13 +64,15 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
     setDetectedVars(parseVariables(newContent));
   }, []);
 
+  // Reads the current theme on each render. Theme toggles trigger re-renders
+  // via the settings atom, so this stays in sync without a MutationObserver.
   const isDark = typeof document !== 'undefined'
     && document.documentElement.getAttribute('data-color-scheme') === 'dark';
 
   return (
     <Paper elevation={0} className="mb-4 !bg-[var(--mui-palette-background-chartBg)] rounded-sm overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-3 py-2 border-b border-neutral-200 dark:border-neutral-700">
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--mui-palette-divider)]">
         <Typography variant="subtitle2" className="flex-1">
           docker-compose.yml
         </Typography>
@@ -119,7 +123,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
         </div>
 
         {/* Variables side panel */}
-        <div className="w-[280px] flex-shrink-0 border-l border-neutral-200 dark:border-neutral-700 p-3 overflow-y-auto">
+        <div className="w-[280px] flex-shrink-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto">
           <VariablesPanel variables={detectedVars} />
         </div>
       </div>

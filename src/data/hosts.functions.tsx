@@ -197,8 +197,8 @@ export async function handleAddHost(
     await deps.repo.delete(host.id);
     throw new Error(
       cleanupSucceeded
-        ? `Agent provisioned but health check failed after 3 retries: ${healthResult.error}. Host record and container have been cleaned up.`
-        : `Agent provisioned but health check failed after 3 retries: ${healthResult.error}. Host record was deleted but agent container cleanup failed — manual removal may be required.`
+        ? `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record and container have been cleaned up.`
+        : `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record was deleted but agent container cleanup failed — manual removal may be required.`
     );
   }
 

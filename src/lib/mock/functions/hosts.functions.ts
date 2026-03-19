@@ -28,6 +28,8 @@ const mockHosts: HostListItem[] = [
   },
 ];
 
+let nextMockId = mockHosts.length + 1;
+
 export async function addHost(_data: {
   name: string;
   socketProxyUrl: string;
@@ -35,7 +37,7 @@ export async function addHost(_data: {
 }): Promise<AddHostResult> {
   const now = new Date().toISOString();
   const newHost: HostListItem = {
-    id: mockHosts.length + 1,
+    id: nextMockId++,
     name: _data.name,
     agentUrl: `http://mock-host:${_data.agentPort ?? 9090}`,
     socketProxyUrl: _data.socketProxyUrl,

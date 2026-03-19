@@ -70,7 +70,7 @@ function DeployHistoryRow({ record }: { record: StackDeployRecord }) {
     >
       <div
         onClick={() => record.logs && setExpanded(!expanded)}
-        className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-blue-500/5' : ''}`}
+        className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-[var(--mui-palette-action-hover)]' : ''}`}
       >
         {record.logs && (
           <ChevronRight
@@ -105,7 +105,7 @@ function DeployHistoryRow({ record }: { record: StackDeployRecord }) {
 
       {record.logs && (
         <Collapse in={expanded} unmountOnExit>
-          <pre className="px-4 py-2 text-xs font-mono whitespace-pre-wrap opacity-80 border-t border-neutral-200 dark:border-neutral-700 max-h-[200px] overflow-y-auto">
+          <pre className="px-4 py-2 text-xs font-mono whitespace-pre-wrap opacity-80 border-t border-[var(--mui-palette-divider)] max-h-[200px] overflow-y-auto">
             {record.logs}
           </pre>
         </Collapse>

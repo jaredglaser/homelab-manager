@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import { useSettings } from '@/hooks/useSettings';
 
 /**
@@ -7,17 +6,6 @@ import { useSettings } from '@/hooks/useSettings';
  * as isHostExpanded/toggleHostExpanded in useSettings.
  */
 export function useStackExpansion() {
-  const { isStackExpanded: isExpanded, toggleStackExpanded: toggle } = useSettings();
-
-  const isStackExpanded = useCallback(
-    (stackName: string) => isExpanded(stackName),
-    [isExpanded],
-  );
-
-  const toggleStackExpanded = useCallback(
-    (stackName: string) => toggle(stackName),
-    [toggle],
-  );
-
+  const { isStackExpanded, toggleStackExpanded } = useSettings();
   return { isStackExpanded, toggleStackExpanded };
 }

@@ -33,4 +33,4 @@ docs/superpowers
 .openviking
 ov.conf
 /data/
-.worktrees
+/.worktrees/

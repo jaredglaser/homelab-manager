@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect, mock, afterEach } from 'bun:test';
 import {
   parseDockerodeConfig,
   toHostListItem,
@@ -161,22 +161,26 @@ describe('retryHealthCheck', () => {
 describe('getAgentImage', () => {
   const originalEnv = process.env.NODE_ENV;
 
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
   test('returns dev image in development', () => {
     process.env.NODE_ENV = 'development';
     expect(getAgentImage()).toBe('homelab-manager-agent:dev');
-    process.env.NODE_ENV = originalEnv;
   });
 
   test('returns prod image in production', () => {
     process.env.NODE_ENV = 'production';
     expect(getAgentImage()).toBe('ghcr.io/homelab-manager/agent:latest');
-    process.env.NODE_ENV = originalEnv;
   });
 
   test('returns prod image when NODE_ENV is unset', () => {
-    const saved = process.env.NODE_ENV;
     delete process.env.NODE_ENV;
     expect(getAgentImage()).toBe('ghcr.io/homelab-manager/agent:latest');
-    process.env.NODE_ENV = saved;
   });
 });

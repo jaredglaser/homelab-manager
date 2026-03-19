@@ -113,7 +113,7 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 >     image: lscr.io/linuxserver/socket-proxy:latest
 >     container_name: socket-proxy
 >     ports:
->       - 2375:2375
+>       - 127.0.0.1:2375:2375  # Bind to localhost only — do not expose to the network
 >     environment:
 >       - CONTAINERS=1
 >       - EVENTS=1
