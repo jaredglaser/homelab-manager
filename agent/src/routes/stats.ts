@@ -149,8 +149,9 @@ function reconcileContainers(
  *
  * Sleeps for `pollIntervalMs`, then checks whether `refreshIntervalMs` has elapsed since the
  * last container list refresh. On refresh, reconciles streams for added/removed containers.
- * After `maxConsecutiveFailures` consecutive refresh errors the loop exits and a fatal SSE
- * event is emitted.
+ * Each individual refresh failure emits a `container-error` SSE event with
+ * `type: "refresh_failed"`. After `maxConsecutiveFailures` consecutive errors the loop exits
+ * and a fatal `error` SSE event is emitted.
  */
 async function runRefreshLoop(
   ctx: StreamContext,
@@ -170,11 +171,9 @@ async function runRefreshLoop(
     if (now - lastRefresh < options.refreshIntervalMs) continue;
     lastRefresh = now;
 
+    let current: Dockerode.ContainerInfo[];
     try {
-      const current = await docker.listContainers({ all: false });
-      reconcileContainers(ctx, docker, containers, current);
-      containers = current;
-      consecutiveFailures = 0;
+      current = await docker.listContainers({ all: false });
     } catch (error) {
       consecutiveFailures++;
       console.error(`Failed to refresh container list (${consecutiveFailures}/${options.maxConsecutiveFailures}):`, error);
@@ -186,7 +185,11 @@ async function runRefreshLoop(
         sendSSE(ctx, JSON.stringify({ error: 'Docker daemon unreachable, stream closed' }), 'error');
         break;
       }
+      continue;
     }
+    reconcileContainers(ctx, docker, containers, current);
+    containers = current;
+    consecutiveFailures = 0;
   }
 }
 
@@ -203,7 +206,7 @@ async function runRefreshLoop(
  * - `containers`: `{ ids: string[] }` — emitted after each container list refresh
  * - `container-error`: `{ containerId, error }` — per-container stream or open failure
  * - `container-error` with `type: "refresh_failed"`: `{ error, type }` — container list refresh failure
- * - `error`: `{ error }` — fatal stream-level failure (e.g. initial listContainers fails)
+ * - `error`: `{ error }` — fatal stream-level failure (e.g. initial listContainers fails, or circuit breaker tripped after max refresh failures)
  *
  * Clients MUST handle the `error` and `container-error` SSE events since the HTTP
  * status is always 200 (the Response is returned before async start() runs).
