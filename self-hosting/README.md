@@ -103,7 +103,31 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 | `DOCKER_HOST_PORT_1` | `2375` | Docker API port (TCP, no TLS) |
 | `DOCKER_HOST_NAME_1` | - | Display name shown in the dashboard |
 
-> **Docker host setup:** Rather than exposing the raw Docker daemon socket over TCP, run a **Docker socket proxy** on each monitored host. A socket proxy (e.g., [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy)) binds to a TCP port and forwards only the API endpoints you allow - containers, stats, and similar read-only calls. Point `DOCKER_HOST_1` at the proxy's address and port. This is significantly safer than exposing the full daemon socket.
+> **Docker host setup:** Rather than exposing the raw Docker daemon socket over TCP, run a **Docker socket proxy** on each monitored host. [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy) binds to a TCP port and forwards only the API endpoints you allow — containers, stats, and similar read-only calls. Point `DOCKER_HOST_1` at the proxy's address and port. This is significantly safer than exposing the full daemon socket.
+>
+> Example socket proxy compose service:
+>
+> ```yaml
+> services:
+>   socket-proxy:
+>     image: lscr.io/linuxserver/socket-proxy:latest
+>     container_name: socket-proxy
+>     ports:
+>       - 127.0.0.1:2375:2375  # Bind to localhost only — do not expose to the network
+>     environment:
+>       - CONTAINERS=1
+>       - EVENTS=1
+>       - INFO=1
+>       - PING=1
+>       - VERSION=1
+>       - TZ=America/New_York
+>     volumes:
+>       - /var/run/docker.sock:/var/run/docker.sock:ro
+>     restart: unless-stopped
+>     read_only: true
+>     tmpfs:
+>       - /run
+> ```
 
 ### ZFS Monitoring
 

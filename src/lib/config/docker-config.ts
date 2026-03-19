@@ -1,3 +1,16 @@
+/**
+ * Docker host configuration from environment variables.
+ *
+ * Migration path: When DOCKER_MANAGEMENT_FEATURE_FLAG is OFF (default),
+ * these env-var-based hosts are the sole source of Docker host configuration
+ * and provide monitoring-only access via direct socket proxy connections.
+ *
+ * When DOCKER_MANAGEMENT_FEATURE_FLAG is ON, new hosts are added via the UI
+ * and stored in the `managed_hosts` database table. Env-var hosts continue
+ * to work for monitoring but are NOT managed by the agent bootstrap system.
+ * The two systems coexist: env-var hosts for legacy/monitoring, managed hosts
+ * for full stack management with agents.
+ */
 import { z } from 'zod';
 
 const DockerHostConfigSchema = z.object({
