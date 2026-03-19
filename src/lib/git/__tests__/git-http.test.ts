@@ -27,6 +27,10 @@ describe('parseGitPath', () => {
     expect(result).toBeNull();
   });
 
+  it('should return null for path without git prefix', () => {
+    expect(parseGitPath('/other/path')).toBeNull();
+  });
+
   it('should return null for unknown action', () => {
     const result = parseGitPath('/api/git/stacks/unknown');
     expect(result).toBeNull();
