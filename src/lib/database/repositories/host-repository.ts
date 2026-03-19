@@ -7,8 +7,6 @@ export interface ManagedHost {
   id: number;
   name: string;
   agent_url: string;
-  agent_token_hash: string;
-  agent_token: string | null; // plaintext token for worker auth
   socket_proxy_url: string;
   agent_version: string | null;
   status: HostStatus;
@@ -19,8 +17,6 @@ export interface ManagedHost {
 export interface CreateHostInput {
   name: string;
   agent_url: string;
-  agent_token_hash: string;
-  agent_token: string; // plaintext token stored for worker use
   socket_proxy_url: string;
 }
 
@@ -38,8 +34,6 @@ function rowToHost(row: ManagedHost): ManagedHost {
     id: row.id,
     name: row.name,
     agent_url: row.agent_url,
-    agent_token_hash: row.agent_token_hash,
-    agent_token: row.agent_token,
     socket_proxy_url: row.socket_proxy_url,
     agent_version: row.agent_version,
     status: row.status,
@@ -53,10 +47,10 @@ export class HostRepository {
 
   async create(input: CreateHostInput): Promise<ManagedHost> {
     const result = await this.pool.query(
-      `INSERT INTO managed_hosts (name, agent_url, agent_token_hash, agent_token, socket_proxy_url)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO managed_hosts (name, agent_url, socket_proxy_url)
+       VALUES ($1, $2, $3)
        RETURNING *`,
-      [input.name, input.agent_url, input.agent_token_hash, input.agent_token, input.socket_proxy_url]
+      [input.name, input.agent_url, input.socket_proxy_url]
     );
     return rowToHost(result.rows[0] as ManagedHost);
   }
@@ -95,13 +89,6 @@ export class HostRepository {
     await this.pool.query(
       'UPDATE managed_hosts SET agent_version = $1, updated_at = NOW() WHERE id = $2',
       [version, id]
-    );
-  }
-
-  async updateTokenHash(id: number, tokenHash: string): Promise<void> {
-    await this.pool.query(
-      'UPDATE managed_hosts SET agent_token_hash = $1, updated_at = NOW() WHERE id = $2',
-      [tokenHash, id]
     );
   }
 

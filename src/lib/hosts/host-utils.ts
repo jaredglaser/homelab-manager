@@ -19,10 +19,6 @@ export interface HostListItem {
   updatedAt: string;
 }
 
-// Issue 13: Use Omit to derive from canonical ManagedHost, making the relationship explicit
-// and ensuring toHostListItem cannot accidentally access token fields at the type level.
-type ManagedHostPublic = Omit<ManagedHost, 'agent_token_hash' | 'agent_token'>;
-
 export type HealthCheckOutcome =
   | { healthy: true; version?: string; dockerVersion?: string }
   | { healthy: false; error: string };
@@ -49,10 +45,9 @@ export function parseDockerodeConfig(socketProxyUrl: string): DockerodeConfig {
 /**
  * Convert a managed_hosts DB row to an API-facing HostListItem.
  * Optional overrides allow setting status/version from health check results.
- * Accepts ManagedHostPublic (without credentials) to enforce the security boundary at the type level.
  */
 export function toHostListItem(
-  row: ManagedHostPublic,
+  row: ManagedHost,
   overrides?: { agentVersion?: string | null; status?: HostStatus },
 ): HostListItem {
   return {

@@ -23,7 +23,6 @@ describe('ManagedHostsRepository', () => {
         id: '1',
         name: 'homeserver',
         agent_url: 'http://agent:9090',
-        agent_token_hash: '$2b$hash',
         socket_proxy_url: 'tcp://proxy:2375',
         agent_version: '0.1.0',
         status: 'healthy',
@@ -43,12 +42,12 @@ describe('ManagedHostsRepository', () => {
       mock.pushResult([
         {
           id: '1', name: 'host1', agent_url: 'http://a:9090',
-          agent_token_hash: 'h1', socket_proxy_url: 'tcp://p:2375',
+          socket_proxy_url: 'tcp://p:2375',
           agent_version: null, status: 'healthy', created_at: new Date(),
         },
         {
           id: '2', name: 'host2', agent_url: 'http://b:9090',
-          agent_token_hash: 'h2', socket_proxy_url: 'tcp://q:2375',
+          socket_proxy_url: 'tcp://q:2375',
           agent_version: '0.2.0', status: 'pending', created_at: new Date(),
         },
       ]);
@@ -66,7 +65,6 @@ describe('ManagedHostsRepository', () => {
       const id = await repo.insert({
         name: 'newhost',
         agentUrl: 'http://agent:9090',
-        agentTokenHash: '$2b$hash',
         socketProxyUrl: 'tcp://proxy:2375',
       });
 

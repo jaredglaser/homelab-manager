@@ -46,8 +46,6 @@ describe('toHostListItem', () => {
     id: 1,
     name: 'test-host',
     agent_url: 'http://192.168.1.10:9090',
-    agent_token_hash: 'hash',
-    agent_token: 'token',
     socket_proxy_url: 'tcp://192.168.1.10:2375',
     agent_version: '1.0.0',
     status: 'healthy',
