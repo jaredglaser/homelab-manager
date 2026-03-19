@@ -55,7 +55,6 @@ export interface ManagedHost {
   id: number;
   name: string;
   agentUrl: string;
-  agentTokenHash: string;
   socketProxyUrl: string;
   agentVersion: string | null;
   status: ManagedHostStatus;

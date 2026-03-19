@@ -24,8 +24,6 @@ const sampleRow = {
   id: 1, // SERIAL (INT4) returns number from node-postgres (only BIGINT returns strings)
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
-  agent_token_hash: '$2b$10$hashedtoken',
-  agent_token: 'test-token-uuid',
   socket_proxy_url: 'tcp://192.168.1.10:2375',
   agent_version: '0.1.0',
   status: 'healthy',
@@ -49,8 +47,6 @@ describe('HostRepository', () => {
       const input: CreateHostInput = {
         name: 'homeserver',
         agent_url: 'http://192.168.1.10:9090',
-        agent_token_hash: '$2b$10$hashedtoken',
-        agent_token: 'test-token-uuid',
         socket_proxy_url: 'tcp://192.168.1.10:2375',
       };
 
@@ -137,16 +133,6 @@ describe('HostRepository', () => {
       await repo.updateAgentVersion(1, '0.2.0');
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
       expect(mock.queries[0].params).toContain('0.2.0');
-      expect(mock.queries[0].params).toContain(1);
-    });
-  });
-
-  describe('updateTokenHash', () => {
-    it('updates the agent_token_hash field', async () => {
-      mock.pushResult([]);
-      await repo.updateTokenHash(1, '$2b$10$newhash');
-      expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
-      expect(mock.queries[0].params).toContain('$2b$10$newhash');
       expect(mock.queries[0].params).toContain(1);
     });
   });
