@@ -3,9 +3,11 @@ import type { DockerStatsRow } from '@/types/docker';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
 
+type PgArrayType = 'timestamptz' | 'text' | 'int' | 'bigint' | 'float8' | 'boolean';
+
 interface ColumnSpec {
   name: string;
-  sqlType: string;
+  sqlType: PgArrayType;
 }
 
 /**
@@ -35,6 +37,11 @@ async function bulkInsert<T>(
   const paramArrays: unknown[][] = columns.map(() => []);
   for (const row of rows) {
     const values = mapper(row);
+    if (values.length !== columns.length) {
+      throw new Error(
+        `[StatsRepository] Column/value mismatch for ${table}: expected ${columns.length} values, got ${values.length}`,
+      );
+    }
     for (let i = 0; i < columns.length; i++) {
       paramArrays[i].push(values[i]);
     }
