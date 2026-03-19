@@ -95,7 +95,7 @@ describe('OpenBao initialization', () => {
     );
 
     // First call should fail
-    await expect(initializeOpenBao(client)).rejects.toThrow('OpenBao API error: 500');
+    await expect(initializeOpenBao(client)).rejects.toThrow('OpenBao GET_MOUNTS failed for sys/mounts (HTTP 500)');
 
     // Second attempt: succeeds (engine exists)
     mockFetch.mockResolvedValueOnce(

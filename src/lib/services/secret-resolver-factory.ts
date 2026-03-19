@@ -5,10 +5,12 @@ import { NoOpSecretResolver, type SecretResolver } from '@/lib/services/secret-r
 
 /**
  * Create the appropriate SecretResolver based on configuration.
- * Returns OpenBaoSecretResolver when OPENBAO_URL is set, NoOpSecretResolver otherwise.
+ * Returns OpenBaoSecretResolver when both OPENBAO_URL and OPENBAO_TOKEN are set,
+ * NoOpSecretResolver otherwise.
  */
 export function createSecretResolver(): SecretResolver {
   if (!isOpenBaoConfigured()) {
+    console.info('OpenBao not configured — using NoOpSecretResolver (no secrets will be injected)');
     return new NoOpSecretResolver();
   }
 

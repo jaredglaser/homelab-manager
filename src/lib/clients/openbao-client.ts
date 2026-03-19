@@ -1,4 +1,5 @@
 import type { OpenBaoConfig } from '@/lib/config/openbao-config';
+import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
 
 /**
  * Thin wrapper around OpenBao HTTP API (KV v2 secrets engine).
@@ -7,8 +8,6 @@ import type { OpenBaoConfig } from '@/lib/config/openbao-config';
  * Secret path convention: secret/stacks/<stack-name>/<key>
  */
 export class OpenBaoClient {
-  private static readonly SAFE_PATH_SEGMENT = /^[a-zA-Z0-9_-]+$/;
-
   private readonly url: string;
   private readonly token: string;
   private readonly fetchFn: typeof fetch;
@@ -24,11 +23,51 @@ export class OpenBaoClient {
    * Prevents path traversal and injection attacks in OpenBao API URLs.
    */
   private validatePathSegment(value: string, label: string): void {
-    if (!OpenBaoClient.SAFE_PATH_SEGMENT.test(value)) {
+    if (!SAFE_PATH_SEGMENT_PATTERN.test(value)) {
       throw new Error(
-        `Invalid ${label}: "${value}" — must match ^[a-zA-Z0-9_-]+$`,
+        `Invalid ${label}: must contain only letters, numbers, hyphens, and underscores`,
       );
     }
+  }
+
+  /**
+   * Make a fetch request to OpenBao, wrapping network errors with context.
+   */
+  private async request(
+    url: string,
+    init: RequestInit,
+    operation: string,
+    context: string,
+  ): Promise<Response> {
+    try {
+      return await this.fetchFn(url, init);
+    } catch (error) {
+      throw new Error(
+        `OpenBao ${operation} failed for ${context}: could not connect to ${this.url}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * Read and throw an error from a non-OK OpenBao response.
+   * Includes the operation, context, status code, and any error details from the response body.
+   */
+  private async throwApiError(
+    response: Response,
+    operation: string,
+    context: string,
+  ): Promise<never> {
+    let detail = '';
+    try {
+      const body = await response.json();
+      if (body.errors) detail = `: ${(body.errors as string[]).join(', ')}`;
+    } catch {
+      // Response body not JSON — ignore
+    }
+    throw new Error(
+      `OpenBao ${operation} failed for ${context} (HTTP ${response.status})${detail}`,
+    );
   }
 
   /**
@@ -36,12 +75,14 @@ export class OpenBaoClient {
    */
   async listSecrets(stack: string): Promise<string[]> {
     this.validatePathSegment(stack, 'stack');
-    const response = await this.fetchFn(
+    const response = await this.request(
       `${this.url}/v1/secret/metadata/stacks/${stack}`,
       {
         method: 'LIST',
         headers: { 'X-Vault-Token': this.token },
       },
+      'LIST',
+      `stack "${stack}"`,
     );
 
     if (response.status === 404) {
@@ -49,11 +90,17 @@ export class OpenBaoClient {
     }
 
     if (!response.ok) {
-      throw new Error(`OpenBao API error: ${response.status}`);
+      await this.throwApiError(response, 'LIST', `stack "${stack}"`);
     }
 
     const body = await response.json();
-    return body.data.keys as string[];
+    const keys = body?.data?.keys;
+    if (!Array.isArray(keys)) {
+      throw new Error(
+        `OpenBao LIST failed for stack "${stack}": unexpected response shape`,
+      );
+    }
+    return keys as string[];
   }
 
   /**
@@ -63,12 +110,14 @@ export class OpenBaoClient {
     this.validatePathSegment(stack, 'stack');
     this.validatePathSegment(key, 'key');
 
-    const response = await this.fetchFn(
+    const response = await this.request(
       `${this.url}/v1/secret/data/stacks/${stack}/${key}`,
       {
         method: 'GET',
         headers: { 'X-Vault-Token': this.token },
       },
+      'GET',
+      `stack "${stack}" key "${key}"`,
     );
 
     if (response.status === 404) {
@@ -76,11 +125,17 @@ export class OpenBaoClient {
     }
 
     if (!response.ok) {
-      throw new Error(`OpenBao API error: ${response.status}`);
+      await this.throwApiError(response, 'GET', `stack "${stack}" key "${key}"`);
     }
 
     const body = await response.json();
-    return body.data.data.value as string;
+    const value = body?.data?.data?.value;
+    if (typeof value !== 'string') {
+      throw new Error(
+        `OpenBao GET failed for stack "${stack}" key "${key}": unexpected response shape`,
+      );
+    }
+    return value;
   }
 
   /**
@@ -90,7 +145,7 @@ export class OpenBaoClient {
     this.validatePathSegment(stack, 'stack');
     this.validatePathSegment(key, 'key');
 
-    const response = await this.fetchFn(
+    const response = await this.request(
       `${this.url}/v1/secret/data/stacks/${stack}/${key}`,
       {
         method: 'POST',
@@ -100,10 +155,12 @@ export class OpenBaoClient {
         },
         body: JSON.stringify({ data: { value } }),
       },
+      'SET',
+      `stack "${stack}" key "${key}"`,
     );
 
     if (!response.ok) {
-      throw new Error(`OpenBao API error: ${response.status}`);
+      await this.throwApiError(response, 'SET', `stack "${stack}" key "${key}"`);
     }
   }
 
@@ -115,12 +172,14 @@ export class OpenBaoClient {
     this.validatePathSegment(stack, 'stack');
     this.validatePathSegment(key, 'key');
 
-    const response = await this.fetchFn(
+    const response = await this.request(
       `${this.url}/v1/secret/metadata/stacks/${stack}/${key}`,
       {
         method: 'DELETE',
         headers: { 'X-Vault-Token': this.token },
       },
+      'DELETE',
+      `stack "${stack}" key "${key}"`,
     );
 
     if (response.status === 404) {
@@ -128,7 +187,7 @@ export class OpenBaoClient {
     }
 
     if (!response.ok) {
-      throw new Error(`OpenBao API error: ${response.status}`);
+      await this.throwApiError(response, 'DELETE', `stack "${stack}" key "${key}"`);
     }
   }
 
@@ -141,8 +200,9 @@ export class OpenBaoClient {
    * small numbers of secrets this is acceptable. Could be optimized to
    * single-path-per-stack in v2 if needed.
    *
-   * Uses Promise.allSettled so individual secret fetch failures don't block
-   * the entire operation. Failed fetches are logged and skipped.
+   * Fetches all secrets concurrently. If any fetch fails with a non-404 error,
+   * the entire operation fails — partial secrets are worse than no deploy.
+   * Individual 404s (race with deletion) are silently skipped.
    */
   async getAllSecrets(stack: string): Promise<Record<string, string>> {
     const keys = await this.listSecrets(stack);
@@ -157,15 +217,22 @@ export class OpenBaoClient {
       }),
     );
 
+    const failed = results.filter(
+      (r): r is PromiseRejectedResult => r.status === 'rejected',
+    );
+    if (failed.length > 0) {
+      const reasons = failed.map((r) =>
+        r.reason instanceof Error ? r.reason.message : String(r.reason),
+      );
+      throw new Error(
+        `Failed to fetch ${failed.length}/${keys.length} secrets for stack "${stack}": ${reasons.join('; ')}`,
+      );
+    }
+
     const entries: (readonly [string, string])[] = [];
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value !== null) {
         entries.push(result.value);
-      } else if (result.status === 'rejected') {
-        console.error(
-          `Failed to fetch secret in stack "${stack}":`,
-          result.reason instanceof Error ? result.reason.message : String(result.reason),
-        );
       }
     }
 
@@ -178,16 +245,18 @@ export class OpenBaoClient {
    * Safe to call multiple times — checks existing mounts first.
    */
   async ensureSecretsEngine(): Promise<void> {
-    const mountsResponse = await this.fetchFn(
+    const mountsResponse = await this.request(
       `${this.url}/v1/sys/mounts`,
       {
         method: 'GET',
         headers: { 'X-Vault-Token': this.token },
       },
+      'GET_MOUNTS',
+      'sys/mounts',
     );
 
     if (!mountsResponse.ok) {
-      throw new Error(`OpenBao API error: ${mountsResponse.status}`);
+      await this.throwApiError(mountsResponse, 'GET_MOUNTS', 'sys/mounts');
     }
 
     const mounts = await mountsResponse.json();
@@ -195,7 +264,7 @@ export class OpenBaoClient {
       return;
     }
 
-    const enableResponse = await this.fetchFn(
+    const enableResponse = await this.request(
       `${this.url}/v1/sys/mounts/secret`,
       {
         method: 'POST',
@@ -208,10 +277,12 @@ export class OpenBaoClient {
           options: { version: '2' },
         }),
       },
+      'ENABLE_ENGINE',
+      'secret/',
     );
 
     if (!enableResponse.ok) {
-      throw new Error(`OpenBao API error: ${enableResponse.status}`);
+      await this.throwApiError(enableResponse, 'ENABLE_ENGINE', 'secret/');
     }
   }
 }

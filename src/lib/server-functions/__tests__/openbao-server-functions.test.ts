@@ -6,6 +6,7 @@ import {
   handleSetStackSecret,
   handleDeleteStackSecret,
   safePathSegment,
+  stackKeyValueInput,
 } from '@/lib/server-functions/openbao-server-functions';
 
 /**
@@ -116,6 +117,24 @@ describe('OpenBao server function handlers', () => {
       expect(() => safePathSegment.parse('a b')).toThrow();
       expect(() => safePathSegment.parse('')).toThrow();
       expect(() => safePathSegment.parse('a.b')).toThrow();
+    });
+  });
+
+  describe('stackKeyValueInput validation', () => {
+    test('rejects empty value', () => {
+      expect(() => stackKeyValueInput.parse({
+        stack: 'plex',
+        key: 'DB_PASS',
+        value: '',
+      })).toThrow();
+    });
+
+    test('accepts valid input', () => {
+      expect(() => stackKeyValueInput.parse({
+        stack: 'plex',
+        key: 'DB_PASS',
+        value: 'secret-value',
+      })).not.toThrow();
     });
   });
 });

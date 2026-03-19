@@ -2,10 +2,11 @@ import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import { openBaoMiddleware } from '@/middleware/openbao-middleware';
 import type { OpenBaoClient } from '@/lib/clients/openbao-client';
+import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
 
 /** Reusable pattern for safe path segments (stack names, secret keys) */
 const safePathSegment = z.string().regex(
-  /^[a-zA-Z0-9_-]+$/,
+  SAFE_PATH_SEGMENT_PATTERN,
   'Must contain only letters, numbers, hyphens, and underscores',
 );
 
@@ -22,7 +23,7 @@ const stackKeyValueInput = z.object({
 /** List secret names for a stack. Returns sorted names only, never values. */
 export async function handleListStackSecrets(
   client: OpenBaoClient,
-  data: { stack: string },
+  data: z.infer<typeof stackInput>,
 ): Promise<string[]> {
   const keys = await client.listSecrets(data.stack);
   return [...keys].sort();
@@ -31,7 +32,7 @@ export async function handleListStackSecrets(
 /** Get a single secret value. Throws if not found. */
 export async function handleGetStackSecret(
   client: OpenBaoClient,
-  data: { stack: string; key: string },
+  data: z.infer<typeof stackKeyInput>,
 ): Promise<{ value: string }> {
   const value = await client.getSecret(data.stack, data.key);
   if (value === null) {
@@ -43,7 +44,7 @@ export async function handleGetStackSecret(
 /** Set or update a secret value. */
 export async function handleSetStackSecret(
   client: OpenBaoClient,
-  data: { stack: string; key: string; value: string },
+  data: z.infer<typeof stackKeyValueInput>,
 ): Promise<{ success: true }> {
   await client.setSecret(data.stack, data.key, data.value);
   return { success: true };
@@ -52,7 +53,7 @@ export async function handleSetStackSecret(
 /** Delete a secret. */
 export async function handleDeleteStackSecret(
   client: OpenBaoClient,
-  data: { stack: string; key: string },
+  data: z.infer<typeof stackKeyInput>,
 ): Promise<{ success: true }> {
   await client.deleteSecret(data.stack, data.key);
   return { success: true };
