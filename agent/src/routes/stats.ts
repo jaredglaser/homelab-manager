@@ -145,6 +145,52 @@ function reconcileContainers(
 }
 
 /**
+ * Run the container-refresh poll loop until the stream is closed or the circuit breaker trips.
+ *
+ * Sleeps for `pollIntervalMs`, then checks whether `refreshIntervalMs` has elapsed since the
+ * last container list refresh. On refresh, reconciles streams for added/removed containers.
+ * After `maxConsecutiveFailures` consecutive refresh errors the loop exits and a fatal SSE
+ * event is emitted.
+ */
+async function runRefreshLoop(
+  ctx: StreamContext,
+  docker: Dockerode,
+  initialContainers: Dockerode.ContainerInfo[],
+  options: { refreshIntervalMs: number; pollIntervalMs: number; maxConsecutiveFailures: number },
+): Promise<void> {
+  let containers = initialContainers;
+  let lastRefresh = Date.now();
+  let consecutiveFailures = 0;
+
+  while (!ctx.closed) {
+    await new Promise((resolve) => setTimeout(resolve, options.pollIntervalMs));
+    if (ctx.closed) break;
+
+    const now = Date.now();
+    if (now - lastRefresh < options.refreshIntervalMs) continue;
+    lastRefresh = now;
+
+    try {
+      const current = await docker.listContainers({ all: false });
+      reconcileContainers(ctx, docker, containers, current);
+      containers = current;
+      consecutiveFailures = 0;
+    } catch (error) {
+      consecutiveFailures++;
+      console.error(`Failed to refresh container list (${consecutiveFailures}/${options.maxConsecutiveFailures}):`, error);
+      const msg = error instanceof Error ? error.message : String(error);
+      sendErrorSSE(ctx, { error: msg, type: 'refresh_failed' });
+
+      if (consecutiveFailures >= options.maxConsecutiveFailures) {
+        console.error('Max consecutive refresh failures reached, closing stats stream');
+        sendSSE(ctx, JSON.stringify({ error: 'Docker daemon unreachable, stream closed' }), 'error');
+        break;
+      }
+    }
+  }
+}
+
+/**
  * Create an SSE Response that streams live Docker container stats.
  *
  * Opens a `stats({ stream: true })` connection per running container and forwards
@@ -198,42 +244,14 @@ export function handleStatsStream(
       });
 
       try {
-        let containers = await docker.listContainers({ all: false });
-        let lastRefresh = Date.now();
-        let consecutiveFailures = 0;
+        const containers = await docker.listContainers({ all: false });
 
         for (const c of containers) {
           openContainerStream(ctx, docker, c);
         }
 
-        while (!ctx.closed) {
-          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-          if (ctx.closed) break;
+        await runRefreshLoop(ctx, docker, containers, { refreshIntervalMs, pollIntervalMs, maxConsecutiveFailures });
 
-          const now = Date.now();
-          if (now - lastRefresh < refreshIntervalMs) continue;
-          lastRefresh = now;
-
-          try {
-            const current = await docker.listContainers({ all: false });
-            reconcileContainers(ctx, docker, containers, current);
-            containers = current;
-            consecutiveFailures = 0;
-          } catch (error) {
-            consecutiveFailures++;
-            console.error(`Failed to refresh container list (${consecutiveFailures}/${maxConsecutiveFailures}):`, error);
-            const msg = error instanceof Error ? error.message : String(error);
-            sendErrorSSE(ctx, { error: msg, type: 'refresh_failed' });
-
-            if (consecutiveFailures >= maxConsecutiveFailures) {
-              console.error('Max consecutive refresh failures reached, closing stats stream');
-              sendSSE(ctx, JSON.stringify({ error: 'Docker daemon unreachable, stream closed' }), 'error');
-              break;
-            }
-          }
-        }
-
-        // Clean up after while loop exits (circuit breaker or normal shutdown)
         destroyAllStreams(ctx.containerStreams);
         ctx.closed = true;
         try {
