@@ -113,9 +113,9 @@ You need a few containers running so the dashboard has data to display. Create a
 
 ```yaml
 services:
-  nginx:
-    image: nginx:alpine
-    container_name: sample-nginx
+  caddy:
+    image: caddy:2-alpine
+    container_name: sample-caddy
     ports:
       - "8080:80"
     restart: unless-stopped
@@ -137,7 +137,7 @@ services:
 docker compose -f docker-compose.sample.yml up -d
 ```
 
-These are small Alpine-based containers that use minimal resources.
+These are small Alpine-based images that use minimal resources.
 
 ### Step 3: Configure Your `.env`
 
@@ -201,7 +201,7 @@ This starts:
 ### Step 5: Verify Everything Works
 
 1. Open http://localhost:3000
-2. The **Docker** page should show your sample containers (nginx, redis, whoami) with live CPU/memory stats
+2. The **Docker** page should show your sample containers (caddy, redis, whoami) with live CPU/memory stats
 3. The **Docker > Stacks** link should appear in the sidebar (feature flag is on)
 4. OpenBao should be accessible at http://localhost:8200 (token: `dev-root-token`)
 
