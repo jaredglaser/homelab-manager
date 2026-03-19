@@ -56,9 +56,9 @@ export type UpdateAgentResult = HostOperationResult;
 // ----- Handler dependencies -----
 
 export interface HostRepo {
-  findById(id: number): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; agent_token_hash: string; agent_token: string | null; status: HostStatus; created_at: Date; updated_at: Date } | null>;
-  findAll(): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; agent_token_hash: string; agent_token: string | null; status: HostStatus; created_at: Date; updated_at: Date }[]>;
-  create(input: { name: string; agent_url: string; agent_token_hash: string; agent_token: string; socket_proxy_url: string }): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; agent_token_hash: string; agent_token: string | null; status: HostStatus; created_at: Date; updated_at: Date }>;
+  findById(id: number): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date } | null>;
+  findAll(): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }[]>;
+  create(input: { name: string; agent_url: string; socket_proxy_url: string }): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
@@ -100,7 +100,10 @@ export async function handleCheckHostHealth(
 }
 
 export async function handleRemoveHost(
-  deps: HostHandlerDeps & { removeAgent: (socketProxyUrl: string, hostName: string) => Promise<void> },
+  deps: HostHandlerDeps & {
+    removeAgent: (socketProxyUrl: string, hostName: string) => Promise<void>;
+    deleteToken: (hostname: string) => Promise<void>;
+  },
   data: { hostId: number },
 ): Promise<{ success: boolean; containerRemoved: boolean; warning?: string }> {
   if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
@@ -117,6 +120,12 @@ export async function handleRemoveHost(
       `[removeHost] Failed to remove agent container for ${host.name}:`,
       err instanceof Error ? err.message : err
     );
+  }
+
+  try {
+    await deps.deleteToken(host.name);
+  } catch (err) {
+    console.error(`[removeHost] Failed to delete OpenBao token for ${host.name}:`, err instanceof Error ? err.message : err);
   }
 
   await deps.repo.delete(data.hostId);
@@ -154,7 +163,8 @@ export async function handleAddHost(
   deps: HostHandlerDeps & {
     provision: (socketProxyUrl: string, opts: { hostName: string; agentPort: number; agentToken: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
     generateToken: () => string;
-    hashToken: (token: string) => Promise<string>;
+    storeToken: (hostname: string, token: string) => Promise<void>;
+    deleteToken: (hostname: string) => Promise<void>;
     checkHealth: (url: string) => Promise<HealthCheckOutcome>;
     removeAgent: (socketProxyUrl: string, hostName: string) => Promise<void>;
   },
@@ -163,7 +173,6 @@ export async function handleAddHost(
   if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
 
   const plainToken = deps.generateToken();
-  const tokenHash = await deps.hashToken(plainToken);
 
   const provisionResult = await deps.provision(data.socketProxyUrl, {
     hostName: data.name,
@@ -176,14 +185,23 @@ export async function handleAddHost(
   const host = await deps.repo.create({
     name: data.name,
     agent_url: provisionResult.agentUrl,
-    agent_token_hash: tokenHash,
-    agent_token: plainToken,
     socket_proxy_url: data.socketProxyUrl,
   });
+
+  try {
+    await deps.storeToken(data.name, plainToken);
+  } catch (err) {
+    await deps.repo.delete(host.id);
+    try { await deps.removeAgent(data.socketProxyUrl, data.name); } catch { /* best-effort */ }
+    throw new Error(
+      `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record and container have been cleaned up.`
+    );
+  }
 
   const healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
 
   if (!healthResult.healthy) {
+    try { await deps.deleteToken(data.name); } catch { /* best-effort */ }
     let cleanupSucceeded = true;
     try {
       await deps.removeAgent(data.socketProxyUrl, data.name);
@@ -197,8 +215,8 @@ export async function handleAddHost(
     await deps.repo.delete(host.id);
     throw new Error(
       cleanupSucceeded
-        ? `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record and container have been cleaned up.`
-        : `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record was deleted but agent container cleanup failed — manual removal may be required.`
+        ? `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record, token, and container have been cleaned up.`
+        : `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record and token deleted but agent container cleanup failed — manual removal may be required.`
     );
   }
 
@@ -238,13 +256,19 @@ export const addHost = createServerFn()
   .inputValidator(addHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
-    const { generateToken, hashToken } = await import('@/lib/services/token-service');
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+    const { generateToken } = await import('@/lib/services/token-service');
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
     const provService = new AgentProvisioningService();
     return handleAddHost({
       ...baseDeps,
-      generateToken, hashToken,
+      generateToken,
+      storeToken: (hostname, token) => baoClient.setHostSecret(hostname, 'agent_token', token),
+      deleteToken: (hostname) => baoClient.deleteHostSecret(hostname, 'agent_token'),
       checkHealth: checkAgentHealth,
       provision: async (url, opts) => { const docker = await loadDockerClient(url); return provService.provision(docker, opts); },
       removeAgent: async (url, name) => { const docker = await loadDockerClient(url); await provService.removeAgent(docker, name); },
@@ -255,11 +279,16 @@ export const removeHost = createServerFn()
   .inputValidator(removeHostSchema)
   .handler(async ({ data }): Promise<{ success: boolean; containerRemoved: boolean; warning?: string }> => {
     const baseDeps = await loadDeps();
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
     const provService = new AgentProvisioningService();
     return handleRemoveHost({
       ...baseDeps,
       removeAgent: async (url, name) => { const docker = await loadDockerClient(url); await provService.removeAgent(docker, name); },
+      deleteToken: (hostname) => baoClient.deleteHostSecret(hostname, 'agent_token'),
     }, data);
   });
 

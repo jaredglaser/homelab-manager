@@ -66,7 +66,6 @@ describe('ManagedHostsRepository', () => {
       const id = await repo.insert({
         name: 'newhost',
         agentUrl: 'http://agent:9090',
-        agentTokenHash: '$2b$hash',
         socketProxyUrl: 'tcp://proxy:2375',
       });
 
