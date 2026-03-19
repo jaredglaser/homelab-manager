@@ -62,6 +62,7 @@
     "jotai": "^2.18.0",
     "js-yaml": "^4.1.1",
     "lucide-react": "^0.561.0",
+    "monaco-editor": "^0.55.1",
     "monaco-yaml": "^5.4.1",
     "nitro": "npm:nitro-nightly@latest",
     "pg": "^8.20.0",
