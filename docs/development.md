@@ -7,13 +7,30 @@
 - *(Optional)* A host running ZFS with SSH access for pool monitoring
 - *(Optional)* A Proxmox VE cluster with an API token for monitoring
 
+## Environment Setup
+
+A `.env` file is required in the project root. To protect it from being lost during `git clean` or worktree operations, store the real file outside the repo and symlink it:
+
+```bash
+mkdir -p ~/.config/homelab-manager
+cp .env.example ~/.config/homelab-manager/.env
+ln -s ~/.config/homelab-manager/.env .env
+```
+
+If the symlink ever gets deleted (e.g., by `git clean`), recreate it:
+
+```bash
+ln -s ~/.config/homelab-manager/.env .env
+```
+
+Edit `~/.config/homelab-manager/.env` (or equivalently `.env` — they're the same file) with your values.
+
 ## Quick Start (Monitoring Only)
 
 If you just want to run the dashboard with Docker monitoring:
 
 ```bash
 bun install
-cp .env.example .env
 ```
 
 Edit `.env` with minimal settings:
