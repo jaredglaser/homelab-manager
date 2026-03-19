@@ -43,8 +43,6 @@ const sampleHost: ManagedHost = {
   id: 1,
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
-  agent_token_hash: '$2b$10$hashedtoken',
-  agent_token: 'test-token-uuid',
   socket_proxy_url: 'tcp://192.168.1.10:2375',
   agent_version: '0.1.0',
   status: 'healthy',
@@ -104,7 +102,7 @@ describe('AgentStatsCollector', () => {
 
   it('has the correct name', () => {
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController,
     );
     expect(collector.name).toBe('AgentStatsCollector[homeserver]');
   });
@@ -119,7 +117,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -151,7 +149,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -162,7 +160,7 @@ describe('AgentStatsCollector', () => {
     const callArgs = mockFn.mock.calls[0] as [string, RequestInit];
     expect(callArgs[0]).toBe('http://192.168.1.10:9090/stats/stream');
     expect(callArgs[1].headers).toEqual({
-      Authorization: 'Bearer test-token-uuid',
+      Authorization: 'Bearer test-token',
     });
   });
 
@@ -177,7 +175,7 @@ describe('AgentStatsCollector', () => {
     });
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -194,7 +192,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -217,7 +215,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -240,7 +238,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -277,7 +275,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -321,7 +319,7 @@ describe('AgentStatsCollector — reconnection', () => {
     });
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -348,7 +346,7 @@ describe('AgentStatsCollector — reconnection', () => {
     });
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -380,7 +378,7 @@ describe('AgentStatsCollector — reconnection', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -410,7 +408,7 @@ describe('AgentStatsCollector — reconnection', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -441,7 +439,7 @@ describe('AgentStatsCollector — reconnection', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 

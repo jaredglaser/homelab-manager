@@ -27,6 +27,7 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 export class AgentStatsCollector extends BaseCollector {
   readonly name: string;
   private readonly host: ManagedHost;
+  private readonly token: string;
   private readonly fetchFn: FetchFn;
   private knownContainers = new Set<string>();
 
@@ -34,11 +35,13 @@ export class AgentStatsCollector extends BaseCollector {
     db: DatabaseClient,
     config: WorkerConfig,
     host: ManagedHost,
+    token: string,
     abortController?: AbortController,
     fetchFn?: FetchFn,
   ) {
     super(db, config, abortController);
     this.host = host;
+    this.token = token;
     this.name = `AgentStatsCollector[${host.name}]`;
     this.fetchFn = fetchFn ?? globalThis.fetch;
   }
@@ -49,7 +52,7 @@ export class AgentStatsCollector extends BaseCollector {
 
     const response = await this.fetchFn(url, {
       headers: {
-        Authorization: `Bearer ${this.host.agent_token}`,
+        Authorization: `Bearer ${this.token}`,
       },
       signal: this.signal,
     });
