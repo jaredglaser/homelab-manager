@@ -5,7 +5,8 @@ import {
   retryHealthCheck,
   getAgentImage,
 } from '@/lib/hosts/host-utils';
-import type { ManagedHostRow, HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 
 describe('parseDockerodeConfig', () => {
   test('parses tcp:// URL', () => {
@@ -41,10 +42,12 @@ describe('parseDockerodeConfig', () => {
 });
 
 describe('toHostListItem', () => {
-  const baseRow: ManagedHostRow = {
+  const baseRow: ManagedHost = {
     id: 1,
     name: 'test-host',
     agent_url: 'http://192.168.1.10:9090',
+    agent_token_hash: 'hash',
+    agent_token: 'token',
     socket_proxy_url: 'tcp://192.168.1.10:2375',
     agent_version: '1.0.0',
     status: 'healthy',
@@ -107,7 +110,7 @@ describe('retryHealthCheck', () => {
 
     const result = await retryHealthCheck(checkFn, 'http://agent:9090', [0]);
     expect(result.healthy).toBe(true);
-    expect(result.version).toBe('1.0.0');
+    if (result.healthy) expect(result.version).toBe('1.0.0');
     expect(checkFn).toHaveBeenCalledTimes(1);
     expect(checkFn).toHaveBeenCalledWith('http://agent:9090');
   });
@@ -130,7 +133,7 @@ describe('retryHealthCheck', () => {
 
     const result = await retryHealthCheck(checkFn, 'http://agent:9090', [0, 0, 0]);
     expect(result.healthy).toBe(false);
-    expect(result.error).toBe('attempt 3');
+    if (!result.healthy) expect(result.error).toBe('attempt 3');
     expect(checkFn).toHaveBeenCalledTimes(3);
   });
 
@@ -139,7 +142,7 @@ describe('retryHealthCheck', () => {
 
     const result = await retryHealthCheck(checkFn, 'http://agent:9090', []);
     expect(result.healthy).toBe(false);
-    expect(result.error).toBe('Health check not attempted');
+    if (!result.healthy) expect(result.error).toBe('Health check not attempted');
     expect(checkFn).toHaveBeenCalledTimes(0);
   });
 

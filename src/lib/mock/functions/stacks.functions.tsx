@@ -1,10 +1,10 @@
-import type { StackSummary, StackDetail, DeployRecord, UIDeployRequest } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest } from '@/types/stacks';
 
 const MOCK_STACKS: StackSummary[] = [
   {
     name: 'plex',
     host: 'homeserver',
-    syncStatus: 'in-sync',
+    syncStatus: 'in_sync',
     deployMode: 'auto',
     lastDeployAt: new Date(Date.now() - 3600_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -34,7 +34,7 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'homeassistant',
     host: 'homeserver',
-    syncStatus: 'in-sync',
+    syncStatus: 'in_sync',
     deployMode: 'auto',
     lastDeployAt: new Date(Date.now() - 1800_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -44,7 +44,7 @@ const MOCK_STACKS: StackSummary[] = [
   {
     name: 'grafana',
     host: 'homeserver',
-    syncStatus: 'in-sync',
+    syncStatus: 'in_sync',
     deployMode: 'manual',
     lastDeployAt: new Date(Date.now() - 43200_000).toISOString(),
     lastDeployStatus: 'succeeded',
@@ -70,7 +70,7 @@ volumes:
   app_data:
 `;
 
-const MOCK_DEPLOY_HISTORY: DeployRecord[] = [
+const MOCK_DEPLOY_HISTORY: StackDeployRecord[] = [
   {
     id: 3,
     stack: 'plex',
@@ -124,7 +124,7 @@ export async function getStackDetail(opts: {
     composeContent: MOCK_COMPOSE,
     lastDeployCommitSha: 'a1b2c3d',
     currentCommitSha: 'x9y8z7w',
-    variables: ['APP_IMAGE', 'APP_PORT', 'DATABASE_URL', 'SECRET_KEY'],
+    variableNames: ['APP_IMAGE', 'APP_PORT', 'DATABASE_URL', 'SECRET_KEY'],
     icon: stack.icon,
   };
 }
@@ -139,7 +139,7 @@ export async function triggerDeploy(_opts: {
 
 export async function getDeployHistory(opts: {
   data: { stackName: string; limit?: number };
-}): Promise<DeployRecord[]> {
+}): Promise<StackDeployRecord[]> {
   const limit = opts.data.limit ?? 20;
   return MOCK_DEPLOY_HISTORY
     .filter((d) => d.stack === opts.data.stackName)

@@ -117,19 +117,19 @@ export async function createCollectorsForManagedHosts(
 
   const hosts = await findAllHosts();
   if (hosts.length === 0) {
-    console.log('[Worker] Management feature enabled but no managed hosts found');
+    console.info('[Worker] Management feature enabled but no managed hosts found');
     return { collectors, runners };
   }
 
-  console.log(`[Worker] Starting ${hosts.length} AgentStatsCollector(s) for managed hosts`);
+  console.info(`[Worker] Starting ${hosts.length} AgentStatsCollector(s) for managed hosts`);
 
   for (const host of hosts) {
     if (!host.agent_token) {
-      console.log(`[Worker] Skipping managed host ${host.name}: no agent_token (provisioned before migration)`);
+      console.info(`[Worker] Skipping managed host ${host.name}: no agent_token (provisioned before migration)`);
       continue;
     }
 
-    console.log(`[Worker] Starting AgentStatsCollector for ${host.name} (${host.agent_url})`);
+    console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${host.agent_url})`);
     const collector = stack.use(
       new AgentStatsCollector(db, workerConfig, host, shutdownController)
     );

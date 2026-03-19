@@ -3,8 +3,8 @@ import { render, screen } from '@testing-library/react';
 import SyncStatusBadge from '../SyncStatusBadge';
 
 describe('SyncStatusBadge', () => {
-  it('renders "In Sync" for in-sync status', () => {
-    render(<SyncStatusBadge status="in-sync" />);
+  it('renders "In Sync" for in_sync status', () => {
+    render(<SyncStatusBadge status="in_sync" />);
     expect(screen.getByText('In Sync')).toBeDefined();
   });
 

@@ -44,13 +44,13 @@ export async function addHost(_data: {
     createdAt: now,
     updatedAt: now,
   };
-  return { host: newHost, healthy: true };
+  return { host: newHost };
 }
 
 export async function removeHost(_data: {
   hostId: number;
-}): Promise<{ success: boolean }> {
-  return { success: true };
+}): Promise<{ success: boolean; containerRemoved: boolean }> {
+  return { success: true, containerRemoved: true };
 }
 
 export async function listHosts(): Promise<HostListItem[]> {

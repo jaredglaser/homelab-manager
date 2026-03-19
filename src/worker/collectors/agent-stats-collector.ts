@@ -98,7 +98,7 @@ export class AgentStatsCollector extends BaseCollector {
           try {
             event = JSON.parse(jsonStr);
           } catch {
-            this.debugLog(`[${this.name}] Failed to parse SSE event: ${jsonStr.substring(0, 100)}`);
+            console.error(`[${this.name}] Failed to parse SSE event: ${jsonStr.substring(0, 100)}`);
             continue;
           }
 
@@ -107,12 +107,20 @@ export class AgentStatsCollector extends BaseCollector {
 
           // Upsert entity metadata for new containers
           if (!this.knownContainers.has(event.containerId)) {
-            const entityPath = `${this.host.name}/${event.containerId}`;
-            await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', event.containerName);
-            await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', event.image);
-            // Use container name as service_key (agent doesn't have compose label info yet)
-            await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', event.containerName);
-            this.knownContainers.add(event.containerId);
+            try {
+              const entityPath = `${this.host.name}/${event.containerId}`;
+              await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', event.containerName);
+              await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', event.image);
+              // Use container name as service_key (agent doesn't have compose label info yet)
+              await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', event.containerName);
+              this.knownContainers.add(event.containerId);
+            } catch (err) {
+              console.error(
+                `[${this.name}] Failed to upsert entity metadata for ${event.containerId}:`,
+                err instanceof Error ? err.message : err
+              );
+              // Don't add to knownContainers so we retry on next event
+            }
           }
 
           // Map agent event to DockerStatsRow

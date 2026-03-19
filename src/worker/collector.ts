@@ -61,8 +61,8 @@ async function main() {
       const raw = await settingsRepo.get(SETTINGS_KEYS.proxmox.updateInterval);
       const parsed = raw ? parseInt(raw, 10) : 10_000;
       if (parsed === 1000 || parsed === 10000) proxmoxPollIntervalMs = parsed;
-    } catch {
-      // Keep default
+    } catch (err) {
+      console.error('[Worker] Failed to read Proxmox poll interval from settings, using default:', err instanceof Error ? err.message : err);
     }
 
     // Shared AbortController - SIGTERM aborts all collectors instantly

@@ -1,10 +1,9 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 
-describe('isDockerManagementEnabled', () => {
+describe('isDockerManagementEnabledClient', () => {
   const originalEnv = import.meta.env.VITE_DOCKER_MANAGEMENT_FEATURE_FLAG;
 
   afterEach(() => {
-    // Restore original value
     if (originalEnv === undefined) {
       delete import.meta.env.VITE_DOCKER_MANAGEMENT_FEATURE_FLAG;
     } else {
@@ -14,20 +13,19 @@ describe('isDockerManagementEnabled', () => {
 
   it('returns true when flag is "true"', async () => {
     import.meta.env.VITE_DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
-    // Re-import to pick up new env value
-    const { isDockerManagementEnabled } = await import('../feature-flags');
-    expect(isDockerManagementEnabled()).toBe(true);
+    const { isDockerManagementEnabledClient } = await import('../feature-flags');
+    expect(isDockerManagementEnabledClient()).toBe(true);
   });
 
   it('returns false when flag is undefined', async () => {
     delete import.meta.env.VITE_DOCKER_MANAGEMENT_FEATURE_FLAG;
-    const { isDockerManagementEnabled } = await import('../feature-flags');
-    expect(isDockerManagementEnabled()).toBe(false);
+    const { isDockerManagementEnabledClient } = await import('../feature-flags');
+    expect(isDockerManagementEnabledClient()).toBe(false);
   });
 
   it('returns false when flag is "false"', async () => {
     import.meta.env.VITE_DOCKER_MANAGEMENT_FEATURE_FLAG = 'false';
-    const { isDockerManagementEnabled } = await import('../feature-flags');
-    expect(isDockerManagementEnabled()).toBe(false);
+    const { isDockerManagementEnabledClient } = await import('../feature-flags');
+    expect(isDockerManagementEnabledClient()).toBe(false);
   });
 });

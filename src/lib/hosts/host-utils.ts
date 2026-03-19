@@ -1,4 +1,5 @@
 import type { HostStatus } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 
 /** Dockerode connection options parsed from a socket proxy URL. */
 export interface DockerodeConfig {
@@ -19,25 +20,13 @@ export interface HostListItem {
   updatedAt: string;
 }
 
-/** DB row shape expected by toHostListItem. */
-export interface ManagedHostRow {
-  id: number;
-  name: string;
-  agent_url: string;
-  socket_proxy_url: string;
-  agent_version: string | null;
-  status: HostStatus;
-  created_at: Date;
-  updated_at: Date;
-}
+// Issue 13: Use Omit to derive from canonical ManagedHost, making the relationship explicit
+// and ensuring toHostListItem cannot accidentally access token fields at the type level.
+type ManagedHostPublic = Omit<ManagedHost, 'agent_token_hash' | 'agent_token'>;
 
-/** Health check result from the agent. */
-export interface HealthCheckOutcome {
-  healthy: boolean;
-  version?: string;
-  dockerVersion?: string;
-  error?: string;
-}
+export type HealthCheckOutcome =
+  | { healthy: true; version?: string; dockerVersion?: string }
+  | { healthy: false; error: string };
 
 /** Map URL scheme to Dockerode protocol. tcp:// maps to http since Dockerode uses HTTP over TCP. */
 function mapProtocol(scheme: string): 'http' | 'https' {
@@ -61,9 +50,10 @@ export function parseDockerodeConfig(socketProxyUrl: string): DockerodeConfig {
 /**
  * Convert a managed_hosts DB row to an API-facing HostListItem.
  * Optional overrides allow setting status/version from health check results.
+ * Accepts ManagedHostPublic (without credentials) to enforce the security boundary at the type level.
  */
 export function toHostListItem(
-  row: ManagedHostRow,
+  row: ManagedHostPublic,
   overrides?: { agentVersion?: string | null; status?: HostStatus },
 ): HostListItem {
   return {
@@ -81,6 +71,7 @@ export function toHostListItem(
 /**
  * Retry a health check with exponential backoff delays.
  * Returns the first successful result, or the last failed result.
+ * Logs each failed attempt for operational visibility.
  */
 export async function retryHealthCheck(
   checkFn: (url: string) => Promise<HealthCheckOutcome>,
@@ -88,10 +79,11 @@ export async function retryHealthCheck(
   delays: number[],
 ): Promise<HealthCheckOutcome> {
   let result: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
-  for (const delayMs of delays) {
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  for (let i = 0; i < delays.length; i++) {
+    await new Promise((resolve) => setTimeout(resolve, delays[i]));
     result = await checkFn(agentUrl);
     if (result.healthy) break;
+    console.error(`[retryHealthCheck] Attempt ${i + 1}/${delays.length} failed for ${agentUrl}: ${result.error}`);
   }
   return result;
 }

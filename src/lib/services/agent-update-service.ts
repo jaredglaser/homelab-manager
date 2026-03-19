@@ -5,9 +5,7 @@ const CONTAINER_NAME_PREFIX = 'homelab-agent-';
 const HEALTH_CHECK_RETRY_DELAYS_MS = [500, 1000, 2000]; // Exponential backoff
 const POST_UPDATE_HEALTH_CHECK_TIMEOUT_MS = 10000;
 
-export interface AgentUpdateResult extends AgentHealthResult {
-  containerName: string;
-}
+export type AgentUpdateResult = AgentHealthResult & { containerName: string };
 
 /**
  * Service for updating agent containers via socket proxy bypass.
@@ -77,10 +75,13 @@ export class AgentUpdateService {
       error: 'Health check not attempted',
     };
 
-    for (const delayMs of HEALTH_CHECK_RETRY_DELAYS_MS) {
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    for (let i = 0; i < HEALTH_CHECK_RETRY_DELAYS_MS.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, HEALTH_CHECK_RETRY_DELAYS_MS[i]));
       healthResult = await checkAgentHealth(agentUrl, POST_UPDATE_HEALTH_CHECK_TIMEOUT_MS, fetchFn);
       if (healthResult.healthy) break;
+      console.error(
+        `[AgentUpdateService] Health check attempt ${i + 1}/${HEALTH_CHECK_RETRY_DELAYS_MS.length} failed for ${containerName}: ${healthResult.error}`
+      );
     }
 
     return {

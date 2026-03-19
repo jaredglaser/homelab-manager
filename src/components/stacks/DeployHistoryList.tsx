@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Chip, Collapse, Paper, Skeleton, Typography } from '@mui/material';
 import { ChevronRight, GitCommit } from 'lucide-react';
-import type { DeployRecord, DeployStatus, DeployTrigger } from '@/types/stacks';
+import type { StackDeployRecord, DeployStatus, DeployTrigger } from '@/types/stacks';
 
 const STATUS_COLOR: Record<DeployStatus, string> = {
   succeeded: 'var(--chart-deploy-success)',
@@ -26,7 +26,7 @@ const TRIGGER_LABEL: Record<DeployTrigger, string> = {
 };
 
 interface DeployHistoryListProps {
-  records: DeployRecord[];
+  records: StackDeployRecord[];
   isLoading: boolean;
 }
 
@@ -58,7 +58,7 @@ export default function DeployHistoryList({ records, isLoading }: DeployHistoryL
   );
 }
 
-function DeployHistoryRow({ record }: { record: DeployRecord }) {
+function DeployHistoryRow({ record }: { record: StackDeployRecord }) {
   const [expanded, setExpanded] = useState(false);
   const statusColor = STATUS_COLOR[record.status];
   const timestamp = new Date(record.createdAt);

@@ -1,322 +1,172 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
-
-/**
- * Handler integration tests for hosts.functions.tsx.
- *
- * Uses mock.module() on narrow server-only modules (database, Docker, services)
- * to test the handler wiring without real infrastructure. These are NOT
- * broadly-used modules (React, TanStack Query), so mock pollution is contained.
- */
-
-// --- Mock setup ---
-
-const mockFindById = mock();
-const mockFindAll = mock();
-const mockCreate = mock();
-const mockDelete = mock();
-const mockUpdateStatus = mock();
-const mockUpdateAgentVersion = mock();
-
-mock.module('@/lib/config/feature-flags', () => ({
-  isDockerManagementEnabled: () => true,
-}));
-
-mock.module('@/lib/clients/database-client', () => ({
-  databaseConnectionManager: {
-    getClient: mock(() => Promise.resolve({ getPool: () => ({}) })),
-  },
-}));
-
-mock.module('@/lib/config/database-config', () => ({
-  loadDatabaseConfig: () => ({}),
-}));
-
-mock.module('@/lib/database/repositories/host-repository', () => ({
-  HostRepository: class {
-    findById = mockFindById;
-    findAll = mockFindAll;
-    create = mockCreate;
-    delete = mockDelete;
-    updateStatus = mockUpdateStatus;
-    updateAgentVersion = mockUpdateAgentVersion;
-  },
-}));
-
-const mockProvision = mock();
-const mockRemoveAgent = mock();
-
-mock.module('@/lib/services/agent-provisioning-service', () => ({
-  AgentProvisioningService: class {
-    provision = mockProvision;
-    removeAgent = mockRemoveAgent;
-  },
-}));
-
-const mockCheckAgentHealth = mock();
-
-mock.module('@/lib/services/agent-health-service', () => ({
-  checkAgentHealth: mockCheckAgentHealth,
-}));
-
-mock.module('@/lib/services/token-service', () => ({
-  generateToken: () => 'mock-token-123',
-  hashToken: mock(() => Promise.resolve('hashed-token')),
-}));
-
-const mockUpdateAgent = mock();
-
-mock.module('@/lib/services/agent-update-service', () => ({
-  AgentUpdateService: class {
-    updateAgent = mockUpdateAgent;
-  },
-}));
-
-// NOTE: We do NOT mock dockerode — new Dockerode({...}) doesn't make network
-// calls (only method calls do), and mocking it globally pollutes other test
-// files like docker-client.test.ts.
-
-// --- Helpers ---
+import { describe, it, expect, mock } from 'bun:test';
+import type { HostHandlerDeps, HostRepo } from '../hosts.functions';
+import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import {
+  handleListHosts,
+  handleCheckHostHealth,
+  handleRemoveHost,
+  handleUpdateAgent,
+  handleAddHost,
+} from '../hosts.functions';
 
 const NOW = new Date('2026-03-01T00:00:00Z');
 
-function mockHostRow(overrides?: Partial<{
-  id: number; name: string; agent_url: string; socket_proxy_url: string;
-  agent_version: string | null; status: string;
-}>) {
+function mockRow(overrides?: Record<string, unknown>) {
   return {
-    id: 1,
-    name: 'test-host',
+    id: 1, name: 'test-host',
     agent_url: 'http://192.168.1.10:9090',
     socket_proxy_url: 'tcp://192.168.1.10:2375',
-    agent_version: null,
-    agent_token_hash: 'hash',
-    agent_token: 'token',
-    status: 'pending',
-    created_at: NOW,
-    updated_at: NOW,
+    agent_version: null, agent_token_hash: 'hash', agent_token: 'token',
+    status: 'pending' as const,
+    created_at: NOW, updated_at: NOW,
     ...overrides,
   };
 }
 
-// --- Tests ---
+function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
+  return {
+    findById: mock(() => Promise.resolve(mockRow())),
+    findAll: mock(() => Promise.resolve([mockRow()])),
+    create: mock(() => Promise.resolve(mockRow())),
+    delete: mock(() => Promise.resolve()),
+    updateStatus: mock(() => Promise.resolve()),
+    updateAgentVersion: mock(() => Promise.resolve()),
+    ...overrides,
+  };
+}
 
-describe('hosts.functions handlers', () => {
-  beforeEach(() => {
-    mockFindById.mockReset();
-    mockFindAll.mockReset();
-    mockCreate.mockReset();
-    mockDelete.mockReset();
-    mockUpdateStatus.mockReset();
-    mockUpdateAgentVersion.mockReset();
-    mockProvision.mockReset();
-    mockRemoveAgent.mockReset();
-    mockCheckAgentHealth.mockReset();
-    mockUpdateAgent.mockReset();
+function baseDeps(repo?: Partial<HostRepo>): HostHandlerDeps {
+  return { repo: mockRepo(repo), isEnabled: () => true };
+}
+
+describe('handleListHosts', () => {
+  it('returns mapped host list', async () => {
+    const deps = baseDeps({ findAll: mock(() => Promise.resolve([mockRow({ status: 'healthy' })])) });
+    const result = await handleListHosts(deps);
+    expect(result).toHaveLength(1);
+    expect(result[0].name).toBe('test-host');
+    expect(result[0].status).toBe('healthy');
   });
 
-  describe('listHosts', () => {
-    it('returns mapped host list items', async () => {
-      const row = mockHostRow({ status: 'healthy', agent_version: '1.0.0' });
-      mockFindAll.mockResolvedValueOnce([row]);
-
-      const { listHosts } = await import('../hosts.functions');
-      await listHosts({});
-
-      expect(mockFindAll).toHaveBeenCalledTimes(1);
-    });
-
-    it('returns empty array when no hosts', async () => {
-      mockFindAll.mockResolvedValueOnce([]);
-
-      const { listHosts } = await import('../hosts.functions');
-      await listHosts({});
-
-      expect(mockFindAll).toHaveBeenCalledTimes(1);
-    });
+  it('returns empty when no hosts', async () => {
+    const deps = baseDeps({ findAll: mock(() => Promise.resolve([])) });
+    expect(await handleListHosts(deps)).toEqual([]);
   });
 
-  describe('checkHostHealth', () => {
-    it('updates status to healthy on success', async () => {
-      const row = mockHostRow();
-      mockFindById.mockResolvedValueOnce(row);
-      mockCheckAgentHealth.mockResolvedValueOnce({
-        healthy: true,
-        version: '2.0.0',
-        dockerVersion: '24.0.0',
-      });
-      mockUpdateStatus.mockResolvedValueOnce(undefined);
-      mockUpdateAgentVersion.mockResolvedValueOnce(undefined);
+  it('throws when feature flag is off', async () => {
+    const deps = { ...baseDeps(), isEnabled: () => false };
+    await expect(handleListHosts(deps)).rejects.toThrow('not enabled');
+  });
+});
 
-      const { checkHostHealth } = await import('../hosts.functions');
-      await checkHostHealth({ data: { hostId: 1 } });
-
-      expect(mockFindById).toHaveBeenCalledWith(1);
-      expect(mockCheckAgentHealth).toHaveBeenCalledWith('http://192.168.1.10:9090');
-      expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'healthy');
-      expect(mockUpdateAgentVersion).toHaveBeenCalledWith(1, '2.0.0');
-    });
-
-    it('updates status to error on failure', async () => {
-      const row = mockHostRow();
-      mockFindById.mockResolvedValue(row);
-      mockCheckAgentHealth.mockResolvedValue({
-        healthy: false,
-        error: 'connection refused',
-      });
-      mockUpdateStatus.mockResolvedValue(undefined);
-
-      const { checkHostHealth } = await import('../hosts.functions');
-      try {
-        await checkHostHealth({ data: { hostId: 1 } });
-      } catch {
-        // createServerFn may throw internally
-      }
-
-      expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'error');
-      expect(mockUpdateAgentVersion).not.toHaveBeenCalled();
-    });
-
-    it('throws when host not found', async () => {
-      mockFindById.mockResolvedValueOnce(null);
-
-      const { checkHostHealth } = await import('../hosts.functions');
-      await expect(
-        checkHostHealth({ data: { hostId: 999 } })
-      ).rejects.toThrow('Host with id 999 not found');
-    });
+describe('handleCheckHostHealth', () => {
+  it('updates status to healthy on success', async () => {
+    const repo = mockRepo();
+    const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: true as const, version: '2.0.0', dockerVersion: '24.0' })) };
+    const result = await handleCheckHostHealth(deps, { hostId: 1 });
+    expect(result.healthy).toBe(true);
+    expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+    expect(repo.updateAgentVersion).toHaveBeenCalledWith(1, '2.0.0');
   });
 
-  describe('removeHost', () => {
-    it('removes agent container and deletes DB record', async () => {
-      const row = mockHostRow();
-      mockFindById.mockResolvedValueOnce(row);
-      mockRemoveAgent.mockResolvedValueOnce(undefined);
-      mockDelete.mockResolvedValueOnce(undefined);
-
-      const { removeHost } = await import('../hosts.functions');
-      await removeHost({ data: { hostId: 1 } });
-
-      expect(mockFindById).toHaveBeenCalledWith(1);
-      expect(mockRemoveAgent).toHaveBeenCalled();
-      expect(mockDelete).toHaveBeenCalledWith(1);
-    });
-
-    it('still deletes DB record when container removal fails', async () => {
-      const row = mockHostRow();
-      mockFindById.mockResolvedValueOnce(row);
-      mockRemoveAgent.mockRejectedValueOnce(new Error('container not found'));
-      mockDelete.mockResolvedValueOnce(undefined);
-
-      const { removeHost } = await import('../hosts.functions');
-      await removeHost({ data: { hostId: 1 } });
-
-      expect(mockDelete).toHaveBeenCalledWith(1);
-    });
-
-    it('throws when host not found', async () => {
-      mockFindById.mockResolvedValueOnce(null);
-
-      const { removeHost } = await import('../hosts.functions');
-      await expect(
-        removeHost({ data: { hostId: 999 } })
-      ).rejects.toThrow('Host with id 999 not found');
-    });
+  it('updates status to unhealthy on failure', async () => {
+    const repo = mockRepo();
+    const deps = { ...baseDeps(), repo, checkHealth: mock(() => Promise.resolve({ healthy: false as const, error: 'refused' })) };
+    const result = await handleCheckHostHealth(deps, { hostId: 1 });
+    expect(result.healthy).toBe(false);
+    expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
+    expect(repo.updateAgentVersion).not.toHaveBeenCalled();
   });
 
-  describe('updateAgent', () => {
-    it('updates status to healthy when agent update succeeds', async () => {
-      const row = mockHostRow();
-      mockFindById.mockResolvedValueOnce(row);
-      mockUpdateAgent.mockResolvedValueOnce({
-        healthy: true,
-        version: '3.0.0',
-      });
-      mockUpdateStatus.mockResolvedValueOnce(undefined);
-      mockUpdateAgentVersion.mockResolvedValueOnce(undefined);
+  it('throws when host not found', async () => {
+    const deps = { ...baseDeps({ findById: mock(() => Promise.resolve(null)) }), checkHealth: mock() };
+    await expect(handleCheckHostHealth(deps, { hostId: 999 })).rejects.toThrow('Host with id 999 not found');
+  });
+});
 
-      const { updateAgent } = await import('../hosts.functions');
-      await updateAgent({ data: { hostId: 1 } });
-
-      expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'healthy');
-      expect(mockUpdateAgentVersion).toHaveBeenCalledWith(1, '3.0.0');
-    });
-
-    it('updates status to unhealthy when agent update fails', async () => {
-      const row = mockHostRow();
-      mockFindById.mockResolvedValue(row);
-      mockUpdateAgent.mockResolvedValue({
-        healthy: false,
-        error: 'image pull failed',
-      });
-      mockUpdateStatus.mockResolvedValue(undefined);
-
-      const { updateAgent } = await import('../hosts.functions');
-      try {
-        await updateAgent({ data: { hostId: 1 } });
-      } catch {
-        // createServerFn may throw internally
-      }
-
-      expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'unhealthy');
-      expect(mockUpdateAgentVersion).not.toHaveBeenCalled();
-    });
-
-    it('throws when host not found', async () => {
-      mockFindById.mockResolvedValueOnce(null);
-
-      const { updateAgent } = await import('../hosts.functions');
-      await expect(
-        updateAgent({ data: { hostId: 999 } })
-      ).rejects.toThrow('Host with id 999 not found');
-    });
+describe('handleRemoveHost', () => {
+  it('removes container and deletes record', async () => {
+    const repo = mockRepo();
+    const removeAgent = mock(() => Promise.resolve());
+    const result = await handleRemoveHost({ ...baseDeps(), repo, removeAgent }, { hostId: 1 });
+    expect(result.success).toBe(true);
+    expect(result.containerRemoved).toBe(true);
+    expect(removeAgent).toHaveBeenCalled();
+    expect(repo.delete).toHaveBeenCalledWith(1);
   });
 
-  describe('addHost', () => {
-    it('provisions agent and creates host record on success', async () => {
-      mockProvision.mockResolvedValueOnce({
-        agentUrl: 'http://192.168.1.10:9090',
-      });
-      mockCreate.mockResolvedValueOnce(mockHostRow());
-      mockCheckAgentHealth.mockResolvedValueOnce({
-        healthy: true,
-        version: '1.0.0',
-      });
-      mockUpdateStatus.mockResolvedValueOnce(undefined);
-      mockUpdateAgentVersion.mockResolvedValueOnce(undefined);
+  it('still deletes record when container removal fails', async () => {
+    const repo = mockRepo();
+    const removeAgent = mock(() => Promise.reject(new Error('not found')));
+    const result = await handleRemoveHost({ ...baseDeps(), repo, removeAgent }, { hostId: 1 });
+    expect(result.success).toBe(true);
+    expect(result.containerRemoved).toBe(false);
+    expect(result.warning).toContain('manual cleanup');
+    expect(repo.delete).toHaveBeenCalledWith(1);
+  });
 
-      const { addHost } = await import('../hosts.functions');
-      await addHost({
-        data: { name: 'new-host', socketProxyUrl: 'tcp://192.168.1.10:2375' },
-      });
+  it('throws when host not found', async () => {
+    const deps = { ...baseDeps({ findById: mock(() => Promise.resolve(null)) }), removeAgent: mock() };
+    await expect(handleRemoveHost(deps, { hostId: 999 })).rejects.toThrow('not found');
+  });
+});
 
-      expect(mockProvision).toHaveBeenCalledTimes(1);
-      expect(mockCreate).toHaveBeenCalledTimes(1);
-      expect(mockUpdateStatus).toHaveBeenCalledWith(1, 'healthy');
-      expect(mockUpdateAgentVersion).toHaveBeenCalledWith(1, '1.0.0');
-    });
+describe('handleUpdateAgent', () => {
+  it('updates status to healthy on success', async () => {
+    const repo = mockRepo();
+    const updateAgentFn = mock(() => Promise.resolve({ healthy: true, version: '3.0.0' }));
+    const result = await handleUpdateAgent({ ...baseDeps(), repo, updateAgent: updateAgentFn }, { hostId: 1 });
+    expect(result.healthy).toBe(true);
+    expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+    expect(repo.updateAgentVersion).toHaveBeenCalledWith(1, '3.0.0');
+  });
 
-    it('rolls back on health check failure', async () => {
-      mockProvision.mockResolvedValueOnce({
-        agentUrl: 'http://192.168.1.10:9090',
-      });
-      mockCreate.mockResolvedValueOnce(mockHostRow());
-      // All health checks fail
-      mockCheckAgentHealth.mockResolvedValue({
-        healthy: false,
-        error: 'connection refused',
-      });
-      mockRemoveAgent.mockResolvedValueOnce(undefined);
-      mockDelete.mockResolvedValueOnce(undefined);
+  it('updates status to unhealthy on failure', async () => {
+    const repo = mockRepo();
+    const updateAgentFn = mock(() => Promise.resolve({ healthy: false, error: 'pull failed' }));
+    const result = await handleUpdateAgent({ ...baseDeps(), repo, updateAgent: updateAgentFn }, { hostId: 1 });
+    expect(result.healthy).toBe(false);
+    expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
+  });
+});
 
-      const { addHost } = await import('../hosts.functions');
-      await expect(
-        addHost({
-          data: { name: 'new-host', socketProxyUrl: 'tcp://192.168.1.10:2375' },
-        })
-      ).rejects.toThrow(/health check failed after 3 retries/);
+describe('handleAddHost', () => {
+  function addDeps(repo?: Partial<HostRepo>) {
+    return {
+      ...baseDeps(repo),
+      provision: mock(() => Promise.resolve({ agentUrl: 'http://192.168.1.10:9090' })),
+      generateToken: () => 'mock-token',
+      hashToken: mock(() => Promise.resolve('hashed')),
+      checkHealth: mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '1.0.0' })),
+      removeAgent: mock(() => Promise.resolve()),
+    };
+  }
 
-      expect(mockRemoveAgent).toHaveBeenCalledTimes(1);
-      expect(mockDelete).toHaveBeenCalledWith(1);
-    });
+  it('provisions and creates host on success', async () => {
+    const deps = addDeps();
+    const result = await handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
+    expect(result.host.name).toBe('test-host');
+    expect(deps.provision).toHaveBeenCalled();
+    expect(deps.repo.create).toHaveBeenCalled();
+    expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+  });
+
+  it('rolls back on health check failure', async () => {
+    const deps = addDeps();
+    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/health check failed/);
+    expect(deps.removeAgent).toHaveBeenCalled();
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('reports cleanup failure in error message', async () => {
+    const deps = addDeps();
+    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
+    deps.removeAgent = mock(() => Promise.reject(new Error('cleanup failed')));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/manual removal/);
   });
 });

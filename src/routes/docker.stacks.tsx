@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import PageHeader from '@/components/PageHeader'
-import { isDockerManagementEnabled } from '@/lib/utils/feature-flags'
+import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
 import { listStacks } from '@/data/stacks.functions'
 import StacksTable from '@/components/stacks/StacksTable'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
@@ -12,7 +12,7 @@ export const Route = createFileRoute('/docker/stacks')({
 })
 
 function StacksPageContent() {
-  if (!isDockerManagementEnabled()) {
+  if (!isDockerManagementEnabledClient()) {
     return (
       <div className="w-full p-6">
         <PageHeader title="Docker Stacks" />

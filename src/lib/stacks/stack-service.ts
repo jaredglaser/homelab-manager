@@ -6,7 +6,7 @@
  * For now, returns stub data so the UI compiles and can be developed against.
  */
 
-import type { StackSummary, StackDetail, DeployRecord } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
 
 export async function getStackSummaries(): Promise<StackSummary[]> {
   // TODO: Read manifest from git repo, cross-reference deploy_history
@@ -33,7 +33,7 @@ export async function triggerStackDeploy(params: {
 export async function getStackDeployHistory(
   _stackName: string,
   _limit: number,
-): Promise<DeployRecord[]> {
+): Promise<StackDeployRecord[]> {
   // TODO: Query deploy_history table via DeployRepository
   return [];
 }

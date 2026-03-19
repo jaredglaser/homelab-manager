@@ -7,7 +7,7 @@ const STATUS_CONFIG: Record<SyncStatus, {
   colorVar: string;
   icon: React.ReactNode;
 }> = {
-  'in-sync': {
+  'in_sync': {
     label: 'In Sync',
     colorVar: 'var(--chart-deploy-success)',
     icon: <CheckCircle size={14} />,

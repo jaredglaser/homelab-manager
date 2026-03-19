@@ -1,14 +1,11 @@
-/** Deploy status as defined in the design spec */
-export type DeployStatus = 'pending' | 'in_progress' | 'succeeded' | 'failed' | 'no_change';
+// Re-export canonical types from deploy layer to avoid duplication (Issue 12)
+export type { DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployStatus, DeployTrigger, DeployAction } from '@/lib/deploy/types';
 
-/** Sync status for a stack (derived from comparing current vs last deployed commit) */
-export type SyncStatus = 'in-sync' | 'pending' | 'failed' | 'unknown';
+// Issue 15: use underscores consistently (in_sync, not in-sync)
+export type SyncStatus = 'in_sync' | 'pending' | 'failed' | 'unknown';
 
-/** Deploy mode from manifest */
 export type DeployMode = 'auto' | 'manual';
-
-/** Trigger source for a deploy */
-export type DeployTrigger = 'git_push' | 'ui' | 'manual_rollback';
 
 /** Summary of a stack as shown in the list view */
 export interface StackSummary {
@@ -23,20 +20,15 @@ export interface StackSummary {
 }
 
 /** Full stack detail shown in expanded view */
-export interface StackDetail {
-  name: string;
-  host: string;
-  syncStatus: SyncStatus;
-  deployMode: DeployMode;
+export interface StackDetail extends Pick<StackSummary, 'name' | 'host' | 'syncStatus' | 'deployMode' | 'icon'> {
   composeContent: string;
   lastDeployCommitSha: string | null;
   currentCommitSha: string;
-  variables: string[];
-  icon: string | null;
+  variableNames: string[];
 }
 
-/** A single deploy history record */
-export interface DeployRecord {
+/** Serialized deploy record for API responses (Date → string vs canonical DeployRecord). */
+export interface StackDeployRecord {
   id: number;
   stack: string;
   host: string;
@@ -48,9 +40,9 @@ export interface DeployRecord {
   createdAt: string;
 }
 
-/** Request to trigger a deploy from the UI */
+/** Request to trigger a deploy from the UI — reuses canonical DeployAction. */
 export interface UIDeployRequest {
   stack: string;
   host: string;
-  action: 'deploy' | 'teardown' | 'restart';
+  action: DeployAction;
 }

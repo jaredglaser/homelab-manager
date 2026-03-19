@@ -508,7 +508,7 @@ describe('hosts.functions module', () => {
       expect(item.agentVersion).toBe('1.2.3');
     });
 
-    it('AddHostResult includes host and health info', () => {
+    it('AddHostResult includes host info', () => {
       const result: import('../hosts.functions').AddHostResult = {
         host: {
           id: 1,
@@ -520,29 +520,8 @@ describe('hosts.functions module', () => {
           createdAt: '2026-01-01T00:00:00Z',
           updatedAt: '2026-01-01T00:00:00Z',
         },
-        healthy: true,
       };
-      expect(result.healthy).toBe(true);
-      expect(result.error).toBeUndefined();
-    });
-
-    it('AddHostResult can include optional error', () => {
-      const result: import('../hosts.functions').AddHostResult = {
-        host: {
-          id: 1,
-          name: 'test',
-          agentUrl: 'http://localhost:9090',
-          socketProxyUrl: 'tcp://localhost:2375',
-          agentVersion: null,
-          status: 'healthy',
-          createdAt: '2026-01-01T00:00:00Z',
-          updatedAt: '2026-01-01T00:00:00Z',
-        },
-        healthy: false,
-        error: 'Connection refused',
-      };
-      expect(result.healthy).toBe(false);
-      expect(result.error).toBe('Connection refused');
+      expect(result.host.id).toBe(1);
     });
 
     it('HealthCheckResult includes optional version fields', () => {

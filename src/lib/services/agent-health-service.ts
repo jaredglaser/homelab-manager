@@ -5,12 +5,9 @@ export interface AgentHealthResponse {
   uptime?: number;
 }
 
-export interface AgentHealthResult {
-  healthy: boolean;
-  version?: string;
-  dockerVersion?: string;
-  error?: string;
-}
+export type AgentHealthResult =
+  | { healthy: true; version?: string; dockerVersion?: string }
+  | { healthy: false; error: string };
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
@@ -38,7 +35,12 @@ export async function checkAgentHealth(
       };
     }
 
-    const data = (await response.json()) as AgentHealthResponse;
+    let data: AgentHealthResponse;
+    try {
+      data = (await response.json()) as AgentHealthResponse;
+    } catch {
+      return { healthy: false, error: `Agent returned non-JSON response (status ${response.status})` };
+    }
 
     return {
       healthy: true,

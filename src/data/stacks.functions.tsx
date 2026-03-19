@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import type { StackSummary, StackDetail, DeployRecord } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
 
 /**
  * List all stacks from the manifest with their current sync status.
@@ -52,7 +52,7 @@ const getDeployHistorySchema = z.object({
  */
 export const getDeployHistory = createServerFn()
   .inputValidator(getDeployHistorySchema)
-  .handler(async ({ data }): Promise<DeployRecord[]> => {
+  .handler(async ({ data }): Promise<StackDeployRecord[]> => {
     const { getStackDeployHistory } = await import('@/lib/stacks/stack-service');
     return getStackDeployHistory(data.stackName, data.limit);
   });

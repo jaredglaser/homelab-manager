@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
-import type { DeployRecord } from '@/types/stacks';
+import type { StackDeployRecord } from '@/types/stacks';
 import DeployHistoryList from '../DeployHistoryList';
 
-const mockRecords: DeployRecord[] = [
+const mockRecords: StackDeployRecord[] = [
   {
     id: 1,
     stack: 'plex',

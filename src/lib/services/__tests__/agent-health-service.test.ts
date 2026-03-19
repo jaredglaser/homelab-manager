@@ -22,9 +22,10 @@ describe('agent-health-service', () => {
       const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(true);
-      expect(result.version).toBe('0.1.0');
-      expect(result.dockerVersion).toBe('24.0.7');
-      expect(result.error).toBeUndefined();
+      if (result.healthy) {
+        expect(result.version).toBe('0.1.0');
+        expect(result.dockerVersion).toBe('24.0.7');
+      }
     });
 
     it('returns unhealthy result when agent responds with non-200', async () => {
@@ -35,7 +36,7 @@ describe('agent-health-service', () => {
       const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
-      expect(result.error).toContain('500');
+      if (!result.healthy) expect(result.error).toContain('500');
     });
 
     it('returns unhealthy result when fetch throws (network error)', async () => {
@@ -46,7 +47,7 @@ describe('agent-health-service', () => {
       const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
-      expect(result.error).toContain('ECONNREFUSED');
+      if (!result.healthy) expect(result.error).toContain('ECONNREFUSED');
     });
 
     it('calls the correct URL with /health path', async () => {
@@ -85,7 +86,7 @@ describe('agent-health-service', () => {
       const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
-      expect(result.error).toContain('timed out');
+      if (!result.healthy) expect(result.error).toContain('timed out');
     });
 
     it('returns unhealthy on manual abort (AbortError)', async () => {
@@ -98,7 +99,7 @@ describe('agent-health-service', () => {
       const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
 
       expect(result.healthy).toBe(false);
-      expect(result.error).toContain('timed out');
+      if (!result.healthy) expect(result.error).toContain('timed out');
     });
   });
 });

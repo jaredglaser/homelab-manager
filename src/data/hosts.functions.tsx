@@ -11,8 +11,6 @@ import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
 // ----- Schemas -----
 
-// Custom validator for socket proxy URLs — Zod's .url() only accepts http/https
-// but Docker socket proxies use tcp:// scheme
 const socketProxyUrlSchema = z.string().min(1).refine(
   (val) => /^(tcp|http|https):\/\/.+/.test(val),
   { message: 'Must be a valid URL with tcp://, http://, or https:// scheme' }
@@ -36,17 +34,15 @@ const checkHostHealthSchema = z.object({
   hostId: z.number().int().positive(),
 });
 
-// ----- Types (re-export from host-utils) -----
+// ----- Types -----
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
 
 export interface AddHostResult {
   host: HostListItem;
-  healthy: boolean;
-  error?: string;
 }
 
-export interface HealthCheckResult {
+export interface HostOperationResult {
   hostId: number;
   healthy: boolean;
   version?: string;
@@ -54,244 +50,241 @@ export interface HealthCheckResult {
   error?: string;
 }
 
-export interface UpdateAgentResult {
-  hostId: number;
-  healthy: boolean;
-  version?: string;
-  error?: string;
+export type HealthCheckResult = HostOperationResult;
+export type UpdateAgentResult = HostOperationResult;
+
+// ----- Handler dependencies -----
+
+export interface HostRepo {
+  findById(id: number): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; agent_token_hash: string; agent_token: string | null; status: HostStatus; created_at: Date; updated_at: Date } | null>;
+  findAll(): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; agent_token_hash: string; agent_token: string | null; status: HostStatus; created_at: Date; updated_at: Date }[]>;
+  create(input: { name: string; agent_url: string; agent_token_hash: string; agent_token: string; socket_proxy_url: string }): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; agent_token_hash: string; agent_token: string | null; status: HostStatus; created_at: Date; updated_at: Date }>;
+  delete(id: number): Promise<void>;
+  updateStatus(id: number, status: HostStatus): Promise<void>;
+  updateAgentVersion(id: number, version: string): Promise<void>;
 }
 
-// ----- Server Functions -----
+export interface HostHandlerDeps {
+  repo: HostRepo;
+  isEnabled: () => boolean;
+}
 
-// NOTE: Per CLAUDE.md rule 3, all server logic should use createServerFn() + middleware
-// injection. When the codebase establishes a middleware pattern (e.g., for auth or
-// database connection injection), these server functions should be updated to use
-// .middleware([authMiddleware, dbMiddleware]) instead of manually importing and
-// constructing dependencies inside each handler.
+// ----- Exported handler functions (testable via DI) -----
 
-async function ensureFeatureFlag(): Promise<void> {
-  const { isDockerManagementEnabled } = await import(
-    '@/lib/config/feature-flags'
-  );
-  if (!isDockerManagementEnabled()) {
-    throw new Error('Docker management feature is not enabled');
+export async function handleListHosts(deps: HostHandlerDeps): Promise<HostListItem[]> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+  const hosts = await deps.repo.findAll();
+  return hosts.map((h) => toHostListItem(h));
+}
+
+export async function handleCheckHostHealth(
+  deps: HostHandlerDeps & { checkHealth: (url: string) => Promise<HealthCheckOutcome> },
+  data: { hostId: number },
+): Promise<HostOperationResult> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const healthResult = await deps.checkHealth(host.agent_url);
+  const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
+  await deps.repo.updateStatus(host.id, newStatus);
+
+  if (healthResult.healthy && healthResult.version) {
+    await deps.repo.updateAgentVersion(host.id, healthResult.version);
   }
+
+  return healthResult.healthy
+    ? { hostId: host.id, healthy: true, version: healthResult.version, dockerVersion: healthResult.dockerVersion }
+    : { hostId: host.id, healthy: false, error: healthResult.error };
 }
 
-async function getHostRepo() {
-  const { databaseConnectionManager } = await import(
-    '@/lib/clients/database-client'
-  );
-  const { loadDatabaseConfig } = await import(
-    '@/lib/config/database-config'
-  );
-  const { HostRepository } = await import(
-    '@/lib/database/repositories/host-repository'
-  );
+export async function handleRemoveHost(
+  deps: HostHandlerDeps & { removeAgent: (socketProxyUrl: string, hostName: string) => Promise<void> },
+  data: { hostId: number },
+): Promise<{ success: boolean; containerRemoved: boolean; warning?: string }> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  let containerRemoved = true;
+  try {
+    await deps.removeAgent(host.socket_proxy_url, host.name);
+  } catch (err) {
+    containerRemoved = false;
+    console.error(
+      `[removeHost] Failed to remove agent container for ${host.name}:`,
+      err instanceof Error ? err.message : err
+    );
+  }
+
+  await deps.repo.delete(data.hostId);
+  return {
+    success: true,
+    containerRemoved,
+    warning: containerRemoved
+      ? undefined
+      : `Host record deleted, but the agent container on ${host.name} could not be removed. It may need manual cleanup.`,
+  };
+}
+
+export async function handleUpdateAgent(
+  deps: HostHandlerDeps & { updateAgent: (socketProxyUrl: string, hostName: string) => Promise<{ healthy: boolean; version?: string; error?: string }> },
+  data: { hostId: number },
+): Promise<HostOperationResult> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const result = await deps.updateAgent(host.socket_proxy_url, host.name);
+
+  if (result.healthy) {
+    await deps.repo.updateStatus(host.id, 'healthy');
+    if (result.version) await deps.repo.updateAgentVersion(host.id, result.version);
+    return { hostId: host.id, healthy: true, version: result.version };
+  }
+
+  await deps.repo.updateStatus(host.id, 'unhealthy');
+  return { hostId: host.id, healthy: false, error: result.error };
+}
+
+export async function handleAddHost(
+  deps: HostHandlerDeps & {
+    provision: (socketProxyUrl: string, opts: { hostName: string; agentPort: number; agentToken: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
+    generateToken: () => string;
+    hashToken: (token: string) => Promise<string>;
+    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+    removeAgent: (socketProxyUrl: string, hostName: string) => Promise<void>;
+  },
+  data: { name: string; socketProxyUrl: string; agentPort: number },
+): Promise<AddHostResult> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const plainToken = deps.generateToken();
+  const tokenHash = await deps.hashToken(plainToken);
+
+  const provisionResult = await deps.provision(data.socketProxyUrl, {
+    hostName: data.name,
+    agentPort: data.agentPort,
+    agentToken: plainToken,
+    agentImage: getAgentImage(),
+    socketProxyUrl: data.socketProxyUrl,
+  });
+
+  const host = await deps.repo.create({
+    name: data.name,
+    agent_url: provisionResult.agentUrl,
+    agent_token_hash: tokenHash,
+    agent_token: plainToken,
+    socket_proxy_url: data.socketProxyUrl,
+  });
+
+  const healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
+
+  if (!healthResult.healthy) {
+    let cleanupSucceeded = true;
+    try {
+      await deps.removeAgent(data.socketProxyUrl, data.name);
+    } catch (cleanupErr) {
+      cleanupSucceeded = false;
+      console.error(
+        `[addHost] Failed to clean up agent container for ${data.name} after health check failure:`,
+        cleanupErr instanceof Error ? cleanupErr.message : cleanupErr
+      );
+    }
+    await deps.repo.delete(host.id);
+    throw new Error(
+      cleanupSucceeded
+        ? `Agent provisioned but health check failed after 3 retries: ${healthResult.error}. Host record and container have been cleaned up.`
+        : `Agent provisioned but health check failed after 3 retries: ${healthResult.error}. Host record was deleted but agent container cleanup failed — manual removal may be required.`
+    );
+  }
+
+  const status: HostStatus = 'healthy';
+  await deps.repo.updateStatus(host.id, status);
+  if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
+
+  return {
+    host: toHostListItem(host, { agentVersion: healthResult.version || null, status }),
+  };
+}
+
+// ----- Dependency wiring (dynamic imports for server-only modules) -----
+
+async function loadDeps(): Promise<HostHandlerDeps> {
+  const { isDockerManagementEnabled } = await import('@/lib/config/feature-flags');
+  // Check flag before loading DB to avoid unnecessary connection attempts
+  if (!isDockerManagementEnabled()) {
+    return { repo: null as unknown as HostRepo, isEnabled: () => false };
+  }
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { HostRepository } = await import('@/lib/database/repositories/host-repository');
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  return new HostRepository(dbClient.getPool());
+  return { repo: new HostRepository(dbClient.getPool()), isEnabled: isDockerManagementEnabled };
 }
 
-async function createDockerClient(socketProxyUrl: string) {
+async function loadDockerClient(socketProxyUrl: string) {
   const Dockerode = (await import('dockerode')).default;
-  const config = parseDockerodeConfig(socketProxyUrl);
-  return new Dockerode(config);
+  return new Dockerode(parseDockerodeConfig(socketProxyUrl));
 }
 
-/**
- * Add a new managed host: connect to socket proxy, provision agent, store in DB.
- */
+// ----- createServerFn wrappers (thin wiring only) -----
+
 export const addHost = createServerFn()
   .inputValidator(addHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
-    await ensureFeatureFlag();
-
-    const { generateToken, hashToken } = await import(
-      '@/lib/services/token-service'
-    );
-    const { AgentProvisioningService } = await import(
-      '@/lib/services/agent-provisioning-service'
-    );
-    const { checkAgentHealth } = await import(
-      '@/lib/services/agent-health-service'
-    );
-
-    const docker = await createDockerClient(data.socketProxyUrl);
-
-    const plainToken = generateToken();
-    const tokenHash = await hashToken(plainToken);
-
-    const provisioningService = new AgentProvisioningService();
-    const provisionResult = await provisioningService.provision(docker, {
-      hostName: data.name,
-      agentPort: data.agentPort,
-      agentToken: plainToken,
-      agentImage: getAgentImage(),
-      socketProxyUrl: data.socketProxyUrl,
-    });
-
-    const repo = await getHostRepo();
-    const host = await repo.create({
-      name: data.name,
-      agent_url: provisionResult.agentUrl,
-      agent_token_hash: tokenHash,
-      agent_token: plainToken,
-      socket_proxy_url: data.socketProxyUrl,
-    });
-
-    const healthResult = await retryHealthCheck(
-      checkAgentHealth,
-      provisionResult.agentUrl,
-      [500, 1000, 2000],
-    );
-
-    if (!healthResult.healthy) {
-      try {
-        const cleanup = new AgentProvisioningService();
-        await cleanup.removeAgent(docker, data.name);
-      } catch {
-        // Best-effort cleanup
-      }
-      await repo.delete(host.id);
-      throw new Error(
-        `Agent provisioned but health check failed after 3 retries: ${healthResult.error}. Host record and container have been cleaned up.`
-      );
-    }
-
-    const status: HostStatus = 'healthy';
-    await repo.updateStatus(host.id, status);
-
-    if (healthResult.version) {
-      await repo.updateAgentVersion(host.id, healthResult.version);
-    }
-
-    return {
-      host: toHostListItem(host, {
-        agentVersion: healthResult.version || null,
-        status,
-      }),
-      healthy: healthResult.healthy,
-      error: healthResult.error,
-    };
+    const baseDeps = await loadDeps();
+    const { generateToken, hashToken } = await import('@/lib/services/token-service');
+    const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
+    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    const provService = new AgentProvisioningService();
+    return handleAddHost({
+      ...baseDeps,
+      generateToken, hashToken,
+      checkHealth: checkAgentHealth,
+      provision: async (url, opts) => { const docker = await loadDockerClient(url); return provService.provision(docker, opts); },
+      removeAgent: async (url, name) => { const docker = await loadDockerClient(url); await provService.removeAgent(docker, name); },
+    }, data);
   });
 
-/**
- * Remove a managed host: stop + remove agent container, delete DB record.
- */
 export const removeHost = createServerFn()
   .inputValidator(removeHostSchema)
-  .handler(async ({ data }): Promise<{ success: boolean }> => {
-    await ensureFeatureFlag();
-
-    const { AgentProvisioningService } = await import(
-      '@/lib/services/agent-provisioning-service'
-    );
-
-    const repo = await getHostRepo();
-    const host = await repo.findById(data.hostId);
-    if (!host) {
-      throw new Error(`Host with id ${data.hostId} not found`);
-    }
-
-    try {
-      const docker = await createDockerClient(host.socket_proxy_url);
-      const provisioningService = new AgentProvisioningService();
-      await provisioningService.removeAgent(docker, host.name);
-    } catch (err) {
-      console.error(
-        `[removeHost] Failed to remove agent container for ${host.name}:`,
-        err instanceof Error ? err.message : err
-      );
-    }
-
-    await repo.delete(data.hostId);
-    return { success: true };
+  .handler(async ({ data }): Promise<{ success: boolean; containerRemoved: boolean; warning?: string }> => {
+    const baseDeps = await loadDeps();
+    const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
+    const provService = new AgentProvisioningService();
+    return handleRemoveHost({
+      ...baseDeps,
+      removeAgent: async (url, name) => { const docker = await loadDockerClient(url); await provService.removeAgent(docker, name); },
+    }, data);
   });
 
-/**
- * List all managed hosts with their current status.
- */
 export const listHosts = createServerFn()
   .handler(async (): Promise<HostListItem[]> => {
-    await ensureFeatureFlag();
-    const repo = await getHostRepo();
-    const hosts = await repo.findAll();
-    return hosts.map((h) => toHostListItem(h));
+    const deps = await loadDeps();
+    return handleListHosts(deps);
   });
 
-/**
- * Update an agent to the latest image version.
- * Bypasses the agent by connecting directly to the socket proxy.
- */
 export const updateAgent = createServerFn()
   .inputValidator(updateAgentSchema)
-  .handler(async ({ data }): Promise<UpdateAgentResult> => {
-    await ensureFeatureFlag();
-
-    const { AgentUpdateService } = await import(
-      '@/lib/services/agent-update-service'
-    );
-
-    const repo = await getHostRepo();
-    const host = await repo.findById(data.hostId);
-    if (!host) {
-      throw new Error(`Host with id ${data.hostId} not found`);
-    }
-
-    const docker = await createDockerClient(host.socket_proxy_url);
-    const updateService = new AgentUpdateService();
-    const result = await updateService.updateAgent(docker, host.name, getAgentImage());
-
-    if (result.healthy) {
-      await repo.updateStatus(host.id, 'healthy');
-      if (result.version) {
-        await repo.updateAgentVersion(host.id, result.version);
-      }
-    } else {
-      await repo.updateStatus(host.id, 'unhealthy');
-    }
-
-    return {
-      hostId: host.id,
-      healthy: result.healthy,
-      version: result.version,
-      error: result.error,
-    };
+  .handler(async ({ data }): Promise<HostOperationResult> => {
+    const baseDeps = await loadDeps();
+    const { AgentUpdateService } = await import('@/lib/services/agent-update-service');
+    const svc = new AgentUpdateService();
+    return handleUpdateAgent({
+      ...baseDeps,
+      updateAgent: async (url, name) => { const docker = await loadDockerClient(url); return svc.updateAgent(docker, name, getAgentImage()); },
+    }, data);
   });
 
-/**
- * Check the health of a specific host's agent.
- */
 export const checkHostHealth = createServerFn()
   .inputValidator(checkHostHealthSchema)
-  .handler(async ({ data }): Promise<HealthCheckResult> => {
-    await ensureFeatureFlag();
-
-    const { checkAgentHealth } = await import(
-      '@/lib/services/agent-health-service'
-    );
-
-    const repo = await getHostRepo();
-    const host = await repo.findById(data.hostId);
-    if (!host) {
-      throw new Error(`Host with id ${data.hostId} not found`);
-    }
-
-    const healthResult: HealthCheckOutcome = await checkAgentHealth(host.agent_url);
-
-    const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'error';
-    await repo.updateStatus(host.id, newStatus);
-
-    if (healthResult.version) {
-      await repo.updateAgentVersion(host.id, healthResult.version);
-    }
-
-    return {
-      hostId: host.id,
-      healthy: healthResult.healthy,
-      version: healthResult.version,
-      dockerVersion: healthResult.dockerVersion,
-      error: healthResult.error,
-    };
+  .handler(async ({ data }): Promise<HostOperationResult> => {
+    const baseDeps = await loadDeps();
+    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    return handleCheckHostHealth({ ...baseDeps, checkHealth: checkAgentHealth }, data);
   });

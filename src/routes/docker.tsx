@@ -12,7 +12,7 @@ import { getDockerEntityIcons } from '@/data/docker.functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
-import { isDockerManagementEnabled } from '@/lib/utils/feature-flags'
+import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
 import type { DockerStatsRow } from '@/types/docker'
 
 
@@ -84,7 +84,7 @@ function DockerPageContent() {
   return (
     <div className="w-full p-6">
       <PageHeader title="Docker Containers Dashboard">
-        {isDockerManagementEnabled() && (
+        {isDockerManagementEnabledClient() && (
           <Button
             component={Link}
             to="/docker/stacks"

@@ -123,8 +123,8 @@ describe('AgentUpdateService', () => {
         mockFetchFn
       );
 
-      expect(result.version).toBe('0.2.0');
       expect(result.healthy).toBe(true);
+      if (result.healthy) expect(result.version).toBe('0.2.0');
     });
 
     it('throws when container has no port bindings', async () => {
