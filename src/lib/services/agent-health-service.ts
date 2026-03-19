@@ -46,7 +46,7 @@ export async function checkAgentHealth(
       dockerVersion: data.dockerVersion,
     };
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === 'AbortError') {
+    if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       return {
         healthy: false,
         error: `Health check timed out after ${timeoutMs}ms`,

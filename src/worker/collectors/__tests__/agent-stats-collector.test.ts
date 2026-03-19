@@ -47,7 +47,7 @@ const sampleHost: ManagedHost = {
   agent_token: 'test-token-uuid',
   socket_proxy_url: 'tcp://192.168.1.10:2375',
   agent_version: '0.1.0',
-  status: 'online',
+  status: 'healthy',
   created_at: new Date('2026-01-01T00:00:00Z'),
   updated_at: new Date('2026-01-01T00:00:00Z'),
 };

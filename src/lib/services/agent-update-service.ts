@@ -100,24 +100,28 @@ export class AgentUpdateService {
   }
 
   private extractAgentPort(portBindings: Record<string, { HostPort: string }[]>): number {
-    // Get the first port binding
     const keys = Object.keys(portBindings);
-    if (keys.length === 0) return 9090;
+    if (keys.length === 0) {
+      throw new Error('Container has no port bindings; cannot determine agent port for health check');
+    }
     const binding = portBindings[keys[0]];
-    if (!binding || binding.length === 0) return 9090;
-    return Number(binding[0].HostPort) || 9090;
+    if (!binding || binding.length === 0) {
+      throw new Error('Container port binding has no host port entries');
+    }
+    const port = Number(binding[0].HostPort);
+    if (!Number.isFinite(port) || port <= 0) {
+      throw new Error(`Container port binding has invalid HostPort: ${binding[0].HostPort}`);
+    }
+    return port;
   }
 
   private extractHostFromEnv(env: string[]): string {
-    // Extract hostname from DOCKER_HOST env var (e.g., "tcp://192.168.1.10:2375")
     const dockerHostEntry = env.find((e) => e.startsWith('DOCKER_HOST='));
-    if (!dockerHostEntry) return 'localhost';
-    const dockerHostUrl = dockerHostEntry.split('=')[1];
-    try {
-      const parsed = new URL(dockerHostUrl.replace(/^tcp:\/\//, 'http://'));
-      return parsed.hostname;
-    } catch {
-      return 'localhost';
+    if (!dockerHostEntry) {
+      throw new Error('Container env is missing DOCKER_HOST; cannot determine agent host for health check');
     }
+    const dockerHostUrl = dockerHostEntry.split('=')[1];
+    const parsed = new URL(dockerHostUrl.replace(/^tcp:\/\//, 'http://'));
+    return parsed.hostname;
   }
 }

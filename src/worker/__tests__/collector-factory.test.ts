@@ -329,7 +329,7 @@ describe('createCollectorsForManagedHosts', () => {
     agent_token: 'token-1',
     socket_proxy_url: 'tcp://192.168.1.10:2375',
     agent_version: '0.1.0',
-    status: 'online',
+    status: 'healthy',
     created_at: new Date(),
     updated_at: new Date(),
   };

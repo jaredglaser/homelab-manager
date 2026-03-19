@@ -126,5 +126,43 @@ describe('AgentUpdateService', () => {
       expect(result.version).toBe('0.2.0');
       expect(result.healthy).toBe(true);
     });
+
+    it('throws when container has no port bindings', async () => {
+      const dockerNoBindings = createMockDockerode();
+      const originalGetContainer = dockerNoBindings.docker.getContainer;
+      dockerNoBindings.docker.getContainer = (_name: string) => {
+        const container = originalGetContainer(_name);
+        const originalInspect = container.inspect;
+        container.inspect = async () => {
+          const data = await originalInspect();
+          data.HostConfig.PortBindings = {};
+          return data;
+        };
+        return container;
+      };
+
+      await expect(
+        service.updateAgent(dockerNoBindings.docker, 'homeserver', 'agent:latest', mockFetchFn)
+      ).rejects.toThrow('no port bindings');
+    });
+
+    it('throws when container env is missing DOCKER_HOST', async () => {
+      const dockerNoEnv = createMockDockerode();
+      const originalGetContainer = dockerNoEnv.docker.getContainer;
+      dockerNoEnv.docker.getContainer = (_name: string) => {
+        const container = originalGetContainer(_name);
+        const originalInspect = container.inspect;
+        container.inspect = async () => {
+          const data = await originalInspect();
+          data.Config.Env = ['AGENT_TOKEN=token'];
+          return data;
+        };
+        return container;
+      };
+
+      await expect(
+        service.updateAgent(dockerNoEnv.docker, 'homeserver', 'agent:latest', mockFetchFn)
+      ).rejects.toThrow('missing DOCKER_HOST');
+    });
   });
 });

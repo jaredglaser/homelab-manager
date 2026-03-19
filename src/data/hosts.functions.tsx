@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import type { HostStatus } from '@/lib/database/repositories/host-repository';
 
 // ----- Schemas -----
 
@@ -36,7 +37,7 @@ export interface HostListItem {
   agentUrl: string;
   socketProxyUrl: string;
   agentVersion: string | null;
-  status: string;
+  status: HostStatus;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,7 +90,7 @@ function getAgentImage(): string {
  * 4. Provision agent container
  * 5. Store host record in managed_hosts
  * 6. Verify agent health
- * 7. Rollback on failure, or update status to 'online'
+ * 7. Rollback on failure, or update status to 'healthy'
  */
 export const addHost = createServerFn()
   .inputValidator(addHostSchema)
@@ -179,7 +180,7 @@ export const addHost = createServerFn()
       );
     }
 
-    const status = 'online';
+    const status: HostStatus = 'healthy';
     await repo.updateStatus(host.id, status);
 
     if (healthResult.version) {
@@ -358,12 +359,12 @@ export const updateAgent = createServerFn()
 
     // Update database
     if (result.healthy) {
-      await repo.updateStatus(host.id, 'online');
+      await repo.updateStatus(host.id, 'healthy');
       if (result.version) {
         await repo.updateAgentVersion(host.id, result.version);
       }
     } else {
-      await repo.updateStatus(host.id, 'degraded');
+      await repo.updateStatus(host.id, 'unhealthy');
     }
 
     return {
@@ -413,7 +414,7 @@ export const checkHostHealth = createServerFn()
     const healthResult = await checkAgentHealth(host.agent_url);
 
     // Update status in database
-    const newStatus = healthResult.healthy ? 'online' : 'offline';
+    const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'error';
     await repo.updateStatus(host.id, newStatus);
 
     if (healthResult.version) {

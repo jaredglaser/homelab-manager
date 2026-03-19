@@ -75,7 +75,20 @@ describe('agent-health-service', () => {
       await checkAgentHealth('http://agent:9090', undefined, fetchFn);
     });
 
-    it('returns unhealthy on timeout (AbortError)', async () => {
+    it('returns unhealthy on timeout (TimeoutError from AbortSignal.timeout)', async () => {
+      const fetchFn = mock(async () => {
+        const err = new Error('The operation timed out');
+        err.name = 'TimeoutError';
+        throw err;
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+
+      expect(result.healthy).toBe(false);
+      expect(result.error).toContain('timed out');
+    });
+
+    it('returns unhealthy on manual abort (AbortError)', async () => {
       const fetchFn = mock(async () => {
         const err = new Error('The operation was aborted');
         err.name = 'AbortError';

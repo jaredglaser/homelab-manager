@@ -28,7 +28,7 @@ const sampleRow = {
   agent_token: 'test-token-uuid',
   socket_proxy_url: 'tcp://192.168.1.10:2375',
   agent_version: '0.1.0',
-  status: 'online',
+  status: 'healthy',
   created_at: new Date('2026-01-01T00:00:00Z'),
   updated_at: new Date('2026-01-01T00:00:00Z'),
 };
@@ -59,7 +59,7 @@ describe('HostRepository', () => {
       expect(result.id).toBe(1);
       expect(result.name).toBe('homeserver');
       expect(result.agent_url).toBe('http://192.168.1.10:9090');
-      expect(result.status).toBe('online');
+      expect(result.status).toBe('healthy');
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
       expect(mock.queries[0].sql).toContain('RETURNING');
       expect(mock.queries[0].params).toContain('homeserver');
@@ -123,10 +123,10 @@ describe('HostRepository', () => {
   describe('updateStatus', () => {
     it('updates the status field and updated_at', async () => {
       mock.pushResult([]); // UPDATE returns no rows
-      await repo.updateStatus(1, 'offline');
+      await repo.updateStatus(1, 'error');
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
       expect(mock.queries[0].sql).toContain('updated_at');
-      expect(mock.queries[0].params).toContain('offline');
+      expect(mock.queries[0].params).toContain('error');
       expect(mock.queries[0].params).toContain(1);
     });
   });
