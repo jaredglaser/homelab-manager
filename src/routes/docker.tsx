@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Button } from '@mui/material'
+import { Layers } from 'lucide-react'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
@@ -10,6 +12,7 @@ import { getDockerEntityIcons } from '@/data/docker.functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
+import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
 import type { DockerStatsRow } from '@/types/docker'
 
 
@@ -80,7 +83,20 @@ function DockerPageContent() {
 
   return (
     <div className="w-full p-6">
-      <PageHeader title="Docker Containers Dashboard" />
+      <PageHeader title="Docker Containers Dashboard">
+        {isDockerManagementEnabledClient() && (
+          <Button
+            component={Link}
+            to="/docker/stacks"
+            size="small"
+            variant="outlined"
+            startIcon={<Layers size={16} />}
+            className="!normal-case !mt-2"
+          >
+            Manage Stacks
+          </Button>
+        )}
+      </PageHeader>
       <ContainerTable
         latestByEntity={stream.latestByEntity}
         rows={stream.rows}

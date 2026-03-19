@@ -31,6 +31,10 @@ html {
   --chart-tooltip-text: #1e293b; /* slate-800 */
   --indicator-active: #22c55e; /* green-500 */
   --indicator-late: #f59e0b; /* amber-500 */
+  --chart-deploy-success: #22c55e; /* green-500 */
+  --chart-deploy-failed: #ef4444; /* red-500 */
+  --chart-deploy-pending: #f59e0b; /* amber-500 */
+  --chart-deploy-in-progress: #3b82f6; /* blue-500 */
 }
 
 /* Chart colors - dark mode */
@@ -53,6 +57,10 @@ html {
   --chart-tooltip-text: #f1f5f9; /* slate-100 */
   --indicator-active: #4ade80; /* green-400 */
   --indicator-late: #fbbf24; /* amber-400 */
+  --chart-deploy-success: #4ade80; /* green-400 */
+  --chart-deploy-failed: #f87171; /* red-400 */
+  --chart-deploy-pending: #fbbf24; /* amber-400 */
+  --chart-deploy-in-progress: #60a5fa; /* blue-400 */
 }
 
 
