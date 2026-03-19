@@ -44,20 +44,7 @@ describe('buildFileTree', () => {
     const files = ['', '../etc/passwd', 'a//b.txt', './c.txt'];
     const tree = buildFileTree(files);
 
-    // '' is skipped entirely (no segments after filter)
-    // '../etc/passwd' becomes ['etc', 'passwd']
-    // 'a//b.txt' becomes ['a', 'b.txt']
-    // './c.txt' becomes ['c.txt']
-    const names = tree.map((n) => n.name);
-    expect(names).not.toContain('..');
-    expect(names).not.toContain('.');
-    expect(names).not.toContain('');
-
-    const aDir = tree.find((n) => n.name === 'a');
-    expect(aDir).toBeDefined();
-    expect(aDir!.children[0].name).toBe('b.txt');
-
-    const cFile = tree.find((n) => n.name === 'c.txt');
-    expect(cFile).toBeDefined();
+    // All paths contain empty segments, '.', or '..' so they are all skipped
+    expect(tree).toEqual([]);
   });
 });

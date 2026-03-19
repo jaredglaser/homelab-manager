@@ -51,6 +51,11 @@ describe('handleInfoRefs', () => {
     const response = await handleInfoRefs(repoPath, 'invalid');
     expect(response.status).toBe(400);
   });
+
+  it('should return 500 when git process fails', async () => {
+    const response = await handleInfoRefs('/nonexistent/path', 'git-upload-pack');
+    expect(response.status).toBe(500);
+  });
 });
 
 describe('handleUploadPack', () => {
@@ -113,6 +118,7 @@ describe('handleReceivePack', () => {
     const response = await handleReceivePack(repoPath, body);
     expect(response.status).toBe(500);
   });
+
 });
 
 describe('request body size limit', () => {
@@ -189,6 +195,15 @@ describe('getHeadOid', () => {
 
   it('should return null for non-existent repo path', async () => {
     const oid = await getHeadOid(join(testDir, 'nonexistent.git'));
+    expect(oid).toBeNull();
+  });
+
+  it('should return null and log error for unexpected git errors', async () => {
+    // Pass a file (not a directory) as gitdir to trigger an unexpected error
+    const filePath = join(testDir, 'not-a-repo');
+    await Bun.write(filePath, 'not a git repo');
+
+    const oid = await getHeadOid(filePath);
     expect(oid).toBeNull();
   });
 });

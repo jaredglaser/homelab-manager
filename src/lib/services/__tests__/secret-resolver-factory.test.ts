@@ -3,6 +3,14 @@ import { createSecretResolver } from '@/lib/services/secret-resolver-factory';
 import { NoOpSecretResolver } from '@/lib/services/secret-resolver';
 import { OpenBaoSecretResolver } from '@/lib/services/openbao-secret-resolver';
 
+describe('NoOpSecretResolver', () => {
+  test('resolveSecrets returns empty record', async () => {
+    const resolver = new NoOpSecretResolver();
+    const result = await resolver.resolveSecrets('any-stack');
+    expect(result).toEqual({});
+  });
+});
+
 describe('createSecretResolver', () => {
   const originalEnv = { ...process.env };
 
