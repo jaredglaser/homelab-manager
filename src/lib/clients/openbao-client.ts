@@ -50,6 +50,26 @@ export class OpenBaoClient {
   }
 
   /**
+   * Parse a JSON response body, wrapping parse failures with OpenBao context.
+   * Proxies or load balancers may return HTML with a 200 status — this ensures
+   * the error is actionable instead of a raw SyntaxError.
+   */
+  private async parseJsonResponse(
+    response: Response,
+    operation: string,
+    context: string,
+  ): Promise<unknown> {
+    try {
+      return await response.json();
+    } catch (error) {
+      throw new Error(
+        `OpenBao ${operation} failed for ${context}: response body is not valid JSON`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
    * Read and throw an error from a non-OK OpenBao response.
    * Includes the operation, context, status code, and any error details from the response body.
    */
@@ -93,7 +113,8 @@ export class OpenBaoClient {
       await this.throwApiError(response, 'LIST', `stack "${stack}"`);
     }
 
-    const body = await response.json();
+    const body = await this.parseJsonResponse(response, 'LIST', `stack "${stack}"`) as
+      { data?: { keys?: unknown } } | undefined;
     const keys = body?.data?.keys;
     if (!Array.isArray(keys)) {
       throw new Error(
@@ -128,7 +149,8 @@ export class OpenBaoClient {
       await this.throwApiError(response, 'GET', `stack "${stack}" key "${key}"`);
     }
 
-    const body = await response.json();
+    const body = await this.parseJsonResponse(response, 'GET', `stack "${stack}" key "${key}"`) as
+      { data?: { data?: { value?: unknown } } } | undefined;
     const value = body?.data?.data?.value;
     if (typeof value !== 'string') {
       throw new Error(
@@ -259,8 +281,13 @@ export class OpenBaoClient {
       await this.throwApiError(mountsResponse, 'GET_MOUNTS', 'sys/mounts');
     }
 
-    const mounts = await mountsResponse.json();
-    if (mounts['secret/']) {
+    const mounts = await this.parseJsonResponse(mountsResponse, 'GET_MOUNTS', 'sys/mounts');
+    if (typeof mounts !== 'object' || mounts === null || Array.isArray(mounts)) {
+      throw new Error(
+        'OpenBao GET_MOUNTS failed for sys/mounts: unexpected response shape',
+      );
+    }
+    if ((mounts as Record<string, unknown>)['secret/']) {
       return;
     }
 

@@ -66,6 +66,16 @@ describe('OpenBaoClient', () => {
         'unexpected response shape',
       );
     });
+
+    test('throws with context when 200 response is not valid JSON', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response('<html>Gateway Timeout</html>', { status: 200 }),
+      );
+
+      await expect(client.listSecrets('plex')).rejects.toThrow(
+        'response body is not valid JSON',
+      );
+    });
   });
 
   describe('getSecret', () => {
@@ -121,6 +131,16 @@ describe('OpenBaoClient', () => {
 
       await expect(client.getSecret('plex', 'KEY')).rejects.toThrow(
         'unexpected response shape',
+      );
+    });
+
+    test('throws with context when 200 response is not valid JSON', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response('<html>Bad Gateway</html>', { status: 200 }),
+      );
+
+      await expect(client.getSecret('plex', 'KEY')).rejects.toThrow(
+        'response body is not valid JSON',
       );
     });
   });
@@ -334,6 +354,26 @@ describe('OpenBaoClient', () => {
 
       await expect(client.ensureSecretsEngine()).rejects.toThrow(
         'OpenBao GET_MOUNTS failed for sys/mounts (HTTP 403): permission denied',
+      );
+    });
+
+    test('throws on unexpected mounts response shape', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify([1, 2, 3]), { status: 200 }),
+      );
+
+      await expect(client.ensureSecretsEngine()).rejects.toThrow(
+        'unexpected response shape',
+      );
+    });
+
+    test('throws with context when mounts response is not valid JSON', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response('<html>502 Bad Gateway</html>', { status: 200 }),
+      );
+
+      await expect(client.ensureSecretsEngine()).rejects.toThrow(
+        'response body is not valid JSON',
       );
     });
 
