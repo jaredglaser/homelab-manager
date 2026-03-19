@@ -3,62 +3,246 @@
 ## Prerequisites
 
 - [Bun](https://bun.sh) (package manager and runtime)
-- A Docker host with the Docker API exposed (default port `2375`)
-  > **Security warning:** Port 2375 is the **unauthenticated** Docker API. Never expose it on a public network. Bind the API to `localhost` or a trusted subnet, or secure it with [TLS](https://docs.docker.com/engine/security/protect-access/#use-tls-https-to-protect-the-docker-daemon-socket) / SSH tunneling.
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
 - *(Optional)* A host running ZFS with SSH access for pool monitoring
 - *(Optional)* A Proxmox VE cluster with an API token for monitoring
 
-## Environment Setup
+## Quick Start (Monitoring Only)
 
-A `.env` file is **required** in the project root. Create one based on `.env.example`:
-
-```env
-# Docker Configuration
-DOCKER_HOST_1="192.168.1.100"        # Docker host IP or hostname
-DOCKER_HOST_PORT_1="2375"            # Docker API port
-
-# ZFS Configuration (supports multiple hosts)
-ZFS_HOST_1="192.168.1.101"          # ZFS host IP or hostname
-ZFS_HOST_PORT_1="22"                # SSH port
-ZFS_HOST_USER_1="root"              # SSH username
-
-# Authentication - use ONE of the following:
-ZFS_HOST_PASSWORD_1="your-password" # Password-based auth
-
-# OR use key-based auth (recommended):
-# ZFS_HOST_KEY_PATH_1="/path/to/private/key"
-# ZFS_HOST_KEY_PASSPHRASE_1="optional-passphrase"
-```
-
-## Running Locally
-
-### Option 1: Docker Compose (Recommended)
+If you just want to run the dashboard with Docker monitoring:
 
 ```bash
-# Start the full stack (TimescaleDB, web server, background worker)
-docker compose up -d
-
-# View logs
-docker compose logs -f
-
-# Stop everything
-docker compose down
+bun install
+cp .env.example .env
 ```
 
-Access the UI at http://localhost:3000
+Edit `.env` with minimal settings:
 
-### Option 2: Local Development (Recommended)
+```env
+POSTGRES_DB="homelab"
+POSTGRES_USER="homelab"
+POSTGRES_PASSWORD="changeme"
+POSTGRES_PORT="5432"
+
+WORKER_ENABLED="true"
+WORKER_DOCKER_ENABLED="true"
+
+# Point at your Docker socket proxy (see "Socket Proxy Setup" below)
+DOCKER_HOST_1="host.docker.internal"
+DOCKER_HOST_PORT_1="2375"
+DOCKER_HOST_NAME_1="dev-machine"
+```
+
+Then start:
+
+```bash
+# Terminal 1: Start postgres + worker in Docker
+bun run dev:local:up
+
+# Terminal 2: Run web app locally with HMR
+bun dev
+```
+
+Open http://localhost:3000. You should see the Docker monitoring page with container stats.
+
+---
+
+## Full Feature Development
+
+To test all features (Docker stack management, secrets, agent provisioning), you need:
+
+1. A Docker socket proxy on your dev machine
+2. Sample containers to monitor
+3. OpenBao for secrets management
+4. The management feature flag enabled
+
+### Step 1: Set Up the Docker Socket Proxy
+
+The dashboard connects to Docker hosts through a [socket proxy](https://github.com/linuxserver/docker-socket-proxy) — never directly to the Docker socket. You need one running on your dev machine.
+
+Create a file called `docker-compose.socket-proxy.yml` somewhere outside this repo (e.g., `~/docker/socket-proxy/`):
+
+```yaml
+services:
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    container_name: socket-proxy
+    ports:
+      - "127.0.0.1:2375:2375"
+    environment:
+      - ALLOW_START=1
+      - ALLOW_STOP=1
+      - ALLOW_RESTARTS=1
+      - CONTAINERS=1
+      - EVENTS=1
+      - IMAGES=1
+      - INFO=1
+      - NETWORKS=1
+      - PING=1
+      - POST=1
+      - VERSION=1
+      - VOLUMES=1
+      - TZ=America/New_York
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /run
+```
+
+Start it:
+
+```bash
+docker compose -f docker-compose.socket-proxy.yml up -d
+```
+
+Verify it works:
+
+```bash
+curl http://127.0.0.1:2375/version
+```
+
+You should see a JSON response with Docker version info. This proxy will stay running across reboots (`restart: unless-stopped`).
+
+> **Note:** The proxy binds to `127.0.0.1:2375` — only accessible from your local machine. Never bind to `0.0.0.0`.
+
+### Step 2: Start Some Sample Containers
+
+You need a few containers running so the dashboard has data to display. Create a `docker-compose.sample.yml` alongside the socket proxy:
+
+```yaml
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: sample-nginx
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: sample-redis
+    restart: unless-stopped
+
+  whoami:
+    image: traefik/whoami
+    container_name: sample-whoami
+    ports:
+      - "8081:80"
+    restart: unless-stopped
+```
+
+```bash
+docker compose -f docker-compose.sample.yml up -d
+```
+
+These are small Alpine-based containers that use minimal resources.
+
+### Step 3: Configure Your `.env`
+
+Copy `.env.example` and fill in these values:
+
+```env
+# PostgreSQL
+POSTGRES_DB="homelab"
+POSTGRES_USER="homelab"
+POSTGRES_PASSWORD="changeme"
+POSTGRES_PORT="5432"
+POSTGRES_POOL_SIZE="10"
+
+# Worker — enable Docker collection
+WORKER_ENABLED="true"
+WORKER_DOCKER_ENABLED="true"
+WORKER_COLLECTION_INTERVAL_MS="1000"
+
+# Docker host — point at your socket proxy
+# Use "host.docker.internal" so the worker container can reach
+# the socket proxy running on your host machine
+DOCKER_HOST_1="host.docker.internal"
+DOCKER_HOST_PORT_1="2375"
+DOCKER_HOST_NAME_1="dev-machine"
+
+# Web server
+WEB_PORT="3000"
+
+# --- Docker Management (full feature set) ---
+DOCKER_MANAGEMENT_FEATURE_FLAG="true"
+
+# OpenBao — the dev server uses a fixed root token
+OPENBAO_URL="http://openbao:8200"
+OPENBAO_TOKEN="dev-root-token"
+
+# Compose profiles — tells Docker Compose to start OpenBao
+COMPOSE_PROFILES="management"
+```
+
+> **`host.docker.internal`** is a special DNS name that Docker Desktop and Docker Engine (with the `extra_hosts` config in our compose files) resolve to your host machine's IP. This lets the worker container reach the socket proxy running on port 2375 of your host.
+
+### Step 4: Start the Dev Stack
+
+```bash
+bun install
+
+# Terminal 1: Start postgres + worker + OpenBao + socket-proxy + agent
+docker compose -f docker-compose.local.yml -f docker-compose.agent.yml up -d --build
+
+# Terminal 2: Run web app locally
+bun dev
+```
+
+This starts:
+- **PostgreSQL** — database
+- **Worker** — background stats collector, reads agent tokens from OpenBao
+- **OpenBao** — secrets manager (dev server with `dev-root-token`)
+- **Socket proxy** — safe Docker API access for the agent
+- **Agent** — sidecar that streams container stats and handles deploys
+
+### Step 5: Verify Everything Works
+
+1. Open http://localhost:3000
+2. The **Docker** page should show your sample containers (nginx, redis, whoami) with live CPU/memory stats
+3. The **Docker > Stacks** link should appear in the sidebar (feature flag is on)
+4. OpenBao should be accessible at http://localhost:8200 (token: `dev-root-token`)
+
+Check the worker logs if stats aren't flowing:
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.agent.yml logs -f worker
+```
+
+### Stopping
+
+```bash
+# Stop the dev stack
+docker compose -f docker-compose.local.yml -f docker-compose.agent.yml down
+
+# Stop sample containers (optional, they're independent)
+docker compose -f ~/docker/socket-proxy/docker-compose.sample.yml down
+```
+
+To wipe all data and start fresh:
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.agent.yml down -v
+```
+
+---
+
+## Running Locally (Options)
+
+### Option 1: Local Dev with Docker Services (Recommended)
 
 Run the web server locally with HMR, while Docker handles the database and worker:
 
 ```bash
-bun install                    # Install dependencies
+bun install
 
 # Terminal 1: Start Docker services (postgres + worker)
-bun run dev:local:up           # Start database and worker in Docker
+bun run dev:local:up
 
 # Terminal 2: Run web app locally
-bun dev                        # Start web server on port 3000 with HMR
+bun dev
 
 # Management
 bun run dev:local:down         # Stop Docker services
@@ -70,54 +254,54 @@ bun run dev:local:logs:worker  # View worker logs only
 bun run dev:local:logs:db      # View database logs only
 ```
 
-### Option 3: Full Docker Development
+To include the management services (OpenBao, agent, socket proxy):
+
+```bash
+docker compose -f docker-compose.local.yml -f docker-compose.agent.yml up -d --build
+```
+
+### Option 2: Full Docker Development
 
 All services in Docker, with HMR for the web server:
 
 ```bash
-bun install             # Install dependencies
+bun install
 bun dev:docker:up       # Start all services in Docker
 bun dev:docker:down     # Stop all Docker services
 bun dev:docker:rebuild  # Full rebuild of all containers
 bun dev:docker:wipe     # Remove all data (fresh database)
 ```
 
-### Option 4: Manual (No Docker)
+### Option 3: Manual (No Docker)
 
 Requires an external TimescaleDB instance:
 
 ```bash
-bun install             # Install dependencies
+bun install
 bun dev                 # Start dev server (port 3000)
 bun worker              # Start background worker (separate terminal)
 ```
 
+---
+
 ## Testing
 
-Tests are written using [Bun's built-in test runner](https://bun.sh/docs/cli/test) and are organized in `__tests__/` folders alongside the source code they test.
+Tests use [Bun's built-in test runner](https://bun.sh/docs/cli/test), organized in `__tests__/` folders alongside source code.
 
 ```bash
-# Run all tests (automatically enforces coverage thresholds)
-bun test
-
-# Run tests in watch mode (no coverage enforcement)
-bun test --watch
-
-# Run tests with coverage report only (no enforcement)
-bun run test:coverage
-
-# Run coverage check independently (without re-running tests)
-bun run test:coverage:check
+bun test                    # Run all tests (enforces coverage thresholds)
+bun test --watch            # Watch mode (no coverage enforcement)
+bun run test:coverage       # Coverage report only
+bun run test:coverage:check # Coverage check without re-running tests
 ```
 
 ### Coverage Requirements
 
-- Minimum **95% function coverage**
+- Minimum **96% function coverage**
 - Minimum **99% line coverage**
-- Coverage is **automatically enforced** when running `bun test`
-- Coverage is enforced in CI pipeline
+- Automatically enforced by `bun test` and CI
 
-Test files follow the `*.test.ts` naming convention and are located in `__tests__/` directories within the same folder as the code they're testing (e.g., `src/lib/__tests__/stream-utils.test.ts` tests `src/lib/stream-utils.ts`).
+Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).
 
 ## Type Checking
 
