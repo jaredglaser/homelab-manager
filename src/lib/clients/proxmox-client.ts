@@ -7,6 +7,7 @@ import type {
   ProxmoxContainer,
   ProxmoxStorage,
   ProxmoxClusterOverview,
+  WithNode,
 } from '../../types/proxmox';
 
 // Covers both Bun's native fetch (`tls`) and Node.js-compat/undici fetch (`dispatcher`)
@@ -27,9 +28,9 @@ interface PerNodeResult {
  * Filters out template VMs and containers.
  */
 export function flattenPerNodeResults(perNodeResults: PerNodeResult[]): {
-  vms: (ProxmoxVM & { node: string })[];
-  containers: (ProxmoxContainer & { node: string })[];
-  storages: (ProxmoxStorage & { node: string })[];
+  vms: WithNode<ProxmoxVM>[];
+  containers: WithNode<ProxmoxContainer>[];
+  storages: WithNode<ProxmoxStorage>[];
 } {
   const vms = perNodeResults.flatMap((r) =>
     r.vms
@@ -52,8 +53,8 @@ export function flattenPerNodeResults(perNodeResults: PerNodeResult[]): {
  */
 export function calculateClusterTotals(
   nodes: ProxmoxNode[],
-  allVMs: (ProxmoxVM & { node: string })[],
-  allContainers: (ProxmoxContainer & { node: string })[]
+  allVMs: WithNode<ProxmoxVM>[],
+  allContainers: WithNode<ProxmoxContainer>[]
 ): ProxmoxClusterOverview['totals'] {
   const totalCpu = nodes.reduce((sum, n) => sum + n.maxcpu, 0);
   const usedCpu = nodes.reduce((sum, n) => sum + n.cpu * n.maxcpu, 0);

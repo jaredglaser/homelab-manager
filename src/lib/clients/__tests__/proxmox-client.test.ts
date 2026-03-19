@@ -387,6 +387,28 @@ describe('flattenPerNodeResults', () => {
     expect(result.containers[0].vmid).toBe(200);
   });
 
+  it('should keep VMs and containers with template=0', () => {
+    const perNodeResults = [
+      {
+        node: 'pve1',
+        vms: [
+          { vmid: 100, name: 'vm1', status: 'running', template: 0 },
+        ] as any[],
+        containers: [
+          { vmid: 200, name: 'ct1', status: 'running', template: 0 },
+        ] as any[],
+        storages: [],
+      },
+    ];
+
+    const result = flattenPerNodeResults(perNodeResults);
+
+    expect(result.vms).toHaveLength(1);
+    expect(result.vms[0].vmid).toBe(100);
+    expect(result.containers).toHaveLength(1);
+    expect(result.containers[0].vmid).toBe(200);
+  });
+
   it('should handle empty input', () => {
     const result = flattenPerNodeResults([]);
     expect(result.vms).toHaveLength(0);
@@ -425,6 +447,24 @@ describe('calculateClusterTotals', () => {
     expect(totals.stoppedVMs).toBe(1);
     expect(totals.runningContainers).toBe(1);
     expect(totals.stoppedContainers).toBe(1);
+  });
+
+  it('should count non-running statuses (paused, suspended) as stopped', () => {
+    const nodes = [
+      { node: 'pve1', status: 'online', cpu: 0, maxcpu: 4, mem: 0, maxmem: 8e9, disk: 0, maxdisk: 100e9, uptime: 3600, type: 'node', id: 'node/pve1' },
+    ] as any[];
+
+    const vms = [
+      { vmid: 100, status: 'running', node: 'pve1' },
+      { vmid: 101, status: 'paused', node: 'pve1' },
+      { vmid: 102, status: 'suspended', node: 'pve1' },
+      { vmid: 103, status: 'stopped', node: 'pve1' },
+    ] as any[];
+
+    const totals = calculateClusterTotals(nodes, vms, []);
+
+    expect(totals.runningVMs).toBe(1);
+    expect(totals.stoppedVMs).toBe(3);
   });
 
   it('should handle empty arrays', () => {
