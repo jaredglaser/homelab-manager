@@ -29,6 +29,7 @@ function buildAliases(): Record<string, string> {
     aliases['@/data/zfs.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/zfs.functions.ts', import.meta.url))
     aliases['@/data/proxmox.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/proxmox.functions.ts', import.meta.url))
     aliases['@/data/settings.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/settings.functions.ts', import.meta.url))
+    aliases['@/data/stacks.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/stacks.functions.tsx', import.meta.url))
   }
   aliases['@'] = fileURLToPath(new URL('./src', import.meta.url))
   return aliases
@@ -64,8 +65,6 @@ export default defineConfig({
     // Allow host.docker.internal so the Playwright MCP browser (in Docker) can reach the dev server
     allowedHosts: ['host.docker.internal'],
     watch: {
-      usePolling: true,
-      // 2600+ dashboard icon SVGs cause slow startup through WSL file mount
       ignored: ['**/public/icons/**'],
     },
     warmup: {

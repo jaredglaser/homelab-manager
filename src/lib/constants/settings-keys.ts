@@ -23,6 +23,9 @@ export const SETTINGS_KEYS = {
       networkSpeed: 'docker/decimals/networkSpeed',
     },
   },
+  stacks: {
+    expandedStacks: 'stacks/expandedStacks',
+  },
   zfs: {
     expandedHosts: 'zfs/expandedHosts',
     expandedPools: 'zfs/expandedPools',

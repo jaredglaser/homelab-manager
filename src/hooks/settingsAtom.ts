@@ -31,6 +31,9 @@ export interface Settings {
     expandedContainers: Set<string>;
     decimals: DecimalSettings;
   };
+  stacks: {
+    expandedStacks: Set<string>;
+  };
   zfs: {
     expandedHosts: Set<string>;
     expandedPools: Set<string>;
@@ -77,6 +80,9 @@ export const DEFAULT_SETTINGS: Settings = {
     expandedHosts: new Set(),
     expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
+  },
+  stacks: {
+    expandedStacks: new Set(),
   },
   zfs: {
     expandedHosts: new Set(),
@@ -165,6 +171,9 @@ export function parseSettings(raw: Record<string, string>): Settings {
         diskSpeed: parseBool(raw[SETTINGS_KEYS.docker.decimals.diskSpeed], DEFAULT_DECIMAL_SETTINGS.diskSpeed),
         networkSpeed: parseBool(raw[SETTINGS_KEYS.docker.decimals.networkSpeed], DEFAULT_DECIMAL_SETTINGS.networkSpeed),
       },
+    },
+    stacks: {
+      expandedStacks: parseExpandedSet(raw[SETTINGS_KEYS.stacks.expandedStacks]),
     },
     zfs: {
       expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.zfs.expandedHosts]),
