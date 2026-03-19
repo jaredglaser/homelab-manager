@@ -89,13 +89,20 @@ export class DockerCollector extends BaseCollector {
         // Periodically check for new/stopped containers
         const now = Date.now();
         if (now - lastContainerCheckTime >= CONTAINER_REFRESH_INTERVAL_MS) {
-          const changes = await this.checkForContainerChanges(docker, containers);
-          if (changes.changed) {
-            this.debugLog(
-              `[${this.name}] Container changes detected: +${changes.added} added, -${changes.removed} removed` +
-              ` (will reconnect to refresh streams)`
+          try {
+            const changes = await this.checkForContainerChanges(docker, containers);
+            if (changes.changed) {
+              this.debugLog(
+                `[${this.name}] Container changes detected: +${changes.added} added, -${changes.removed} removed` +
+                ` (will reconnect to refresh streams)`
+              );
+              break;
+            }
+          } catch (err) {
+            console.error(
+              `[${this.name}] Container refresh check failed, will retry next cycle:`,
+              err instanceof Error ? err.message : String(err)
             );
-            break;
           }
           lastContainerCheckTime = now;
         }
@@ -122,7 +129,7 @@ export class DockerCollector extends BaseCollector {
   /**
    * Upsert metadata (name, image, service_key) for all containers.
    * Handles service key migration when compose labels appear or change.
-   * Updates `this.knownContainers` as a side effect.
+   * Maintains `this.knownContainers` to track per-container state across collection cycles.
    */
   private async upsertContainerMetadata(containers: Dockerode.ContainerInfo[]): Promise<number> {
     let metadataUpdates = 0;
@@ -181,9 +188,9 @@ export class DockerCollector extends BaseCollector {
     return metadataUpdates;
   }
 
-  /** Build a database row from a stats event and the current container list. */
+  /** Build a database row from a stats event, looking up the container name from the container list and the image from `this.knownContainers`. */
   private buildStatsRow(stats: ContainerStatsWithRates, containers: Dockerode.ContainerInfo[]): DockerStatsRow {
-    const name = containerInfo(containers, stats.id);
+    const name = findContainerName(containers, stats.id);
     return {
       time: new Date(),
       host: this.hostConfig.name,
@@ -262,7 +269,7 @@ export class DockerCollector extends BaseCollector {
 }
 
 /** Find container name by ID from the container list */
-function containerInfo(containers: Dockerode.ContainerInfo[], id: string): string {
+function findContainerName(containers: Dockerode.ContainerInfo[], id: string): string {
   const info = containers.find(c => c.Id === id);
   return info?.Names[0]?.replace(/^\//, '') || id.substring(0, 12);
 }
