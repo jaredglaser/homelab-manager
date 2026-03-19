@@ -83,10 +83,23 @@ async function main() {
 
       // Also start AgentStatsCollectors for managed hosts (if feature flag is on)
       const hostRepo = new HostRepository(db.getPool());
+      let getToken: ((hostname: string) => Promise<string | null>) | undefined;
+
+      if (isDockerManagementEnabled()) {
+        const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+        const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+        const baoConfig = loadOpenBaoConfig(); // throws ZodError if env vars missing
+        const baoClient = new OpenBaoClient(baoConfig);
+        await baoClient.ensureSecretsEngine();
+        console.info('[Worker] OpenBao client initialized for managed host tokens');
+        getToken = (hostname: string) => baoClient.getHostSecret(hostname, 'agent_token');
+      }
+
       const { collectors: managedCollectors, runners: managedRunners } = await createCollectorsForManagedHosts(
         db, workerConfig, shutdownController, stack,
         isDockerManagementEnabled,
         () => hostRepo.findAll(),
+        getToken ?? (() => Promise.resolve(null)),
       );
       collectors.push(...managedCollectors);
       runners.push(...managedRunners);
