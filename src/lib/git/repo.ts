@@ -30,7 +30,7 @@ export async function initBareRepo(repoPath: string): Promise<void> {
     mkdirSync(repoPath, { recursive: true });
   }
 
-  await git.init({ fs, dir: repoPath, bare: true });
+  await git.init({ fs, dir: repoPath, bare: true, defaultBranch: 'main' });
 }
 
 /**

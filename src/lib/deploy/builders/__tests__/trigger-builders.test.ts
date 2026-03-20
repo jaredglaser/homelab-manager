@@ -16,7 +16,7 @@ const testManifest: Manifest = {
 describe('GitTriggerBuilder', () => {
   const builder = new GitTriggerBuilder();
 
-  it('builds DeployRequests for changed stacks with auto_deploy', () => {
+  it('builds DeployRequests for changed stacks with autoDeploy', () => {
     const changedStacks = new Map<string, string>([
       ['plex', 'version: "3"\nservices:\n  plex:\n    image: plexinc/pms-docker'],
       ['traefik', 'version: "3"\nservices:\n  traefik:\n    image: traefik:v3'],
