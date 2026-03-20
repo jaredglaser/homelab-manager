@@ -187,6 +187,10 @@ WEB_PORT="3000"
 DOCKER_MANAGEMENT_FEATURE_FLAG="true"
 VITE_DOCKER_MANAGEMENT_FEATURE_FLAG="true"
 
+# Git stacks repo — stores compose files in an in-app bare git repo
+GIT_REPOS_DIR="./data/repos"
+GIT_SERVER_TOKEN="dev-git-token"
+
 # OpenBao — the dev server uses a fixed root token
 OPENBAO_URL="http://openbao:8200"
 OPENBAO_TOKEN="dev-root-token"
@@ -216,7 +220,34 @@ This starts:
 - **Socket proxy** — safe Docker API access for the agent
 - **Agent** — sidecar that streams container stats and handles deploys
 
-### Step 5: Verify Everything Works
+### Step 5: Add a Stack (Optional)
+
+To test the stacks feature, clone the in-app git repo and add a compose file. See [docs/git-stacks-repo.md](git-stacks-repo.md) for full details.
+
+Quick version:
+
+```bash
+git clone http://x:dev-git-token@localhost:3000/api/git/stacks stacks
+cd stacks
+mkdir my-app
+cat > my-app/docker-compose.yml << 'EOF'
+services:
+  app:
+    image: caddy:2-alpine
+    ports:
+      - "8082:80"
+    restart: unless-stopped
+EOF
+cat > manifest.yaml << 'EOF'
+stacks:
+  my-app:
+    host: dev-machine
+    autoDeploy: false
+EOF
+git add -A && git commit -m "Add my-app stack" && git push
+```
+
+### Step 6: Verify Everything Works
 
 1. Open http://localhost:3000
 2. The **Docker** page should show your sample containers (caddy, redis, whoami) with live CPU/memory stats
