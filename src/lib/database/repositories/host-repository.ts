@@ -49,7 +49,7 @@ function rowToHost(row: ManagedHost): ManagedHost {
 }
 
 export class HostRepository {
-  constructor(private pool: Pool) {}
+  constructor(private readonly pool: Pool) {}
 
   async create(input: CreateHostInput): Promise<ManagedHost> {
     const result = await this.pool.query(

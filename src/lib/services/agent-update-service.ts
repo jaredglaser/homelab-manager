@@ -44,11 +44,10 @@ export class AgentUpdateService {
     const oldEnv = inspectData.Config.Env || [];
     const oldHostConfig = inspectData.HostConfig;
 
-    // TODO: The old container is destroyed before the new one is verified healthy.
-    // A safer approach would be to start the new container first, verify health,
-    // then remove the old one — but this requires different container names and
-    // port handling. For now, the restart policy and health check retries mitigate
-    // the risk.
+    // The old container is destroyed before the new one is verified healthy.
+    // A blue-green approach (start new, verify, then remove old) would be safer
+    // but requires different container names and port handling. The restart
+    // policy and health check retries mitigate the risk for now.
     // 3. Stop and remove the old container
     if (inspectData.State.Running) {
       await existingContainer.stop();

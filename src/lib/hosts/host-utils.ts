@@ -1,5 +1,4 @@
-import type { HostStatus } from '@/lib/database/repositories/host-repository';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { HostStatus, ManagedHost } from '@/lib/database/repositories/host-repository';
 
 /** Dockerode connection options parsed from a socket proxy URL. */
 export interface DockerodeConfig {
