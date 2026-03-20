@@ -89,6 +89,7 @@
     "@vitejs/plugin-react": "^5.1.4",
     "cross-env": "^10.1.0",
     "typescript": "^5.9.3",
+    "undici": "^7.24.5",
     "vite": "^7.3.1",
     "vitest": "^3.2.4",
     "web-vitals": "^5.1.0"
