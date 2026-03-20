@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet, useMatchRoute } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@mui/material'
 import { Layers } from 'lucide-react'
@@ -23,14 +23,22 @@ export const Route = createFileRoute('/docker')({
     queryFn: () => getDockerEntityIcons(),
     staleTime: 60_000,
   }),
-  component: DockerPageContent,
+  component: DockerLayout,
 })
+
+function DockerLayout() {
+  const matchRoute = useMatchRoute()
+  const isExactDockerRoute = matchRoute({ to: '/docker' })
+
+  if (!isExactDockerRoute) return <Outlet />
+  return <DockerContainersPage />
+}
 
 // Sparklines always show the last 35s (with 10s padding = 45s buffer).
 // The stream window must cover both the chart and sparkline requirements.
 const SPARKLINE_BUFFER_SECONDS = 45
 
-function DockerPageContent() {
+function DockerContainersPage() {
   const { general, docker, developer } = useSettings()
   const [historyTarget, setHistoryTarget] = useState<{ containerId: string; host: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
