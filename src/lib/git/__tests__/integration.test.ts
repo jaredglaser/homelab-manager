@@ -28,7 +28,7 @@ describe('Git management integration', () => {
       files: [
         {
           path: 'manifest.yaml',
-          content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n',
+          content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n',
         },
         {
           path: 'plex/docker-compose.yml',
@@ -90,7 +90,7 @@ describe('Git management integration', () => {
     const updatedManifest = await readFileFromRepo(repoPath, 'manifest.yaml');
     const updatedParsed = parseManifest(updatedManifest);
     expect(updatedParsed.stacks.traefik).toBeDefined();
-    expect(updatedParsed.stacks.traefik.auto_deploy).toBe(false);
+    expect(updatedParsed.stacks.traefik.autoDeploy).toBe(false);
 
     // 9. Final log should have 3 commits
     const finalLog = await getLog(repoPath, 10);

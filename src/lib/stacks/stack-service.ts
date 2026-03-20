@@ -1,16 +1,44 @@
 /**
  * Stack service — integration layer between git management and deploy pipeline.
  * Called by server functions in src/data/stacks.functions.tsx.
- *
- * TODO: Wire up to actual git repo operations and deploy pipeline.
- * For now, returns stub data so the UI compiles and can be developed against.
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
+import { loadGitConfig } from '@/lib/config/git-config';
+import { readFileFromRepo } from '@/lib/git/repo';
+import { parseManifest } from '@/lib/git/manifest';
 
 export async function getStackSummaries(): Promise<StackSummary[]> {
-  // TODO: Read manifest from git repo, cross-reference deploy_history
-  return [];
+  try {
+    const gitConfig = loadGitConfig();
+    if (!gitConfig.enabled) {
+      return [];
+    }
+
+    let manifestContent: string;
+    try {
+      manifestContent = await readFileFromRepo(gitConfig.repoPath, 'manifest.yaml');
+    } catch {
+      // Repo has no commits or manifest.yaml doesn't exist yet
+      return [];
+    }
+
+    const manifest = parseManifest(manifestContent);
+
+    return Object.entries(manifest.stacks).map(([name, entry]) => ({
+      name,
+      host: entry.host,
+      syncStatus: 'unknown' as const,
+      deployMode: entry.autoDeploy ? ('auto' as const) : ('manual' as const),
+      lastDeployAt: null,
+      lastDeployStatus: null,
+      containerCount: 0,
+      icon: null,
+    }));
+  } catch (error) {
+    console.error('[StackService] Failed to load stack summaries:', error);
+    return [];
+  }
 }
 
 export async function getStackDetailByName(

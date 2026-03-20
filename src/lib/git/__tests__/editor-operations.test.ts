@@ -15,7 +15,7 @@ describe('saveAndCommitFile', () => {
     await initBareRepo(repoPath);
     await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'services:\n  plex:\n    image: plex:v1\n' },
       ],
       message: 'initial',
@@ -92,7 +92,7 @@ describe('updateManifest', () => {
     await initBareRepo(repoPath);
     await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
       ],
       message: 'initial',
       author: { name: 'system', email: 'system@localhost' },

@@ -63,7 +63,7 @@ export async function buildDeployRequests(
       commitSha: toOid,
       secrets: {},
       action: 'deploy',
-      autoApproved: stackConfig.auto_deploy,
+      autoApproved: stackConfig.autoDeploy,
     });
   }
 

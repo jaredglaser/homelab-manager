@@ -49,7 +49,7 @@ export async function updateManifest(
 
   manifest.stacks[options.stackName] = {
     host: options.host,
-    auto_deploy: options.autoDeploy,
+    autoDeploy: options.autoDeploy,
   };
 
   const newContent = yaml.dump(manifest, {
