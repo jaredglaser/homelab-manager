@@ -202,7 +202,7 @@ COMPOSE_PROFILES="management"
 bun install
 
 # Terminal 1: Start postgres + worker + OpenBao + socket-proxy + agent
-docker compose -f docker-compose.local.yml -f docker-compose.agent.yml up -d --build
+bun run dev:full:up
 
 # Terminal 2: Run web app locally
 bun dev
@@ -225,14 +225,26 @@ This starts:
 Check the worker logs if stats aren't flowing:
 
 ```bash
-docker compose -f docker-compose.local.yml -f docker-compose.agent.yml logs -f worker
+bun run dev:full:logs:worker
+```
+
+### Management Commands
+
+```bash
+bun run dev:full:up        # Start all services (postgres, worker, openbao, socket-proxy, agent)
+bun run dev:full:down      # Stop all services
+bun run dev:full:restart   # Recreate containers (picks up .env changes)
+bun run dev:full:rebuild   # Full rebuild (no cache) and restart
+bun run dev:full:wipe      # Stop and delete all volumes (fresh database)
+bun run dev:full:logs      # Tail all service logs
+bun run dev:full:logs:worker  # Worker logs only
+bun run dev:full:logs:agent   # Agent logs only
 ```
 
 ### Stopping
 
 ```bash
-# Stop the dev stack
-docker compose -f docker-compose.local.yml -f docker-compose.agent.yml down
+bun run dev:full:down
 
 # Stop sample containers (optional, they're independent)
 docker compose -f ~/docker/socket-proxy/docker-compose.sample.yml down
@@ -241,7 +253,7 @@ docker compose -f ~/docker/socket-proxy/docker-compose.sample.yml down
 To wipe all data and start fresh:
 
 ```bash
-docker compose -f docker-compose.local.yml -f docker-compose.agent.yml down -v
+bun run dev:full:wipe
 ```
 
 ---
@@ -271,10 +283,10 @@ bun run dev:local:logs:worker  # View worker logs only
 bun run dev:local:logs:db      # View database logs only
 ```
 
-To include the management services (OpenBao, agent, socket proxy):
+To include the management services (OpenBao, agent, socket proxy), use `dev:full:*` instead:
 
 ```bash
-docker compose -f docker-compose.local.yml -f docker-compose.agent.yml up -d --build
+bun run dev:full:up
 ```
 
 ### Option 2: Full Docker Development

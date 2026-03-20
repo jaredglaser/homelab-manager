@@ -18,6 +18,16 @@ bun run dev:local:rebuild     # Full rebuild (no cache) and restart
 bun run dev:local:wipe        # Stop Docker services and delete volumes
 bun run dev:local:logs        # Tail all Docker service logs
 
+# Full feature dev (includes agent, socket-proxy, OpenBao)
+bun run dev:full:up           # Start all services (local + agent overlay)
+bun run dev:full:down         # Stop all services
+bun run dev:full:restart      # Recreate containers (picks up .env changes)
+bun run dev:full:rebuild      # Full rebuild (no cache) and restart
+bun run dev:full:wipe         # Stop and delete all volumes
+bun run dev:full:logs         # Tail all service logs
+bun run dev:full:logs:worker  # Worker logs only
+bun run dev:full:logs:agent   # Agent logs only
+
 # Testing & Build
 bun run typecheck             # TypeScript type checking
 bun test                      # Run all tests (enforces 96%/99% coverage)
