@@ -202,7 +202,7 @@ COMPOSE_PROFILES="management"
 bun install
 
 # Terminal 1: Start postgres + worker + OpenBao + socket-proxy + agent
-bun run dev:full:up
+bun run dev:local:up
 
 # Terminal 2: Run web app locally
 bun dev
@@ -225,26 +225,26 @@ This starts:
 Check the worker logs if stats aren't flowing:
 
 ```bash
-bun run dev:full:logs:worker
+bun run dev:local:logs:worker
 ```
 
 ### Management Commands
 
 ```bash
-bun run dev:full:up        # Start all services (postgres, worker, openbao, socket-proxy, agent)
-bun run dev:full:down      # Stop all services
-bun run dev:full:restart   # Recreate containers (picks up .env changes)
-bun run dev:full:rebuild   # Full rebuild (no cache) and restart
-bun run dev:full:wipe      # Stop and delete all volumes (fresh database)
-bun run dev:full:logs      # Tail all service logs
-bun run dev:full:logs:worker  # Worker logs only
-bun run dev:full:logs:agent   # Agent logs only
+bun run dev:local:up        # Start all services (postgres, worker, openbao, socket-proxy, agent)
+bun run dev:local:down      # Stop all services
+bun run dev:local:restart   # Recreate containers (picks up .env changes)
+bun run dev:local:rebuild   # Full rebuild (no cache) and restart
+bun run dev:local:wipe      # Stop and delete all volumes (fresh database)
+bun run dev:local:logs      # Tail all service logs
+bun run dev:local:logs:worker  # Worker logs only
+bun run dev:local:logs:agent   # Agent logs only
 ```
 
 ### Stopping
 
 ```bash
-bun run dev:full:down
+bun run dev:local:down
 
 # Stop sample containers (optional, they're independent)
 docker compose -f ~/docker/socket-proxy/docker-compose.sample.yml down
@@ -253,7 +253,7 @@ docker compose -f ~/docker/socket-proxy/docker-compose.sample.yml down
 To wipe all data and start fresh:
 
 ```bash
-bun run dev:full:wipe
+bun run dev:local:wipe
 ```
 
 ---
@@ -281,12 +281,6 @@ bun run dev:local:wipe         # Remove all data (fresh database)
 bun run dev:local:logs         # View all Docker logs
 bun run dev:local:logs:worker  # View worker logs only
 bun run dev:local:logs:db      # View database logs only
-```
-
-To include the management services (OpenBao, agent, socket proxy), use `dev:full:*` instead:
-
-```bash
-bun run dev:full:up
 ```
 
 ### Option 2: Full Docker Development
