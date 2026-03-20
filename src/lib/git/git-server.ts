@@ -1,12 +1,13 @@
 /**
  * Git HTTP smart protocol handlers.
- * Shells out to `git upload-pack` and `git receive-pack` via Bun.spawn(),
+ * Shells out to `git upload-pack` and `git receive-pack` via child_process.spawn(),
  * and uses isomorphic-git for ref resolution.
- * This is a server-only module, so static imports are fine.
- * Dynamic imports are only needed in route files to avoid client bundle pollution.
+ * Uses child_process (not Bun.spawn) for compatibility with Vite SSR dev mode
+ * which runs under Node.js rather than Bun.
  */
 import git from 'isomorphic-git';
 import fs from 'fs';
+import { spawn } from 'child_process';
 import { withRepoLock } from '@/lib/git/repo';
 
 const VALID_SERVICES = ['git-upload-pack', 'git-receive-pack'] as const;
@@ -26,16 +27,7 @@ export async function handleInfoRefs(
     return new Response('Invalid service', { status: 400 });
   }
 
-  const proc = Bun.spawn([service, '--stateless-rpc', '--advertise-refs', repoPath], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).arrayBuffer(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  const { stdout, stderr, exitCode } = await spawnGit([service, '--stateless-rpc', '--advertise-refs', repoPath]);
 
   if (exitCode !== 0) {
     console.error(`[GitServer] ${service} --advertise-refs failed:`, stderr);
@@ -110,26 +102,10 @@ async function runGitService(
     return new Response('Payload too large', { status: 413 });
   }
 
-  const proc = Bun.spawn([service, '--stateless-rpc', repoPath], {
-    stdin: 'pipe',
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-
-  // Bun.spawn() does not accept a Buffer for stdin directly.
-  // Instead, spawn with stdin: "pipe", write the buffer, and close.
-  if (stdinBuffer && proc.stdin) {
-    proc.stdin.write(stdinBuffer);
-  }
-  if (proc.stdin) {
-    proc.stdin.end();
-  }
-
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).arrayBuffer(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
+  const { stdout, stderr, exitCode } = await spawnGit(
+    [service, '--stateless-rpc', repoPath],
+    stdinBuffer,
+  );
 
   if (exitCode !== 0) {
     console.error(`[GitServer] ${service} failed (exit ${exitCode}):`, stderr);
@@ -142,6 +118,38 @@ async function runGitService(
       'Content-Type': `application/x-${service}-result`,
       'Cache-Control': 'no-cache',
     },
+  });
+}
+
+/** Spawn a git process and collect stdout/stderr. Works in both Bun and Node.js. */
+function spawnGit(
+  args: string[],
+  stdinData?: Buffer,
+): Promise<{ stdout: ArrayBuffer; stderr: string; exitCode: number }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(args[0], args.slice(1));
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+
+    proc.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    proc.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      const stdout = Buffer.concat(stdoutChunks);
+      const stderr = Buffer.concat(stderrChunks).toString();
+      resolve({
+        stdout: stdout.buffer.slice(stdout.byteOffset, stdout.byteOffset + stdout.byteLength),
+        stderr,
+        exitCode: code ?? 1,
+      });
+    });
+
+    if (stdinData) {
+      proc.stdin.write(stdinData);
+    }
+    proc.stdin.end();
   });
 }
 
