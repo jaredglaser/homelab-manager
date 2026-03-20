@@ -185,6 +185,7 @@ WEB_PORT="3000"
 
 # --- Docker Management (full feature set) ---
 DOCKER_MANAGEMENT_FEATURE_FLAG="true"
+VITE_DOCKER_MANAGEMENT_FEATURE_FLAG="true"
 
 # OpenBao — the dev server uses a fixed root token
 OPENBAO_URL="http://openbao:8200"
