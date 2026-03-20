@@ -44,8 +44,9 @@ POSTGRES_PORT="5432"
 WORKER_ENABLED="true"
 WORKER_DOCKER_ENABLED="true"
 
-# Point at your Docker socket proxy (see "Socket Proxy Setup" below)
-DOCKER_HOST_1="host.docker.internal"
+# Docker host — use "socket-proxy" when using the agent overlay,
+# or "host.docker.internal" if running a standalone socket proxy on the host
+DOCKER_HOST_1="socket-proxy"
 DOCKER_HOST_PORT_1="2375"
 DOCKER_HOST_NAME_1="dev-machine"
 ```
@@ -173,10 +174,9 @@ WORKER_ENABLED="true"
 WORKER_DOCKER_ENABLED="true"
 WORKER_COLLECTION_INTERVAL_MS="1000"
 
-# Docker host — point at your socket proxy
-# Use "host.docker.internal" so the worker container can reach
-# the socket proxy running on your host machine
-DOCKER_HOST_1="host.docker.internal"
+# Docker host — the socket proxy from docker-compose.agent.yml
+# "socket-proxy" is the service name on the shared homelab-network
+DOCKER_HOST_1="socket-proxy"
 DOCKER_HOST_PORT_1="2375"
 DOCKER_HOST_NAME_1="dev-machine"
 
@@ -194,7 +194,7 @@ OPENBAO_TOKEN="dev-root-token"
 COMPOSE_PROFILES="management"
 ```
 
-> **`host.docker.internal`** is a special DNS name that Docker Desktop and Docker Engine (with the `extra_hosts` config in our compose files) resolve to your host machine's IP. This lets the worker container reach the socket proxy running on port 2375 of your host.
+> **`socket-proxy`** is the Docker Compose service name from `docker-compose.agent.yml`. Since the worker and socket proxy are on the same `homelab-network`, Docker's internal DNS resolves the name automatically. If you run a standalone socket proxy on the host instead, use `host.docker.internal` (which resolves to the host machine's IP).
 
 ### Step 4: Start the Dev Stack
 
