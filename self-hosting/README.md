@@ -105,6 +105,10 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 
 > **Docker host setup:** Rather than exposing the raw Docker daemon socket over TCP, run a **Docker socket proxy** on each monitored host. [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy) binds to a TCP port and forwards only the API endpoints you allow — containers, stats, and similar read-only calls. Point `DOCKER_HOST_1` at the proxy's address and port. This is significantly safer than exposing the full daemon socket.
 >
+> **Local deployment** (homelab-manager runs on the same host): Bind the socket proxy to `127.0.0.1:2375` and set `DOCKER_HOST_1` to `host.docker.internal` (or run the worker with `network_mode: host`) so the container can reach the host's localhost.
+>
+> **Remote deployment** (monitoring a separate host): Bind the socket proxy to `0.0.0.0:2375` (or the host's specific management IP) and set `DOCKER_HOST_1` to that host's IP/hostname. Restrict access via firewall rules or a dedicated management VLAN — only the homelab-manager worker should reach the proxy port.
+>
 > Example socket proxy compose service:
 >
 > ```yaml
@@ -113,14 +117,14 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 >     image: lscr.io/linuxserver/socket-proxy:latest
 >     container_name: socket-proxy
 >     ports:
->       - 127.0.0.1:2375:2375  # Bind to localhost only — do not expose to the network
+>       - 127.0.0.1:2375:2375  # Local: bind to localhost. Remote: change to 0.0.0.0:2375
 >     environment:
 >       - CONTAINERS=1
 >       - EVENTS=1
 >       - INFO=1
 >       - PING=1
 >       - VERSION=1
->       - TZ=America/New_York
+>       - TZ=America/New_York  # Set to your local timezone
 >     volumes:
 >       - /var/run/docker.sock:/var/run/docker.sock:ro
 >     restart: unless-stopped

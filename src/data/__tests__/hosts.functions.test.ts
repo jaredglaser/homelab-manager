@@ -172,13 +172,13 @@ describe('hosts.functions module', () => {
     // without hitting real network. Schema validation is tested directly
     // in the addHostSchema describe block below.
 
-    it('removeHost rejects non-positive hostId', async () => {
-      // With flag off, throws before any network call
+    it('removeHost with invalid hostId still hits feature gate first', async () => {
+      // With flag off, throws the feature-flag error before validation runs
       delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
       const mod = await import('../hosts.functions');
       await expect(
         mod.removeHost({ data: { hostId: 0 } })
-      ).rejects.toThrow();
+      ).rejects.toThrow('Docker management feature is not enabled');
     });
   });
 

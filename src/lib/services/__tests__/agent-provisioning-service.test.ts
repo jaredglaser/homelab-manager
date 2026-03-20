@@ -79,7 +79,7 @@ describe('AgentProvisioningService', () => {
   let mockDocker: ReturnType<typeof createMockDockerode>;
 
   const defaultOptions: ProvisionAgentOptions = {
-    hostName: 'homeserver',
+    hostId: 1,
     agentPort: 9090,
     agentToken: 'test-token-uuid',
     agentImage: 'ghcr.io/org/homelab-manager-agent:latest',
@@ -100,7 +100,7 @@ describe('AgentProvisioningService', () => {
     it('creates a container with the correct name convention', async () => {
       await service.provision(mockDocker.docker, defaultOptions);
       expect(mockDocker.createdContainers).toHaveLength(1);
-      expect(mockDocker.createdContainers[0].name).toBe('homelab-agent-homeserver');
+      expect(mockDocker.createdContainers[0].name).toBe('homelab-agent-1');
     });
 
     it('passes AGENT_TOKEN and DOCKER_HOST as env vars', async () => {
@@ -127,7 +127,7 @@ describe('AgentProvisioningService', () => {
 
     it('returns the agent URL using host IP from socket proxy URL', async () => {
       const result = await service.provision(mockDocker.docker, defaultOptions);
-      expect(result.containerName).toBe('homelab-agent-homeserver');
+      expect(result.containerName).toBe('homelab-agent-1');
       expect(result.agentUrl).toBe('http://192.168.1.10:9090');
     });
 
@@ -143,7 +143,7 @@ describe('AgentProvisioningService', () => {
   describe('removeAgent', () => {
     it('stops and removes the container', async () => {
       mockDocker.setContainerRunning(true);
-      await service.removeAgent(mockDocker.docker, 'homeserver');
+      await service.removeAgent(mockDocker.docker, 1);
       expect(mockDocker.stoppedContainers).toHaveLength(1);
       expect(mockDocker.removedContainers).toHaveLength(1);
     });
@@ -151,14 +151,14 @@ describe('AgentProvisioningService', () => {
     it('handles container not found gracefully', async () => {
       mockDocker.setContainerExists(false);
       // Should not throw
-      await service.removeAgent(mockDocker.docker, 'nonexistent');
+      await service.removeAgent(mockDocker.docker, 999);
     });
 
     it('handles already-stopped container', async () => {
       mockDocker.setContainerExists(true);
       mockDocker.setContainerRunning(false);
       // stop() will be called but that's fine — Dockerode handles it
-      await service.removeAgent(mockDocker.docker, 'homeserver');
+      await service.removeAgent(mockDocker.docker, 1);
       expect(mockDocker.removedContainers).toHaveLength(1);
     });
   });

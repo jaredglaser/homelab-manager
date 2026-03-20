@@ -5,7 +5,7 @@ import type {
   UpdateAgentResult,
 } from '@/data/hosts.functions';
 
-const mockHosts: HostListItem[] = [
+const mockHosts: readonly HostListItem[] = [
   {
     id: 1,
     name: 'homeserver',
@@ -30,6 +30,7 @@ const mockHosts: HostListItem[] = [
 
 let nextMockId = mockHosts.length + 1;
 
+/** Intentionally stateless — returns a plausible result without mutating mockHosts. Demo mode shows a fixed set of hosts. */
 export async function addHost(_data: {
   name: string;
   socketProxyUrl: string;
@@ -49,6 +50,7 @@ export async function addHost(_data: {
   return { host: newHost };
 }
 
+/** Intentionally stateless — returns success without mutating mockHosts. */
 export async function removeHost(_data: {
   hostId: number;
 }): Promise<{ success: boolean; containerRemoved: boolean }> {
@@ -56,7 +58,7 @@ export async function removeHost(_data: {
 }
 
 export async function listHosts(): Promise<HostListItem[]> {
-  return mockHosts;
+  return [...mockHosts];
 }
 
 export async function updateAgent(_data: {

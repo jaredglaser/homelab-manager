@@ -4,9 +4,9 @@ import {
   toHostListItem,
   retryHealthCheck,
   getAgentImage,
-} from '@/lib/hosts/host-utils';
-import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+} from '../host-utils';
+import type { HealthCheckOutcome } from '../host-utils';
+import type { ManagedHost } from '../../database/repositories/host-repository';
 
 describe('parseDockerodeConfig', () => {
   test('parses tcp:// URL', () => {

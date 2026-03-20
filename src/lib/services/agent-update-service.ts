@@ -28,11 +28,11 @@ export class AgentUpdateService {
    */
   async updateAgent(
     docker: Dockerode,
-    hostName: string,
+    hostId: number,
     newImage: string,
     fetchFn: typeof fetch = globalThis.fetch
   ): Promise<AgentUpdateResult> {
-    const containerName = `${CONTAINER_NAME_PREFIX}${hostName}`;
+    const containerName = `${CONTAINER_NAME_PREFIX}${hostId}`;
 
     // 1. Pull the new image
     await pullImage(docker, newImage);

@@ -39,14 +39,14 @@ export class ManagedHostsRepository {
 
   async updateStatus(id: number, status: ManagedHostStatus): Promise<void> {
     await this.pool.query(
-      `UPDATE managed_hosts SET status = $2 WHERE id = $1`,
+      `UPDATE managed_hosts SET status = $2, updated_at = NOW() WHERE id = $1`,
       [id, status]
     );
   }
 
   async updateAgentVersion(id: number, version: string): Promise<void> {
     await this.pool.query(
-      `UPDATE managed_hosts SET agent_version = $2 WHERE id = $1`,
+      `UPDATE managed_hosts SET agent_version = $2, updated_at = NOW() WHERE id = $1`,
       [id, version]
     );
   }

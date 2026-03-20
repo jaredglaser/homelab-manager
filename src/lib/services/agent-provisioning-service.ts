@@ -2,7 +2,7 @@ import type Dockerode from 'dockerode';
 import { pullImage } from '@/lib/services/docker-image-utils';
 
 export interface ProvisionAgentOptions {
-  hostName: string;
+  hostId: number;
   agentPort: number;
   agentToken: string;
   agentImage: string;
@@ -25,10 +25,10 @@ const STACKS_MOUNT_PATH = '/opt/homelab-manager/stacks';
  */
 export class AgentProvisioningService {
   /**
-   * Build the standard container name for a host.
+   * Build the standard container name for a host using its immutable DB ID.
    */
-  getContainerName(hostName: string): string {
-    return `${CONTAINER_NAME_PREFIX}${hostName}`;
+  getContainerName(hostId: number): string {
+    return `${CONTAINER_NAME_PREFIX}${hostId}`;
   }
 
   /**
@@ -42,7 +42,7 @@ export class AgentProvisioningService {
     docker: Dockerode,
     options: ProvisionAgentOptions
   ): Promise<ProvisionAgentResult> {
-    const containerName = this.getContainerName(options.hostName);
+    const containerName = this.getContainerName(options.hostId);
 
     // Pull the agent image
     await pullImage(docker, options.agentImage);
@@ -64,6 +64,8 @@ export class AgentProvisioningService {
       },
       HostConfig: {
         Binds: [`${STACKS_VOLUME}:${STACKS_MOUNT_PATH}`],
+        // TODO: investigate binding to a specific HostIp (e.g. management interface)
+        // instead of 0.0.0.0 to limit agent exposure to the management network
         PortBindings: {
           [`${options.agentPort}/tcp`]: [{ HostPort: String(options.agentPort) }],
         },
@@ -87,8 +89,8 @@ export class AgentProvisioningService {
    * Stops the container if running, then removes it.
    * No-op if the container does not exist.
    */
-  async removeAgent(docker: Dockerode, hostName: string): Promise<void> {
-    const containerName = this.getContainerName(hostName);
+  async removeAgent(docker: Dockerode, hostId: number): Promise<void> {
+    const containerName = this.getContainerName(hostId);
     await this.removeExistingContainer(docker, containerName);
   }
 
