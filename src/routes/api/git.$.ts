@@ -63,7 +63,7 @@ export const Route = createFileRoute('/api/git/$')({
           '@/lib/git/git-http'
         );
         const { handleInfoRefs } = await import('@/lib/git/git-server');
-        const { initBareRepo } = await import('@/lib/git/repo');
+        const { ensureRepoInitialized } = await import('@/lib/git/init-repo');
 
         const url = new URL(request.url);
         const pathInfo = parseGitPath(url.pathname);
@@ -82,7 +82,7 @@ export const Route = createFileRoute('/api/git/$')({
         }
         const repoPath = config.repoPath;
 
-        await initBareRepo(repoPath);
+        await ensureRepoInitialized();
 
         const service = url.searchParams.get('service');
         if (!service) {
@@ -111,7 +111,7 @@ export const Route = createFileRoute('/api/git/$')({
           handleReceivePack,
           getHeadOid,
         } = await import('@/lib/git/git-server');
-        const { initBareRepo } = await import('@/lib/git/repo');
+        const { ensureRepoInitialized } = await import('@/lib/git/init-repo');
 
         const url = new URL(request.url);
         const pathInfo = parseGitPath(url.pathname);
@@ -126,7 +126,7 @@ export const Route = createFileRoute('/api/git/$')({
         }
         const repoPath = config.repoPath;
 
-        await initBareRepo(repoPath);
+        await ensureRepoInitialized();
 
         if (isGitUploadPackRequest('POST', pathInfo.action)) {
           return handleUploadPack(repoPath, request.body);
