@@ -7,19 +7,26 @@ import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stack
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
+import { saveAndCommitFile } from '@/lib/git/editor-operations';
+
+const COMPOSE_FILENAME = 'docker-compose.yml';
+const MANIFEST_FILENAME = 'manifest.yaml';
+const SYSTEM_AUTHOR = { name: 'homelab-manager', email: 'homelab-manager@localhost' };
+
+function getRepoPath(): string | null {
+  const config = loadGitConfig();
+  return config.enabled ? config.repoPath : null;
+}
 
 export async function getStackSummaries(): Promise<StackSummary[]> {
   try {
-    const gitConfig = loadGitConfig();
-    if (!gitConfig.enabled) {
-      return [];
-    }
+    const repoPath = getRepoPath();
+    if (!repoPath) return [];
 
     let manifestContent: string;
     try {
-      manifestContent = await readFileFromRepo(gitConfig.repoPath, 'manifest.yaml');
+      manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
     } catch {
-      // Repo has no commits or manifest.yaml doesn't exist yet
       return [];
     }
 
@@ -42,10 +49,41 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
 }
 
 export async function getStackDetailByName(
-  _stackName: string,
+  stackName: string,
 ): Promise<StackDetail | null> {
-  // TODO: Read compose file from git repo, extract variables
-  return null;
+  try {
+    const repoPath = getRepoPath();
+    if (!repoPath) return null;
+
+    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+    const manifest = parseManifest(manifestContent);
+    const entry = manifest.stacks[stackName];
+    if (!entry) return null;
+
+    let composeContent = '';
+    try {
+      composeContent = await readFileFromRepo(repoPath, `${stackName}/${COMPOSE_FILENAME}`);
+    } catch {
+      // Stack is in manifest but compose file doesn't exist yet
+    }
+
+    const variableNames = extractVariableNames(composeContent);
+
+    return {
+      name: stackName,
+      host: entry.host,
+      syncStatus: 'unknown',
+      deployMode: entry.autoDeploy ? 'auto' : 'manual',
+      composeContent,
+      lastDeployCommitSha: null,
+      currentCommitSha: '',
+      variableNames,
+      icon: null,
+    };
+  } catch (error) {
+    console.error(`[StackService] Failed to load stack detail for "${stackName}":`, error);
+    return null;
+  }
 }
 
 export async function triggerStackDeploy(params: {
@@ -53,7 +91,7 @@ export async function triggerStackDeploy(params: {
   host: string;
   action: 'deploy' | 'teardown' | 'restart';
 }): Promise<{ deployId: number }> {
-  // TODO: Build DeployRequest via UITriggerBuilder, execute pipeline
+  // TODO: Build DeployRequest via UITriggerBuilder, dispatch to agent
   console.error(`[StackService] Deploy requested: ${params.action} ${params.stack} on ${params.host}`);
   return { deployId: 0 };
 }
@@ -67,11 +105,18 @@ export async function getStackDeployHistory(
 }
 
 export async function saveStackComposeFile(
-  _stackName: string,
-  _content: string,
+  stackName: string,
+  content: string,
 ): Promise<{ commitSha: string }> {
-  // TODO: Use saveAndCommitFile from editor-operations
-  return { commitSha: 'stub' };
+  const repoPath = getRepoPath();
+  if (!repoPath) throw new Error('Git management is not enabled');
+
+  return saveAndCommitFile(repoPath, {
+    filePath: `${stackName}/${COMPOSE_FILENAME}`,
+    content,
+    author: SYSTEM_AUTHOR,
+    message: `Update ${stackName}/${COMPOSE_FILENAME}`,
+  });
 }
 
 export async function updateStackIconSlug(
@@ -79,4 +124,15 @@ export async function updateStackIconSlug(
   _iconSlug: string,
 ): Promise<void> {
   // TODO: Store icon in entity_metadata
+}
+
+/** Extract ${VAR_NAME} references from compose content. */
+function extractVariableNames(content: string): string[] {
+  const regex = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::-[^}]*)?\}/g;
+  const vars = new Set<string>();
+  let match: RegExpMatchArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    vars.add(match[1]);
+  }
+  return Array.from(vars).sort();
 }
