@@ -37,7 +37,7 @@ ENV STACKS_DIR=/opt/homelab-manager/stacks
 
 EXPOSE 9090
 
-RUN adduser --disabled-password --gecos "" agent && \
+RUN useradd --create-home --shell /bin/sh agent && \
     mkdir -p /opt/homelab-manager/stacks && \
     chown -R agent:agent /opt/homelab-manager/stacks /app
 
