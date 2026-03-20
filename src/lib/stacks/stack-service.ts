@@ -4,6 +4,7 @@
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
+import type { DeployRecord } from '@/lib/deploy/types';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
@@ -97,11 +98,33 @@ export async function triggerStackDeploy(params: {
 }
 
 export async function getStackDeployHistory(
-  _stackName: string,
-  _limit: number,
+  stackName: string,
+  limit: number,
 ): Promise<StackDeployRecord[]> {
-  // TODO: Query deploy_history table via DeployRepository
-  return [];
+  try {
+    const repoPath = getRepoPath();
+    if (!repoPath) return [];
+
+    // Look up host from manifest
+    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+    const manifest = parseManifest(manifestContent);
+    const entry = manifest.stacks[stackName];
+    if (!entry) return [];
+
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+
+    const dbConfig = loadDatabaseConfig();
+    const dbClient = await databaseConnectionManager.getClient(dbConfig);
+    const repo = new DeployRepository(dbClient.getPool());
+
+    const records = await repo.getDeployHistory(stackName, entry.host, limit);
+    return records.map(toStackDeployRecord);
+  } catch (error) {
+    console.error(`[StackService] Failed to load deploy history for "${stackName}":`, error);
+    return [];
+  }
 }
 
 export async function saveStackComposeFile(
@@ -120,10 +143,31 @@ export async function saveStackComposeFile(
 }
 
 export async function updateStackIconSlug(
-  _stackName: string,
-  _iconSlug: string,
+  stackName: string,
+  iconSlug: string,
 ): Promise<void> {
-  // TODO: Store icon in entity_metadata
+  try {
+    const repoPath = getRepoPath();
+    if (!repoPath) return;
+
+    // Look up host from manifest to build entity path
+    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+    const manifest = parseManifest(manifestContent);
+    const entry = manifest.stacks[stackName];
+    if (!entry) return;
+
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+
+    const dbConfig = loadDatabaseConfig();
+    const dbClient = await databaseConnectionManager.getClient(dbConfig);
+    const repo = new StatsRepository(dbClient.getPool());
+
+    await repo.upsertEntityMetadata('docker', `${entry.host}/${stackName}`, 'icon', iconSlug);
+  } catch (error) {
+    console.error(`[StackService] Failed to update icon for "${stackName}":`, error);
+  }
 }
 
 /** Extract ${VAR_NAME} references from compose content. */
@@ -135,4 +179,19 @@ function extractVariableNames(content: string): string[] {
     vars.add(match[1]);
   }
   return Array.from(vars).sort();
+}
+
+/** Convert internal DeployRecord (Date) to API-facing StackDeployRecord (string). */
+function toStackDeployRecord(record: DeployRecord): StackDeployRecord {
+  return {
+    id: record.id,
+    stack: record.stack,
+    host: record.host,
+    commitSha: record.commitSha,
+    envHash: record.envHash,
+    status: record.status,
+    trigger: record.trigger,
+    logs: record.logs,
+    createdAt: record.createdAt.toISOString(),
+  };
 }
