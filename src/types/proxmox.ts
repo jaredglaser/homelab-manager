@@ -172,15 +172,18 @@ export interface ProxmoxStatsRow {
   cluster_version: number | null;
 }
 
+/** A Proxmox entity enriched with its source node name */
+export type WithNode<T> = T & { node: string };
+
 /** Aggregated cluster overview for the dashboard */
 export interface ProxmoxClusterOverview {
   clusterName: string;
   quorate: boolean;
   version: number;
   nodes: ProxmoxNode[];
-  vms: (ProxmoxVM & { node: string })[];
-  containers: (ProxmoxContainer & { node: string })[];
-  storages: (ProxmoxStorage & { node: string })[];
+  vms: WithNode<ProxmoxVM>[];
+  containers: WithNode<ProxmoxContainer>[];
+  storages: WithNode<ProxmoxStorage>[];
   totals: {
     totalCpu: number;
     usedCpu: number;
