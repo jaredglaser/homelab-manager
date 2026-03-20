@@ -28,7 +28,7 @@ git clone http://localhost:3000/api/git/stacks stacks
 When prompted for credentials, use any username and the `GIT_SERVER_TOKEN` value as the password. Or configure the token in the URL:
 
 ```bash
-git clone http://x:dev-git-token@localhost:3000/api/git/stacks stacks
+git clone http://x:dev-git-token@localhost:3000/api/git/stacks ~/stacks
 ```
 
 > **Note:** The `x` username is ignored — only the password (token) matters.
@@ -39,7 +39,7 @@ git clone http://x:dev-git-token@localhost:3000/api/git/stacks stacks
 2. Create a directory for your stack and add a compose file:
 
 ```bash
-cd stacks
+cd ~/stacks
 mkdir my-app
 cat > my-app/docker-compose.yml << 'EOF'
 services:
@@ -57,7 +57,7 @@ EOF
 cat > manifest.yaml << 'EOF'
 stacks:
   my-app:
-    host: desktop
+    host: dev-machine
     autoDeploy: false
 EOF
 ```
