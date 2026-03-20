@@ -92,9 +92,81 @@ export async function triggerStackDeploy(params: {
   host: string;
   action: 'deploy' | 'teardown' | 'restart';
 }): Promise<{ deployId: number }> {
-  // TODO: Build DeployRequest via UITriggerBuilder, dispatch to agent
-  console.error(`[StackService] Deploy requested: ${params.action} ${params.stack} on ${params.host}`);
-  return { deployId: 0 };
+  const repoPath = getRepoPath();
+  if (!repoPath) throw new Error('Git management is not enabled');
+
+  const { default: git } = await import('isomorphic-git');
+  const fs = await import('fs');
+  const { UITriggerBuilder } = await import('@/lib/deploy/builders/ui-trigger-builder');
+  const { DeployPipeline } = await import('@/lib/deploy/pipeline');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
+  const { AgentClient } = await import('@/lib/clients/agent-client');
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+  const { loadOpenBaoConfig, isOpenBaoConfigured } = await import('@/lib/config/openbao-config');
+
+  // Read compose content from the git repo
+  let composeContent = '';
+  try {
+    composeContent = await readFileFromRepo(repoPath, `${params.stack}/${COMPOSE_FILENAME}`);
+  } catch {
+    if (params.action === 'deploy') {
+      throw new Error(`No compose file found for stack "${params.stack}"`);
+    }
+  }
+
+  // Get current commit SHA
+  const commitSha = await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
+
+  // Build the deploy request
+  const builder = new UITriggerBuilder();
+  const request = builder.build({
+    stack: params.stack,
+    host: params.host,
+    composeContent,
+    commitSha,
+    action: params.action,
+  });
+
+  // Set up pipeline dependencies
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const pool = dbClient.getPool();
+
+  // Token resolver: read agent token from OpenBao
+  let baoClient: InstanceType<typeof OpenBaoClient> | null = null;
+  if (isOpenBaoConfigured()) {
+    baoClient = new OpenBaoClient(loadOpenBaoConfig());
+  }
+
+  const pipeline = new DeployPipeline({
+    deployRepo: new DeployRepository(pool),
+    hostsRepo: new ManagedHostsRepository(pool),
+    agentClientFactory: (url, token) => new AgentClient({ agentUrl: url, agentToken: token }),
+    secretResolver: {
+      async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
+        if (variables.length === 0 || !baoClient) return {};
+        const secrets: Record<string, string> = {};
+        for (const v of variables) {
+          const val = await baoClient.getSecret(stack, v);
+          if (val !== null) secrets[v] = val;
+        }
+        return secrets;
+      },
+    },
+    tokenResolver: async (host) => {
+      if (!baoClient) throw new Error('OpenBao not configured — cannot resolve agent token');
+      const token = await baoClient.getHostSecret(host.name, 'agent_token');
+      if (!token) throw new Error(`No agent token found in OpenBao for host "${host.name}"`);
+      return token;
+    },
+  });
+
+  const result = await pipeline.execute(request);
+
+  return { deployId: result.deployId ?? 0 };
 }
 
 export async function getStackDeployHistory(
