@@ -83,15 +83,6 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
           </div>
         </div>
       </div>
-      {deployMessage && (
-        <Alert
-          severity={deployMessage.type}
-          onClose={() => setDeployMessage(null)}
-          className="!mb-3 !text-sm"
-        >
-          {deployMessage.text}
-        </Alert>
-      )}
       <StackActionBar
         onDeploy={() => deployMutation.mutate('deploy')}
         onRestart={() => deployMutation.mutate('restart')}
@@ -99,6 +90,23 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
         onDelete={() => { /* wired to DeleteStackDialog in Task 13 */ }}
         isDeploying={deployMutation.isPending}
       />
+      <Snackbar
+        open={deployMessage !== null}
+        autoHideDuration={5000}
+        onClose={() => setDeployMessage(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {deployMessage ? (
+          <Alert
+            severity={deployMessage.type}
+            onClose={() => setDeployMessage(null)}
+            variant="filled"
+            className="!text-sm"
+          >
+            {deployMessage.text}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </div>
   );
 }
