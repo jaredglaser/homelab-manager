@@ -46,3 +46,11 @@ export interface UIDeployRequest {
   host: string;
   action: DeployAction;
 }
+
+/** Live container status for a single container within a stack. */
+export interface StackContainer {
+  id: string;
+  name: string;
+  status: string;
+  image: string;
+}
