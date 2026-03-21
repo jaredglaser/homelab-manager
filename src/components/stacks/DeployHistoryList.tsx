@@ -35,6 +35,8 @@ interface DeployHistoryListProps {
   isLoading: boolean;
   stackName?: string;
   host?: string;
+  onRollbackComplete?: () => void;
+  onRollbackError?: (err: Error) => void;
 }
 
 export default function DeployHistoryList({
@@ -42,6 +44,8 @@ export default function DeployHistoryList({
   isLoading,
   stackName,
   host,
+  onRollbackComplete,
+  onRollbackError,
 }: DeployHistoryListProps) {
   if (isLoading) {
     return (
@@ -68,6 +72,8 @@ export default function DeployHistoryList({
           key={record.id}
           record={record}
           stackName={stackName}
+          onRollbackComplete={onRollbackComplete}
+          onRollbackError={onRollbackError}
           host={host}
         />
       ))}
@@ -79,9 +85,11 @@ interface DeployHistoryRowProps {
   record: StackDeployRecord;
   stackName?: string;
   host?: string;
+  onRollbackComplete?: () => void;
+  onRollbackError?: (err: Error) => void;
 }
 
-function DeployHistoryRow({ record, stackName, host }: DeployHistoryRowProps) {
+function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError }: DeployHistoryRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const statusColor = STATUS_COLOR[record.status];
@@ -91,6 +99,8 @@ function DeployHistoryRow({ record, stackName, host }: DeployHistoryRowProps) {
   const rollbackMutation = useMutation({
     mutationFn: () =>
       triggerDeploy({ data: { stack: stackName!, host: host!, action: 'deploy', commitSha: record.commitSha } }),
+    onSuccess: () => onRollbackComplete?.(),
+    onError: (err) => onRollbackError?.(err instanceof Error ? err : new Error(String(err))),
   });
 
   function handleRollbackConfirm() {

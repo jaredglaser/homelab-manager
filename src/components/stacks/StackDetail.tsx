@@ -238,6 +238,14 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
               isLoading={historyLoading}
               stackName={stackName}
               host={host}
+              onRollbackComplete={() => {
+                setDeployMessage({ type: 'success', text: 'Rollback triggered successfully' });
+                void queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] });
+                void queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY });
+              }}
+              onRollbackError={(err) => {
+                setDeployMessage({ type: 'error', text: err.message });
+              }}
             />
           </div>
         </div>
