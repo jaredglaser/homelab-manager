@@ -267,11 +267,12 @@ export async function handleAddHost(
   }
 
   const status: HostStatus = 'healthy';
+  const updatedHost = await deps.repo.update(host.id, { agent_url: provisionResult.agentUrl });
   await deps.repo.updateStatus(host.id, status);
   if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
 
   return {
-    host: toHostListItem(host, { agentVersion: healthResult.version || null, status }),
+    host: toHostListItem(updatedHost, { agentVersion: healthResult.version || null, status }),
   };
 }
 
