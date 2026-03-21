@@ -86,7 +86,7 @@ export interface DeployDeps {
   readCompose: (stack: string) => Promise<string>;
   getCommitSha: () => Promise<string>;
   buildRequest: (input: { stack: string; host: string; composeContent: string; commitSha: string; action: 'deploy' | 'teardown' | 'restart' }) => DeployRequest;
-  executePipeline: (request: DeployRequest) => Promise<{ deployId?: number }>;
+  executePipeline: (request: DeployRequest) => Promise<{ deployId?: number; logs?: string }>;
 }
 
 /** Testable deploy handler — takes deps instead of importing them. */
@@ -114,5 +114,8 @@ export async function handleTriggerDeploy(
   });
 
   const result = await deps.executePipeline(request);
-  return { deployId: result.deployId ?? 0 };
+  if (result.deployId === undefined) {
+    throw new Error(`Deploy could not be queued: ${result.logs}`);
+  }
+  return { deployId: result.deployId };
 }

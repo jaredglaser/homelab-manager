@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -30,6 +31,7 @@ interface CreateStackDialogProps {
   onSubmit: (input: CreateStackInput) => void;
   hosts: string[];
   isLoading: boolean;
+  error?: string | null;
 }
 
 export default function CreateStackDialog({
@@ -38,6 +40,7 @@ export default function CreateStackDialog({
   onSubmit,
   hosts,
   isLoading,
+  error,
 }: CreateStackDialogProps) {
   const [stackName, setStackName] = useState('');
   const [host, setHost] = useState(hosts[0] ?? '');
@@ -65,6 +68,7 @@ export default function CreateStackDialog({
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>Create Stack</DialogTitle>
       <DialogContent className="flex flex-col gap-4 !pt-4">
+        {error && <Alert severity="error">{error}</Alert>}
         <TextField
           label="Stack Name"
           value={stackName}

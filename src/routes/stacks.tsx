@@ -29,11 +29,12 @@ function StacksPageContent() {
   return <StacksPage />
 }
 
-const HOSTS_QUERY_KEY = ['managed-hosts']
+const HOST_NAMES_QUERY_KEY = ['managed-host-names']
 
 function StacksPage() {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const { data: stacks, isLoading, error } = useQuery({
     queryKey: STACKS_QUERY_KEY,
@@ -42,7 +43,7 @@ function StacksPage() {
   })
 
   const { data: hosts = [] } = useQuery({
-    queryKey: HOSTS_QUERY_KEY,
+    queryKey: HOST_NAMES_QUERY_KEY,
     queryFn: () => listManagedHostNames(),
   })
 
@@ -55,6 +56,9 @@ function StacksPage() {
       void queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
       setDialogOpen(false)
     },
+    onError: (err) => {
+      setCreateError(err instanceof Error ? err.message : String(err))
+    },
   })
 
   return (
@@ -64,7 +68,7 @@ function StacksPage() {
           <Button
             variant="contained"
             startIcon={<Plus size={16} />}
-            onClick={() => setDialogOpen(true)}
+            onClick={() => { setCreateError(null); setDialogOpen(true) }}
           >
             Create Stack
           </Button>
@@ -82,6 +86,7 @@ function StacksPage() {
         onSubmit={(input) => createMutation.mutate(input)}
         hosts={hosts}
         isLoading={createMutation.isPending}
+        error={createError}
       />
     </div>
   )

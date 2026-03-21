@@ -123,4 +123,14 @@ describe('CreateStackDialog', () => {
     render(<CreateStackDialog {...defaultProps} open={false} />);
     expect(screen.queryByLabelText('Stack Name')).toBeNull();
   });
+
+  it('displays error message when error prop is provided', () => {
+    render(<CreateStackDialog {...defaultProps} error="Something went wrong" />);
+    expect(screen.getByText('Something went wrong')).toBeDefined();
+  });
+
+  it('does not display error alert when error prop is null', () => {
+    render(<CreateStackDialog {...defaultProps} error={null} />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });
