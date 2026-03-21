@@ -36,7 +36,7 @@ if [ ! -f "$INIT_FILE" ]; then
   ROOT_TOKEN=$(cat "$INIT_FILE" | grep -o '"root_token":"[^"]*"' | sed 's/"root_token":"//' | sed 's/"//')
 
   echo "[openbao-init] Unsealing..."
-  bao operator unseal "$UNSEAL_KEY"
+  echo "$UNSEAL_KEY" | bao operator unseal -
 
   # Replace the auto-generated root token with our fixed dev token
   echo "[openbao-init] Setting dev root token..."
@@ -47,7 +47,7 @@ if [ ! -f "$INIT_FILE" ]; then
 else
   echo "[openbao-init] Existing data found — unsealing..."
   UNSEAL_KEY=$(cat "$INIT_FILE" | grep -o '"unseal_keys_b64":\[\"[^"]*\"' | sed 's/.*\["//' | sed 's/".*//')
-  bao operator unseal "$UNSEAL_KEY"
+  echo "$UNSEAL_KEY" | bao operator unseal -
   echo "[openbao-init] Unsealed."
 fi
 
