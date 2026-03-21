@@ -114,7 +114,8 @@ User's Browser ──UI edit──▶ homelab-manager commits ──────
                                          ┌───────────────────────────┤
                                          ▼                           ▼
                                     Agent (host-1)              Agent (host-2)
-                                    via socket proxy            via socket proxy
+                                    TLS + Bearer token          TLS + Bearer token
+                                    Docker socket mounted       Docker socket mounted
 ```
 
 ### Components
@@ -132,8 +133,8 @@ User's Browser ──UI edit──▶ homelab-manager commits ──────
 A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode.
 
 **Architecture:**
-- Bearer token authentication
-- Connects to Docker via `DOCKER_HOST` env var (socket proxy recommended)
+- Bearer token authentication (TLS planned)
+- Connects to Docker via mounted `/var/run/docker.sock` (direct access, no socket proxy)
 - Subprocess timeout (5 minutes) for `docker compose` operations
 
 **Endpoints:**
@@ -148,7 +149,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | POST | `/stacks/restart` | Run `docker compose restart` |
 | GET | `/stacks/status` | List stacks in working directory |
 
-**Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work.
+**Deployment:** The agent runs on each managed Docker host with the Docker socket mounted directly. It can be deployed automatically via SSH from homelab-manager, or manually by the user running a provided `docker run` one-liner. See [OpenBao Architecture — Agent Deployment Flow](./openbao-architecture.md#agent-deployment-flow) for details.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
@@ -268,7 +269,7 @@ Secret management via [OpenBao](https://openbao.org/) (open-source Vault fork).
 End-user host management and stacks UI.
 
 - **HostRepository** — CRUD for managed_hosts table with agent token generation
-- **AgentProvisioningService** — deploy agent containers to new hosts via socket proxy
+- **AgentProvisioningService** — deploy agent containers to new hosts (SSH auto-deploy or manual one-liner)
 - **AgentHealthCheckService** — periodic health checks with timeout support
 - **AgentStatsCollector** — SSE-based stats collection from managed hosts, integrated into worker startup
 - **Stacks UI** — StacksTable, StackDetail, ComposeEditor (Monaco with monaco-yaml), DeployHistoryList, VariablesPanel, SyncStatusBadge

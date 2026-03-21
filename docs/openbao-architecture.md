@@ -239,3 +239,256 @@ graph LR
 | OpenBao | Unseal key, root token | `.init-keys.json` on disk | Until revoked (never) |
 | Deploy Pipeline | Stack secrets (in transit), agent token (in transit) | OpenBao GET → HTTP POST to agent | Request-scoped |
 | Browser | Individual secret values (on reveal) | Server function response | Until page navigation |
+
+---
+
+## Target Architecture — Direct Agent (No Socket Proxy)
+
+### Motivation
+
+The current architecture uses a Docker socket proxy between the agent and the Docker daemon. With the agent serving as the sole entry point for all Docker operations, the socket proxy is redundant — the agent already enforces API restrictions through its explicit route definitions (only `deploy`, `teardown`, `restart`, `stats`, `logs`, `health`, `events`). Removing the socket proxy simplifies the stack, reduces the attack surface to a single authenticated endpoint, and makes TLS viable end-to-end.
+
+### Current vs Target
+
+```
+CURRENT:
+  Web Server ──HTTP──▶ Agent ──HTTP──▶ Socket Proxy ──▶ Docker Socket
+  Worker ────HTTP──▶ Agent ──HTTP──▶ Socket Proxy ──▶ Docker Socket
+
+TARGET:
+  Web Server ──TLS──▶ Agent ──▶ Docker Socket (mounted)
+  Worker ────TLS──▶ Agent ──▶ Docker Socket (mounted)
+```
+
+### Target High-Level Architecture
+
+```mermaid
+graph TB
+    subgraph homelab["homelab-manager (central)"]
+        subgraph consumers["Services"]
+            WEB["Web Server<br/>(TanStack Start)"]
+            WORKER["Worker<br/>(Bun process)"]
+            GIT["Git Post-Receive<br/>Hook"]
+        end
+
+        subgraph bao["OpenBao Server — https://openbao:8200 (TLS)"]
+            KV["KV v2 Secrets Engine"]
+            STACKS_S["secret/stacks/…<br/>→ env var values"]
+            HOSTS_S["secret/hosts/…<br/>→ agent_token"]
+            PKI["PKI Secrets Engine<br/>→ agent TLS certs"]
+            KV --- STACKS_S
+            KV --- HOSTS_S
+            KV --- PKI
+        end
+
+        DB["TimescaleDB"]
+
+        WEB -->|"AppRole token"| KV
+        WORKER -->|"AppRole token"| KV
+        GIT -->|"AppRole token"| KV
+    end
+
+    subgraph host1["Remote Docker Host 1"]
+        A1["Agent<br/>/var/run/docker.sock mounted<br/>TLS + Bearer token"]
+        D1["Docker Daemon"]
+        A1 -->|"unix socket"| D1
+    end
+
+    subgraph host2["Remote Docker Host 2"]
+        A2["Agent<br/>/var/run/docker.sock mounted<br/>TLS + Bearer token"]
+        D2["Docker Daemon"]
+        A2 -->|"unix socket"| D2
+    end
+
+    WEB -->|"TLS + Bearer"| A1
+    WEB -->|"TLS + Bearer"| A2
+    WORKER -->|"TLS + Bearer"| A1
+    WORKER -->|"TLS + Bearer"| A2
+    WORKER -->|"INSERT stats"| DB
+
+    style bao fill:#1a1a2e,stroke:#e94560,color:#fff
+    style consumers fill:#16213e,stroke:#0f3460,color:#fff
+    style host1 fill:#1a1a2e,stroke:#0f3460,color:#fff
+    style host2 fill:#1a1a2e,stroke:#0f3460,color:#fff
+```
+
+### Key Changes
+
+| Aspect | Current | Target |
+|--------|---------|--------|
+| Docker access | Agent → socket proxy (TCP) → Docker socket | Agent → Docker socket (mounted) |
+| Transport | Plaintext HTTP | TLS (certs from OpenBao PKI) |
+| Auth | Bearer token only | TLS mutual auth + Bearer token |
+| Socket proxy | Required per host | **Removed** |
+| Agent deployment | Via socket proxy Dockerode | SSH bootstrap or user one-liner |
+
+---
+
+## Agent Deployment Flow
+
+The agent must be running on each Docker host before homelab-manager can manage it. Two deployment paths are supported: **automatic deployment** (homelab-manager deploys via SSH) and **manual deployment** (user runs a one-liner).
+
+### Flow: Add Host
+
+```mermaid
+flowchart TD
+    UI["UI: Add Host<br/>(hostname, SSH creds or agent URL)"] --> MODE{Deployment mode?}
+
+    MODE -->|"Auto-deploy<br/>(SSH credentials provided)"| SSH_DEPLOY
+    MODE -->|"Manual / Existing<br/>(agent URL provided)"| REGISTER
+
+    subgraph SSH_DEPLOY["Auto-Deploy via SSH"]
+        GEN_TOKEN["1. Generate agent token<br/>crypto.randomUUID()"]
+        SSH_CHECK["2. SSH to host<br/>Check if agent container exists"]
+        SSH_CHECK --> EXISTS{Agent running?}
+        EXISTS -->|"Yes"| RECONFIG["3a. Reconfigure existing agent<br/>(update token, restart)"]
+        EXISTS -->|"No"| DEPLOY["3b. docker run<br/>ghcr.io/…/homelab-agent<br/>-v /var/run/docker.sock<br/>-e AGENT_TOKEN=…"]
+        RECONFIG --> HEALTH_SSH["4. Health check agent"]
+        DEPLOY --> HEALTH_SSH
+    end
+
+    subgraph REGISTER["Register Existing Agent"]
+        HEALTH_REG["1. Health check provided URL"]
+        HEALTH_REG --> REG_OK{Healthy?}
+        REG_OK -->|"Yes"| STORE_REG["2. Store token in OpenBao<br/>+ create DB record"]
+        REG_OK -->|"No"| FAIL_REG["Error: agent not reachable"]
+    end
+
+    HEALTH_SSH --> STORE["5. Store token in OpenBao"]
+    STORE --> DB_REC["6. INSERT managed_hosts"]
+    DB_REC --> DONE["Host ready ✓"]
+
+    STORE_REG --> DONE
+
+    style SSH_DEPLOY fill:#16213e,stroke:#0f3460,color:#fff
+    style REGISTER fill:#16213e,stroke:#0f3460,color:#fff
+```
+
+### Manual One-Liner
+
+For users who prefer to deploy the agent themselves (or for hosts without SSH access), provide a copy-pasteable command:
+
+```bash
+docker run -d \
+  --name homelab-agent \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v homelab-stacks:/opt/homelab-manager/stacks \
+  -p 9090:9090 \
+  -e AGENT_TOKEN=<generated-token> \
+  ghcr.io/your-org/homelab-agent:latest
+```
+
+The UI generates the token, displays the one-liner with the token pre-filled, and waits for the user to confirm. Then it health-checks the agent URL and registers the host.
+
+### Auto-Deploy via SSH
+
+When SSH credentials are provided (password or key), homelab-manager connects to the remote host and:
+
+1. **Checks** if a `homelab-agent` container already exists (`docker inspect homelab-agent`)
+2. **If exists**: stops, removes, and re-creates with new config
+3. **If not**: pulls the image and runs the container
+4. **Health checks** the agent on `http://<host>:<port>/health`
+5. **Stores** the token in OpenBao and creates the DB record
+
+```mermaid
+flowchart TD
+    START["SSH connect to host"] --> INSPECT["docker inspect homelab-agent"]
+    INSPECT --> EXISTS{Container exists?}
+
+    EXISTS -->|"Not found (404)"| PULL["docker pull ghcr.io/…/homelab-agent:latest"]
+    PULL --> RUN["docker run -d<br/>--name homelab-agent<br/>-v /var/run/docker.sock:/var/run/docker.sock<br/>-v homelab-stacks:/opt/homelab-manager/stacks<br/>-p 9090:9090<br/>-e AGENT_TOKEN=token"]
+    RUN --> HEALTH["Health check<br/>GET http://host:9090/health"]
+
+    EXISTS -->|"Found"| RUNNING{Running?}
+    RUNNING -->|"Yes"| STOP["docker stop homelab-agent"]
+    RUNNING -->|"No"| RM["docker rm homelab-agent"]
+    STOP --> RM
+    RM --> PULL
+
+    HEALTH --> OK{Healthy?}
+    OK -->|"Yes"| DONE["Return agent URL + version"]
+    OK -->|"No"| RETRY["Retry with backoff<br/>(500ms, 1s, 2s)"]
+    RETRY --> HEALTH
+```
+
+### Agent Container Changes
+
+The agent Dockerfile and docker-compose are updated:
+
+| Change | Before | After |
+|--------|--------|-------|
+| Docker access | `DOCKER_HOST=tcp://socket-proxy:2375` | `/var/run/docker.sock` mounted |
+| `depends_on` | `socket-proxy` | *(none)* |
+| Compose services | `socket-proxy` + `agent` | `agent` only |
+| User permissions | `agent` user (non-root) | `agent` user added to `docker` group (or socket bind-mounted with correct GID) |
+
+### Database Schema Changes
+
+The `managed_hosts` table drops `socket_proxy_url` (no longer needed) and adds SSH connection fields for auto-deploy:
+
+```sql
+ALTER TABLE managed_hosts
+  DROP COLUMN socket_proxy_url,
+  ADD COLUMN ssh_host TEXT,          -- hostname/IP for SSH (nullable — not needed for manual deploy)
+  ADD COLUMN ssh_port INTEGER DEFAULT 22,
+  ADD COLUMN ssh_user TEXT,
+  ADD COLUMN deployment_method TEXT NOT NULL DEFAULT 'manual';  -- 'manual' | 'ssh'
+  -- SSH credentials (password or key) stored in OpenBao at secret/hosts/<name>/ssh_password or ssh_key
+```
+
+### OpenBao Secret Path Updates
+
+```mermaid
+graph LR
+    ROOT["secret/"] --> STACKS["stacks/"]
+    ROOT --> HOSTS["hosts/"]
+
+    HOSTS --> H1["docker-host-1/"]
+    H1 --> H1_TOKEN["agent_token"]
+    H1 --> H1_SSH["ssh_password<br/>(or ssh_key)"]
+    H1 --> H1_TLS["tls_cert<br/>tls_key"]
+
+    HOSTS --> H2["docker-host-2/"]
+    H2 --> H2_TOKEN["agent_token"]
+    H2 --> H2_TLS["tls_cert<br/>tls_key"]
+
+    style H1_TOKEN fill:#8b4513,stroke:#ffa500,color:#fff
+    style H2_TOKEN fill:#8b4513,stroke:#ffa500,color:#fff
+    style H1_SSH fill:#2d572c,stroke:#5cb85c,color:#fff
+    style H1_TLS fill:#16213e,stroke:#0f3460,color:#fff
+    style H2_TLS fill:#16213e,stroke:#0f3460,color:#fff
+```
+
+---
+
+## Implementation Phases
+
+### Phase 0 — Remove Socket Proxy (this PR)
+
+Architecture diagrams and documentation updated to reflect the target state. No code changes yet.
+
+### Phase 1 — Agent Direct Socket Access
+
+1. Mount `/var/run/docker.sock` in agent container instead of `DOCKER_HOST=tcp://socket-proxy:2375`
+2. Update agent Dockerfile to handle socket permissions (GID matching)
+3. Remove socket-proxy service from docker-compose files
+4. Update `AgentProvisioningService` to provision without socket proxy
+5. Drop `socket_proxy_url` from `managed_hosts` schema and all referencing code
+
+### Phase 2 — Agent Auto-Deploy via SSH
+
+1. Add SSH connection fields to `managed_hosts` table
+2. Create `AgentSSHDeployService` — SSH to host, check/deploy agent container
+3. Store SSH credentials in OpenBao at `secret/hosts/<name>/ssh_password` or `ssh_key`
+4. Update `handleAddHost` to support both SSH auto-deploy and manual registration
+5. UI: add deployment method selector (SSH auto-deploy vs manual one-liner)
+6. UI: generate and display one-liner with pre-filled token for manual path
+
+### Phase 3 — TLS for Agent Communication
+
+1. Configure OpenBao PKI secrets engine as internal CA
+2. Agent reads TLS cert/key from mounted files or OpenBao
+3. Update `AgentClient` to use HTTPS with certificate verification
+4. Update agent to serve HTTPS (Bun native TLS support)
+5. Rotate certs automatically via OpenBao PKI TTL
