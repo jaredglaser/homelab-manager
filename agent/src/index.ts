@@ -4,6 +4,7 @@ import { handleHealth } from './routes/health';
 import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
 import { handleStackDeploy, handleStackTeardown, handleStackRestart, handleStackStatus } from './routes/stacks';
+import { handleStackEvents } from './routes/stack-events';
 
 const portEnv = process.env.AGENT_PORT;
 let PORT = 9090;
@@ -69,6 +70,7 @@ Bun.serve({
         return handleLogStream(docker, logsMatch[1], request);
       }
 
+      if (url.pathname === '/stacks/events' && request.method === 'GET') return handleStackEvents(docker, request);
       if (url.pathname === '/stacks/deploy' && request.method === 'POST') return handleStackDeploy(request, STACKS_DIR);
       if (url.pathname === '/stacks/teardown' && request.method === 'POST') return handleStackTeardown(request, STACKS_DIR);
       if (url.pathname === '/stacks/restart' && request.method === 'POST') return handleStackRestart(request, STACKS_DIR);
