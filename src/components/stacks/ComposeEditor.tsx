@@ -21,7 +21,7 @@ export function parseVariables(content: string): string[] {
   while ((match = regex.exec(content)) !== null) {
     vars.add(match[1]);
   }
-  return Array.from(vars).sort((a, b) => a.localeCompare(b));
+  return Array.from(vars).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 export default function ComposeEditor({ stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
@@ -122,7 +122,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
 
         {/* Variables side panel */}
         <div className="w-[280px] flex-shrink-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto">
-          <VariablesPanel variables={detectedVars} />
+          <VariablesPanel stackName={stackName} composeVariables={detectedVars} />
         </div>
       </div>
     </Paper>

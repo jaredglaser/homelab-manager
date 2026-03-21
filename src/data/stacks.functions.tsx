@@ -64,14 +64,53 @@ const saveComposeFileSchema = z.object({
   content: z.string(),
 });
 
+/** Parse variable references from compose content (server-side utility, no React deps). */
+function extractComposeVariables(content: string): string[] {
+  const regex = /\$\{([a-zA-Z_]\w*)(?::-[^}]*)?\}/g;
+  const vars = new Set<string>();
+  let match: RegExpMatchArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    vars.add(match[1]);
+  }
+  return Array.from(vars).sort((a, b) => a.localeCompare(b));
+}
+
 /**
  * Save compose file content (creates a git commit).
+ * After a successful commit, ensures OpenBao entries exist for all detected variables.
+ * Returns warnings if OpenBao is unavailable — the save itself still succeeds.
  */
 export const saveComposeFile = createServerFn()
   .inputValidator(saveComposeFileSchema)
-  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+  .handler(async ({ data }): Promise<{ commitSha: string; warnings?: string[] }> => {
     const { saveStackComposeFile } = await import('@/lib/stacks/stack-service');
-    return saveStackComposeFile(data.stackName, data.content);
+    const result = await saveStackComposeFile(data.stackName, data.content);
+
+    const variableNames = extractComposeVariables(data.content);
+    if (variableNames.length > 0) {
+      try {
+        const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+        const { loadOpenBaoConfig, isOpenBaoConfigured } = await import('@/lib/config/openbao-config');
+        if (isOpenBaoConfigured()) {
+          const config = loadOpenBaoConfig();
+          const client = new OpenBaoClient(config);
+          await Promise.all(
+            variableNames.map(async (name) => {
+              const existing = await client.getSecret(data.stackName, name);
+              if (existing === null) {
+                await client.setSecret(data.stackName, name, '');
+              }
+            }),
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error('OpenBao ensureVariablesExist failed (non-fatal):', msg);
+        return { ...result, warnings: [`OpenBao unavailable: ${msg}`] };
+      }
+    }
+
+    return result;
   });
 
 const updateStackIconSchema = z.object({
@@ -87,4 +126,107 @@ export const updateStackIcon = createServerFn()
   .handler(async ({ data }): Promise<void> => {
     const { updateStackIconSlug } = await import('@/lib/stacks/stack-service');
     return updateStackIconSlug(data.stackName, data.iconSlug);
+  });
+
+const stackVariablesSchema = z.object({
+  stackName: z.string().min(1),
+});
+
+/**
+ * List all variable names stored in OpenBao for a stack.
+ */
+export const getStackVariables = createServerFn({ method: 'GET' })
+  .inputValidator(stackVariablesSchema)
+  .handler(async ({ data }): Promise<string[]> => {
+    const { isOpenBaoConfigured, loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    if (!isOpenBaoConfigured()) throw new Error('OpenBao is not configured');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const config = loadOpenBaoConfig();
+    const client = new OpenBaoClient(config);
+    return client.listSecrets(data.stackName);
+  });
+
+const getVariableValueSchema = z.object({
+  stackName: z.string().min(1),
+  variableName: z.string().min(1),
+});
+
+/**
+ * Fetch a single secret value from OpenBao. Returns null if the key does not exist.
+ */
+export const getVariableValue = createServerFn({ method: 'GET' })
+  .inputValidator(getVariableValueSchema)
+  .handler(async ({ data }): Promise<string | null> => {
+    const { isOpenBaoConfigured, loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    if (!isOpenBaoConfigured()) throw new Error('OpenBao is not configured');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const config = loadOpenBaoConfig();
+    const client = new OpenBaoClient(config);
+    return client.getSecret(data.stackName, data.variableName);
+  });
+
+const setVariableValueSchema = z.object({
+  stackName: z.string().min(1),
+  variableName: z.string().min(1),
+  value: z.string(),
+});
+
+/**
+ * Create or update a secret value in OpenBao.
+ */
+export const setVariableValue = createServerFn({ method: 'POST' })
+  .inputValidator(setVariableValueSchema)
+  .handler(async ({ data }): Promise<void> => {
+    const { isOpenBaoConfigured, loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    if (!isOpenBaoConfigured()) throw new Error('OpenBao is not configured');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const config = loadOpenBaoConfig();
+    const client = new OpenBaoClient(config);
+    await client.setSecret(data.stackName, data.variableName, data.value);
+  });
+
+const deleteVariableSchema = z.object({
+  stackName: z.string().min(1),
+  variableName: z.string().min(1),
+});
+
+/**
+ * Delete a secret from OpenBao for a given stack variable.
+ */
+export const deleteVariable = createServerFn({ method: 'POST' })
+  .inputValidator(deleteVariableSchema)
+  .handler(async ({ data }): Promise<void> => {
+    const { isOpenBaoConfigured, loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    if (!isOpenBaoConfigured()) throw new Error('OpenBao is not configured');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const config = loadOpenBaoConfig();
+    const client = new OpenBaoClient(config);
+    await client.deleteSecret(data.stackName, data.variableName);
+  });
+
+const ensureVariablesExistSchema = z.object({
+  stackName: z.string().min(1),
+  variableNames: z.array(z.string().min(1)),
+});
+
+/**
+ * Ensure all given variable names have an entry in OpenBao.
+ * Variables that already exist are left untouched; missing ones are created with an empty value.
+ */
+export const ensureVariablesExist = createServerFn({ method: 'POST' })
+  .inputValidator(ensureVariablesExistSchema)
+  .handler(async ({ data }): Promise<void> => {
+    const { isOpenBaoConfigured, loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    if (!isOpenBaoConfigured()) throw new Error('OpenBao is not configured');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const config = loadOpenBaoConfig();
+    const client = new OpenBaoClient(config);
+    await Promise.all(
+      data.variableNames.map(async (name) => {
+        const existing = await client.getSecret(data.stackName, name);
+        if (existing === null) {
+          await client.setSecret(data.stackName, name, '');
+        }
+      }),
+    );
   });
