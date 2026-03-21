@@ -6,12 +6,14 @@ const mockGetStackVariables = mock(() => Promise.resolve(['DB_URL', 'SECRET_KEY'
 const mockGetVariableValue = mock(() => Promise.resolve('super-secret'));
 const mockSetVariableValue = mock(() => Promise.resolve(undefined));
 const mockDeleteVariable = mock(() => Promise.resolve(undefined));
+const mockEnsureVariablesExist = mock(() => Promise.resolve(undefined));
 
 mock.module('@/data/stacks.functions', () => ({
   getStackVariables: mockGetStackVariables,
   getVariableValue: mockGetVariableValue,
   setVariableValue: mockSetVariableValue,
   deleteVariable: mockDeleteVariable,
+  ensureVariablesExist: mockEnsureVariablesExist,
 }));
 
 function createWrapper() {
@@ -40,6 +42,7 @@ describe('VariablesPanel', () => {
     mockGetVariableValue.mockClear();
     mockSetVariableValue.mockClear();
     mockDeleteVariable.mockClear();
+    mockEnsureVariablesExist.mockClear();
   });
 
   it('renders loading skeleton while fetching', async () => {
