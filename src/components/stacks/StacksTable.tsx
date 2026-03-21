@@ -81,7 +81,7 @@ export default function StacksTable({ stacks, isLoading, error }: StacksTablePro
       <Paper variant="outlined" className="rounded-sm overflow-x-auto">
         <div className="min-w-[600px]">
           {/* Column headers */}
-          <div className={`${STACKS_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
+          <div className={`${STACKS_GRID} border-b border-[var(--mui-palette-divider)]`}>
             <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Stack</div>
             <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Host</div>
             <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Status</div>

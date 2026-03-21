@@ -12,8 +12,10 @@ export const listStacks = createServerFn()
     return getStackSummaries();
   });
 
+const pathSegment = z.string().min(1).regex(/^[a-zA-Z0-9_-]+$/, 'Must contain only letters, numbers, hyphens, and underscores');
+
 const getStackDetailSchema = z.object({
-  stackName: z.string().min(1),
+  stackName: pathSegment,
 });
 
 /**
@@ -27,8 +29,8 @@ export const getStackDetail = createServerFn()
   });
 
 const triggerDeploySchema = z.object({
-  stack: z.string().min(1),
-  host: z.string().min(1),
+  stack: pathSegment,
+  host: pathSegment,
   action: z.enum(['deploy', 'teardown', 'restart']),
 });
 
@@ -43,7 +45,7 @@ export const triggerDeploy = createServerFn()
   });
 
 const getDeployHistorySchema = z.object({
-  stackName: z.string().min(1),
+  stackName: pathSegment,
   limit: z.number().min(1).max(100).optional().default(20),
 });
 
@@ -58,7 +60,7 @@ export const getDeployHistory = createServerFn()
   });
 
 const saveComposeFileSchema = z.object({
-  stackName: z.string().min(1),
+  stackName: pathSegment,
   content: z.string(),
 });
 
@@ -73,7 +75,7 @@ export const saveComposeFile = createServerFn()
   });
 
 const updateStackIconSchema = z.object({
-  stackName: z.string().min(1),
+  stackName: pathSegment,
   iconSlug: z.string().min(1),
 });
 
