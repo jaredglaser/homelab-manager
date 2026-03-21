@@ -54,3 +54,11 @@ export interface StackContainer {
   status: string;
   image: string;
 }
+
+/** Live status entry for a stack as received from the SSE endpoint. */
+export interface StackStatusEntry {
+  stack: string;
+  host: string;
+  containers: StackContainer[];
+  updated_at: string;
+}
