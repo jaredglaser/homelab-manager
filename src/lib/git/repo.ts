@@ -62,6 +62,8 @@ export interface FileEntry {
 
 export interface CommitOptions {
   files: FileEntry[];
+  /** Paths to remove from the tree in this commit (e.g. deleting a stack directory). */
+  filesToDelete?: string[];
   message: string;
   author: { name: string; email: string };
 }
@@ -80,7 +82,7 @@ export async function commitFiles(
   options: CommitOptions,
 ): Promise<string> {
   return withRepoLock(repoPath, async () => {
-    const { files, message, author } = options;
+    const { files, filesToDelete, message, author } = options;
 
     let existingFiles = new Map<string, string>();
     let parentCommit: string | undefined;
@@ -97,6 +99,12 @@ export async function commitFiles(
 
     for (const file of files) {
       existingFiles.set(file.path, file.content);
+    }
+
+    if (filesToDelete) {
+      for (const path of filesToDelete) {
+        existingFiles.delete(path);
+      }
     }
 
     const treeOid = await buildTree(repoPath, existingFiles);
