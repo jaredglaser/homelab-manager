@@ -256,11 +256,11 @@ describe('DeployRepository', () => {
       expect(records[1].status).toBe('failed');
     });
 
-    it('uses DISTINCT ON (stack) ordered by stack, created_at DESC', async () => {
+    it('uses DISTINCT ON (stack, host) ordered by stack, host, created_at DESC', async () => {
       mock.pushResult([]);
       await repo.getLatestDeployPerStack();
-      expect(mock.queries[0].sql).toContain('DISTINCT ON (stack)');
-      expect(mock.queries[0].sql).toContain('ORDER BY stack, created_at DESC');
+      expect(mock.queries[0].sql).toContain('DISTINCT ON (stack, host)');
+      expect(mock.queries[0].sql).toContain('ORDER BY stack, host, created_at DESC');
     });
   });
 

@@ -107,14 +107,14 @@ export class DeployRepository {
   }
 
   /**
-   * Return the single most-recent deploy record per stack (across all hosts).
-   * Uses DISTINCT ON (stack) ordered by created_at DESC for an efficient single-pass query.
+   * Return the single most-recent deploy record per (stack, host) pair.
+   * Uses DISTINCT ON (stack, host) ordered by created_at DESC for an efficient single-pass query.
    */
   async getLatestDeployPerStack(): Promise<DeployRecord[]> {
     const { rows } = await this.pool.query(
-      `SELECT DISTINCT ON (stack) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, logs, created_at
+      `SELECT DISTINCT ON (stack, host) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, logs, created_at
        FROM deploy_history
-       ORDER BY stack, created_at DESC`
+       ORDER BY stack, host, created_at DESC`
     );
     return rows.map(toDeployRecord);
   }
