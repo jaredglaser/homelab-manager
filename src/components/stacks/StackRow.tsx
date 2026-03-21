@@ -122,7 +122,11 @@ export default function StackRow({ stack, expanded, onToggle, statusMap }: Reado
       </div>
 
       <Collapse in={expanded} unmountOnExit>
-        <StackDetail stackName={stack.name} />
+        <StackDetail
+          stackName={stack.name}
+          host={stack.host}
+          containers={statusEntry?.containers ?? []}
+        />
       </Collapse>
     </div>
   );
