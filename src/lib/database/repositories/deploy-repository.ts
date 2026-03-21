@@ -105,6 +105,23 @@ export class DeployRepository {
     );
     return result.rows.map(toDeployRecord);
   }
+
+  /**
+   * Return the single most-recent deploy record per stack (across all hosts).
+   * Uses DISTINCT ON (stack) ordered by created_at DESC for an efficient single-pass query.
+   */
+  async getLatestDeployPerStack(): Promise<DeployRecord[]> {
+    const { rows } = await this.pool.query(
+      `SELECT DISTINCT ON (stack) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, logs, created_at
+       FROM deploy_history
+       ORDER BY stack, created_at DESC`
+    );
+    return rows.map(toDeployRecord);
+  }
+
+  async notifyStackChange(stack: string, host: string): Promise<void> {
+    await this.pool.query("SELECT pg_notify('stack_change', $1 || '/' || $2)", [stack, host]);
+  }
 }
 
 /** Check for the specific active-deploy unique constraint violation. */
