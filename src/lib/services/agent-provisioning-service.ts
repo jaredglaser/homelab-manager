@@ -1,5 +1,6 @@
 import type Dockerode from 'dockerode';
 import { pullImage } from '@/lib/services/docker-image-utils';
+import { getAgentContainerName } from '@/lib/services/agent-constants';
 
 export interface ProvisionAgentOptions {
   hostId: number;
@@ -13,8 +14,6 @@ export interface ProvisionAgentResult {
   containerName: string;
   agentUrl: string;
 }
-
-const CONTAINER_NAME_PREFIX = 'homelab-agent-';
 const STACKS_VOLUME = 'homelab-stacks';
 const STACKS_MOUNT_PATH = '/opt/homelab-manager/stacks';
 
@@ -28,7 +27,7 @@ export class AgentProvisioningService {
    * Build the standard container name for a host using its immutable DB ID.
    */
   getContainerName(hostId: number): string {
-    return `${CONTAINER_NAME_PREFIX}${hostId}`;
+    return getAgentContainerName(hostId);
   }
 
   /**
