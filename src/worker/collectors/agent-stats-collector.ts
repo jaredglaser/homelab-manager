@@ -5,6 +5,7 @@ import type { DockerStatsRow } from '@/types/docker';
 import { BaseCollector } from './base-collector';
 
 const DOCKER_SOURCE = 'docker';
+const CONNECT_TIMEOUT_MS = 30_000;
 
 /** Shape of SSE events emitted by the agent's GET /stats/stream endpoint */
 interface AgentStatsEvent {
@@ -47,11 +48,14 @@ export class AgentStatsCollector extends BaseCollector {
     const url = `${this.host.agent_url}/stats/stream`;
     this.debugLog(`[${this.name}] Connecting to ${url}`);
 
+    const timeoutSignal = AbortSignal.timeout(CONNECT_TIMEOUT_MS);
+    const combinedSignal = AbortSignal.any([this.signal, timeoutSignal]);
+
     const response = await this.fetchFn(url, {
       headers: {
         Authorization: `Bearer ${this.host.agent_token}`,
       },
-      signal: this.signal,
+      signal: combinedSignal,
     });
 
     if (!response.ok) {
@@ -62,13 +66,13 @@ export class AgentStatsCollector extends BaseCollector {
       throw new Error('Agent response has no body');
     }
 
-    this.resetBackoff();
     this.debugLog(`[${this.name}] Connected, reading SSE stream`);
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let statsReceived = 0;
+    let framesReceived = 0;
 
     try {
       while (!this.signal.aborted) {
@@ -102,8 +106,9 @@ export class AgentStatsCollector extends BaseCollector {
             continue;
           }
 
-          // Skip error events from the agent
-          if ('error' in event && !('containerId' in event)) continue;
+          // Skip non-stat events (e.g. "containers" summary or "container-error")
+          if (!('containerId' in event) || !('containerName' in event)) continue;
+          if ('error' in event) continue;
 
           // Upsert entity metadata for new containers
           if (!this.knownContainers.has(event.containerId)) {
@@ -147,6 +152,11 @@ export class AgentStatsCollector extends BaseCollector {
           this.dbDebugLog(
             `[${this.name}] Wrote stat for ${event.containerName} in ${writeMs}ms (total: ${statsReceived})`
           );
+
+          framesReceived++;
+          if (framesReceived === 1) {
+            this.resetBackoff();
+          }
         }
       }
     } finally {
