@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert, CircularProgress, Snackbar, Typography } from '@mui/material';
-import { getStackDetail, getDeployHistory, triggerDeploy, deleteStack } from '@/data/stacks.functions';
+import { getStackDetail, getDeployHistory, triggerDeploy } from '@/data/stacks.functions';
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
 import ContainerList from '@/components/stacks/ContainerList';
@@ -15,6 +15,8 @@ interface StackDetailProps {
 }
 
 export default function StackDetail({ stackName, host, containers }: Readonly<StackDetailProps>) {
+  const queryClient = useQueryClient();
+
   const { data: detail, isLoading, error } = useQuery({
     queryKey: ['stack-detail', stackName],
     queryFn: () => getStackDetail({ data: { stackName } }),
@@ -79,6 +81,14 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
               isLoading={historyLoading}
               stackName={stackName}
               host={host}
+              onRollbackSuccess={() => {
+                setDeployMessage({ type: 'success', text: 'Rollback triggered successfully' });
+                void queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] });
+                void queryClient.invalidateQueries({ queryKey: ['stacks-list'] });
+              }}
+              onRollbackError={(err) => {
+                setDeployMessage({ type: 'error', text: err.message });
+              }}
             />
           </div>
         </div>
