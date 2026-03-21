@@ -89,7 +89,7 @@ bun dev
 This starts:
 - **PostgreSQL** — database
 - **Worker** — background stats collector
-- **OpenBao** — secrets manager (dev server with `dev-root-token`)
+- **OpenBao** — secrets manager (file backend, auto-initializes on first start with root token `dev-root-token`, data persists across restarts)
 - **Socket proxy** — safe Docker API access
 - **Agent** — sidecar that streams container stats and handles deploys
 
@@ -187,7 +187,7 @@ bun run dev:local:down
 docker compose -f ~/stacks/samples/docker-compose.yml down
 ```
 
-To wipe all data and start fresh:
+To wipe all data and start fresh (includes database AND OpenBao secrets):
 
 ```bash
 bun run dev:local:wipe
