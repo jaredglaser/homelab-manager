@@ -239,6 +239,30 @@ export const deleteStack = createServerFn({ method: 'POST' })
     return deleteStackFromRepo(data.stackName, data.teardown);
   });
 
+const updateStackSettingsSchema = z.object({
+  stackName: z.string().min(1),
+  host: z.string().min(1),
+  autoDeploy: z.boolean(),
+});
+
+/**
+ * Update stack settings (host assignment and deploy mode) by writing to manifest.yaml.
+ */
+export const updateStackSettings = createServerFn({ method: 'POST' })
+  .inputValidator(updateStackSettingsSchema)
+  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+    const { loadGitConfig } = await import('@/lib/config/git-config');
+    const { updateManifest } = await import('@/lib/git/editor-operations');
+    const config = loadGitConfig();
+    if (!config.enabled || !config.repoPath) throw new Error('Git management is not enabled');
+    return updateManifest(config.repoPath, {
+      stackName: data.stackName,
+      host: data.host,
+      autoDeploy: data.autoDeploy,
+      author: { name: 'homelab-manager', email: 'homelab-manager@localhost' },
+    });
+  });
+
 const ensureVariablesExistSchema = z.object({
   stackName: z.string().min(1),
   variableNames: z.array(z.string().min(1)),

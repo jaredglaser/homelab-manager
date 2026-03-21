@@ -41,6 +41,13 @@ const checkHostHealthSchema = z.object({
   hostId: z.number().int().positive(),
 });
 
+const updateHostSchema = z.object({
+  hostId: z.number().int().positive(),
+  name: z.string().min(1).max(100).optional(),
+  agentUrl: z.string().url().optional(),
+  socketProxyUrl: socketProxyUrlSchema.optional(),
+});
+
 // ----- Types -----
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
@@ -66,6 +73,7 @@ export interface HostRepo {
   findById(id: number): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date } | null>;
   findAll(): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }[]>;
   create(input: { name: string; agent_url: string; socket_proxy_url: string }): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }>;
+  update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string }): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
@@ -170,6 +178,24 @@ export async function handleUpdateAgent(
 
   await deps.repo.updateStatus(host.id, 'unhealthy');
   return { hostId: host.id, healthy: false, error: result.error };
+}
+
+export async function handleUpdateHost(
+  deps: HostHandlerDeps,
+  data: { hostId: number; name?: string; agentUrl?: string; socketProxyUrl?: string },
+): Promise<HostListItem> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const fields: { name?: string; agent_url?: string; socket_proxy_url?: string } = {};
+  if (data.name !== undefined) fields.name = data.name;
+  if (data.agentUrl !== undefined) fields.agent_url = data.agentUrl;
+  if (data.socketProxyUrl !== undefined) fields.socket_proxy_url = data.socketProxyUrl;
+
+  const updated = await deps.repo.update(data.hostId, fields);
+  return toHostListItem(updated);
 }
 
 export async function handleAddHost(
@@ -398,4 +424,11 @@ export const checkHostHealth = createServerFn()
     const baseDeps = await loadDeps();
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     return handleCheckHostHealth({ ...baseDeps, checkHealth: checkAgentHealth }, data);
+  });
+
+export const updateHost = createServerFn()
+  .inputValidator(updateHostSchema)
+  .handler(async ({ data }): Promise<HostListItem> => {
+    const deps = await loadDeps();
+    return handleUpdateHost(deps, data);
   });

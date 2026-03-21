@@ -27,6 +27,8 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     addError: null,
     onRemove: mock(() => {}),
     isRemoving: false,
+    onUpdate: mock(() => {}),
+    isUpdating: false,
     onHealthCheck: mock(() => {}),
     checkingHostId: null,
     snackbar: { open: false, message: '', severity: 'success' },
@@ -259,6 +261,58 @@ describe('ManagedHostsCard', () => {
     it('does not show error when addError is null', () => {
       render(<ManagedHostsCardView {...makeProps({ addError: null })} />)
       expect(screen.queryByText('Failed to provision agent')).toBeNull()
+    })
+  })
+
+  describe('edit host', () => {
+    it('renders edit host button per row', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      expect(screen.getByLabelText('edit host')).toBeDefined()
+    })
+
+    it('opens edit dialog when edit button is clicked', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
+      fireEvent.click(screen.getByLabelText('edit host'))
+      expect(screen.getByRole('dialog')).toBeDefined()
+      expect(screen.getByLabelText('Edit Host Name')).toBeDefined()
+    })
+
+    it('pre-fills edit dialog with current host values', () => {
+      const host = makeHost({ name: 'myserver', agentUrl: 'http://10.0.0.1:9090', socketProxyUrl: 'tcp://10.0.0.1:2375' })
+      render(<ManagedHostsCardView {...makeProps({ hosts: [host] })} />)
+      fireEvent.click(screen.getByLabelText('edit host'))
+      expect((screen.getByLabelText('Edit Host Name') as HTMLInputElement).value).toBe('myserver')
+      expect((screen.getByLabelText('Edit Agent URL') as HTMLInputElement).value).toBe('http://10.0.0.1:9090')
+      expect((screen.getByLabelText('Edit Socket Proxy URL') as HTMLInputElement).value).toBe('tcp://10.0.0.1:2375')
+    })
+
+    it('calls onUpdate with correct values when Save is clicked', () => {
+      const onUpdate = mock(() => {})
+      const host = makeHost()
+      render(<ManagedHostsCardView {...makeProps({ hosts: [host], onUpdate })} />)
+      fireEvent.click(screen.getByLabelText('edit host'))
+      fireEvent.change(screen.getByLabelText('Edit Host Name'), { target: { value: 'updated-server' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+      expect(onUpdate).toHaveBeenCalledWith(1, 'updated-server', 'http://192.168.1.10:9090', 'tcp://192.168.1.10:2375')
+    })
+
+    it('does not call onUpdate when Cancel is clicked', () => {
+      const onUpdate = mock(() => {})
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onUpdate })} />)
+      fireEvent.click(screen.getByLabelText('edit host'))
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(onUpdate).not.toHaveBeenCalled()
+    })
+
+    it('Save button is disabled while isUpdating', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], isUpdating: true })} />)
+      fireEvent.click(screen.getByLabelText('edit host'))
+      // When isUpdating, the button shows CircularProgress instead of 'Save' text
+      const dialog = screen.getByRole('dialog')
+      const buttons = Array.from(dialog.querySelectorAll('button'))
+      const saveBtn = buttons.find((b) => b !== screen.getByRole('button', { name: 'Cancel' }))
+      expect(saveBtn).toBeDefined()
+      expect(saveBtn!.hasAttribute('disabled')).toBe(true)
     })
   })
 
