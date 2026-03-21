@@ -139,8 +139,11 @@ export const updateStackIcon = createServerFn()
     return updateStackIconSlug(data.stackName, data.iconSlug);
   });
 
+const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
+const safePathSegment = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Must contain only letters, numbers, hyphens, and underscores');
+
 const stackVariablesSchema = z.object({
-  stackName: z.string().min(1),
+  stackName: safePathSegment,
 });
 
 /**
@@ -154,8 +157,8 @@ export const getStackVariables = createServerFn({ method: 'GET' })
   });
 
 const getVariableValueSchema = z.object({
-  stackName: z.string().min(1),
-  variableName: z.string().min(1),
+  stackName: safePathSegment,
+  variableName: safePathSegment,
 });
 
 /**
@@ -169,8 +172,8 @@ export const getVariableValue = createServerFn({ method: 'GET' })
   });
 
 const setVariableValueSchema = z.object({
-  stackName: z.string().min(1),
-  variableName: z.string().min(1),
+  stackName: safePathSegment,
+  variableName: safePathSegment,
   value: z.string(),
 });
 
@@ -185,8 +188,8 @@ export const setVariableValue = createServerFn({ method: 'POST' })
   });
 
 const deleteVariableSchema = z.object({
-  stackName: z.string().min(1),
-  variableName: z.string().min(1),
+  stackName: safePathSegment,
+  variableName: safePathSegment,
 });
 
 /**
@@ -200,8 +203,8 @@ export const deleteVariable = createServerFn({ method: 'POST' })
   });
 
 const ensureVariablesExistSchema = z.object({
-  stackName: z.string().min(1),
-  variableNames: z.array(z.string().min(1)),
+  stackName: safePathSegment,
+  variableNames: z.array(safePathSegment),
 });
 
 /**

@@ -72,9 +72,11 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
     const onUp = () => {
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
+      target.removeEventListener('pointercancel', onUp);
     };
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
+    target.addEventListener('pointercancel', onUp);
   }, [panelWidth]);
 
   // Reads the current theme on each render. Theme toggles trigger re-renders
