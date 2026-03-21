@@ -30,10 +30,12 @@ const triggerDeploySchema = z.object({
   stack: z.string().min(1),
   host: z.string().min(1),
   action: z.enum(['deploy', 'teardown', 'restart']),
+  commitSha: z.string().optional(),
 });
 
 /**
  * Trigger a deploy, teardown, or restart for a stack.
+ * Pass an optional commitSha to perform a rollback to that specific commit.
  */
 export const triggerDeploy = createServerFn()
   .inputValidator(triggerDeploySchema)
