@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Chip, Collapse } from '@mui/material';
 import { ChevronRight, Layers } from 'lucide-react';
-import type { StackSummary } from '@/types/stacks';
+import type { StackStatusEntry, StackSummary } from '@/types/stacks';
 import { STACKS_GRID } from '@/components/stacks/StacksTable';
 import SyncStatusBadge from '@/components/stacks/SyncStatusBadge';
 import StackDetail from '@/components/stacks/StackDetail';
@@ -11,6 +11,7 @@ interface StackRowProps {
   stack: StackSummary;
   expanded: boolean;
   onToggle: () => void;
+  statusMap: Map<string, StackStatusEntry>;
 }
 
 function formatRelativeTime(isoDate: string | null): string {
@@ -27,9 +28,34 @@ function formatRelativeTime(isoDate: string | null): string {
 
 // Per CLAUDE.md gotcha #5: Do not use React.memo on components receiving streaming/frequently-updated data.
 // Incorrect memoization can freeze streaming updates.
-export default function StackRow({ stack, expanded, onToggle }: Readonly<StackRowProps>) {
+function ContainerStatusBadge({ statusEntry }: { statusEntry: StackStatusEntry | undefined }) {
+  if (!statusEntry) {
+    return <span className="text-xs opacity-40">—</span>;
+  }
+
+  const total = statusEntry.containers.length;
+  const running = statusEntry.containers.filter((c) => c.status === 'running').length;
+
+  let colorClass: string;
+  if (total === 0 || running === 0) {
+    colorClass = 'text-red-500';
+  } else if (running < total) {
+    colorClass = 'text-amber-500';
+  } else {
+    colorClass = 'text-green-500';
+  }
+
+  return (
+    <span className={`text-xs font-medium ${colorClass}`}>
+      {running}/{total} running
+    </span>
+  );
+}
+
+export default function StackRow({ stack, expanded, onToggle, statusMap }: Readonly<StackRowProps>) {
   const [iconError, setIconError] = useState(false);
   const iconUrl = stack.icon ? getIconUrl(stack.icon, '') : null;
+  const statusEntry = statusMap.get(`${stack.name}/${stack.host}`);
 
   return (
     <div>
@@ -62,12 +88,7 @@ export default function StackRow({ stack, expanded, onToggle }: Readonly<StackRo
               <Layers size={18} className="flex-shrink-0 opacity-60" />
             )}
             <span className="font-medium truncate">{stack.name}</span>
-            <Chip
-              size="small"
-              variant="filled"
-              label={`${stack.containerCount} container${stack.containerCount !== 1 ? 's' : ''}`}
-              className="!text-xs"
-            />
+            <ContainerStatusBadge statusEntry={statusEntry} />
           </div>
         </div>
 
