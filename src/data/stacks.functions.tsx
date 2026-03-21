@@ -199,6 +199,31 @@ export const deleteVariable = createServerFn({ method: 'POST' })
     await client.deleteSecret(data.stackName, data.variableName);
   });
 
+/**
+ * List managed host names for use in the create stack dialog host selector.
+ */
+export const listManagedHostNames = createServerFn({ method: 'GET' })
+  .handler(async (): Promise<string[]> => {
+    const { getManagedHostNames } = await import('@/lib/stacks/stack-service');
+    return getManagedHostNames();
+  });
+
+const createStackSchema = z.object({
+  stackName: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/),
+  host: z.string().min(1),
+  autoDeploy: z.boolean(),
+});
+
+/**
+ * Create a new stack: adds an empty compose file and updates the manifest in one commit.
+ */
+export const createStack = createServerFn({ method: 'POST' })
+  .inputValidator(createStackSchema)
+  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+    const { createStackInRepo } = await import('@/lib/stacks/stack-service');
+    return createStackInRepo(data.stackName, data.host, data.autoDeploy);
+  });
+
 const ensureVariablesExistSchema = z.object({
   stackName: z.string().min(1),
   variableNames: z.array(z.string().min(1)),
