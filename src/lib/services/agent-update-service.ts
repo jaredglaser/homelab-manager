@@ -1,8 +1,7 @@
 import type Dockerode from 'dockerode';
 import { checkAgentHealth, type AgentHealthResult } from '@/lib/services/agent-health-service';
 import { pullImage } from '@/lib/services/docker-image-utils';
-
-const CONTAINER_NAME_PREFIX = 'homelab-agent-';
+import { getAgentContainerName } from '@/lib/services/agent-constants';
 const HEALTH_CHECK_RETRY_DELAYS_MS = [500, 1000, 2000]; // Exponential backoff
 const POST_UPDATE_HEALTH_CHECK_TIMEOUT_MS = 10000;
 
@@ -32,7 +31,7 @@ export class AgentUpdateService {
     newImage: string,
     fetchFn: typeof fetch = globalThis.fetch
   ): Promise<AgentUpdateResult> {
-    const containerName = `${CONTAINER_NAME_PREFIX}${hostId}`;
+    const containerName = getAgentContainerName(hostId);
 
     // 1. Pull the new image
     await pullImage(docker, newImage);

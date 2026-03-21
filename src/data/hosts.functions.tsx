@@ -62,6 +62,7 @@ export interface HostRepo {
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
+  updateAgentUrl(id: number, agentUrl: string): Promise<void>;
 }
 
 export interface HostHandlerDeps {
@@ -214,6 +215,8 @@ export async function handleAddHost(
         : `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record was deleted but agent container cleanup failed — manual removal may be required.`
     );
   }
+
+  await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
 
   const status: HostStatus = 'healthy';
   await deps.repo.updateStatus(host.id, status);

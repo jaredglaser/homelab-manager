@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 
-/** Valid statuses for managed_hosts, matching the DB CHECK constraint in migration 010. */
+/** Valid statuses for managed_hosts, matching the DB CHECK constraint in migrations/010_deploy_constraints.sql. */
 export type HostStatus = 'pending' | 'healthy' | 'unhealthy' | 'error';
 
 export interface ManagedHost {
@@ -102,6 +102,13 @@ export class HostRepository {
     await this.pool.query(
       'UPDATE managed_hosts SET agent_token_hash = $1, updated_at = NOW() WHERE id = $2',
       [tokenHash, id]
+    );
+  }
+
+  async updateAgentUrl(id: number, agentUrl: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE managed_hosts SET agent_url = $1, updated_at = NOW() WHERE id = $2',
+      [agentUrl, id]
     );
   }
 
