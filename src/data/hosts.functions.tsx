@@ -22,6 +22,13 @@ const addHostSchema = z.object({
   agentPort: z.number().int().min(1).max(65535).optional().default(9090),
 });
 
+const registerExistingHostSchema = z.object({
+  name: z.string().min(1).max(100),
+  agentUrl: z.string().url(),
+  socketProxyUrl: socketProxyUrlSchema,
+  agentToken: z.string().min(1),
+});
+
 const removeHostSchema = z.object({
   hostId: z.number().int().positive(),
 });
@@ -242,6 +249,50 @@ export async function handleAddHost(
   };
 }
 
+/**
+ * Register an existing agent that's already running. No container provisioning —
+ * just creates the DB record, stores the token in OpenBao, and health-checks.
+ */
+export async function handleRegisterExistingHost(
+  deps: HostHandlerDeps & {
+    storeToken: (hostname: string, token: string) => Promise<void>;
+    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+  },
+  data: { name: string; agentUrl: string; socketProxyUrl: string; agentToken: string },
+): Promise<AddHostResult> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.create({
+    name: data.name,
+    agent_url: data.agentUrl,
+    socket_proxy_url: data.socketProxyUrl,
+  });
+
+  try {
+    await deps.storeToken(data.name, data.agentToken);
+  } catch (err) {
+    await deps.repo.delete(host.id);
+    throw new Error(
+      `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record has been cleaned up.`
+    );
+  }
+
+  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, [500, 1000, 2000]);
+  const status: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
+  await deps.repo.updateStatus(host.id, status);
+
+  if (healthResult.healthy && healthResult.version) {
+    await deps.repo.updateAgentVersion(host.id, healthResult.version);
+  }
+
+  return {
+    host: toHostListItem(host, {
+      agentVersion: (healthResult.healthy && healthResult.version) ? healthResult.version : null,
+      status,
+    }),
+  };
+}
+
 // ----- Dependency wiring (dynamic imports for server-only modules) -----
 
 async function loadDeps(): Promise<HostHandlerDeps> {
@@ -285,6 +336,24 @@ export const addHost = createServerFn()
       checkHealth: checkAgentHealth,
       provision: async (url, opts) => { const docker = await loadDockerClient(url); return provService.provision(docker, opts); },
       removeAgent: async (url, hostId) => { const docker = await loadDockerClient(url); await provService.removeAgent(docker, hostId); },
+    }, data);
+  });
+
+export const registerExistingHost = createServerFn()
+  .inputValidator(registerExistingHostSchema)
+  .handler(async ({ data }): Promise<AddHostResult> => {
+    const baseDeps = await loadDeps();
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    const { initializeOpenBao } = await import('@/lib/services/openbao-init');
+    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
+    await initializeOpenBao(baoClient);
+    return handleRegisterExistingHost({
+      ...baseDeps,
+      storeToken: (hostname, token) => baoClient.setHostSecret(hostname, 'agent_token', token),
+      checkHealth: checkAgentHealth,
     }, data);
   });
 

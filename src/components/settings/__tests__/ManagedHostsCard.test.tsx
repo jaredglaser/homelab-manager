@@ -181,46 +181,44 @@ describe('ManagedHostsCard', () => {
   })
 
   describe('add host form', () => {
-    it('renders Host Name and Socket Proxy URL inputs', () => {
+    function fillAllFields() {
+      fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'server1' } })
+      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://localhost:9090' } })
+      fireEvent.change(screen.getByLabelText('Socket Proxy URL'), { target: { value: 'http://192.168.1.10:2375' } })
+      fireEvent.change(screen.getByLabelText('Agent Token'), { target: { value: 'dev-token' } })
+    }
+
+    it('renders all form fields', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       expect(screen.getByLabelText('Host Name')).toBeDefined()
+      expect(screen.getByLabelText('Agent URL')).toBeDefined()
       expect(screen.getByLabelText('Socket Proxy URL')).toBeDefined()
+      expect(screen.getByLabelText('Agent Token')).toBeDefined()
     })
 
-    it('renders Add Host button', () => {
+    it('renders Register Host button', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      expect(screen.getByRole('button', { name: /Add Host/ })).toBeDefined()
+      expect(screen.getByRole('button', { name: /Register Host/ })).toBeDefined()
     })
 
-    it('Add Host button is disabled when fields are empty', () => {
+    it('Register Host button is disabled when fields are empty', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      const btn = screen.getByRole('button', { name: /Add Host/ })
+      const btn = screen.getByRole('button', { name: /Register Host/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('Add Host button is disabled when only name is filled', () => {
+    it('Register Host button is disabled when only some fields are filled', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'server1' } })
-      const btn = screen.getByRole('button', { name: /Add Host/ })
+      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://localhost:9090' } })
+      const btn = screen.getByRole('button', { name: /Register Host/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('Add Host button is disabled when only URL is filled', () => {
+    it('Register Host button is enabled when all fields are filled', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.change(screen.getByLabelText('Socket Proxy URL'), {
-        target: { value: 'tcp://192.168.1.10:2375' },
-      })
-      const btn = screen.getByRole('button', { name: /Add Host/ })
-      expect(btn.hasAttribute('disabled')).toBe(true)
-    })
-
-    it('Add Host button is enabled when both fields are filled', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'server1' } })
-      fireEvent.change(screen.getByLabelText('Socket Proxy URL'), {
-        target: { value: 'tcp://192.168.1.10:2375' },
-      })
-      const btn = screen.getByRole('button', { name: /Add Host/ })
+      fillAllFields()
+      const btn = screen.getByRole('button', { name: /Register Host/ })
       expect(btn.hasAttribute('disabled')).toBe(false)
     })
 
@@ -228,27 +226,26 @@ describe('ManagedHostsCard', () => {
       const onAdd = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ onAdd })} />)
       fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: '  server1  ' } })
-      fireEvent.change(screen.getByLabelText('Socket Proxy URL'), {
-        target: { value: '  tcp://192.168.1.10:2375  ' },
-      })
-      fireEvent.click(screen.getByRole('button', { name: /Add Host/ }))
-      expect(onAdd).toHaveBeenCalledWith('server1', 'tcp://192.168.1.10:2375')
+      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://localhost:9090  ' } })
+      fireEvent.change(screen.getByLabelText('Socket Proxy URL'), { target: { value: '  http://192.168.1.10:2375  ' } })
+      fireEvent.change(screen.getByLabelText('Agent Token'), { target: { value: '  dev-token  ' } })
+      fireEvent.click(screen.getByRole('button', { name: /Register Host/ }))
+      expect(onAdd).toHaveBeenCalledWith('server1', 'http://localhost:9090', 'http://192.168.1.10:2375', 'dev-token')
     })
 
     it('clears form fields after successful submit', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      const nameInput = screen.getByLabelText('Host Name') as HTMLInputElement
-      const urlInput = screen.getByLabelText('Socket Proxy URL') as HTMLInputElement
-      fireEvent.change(nameInput, { target: { value: 'server1' } })
-      fireEvent.change(urlInput, { target: { value: 'tcp://192.168.1.10:2375' } })
-      fireEvent.click(screen.getByRole('button', { name: /Add Host/ }))
-      expect(nameInput.value).toBe('')
-      expect(urlInput.value).toBe('')
+      fillAllFields()
+      fireEvent.click(screen.getByRole('button', { name: /Register Host/ }))
+      expect((screen.getByLabelText('Host Name') as HTMLInputElement).value).toBe('')
+      expect((screen.getByLabelText('Agent URL') as HTMLInputElement).value).toBe('')
+      expect((screen.getByLabelText('Socket Proxy URL') as HTMLInputElement).value).toBe('')
+      expect((screen.getByLabelText('Agent Token') as HTMLInputElement).value).toBe('')
     })
 
-    it('Add Host button is disabled while isAdding', () => {
+    it('Register Host button is disabled while isAdding', () => {
       render(<ManagedHostsCardView {...makeProps({ isAdding: true })} />)
-      const btn = screen.getByRole('button', { name: /Add Host/ })
+      const btn = screen.getByRole('button', { name: /Register Host/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 

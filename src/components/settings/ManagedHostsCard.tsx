@@ -18,14 +18,14 @@ import {
 import { RefreshCw, Trash2, Plus, Server } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { HostListItem } from '@/lib/hosts/host-utils'
-import { listHosts, addHost, removeHost, checkHostHealth } from '@/data/hosts.functions'
+import { listHosts, registerExistingHost, removeHost, checkHostHealth } from '@/data/hosts.functions'
 
 // ----- Types for the presentational layer -----
 
 export interface ManagedHostsCardProps {
   hosts: HostListItem[]
   isLoading: boolean
-  onAdd: (name: string, socketProxyUrl: string) => void
+  onAdd: (name: string, agentUrl: string, socketProxyUrl: string, agentToken: string) => void
   isAdding: boolean
   addError: string | null
   onRemove: (hostId: number) => void
@@ -82,55 +82,88 @@ function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }: Remove
 interface AddHostFormProps {
   isAdding: boolean
   addError: string | null
-  onSubmit: (name: string, socketProxyUrl: string) => void
+  onSubmit: (name: string, agentUrl: string, socketProxyUrl: string, agentToken: string) => void
 }
 
 function AddHostForm({ isAdding, addError, onSubmit }: AddHostFormProps) {
   const [name, setName] = useState('')
+  const [agentUrl, setAgentUrl] = useState('')
   const [socketProxyUrl, setSocketProxyUrl] = useState('')
+  const [agentToken, setAgentToken] = useState('')
 
-  const isValid = name.trim().length > 0 && socketProxyUrl.trim().length > 0
+  const isValid = name.trim().length > 0
+    && agentUrl.trim().length > 0
+    && socketProxyUrl.trim().length > 0
+    && agentToken.trim().length > 0
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!isValid || isAdding) return
-    onSubmit(name.trim(), socketProxyUrl.trim())
+    onSubmit(name.trim(), agentUrl.trim(), socketProxyUrl.trim(), agentToken.trim())
     setName('')
+    setAgentUrl('')
     setSocketProxyUrl('')
+    setAgentToken('')
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3 pt-4 border-t border-[var(--mui-palette-divider)]">
-      <Typography variant="subtitle2">Add Host</Typography>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-        <TextField
-          label="Host Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          size="small"
-          disabled={isAdding}
-          className="flex-1"
-          inputProps={{ 'aria-label': 'Host Name' }}
-        />
-        <TextField
-          label="Socket Proxy URL"
-          value={socketProxyUrl}
-          onChange={(e) => setSocketProxyUrl(e.target.value)}
-          size="small"
-          placeholder="tcp://192.168.1.10:2375"
-          disabled={isAdding}
-          className="flex-1"
-          inputProps={{ 'aria-label': 'Socket Proxy URL' }}
-        />
+      <Typography variant="subtitle2">Register Host</Typography>
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          <TextField
+            label="Host Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            size="small"
+            disabled={isAdding}
+            placeholder="dev-machine"
+            className="flex-1"
+            inputProps={{ 'aria-label': 'Host Name' }}
+          />
+          <TextField
+            label="Agent URL"
+            value={agentUrl}
+            onChange={(e) => setAgentUrl(e.target.value)}
+            size="small"
+            placeholder="http://localhost:9090"
+            disabled={isAdding}
+            className="flex-1"
+            inputProps={{ 'aria-label': 'Agent URL' }}
+          />
+        </div>
+        <div className="flex gap-2">
+          <TextField
+            label="Socket Proxy URL"
+            value={socketProxyUrl}
+            onChange={(e) => setSocketProxyUrl(e.target.value)}
+            size="small"
+            placeholder="http://192.168.1.10:2375"
+            disabled={isAdding}
+            className="flex-1"
+            inputProps={{ 'aria-label': 'Socket Proxy URL' }}
+          />
+          <TextField
+            label="Agent Token"
+            value={agentToken}
+            onChange={(e) => setAgentToken(e.target.value)}
+            size="small"
+            type="password"
+            placeholder="dev-agent-token"
+            disabled={isAdding}
+            className="flex-1"
+            inputProps={{ 'aria-label': 'Agent Token' }}
+          />
+        </div>
         <Button
           type="submit"
           variant="contained"
           size="small"
           disabled={!isValid || isAdding}
           startIcon={isAdding ? <CircularProgress size={14} /> : <Plus size={14} />}
-          className="shrink-0 self-end"
+          className="self-end"
         >
-          Add Host
+          Register Host
         </Button>
       </div>
       {addError && (
@@ -305,8 +338,8 @@ export function ManagedHostsCard() {
   })
 
   const addMutation = useMutation({
-    mutationFn: ({ name, socketProxyUrl }: { name: string; socketProxyUrl: string }) =>
-      addHost({ data: { name, socketProxyUrl } }),
+    mutationFn: ({ name, agentUrl, socketProxyUrl, agentToken }: { name: string; agentUrl: string; socketProxyUrl: string; agentToken: string }) =>
+      registerExistingHost({ data: { name, agentUrl, socketProxyUrl, agentToken } }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setAddError(null)
@@ -367,7 +400,7 @@ export function ManagedHostsCard() {
     <ManagedHostsCardView
       hosts={hosts}
       isLoading={isLoading}
-      onAdd={(name, socketProxyUrl) => addMutation.mutate({ name, socketProxyUrl })}
+      onAdd={(name, agentUrl, socketProxyUrl, agentToken) => addMutation.mutate({ name, agentUrl, socketProxyUrl, agentToken })}
       isAdding={addMutation.isPending}
       addError={addError}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
