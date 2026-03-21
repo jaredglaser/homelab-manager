@@ -64,7 +64,10 @@ GIT_REPOS_DIR="./data/repos"
 GIT_SERVER_TOKEN="dev-git-token"
 
 # OpenBao (dev server with fixed root token)
-OPENBAO_URL="http://openbao:8200"
+# Use localhost because the web server runs locally via `bun dev`,
+# outside Docker. The worker (inside Docker) overrides this to
+# "http://openbao:8200" via docker-compose environment.
+OPENBAO_URL="http://localhost:8200"
 OPENBAO_TOKEN="dev-root-token"
 
 # Start OpenBao with the management profile
@@ -152,7 +155,7 @@ docker compose -f ~/stacks/samples/docker-compose.yml up -d
 
 1. Open http://localhost:3000
 2. The **Docker** page should show running containers with live CPU/memory stats
-3. The **Docker > Stacks** link should appear in the sidebar
+3. The **Stacks** tab should appear in the top navigation (between Docker and ZFS)
 4. The **Stacks** page should list the `samples` stack
 5. OpenBao should be accessible at http://localhost:8200 (token: `dev-root-token`)
 
