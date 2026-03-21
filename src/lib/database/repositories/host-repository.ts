@@ -92,6 +92,41 @@ export class HostRepository {
     );
   }
 
+  async update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string }): Promise<ManagedHost> {
+    const setClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (fields.name !== undefined) {
+      params.push(fields.name);
+      setClauses.push(`name = $${params.length}`);
+    }
+    if (fields.agent_url !== undefined) {
+      params.push(fields.agent_url);
+      setClauses.push(`agent_url = $${params.length}`);
+    }
+    if (fields.socket_proxy_url !== undefined) {
+      params.push(fields.socket_proxy_url);
+      setClauses.push(`socket_proxy_url = $${params.length}`);
+    }
+
+    if (setClauses.length === 0) {
+      const existing = await this.findById(id);
+      if (!existing) throw new Error(`Host with id ${id} not found`);
+      return existing;
+    }
+
+    setClauses.push(`updated_at = NOW()`);
+    params.push(id);
+
+    const result = await this.pool.query(
+      `UPDATE managed_hosts SET ${setClauses.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
+
+    if (result.rows.length === 0) throw new Error(`Host with id ${id} not found`);
+    return rowToHost(result.rows[0] as ManagedHost);
+  }
+
   async delete(id: number): Promise<void> {
     await this.pool.query(
       'DELETE FROM managed_hosts WHERE id = $1',

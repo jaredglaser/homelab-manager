@@ -15,10 +15,10 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material'
-import { RefreshCw, Trash2, Plus, Server } from 'lucide-react'
+import { RefreshCw, Trash2, Plus, Server, Pencil } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { HostListItem } from '@/lib/hosts/host-utils'
-import { listHosts, registerExistingHost, removeHost, checkHostHealth } from '@/data/hosts.functions'
+import { listHosts, registerExistingHost, removeHost, checkHostHealth, updateHost } from '@/data/hosts.functions'
 
 // ----- Types for the presentational layer -----
 
@@ -30,6 +30,8 @@ export interface ManagedHostsCardProps {
   addError: string | null
   onRemove: (hostId: number) => void
   isRemoving: boolean
+  onUpdate: (hostId: number, name: string, agentUrl: string, socketProxyUrl: string) => void
+  isUpdating: boolean
   onHealthCheck: (hostId: number) => void
   checkingHostId: number | null
   snackbar: { open: boolean; message: string; severity: 'success' | 'error' | 'warning' }
@@ -71,6 +73,79 @@ function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }: Remove
         <Button onClick={onClose} disabled={isRemoving}>Cancel</Button>
         <Button onClick={onConfirm} color="error" disabled={isRemoving}>
           {isRemoving ? <CircularProgress size={16} /> : 'Remove'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+// ----- Edit host dialog -----
+
+interface EditDialogProps {
+  open: boolean
+  host: HostListItem | null
+  isUpdating: boolean
+  onConfirm: (hostId: number, name: string, agentUrl: string, socketProxyUrl: string) => void
+  onClose: () => void
+}
+
+function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogProps) {
+  const [name, setName] = useState(host?.name ?? '')
+  const [agentUrl, setAgentUrl] = useState(host?.agentUrl ?? '')
+  const [socketProxyUrl, setSocketProxyUrl] = useState(host?.socketProxyUrl ?? '')
+
+  // Sync state when host changes (dialog opens for a different host)
+  const [prevHost, setPrevHost] = useState(host)
+  if (host !== prevHost) {
+    setPrevHost(host)
+    setName(host?.name ?? '')
+    setAgentUrl(host?.agentUrl ?? '')
+    setSocketProxyUrl(host?.socketProxyUrl ?? '')
+  }
+
+  const isValid = name.trim().length > 0 && agentUrl.trim().length > 0 && socketProxyUrl.trim().length > 0
+
+  function handleSave() {
+    if (!host || !isValid || isUpdating) return
+    onConfirm(host.id, name.trim(), agentUrl.trim(), socketProxyUrl.trim())
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Edit Host</DialogTitle>
+      <DialogContent className="flex flex-col gap-4 !pt-4">
+        <TextField
+          label="Host Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          size="small"
+          disabled={isUpdating}
+          fullWidth
+          inputProps={{ 'aria-label': 'Edit Host Name' }}
+        />
+        <TextField
+          label="Agent URL"
+          value={agentUrl}
+          onChange={(e) => setAgentUrl(e.target.value)}
+          size="small"
+          disabled={isUpdating}
+          fullWidth
+          inputProps={{ 'aria-label': 'Edit Agent URL' }}
+        />
+        <TextField
+          label="Socket Proxy URL"
+          value={socketProxyUrl}
+          onChange={(e) => setSocketProxyUrl(e.target.value)}
+          size="small"
+          disabled={isUpdating}
+          fullWidth
+          inputProps={{ 'aria-label': 'Edit Socket Proxy URL' }}
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={isUpdating}>Cancel</Button>
+        <Button onClick={handleSave} variant="contained" disabled={!isValid || isUpdating}>
+          {isUpdating ? <CircularProgress size={16} /> : 'Save'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -182,10 +257,11 @@ interface HostRowProps {
   isChecking: boolean
   isRemoving: boolean
   onHealthCheck: () => void
+  onEdit: () => void
   onRemove: () => void
 }
 
-function HostRow({ host, isChecking, isRemoving, onHealthCheck, onRemove }: HostRowProps) {
+function HostRow({ host, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
   return (
     <div className="flex items-center gap-3 py-2 border-b border-[var(--mui-palette-divider)] last:border-0">
       <Server size={16} className="text-[var(--mui-palette-text-secondary)] shrink-0" />
@@ -218,6 +294,18 @@ function HostRow({ host, isChecking, isRemoving, onHealthCheck, onRemove }: Host
             </IconButton>
           </span>
         </Tooltip>
+        <Tooltip title="Edit host">
+          <span>
+            <IconButton
+              size="small"
+              onClick={onEdit}
+              disabled={isChecking || isRemoving}
+              aria-label="edit host"
+            >
+              <Pencil size={14} />
+            </IconButton>
+          </span>
+        </Tooltip>
         <Tooltip title="Remove host">
           <span>
             <IconButton
@@ -246,18 +334,25 @@ export function ManagedHostsCardView({
   addError,
   onRemove,
   isRemoving,
+  onUpdate,
+  isUpdating,
   onHealthCheck,
   checkingHostId,
   snackbar,
   onSnackbarClose,
 }: ManagedHostsCardProps) {
   const [removeTarget, setRemoveTarget] = useState<HostListItem | null>(null)
+  const [editTarget, setEditTarget] = useState<HostListItem | null>(null)
 
   function handleRemoveConfirm() {
     if (removeTarget) {
       onRemove(removeTarget.id)
       setRemoveTarget(null)
     }
+  }
+
+  function handleEditConfirm(hostId: number, name: string, agentUrl: string, socketProxyUrl: string) {
+    onUpdate(hostId, name, agentUrl, socketProxyUrl)
   }
 
   return (
@@ -285,6 +380,7 @@ export function ManagedHostsCardView({
                 isChecking={checkingHostId === host.id}
                 isRemoving={isRemoving}
                 onHealthCheck={() => onHealthCheck(host.id)}
+                onEdit={() => setEditTarget(host)}
                 onRemove={() => setRemoveTarget(host)}
               />
             ))}
@@ -295,6 +391,14 @@ export function ManagedHostsCardView({
           <AddHostForm isAdding={isAdding} addError={addError} onSubmit={onAdd} />
         </div>
       </Card>
+
+      <EditDialog
+        open={editTarget !== null}
+        host={editTarget}
+        isUpdating={isUpdating}
+        onConfirm={handleEditConfirm}
+        onClose={() => setEditTarget(null)}
+      />
 
       <RemoveDialog
         open={removeTarget !== null}
@@ -367,6 +471,19 @@ export function ManagedHostsCard() {
     },
   })
 
+  const updateMutation = useMutation({
+    mutationFn: ({ hostId, name, agentUrl, socketProxyUrl }: { hostId: number; name: string; agentUrl: string; socketProxyUrl: string }) =>
+      updateHost({ data: { hostId, name, agentUrl, socketProxyUrl } }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
+      setSnackbar({ open: true, message: 'Host updated', severity: 'success' })
+    },
+    onError: (err: unknown) => {
+      const message = err instanceof Error ? err.message : 'Failed to update host'
+      setSnackbar({ open: true, message, severity: 'error' })
+    },
+  })
+
   const healthMutation = useMutation({
     mutationFn: (hostId: number) => {
       setCheckingHostId(hostId)
@@ -405,6 +522,8 @@ export function ManagedHostsCard() {
       addError={addError}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
       isRemoving={removeMutation.isPending}
+      onUpdate={(hostId, name, agentUrl, socketProxyUrl) => updateMutation.mutate({ hostId, name, agentUrl, socketProxyUrl })}
+      isUpdating={updateMutation.isPending}
       onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
       checkingHostId={checkingHostId}
       snackbar={snackbar}
