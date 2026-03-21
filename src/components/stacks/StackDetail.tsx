@@ -1,19 +1,25 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CircularProgress, Typography } from '@mui/material';
-import { getStackDetail, getDeployHistory, triggerDeploy } from '@/data/stacks.functions';
+import { getStackDetail, getDeployHistory, triggerDeploy, deleteStack } from '@/data/stacks.functions';
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
 import ContainerList from '@/components/stacks/ContainerList';
 import StackActionBar from '@/components/stacks/StackActionBar';
+import DeleteStackDialog from '@/components/stacks/DeleteStackDialog';
 import type { StackContainer } from '@/types/stacks';
 
 interface StackDetailProps {
   stackName: string;
   host: string;
   containers: StackContainer[];
+  onDeleted?: () => void;
 }
 
-export default function StackDetail({ stackName, host, containers }: Readonly<StackDetailProps>) {
+export default function StackDetail({ stackName, host, containers, onDeleted }: Readonly<StackDetailProps>) {
+  const queryClient = useQueryClient();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
   const { data: detail, isLoading, error } = useQuery({
     queryKey: ['stack-detail', stackName],
     queryFn: () => getStackDetail({ data: { stackName } }),
@@ -27,6 +33,16 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
   const deployMutation = useMutation({
     mutationFn: (action: 'deploy' | 'restart' | 'teardown') =>
       triggerDeploy({ data: { stack: stackName, host, action } }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (teardown: boolean) =>
+      deleteStack({ data: { stackName, teardown } }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['stacks'] });
+      setDeleteDialogOpen(false);
+      onDeleted?.();
+    },
   });
 
   if (isLoading) {
@@ -76,8 +92,15 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
         onDeploy={() => deployMutation.mutate('deploy')}
         onRestart={() => deployMutation.mutate('restart')}
         onTeardown={() => deployMutation.mutate('teardown')}
-        onDelete={() => { /* wired to DeleteStackDialog in Task 13 */ }}
+        onDelete={() => setDeleteDialogOpen(true)}
         isDeploying={deployMutation.isPending}
+      />
+      <DeleteStackDialog
+        open={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        onConfirm={(teardown) => deleteMutation.mutate(teardown)}
+        stackName={stackName}
+        isLoading={deleteMutation.isPending}
       />
     </div>
   );

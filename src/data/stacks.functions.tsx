@@ -229,6 +229,21 @@ export const createStack = createServerFn({ method: 'POST' })
     return createStackInRepo(data.stackName, data.host, data.autoDeploy);
   });
 
+const deleteStackSchema = z.object({
+  stackName: z.string(),
+  teardown: z.boolean(),
+});
+
+/**
+ * Delete a stack from the git repo, optionally tearing down containers first.
+ */
+export const deleteStack = createServerFn({ method: 'POST' })
+  .inputValidator(deleteStackSchema)
+  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+    const { deleteStackFromRepo } = await import('@/lib/stacks/stack-service');
+    return deleteStackFromRepo(data.stackName, data.teardown);
+  });
+
 const ensureVariablesExistSchema = z.object({
   stackName: z.string().min(1),
   variableNames: z.array(z.string().min(1)),

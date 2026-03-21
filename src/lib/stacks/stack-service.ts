@@ -277,6 +277,74 @@ export async function createStackInRepo(
   return { commitSha };
 }
 
+export async function deleteStackFromRepo(
+  stackName: string,
+  teardown: boolean,
+): Promise<{ commitSha: string }> {
+  const repoPath = getRepoPath();
+  if (!repoPath) throw new Error('Git management is not enabled');
+
+  // Read manifest to get host for this stack
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifest = parseManifest(manifestContent);
+  const entry = manifest.stacks[stackName];
+  if (!entry) throw new Error(`Stack "${stackName}" not found in manifest`);
+
+  const { host } = entry;
+
+  // Check for active deploys
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+  const { StackStatusRepository } = await import('@/lib/database/repositories/stack-status-repository');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const pool = dbClient.getPool();
+
+  const deployRepo = new DeployRepository(pool);
+  const hasActive = await deployRepo.hasActiveDeployForStack(stackName, host);
+  if (hasActive) {
+    throw new Error(`Stack "${stackName}" has an active deploy in progress — cannot delete`);
+  }
+
+  // Optionally teardown before removing from repo
+  if (teardown) {
+    await triggerStackDeploy({ stack: stackName, host, action: 'teardown' });
+  }
+
+  // Remove stack from manifest
+  delete manifest.stacks[stackName];
+  const newManifestContent = yaml.dump(manifest, {
+    indent: 2,
+    lineWidth: -1,
+    noRefs: true,
+    sortKeys: true,
+  });
+
+  // Get all files in the stack directory to remove them
+  let stackFiles: string[];
+  try {
+    stackFiles = await (await import('@/lib/git/repo')).listFilesInRepo(repoPath, stackName);
+  } catch {
+    stackFiles = [];
+  }
+
+  // Atomic commit: remove stack files + update manifest
+  const commitSha = await commitFiles(repoPath, {
+    files: [{ path: MANIFEST_FILENAME, content: newManifestContent }],
+    filesToDelete: stackFiles,
+    message: `Remove stack: ${stackName}`,
+    author: SYSTEM_AUTHOR,
+  });
+
+  // Delete stack_status row
+  const statusRepo = new StackStatusRepository(pool);
+  await statusRepo.deleteByStackHost(stackName, host);
+
+  return { commitSha };
+}
+
 export async function getManagedHostNames(): Promise<string[]> {
   try {
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
