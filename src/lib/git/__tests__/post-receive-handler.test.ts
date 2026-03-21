@@ -8,20 +8,24 @@ import { processPostReceive } from '../post-receive-handler';
 describe('processPostReceive', () => {
   let testDir: string;
   let repoPath: string;
+  let infoSpy: ReturnType<typeof spyOn>;
+  let errorSpy: ReturnType<typeof spyOn>;
 
   beforeEach(async () => {
     testDir = mkdtempSync(join(tmpdir(), 'git-handler-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
+    infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+    errorSpy = spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
+    infoSpy.mockRestore();
+    errorSpy.mockRestore();
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('should return deploy requests for changed stacks', async () => {
-    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
-
+  it('should log deploy requests for changed stacks and resolve without error', async () => {
     const sha1 = await commitFiles(repoPath, {
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
@@ -37,21 +41,15 @@ describe('processPostReceive', () => {
       author: { name: 'test', email: 'test@test.com' },
     });
 
-    const requests = await processPostReceive(repoPath, sha1, sha2);
-    expect(requests).toHaveLength(1);
-    expect(requests[0].stack).toBe('plex');
-    expect(requests[0].autoApproved).toBe(true);
+    // processPostReceive catches all pipeline errors internally, so it should always resolve
+    await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
 
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('[PostReceive] Deploy request: deploy plex on homeserver (auto=true)'),
     );
-
-    infoSpy.mockRestore();
   });
 
-  it('should handle manifest-only changes gracefully', async () => {
-    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
-
+  it('should handle manifest-only changes gracefully without logging deploy requests', async () => {
     const sha1 = await commitFiles(repoPath, {
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
@@ -69,14 +67,13 @@ describe('processPostReceive', () => {
       author: { name: 'test', email: 'test@test.com' },
     });
 
-    const requests = await processPostReceive(repoPath, sha1, sha2);
-    expect(requests).toHaveLength(0);
+    await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
 
-    expect(infoSpy).not.toHaveBeenCalledWith(
-      expect.stringContaining('[PostReceive]'),
+    // No deploy requests should be generated for manifest-only changes
+    const deployCalls = infoSpy.mock.calls.filter(
+      (args: unknown[]) => typeof args[0] === 'string' && args[0].includes('[PostReceive] Deploy request:'),
     );
-
-    infoSpy.mockRestore();
+    expect(deployCalls).toHaveLength(0);
   });
 
   it('should throw when manifest.yaml is missing', async () => {
