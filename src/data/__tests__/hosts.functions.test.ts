@@ -36,7 +36,7 @@ const socketProxyUrlSchema = z.string().min(1).refine(
 );
 
 const addHostSchema = z.object({
-  name: z.string().min(1).max(100),
+  name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/, 'Must contain only letters, numbers, hyphens, and underscores'),
   socketProxyUrl: socketProxyUrlSchema,
   agentPort: z.number().int().min(1).max(65535).optional().default(9090),
 });
@@ -228,6 +228,32 @@ describe('hosts.functions module', () => {
         socketProxyUrl: 'tcp://192.168.1.10:2375',
       });
       expect(result.name).toBe('x');
+    });
+
+    it('rejects name with dots', () => {
+      expect(() =>
+        addHostSchema.parse({ name: 'server.local', socketProxyUrl: 'tcp://192.168.1.10:2375' })
+      ).toThrow(/letters, numbers, hyphens, and underscores/);
+    });
+
+    it('rejects name with IP-like format', () => {
+      expect(() =>
+        addHostSchema.parse({ name: '192.168.1.10', socketProxyUrl: 'tcp://192.168.1.10:2375' })
+      ).toThrow(/letters, numbers, hyphens, and underscores/);
+    });
+
+    it('rejects name with spaces', () => {
+      expect(() =>
+        addHostSchema.parse({ name: 'my server', socketProxyUrl: 'tcp://192.168.1.10:2375' })
+      ).toThrow(/letters, numbers, hyphens, and underscores/);
+    });
+
+    it('accepts name with hyphens and underscores', () => {
+      const result = addHostSchema.parse({
+        name: 'my-server_01',
+        socketProxyUrl: 'tcp://192.168.1.10:2375',
+      });
+      expect(result.name).toBe('my-server_01');
     });
 
     it('rejects empty socketProxyUrl', () => {
