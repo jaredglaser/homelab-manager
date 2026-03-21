@@ -51,7 +51,7 @@ export class DeployPipeline {
     let envHash = '';
     const resolvedEnvContent = await this.resolveEnv(request);
 
-    if (request.action === 'deploy') {
+    if (request.action === 'deploy' && request.trigger !== 'manual_rollback') {
       const previousDeploy = await this.deployRepo.getLatestSuccessful(request.stack, request.host);
       const changeResult = detectChanges(request.composeContent, resolvedEnvContent, previousDeploy);
       composeHash = changeResult.composeHash;
