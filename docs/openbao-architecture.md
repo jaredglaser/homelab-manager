@@ -530,3 +530,96 @@ Architecture diagrams and documentation updated to reflect the target state. No 
 3. Update `AgentClient` to use HTTPS with certificate verification
 4. Update agent to serve HTTPS (Bun native TLS support)
 5. Rotate certs automatically via OpenBao PKI TTL
+
+---
+
+## Documentation Updates Required
+
+Tracking all files that need updates when the universal agent architecture is implemented.
+
+### Files to Delete
+
+| File | Reason |
+|------|--------|
+| `src/lib/clients/ssh-client.ts` | SSH replaced by agent |
+| `src/middleware/ssh-middleware.ts` | SSH replaced by agent |
+
+### Documentation to Rewrite
+
+| File | What Changes |
+|------|-------------|
+| `self-hosting/README.md` | "Docker Monitoring" section (lines 96–134): remove socket-proxy setup instructions. "ZFS Monitoring" section (lines 136–155): remove SSH key setup, replace with agent deployment instructions. |
+| `docs/development.md` | Remove socket-proxy references (lines 49–51, 93–94, 100). Update local dev instructions to reflect agent mounting Docker socket directly. |
+| `README.md` | Line 34: "ZFS Dashboard - ... via SSH" → update to agent-based description. |
+| `.env.example` | Lines 25–27: remove socket-proxy references. Lines 31–38: remove/deprecate `ZFS_HOST_*` env vars. Lines 60–61: update management profile comment. |
+
+### Docker Compose Files
+
+| File | What Changes |
+|------|-------------|
+| `docker-compose.local.yml` | Remove socket-proxy service (lines 99–117). |
+| `docker-compose.agent.yml` | Remove socket-proxy service (lines 4–44). Update agent to mount `/var/run/docker.sock` instead of `DOCKER_HOST=tcp://socket-proxy:2375`. Remove `depends_on: socket-proxy`. |
+| `docker-compose.dev.yml` | Remove/deprecate `ZFS_HOST_*` env var template (lines 28–49). |
+| `docker-compose.yml` | Remove/deprecate `ZFS_HOST_*` env var definitions (lines 20–41). |
+
+### Source Code
+
+| File | What Changes |
+|------|-------------|
+| `src/lib/config/zfs-config.ts` | Remove SSH credential fields from schema. May be replaced entirely if ZFS hosts move to managed_hosts DB table. |
+| `src/worker/collectors/zfs-collector.ts` | Refactor to call agent `/zfs/stats/stream` instead of SSH. May merge into `agent-stats-collector.ts`. |
+| `src/worker/collector-factory.ts` | Lines 62–81: refactor ZFS collector creation to use agent capabilities instead of `ZFS_HOST_*` env vars. |
+| `src/lib/services/agent-provisioning-service.ts` | Remove Dockerode-based provisioning. Simplify to register-only (user manages agent lifecycle). |
+| `src/lib/services/agent-update-service.ts` | Remove Dockerode-based update. Agent updates are user-managed. |
+| `src/data/hosts.functions.tsx` | Remove `socketProxyUrl` from schemas and handlers. Remove `provision`/`removeAgent` deps from `handleAddHost`. Simplify to register + health-check flow. |
+| `src/lib/hosts/host-utils.ts` | Remove `socket_proxy_url` from type definitions and utility functions. |
+| `src/lib/database/repositories/host-repository.ts` | Remove `socket_proxy_url` column references. Add `capabilities` JSONB column. |
+| `src/lib/clients/agent-client.ts` | Add ZFS endpoint methods. Add TLS support (Phase 3). |
+| `agent/src/index.ts` | Add ZFS route handlers. Add capability detection. Update `/health` response. |
+
+### Database Migration
+
+```sql
+-- Migration: Remove socket_proxy_url, add capabilities
+ALTER TABLE managed_hosts
+  DROP COLUMN socket_proxy_url,
+  ADD COLUMN capabilities JSONB DEFAULT '{}';
+```
+
+### Security Considerations
+
+See [Security Analysis — Post-Migration](#security-analysis--post-migration) below.
+
+---
+
+## Security Analysis — Post-Migration
+
+### Resolved by Universal Agent
+
+| # | Original Finding | Resolution |
+|---|-----------------|------------|
+| 4 | Agent tokens passed as container env vars | Still applies — agent token is still an env var in the container. Mitigated in Phase 3 by mounting tokens from files instead. |
+| 6 | Resolved secrets sent in plaintext to agent | Mitigated by TLS in Phase 3. Agent communication encrypted end-to-end. |
+
+### New Considerations
+
+| # | Concern | Risk | Mitigation |
+|---|---------|------|------------|
+| N1 | **Agent has direct Docker socket access** | A compromised agent has full Docker daemon access — can create privileged containers, access host filesystem, etc. Previously the socket proxy restricted which API endpoints were exposed. | The agent's explicit route definitions are the access control layer. The agent process itself is the trust boundary. Ensure agent code is minimal and auditable. Consider running agent as non-root with Docker GID only (no other host privileges). |
+| N2 | **Agent runs ZFS commands with elevated privileges** | `zpool` commands typically require root or specific permissions. The agent process needs access to run `zpool iostat` and `zpool list`. | Run agent with only the specific permissions needed. On Linux, the `zfs` command can work with delegated dataset permissions or specific group membership. Document minimum required permissions. |
+| N3 | **User-managed agent updates** | Users may run outdated agent versions with known vulnerabilities. No forced upgrade path. | `/health` reports agent version. UI shows version mismatch warnings. Document update process clearly. Consider a version compatibility check — web server warns if agent version is too old. |
+| N4 | **Agent token displayed in UI** | The one-liner flow shows the plaintext token in the browser for copy-paste. | Token is only shown once during registration. Use a time-limited display. Token can be regenerated if compromised (requires agent restart with new token). |
+| N5 | **Single agent = single point of failure per host** | If the agent goes down, all monitoring and management for that host stops. Previously Docker had socket proxy as a separate process. | Agent has `--restart unless-stopped`. Health checks detect failures and show status in UI. This is acceptable for homelab use — production would need HA. |
+| N6 | **Agent capability expansion increases attack surface** | Adding ZFS support means the agent binary has more code paths and system access. | Keep capability modules isolated. ZFS routes only load if `zpool` binary exists. Capability detection is read-only at startup. Each capability has minimal system access. |
+
+### Unchanged Findings
+
+The following findings from the original security analysis remain unchanged and are addressed by the existing mitigation phases:
+
+- **[1] Root token shared across all services** → Phase 2 (AppRole credentials)
+- **[2] No TLS on OpenBao listener** → Phase 1 (enable TLS)
+- **[3] Init keys in plaintext on disk** → Phase 4 (encrypt at rest)
+- **[5] Agent tokens held in memory indefinitely** → Phase 3 (short-lived tokens)
+- **[7] No token rotation** → Phase 3 (token lifecycle)
+- **[8] Single Shamir share** → Phase 4 (increase shares)
+- **[9–12] Audit, ACL, storage** → Phase 2/4 (operational security)
