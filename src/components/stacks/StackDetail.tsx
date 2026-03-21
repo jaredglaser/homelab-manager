@@ -1,14 +1,19 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { CircularProgress, Typography } from '@mui/material';
-import { getStackDetail, getDeployHistory } from '@/data/stacks.functions';
+import { getStackDetail, getDeployHistory, triggerDeploy } from '@/data/stacks.functions';
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
+import ContainerList from '@/components/stacks/ContainerList';
+import StackActionBar from '@/components/stacks/StackActionBar';
+import type { StackContainer } from '@/types/stacks';
 
 interface StackDetailProps {
   stackName: string;
+  host: string;
+  containers: StackContainer[];
 }
 
-export default function StackDetail({ stackName }: Readonly<StackDetailProps>) {
+export default function StackDetail({ stackName, host, containers }: Readonly<StackDetailProps>) {
   const { data: detail, isLoading, error } = useQuery({
     queryKey: ['stack-detail', stackName],
     queryFn: () => getStackDetail({ data: { stackName } }),
@@ -17,6 +22,11 @@ export default function StackDetail({ stackName }: Readonly<StackDetailProps>) {
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ['deploy-history', stackName],
     queryFn: () => getDeployHistory({ data: { stackName, limit: 10 } }),
+  });
+
+  const deployMutation = useMutation({
+    mutationFn: (action: 'deploy' | 'restart' | 'teardown') =>
+      triggerDeploy({ data: { stack: stackName, host, action } }),
   });
 
   if (isLoading) {
@@ -51,12 +61,22 @@ export default function StackDetail({ stackName }: Readonly<StackDetailProps>) {
           />
         </div>
         <div>
-          <DeployHistoryList
-            records={history ?? []}
-            isLoading={historyLoading}
-          />
+          <ContainerList containers={containers} />
+          <div className="mt-4">
+            <DeployHistoryList
+              records={history ?? []}
+              isLoading={historyLoading}
+            />
+          </div>
         </div>
       </div>
+      <StackActionBar
+        onDeploy={() => deployMutation.mutate('deploy')}
+        onRestart={() => deployMutation.mutate('restart')}
+        onTeardown={() => deployMutation.mutate('teardown')}
+        onDelete={() => { /* wired to DeleteStackDialog in Task 13 */ }}
+        isDeploying={deployMutation.isPending}
+      />
     </div>
   );
 }
