@@ -242,11 +242,13 @@ graph LR
 
 ---
 
-## Target Architecture — Direct Agent (No Socket Proxy)
+## Target Architecture — Universal Agent (No Socket Proxy, No SSH)
 
 ### Motivation
 
-The current architecture uses a Docker socket proxy between the agent and the Docker daemon. With the agent serving as the sole entry point for all Docker operations, the socket proxy is redundant — the agent already enforces API restrictions through its explicit route definitions (only `deploy`, `teardown`, `restart`, `stats`, `logs`, `health`, `events`). Removing the socket proxy simplifies the stack, reduces the attack surface to a single authenticated endpoint, and makes TLS viable end-to-end.
+The current architecture has three separate remote access patterns: the agent communicates with Docker via a socket proxy, ZFS stats are collected via SSH, and Proxmox uses its native REST API. The agent already enforces API restrictions through its explicit route definitions — making the socket proxy redundant. By expanding the agent into a **universal homelab sidecar** that also handles ZFS stats collection, we can eliminate both the socket proxy and all SSH infrastructure. The agent becomes the single authenticated entry point for all host-level operations.
+
+Proxmox retains its direct REST API integration since it already provides a well-designed API with its own authentication.
 
 ### Current vs Target
 
@@ -254,10 +256,13 @@ The current architecture uses a Docker socket proxy between the agent and the Do
 CURRENT:
   Web Server ──HTTP──▶ Agent ──HTTP──▶ Socket Proxy ──▶ Docker Socket
   Worker ────HTTP──▶ Agent ──HTTP──▶ Socket Proxy ──▶ Docker Socket
+  Worker ────SSH───▶ ZFS Host (zpool iostat, zpool list)
+  Worker ────REST──▶ Proxmox API
 
 TARGET:
   Web Server ──TLS──▶ Agent ──▶ Docker Socket (mounted)
-  Worker ────TLS──▶ Agent ──▶ Docker Socket (mounted)
+  Worker ────TLS──▶ Agent ──▶ Docker stats + ZFS stats (local)
+  Worker ────REST──▶ Proxmox API
 ```
 
 ### Target High-Level Architecture
@@ -282,34 +287,46 @@ graph TB
         end
 
         DB["TimescaleDB"]
+        PROXMOX_API["Proxmox VE<br/>(REST API)"]
 
         WEB -->|"AppRole token"| KV
         WORKER -->|"AppRole token"| KV
         GIT -->|"AppRole token"| KV
+        WORKER -->|"REST"| PROXMOX_API
+        WORKER -->|"INSERT stats"| DB
     end
 
-    subgraph host1["Remote Docker Host 1"]
-        A1["Agent<br/>/var/run/docker.sock mounted<br/>TLS + Bearer token"]
+    subgraph host1["Docker + ZFS Host"]
+        A1["Agent<br/>capabilities: docker, zfs<br/>TLS + Bearer token"]
         D1["Docker Daemon"]
+        Z1["ZFS (zpool)"]
         A1 -->|"unix socket"| D1
+        A1 -->|"zpool iostat<br/>zpool list"| Z1
     end
 
-    subgraph host2["Remote Docker Host 2"]
-        A2["Agent<br/>/var/run/docker.sock mounted<br/>TLS + Bearer token"]
+    subgraph host2["Docker-Only Host"]
+        A2["Agent<br/>capabilities: docker<br/>TLS + Bearer token"]
         D2["Docker Daemon"]
         A2 -->|"unix socket"| D2
+    end
+
+    subgraph host3["ZFS-Only Host"]
+        A3["Agent<br/>capabilities: zfs<br/>TLS + Bearer token"]
+        Z3["ZFS (zpool)"]
+        A3 -->|"zpool iostat<br/>zpool list"| Z3
     end
 
     WEB -->|"TLS + Bearer"| A1
     WEB -->|"TLS + Bearer"| A2
     WORKER -->|"TLS + Bearer"| A1
     WORKER -->|"TLS + Bearer"| A2
-    WORKER -->|"INSERT stats"| DB
+    WORKER -->|"TLS + Bearer"| A3
 
     style bao fill:#1a1a2e,stroke:#e94560,color:#fff
     style consumers fill:#16213e,stroke:#0f3460,color:#fff
     style host1 fill:#1a1a2e,stroke:#0f3460,color:#fff
     style host2 fill:#1a1a2e,stroke:#0f3460,color:#fff
+    style host3 fill:#1a1a2e,stroke:#0f3460,color:#fff
 ```
 
 ### Key Changes
@@ -317,127 +334,148 @@ graph TB
 | Aspect | Current | Target |
 |--------|---------|--------|
 | Docker access | Agent → socket proxy (TCP) → Docker socket | Agent → Docker socket (mounted) |
-| Transport | Plaintext HTTP | TLS (certs from OpenBao PKI) |
-| Auth | Bearer token only | TLS mutual auth + Bearer token |
-| Socket proxy | Required per host | **Removed** |
-| Agent deployment | Via socket proxy Dockerode | SSH bootstrap or user one-liner |
+| ZFS access | Worker → SSH → `zpool iostat` | Worker → Agent → `zpool iostat` (local) |
+| Proxmox access | Worker → Proxmox REST API | *(unchanged)* |
+| Transport | Plaintext HTTP + SSH | TLS (certs from OpenBao PKI) |
+| Auth | Bearer token (agent) + SSH keys/passwords (ZFS) | TLS + Bearer token (agent only) |
+| Socket proxy | Required per Docker host | **Removed** |
+| SSH infrastructure | Required for ZFS hosts (`ssh2` library) | **Removed** |
+| Agent scope | Docker-only sidecar | Universal sidecar (Docker + ZFS + future capabilities) |
+| Agent deployment | Via socket proxy Dockerode | User-managed (one-liner or own automation) |
+| Agent per host | One per Docker host | One per host (any host type) |
 
 ---
 
-## Agent Deployment Flow
+## Agent as Universal Sidecar
 
-The agent must be running on each Docker host before homelab-manager can manage it. Two deployment paths are supported: **automatic deployment** (homelab-manager deploys via SSH) and **manual deployment** (user runs a one-liner).
+The agent evolves from a Docker-only sidecar into a universal homelab sidecar. One agent runs per host and exposes all local system data over its authenticated API. Capabilities are auto-detected and reported via the health endpoint.
+
+### Feature Detection
+
+The `/health` endpoint reports which capabilities are available on the host:
+
+```json
+{
+  "version": "1.2.0",
+  "capabilities": {
+    "docker": { "available": true, "version": "24.0.9" },
+    "zfs": { "available": true, "version": "2.2.2" }
+  }
+}
+```
+
+The agent detects capabilities at startup:
+- **Docker**: Check if `/var/run/docker.sock` exists and is accessible
+- **ZFS**: Check if `zpool` binary exists and is executable
+
+The worker uses capabilities to decide which collectors to create for each agent. A host with only ZFS gets a `ZfsStatsCollector`; a host with both gets both collectors.
+
+### Agent Endpoints (Target)
+
+| Method | Path | Capability | Purpose |
+|--------|------|------------|---------|
+| GET | `/health` | *(always)* | Version, capabilities, heartbeat |
+| GET | `/stats/stream` | docker | SSE container stats streaming |
+| GET | `/logs/{containerId}` | docker | SSE container log streaming |
+| POST | `/stacks/deploy` | docker | Run `docker compose up -d` |
+| POST | `/stacks/teardown` | docker | Run `docker compose down` |
+| POST | `/stacks/restart` | docker | Run `docker compose restart` |
+| GET | `/stacks/status` | docker | List stacks in working directory |
+| GET | `/stacks/events` | docker | SSE container lifecycle events |
+| GET | `/zfs/stats/stream` | zfs | SSE `zpool iostat` streaming |
+| GET | `/zfs/pools` | zfs | List pools with properties |
+
+Endpoints for unavailable capabilities return `404` with a clear error (e.g., `{ "error": "ZFS is not available on this host" }`).
+
+### What This Eliminates
+
+| Removed Component | Replaced By |
+|-------------------|-------------|
+| `socket-proxy` container | Agent mounts Docker socket directly |
+| `ssh2` library (worker) | Agent runs `zpool` commands locally |
+| SSH connection manager | Agent HTTP client (already exists) |
+| SSH middleware | *(removed)* |
+| `ZFS_HOST_*` env vars | Managed hosts in DB (with `zfs` capability) |
+| SSH credentials in OpenBao | *(not needed)* |
+| Per-host SSH key management | *(not needed)* |
+
+---
+
+## Agent Deployment — User-Managed
+
+The user is responsible for deploying and updating the agent on their hosts. This is the simplest and most honest approach for a homelab tool — users already have access to their machines and prefer to control what runs on them.
 
 ### Flow: Add Host
 
 ```mermaid
 flowchart TD
-    UI["UI: Add Host<br/>(hostname, SSH creds or agent URL)"] --> MODE{Deployment mode?}
+    UI["UI: Add Host"] --> GEN["1. Generate agent token<br/>crypto.randomUUID()"]
+    GEN --> SHOW["2. Display one-liner<br/>with pre-filled token"]
+    SHOW --> WAIT["3. User deploys agent<br/>(docker run, compose, ansible, nix, etc.)"]
+    WAIT --> REGISTER["4. User clicks 'Verify Connection'<br/>with agent URL + port"]
+    REGISTER --> HEALTH["5. Health check<br/>GET http://host:port/health"]
+    HEALTH --> OK{Healthy?}
+    OK -->|"Yes"| CAPS["6. Read capabilities<br/>(docker, zfs, etc.)"]
+    CAPS --> STORE["7. Store token in OpenBao<br/>+ INSERT managed_hosts<br/>+ record capabilities"]
+    STORE --> DONE["Host ready ✓"]
+    OK -->|"No"| FAIL["Error: agent not reachable<br/>(show troubleshooting tips)"]
 
-    MODE -->|"Auto-deploy<br/>(SSH credentials provided)"| SSH_DEPLOY
-    MODE -->|"Manual / Existing<br/>(agent URL provided)"| REGISTER
-
-    subgraph SSH_DEPLOY["Auto-Deploy via SSH"]
-        GEN_TOKEN["1. Generate agent token<br/>crypto.randomUUID()"]
-        SSH_CHECK["2. SSH to host<br/>Check if agent container exists"]
-        SSH_CHECK --> EXISTS{Agent running?}
-        EXISTS -->|"Yes"| RECONFIG["3a. Reconfigure existing agent<br/>(update token, restart)"]
-        EXISTS -->|"No"| DEPLOY["3b. docker run<br/>ghcr.io/…/homelab-agent<br/>-v /var/run/docker.sock<br/>-e AGENT_TOKEN=…"]
-        RECONFIG --> HEALTH_SSH["4. Health check agent"]
-        DEPLOY --> HEALTH_SSH
-    end
-
-    subgraph REGISTER["Register Existing Agent"]
-        HEALTH_REG["1. Health check provided URL"]
-        HEALTH_REG --> REG_OK{Healthy?}
-        REG_OK -->|"Yes"| STORE_REG["2. Store token in OpenBao<br/>+ create DB record"]
-        REG_OK -->|"No"| FAIL_REG["Error: agent not reachable"]
-    end
-
-    HEALTH_SSH --> STORE["5. Store token in OpenBao"]
-    STORE --> DB_REC["6. INSERT managed_hosts"]
-    DB_REC --> DONE["Host ready ✓"]
-
-    STORE_REG --> DONE
-
-    style SSH_DEPLOY fill:#16213e,stroke:#0f3460,color:#fff
-    style REGISTER fill:#16213e,stroke:#0f3460,color:#fff
+    style SHOW fill:#16213e,stroke:#0f3460,color:#fff
 ```
 
-### Manual One-Liner
+### One-Liner
 
-For users who prefer to deploy the agent themselves (or for hosts without SSH access), provide a copy-pasteable command:
+The UI generates a token and displays a copy-pasteable command. The user runs it on their host using whatever method they prefer:
 
 ```bash
 docker run -d \
   --name homelab-agent \
   --restart unless-stopped \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v homelab-stacks:/opt/homelab-manager/stacks \
   -p 9090:9090 \
   -e AGENT_TOKEN=<generated-token> \
   ghcr.io/your-org/homelab-agent:latest
 ```
 
-The UI generates the token, displays the one-liner with the token pre-filled, and waits for the user to confirm. Then it health-checks the agent URL and registers the host.
+For hosts with ZFS but no Docker, the agent can run as a systemd service or any other process manager. A standalone binary or install script will be provided for non-Docker hosts.
 
-### Auto-Deploy via SSH
+### Agent Updates
 
-When SSH credentials are provided (password or key), homelab-manager connects to the remote host and:
+Users update the agent themselves — pull the new image and restart the container. This can be automated with tools like Watchtower, or done manually:
 
-1. **Checks** if a `homelab-agent` container already exists (`docker inspect homelab-agent`)
-2. **If exists**: stops, removes, and re-creates with new config
-3. **If not**: pulls the image and runs the container
-4. **Health checks** the agent on `http://<host>:<port>/health`
-5. **Stores** the token in OpenBao and creates the DB record
-
-```mermaid
-flowchart TD
-    START["SSH connect to host"] --> INSPECT["docker inspect homelab-agent"]
-    INSPECT --> EXISTS{Container exists?}
-
-    EXISTS -->|"Not found (404)"| PULL["docker pull ghcr.io/…/homelab-agent:latest"]
-    PULL --> RUN["docker run -d<br/>--name homelab-agent<br/>-v /var/run/docker.sock:/var/run/docker.sock<br/>-v homelab-stacks:/opt/homelab-manager/stacks<br/>-p 9090:9090<br/>-e AGENT_TOKEN=token"]
-    RUN --> HEALTH["Health check<br/>GET http://host:9090/health"]
-
-    EXISTS -->|"Found"| RUNNING{Running?}
-    RUNNING -->|"Yes"| STOP["docker stop homelab-agent"]
-    RUNNING -->|"No"| RM["docker rm homelab-agent"]
-    STOP --> RM
-    RM --> PULL
-
-    HEALTH --> OK{Healthy?}
-    OK -->|"Yes"| DONE["Return agent URL + version"]
-    OK -->|"No"| RETRY["Retry with backoff<br/>(500ms, 1s, 2s)"]
-    RETRY --> HEALTH
+```bash
+docker pull ghcr.io/your-org/homelab-agent:latest
+docker stop homelab-agent && docker rm homelab-agent
+# re-run the original docker run command
 ```
 
-### Agent Container Changes
+The UI shows the current agent version (from `/health`) and whether a newer version is available, so users know when to update.
 
-The agent Dockerfile and docker-compose are updated:
+### Agent Container Changes
 
 | Change | Before | After |
 |--------|--------|-------|
 | Docker access | `DOCKER_HOST=tcp://socket-proxy:2375` | `/var/run/docker.sock` mounted |
+| ZFS access | *(not in agent)* | `zpool` binary available, pools accessible |
 | `depends_on` | `socket-proxy` | *(none)* |
 | Compose services | `socket-proxy` + `agent` | `agent` only |
-| User permissions | `agent` user (non-root) | `agent` user added to `docker` group (or socket bind-mounted with correct GID) |
+| Deployment | Provisioned by homelab-manager via Dockerode | User-managed |
 
 ### Database Schema Changes
 
-The `managed_hosts` table drops `socket_proxy_url` (no longer needed) and adds SSH connection fields for auto-deploy:
+The `managed_hosts` table drops `socket_proxy_url` (no longer needed) and adds a capabilities column:
 
 ```sql
 ALTER TABLE managed_hosts
   DROP COLUMN socket_proxy_url,
-  ADD COLUMN ssh_host TEXT,          -- hostname/IP for SSH (nullable — not needed for manual deploy)
-  ADD COLUMN ssh_port INTEGER DEFAULT 22,
-  ADD COLUMN ssh_user TEXT,
-  ADD COLUMN deployment_method TEXT NOT NULL DEFAULT 'manual';  -- 'manual' | 'ssh'
-  -- SSH credentials (password or key) stored in OpenBao at secret/hosts/<name>/ssh_password or ssh_key
+  ADD COLUMN capabilities JSONB DEFAULT '{}';  -- e.g. {"docker": true, "zfs": true}
 ```
 
+No SSH fields needed — the user manages the agent lifecycle themselves.
+
 ### OpenBao Secret Path Updates
+
+Simplified — no SSH credentials stored:
 
 ```mermaid
 graph LR
@@ -446,16 +484,14 @@ graph LR
 
     HOSTS --> H1["docker-host-1/"]
     H1 --> H1_TOKEN["agent_token"]
-    H1 --> H1_SSH["ssh_password<br/>(or ssh_key)"]
     H1 --> H1_TLS["tls_cert<br/>tls_key"]
 
-    HOSTS --> H2["docker-host-2/"]
+    HOSTS --> H2["zfs-nas/"]
     H2 --> H2_TOKEN["agent_token"]
     H2 --> H2_TLS["tls_cert<br/>tls_key"]
 
     style H1_TOKEN fill:#8b4513,stroke:#ffa500,color:#fff
     style H2_TOKEN fill:#8b4513,stroke:#ffa500,color:#fff
-    style H1_SSH fill:#2d572c,stroke:#5cb85c,color:#fff
     style H1_TLS fill:#16213e,stroke:#0f3460,color:#fff
     style H2_TLS fill:#16213e,stroke:#0f3460,color:#fff
 ```
@@ -464,7 +500,7 @@ graph LR
 
 ## Implementation Phases
 
-### Phase 0 — Remove Socket Proxy (this PR)
+### Phase 0 — Architecture Documentation (this PR)
 
 Architecture diagrams and documentation updated to reflect the target state. No code changes yet.
 
@@ -473,17 +509,19 @@ Architecture diagrams and documentation updated to reflect the target state. No 
 1. Mount `/var/run/docker.sock` in agent container instead of `DOCKER_HOST=tcp://socket-proxy:2375`
 2. Update agent Dockerfile to handle socket permissions (GID matching)
 3. Remove socket-proxy service from docker-compose files
-4. Update `AgentProvisioningService` to provision without socket proxy
-5. Drop `socket_proxy_url` from `managed_hosts` schema and all referencing code
+4. Drop `socket_proxy_url` from `managed_hosts` schema and all referencing code
+5. Simplify `handleAddHost` to register-only flow (no provisioning via Dockerode)
+6. UI: generate one-liner with pre-filled token, verify connection flow
 
-### Phase 2 — Agent Auto-Deploy via SSH
+### Phase 2 — Agent ZFS Support
 
-1. Add SSH connection fields to `managed_hosts` table
-2. Create `AgentSSHDeployService` — SSH to host, check/deploy agent container
-3. Store SSH credentials in OpenBao at `secret/hosts/<name>/ssh_password` or `ssh_key`
-4. Update `handleAddHost` to support both SSH auto-deploy and manual registration
-5. UI: add deployment method selector (SSH auto-deploy vs manual one-liner)
-6. UI: generate and display one-liner with pre-filled token for manual path
+1. Add `/zfs/stats/stream` endpoint — runs `zpool iostat` locally, streams via SSE
+2. Add `/zfs/pools` endpoint — lists pools with properties
+3. Add capability detection at startup (Docker socket exists? `zpool` binary exists?)
+4. Update `/health` to report capabilities
+5. Add `capabilities` JSONB column to `managed_hosts`
+6. Worker: create collectors based on agent capabilities instead of `ZFS_HOST_*` env vars
+7. Remove `ssh2` dependency from worker, remove SSH connection manager, remove SSH middleware
 
 ### Phase 3 — TLS for Agent Communication
 

@@ -22,8 +22,8 @@ graph TD
     end
 
     subgraph Hosts["Homelab Hosts"]
-        DockerHost["Docker Host<br/>Container Stats"]
-        ZFSHost["ZFS Host<br/>zpool iostat"]
+        Agent1["Agent (Docker + ZFS host)<br/>TLS + Bearer token"]
+        Agent2["Agent (ZFS-only host)<br/>TLS + Bearer token"]
         ProxmoxHost["Proxmox VE<br/>REST API"]
     end
 
@@ -35,9 +35,9 @@ graph TD
     Collectors -->|"INSERT"| DockerTable
     Collectors -->|"INSERT"| ZFSTable
     Collectors -->|"INSERT"| ProxmoxTable
-    Collectors --> DockerHost
-    Collectors --> ZFSHost
-    Collectors --> ProxmoxHost
+    Collectors -->|"TLS + Bearer"| Agent1
+    Collectors -->|"TLS + Bearer"| Agent2
+    Collectors -->|"REST"| ProxmoxHost
 ```
 
 The frontend reads stats from the database, not directly from Docker/ZFS APIs. This enables:
@@ -53,7 +53,7 @@ The application uses a two-stage pipeline: background collection and real-time s
 
 ```mermaid
 flowchart LR
-    CL["Client<br/>(Docker / SSH / REST)"]
+    CL["Client<br/>(Agent SSE / REST)"]
     RS["Raw Stream<br/>(JSON / text)"]
     PA["Parser<br/>(structured data)"]
     RC["Rate Calculator<br/>(deltas & metrics)"]
@@ -62,7 +62,7 @@ flowchart LR
     CL --> RS --> PA --> RC --> DB
 ```
 
-> **Note:** Docker and ZFS follow this full pipeline (streaming → parse → rate-calculate → insert). Proxmox is simpler: it polls the REST API, converts the response to flat rows via `overviewToRows()`, and inserts directly - no streaming parser or rate calculator needed.
+> **Note:** Docker and ZFS stats are collected via agent SSE endpoints (`/stats/stream` and `/zfs/stats/stream`) and follow this full pipeline (streaming → parse → rate-calculate → insert). Proxmox is simpler: it polls the REST API directly, converts the response to flat rows via `overviewToRows()`, and inserts directly - no streaming parser or rate calculator needed.
 
 ### Stage 2: Real-Time Streaming (Server → Browser)
 
@@ -128,28 +128,33 @@ User's Browser ──UI edit──▶ homelab-manager commits ──────
 | OpenBao secrets | `src/lib/clients/openbao-client.ts` | PR #53 (planned) |
 | Host management + UI | `src/lib/services/`, `src/components/stacks/` | PR #54 (planned) |
 
-### Agent Container (`agent/`)
+### Agent — Universal Homelab Sidecar (`agent/`)
 
-A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode.
+A separate Bun package that runs as a sidecar on each managed host. One agent per host, handling all local system access (Docker, ZFS, and future capabilities). Zero framework dependencies beyond Dockerode.
 
 **Architecture:**
 - Bearer token authentication (TLS planned)
 - Connects to Docker via mounted `/var/run/docker.sock` (direct access, no socket proxy)
+- Runs ZFS commands (`zpool iostat`, `zpool list`) locally
+- Auto-detects available capabilities at startup
 - Subprocess timeout (5 minutes) for `docker compose` operations
 
 **Endpoints:**
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET | `/health` | Docker version check + heartbeat |
-| GET | `/stats/stream` | SSE container stats streaming |
-| GET | `/logs/:containerId` | SSE container log streaming |
-| POST | `/stacks/deploy` | Run `docker compose up -d` |
-| POST | `/stacks/teardown` | Run `docker compose down` |
-| POST | `/stacks/restart` | Run `docker compose restart` |
-| GET | `/stacks/status` | List stacks in working directory |
+| Method | Path | Capability | Purpose |
+|--------|------|------------|---------|
+| GET | `/health` | *(always)* | Version, capabilities, heartbeat |
+| GET | `/stats/stream` | docker | SSE container stats streaming |
+| GET | `/logs/:containerId` | docker | SSE container log streaming |
+| POST | `/stacks/deploy` | docker | Run `docker compose up -d` |
+| POST | `/stacks/teardown` | docker | Run `docker compose down` |
+| POST | `/stacks/restart` | docker | Run `docker compose restart` |
+| GET | `/stacks/status` | docker | List stacks in working directory |
+| GET | `/stacks/events` | docker | SSE container lifecycle events |
+| GET | `/zfs/stats/stream` | zfs | SSE `zpool iostat` streaming |
+| GET | `/zfs/pools` | zfs | List pools with properties |
 
-**Deployment:** The agent runs on each managed Docker host with the Docker socket mounted directly. It can be deployed automatically via SSH from homelab-manager, or manually by the user running a provided `docker run` one-liner. See [OpenBao Architecture — Agent Deployment Flow](./openbao-architecture.md#agent-deployment-flow) for details.
+**Deployment:** User-managed. The UI generates a token and displays a `docker run` one-liner. Users deploy the agent however they prefer (Docker, compose, ansible, nix, etc.). See [OpenBao Architecture — Agent Deployment](./openbao-architecture.md#agent-deployment--user-managed) for details.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
