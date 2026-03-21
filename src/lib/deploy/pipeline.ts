@@ -43,7 +43,7 @@ export class DeployPipeline {
     // 1. Validate: host exists in managed_hosts
     const host = await this.hostsRepo.getByName(request.host);
     if (!host) {
-      return { status: 'failed', logs: `Host "${request.host}" not found in managed_hosts` };
+      throw new Error(`Host "${request.host}" not found in managed_hosts. Add it via the Hosts page first.`);
     }
 
     // 2. Change detection (skip for teardown/restart -- always execute those)
