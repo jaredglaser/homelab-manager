@@ -40,20 +40,28 @@ interface VariableRowProps {
 function VariableRow({ stackName, varName, isReferenced, onDeleted }: Readonly<VariableRowProps>) {
   const [visible, setVisible] = useState(false);
   const [fieldValue, setFieldValue] = useState('');
+  const [originalValue, setOriginalValue] = useState('');
   const [valueFetched, setValueFetched] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   const fetchValueMutation = useMutation({
     mutationFn: () => getVariableValue({ data: { stackName, variableName: varName } }),
     onSuccess: (val) => {
-      setFieldValue(val ?? '');
+      const v = val ?? '';
+      setFieldValue(v);
+      setOriginalValue(v);
       setValueFetched(true);
     },
   });
 
+  const isDirty = valueFetched && fieldValue !== originalValue;
+
   const saveMutation = useMutation({
     mutationFn: () =>
       setVariableValue({ data: { stackName, variableName: varName, value: fieldValue } }),
+    onSuccess: () => {
+      setOriginalValue(fieldValue);
+    },
   });
 
   const deleteMutation = useMutation({
@@ -103,7 +111,7 @@ function VariableRow({ stackName, varName, isReferenced, onDeleted }: Readonly<V
                     size="small"
                     onClick={() => saveMutation.mutate()}
                     aria-label="Save value"
-                    disabled={!valueFetched || saveMutation.isPending}
+                    disabled={!isDirty || saveMutation.isPending}
                   >
                     <Save size={14} />
                   </IconButton>
