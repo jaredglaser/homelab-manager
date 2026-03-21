@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Chip,
@@ -23,6 +23,7 @@ import {
   getVariableValue,
   setVariableValue,
   deleteVariable,
+  ensureVariablesExist,
 } from '@/data/stacks.functions';
 
 interface VariablesPanelProps {
@@ -177,6 +178,21 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
     queryKey: ['stack-variables', stackName],
     queryFn: () => getStackVariables({ data: { stackName } }),
   });
+
+  // Auto-create compose variables missing from OpenBao (e.g., after OpenBao restart)
+  const ensurePending = useRef(false);
+  useEffect(() => {
+    if (!variables || ensurePending.current) return;
+    const existing = new Set(variables);
+    const missing = composeVariables.filter((v) => !existing.has(v));
+    if (missing.length === 0) return;
+
+    ensurePending.current = true;
+    ensureVariablesExist({ data: { stackName, variableNames: missing } })
+      .then(() => queryClient.invalidateQueries({ queryKey: ['stack-variables', stackName] }))
+      .catch(() => { /* OpenBao unreachable — error already shown by the query */ })
+      .finally(() => { ensurePending.current = false; });
+  }, [variables, composeVariables, stackName, queryClient]);
 
   function handleDeleted() {
     void queryClient.invalidateQueries({ queryKey: ['stack-variables', stackName] });
