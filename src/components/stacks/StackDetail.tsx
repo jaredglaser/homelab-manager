@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Alert, CircularProgress, Typography } from '@mui/material';
+import { Alert, CircularProgress, Snackbar, Typography } from '@mui/material';
 import { getStackDetail, getDeployHistory, triggerDeploy, deleteStack } from '@/data/stacks.functions';
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
@@ -98,15 +98,6 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
           </div>
         </div>
       </div>
-      {deployMessage && (
-        <Alert
-          severity={deployMessage.type}
-          onClose={() => setDeployMessage(null)}
-          className="!mb-3 !text-sm"
-        >
-          {deployMessage.text}
-        </Alert>
-      )}
       <StackActionBar
         onDeploy={() => deployMutation.mutate('deploy')}
         onRestart={() => deployMutation.mutate('restart')}
@@ -121,6 +112,23 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
         stackName={stackName}
         isLoading={deleteMutation.isPending}
       />
+      <Snackbar
+        open={deployMessage !== null}
+        autoHideDuration={5000}
+        onClose={() => setDeployMessage(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        {deployMessage ? (
+          <Alert
+            severity={deployMessage.type}
+            onClose={() => setDeployMessage(null)}
+            variant="filled"
+            className="!text-sm"
+          >
+            {deployMessage.text}
+          </Alert>
+        ) : undefined}
+      </Snackbar>
     </div>
   );
 }
