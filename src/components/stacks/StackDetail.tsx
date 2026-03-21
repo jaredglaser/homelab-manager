@@ -66,6 +66,8 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
             <DeployHistoryList
               records={history ?? []}
               isLoading={historyLoading}
+              stackName={stackName}
+              host={host}
             />
           </div>
         </div>

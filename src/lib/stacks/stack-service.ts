@@ -101,6 +101,7 @@ export async function triggerStackDeploy(params: {
   stack: string;
   host: string;
   action: 'deploy' | 'teardown' | 'restart';
+  commitSha?: string;
 }): Promise<{ deployId: number }> {
   const repoPath = getRepoPath();
   if (!repoPath) throw new Error('Git management is not enabled');
@@ -149,6 +150,24 @@ export async function triggerStackDeploy(params: {
       return token;
     },
   });
+
+  if (params.commitSha) {
+    // Rollback: read compose from the historical commit and use buildRollback
+    const rollbackSha = params.commitSha;
+    return handleTriggerDeploy({
+      readCompose: (stack) =>
+        readFileFromRepo(repoPath, `${stack}/${COMPOSE_FILENAME}`, rollbackSha),
+      getCommitSha: () => Promise.resolve(rollbackSha),
+      buildRequest: (input) =>
+        builder.buildRollback({
+          stack: input.stack,
+          host: input.host,
+          composeContent: input.composeContent,
+          commitSha: input.commitSha,
+        }),
+      executePipeline: (request) => pipeline.execute(request),
+    }, params);
+  }
 
   return handleTriggerDeploy({
     readCompose: (stack) => readFileFromRepo(repoPath, `${stack}/${COMPOSE_FILENAME}`),
