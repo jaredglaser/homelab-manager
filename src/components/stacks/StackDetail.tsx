@@ -1,6 +1,7 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { CircularProgress, Typography } from '@mui/material';
-import { getStackDetail, getDeployHistory, triggerDeploy } from '@/data/stacks.functions';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Alert, CircularProgress, Snackbar, Typography } from '@mui/material';
+import { getStackDetail, getDeployHistory, triggerDeploy, deleteStack } from '@/data/stacks.functions';
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
 import ContainerList from '@/components/stacks/ContainerList';
@@ -24,9 +25,19 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
     queryFn: () => getDeployHistory({ data: { stackName, limit: 10 } }),
   });
 
+  const [deployMessage, setDeployMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const deployMutation = useMutation({
     mutationFn: (action: 'deploy' | 'restart' | 'teardown') =>
       triggerDeploy({ data: { stack: stackName, host, action } }),
+    onSuccess: (_data, action) => {
+      setDeployMessage({ type: 'success', text: `${action} triggered successfully` });
+      void queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] });
+      void queryClient.invalidateQueries({ queryKey: ['stacks-list'] });
+    },
+    onError: (err) => {
+      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) });
+    },
   });
 
   if (isLoading) {
@@ -72,6 +83,15 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
           </div>
         </div>
       </div>
+      {deployMessage && (
+        <Alert
+          severity={deployMessage.type}
+          onClose={() => setDeployMessage(null)}
+          className="!mb-3 !text-sm"
+        >
+          {deployMessage.text}
+        </Alert>
+      )}
       <StackActionBar
         onDeploy={() => deployMutation.mutate('deploy')}
         onRestart={() => deployMutation.mutate('restart')}
