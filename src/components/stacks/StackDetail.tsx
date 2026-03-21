@@ -26,6 +26,7 @@ import ContainerList from '@/components/stacks/ContainerList';
 import StackActionBar from '@/components/stacks/StackActionBar';
 import DeleteStackDialog from '@/components/stacks/DeleteStackDialog';
 import type { StackContainer } from '@/types/stacks';
+import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys';
 
 // ----- Stack settings dialog -----
 
@@ -156,7 +157,7 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
     mutationFn: (teardown: boolean) =>
       deleteStack({ data: { stackName, teardown } }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stacks'] });
+      void queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY });
       setDeleteDialogOpen(false);
       onDeleted?.();
     },

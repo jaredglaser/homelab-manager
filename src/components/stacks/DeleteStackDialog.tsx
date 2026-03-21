@@ -72,7 +72,7 @@ export default function DeleteStackDialog({
                 <div className="py-1">
                   <Typography
                     variant="body2"
-                    className="font-medium !text-red-500"
+                    className="font-medium !text-[var(--mui-palette-error-main)]"
                   >
                     Tear down &amp; remove
                   </Typography>
@@ -92,8 +92,8 @@ export default function DeleteStackDialog({
         <Button
           onClick={handleConfirm}
           variant="contained"
+          color="error"
           disabled={mode === null || isLoading}
-          className="!bg-red-600 hover:!bg-red-700 !text-white"
         >
           Delete Stack
         </Button>

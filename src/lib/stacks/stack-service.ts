@@ -310,7 +310,12 @@ export async function deleteStackFromRepo(
 
   // Optionally teardown before removing from repo
   if (teardown) {
-    await triggerStackDeploy({ stack: stackName, host, action: 'teardown' });
+    const { deployId } = await triggerStackDeploy({ stack: stackName, host, action: 'teardown' });
+    // Check if teardown actually succeeded
+    const deployRecord = await deployRepo.getById(deployId);
+    if (deployRecord && deployRecord.status === 'failed') {
+      throw new Error(`Teardown failed: ${deployRecord.logs ?? 'unknown error'}. Stack not deleted.`);
+    }
   }
 
   // Remove stack from manifest
