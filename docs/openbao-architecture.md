@@ -13,41 +13,42 @@ All services share a single root token to authenticate with OpenBao over unencry
 
 ## High-Level Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Docker Compose Network                            │
-│                                                                             │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                   │
-│  │  Web Server   │    │    Worker     │    │ Git Post-    │                   │
-│  │  (TanStack    │    │  (Bun proc)  │    │ Receive Hook │                   │
-│  │   Start)      │    │              │    │ (Bun proc)   │                   │
-│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘                   │
-│         │                   │                   │                            │
-│         │ OPENBAO_TOKEN     │ OPENBAO_TOKEN     │ OPENBAO_TOKEN              │
-│         │ (root)            │ (root)            │ (root)                     │
-│         ▼                   ▼                   ▼                            │
-│  ┌──────────────────────────────────────────────────────┐                   │
-│  │                    OpenBao Server                     │                   │
-│  │              http://openbao:8200 (no TLS)            │                   │
-│  │                                                      │                   │
-│  │  ┌────────────────────────────────────────────────┐  │                   │
-│  │  │              KV v2 Secrets Engine               │  │                   │
-│  │  │                                                │  │                   │
-│  │  │  secret/stacks/<stack>/<KEY>  → env var values │  │                   │
-│  │  │  secret/hosts/<host>/agent_token → bearer JWT  │  │                   │
-│  │  └────────────────────────────────────────────────┘  │                   │
-│  │                                                      │                   │
-│  │  Storage: file backend at /openbao/data              │                   │
-│  │  Auth: root policy only (no RBAC)                    │                   │
-│  │  Init keys: /openbao/data/.init-keys.json            │                   │
-│  └──────────────────────────────────────────────────────┘                   │
-│                                                                             │
-│  ┌──────────────────┐         ┌──────────────────┐                          │
-│  │  Agent (host-1)   │         │  Agent (host-2)   │                         │
-│  │  AGENT_TOKEN=uuid │         │  AGENT_TOKEN=uuid │                         │
-│  │  (env var)        │         │  (env var)        │                         │
-│  └──────────────────┘         └──────────────────┘                          │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph network["Docker Compose Network"]
+        subgraph consumers["OpenBao Consumers"]
+            WEB["Web Server<br/>(TanStack Start)"]
+            WORKER["Worker<br/>(Bun process)"]
+            GIT["Git Post-Receive<br/>Hook (Bun process)"]
+        end
+
+        subgraph bao["OpenBao Server — http://openbao:8200 (no TLS)"]
+            KV["KV v2 Secrets Engine"]
+            STACKS["secret/stacks/&lt;stack&gt;/&lt;KEY&gt;<br/>→ env var values"]
+            HOSTS["secret/hosts/&lt;host&gt;/agent_token<br/>→ bearer token (UUID)"]
+            STORAGE["File backend: /openbao/data<br/>Init keys: .init-keys.json<br/>Auth: root policy only"]
+            KV --- STACKS
+            KV --- HOSTS
+        end
+
+        subgraph agents["Agent Sidecars"]
+            A1["Agent (host-1)<br/>AGENT_TOKEN=uuid (env var)"]
+            A2["Agent (host-2)<br/>AGENT_TOKEN=uuid (env var)"]
+        end
+
+        WEB -->|"OPENBAO_TOKEN (root)"| KV
+        WORKER -->|"OPENBAO_TOKEN (root)"| KV
+        GIT -->|"OPENBAO_TOKEN (root)"| KV
+
+        WEB -->|"Bearer agent_token"| A1
+        WEB -->|"Bearer agent_token"| A2
+        WORKER -->|"Bearer agent_token"| A1
+        WORKER -->|"Bearer agent_token"| A2
+    end
+
+    style bao fill:#1a1a2e,stroke:#e94560,color:#fff
+    style consumers fill:#16213e,stroke:#0f3460,color:#fff
+    style agents fill:#1a1a2e,stroke:#e94560,color:#fff
 ```
 
 ---
@@ -56,110 +57,80 @@ All services share a single root token to authenticate with OpenBao over unencry
 
 ### Flow 1: Agent Token Provisioning (addHost)
 
-```
-  UI "Add Host"
-       │
-       ▼
-  Web Server: handleAddHost()
-       │
-       ├─1─► crypto.randomUUID()  →  plaintext token
-       │
-       ├─2─► Docker API: create agent container
-       │         └─ AGENT_TOKEN=<plaintext> passed as env var ◄── [A]
-       │
-       ├─3─► PostgreSQL: INSERT managed_hosts (no token column)
-       │
-       └─4─► OpenBao: POST /v1/secret/data/hosts/<host>/agent_token
-                  └─ body: { data: { value: "<plaintext>" } }
-                  └─ header: X-Vault-Token: dev-root-token  ◄── [B]
+```mermaid
+flowchart TD
+    UI["UI: Add Host"] --> GEN["1. crypto.randomUUID()<br/>→ plaintext token"]
+    GEN --> DOCKER["2. Docker API: create agent container<br/>AGENT_TOKEN=plaintext as env var ⚠️ A"]
+    DOCKER --> DB["3. PostgreSQL: INSERT managed_hosts<br/>(no token column)"]
+    DB --> BAO["4. OpenBao: POST secret/data/hosts/host/agent_token<br/>X-Vault-Token: dev-root-token ⚠️ B"]
+
+    style DOCKER fill:#8b0000,stroke:#ff0000,color:#fff
+    style BAO fill:#8b4513,stroke:#ffa500,color:#fff
 ```
 
 ### Flow 2: Worker Reads Agent Token (startup)
 
-```
-  Worker Process Startup
-       │
-       ├─1─► loadOpenBaoConfig()  →  { url, token } from env vars
-       │
-       ├─2─► baoClient.ensureSecretsEngine()
-       │
-       └─3─► For each managed host in DB:
-                │
-                ├─► baoClient.getHostSecret(hostname, 'agent_token')
-                │        └─ GET /v1/secret/data/hosts/<host>/agent_token
-                │        └─ header: X-Vault-Token: dev-root-token  ◄── [B]
-                │
-                └─► new AgentStatsCollector(db, config, host, token)
-                         └─ this.token = plaintext  ◄── [C]
-                         └─ Used as: Authorization: Bearer <token>
+```mermaid
+flowchart TD
+    START["Worker Process Startup"] --> CONFIG["1. loadOpenBaoConfig()<br/>→ url + token from env vars"]
+    CONFIG --> ENSURE["2. baoClient.ensureSecretsEngine()"]
+    ENSURE --> LOOP["3. For each managed host in DB"]
+    LOOP --> GET["baoClient.getHostSecret(hostname, agent_token)<br/>GET secret/data/hosts/host/agent_token<br/>X-Vault-Token: dev-root-token ⚠️ B"]
+    GET --> COLLECT["new AgentStatsCollector(host, token)<br/>this.token = plaintext ⚠️ C<br/>→ Authorization: Bearer token"]
+
+    style GET fill:#8b4513,stroke:#ffa500,color:#fff
+    style COLLECT fill:#8b0000,stroke:#ff0000,color:#fff
 ```
 
 ### Flow 3: Deploy Pipeline (secret resolution)
 
-```
-  Deploy Trigger (UI or git push)
-       │
-       ▼
-  DeployPipeline.execute(request)
-       │
-       ├─1─► extractVariableReferences(composeContent)
-       │        └─ finds ${VAR_NAME} patterns
-       │
-       ├─2─► secretResolver.resolve(stack, variables)
-       │        └─ baoClient.getAllSecrets(stack)
-       │              ├─ LIST /v1/secret/metadata/stacks/<stack>  →  key names
-       │              └─ GET  /v1/secret/data/stacks/<stack>/<key> × N  →  values
-       │              └─ headers: X-Vault-Token: dev-root-token  ◄── [B]
-       │
-       ├─3─► buildEnvContent(existingEnv, secrets)
-       │        └─ merges into .env string (plaintext)  ◄── [D]
-       │
-       ├─4─► tokenResolver(host)
-       │        └─ baoClient.getHostSecret(host, 'agent_token')  ◄── [B]
-       │
-       └─5─► agentClient.deploy(compose, envContent, token)
-                  └─ POST to agent with:
-                       - Authorization: Bearer <agent_token>  ◄── [E]
-                       - body contains .env with resolved secrets  ◄── [D]
+```mermaid
+flowchart TD
+    TRIGGER["Deploy Trigger<br/>(UI or git push)"] --> EXEC["DeployPipeline.execute(request)"]
+    EXEC --> EXTRACT["1. extractVariableReferences(composeContent)<br/>finds dollar-brace VAR_NAME patterns"]
+    EXTRACT --> RESOLVE["2. secretResolver.resolve(stack, variables)<br/>LIST secret/metadata/stacks/stack → key names<br/>GET secret/data/stacks/stack/key × N → values<br/>X-Vault-Token: dev-root-token ⚠️ B"]
+    RESOLVE --> BUILD["3. buildEnvContent(existingEnv, secrets)<br/>merges into .env string (plaintext) ⚠️ D"]
+    BUILD --> TOKEN["4. tokenResolver(host)<br/>baoClient.getHostSecret(host, agent_token) ⚠️ B"]
+    TOKEN --> DEPLOY["5. agentClient.deploy(compose, envContent, token)<br/>Authorization: Bearer agent_token ⚠️ E<br/>body contains .env with all secrets ⚠️ D"]
+
+    style RESOLVE fill:#8b4513,stroke:#ffa500,color:#fff
+    style BUILD fill:#8b0000,stroke:#ff0000,color:#fff
+    style DEPLOY fill:#8b0000,stroke:#ff0000,color:#fff
 ```
 
 ### Flow 4: UI Secret Management
 
-```
-  Browser (Settings UI)
-       │
-       ▼
-  Server Functions (createServerFn + openBaoMiddleware)
-       │
-       ├─► listStackSecrets(stack)   →  key names only (safe)
-       ├─► getStackSecret(stack,key) →  returns plaintext value  ◄── [F]
-       ├─► setStackSecret(stack,key,value) →  writes to OpenBao
-       └─► deleteStackSecret(stack,key)    →  deletes from OpenBao
-       │
-       └─ All use X-Vault-Token: dev-root-token  ◄── [B]
+```mermaid
+flowchart TD
+    BROWSER["Browser (Settings UI)"] --> SERVER["Server Functions<br/>(createServerFn + openBaoMiddleware)<br/>All use X-Vault-Token: dev-root-token ⚠️ B"]
+    SERVER --> LIST["listStackSecrets(stack)<br/>→ key names only (safe)"]
+    SERVER --> GET["getStackSecret(stack, key)<br/>→ returns plaintext value ⚠️ F"]
+    SERVER --> SET["setStackSecret(stack, key, value)<br/>→ writes to OpenBao"]
+    SERVER --> DEL["deleteStackSecret(stack, key)<br/>→ deletes from OpenBao"]
+
+    style GET fill:#8b4513,stroke:#ffa500,color:#fff
+    style SERVER fill:#8b4513,stroke:#ffa500,color:#fff
 ```
 
 ---
 
 ## OpenBao Initialization Sequence
 
-```
-  Container Start (entrypoint.sh)
-       │
-       ├── First run?
-       │     │
-       │     YES: POST /v1/sys/init { secret_shares:1, secret_threshold:1 }
-       │     │     └─ Response saved to /openbao/data/.init-keys.json  ◄── [G]
-       │     │          (contains unseal key + root token in plaintext)
-       │     │
-       │     ├─► POST /v1/sys/unseal { key: <unseal_key> }
-       │     │
-       │     └─► POST /v1/auth/token/create-orphan  ◄── [H]
-       │           { id: "dev-root-token", policies: ["root"], no_parent: true }
-       │
-       └── Subsequent runs:
-             └─► Read unseal key from .init-keys.json
-             └─► POST /v1/sys/unseal { key: <unseal_key> }
+```mermaid
+flowchart TD
+    START["Container Start<br/>(entrypoint.sh)"] --> CHECK{"First run?<br/>.init-keys.json exists?"}
+
+    CHECK -->|"No file (first run)"| INIT["POST /v1/sys/init<br/>secret_shares: 1, secret_threshold: 1 ⚠️ H"]
+    INIT --> SAVE["Response saved to<br/>/openbao/data/.init-keys.json ⚠️ G<br/>(unseal key + root token in plaintext)"]
+    SAVE --> UNSEAL1["POST /v1/sys/unseal<br/>key: unseal_key"]
+    UNSEAL1 --> CREATE["POST /v1/auth/token/create-orphan ⚠️ H<br/>id: dev-root-token<br/>policies: root, no_parent: true"]
+
+    CHECK -->|"File exists (subsequent)"| READ["Read unseal key<br/>from .init-keys.json"]
+    READ --> UNSEAL2["POST /v1/sys/unseal<br/>key: unseal_key"]
+
+    style SAVE fill:#8b0000,stroke:#ff0000,color:#fff
+    style INIT fill:#8b4513,stroke:#ffa500,color:#fff
+    style CREATE fill:#8b4513,stroke:#ffa500,color:#fff
 ```
 
 ---
@@ -230,21 +201,29 @@ Each finding is tagged with the marker (e.g., `[A]`) from the flow diagrams abov
 
 ## Secret Path Layout
 
-```
-secret/
-├── stacks/
-│   ├── plex/
-│   │   ├── DB_PASSWORD          ← stack env var
-│   │   └── API_KEY              ← stack env var
-│   ├── nextcloud/
-│   │   └── ADMIN_PASSWORD       ← stack env var
-│   └── ...
-└── hosts/
-    ├── docker-host-1/
-    │   └── agent_token          ← bearer token (UUID)
-    ├── docker-host-2/
-    │   └── agent_token          ← bearer token (UUID)
-    └── ...
+```mermaid
+graph LR
+    ROOT["secret/"] --> STACKS["stacks/"]
+    ROOT --> HOSTS["hosts/"]
+
+    STACKS --> PLEX["plex/"]
+    PLEX --> PLEX_DB["DB_PASSWORD"]
+    PLEX --> PLEX_API["API_KEY"]
+
+    STACKS --> NC["nextcloud/"]
+    NC --> NC_ADMIN["ADMIN_PASSWORD"]
+
+    HOSTS --> H1["docker-host-1/"]
+    H1 --> H1_TOKEN["agent_token (UUID)"]
+
+    HOSTS --> H2["docker-host-2/"]
+    H2 --> H2_TOKEN["agent_token (UUID)"]
+
+    style PLEX_DB fill:#2d572c,stroke:#5cb85c,color:#fff
+    style PLEX_API fill:#2d572c,stroke:#5cb85c,color:#fff
+    style NC_ADMIN fill:#2d572c,stroke:#5cb85c,color:#fff
+    style H1_TOKEN fill:#8b4513,stroke:#ffa500,color:#fff
+    style H2_TOKEN fill:#8b4513,stroke:#ffa500,color:#fff
 ```
 
 ---
