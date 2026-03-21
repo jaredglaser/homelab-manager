@@ -107,8 +107,8 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
       </div>
 
       {/* Editor + resizable variables panel */}
-      <div className="flex min-h-[400px]">
-        <div className="flex-1 min-w-0">
+      <div className="flex min-h-[400px] overflow-hidden">
+        <div className="flex-1 min-w-0 overflow-hidden">
           {monacoReady ? (
             <Editor
               height="400px"
