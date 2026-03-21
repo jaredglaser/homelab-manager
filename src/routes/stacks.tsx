@@ -6,7 +6,7 @@ import { listStacks } from '@/data/stacks.functions'
 import StacksTable from '@/components/stacks/StacksTable'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
-export const Route = createFileRoute('/docker/stacks')({
+export const Route = createFileRoute('/stacks')({
   ssr: false,
   component: StacksPageContent,
 })
