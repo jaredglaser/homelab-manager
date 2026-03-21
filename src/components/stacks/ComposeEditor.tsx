@@ -106,9 +106,12 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
         </Button>
       </div>
 
-      {/* Editor + resizable variables panel */}
-      <div className="flex min-h-[400px] overflow-hidden">
-        <div className="flex-1 min-w-0 overflow-hidden">
+      {/* Editor + resizable variables panel — use calc() so Monaco gets an explicit width */}
+      <div className="relative min-h-[400px]">
+        <div
+          className="absolute inset-y-0 left-0 overflow-hidden"
+          style={{ right: panelWidth + 4 }}
+        >
           {monacoReady ? (
             <Editor
               height="400px"
@@ -143,14 +146,14 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
 
         {/* Drag handle */}
         <div
-          className="w-1 flex-shrink-0 cursor-col-resize hover:bg-[var(--mui-palette-primary-main)]/30 active:bg-[var(--mui-palette-primary-main)]/50 transition-colors"
-          style={{ touchAction: 'none' }}
+          className="absolute inset-y-0 w-1 cursor-col-resize hover:bg-[var(--mui-palette-primary-main)]/30 active:bg-[var(--mui-palette-primary-main)]/50 transition-colors z-10"
+          style={{ right: panelWidth, touchAction: 'none' }}
           onPointerDown={handleDragStart}
         />
 
         {/* Variables side panel */}
         <div
-          className="flex-shrink-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto"
+          className="absolute inset-y-0 right-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto"
           style={{ width: panelWidth }}
         >
           <VariablesPanel stackName={stackName} composeVariables={detectedVars} />
