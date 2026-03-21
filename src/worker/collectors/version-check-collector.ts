@@ -69,13 +69,13 @@ export class VersionCheckCollector extends BaseCollector {
   }
 
   private async runVersionCheck(): Promise<void> {
-    console.log('[VersionCheck] Starting version check');
+    console.info('[VersionCheck] Starting version check');
     await this.updateStatus('running', '0/0');
 
     try {
       const images = await this.repository.getUniqueDockerImages();
       if (images.length === 0) {
-        console.log('[VersionCheck] No Docker images found, skipping');
+        console.info('[VersionCheck] No Docker images found, skipping');
         await this.updateStatus('idle');
         return;
       }
@@ -90,11 +90,11 @@ export class VersionCheckCollector extends BaseCollector {
       const total = uniqueImages.size;
       let checked = 0;
 
-      console.log(`[VersionCheck] Checking ${total} unique images`);
+      console.info(`[VersionCheck] Checking ${total} unique images`);
 
       for (const [image, entity] of uniqueImages) {
         if (this.signal.aborted || this._cancelCheck) {
-          console.log('[VersionCheck] Cancelled');
+          console.info('[VersionCheck] Cancelled');
           await this.updateStatus('idle');
           return;
         }
@@ -113,7 +113,7 @@ export class VersionCheckCollector extends BaseCollector {
 
       await this.updateStatus('idle', `${total}/${total}`);
       await this.settingsRepo.set(SETTINGS_KEYS.versionCheck.lastRun, new Date().toISOString());
-      console.log(`[VersionCheck] Completed, checked ${total} images`);
+      console.info(`[VersionCheck] Completed, checked ${total} images`);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error(`[VersionCheck] Failed: ${errMsg}`);
@@ -153,7 +153,7 @@ export class VersionCheckCollector extends BaseCollector {
     const result = await fetchGitHubReleases(githubRepo, this.githubToken, this.signal);
 
     if (result.rateLimited) {
-      console.log('[VersionCheck] Rate limited, waiting for reset');
+      console.info('[VersionCheck] Rate limited, waiting for reset');
       await this.updateStatus('rate_limited');
 
       if (result.rateLimit?.resetAt) {

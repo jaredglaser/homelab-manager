@@ -62,7 +62,7 @@ export async function fetchGitHubReleases(
 
   const data = await response.json();
   const releases: GitHubRelease[] = data
-    .filter((r: any) => !r.prerelease)
+    .filter((r: any) => !r.prerelease && !r.draft)
     .map((r: any) => ({
       tag: r.tag_name,
       name: r.name || r.tag_name,

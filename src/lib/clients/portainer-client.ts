@@ -1,5 +1,5 @@
 import { Agent } from 'undici';
-import type { PortainerEndpoint, PortainerStack } from '../../types/portainer';
+import type { PortainerEndpoint, PortainerStack } from '@/types/portainer';
 
 // Covers both Bun's native fetch (`tls`) and Node.js-compat/undici fetch (`dispatcher`)
 interface CrossRuntimeRequestInit extends RequestInit {
@@ -141,7 +141,7 @@ export class PortainerConnectionManager {
   private clients = new Map<string, PortainerClient>();
 
   getClient(config: PortainerConfig): PortainerClient {
-    const key = config.url;
+    const key = `${config.url}|${config.token}`;
 
     let client = this.clients.get(key);
     if (!client) {
