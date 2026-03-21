@@ -1,0 +1,96 @@
+<h2>Stacks — Event-Driven Data Flow (Revised)</h2>
+<p class="subtitle">No polling anywhere. Events propagate end-to-end.</p>
+
+<div class="section">
+  <div class="mockup">
+    <div class="mockup-header">Full Event Chain</div>
+    <div class="mockup-body" style="padding: 24px; font-size: 13px;">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+        <!-- Layer 1: Docker -->
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="min-width: 120px; text-align: right; opacity: 0.5; font-size: 12px;">Docker Engine</div>
+          <div style="background: #7c3aed; color: white; padding: 10px 16px; border-radius: 8px; flex: 1;">
+            Container lifecycle event fires (start, stop, die, restart)
+          </div>
+        </div>
+        <div style="text-align: center; opacity: 0.3;">&#9660; docker events stream</div>
+
+        <!-- Layer 2: Agent -->
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="min-width: 120px; text-align: right; opacity: 0.5; font-size: 12px;">Agent</div>
+          <div style="background: #2563eb; color: white; padding: 10px 16px; border-radius: 8px; flex: 1;">
+            <strong>GET /stacks/events (SSE)</strong> — Agent subscribes to <code>docker events</code>, maps container → stack via compose project label, emits stack status snapshots on change
+          </div>
+        </div>
+        <div style="text-align: center; opacity: 0.3;">&#9660; SSE stream (persistent connection per host)</div>
+
+        <!-- Layer 3: Worker -->
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="min-width: 120px; text-align: right; opacity: 0.5; font-size: 12px;">Worker</div>
+          <div style="background: #059669; color: white; padding: 10px 16px; border-radius: 8px; flex: 1;">
+            <strong>StackStatusCollector</strong> — Connects to each agent's <code>/stacks/events</code>, upserts <code>stack_status</code> table on each event, triggers <code>NOTIFY stack_change</code>
+          </div>
+        </div>
+        <div style="text-align: center; opacity: 0.3;">&#9660; PostgreSQL NOTIFY</div>
+
+        <!-- Layer 4: Server -->
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="min-width: 120px; text-align: right; opacity: 0.5; font-size: 12px;">Server (SSE)</div>
+          <div style="background: #d97706; color: white; padding: 10px 16px; border-radius: 8px; flex: 1;">
+            <strong>GET /api/stack-status</strong> — Listens for <code>stack_change</code> NOTIFY, broadcasts current stack status to all connected browsers
+          </div>
+        </div>
+        <div style="text-align: center; opacity: 0.3;">&#9660; SSE stream</div>
+
+        <!-- Layer 5: Browser -->
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="min-width: 120px; text-align: right; opacity: 0.5; font-size: 12px;">Browser</div>
+          <div style="background: #dc2626; color: white; padding: 10px 16px; border-radius: 8px; flex: 1;">
+            <strong>useStackStatus hook</strong> — Receives live updates, renders container status in StackRow + StackDetail
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Agent SSE Event Shape</h3>
+  <div class="mockup">
+    <div class="mockup-header">Example: container stops in "plex" stack</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 12px; padding: 16px; line-height: 1.7;">
+      <span style="opacity: 0.5;">// Agent emits full stack snapshot on any container change</span><br>
+      <span style="color: #89b4fa;">data:</span> {<br>
+      &nbsp;&nbsp;<span style="color: #a6e3a1;">"stack"</span>: <span style="color: #fab387;">"plex"</span>,<br>
+      &nbsp;&nbsp;<span style="color: #a6e3a1;">"host"</span>: <span style="color: #fab387;">"server1"</span>,<br>
+      &nbsp;&nbsp;<span style="color: #a6e3a1;">"containers"</span>: [<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;{ <span style="color: #a6e3a1;">"id"</span>: <span style="color: #fab387;">"abc123"</span>, <span style="color: #a6e3a1;">"name"</span>: <span style="color: #fab387;">"plex-server"</span>, <span style="color: #a6e3a1;">"status"</span>: <span style="color: #fab387;">"running"</span>, <span style="color: #a6e3a1;">"image"</span>: <span style="color: #fab387;">"plexinc/pms-docker"</span> },<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;{ <span style="color: #a6e3a1;">"id"</span>: <span style="color: #fab387;">"def456"</span>, <span style="color: #a6e3a1;">"name"</span>: <span style="color: #fab387;">"plex-db"</span>, <span style="color: #a6e3a1;">"status"</span>: <span style="color: #22c55e;">"running"</span>, <span style="color: #a6e3a1;">"image"</span>: <span style="color: #fab387;">"postgres:16"</span> },<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;{ <span style="color: #a6e3a1;">"id"</span>: <span style="color: #fab387;">"ghi789"</span>, <span style="color: #a6e3a1;">"name"</span>: <span style="color: #fab387;">"plex-redis"</span>, <span style="color: #a6e3a1;">"status"</span>: <span style="color: #ef4444;">"exited"</span>, <span style="color: #a6e3a1;">"image"</span>: <span style="color: #fab387;">"redis:7"</span> }<br>
+      &nbsp;&nbsp;]<br>
+      }
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Key Design Decisions</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px;">
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px;">
+      <div style="font-weight: 600; margin-bottom: 6px; color: #22c55e;">Full snapshot per event</div>
+      <p style="opacity: 0.7; margin: 0;">Agent sends ALL containers for the affected stack on each event — not deltas. Worker can upsert the whole row atomically. Simple, idempotent, no ordering issues.</p>
+    </div>
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px;">
+      <div style="font-weight: 600; margin-bottom: 6px; color: #22c55e;">Stack identification via compose label</div>
+      <p style="opacity: 0.7; margin: 0;">Docker Compose sets <code>com.docker.compose.project</code> on every container. Agent uses this to map events → stacks. No guessing.</p>
+    </div>
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px;">
+      <div style="font-weight: 600; margin-bottom: 6px; color: #22c55e;">Reconnection with initial snapshot</div>
+      <p style="opacity: 0.7; margin: 0;">When worker connects (or reconnects) to agent SSE, agent sends current status of ALL stacks immediately. No missed events during downtime.</p>
+    </div>
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px;">
+      <div style="font-weight: 600; margin-bottom: 6px; color: #22c55e;">Deploy pipeline also triggers NOTIFY</div>
+      <p style="opacity: 0.7; margin: 0;">When a deploy completes, the pipeline updates <code>deploy_history</code> AND triggers <code>NOTIFY stack_change</code>. UI sees sync status update immediately — no waiting for the next Docker event.</p>
+    </div>
+  </div>
+</div>
