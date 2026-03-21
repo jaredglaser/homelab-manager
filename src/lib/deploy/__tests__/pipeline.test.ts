@@ -156,9 +156,7 @@ describe('DeployPipeline', () => {
         tokenResolver: () => 'test-token',
       });
 
-      const result = await pipeline.execute(testRequest);
-      expect(result.status).toBe('failed');
-      expect(result.logs).toContain('not found');
+      await expect(pipeline.execute(testRequest)).rejects.toThrow('not found in managed_hosts');
     });
 
     it('rejects deploy when another deploy is active for the stack', async () => {
