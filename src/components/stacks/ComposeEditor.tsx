@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { Button, Paper, Typography, CircularProgress } from '@mui/material';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -56,6 +56,27 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
     setDetectedVars(parseVariables(newContent));
   }, []);
 
+  const [panelWidth, setPanelWidth] = useState(280);
+
+  const handleDragStart = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = panelWidth;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+
+    const onMove = (ev: globalThis.PointerEvent) => {
+      const delta = startX - ev.clientX;
+      setPanelWidth(Math.max(160, Math.min(600, startWidth + delta)));
+    };
+    const onUp = () => {
+      target.removeEventListener('pointermove', onMove);
+      target.removeEventListener('pointerup', onUp);
+    };
+    target.addEventListener('pointermove', onMove);
+    target.addEventListener('pointerup', onUp);
+  }, [panelWidth]);
+
   // Reads the current theme on each render. Theme toggles trigger re-renders
   // via the settings atom, so this stays in sync without a MutationObserver.
   const isDark = typeof document !== 'undefined'
@@ -85,7 +106,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
         </Button>
       </div>
 
-      {/* Editor + variables panel */}
+      {/* Editor + resizable variables panel */}
       <div className="flex min-h-[400px]">
         <div className="flex-1 min-w-0">
           {monacoReady ? (
@@ -120,8 +141,18 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
           )}
         </div>
 
+        {/* Drag handle */}
+        <div
+          className="w-1 flex-shrink-0 cursor-col-resize hover:bg-[var(--mui-palette-primary-main)]/30 active:bg-[var(--mui-palette-primary-main)]/50 transition-colors"
+          style={{ touchAction: 'none' }}
+          onPointerDown={handleDragStart}
+        />
+
         {/* Variables side panel */}
-        <div className="w-[280px] flex-shrink-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto">
+        <div
+          className="flex-shrink-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto"
+          style={{ width: panelWidth }}
+        >
           <VariablesPanel stackName={stackName} composeVariables={detectedVars} />
         </div>
       </div>
