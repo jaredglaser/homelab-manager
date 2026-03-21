@@ -113,6 +113,7 @@ export const updateContainer = createServerFn()
     if (currentStatus && currentStatus !== 'idle') {
       return { success: false, error: 'Another update is already in progress' };
     }
+    await settingsRepo.set(SETTINGS_KEYS.update.status, 'starting');
 
     let containerName = data.containerId.substring(0, 12);
     let currentStep = 'initializing';
