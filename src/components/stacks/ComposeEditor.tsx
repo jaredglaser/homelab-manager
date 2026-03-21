@@ -21,10 +21,10 @@ export function parseVariables(content: string): string[] {
   while ((match = regex.exec(content)) !== null) {
     vars.add(match[1]);
   }
-  return Array.from(vars).sort();
+  return Array.from(vars).sort((a, b) => a.localeCompare(b));
 }
 
-export default function ComposeEditor({ stackName, content, variables: initialVariables }: ComposeEditorProps) {
+export default function ComposeEditor({ stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
   const [editorContent, setEditorContent] = useState(content);
   const [detectedVars, setDetectedVars] = useState<string[]>(initialVariables);
@@ -43,7 +43,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   const saveMutation = useMutation({
     mutationFn: () => saveComposeFile({ data: { stackName, content: editorContent } }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
+      queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
     },
   });
 
@@ -51,8 +51,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
     editorRef.current = editorInstance;
   }, []);
 
-  const handleChange = useCallback((value: string | undefined) => {
-    const newContent = value ?? '';
+  const handleChange = useCallback((newContent = '') => {
     setEditorContent(newContent);
     setDetectedVars(parseVariables(newContent));
   }, []);
@@ -60,7 +59,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   // Reads the current theme on each render. Theme toggles trigger re-renders
   // via the settings atom, so this stays in sync without a MutationObserver.
   const isDark = typeof document !== 'undefined'
-    && document.documentElement.getAttribute('data-color-scheme') === 'dark';
+    && document.documentElement.dataset.colorScheme === 'dark';
 
   return (
     <Paper elevation={0} className="mb-4 !bg-[var(--mui-palette-background-chartBg)] rounded-sm overflow-hidden">

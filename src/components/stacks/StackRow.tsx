@@ -27,7 +27,7 @@ function formatRelativeTime(isoDate: string | null): string {
 
 // Per CLAUDE.md gotcha #5: Do not use React.memo on components receiving streaming/frequently-updated data.
 // Incorrect memoization can freeze streaming updates.
-export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
+export default function StackRow({ stack, expanded, onToggle }: Readonly<StackRowProps>) {
   const [iconError, setIconError] = useState(false);
   const iconUrl = stack.icon ? getIconUrl(stack.icon, '') : null;
 
