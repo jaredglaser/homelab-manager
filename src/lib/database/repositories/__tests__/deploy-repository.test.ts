@@ -224,4 +224,53 @@ describe('DeployRepository', () => {
       expect(records[0].status).toBe('pending');
     });
   });
+
+  describe('getLatestDeployPerStack', () => {
+    it('returns an empty array when no deploys exist', async () => {
+      mock.pushResult([]);
+      const records = await repo.getLatestDeployPerStack();
+      expect(records).toHaveLength(0);
+    });
+
+    it('returns one record per stack with DISTINCT ON semantics', async () => {
+      mock.pushResult([
+        {
+          id: '10', stack: 'plex', host: 'homeserver', commit_sha: 'sha1',
+          compose_hash: 'h1', env_hash: 'h2', status: 'succeeded',
+          trigger: 'git_push', logs: null, created_at: new Date('2026-01-02'),
+        },
+        {
+          id: '20', stack: 'traefik', host: 'homeserver', commit_sha: 'sha2',
+          compose_hash: 'h3', env_hash: 'h4', status: 'failed',
+          trigger: 'ui', logs: 'error', created_at: new Date('2026-01-01'),
+        },
+      ]);
+
+      const records = await repo.getLatestDeployPerStack();
+      expect(records).toHaveLength(2);
+      expect(records[0].id).toBe(10);
+      expect(records[0].stack).toBe('plex');
+      expect(records[0].status).toBe('succeeded');
+      expect(records[1].id).toBe(20);
+      expect(records[1].stack).toBe('traefik');
+      expect(records[1].status).toBe('failed');
+    });
+
+    it('uses DISTINCT ON (stack) ordered by stack, created_at DESC', async () => {
+      mock.pushResult([]);
+      await repo.getLatestDeployPerStack();
+      expect(mock.queries[0].sql).toContain('DISTINCT ON (stack)');
+      expect(mock.queries[0].sql).toContain('ORDER BY stack, created_at DESC');
+    });
+  });
+
+  describe('notifyStackChange', () => {
+    it('sends a pg_notify for the given stack and host', async () => {
+      mock.pushResult([{}]);
+      await repo.notifyStackChange('plex', 'homeserver');
+
+      expect(mock.queries[0].sql).toContain("pg_notify('stack_change'");
+      expect(mock.queries[0].params).toEqual(['plex', 'homeserver']);
+    });
+  });
 });

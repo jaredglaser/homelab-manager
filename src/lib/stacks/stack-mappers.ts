@@ -4,9 +4,28 @@
  * (stacks.functions.test.ts mocks '@/lib/stacks/stack-service').
  */
 
-import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord, SyncStatus } from '@/types/stacks';
 import type { DeployRecord, DeployRequest } from '@/lib/deploy/types';
 import type { StackEntry } from '@/lib/git/manifest';
+
+/**
+ * Compute the sync status of a stack given its latest deploy record and the current HEAD SHA.
+ * - No deploy history → 'unknown'
+ * - Latest deploy failed → 'failed'
+ * - Latest successful/no_change deploy SHA matches HEAD → 'in_sync'
+ * - Latest successful/no_change deploy SHA differs from HEAD → 'pending'
+ */
+export function computeSyncStatus(
+  latestDeploy: DeployRecord | null,
+  currentHeadSha: string | null,
+): SyncStatus {
+  if (!latestDeploy) return 'unknown';
+  if (latestDeploy.status === 'failed') return 'failed';
+  const isDeployed = latestDeploy.status === 'succeeded' || latestDeploy.status === 'no_change';
+  if (isDeployed && latestDeploy.commitSha === currentHeadSha) return 'in_sync';
+  if (isDeployed) return 'pending';
+  return 'unknown';
+}
 
 /** Map a manifest entry to a StackSummary. */
 export function manifestEntryToSummary(name: string, entry: StackEntry): StackSummary {

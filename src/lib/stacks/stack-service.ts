@@ -13,6 +13,7 @@ import {
   manifestEntryToDetail,
   toStackDeployRecord,
   handleTriggerDeploy,
+  computeSyncStatus,
 } from '@/lib/stacks/stack-mappers';
 
 const COMPOSE_FILENAME = 'docker-compose.yml';
@@ -39,7 +40,31 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
     }
 
     const manifest = parseManifest(manifestContent);
-    return Object.entries(manifest.stacks).map(([name, entry]) => manifestEntryToSummary(name, entry));
+    const entries = Object.entries(manifest.stacks);
+
+    // Batch-fetch latest deploy per stack and resolve HEAD SHA in parallel
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+    const { default: git } = await import('isomorphic-git');
+    const fs = await import('fs');
+
+    const dbConfig = loadDatabaseConfig();
+    const dbClient = await databaseConnectionManager.getClient(dbConfig);
+    const deployRepo = new DeployRepository(dbClient.getPool());
+
+    const [latestDeploys, headSha] = await Promise.all([
+      deployRepo.getLatestDeployPerStack(),
+      git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' }).catch(() => null),
+    ]);
+
+    const latestDeployMap = new Map(latestDeploys.map((d) => [d.stack, d]));
+
+    return entries.map(([name, entry]) => {
+      const summary = manifestEntryToSummary(name, entry);
+      summary.syncStatus = computeSyncStatus(latestDeployMap.get(name) ?? null, headSha);
+      return summary;
+    });
   } catch (error) {
     console.error('[StackService] Failed to load stack summaries:', error);
     return [];

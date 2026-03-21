@@ -67,6 +67,7 @@ export class DeployPipeline {
           status: 'no_change',
           trigger: request.trigger,
         });
+        await this.deployRepo.notifyStackChange(request.stack, request.host);
         return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId };
       }
     }
@@ -125,6 +126,7 @@ export class DeployPipeline {
       console.error(errorMsg, err);
       try {
         await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+        await this.deployRepo.notifyStackChange(request.stack, request.host);
       } catch (dbErr) {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
       }
@@ -176,6 +178,7 @@ export class DeployPipeline {
       console.error(`Deploy dispatch failed for stack "${request.stack}" on host "${host.name}":`, err);
       try {
         await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+        await this.deployRepo.notifyStackChange(request.stack, host.name);
       } catch (dbErr) {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
       }
@@ -185,6 +188,7 @@ export class DeployPipeline {
     // Record result outside try — a DB failure here must not be misattributed to the agent
     const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
     await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
+    await this.deployRepo.notifyStackChange(request.stack, host.name);
 
     return { status: finalStatus, logs: result.logs, deployId };
   }
