@@ -29,6 +29,8 @@ function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): Deploy
     deduplicatePending: mock().mockResolvedValue(undefined),
     getDeployHistory: mock().mockResolvedValue([]),
     getPendingDeploys: mock().mockResolvedValue([]),
+    getLatestDeployPerStack: mock().mockResolvedValue([]),
+    notifyStackChange: mock().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as DeployRepository;
 }
