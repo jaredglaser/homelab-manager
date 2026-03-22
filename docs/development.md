@@ -257,3 +257,45 @@ bun run typecheck       # Run TypeScript type checking
 ```bash
 bun build               # Production build (runs typecheck first)
 ```
+
+## TLS Setup (Agent Communication)
+
+Agent sidecars can optionally serve over HTTPS. This is not required for local network use — agents work over plain HTTP by default. For production or untrusted networks, use OpenBao's PKI secrets engine to issue short-lived certificates.
+
+### Enable the PKI secrets engine
+
+```bash
+bao secrets enable pki
+```
+
+### Configure the internal CA (10-year TTL)
+
+```bash
+bao write pki/root/generate/internal \
+  common_name="homelab-manager-ca" \
+  ttl=87600h
+```
+
+### Create a role for agent certificates (30-day max TTL)
+
+```bash
+bao write pki/roles/agent \
+  allowed_domains="*.homelab.local" \
+  allow_subdomains=true \
+  max_ttl=720h
+```
+
+### Issue a certificate for an agent
+
+```bash
+bao write pki/issue/agent \
+  common_name="agent.homelab.local" \
+  ttl=720h
+```
+
+### Usage
+
+- The agent reads the certificate and key from `TLS_CERT_PATH` and `TLS_KEY_PATH` env vars.
+- Set `NODE_EXTRA_CA_CERTS` on the web server and worker to trust the internal CA.
+- Certificates have short TTLs (30 days) and should be renewed before expiry.
+- The PKI engine acts as an internal CA — no external certificate authority is required.
