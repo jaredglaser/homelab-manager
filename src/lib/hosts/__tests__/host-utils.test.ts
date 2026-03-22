@@ -1,6 +1,5 @@
 import { describe, test, expect, mock, afterEach } from 'bun:test';
 import {
-  parseDockerodeConfig,
   toHostListItem,
   retryHealthCheck,
   getAgentImage,
@@ -8,45 +7,12 @@ import {
 import type { HealthCheckOutcome } from '../host-utils';
 import type { ManagedHost } from '../../database/repositories/host-repository';
 
-describe('parseDockerodeConfig', () => {
-  test('parses tcp:// URL', () => {
-    const config = parseDockerodeConfig('tcp://192.168.1.10:2375');
-    expect(config).toEqual({ host: '192.168.1.10', port: 2375, protocol: 'http' });
-  });
-
-  test('parses http:// URL', () => {
-    const config = parseDockerodeConfig('http://myhost:2376');
-    expect(config).toEqual({ host: 'myhost', port: 2376, protocol: 'http' });
-  });
-
-  test('parses https:// URL', () => {
-    const config = parseDockerodeConfig('https://secure-host:2376');
-    expect(config).toEqual({ host: 'secure-host', port: 2376, protocol: 'https' });
-  });
-
-  test('defaults port to 2375 when not specified', () => {
-    const config = parseDockerodeConfig('http://myhost');
-    expect(config.port).toBe(2375);
-  });
-
-  test('handles IPv6 hostname', () => {
-    const config = parseDockerodeConfig('tcp://[::1]:2375');
-    // URL parser preserves brackets around IPv6 addresses
-    expect(config.host).toBe('[::1]');
-    expect(config.port).toBe(2375);
-  });
-
-  test('throws on invalid URL', () => {
-    expect(() => parseDockerodeConfig('not-a-url')).toThrow();
-  });
-});
-
 describe('toHostListItem', () => {
   const baseRow: ManagedHost = {
     id: 1,
     name: 'test-host',
     agent_url: 'http://192.168.1.10:9090',
-    socket_proxy_url: 'tcp://192.168.1.10:2375',
+    capabilities: { docker: true },
     agent_version: '1.0.0',
     status: 'healthy',
     created_at: new Date('2026-01-01T00:00:00Z'),
@@ -59,7 +25,7 @@ describe('toHostListItem', () => {
       id: 1,
       name: 'test-host',
       agentUrl: 'http://192.168.1.10:9090',
-      socketProxyUrl: 'tcp://192.168.1.10:2375',
+      capabilities: { docker: true },
       agentVersion: '1.0.0',
       status: 'healthy',
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -98,6 +64,18 @@ describe('toHostListItem', () => {
     const item = toHostListItem(baseRow);
     expect(item.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(item.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test('defaults capabilities to empty object when undefined', () => {
+    const row = { ...baseRow, capabilities: undefined as unknown as ManagedHost['capabilities'] };
+    const item = toHostListItem(row);
+    expect(item.capabilities).toEqual({});
+  });
+
+  test('maps capabilities with docker and zfs', () => {
+    const row = { ...baseRow, capabilities: { docker: true, zfs: true } };
+    const item = toHostListItem(row);
+    expect(item.capabilities).toEqual({ docker: true, zfs: true });
   });
 });
 
