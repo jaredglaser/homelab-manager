@@ -92,6 +92,13 @@ export class HostRepository {
     );
   }
 
+  async updateAgentUrl(id: number, agentUrl: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE managed_hosts SET agent_url = $1, updated_at = NOW() WHERE id = $2',
+      [agentUrl, id]
+    );
+  }
+
   async delete(id: number): Promise<void> {
     await this.pool.query(
       'DELETE FROM managed_hosts WHERE id = $1',

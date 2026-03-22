@@ -55,7 +55,7 @@ export function toHostListItem(
     name: row.name,
     agentUrl: row.agent_url,
     socketProxyUrl: row.socket_proxy_url,
-    agentVersion: overrides && 'agentVersion' in overrides ? overrides.agentVersion! : row.agent_version,
+    agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agent_version,
     status: overrides?.status ?? row.status,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),

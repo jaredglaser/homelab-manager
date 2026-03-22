@@ -31,7 +31,12 @@ function authenticateRequest(request: Request): Response | null {
     providedToken = authHeader.slice('Bearer '.length);
   } else if (authHeader.startsWith('Basic ')) {
     // Git sends Basic auth as base64(username:password) — the token is the password
-    const decoded = atob(authHeader.slice('Basic '.length));
+    let decoded: string;
+    try {
+      decoded = atob(authHeader.slice('Basic '.length));
+    } catch {
+      return new Response('Malformed Basic auth encoding', { status: 400 });
+    }
     const colonIndex = decoded.indexOf(':');
     providedToken = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : decoded;
   } else {

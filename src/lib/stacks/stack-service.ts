@@ -109,9 +109,11 @@ export async function triggerStackDeploy(params: {
     secretResolver: {
       async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
         if (variables.length === 0 || !baoClient) return {};
+        const entries = await Promise.all(
+          variables.map(async (v) => [v, await baoClient!.getSecret(stack, v)] as const),
+        );
         const secrets: Record<string, string> = {};
-        for (const v of variables) {
-          const val = await baoClient.getSecret(stack, v);
+        for (const [v, val] of entries) {
           if (val !== null) secrets[v] = val;
         }
         return secrets;

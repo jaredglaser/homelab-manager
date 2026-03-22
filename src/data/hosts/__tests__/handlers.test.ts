@@ -31,6 +31,7 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     delete: mock(() => Promise.resolve()),
     updateStatus: mock(() => Promise.resolve()),
     updateAgentVersion: mock(() => Promise.resolve()),
+    updateAgentUrl: mock(() => Promise.resolve()),
     ...overrides,
   };
 }
@@ -174,6 +175,12 @@ describe('handleAddHost', () => {
     expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
   });
 
+  it('persists the resolved agent URL after provisioning', async () => {
+    const deps = addDeps();
+    await handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
+    expect(deps.repo.updateAgentUrl).toHaveBeenCalledWith(1, 'http://192.168.1.10:9090');
+  });
+
   it('rolls back on health check failure', async () => {
     const deps = addDeps();
     deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
@@ -210,5 +217,15 @@ describe('handleAddHost', () => {
     ).rejects.toThrow(/Failed to store agent token in OpenBao/);
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
     expect(deps.removeAgent).toHaveBeenCalled();
+  });
+
+  it('reports container cleanup failure in OpenBao write rollback', async () => {
+    const deps = addDeps();
+    deps.storeToken = mock(() => Promise.reject(new Error('bao unreachable')));
+    deps.removeAgent = mock(() => Promise.reject(new Error('docker down')));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/manual removal/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 });

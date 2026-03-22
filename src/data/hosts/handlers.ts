@@ -26,6 +26,7 @@ export interface HostRepo {
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
+  updateAgentUrl(id: number, agentUrl: string): Promise<void>;
 }
 
 export interface HostHandlerDeps {
@@ -162,13 +163,20 @@ export async function handleAddHost(
     throw err;
   }
 
+  await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
+
   try {
     await deps.storeToken(data.name, plainToken);
   } catch (err) {
     await deps.repo.delete(host.id);
-    try { await deps.removeAgent(data.socketProxyUrl, host.id); } catch { /* best-effort */ }
+    let containerCleaned = true;
+    try { await deps.removeAgent(data.socketProxyUrl, host.id); } catch {
+      containerCleaned = false;
+    }
     throw new Error(
-      `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record and container have been cleaned up.`
+      containerCleaned
+        ? `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record and container have been cleaned up.`
+        : `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record deleted but agent container cleanup failed — manual removal may be required.`
     );
   }
 

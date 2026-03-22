@@ -86,13 +86,17 @@ async function main() {
       let getToken: ((hostname: string) => Promise<string | null>) | undefined;
 
       if (isDockerManagementEnabled()) {
-        const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-        const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-        const baoConfig = loadOpenBaoConfig(); // throws ZodError if env vars missing
-        const baoClient = new OpenBaoClient(baoConfig);
-        await baoClient.ensureSecretsEngine();
-        console.info('[Worker] OpenBao client initialized for managed host tokens');
-        getToken = (hostname: string) => baoClient.getHostSecret(hostname, 'agent_token');
+        try {
+          const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+          const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+          const baoConfig = loadOpenBaoConfig();
+          const baoClient = new OpenBaoClient(baoConfig);
+          await baoClient.ensureSecretsEngine();
+          console.info('[Worker] OpenBao client initialized for managed host tokens');
+          getToken = (hostname: string) => baoClient.getHostSecret(hostname, 'agent_token');
+        } catch (err) {
+          console.error('[Worker] Failed to initialize OpenBao client — managed host collectors will be skipped:', err instanceof Error ? err.message : err);
+        }
       }
 
       const { collectors: managedCollectors, runners: managedRunners } = await createCollectorsForManagedHosts(

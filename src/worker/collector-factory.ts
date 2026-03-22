@@ -124,7 +124,13 @@ export async function createCollectorsForManagedHosts(
   console.info(`[Worker] Starting ${hosts.length} AgentStatsCollector(s) for managed hosts`);
 
   for (const host of hosts) {
-    const token = await getToken(host.name);
+    let token: string | null;
+    try {
+      token = await getToken(host.name);
+    } catch (err) {
+      console.error(`[Worker] Failed to retrieve token for managed host ${host.name}:`, err instanceof Error ? err.message : err);
+      continue;
+    }
     if (!token) {
       console.info(`[Worker] Skipping managed host ${host.name}: no token found in OpenBao`);
       continue;

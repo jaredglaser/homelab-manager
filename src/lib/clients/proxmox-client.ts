@@ -25,6 +25,7 @@ export class ProxmoxClient {
   private baseUrl: string;
   private authHeader: string;
   private fetchOptions: CrossRuntimeRequestInit;
+  private dispatcherReady: Promise<void>;
 
   constructor(config: ProxmoxConfig) {
     this.baseUrl = `https://${config.host}:${config.port}/api2/json`;
@@ -38,11 +39,13 @@ export class ProxmoxClient {
       this.fetchOptions.tls = { rejectUnauthorized: false };
       // Dynamic import keeps undici out of Vite's dependency scan.
       // Resolves at runtime in Node.js/Vite SSR; silently fails under Bun (which uses `tls` instead).
-      (import('undici' as string) as Promise<{ Agent: new (opts: Record<string, unknown>) => unknown }>)
+      this.dispatcherReady = (import('undici' as string) as Promise<{ Agent: new (opts: Record<string, unknown>) => unknown }>)
         .then(({ Agent }) => {
           this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
         })
         .catch(() => {});
+    } else {
+      this.dispatcherReady = Promise.resolve();
     }
   }
 
@@ -50,6 +53,7 @@ export class ProxmoxClient {
    * Make an authenticated GET request to the Proxmox API
    */
   private async get<T>(path: string): Promise<T> {
+    await this.dispatcherReady;
     const url = `${this.baseUrl}${path}`;
     const response = await fetch(url, {
       ...this.fetchOptions,
