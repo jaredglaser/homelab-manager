@@ -10,7 +10,7 @@ const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   id: 1,
   name: 'server1',
   agentUrl: 'http://192.168.1.10:9090',
-  capabilities: { docker: true, zfs: false },
+  socketProxyUrl: 'tcp://192.168.1.10:2375',
   agentVersion: '1.2.3',
   status: 'healthy',
   createdAt: '2024-01-01T00:00:00.000Z',
@@ -103,30 +103,6 @@ describe('ManagedHostsCard', () => {
       expect(screen.getByText('server1')).toBeDefined()
       expect(screen.getByText('server2')).toBeDefined()
     })
-
-    it('renders capability chips for docker', () => {
-      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { docker: true } })] })} />)
-      expect(screen.getAllByText('Docker').length).toBeGreaterThanOrEqual(1)
-      // Chip is rendered inside the host row
-      const chips = document.querySelectorAll('.MuiChip-root')
-      expect(chips.length).toBeGreaterThanOrEqual(1)
-    })
-
-    it('renders capability chips for zfs', () => {
-      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { zfs: true } })] })} />)
-      // ZFS chip in host row (wizard also has ZFS checkbox label)
-      const chips = document.querySelectorAll('.MuiChip-root')
-      const zfsChip = Array.from(chips).find((c) => c.textContent === 'ZFS')
-      expect(zfsChip).toBeDefined()
-    })
-
-    it('renders both capability chips', () => {
-      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { docker: true, zfs: true } })] })} />)
-      const chips = document.querySelectorAll('.MuiChip-root')
-      const chipTexts = Array.from(chips).map((c) => c.textContent)
-      expect(chipTexts).toContain('Docker')
-      expect(chipTexts).toContain('ZFS')
-    })
   })
 
   describe('health check', () => {
@@ -206,143 +182,85 @@ describe('ManagedHostsCard', () => {
     })
   })
 
-  describe('add host wizard', () => {
-    it('renders stepper with wizard steps', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      expect(screen.getByText('Capabilities')).toBeDefined()
-    })
+  describe('add host form', () => {
+    function fillAllFields() {
+      fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'server1' } })
+      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://localhost:9090' } })
+      fireEvent.change(screen.getByLabelText('Socket Proxy URL'), { target: { value: 'http://192.168.1.10:2375' } })
+      fireEvent.change(screen.getByLabelText('Agent Token'), { target: { value: 'dev-token' } })
+    }
 
-    it('renders capability checkboxes on first step', () => {
+    it('renders all form fields', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      expect(screen.getByLabelText('Docker capability')).toBeDefined()
-      expect(screen.getByLabelText('ZFS capability')).toBeDefined()
-    })
-
-    it('Next button advances to compose step (no ZFS)', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      // Docker is checked by default, ZFS is not — skip ZFS Setup
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('step-compose')).toBeDefined()
-    })
-
-    it('Next button advances to ZFS setup when ZFS is selected', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.click(screen.getByLabelText('ZFS capability'))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
-    })
-
-    it('ZFS setup step shows UID/GID fields', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.click(screen.getByLabelText('ZFS capability'))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByLabelText('HLM_ZFS_UID')).toBeDefined()
-      expect(screen.getByLabelText('HLM_ZFS_GID')).toBeDefined()
-    })
-
-    it('ZFS setup shows DOCKER_GID when Docker is also selected', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.click(screen.getByLabelText('ZFS capability'))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByLabelText('DOCKER_GID')).toBeDefined()
-    })
-
-    it('Next is disabled on capabilities step when no capability selected', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      // Uncheck Docker (default checked)
-      fireEvent.click(screen.getByLabelText('Docker capability'))
-      const nextBtn = screen.getByRole('button', { name: 'Next' })
-      expect(nextBtn.hasAttribute('disabled')).toBe(true)
-    })
-
-    it('compose step shows compose file content', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByText('docker-compose.yml')).toBeDefined()
-      expect(screen.getByText('.env')).toBeDefined()
-    })
-
-    it('verify step shows Host Name and Agent URL fields', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      // Advance through capabilities -> compose -> verify
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByLabelText('Host Name')).toBeDefined()
       expect(screen.getByLabelText('Agent URL')).toBeDefined()
+      expect(screen.getByLabelText('Socket Proxy URL')).toBeDefined()
+      expect(screen.getByLabelText('Agent Token')).toBeDefined()
     })
 
-    it('Verify Connection button is disabled when fields are empty', () => {
+    it('renders Register Host button', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      const btn = screen.getByRole('button', { name: /Verify Connection/ })
+      expect(screen.getByRole('button', { name: /Register Host/ })).toBeDefined()
+    })
+
+    it('Register Host button is disabled when fields are empty', () => {
+      render(<ManagedHostsCardView {...makeProps()} />)
+      const btn = screen.getByRole('button', { name: /Register Host/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('Verify Connection button is enabled when fields are filled', () => {
+    it('Register Host button is disabled when only some fields are filled', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'server1' } })
       fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://localhost:9090' } })
-      const btn = screen.getByRole('button', { name: /Verify Connection/ })
+      const btn = screen.getByRole('button', { name: /Register Host/ })
+      expect(btn.hasAttribute('disabled')).toBe(true)
+    })
+
+    it('Register Host button is enabled when all fields are filled', () => {
+      render(<ManagedHostsCardView {...makeProps()} />)
+      fillAllFields()
+      const btn = screen.getByRole('button', { name: /Register Host/ })
       expect(btn.hasAttribute('disabled')).toBe(false)
     })
 
-    it('calls onAdd with capabilities when Verify Connection is clicked', () => {
+    it('calls onAdd with trimmed values on submit', () => {
       const onAdd = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ onAdd })} />)
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: '  server1  ' } })
       fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://localhost:9090  ' } })
-      fireEvent.click(screen.getByRole('button', { name: /Verify Connection/ }))
-      expect(onAdd).toHaveBeenCalledTimes(1)
-      const args = (onAdd as ReturnType<typeof mock>).mock.calls[0]
-      expect(args[0]).toBe('server1')
-      expect(args[1]).toBe('http://localhost:9090')
-      // agentToken is a UUID
-      expect(typeof args[2]).toBe('string')
-      expect(args[2].length).toBeGreaterThan(0)
-      expect(args[3]).toEqual({ docker: true, zfs: false })
+      fireEvent.change(screen.getByLabelText('Socket Proxy URL'), { target: { value: '  http://192.168.1.10:2375  ' } })
+      fireEvent.change(screen.getByLabelText('Agent Token'), { target: { value: '  dev-token  ' } })
+      fireEvent.click(screen.getByRole('button', { name: /Register Host/ }))
+      expect(onAdd).toHaveBeenCalledWith('server1', 'http://localhost:9090', 'http://192.168.1.10:2375', 'dev-token')
     })
 
-    it('Verify Connection button is disabled while isAdding', () => {
+    it('clears form fields after successful submit', () => {
+      render(<ManagedHostsCardView {...makeProps()} />)
+      fillAllFields()
+      fireEvent.click(screen.getByRole('button', { name: /Register Host/ }))
+      expect((screen.getByLabelText('Host Name') as HTMLInputElement).value).toBe('')
+      expect((screen.getByLabelText('Agent URL') as HTMLInputElement).value).toBe('')
+      expect((screen.getByLabelText('Socket Proxy URL') as HTMLInputElement).value).toBe('')
+      expect((screen.getByLabelText('Agent Token') as HTMLInputElement).value).toBe('')
+    })
+
+    it('Register Host button is disabled while isAdding', () => {
       render(<ManagedHostsCardView {...makeProps({ isAdding: true })} />)
-      // Navigate to verify step — need to click Next twice
-      // But buttons may be disabled while isAdding...
-      // The Next button is not disabled by isAdding, only Back and Verify are
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      const btn = screen.getByRole('button', { name: /Verify Connection/ })
+      const btn = screen.getByRole('button', { name: /Register Host/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
     it('shows add error when addError is set', () => {
       render(
-        <ManagedHostsCardView {...makeProps({ addError: 'Agent health check failed' })} />
+        <ManagedHostsCardView {...makeProps({ addError: 'Failed to provision agent' })} />
       )
-      expect(screen.getByText('Agent health check failed')).toBeDefined()
+      expect(screen.getByText('Failed to provision agent')).toBeDefined()
     })
 
     it('does not show error when addError is null', () => {
       render(<ManagedHostsCardView {...makeProps({ addError: null })} />)
-      expect(screen.queryByText('Agent health check failed')).toBeNull()
-    })
-
-    it('Back button goes to previous step', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByTestId('step-compose')).toBeDefined()
-      fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-      expect(screen.getByTestId('step-capabilities')).toBeDefined()
-    })
-
-    it('Reset button returns to first step', () => {
-      render(<ManagedHostsCardView {...makeProps()} />)
-      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
-      expect(screen.getByTestId('step-capabilities')).toBeDefined()
+      expect(screen.queryByText('Failed to provision agent')).toBeNull()
     })
   })
 
@@ -360,17 +278,12 @@ describe('ManagedHostsCard', () => {
     })
 
     it('pre-fills edit dialog with current host values', () => {
-      const host = makeHost({ name: 'myserver', agentUrl: 'http://10.0.0.1:9090' })
+      const host = makeHost({ name: 'myserver', agentUrl: 'http://10.0.0.1:9090', socketProxyUrl: 'tcp://10.0.0.1:2375' })
       render(<ManagedHostsCardView {...makeProps({ hosts: [host] })} />)
       fireEvent.click(screen.getByLabelText('edit host'))
       expect((screen.getByLabelText('Edit Host Name') as HTMLInputElement).value).toBe('myserver')
       expect((screen.getByLabelText('Edit Agent URL') as HTMLInputElement).value).toBe('http://10.0.0.1:9090')
-    })
-
-    it('edit dialog does not have Socket Proxy URL field', () => {
-      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()] })} />)
-      fireEvent.click(screen.getByLabelText('edit host'))
-      expect(screen.queryByLabelText('Edit Socket Proxy URL')).toBeNull()
+      expect((screen.getByLabelText('Edit Socket Proxy URL') as HTMLInputElement).value).toBe('tcp://10.0.0.1:2375')
     })
 
     it('calls onUpdate with correct values when Save is clicked', () => {
@@ -380,7 +293,7 @@ describe('ManagedHostsCard', () => {
       fireEvent.click(screen.getByLabelText('edit host'))
       fireEvent.change(screen.getByLabelText('Edit Host Name'), { target: { value: 'updated-server' } })
       fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-      expect(onUpdate).toHaveBeenCalledWith(1, 'updated-server', 'http://192.168.1.10:9090')
+      expect(onUpdate).toHaveBeenCalledWith(1, 'updated-server', 'http://192.168.1.10:9090', 'tcp://192.168.1.10:2375')
     })
 
     it('does not call onUpdate when Cancel is clicked', () => {
