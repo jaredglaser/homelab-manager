@@ -51,7 +51,7 @@ export class DeployPipeline {
     let envHash = '';
     const resolvedEnvContent = await this.resolveEnv(request);
 
-    if (request.action === 'deploy') {
+    if (request.action === 'deploy' && request.trigger !== 'manual_rollback') {
       const previousDeploy = await this.deployRepo.getLatestSuccessful(request.stack, request.host);
       const changeResult = detectChanges(request.composeContent, resolvedEnvContent, previousDeploy);
       composeHash = changeResult.composeHash;
@@ -66,6 +66,8 @@ export class DeployPipeline {
           envHash,
           status: 'no_change',
           trigger: request.trigger,
+          action: request.action,
+          forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
         });
         await this.deployRepo.notifyStackChange(request.stack, request.host);
         return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId };
@@ -81,6 +83,8 @@ export class DeployPipeline {
       envHash,
       status: 'pending',
       trigger: request.trigger,
+      action: request.action,
+      forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
     });
 
     if (deployId === null) {
@@ -164,6 +168,7 @@ export class DeployPipeline {
             composeContent: request.composeContent,
             envContent,
             action: 'deploy',
+            forceRecreate: request.forceRecreate,
           });
           break;
         case 'teardown':

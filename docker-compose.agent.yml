@@ -64,13 +64,27 @@ services:
 
   openbao:
     image: openbao/openbao
-    command: server -dev
+    command: server -config=/openbao/config/local.hcl
     environment:
-      BAO_DEV_ROOT_TOKEN_ID: "${BAO_DEV_ROOT_TOKEN_ID:-dev-root-token}"
+      BAO_ADDR: "http://127.0.0.1:8200"
     ports:
       - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - openbao-data:/openbao/data
+      - ./dev/openbao/local.hcl:/openbao/config/local.hcl:ro
+      - ./dev/openbao/entrypoint.sh:/openbao/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/openbao/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - homelab-network
 
 volumes:
   homelab-stacks:
+  openbao-data:

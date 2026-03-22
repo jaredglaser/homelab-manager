@@ -9,6 +9,8 @@ describe('StackActionBar', () => {
     onTeardown: mock(() => {}),
     onDelete: mock(() => {}),
     isDeploying: false,
+    forceRecreate: false,
+    onForceRecreateChange: mock(() => {}),
   };
 
   it('renders all 4 buttons', () => {

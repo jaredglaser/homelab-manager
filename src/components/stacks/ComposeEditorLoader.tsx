@@ -6,7 +6,7 @@ const ComposeEditor = lazy(() => import('@/components/stacks/ComposeEditor'));
 interface ComposeEditorLoaderProps {
   stackName: string;
   content: string;
-  variables: string[];
+  onVariablesChange?: (vars: string[]) => void;
 }
 
 export default function ComposeEditorLoader(props: ComposeEditorLoaderProps) {

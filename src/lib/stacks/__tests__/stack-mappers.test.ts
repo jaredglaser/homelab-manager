@@ -11,6 +11,8 @@ const baseRecord: DeployRecord = {
   envHash: 'hash2',
   status: 'succeeded',
   trigger: 'git_push',
+  action: 'deploy',
+  forceRecreate: false,
   logs: null,
   createdAt: new Date('2026-01-01'),
 };
