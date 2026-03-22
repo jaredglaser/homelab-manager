@@ -15,11 +15,9 @@ import { z } from 'zod';
  * - Handlers DO execute (side effects like throws are observable)
  *
  * Full handler-path coverage (provisioning, health checks, DB operations)
- * would require mock.module() on server dependencies (dockerode,
- * database-client, services), but bun runs all test files in a single
- * process and mock.module() pollutes globally — breaking those modules'
- * own test suites. To avoid cross-test contamination, handler integration
- * tests are deferred to a dedicated test configuration or E2E suite.
+ * would require mock.module() on server dependencies (database-client,
+ * services), but bun runs all test files in a single process and
+ * mock.module() pollutes globally — breaking those modules' own test suites.
  *
  * Instead, we test the Zod schemas directly (they are internal but we
  * recreate the identical schemas to verify validation logic) and verify
@@ -30,15 +28,14 @@ import { z } from 'zod';
 // These mirror the source exactly — if the source schemas change, these
 // tests will need updating (which is intentional: it catches regressions).
 
-const socketProxyUrlSchema = z.string().min(1).refine(
-  (val) => /^(tcp|http|https):\/\/.+/.test(val),
-  { message: 'Must be a valid URL with tcp://, http://, or https:// scheme' }
-);
-
-const addHostSchema = z.object({
+const verifyHostSchema = z.object({
   name: z.string().min(1).max(100),
-  socketProxyUrl: socketProxyUrlSchema,
-  agentPort: z.number().int().min(1).max(65535).optional().default(9090),
+  agentUrl: z.string().url(),
+  agentToken: z.string().min(1),
+  capabilities: z.object({
+    docker: z.boolean().optional().default(false),
+    zfs: z.boolean().optional().default(false),
+  }).optional().default({ docker: false, zfs: false }),
 });
 
 const removeHostSchema = z.object({
@@ -53,6 +50,12 @@ const checkHostHealthSchema = z.object({
   hostId: z.number().int().positive(),
 });
 
+const updateHostSchema = z.object({
+  hostId: z.number().int().positive(),
+  name: z.string().min(1).max(100).optional(),
+  agentUrl: z.string().url().optional(),
+});
+
 describe('hosts.functions module', () => {
   const originalEnv = process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
 
@@ -65,10 +68,10 @@ describe('hosts.functions module', () => {
   });
 
   describe('exports', () => {
-    it('exports addHost server function', async () => {
+    it('exports verifyHost server function', async () => {
       const mod = await import('../hosts.functions');
-      expect(mod.addHost).toBeDefined();
-      expect(typeof mod.addHost).toBe('function');
+      expect(mod.verifyHost).toBeDefined();
+      expect(typeof mod.verifyHost).toBe('function');
     });
 
     it('exports removeHost server function', async () => {
@@ -97,11 +100,11 @@ describe('hosts.functions module', () => {
   });
 
   describe('feature flag gating', () => {
-    it('addHost throws when feature flag is off', async () => {
+    it('verifyHost throws when feature flag is off', async () => {
       delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
       const mod = await import('../hosts.functions');
       await expect(
-        mod.addHost({ data: { name: 'test', socketProxyUrl: 'tcp://192.168.1.10:2375' } })
+        mod.verifyHost({ data: { name: 'test', agentUrl: 'http://192.168.1.10:9090', agentToken: 'tok' } })
       ).rejects.toThrow('Docker management feature is not enabled');
     });
 
@@ -137,11 +140,11 @@ describe('hosts.functions module', () => {
       ).rejects.toThrow('Docker management feature is not enabled');
     });
 
-    it('addHost throws with explicit false flag', async () => {
+    it('verifyHost throws with explicit false flag', async () => {
       process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'false';
       const mod = await import('../hosts.functions');
       await expect(
-        mod.addHost({ data: { name: 'test', socketProxyUrl: 'tcp://192.168.1.10:2375' } })
+        mod.verifyHost({ data: { name: 'test', agentUrl: 'http://192.168.1.10:9090', agentToken: 'tok' } })
       ).rejects.toThrow('Docker management feature is not enabled');
     });
 
@@ -163,17 +166,7 @@ describe('hosts.functions module', () => {
   });
 
   describe('input validation (via createServerFn)', () => {
-    // NOTE: createServerFn's inputValidator doesn't enforce schemas in test
-    // context (no server runtime). These tests verify the handler itself
-    // throws (e.g., feature flag) or proceeds without errors.
-
-    // NOTE: createServerFn's inputValidator doesn't enforce schemas in test
-    // context (no TanStack server runtime), so we can't test rejection here
-    // without hitting real network. Schema validation is tested directly
-    // in the addHostSchema describe block below.
-
     it('removeHost with invalid hostId still hits feature gate first', async () => {
-      // With flag off, throws the feature-flag error before validation runs
       delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
       const mod = await import('../hosts.functions');
       await expect(
@@ -182,179 +175,96 @@ describe('hosts.functions module', () => {
     });
   });
 
-  describe('addHostSchema', () => {
+  describe('verifyHostSchema', () => {
     it('accepts valid input with all fields', () => {
-      const result = addHostSchema.parse({
+      const result = verifyHostSchema.parse({
         name: 'my-server',
-        socketProxyUrl: 'tcp://192.168.1.10:2375',
-        agentPort: 8080,
+        agentUrl: 'http://192.168.1.10:9090',
+        agentToken: 'secret-token',
+        capabilities: { docker: true, zfs: false },
       });
       expect(result.name).toBe('my-server');
-      expect(result.socketProxyUrl).toBe('tcp://192.168.1.10:2375');
-      expect(result.agentPort).toBe(8080);
+      expect(result.agentUrl).toBe('http://192.168.1.10:9090');
+      expect(result.agentToken).toBe('secret-token');
+      expect(result.capabilities).toEqual({ docker: true, zfs: false });
     });
 
-    it('defaults agentPort to 9090 when omitted', () => {
-      const result = addHostSchema.parse({
+    it('defaults capabilities when omitted', () => {
+      const result = verifyHostSchema.parse({
         name: 'my-server',
-        socketProxyUrl: 'tcp://192.168.1.10:2375',
+        agentUrl: 'http://192.168.1.10:9090',
+        agentToken: 'tok',
       });
-      expect(result.agentPort).toBe(9090);
+      expect(result.capabilities).toEqual({ docker: false, zfs: false });
     });
 
     it('rejects empty name', () => {
       expect(() =>
-        addHostSchema.parse({ name: '', socketProxyUrl: 'tcp://192.168.1.10:2375' })
+        verifyHostSchema.parse({ name: '', agentUrl: 'http://x:9090', agentToken: 'tok' })
       ).toThrow();
     });
 
     it('rejects name longer than 100 characters', () => {
       expect(() =>
-        addHostSchema.parse({ name: 'a'.repeat(101), socketProxyUrl: 'tcp://192.168.1.10:2375' })
+        verifyHostSchema.parse({ name: 'a'.repeat(101), agentUrl: 'http://x:9090', agentToken: 'tok' })
       ).toThrow();
     });
 
     it('accepts name exactly 100 characters', () => {
-      const result = addHostSchema.parse({
+      const result = verifyHostSchema.parse({
         name: 'a'.repeat(100),
-        socketProxyUrl: 'tcp://192.168.1.10:2375',
+        agentUrl: 'http://x:9090',
+        agentToken: 'tok',
       });
       expect(result.name).toHaveLength(100);
     });
 
     it('accepts single-character name', () => {
-      const result = addHostSchema.parse({
+      const result = verifyHostSchema.parse({
         name: 'x',
-        socketProxyUrl: 'tcp://192.168.1.10:2375',
+        agentUrl: 'http://x:9090',
+        agentToken: 'tok',
       });
       expect(result.name).toBe('x');
     });
 
-    it('rejects empty socketProxyUrl', () => {
+    it('rejects invalid agentUrl', () => {
       expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: '' })
+        verifyHostSchema.parse({ name: 'test', agentUrl: 'not-a-url', agentToken: 'tok' })
       ).toThrow();
     });
 
-    it('rejects ftp:// scheme', () => {
+    it('rejects empty agentToken', () => {
       expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: 'ftp://192.168.1.10:2375' })
-      ).toThrow(/scheme/);
-    });
-
-    it('rejects unix:// scheme', () => {
-      expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: 'unix:///var/run/docker.sock' })
-      ).toThrow(/scheme/);
-    });
-
-    it('rejects plain hostname without scheme', () => {
-      expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: '192.168.1.10:2375' })
-      ).toThrow(/scheme/);
-    });
-
-    it('rejects scheme-only URL without host', () => {
-      expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: 'tcp://' })
-      ).toThrow(/scheme/);
-    });
-
-    it('accepts tcp:// scheme', () => {
-      const result = addHostSchema.parse({
-        name: 'test',
-        socketProxyUrl: 'tcp://192.168.1.10:2375',
-      });
-      expect(result.socketProxyUrl).toBe('tcp://192.168.1.10:2375');
-    });
-
-    it('accepts http:// scheme', () => {
-      const result = addHostSchema.parse({
-        name: 'test',
-        socketProxyUrl: 'http://192.168.1.10:2375',
-      });
-      expect(result.socketProxyUrl).toBe('http://192.168.1.10:2375');
-    });
-
-    it('accepts https:// scheme', () => {
-      const result = addHostSchema.parse({
-        name: 'test',
-        socketProxyUrl: 'https://proxy.example.com:2376',
-      });
-      expect(result.socketProxyUrl).toBe('https://proxy.example.com:2376');
-    });
-
-    it('accepts tcp URL with hostname', () => {
-      const result = addHostSchema.parse({
-        name: 'test',
-        socketProxyUrl: 'tcp://docker-proxy.local:2375',
-      });
-      expect(result.socketProxyUrl).toBe('tcp://docker-proxy.local:2375');
-    });
-
-    it('rejects agentPort of 0', () => {
-      expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: 'tcp://x:1', agentPort: 0 })
+        verifyHostSchema.parse({ name: 'test', agentUrl: 'http://x:9090', agentToken: '' })
       ).toThrow();
-    });
-
-    it('rejects negative agentPort', () => {
-      expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: 'tcp://x:1', agentPort: -1 })
-      ).toThrow();
-    });
-
-    it('rejects agentPort above 65535', () => {
-      expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: 'tcp://x:1', agentPort: 65536 })
-      ).toThrow();
-    });
-
-    it('rejects non-integer agentPort', () => {
-      expect(() =>
-        addHostSchema.parse({ name: 'test', socketProxyUrl: 'tcp://x:1', agentPort: 90.5 })
-      ).toThrow();
-    });
-
-    it('accepts agentPort of 1 (lower boundary)', () => {
-      const result = addHostSchema.parse({
-        name: 'test',
-        socketProxyUrl: 'tcp://x:1',
-        agentPort: 1,
-      });
-      expect(result.agentPort).toBe(1);
-    });
-
-    it('accepts agentPort of 65535 (upper boundary)', () => {
-      const result = addHostSchema.parse({
-        name: 'test',
-        socketProxyUrl: 'tcp://x:1',
-        agentPort: 65535,
-      });
-      expect(result.agentPort).toBe(65535);
-    });
-
-    it('accepts common port numbers', () => {
-      for (const port of [80, 443, 8080, 9090, 3000]) {
-        const result = addHostSchema.parse({
-          name: 'test',
-          socketProxyUrl: 'tcp://x:1',
-          agentPort: port,
-        });
-        expect(result.agentPort).toBe(port);
-      }
     });
 
     it('rejects missing name field', () => {
       expect(() =>
-        addHostSchema.parse({ socketProxyUrl: 'tcp://x:1' })
+        verifyHostSchema.parse({ agentUrl: 'http://x:9090', agentToken: 'tok' })
       ).toThrow();
     });
 
-    it('rejects missing socketProxyUrl field', () => {
+    it('rejects missing agentUrl field', () => {
       expect(() =>
-        addHostSchema.parse({ name: 'test' })
+        verifyHostSchema.parse({ name: 'test', agentToken: 'tok' })
       ).toThrow();
+    });
+
+    it('rejects missing agentToken field', () => {
+      expect(() =>
+        verifyHostSchema.parse({ name: 'test', agentUrl: 'http://x:9090' })
+      ).toThrow();
+    });
+
+    it('accepts https agentUrl', () => {
+      const result = verifyHostSchema.parse({
+        name: 'test',
+        agentUrl: 'https://secure.example.com:9090',
+        agentToken: 'tok',
+      });
+      expect(result.agentUrl).toBe('https://secure.example.com:9090');
     });
   });
 
@@ -436,45 +346,35 @@ describe('hosts.functions module', () => {
     });
   });
 
-  describe('socketProxyUrlSchema', () => {
-    it('accepts tcp:// with IP and port', () => {
-      expect(socketProxyUrlSchema.parse('tcp://192.168.1.10:2375')).toBe('tcp://192.168.1.10:2375');
+  describe('updateHostSchema', () => {
+    it('accepts hostId with name update', () => {
+      const result = updateHostSchema.parse({ hostId: 1, name: 'new-name' });
+      expect(result.hostId).toBe(1);
+      expect(result.name).toBe('new-name');
     });
 
-    it('accepts http:// with hostname', () => {
-      expect(socketProxyUrlSchema.parse('http://proxy.local:2375')).toBe('http://proxy.local:2375');
+    it('accepts hostId with agentUrl update', () => {
+      const result = updateHostSchema.parse({ hostId: 1, agentUrl: 'http://new:9090' });
+      expect(result.agentUrl).toBe('http://new:9090');
     });
 
-    it('accepts https:// with domain', () => {
-      expect(socketProxyUrlSchema.parse('https://proxy.example.com:2376')).toBe('https://proxy.example.com:2376');
+    it('accepts hostId only (no updates)', () => {
+      const result = updateHostSchema.parse({ hostId: 1 });
+      expect(result.hostId).toBe(1);
+      expect(result.name).toBeUndefined();
+      expect(result.agentUrl).toBeUndefined();
     });
 
-    it('accepts tcp:// with hostname only', () => {
-      expect(socketProxyUrlSchema.parse('tcp://myhost')).toBe('tcp://myhost');
+    it('rejects invalid agentUrl', () => {
+      expect(() => updateHostSchema.parse({ hostId: 1, agentUrl: 'not-a-url' })).toThrow();
     });
 
-    it('rejects empty string', () => {
-      expect(() => socketProxyUrlSchema.parse('')).toThrow();
+    it('rejects empty name', () => {
+      expect(() => updateHostSchema.parse({ hostId: 1, name: '' })).toThrow();
     });
 
-    it('rejects ftp:// scheme', () => {
-      expect(() => socketProxyUrlSchema.parse('ftp://host:21')).toThrow();
-    });
-
-    it('rejects ssh:// scheme', () => {
-      expect(() => socketProxyUrlSchema.parse('ssh://host:22')).toThrow();
-    });
-
-    it('rejects ws:// scheme', () => {
-      expect(() => socketProxyUrlSchema.parse('ws://host:80')).toThrow();
-    });
-
-    it('rejects bare hostname', () => {
-      expect(() => socketProxyUrlSchema.parse('myhost:2375')).toThrow();
-    });
-
-    it('rejects scheme without host', () => {
-      expect(() => socketProxyUrlSchema.parse('tcp://')).toThrow();
+    it('rejects missing hostId', () => {
+      expect(() => updateHostSchema.parse({ name: 'test' })).toThrow();
     });
   });
 
@@ -484,7 +384,7 @@ describe('hosts.functions module', () => {
         id: 1,
         name: 'test',
         agentUrl: 'http://localhost:9090',
-        socketProxyUrl: 'tcp://localhost:2375',
+        capabilities: { docker: true },
         agentVersion: null,
         status: 'healthy',
         createdAt: '2026-01-01T00:00:00Z',
@@ -499,7 +399,7 @@ describe('hosts.functions module', () => {
         id: 1,
         name: 'test',
         agentUrl: 'http://localhost:9090',
-        socketProxyUrl: 'tcp://localhost:2375',
+        capabilities: {},
         agentVersion: '1.2.3',
         status: 'healthy',
         createdAt: '2026-01-01T00:00:00Z',
@@ -514,7 +414,7 @@ describe('hosts.functions module', () => {
           id: 1,
           name: 'test',
           agentUrl: 'http://localhost:9090',
-          socketProxyUrl: 'tcp://localhost:2375',
+          capabilities: { docker: true },
           agentVersion: null,
           status: 'healthy',
           createdAt: '2026-01-01T00:00:00Z',

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Card,
   Typography,
@@ -14,23 +14,31 @@ import {
   Snackbar,
   Alert,
   CircularProgress,
+  Stepper,
+  Step,
+  StepLabel,
+  Chip,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material'
-import { RefreshCw, Trash2, Plus, Server, Pencil } from 'lucide-react'
+import { RefreshCw, Trash2, Plus, Server, Pencil, Copy, Check } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { HostListItem } from '@/lib/hosts/host-utils'
-import { listHosts, registerExistingHost, removeHost, checkHostHealth, updateHost } from '@/data/hosts.functions'
+import { getAgentImage } from '@/lib/hosts/host-utils'
+import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost } from '@/data/hosts.functions'
+import { generateAgentStackCompose, generateAgentStackEnv } from '@/lib/templates/agent-stack-compose'
 
 // ----- Types for the presentational layer -----
 
 export interface ManagedHostsCardProps {
   hosts: HostListItem[]
   isLoading: boolean
-  onAdd: (name: string, agentUrl: string, socketProxyUrl: string, agentToken: string) => void
+  onAdd: (name: string, agentUrl: string, agentToken: string, capabilities: { docker: boolean; zfs: boolean }) => void
   isAdding: boolean
   addError: string | null
   onRemove: (hostId: number) => void
   isRemoving: boolean
-  onUpdate: (hostId: number, name: string, agentUrl: string, socketProxyUrl: string) => void
+  onUpdate: (hostId: number, name: string, agentUrl: string) => void
   isUpdating: boolean
   onHealthCheck: (hostId: number) => void
   checkingHostId: number | null
@@ -66,7 +74,7 @@ function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }: Remove
       <DialogTitle>Remove Host</DialogTitle>
       <DialogContent>
         <DialogContentText>
-          Remove <strong>{hostName}</strong>? This will stop and remove the agent container on that host.
+          Remove <strong>{hostName}</strong>? The agent stack on that host will need to be stopped manually.
         </DialogContentText>
       </DialogContent>
       <DialogActions>
@@ -85,14 +93,13 @@ interface EditDialogProps {
   open: boolean
   host: HostListItem | null
   isUpdating: boolean
-  onConfirm: (hostId: number, name: string, agentUrl: string, socketProxyUrl: string) => void
+  onConfirm: (hostId: number, name: string, agentUrl: string) => void
   onClose: () => void
 }
 
 function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogProps) {
   const [name, setName] = useState(host?.name ?? '')
   const [agentUrl, setAgentUrl] = useState(host?.agentUrl ?? '')
-  const [socketProxyUrl, setSocketProxyUrl] = useState(host?.socketProxyUrl ?? '')
 
   // Sync state when host changes (dialog opens for a different host)
   const [prevHost, setPrevHost] = useState(host)
@@ -100,14 +107,13 @@ function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogPr
     setPrevHost(host)
     setName(host?.name ?? '')
     setAgentUrl(host?.agentUrl ?? '')
-    setSocketProxyUrl(host?.socketProxyUrl ?? '')
   }
 
-  const isValid = name.trim().length > 0 && agentUrl.trim().length > 0 && socketProxyUrl.trim().length > 0
+  const isValid = name.trim().length > 0 && agentUrl.trim().length > 0
 
   function handleSave() {
     if (!host || !isValid || isUpdating) return
-    onConfirm(host.id, name.trim(), agentUrl.trim(), socketProxyUrl.trim())
+    onConfirm(host.id, name.trim(), agentUrl.trim())
   }
 
   return (
@@ -132,15 +138,6 @@ function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogPr
           fullWidth
           inputProps={{ 'aria-label': 'Edit Agent URL' }}
         />
-        <TextField
-          label="Socket Proxy URL"
-          value={socketProxyUrl}
-          onChange={(e) => setSocketProxyUrl(e.target.value)}
-          size="small"
-          disabled={isUpdating}
-          fullWidth
-          inputProps={{ 'aria-label': 'Edit Socket Proxy URL' }}
-        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={isUpdating}>Cancel</Button>
@@ -152,101 +149,325 @@ function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditDialogPr
   )
 }
 
-// ----- Add host form -----
+// ----- Copy button -----
 
-interface AddHostFormProps {
-  isAdding: boolean
-  addError: string | null
-  onSubmit: (name: string, agentUrl: string, socketProxyUrl: string, agentToken: string) => void
-}
+function CopyButton({ text, label }: { text: string; label: string }) {
+  const [copied, setCopied] = useState(false)
 
-function AddHostForm({ isAdding, addError, onSubmit }: AddHostFormProps) {
-  const [name, setName] = useState('')
-  const [agentUrl, setAgentUrl] = useState('')
-  const [socketProxyUrl, setSocketProxyUrl] = useState('')
-  const [agentToken, setAgentToken] = useState('')
-
-  const isValid = name.trim().length > 0
-    && agentUrl.trim().length > 0
-    && socketProxyUrl.trim().length > 0
-    && agentToken.trim().length > 0
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!isValid || isAdding) return
-    onSubmit(name.trim(), agentUrl.trim(), socketProxyUrl.trim(), agentToken.trim())
-    setName('')
-    setAgentUrl('')
-    setSocketProxyUrl('')
-    setAgentToken('')
+  function handleCopy() {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-3 pt-4 border-t border-[var(--mui-palette-divider)]">
-      <Typography variant="subtitle2">Register Host</Typography>
-      <div className="flex flex-col gap-2">
-        <div className="flex gap-2">
-          <TextField
-            label="Host Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            size="small"
-            disabled={isAdding}
-            placeholder="dev-machine"
-            className="flex-1"
-            inputProps={{ 'aria-label': 'Host Name' }}
-          />
-          <TextField
-            label="Agent URL"
-            value={agentUrl}
-            onChange={(e) => setAgentUrl(e.target.value)}
-            size="small"
-            placeholder="http://localhost:9090"
-            disabled={isAdding}
-            className="flex-1"
-            inputProps={{ 'aria-label': 'Agent URL' }}
-          />
-        </div>
-        <div className="flex gap-2">
-          <TextField
-            label="Socket Proxy URL"
-            value={socketProxyUrl}
-            onChange={(e) => setSocketProxyUrl(e.target.value)}
-            size="small"
-            placeholder="http://192.168.1.10:2375"
-            disabled={isAdding}
-            className="flex-1"
-            inputProps={{ 'aria-label': 'Socket Proxy URL' }}
-          />
-          <TextField
-            label="Agent Token"
-            value={agentToken}
-            onChange={(e) => setAgentToken(e.target.value)}
-            size="small"
-            type="password"
-            placeholder="dev-agent-token"
-            disabled={isAdding}
-            className="flex-1"
-            inputProps={{ 'aria-label': 'Agent Token' }}
-          />
-        </div>
-        <Button
-          type="submit"
-          variant="contained"
-          size="small"
-          disabled={!isValid || isAdding}
-          startIcon={isAdding ? <CircularProgress size={14} /> : <Plus size={14} />}
-          className="self-end"
-        >
-          Register Host
-        </Button>
+    <Tooltip title={copied ? 'Copied!' : `Copy ${label}`}>
+      <IconButton size="small" onClick={handleCopy} aria-label={`Copy ${label}`}>
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+      </IconButton>
+    </Tooltip>
+  )
+}
+
+// ----- Add host wizard -----
+
+const WIZARD_STEPS = ['Capabilities', 'ZFS Setup', 'Compose File', 'Verify Connection'] as const
+
+const ZFS_SETUP_COMMANDS = `# Create the hlm-zfs user:
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin hlm-zfs
+sudo groupadd -f zfs
+sudo usermod -aG zfs hlm-zfs
+
+# Get the UID/GID:
+id hlm-zfs`
+
+interface AddHostWizardProps {
+  isAdding: boolean
+  addError: string | null
+  onSubmit: (name: string, agentUrl: string, agentToken: string, capabilities: { docker: boolean; zfs: boolean }) => void
+}
+
+function AddHostWizard({ isAdding, addError, onSubmit }: AddHostWizardProps) {
+  const [activeStep, setActiveStep] = useState(0)
+  const [docker, setDocker] = useState(true)
+  const [zfs, setZfs] = useState(false)
+  const [hlmZfsUid, setHlmZfsUid] = useState('')
+  const [hlmZfsGid, setHlmZfsGid] = useState('')
+  const [dockerGid, setDockerGid] = useState('')
+  const [agentToken, setAgentToken] = useState('')
+  const [name, setName] = useState('')
+  const [agentUrl, setAgentUrl] = useState('')
+
+  // Compute visible steps (skip ZFS Setup when ZFS not selected)
+  const visibleSteps = useMemo(() => {
+    if (zfs) return [...WIZARD_STEPS]
+    return [WIZARD_STEPS[0], WIZARD_STEPS[2], WIZARD_STEPS[3]]
+  }, [zfs])
+
+  const currentStepName = visibleSteps[activeStep]
+
+  // Generate token on first mount / when entering compose step
+  useMemo(() => {
+    if (!agentToken) {
+      setAgentToken(crypto.randomUUID())
+    }
+  }, [agentToken])
+
+  const composeYaml = useMemo(() => {
+    try {
+      return generateAgentStackCompose({
+        agentToken,
+        agentImage: getAgentImage(),
+        agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+        capabilities: { docker, zfs },
+        hlmZfsUid: zfs ? Number(hlmZfsUid) || undefined : undefined,
+        hlmZfsGid: zfs ? Number(hlmZfsGid) || undefined : undefined,
+        dockerGid: docker && zfs ? Number(dockerGid) || undefined : undefined,
+      })
+    } catch {
+      return '# Error generating compose file. Check ZFS UID/GID values.'
+    }
+  }, [agentToken, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+
+  const envFile = useMemo(() => {
+    try {
+      return generateAgentStackEnv({
+        agentToken,
+        agentImage: getAgentImage(),
+        agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+        capabilities: { docker, zfs },
+        hlmZfsUid: zfs ? Number(hlmZfsUid) || undefined : undefined,
+        hlmZfsGid: zfs ? Number(hlmZfsGid) || undefined : undefined,
+        dockerGid: docker && zfs ? Number(dockerGid) || undefined : undefined,
+      })
+    } catch {
+      return '# Error generating .env file. Check ZFS UID/GID values.'
+    }
+  }, [agentToken, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+
+  function handleNext() {
+    setActiveStep((prev) => Math.min(prev + 1, visibleSteps.length - 1))
+  }
+
+  function handleBack() {
+    setActiveStep((prev) => Math.max(prev - 1, 0))
+  }
+
+  function handleVerify() {
+    if (!name.trim() || !agentUrl.trim() || !agentToken.trim() || isAdding) return
+    onSubmit(name.trim(), agentUrl.trim(), agentToken.trim(), { docker, zfs })
+  }
+
+  function handleReset() {
+    setActiveStep(0)
+    setDocker(true)
+    setZfs(false)
+    setHlmZfsUid('')
+    setHlmZfsGid('')
+    setDockerGid('')
+    setAgentToken(crypto.randomUUID())
+    setName('')
+    setAgentUrl('')
+  }
+
+  const canProceedFromCapabilities = docker || zfs
+  const canProceedFromZfs = hlmZfsUid.trim().length > 0 && hlmZfsGid.trim().length > 0
+    && (!docker || dockerGid.trim().length > 0)
+  const canVerify = name.trim().length > 0 && agentUrl.trim().length > 0
+
+  return (
+    <div className="flex flex-col gap-4 pt-4 border-t border-[var(--mui-palette-divider)]">
+      <Typography variant="subtitle2">Add Host</Typography>
+
+      <Stepper activeStep={activeStep} alternativeLabel>
+        {visibleSteps.map((label) => (
+          <Step key={label}>
+            <StepLabel>{label}</StepLabel>
+          </Step>
+        ))}
+      </Stepper>
+
+      <div className="min-h-[200px]">
+        {currentStepName === 'Capabilities' && (
+          <div className="flex flex-col gap-3" data-testid="step-capabilities">
+            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+              Select the capabilities this host will provide:
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={docker}
+                  onChange={(e) => setDocker(e.target.checked)}
+                  inputProps={{ 'aria-label': 'Docker capability' }}
+                />
+              }
+              label="Docker"
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={zfs}
+                  onChange={(e) => setZfs(e.target.checked)}
+                  inputProps={{ 'aria-label': 'ZFS capability' }}
+                />
+              }
+              label="ZFS"
+            />
+          </div>
+        )}
+
+        {currentStepName === 'ZFS Setup' && (
+          <div className="flex flex-col gap-3" data-testid="step-zfs-setup">
+            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+              Run these commands on the target host to create the ZFS user:
+            </Typography>
+            <div className="relative">
+              <pre className="p-3 rounded text-xs overflow-x-auto bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
+                {ZFS_SETUP_COMMANDS}
+              </pre>
+              <div className="absolute top-1 right-1">
+                <CopyButton text={ZFS_SETUP_COMMANDS} label="ZFS setup commands" />
+              </div>
+            </div>
+            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)] mt-2">
+              Enter the UID and GID from the output of <code>id hlm-zfs</code>:
+            </Typography>
+            <div className="flex gap-2">
+              <TextField
+                label="HLM_ZFS_UID"
+                value={hlmZfsUid}
+                onChange={(e) => setHlmZfsUid(e.target.value)}
+                size="small"
+                type="number"
+                className="flex-1"
+                inputProps={{ 'aria-label': 'HLM_ZFS_UID' }}
+              />
+              <TextField
+                label="HLM_ZFS_GID"
+                value={hlmZfsGid}
+                onChange={(e) => setHlmZfsGid(e.target.value)}
+                size="small"
+                type="number"
+                className="flex-1"
+                inputProps={{ 'aria-label': 'HLM_ZFS_GID' }}
+              />
+            </div>
+            {docker && (
+              <TextField
+                label="DOCKER_GID"
+                value={dockerGid}
+                onChange={(e) => setDockerGid(e.target.value)}
+                size="small"
+                type="number"
+                helperText="GID of the docker group on the target host (run: getent group docker)"
+                inputProps={{ 'aria-label': 'DOCKER_GID' }}
+              />
+            )}
+          </div>
+        )}
+
+        {currentStepName === 'Compose File' && (
+          <div className="flex flex-col gap-3" data-testid="step-compose">
+            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+              Create these files on the target host and run <code>docker compose up -d</code>:
+            </Typography>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Typography variant="caption" className="font-semibold">docker-compose.yml</Typography>
+                <CopyButton text={composeYaml} label="docker-compose.yml" />
+              </div>
+              <pre className="p-3 rounded text-xs overflow-x-auto max-h-[300px] bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
+                {composeYaml}
+              </pre>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Typography variant="caption" className="font-semibold">.env</Typography>
+                <CopyButton text={envFile} label=".env" />
+              </div>
+              <pre className="p-3 rounded text-xs overflow-x-auto max-h-[200px] bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
+                {envFile}
+              </pre>
+            </div>
+          </div>
+        )}
+
+        {currentStepName === 'Verify Connection' && (
+          <div className="flex flex-col gap-3" data-testid="step-verify">
+            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+              Enter the agent connection details and verify:
+            </Typography>
+            <TextField
+              label="Host Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              size="small"
+              disabled={isAdding}
+              placeholder="dev-machine"
+              fullWidth
+              inputProps={{ 'aria-label': 'Host Name' }}
+            />
+            <TextField
+              label="Agent URL"
+              value={agentUrl}
+              onChange={(e) => setAgentUrl(e.target.value)}
+              size="small"
+              placeholder="http://192.168.1.10:9090"
+              disabled={isAdding}
+              fullWidth
+              inputProps={{ 'aria-label': 'Agent URL' }}
+            />
+            <Button
+              variant="contained"
+              size="small"
+              disabled={!canVerify || isAdding}
+              onClick={handleVerify}
+              startIcon={isAdding ? <CircularProgress size={14} /> : <Plus size={14} />}
+              className="self-end"
+            >
+              Verify Connection
+            </Button>
+          </div>
+        )}
       </div>
+
       {addError && (
         <Alert severity="error" className="mt-1">
           {addError}
         </Alert>
       )}
-    </form>
+
+      <div className="flex justify-between">
+        <div>
+          {activeStep > 0 && (
+            <Button size="small" onClick={handleBack} disabled={isAdding}>
+              Back
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button size="small" onClick={handleReset} disabled={isAdding}>
+            Reset
+          </Button>
+          {currentStepName !== 'Verify Connection' && (
+            <Button
+              size="small"
+              variant="contained"
+              onClick={handleNext}
+              disabled={
+                (currentStepName === 'Capabilities' && !canProceedFromCapabilities)
+                || (currentStepName === 'ZFS Setup' && !canProceedFromZfs)
+              }
+            >
+              Next
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -277,9 +498,19 @@ function HostRow({ host, isChecking, isRemoving, onHealthCheck, onEdit, onRemove
             </Typography>
           )}
         </div>
-        <Typography variant="caption" className="font-mono text-[var(--mui-palette-text-secondary)] block truncate">
-          {host.agentUrl}
-        </Typography>
+        <div className="flex items-center gap-2">
+          <Typography variant="caption" className="font-mono text-[var(--mui-palette-text-secondary)] block truncate">
+            {host.agentUrl}
+          </Typography>
+          <div className="flex items-center gap-1">
+            {host.capabilities?.docker && (
+              <Chip label="Docker" size="small" variant="outlined" className="!h-4 !text-[10px]" />
+            )}
+            {host.capabilities?.zfs && (
+              <Chip label="ZFS" size="small" variant="outlined" className="!h-4 !text-[10px]" />
+            )}
+          </div>
+        </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
         <Tooltip title="Check health">
@@ -351,8 +582,8 @@ export function ManagedHostsCardView({
     }
   }
 
-  function handleEditConfirm(hostId: number, name: string, agentUrl: string, socketProxyUrl: string) {
-    onUpdate(hostId, name, agentUrl, socketProxyUrl)
+  function handleEditConfirm(hostId: number, name: string, agentUrl: string) {
+    onUpdate(hostId, name, agentUrl)
   }
 
   return (
@@ -388,7 +619,7 @@ export function ManagedHostsCardView({
         )}
 
         <div className="mt-4">
-          <AddHostForm isAdding={isAdding} addError={addError} onSubmit={onAdd} />
+          <AddHostWizard isAdding={isAdding} addError={addError} onSubmit={onAdd} />
         </div>
       </Card>
 
@@ -442,8 +673,8 @@ export function ManagedHostsCard() {
   })
 
   const addMutation = useMutation({
-    mutationFn: ({ name, agentUrl, socketProxyUrl, agentToken }: { name: string; agentUrl: string; socketProxyUrl: string; agentToken: string }) =>
-      registerExistingHost({ data: { name, agentUrl, socketProxyUrl, agentToken } }),
+    mutationFn: ({ name, agentUrl, agentToken, capabilities }: { name: string; agentUrl: string; agentToken: string; capabilities: { docker: boolean; zfs: boolean } }) =>
+      verifyHost({ data: { name, agentUrl, agentToken, capabilities } }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setAddError(null)
@@ -457,13 +688,9 @@ export function ManagedHostsCard() {
 
   const removeMutation = useMutation({
     mutationFn: (hostId: number) => removeHost({ data: { hostId } }),
-    onSuccess: (result) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      if (result.warning) {
-        setSnackbar({ open: true, message: result.warning, severity: 'warning' })
-      } else {
-        setSnackbar({ open: true, message: 'Host removed', severity: 'success' })
-      }
+      setSnackbar({ open: true, message: 'Host removed', severity: 'success' })
     },
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : 'Failed to remove host'
@@ -472,8 +699,8 @@ export function ManagedHostsCard() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: ({ hostId, name, agentUrl, socketProxyUrl }: { hostId: number; name: string; agentUrl: string; socketProxyUrl: string }) =>
-      updateHost({ data: { hostId, name, agentUrl, socketProxyUrl } }),
+    mutationFn: ({ hostId, name, agentUrl }: { hostId: number; name: string; agentUrl: string }) =>
+      updateHost({ data: { hostId, name, agentUrl } }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setSnackbar({ open: true, message: 'Host updated', severity: 'success' })
@@ -517,12 +744,12 @@ export function ManagedHostsCard() {
     <ManagedHostsCardView
       hosts={hosts}
       isLoading={isLoading}
-      onAdd={(name, agentUrl, socketProxyUrl, agentToken) => addMutation.mutate({ name, agentUrl, socketProxyUrl, agentToken })}
+      onAdd={(name, agentUrl, agentToken, capabilities) => addMutation.mutate({ name, agentUrl, agentToken, capabilities })}
       isAdding={addMutation.isPending}
       addError={addError}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
       isRemoving={removeMutation.isPending}
-      onUpdate={(hostId, name, agentUrl, socketProxyUrl) => updateMutation.mutate({ hostId, name, agentUrl, socketProxyUrl })}
+      onUpdate={(hostId, name, agentUrl) => updateMutation.mutate({ hostId, name, agentUrl })}
       isUpdating={updateMutation.isPending}
       onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
       checkingHostId={checkingHostId}
