@@ -187,6 +187,15 @@ describe('handleAddHost', () => {
     expect(result.host.agentUrl).toBe('http://192.168.1.10:9090');
   });
 
+  it('rolls back on provision failure', async () => {
+    const deps = addDeps();
+    deps.provision = mock(() => Promise.reject(new Error('docker unreachable')));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/Failed to provision/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
   it('rolls back on health check failure', async () => {
     const deps = addDeps();
     deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
