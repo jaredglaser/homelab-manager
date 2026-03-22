@@ -75,7 +75,7 @@ describe('detectZfsCapabilities', () => {
       available: true,
       version: '2.2.2',
       tier: 1,
-      permissions: [],
+      permissions: ['read'],
     });
   });
 
@@ -106,7 +106,7 @@ describe('detectZfsCapabilities', () => {
       available: true,
       version: '2.2.2',
       tier: 2,
-      permissions: ['destroy', 'hold', 'rollback', 'send', 'snapshot'],
+      permissions: ['read', 'destroy', 'hold', 'rollback', 'send', 'snapshot'],
     });
   });
 
@@ -131,7 +131,7 @@ describe('detectZfsCapabilities', () => {
       available: true,
       version: undefined,
       tier: 1,
-      permissions: [],
+      permissions: ['read'],
     });
   });
 
@@ -159,7 +159,7 @@ describe('detectZfsCapabilities', () => {
       available: true,
       version: '2.1.0-rc1',
       tier: 1,
-      permissions: [],
+      permissions: ['read'],
     });
   });
 
@@ -190,7 +190,7 @@ describe('detectZfsCapabilities', () => {
       available: true,
       version: '2.2.2',
       tier: 1,
-      permissions: ['hold', 'snapshot'],
+      permissions: ['read', 'hold', 'snapshot'],
     });
   });
 

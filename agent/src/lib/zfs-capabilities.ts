@@ -99,8 +99,11 @@ export async function detectZfsCapabilities(): Promise<ZfsCapabilities> {
   }
 
   const allowOutput = await runCommand(['zfs', 'allow']);
-  const permissions = allowOutput ? parsePermissions(allowOutput) : [];
-  const tier = permissions.length > 0 ? determineTier(permissions) : 1;
+  const delegatedPermissions = allowOutput ? parsePermissions(allowOutput) : [];
+  const tier = delegatedPermissions.length > 0 ? determineTier(delegatedPermissions) : 1;
+
+  // All available ZFS hosts have implicit read access via group membership
+  const permissions = ['read', ...delegatedPermissions.filter((p) => p !== 'read')];
 
   return {
     available: true,
