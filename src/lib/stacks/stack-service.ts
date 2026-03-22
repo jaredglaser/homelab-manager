@@ -119,7 +119,7 @@ export async function triggerStackDeploy(params: {
     },
     tokenResolver: async (host) => {
       if (!baoClient) throw new Error('OpenBao not configured — cannot resolve agent token');
-      const token = await baoClient.getHostSecret(host.name, 'agent_token');
+      const token = await baoClient.getSecret(host.name, 'agent_token');
       if (!token) throw new Error(`No agent token found in OpenBao for host "${host.name}"`);
       return token;
     },
