@@ -31,15 +31,7 @@ function authenticateRequest(request: Request): Response | null {
     providedToken = authHeader.slice('Bearer '.length);
   } else if (authHeader.startsWith('Basic ')) {
     // Git sends Basic auth as base64(username:password) — the token is the password
-    let decoded: string;
-    try {
-      decoded = atob(authHeader.slice('Basic '.length));
-    } catch {
-      return new Response('Unauthorized', {
-        status: 401,
-        headers: { 'WWW-Authenticate': 'Basic realm="git"' },
-      });
-    }
+    const decoded = atob(authHeader.slice('Basic '.length));
     const colonIndex = decoded.indexOf(':');
     providedToken = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : decoded;
   } else {

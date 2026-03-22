@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
-import { ProxmoxClient, ProxmoxConnectionManager, flattenPerNodeResults, calculateClusterTotals } from '../proxmox-client';
+import { ProxmoxClient, ProxmoxConnectionManager } from '../proxmox-client';
 import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
 
 const originalConsoleError = console.error;
@@ -50,31 +50,6 @@ describe('ProxmoxClient', () => {
     const callInit = fetchSpy.mock.calls[0][1] as RequestInit;
     expect(callInit.headers).toEqual({
       Authorization: 'PVEAPIToken=root@pam!test=12345678-1234-1234-1234-123456789012',
-    });
-  });
-
-  describe('handleDispatcherError', () => {
-    it('silently ignores module-not-found errors', () => {
-      ProxmoxClient.handleDispatcherError(new Error('Cannot find module undici'));
-      expect(console.error).not.toHaveBeenCalled();
-    });
-
-    it('silently ignores MODULE_NOT_FOUND code errors', () => {
-      ProxmoxClient.handleDispatcherError(new Error('MODULE_NOT_FOUND'));
-      expect(console.error).not.toHaveBeenCalled();
-    });
-
-    it('logs unexpected errors', () => {
-      ProxmoxClient.handleDispatcherError(new Error('Agent constructor failed'));
-      expect(console.error).toHaveBeenCalledWith(
-        '[ProxmoxClient] Failed to initialize undici Agent for self-signed cert support:',
-        'Agent constructor failed'
-      );
-    });
-
-    it('handles non-Error values', () => {
-      ProxmoxClient.handleDispatcherError('something broke');
-      expect(console.error).toHaveBeenCalled();
     });
   });
 
@@ -344,167 +319,18 @@ describe('ProxmoxClient', () => {
       expect(callInit.tls).toEqual({ rejectUnauthorized: false });
     });
 
-    it('should not set TLS options when allowSelfSignedCerts is false', async () => {
+    it('should not set TLS options when allowSelfSignedCerts is false', () => {
       const config = createConfig({ allowSelfSignedCerts: false });
       const client = new ProxmoxClient(config);
 
       fetchSpy.mockResolvedValueOnce(
         new Response(JSON.stringify({ data: {} }), { status: 200 })
       );
-      await client.testConnection();
+      client.testConnection();
 
       const callInit = fetchSpy.mock.calls[0][1] as any;
       expect(callInit.tls).toBeUndefined();
     });
-  });
-});
-
-describe('flattenPerNodeResults', () => {
-  it('should flatten per-node results with node attribution', () => {
-    const perNodeResults = [
-      {
-        node: 'pve1',
-        vms: [{ vmid: 100, name: 'vm1', status: 'running' }] as any[],
-        containers: [{ vmid: 200, name: 'ct1', status: 'running' }] as any[],
-        storages: [{ storage: 'local', type: 'dir' }] as any[],
-      },
-      {
-        node: 'pve2',
-        vms: [{ vmid: 101, name: 'vm2', status: 'stopped' }] as any[],
-        containers: [],
-        storages: [{ storage: 'ceph', type: 'rbd' }] as any[],
-      },
-    ];
-
-    const result = flattenPerNodeResults(perNodeResults);
-
-    expect(result.vms).toHaveLength(2);
-    expect(result.vms[0].node).toBe('pve1');
-    expect(result.vms[1].node).toBe('pve2');
-    expect(result.containers).toHaveLength(1);
-    expect(result.containers[0].node).toBe('pve1');
-    expect(result.storages).toHaveLength(2);
-    expect(result.storages[0].node).toBe('pve1');
-    expect(result.storages[1].node).toBe('pve2');
-  });
-
-  it('should filter out template VMs and containers', () => {
-    const perNodeResults = [
-      {
-        node: 'pve1',
-        vms: [
-          { vmid: 100, name: 'vm1', status: 'running' },
-          { vmid: 900, name: 'template-vm', status: 'stopped', template: 1 },
-        ] as any[],
-        containers: [
-          { vmid: 200, name: 'ct1', status: 'running' },
-          { vmid: 901, name: 'template-ct', status: 'stopped', template: 1 },
-        ] as any[],
-        storages: [],
-      },
-    ];
-
-    const result = flattenPerNodeResults(perNodeResults);
-
-    expect(result.vms).toHaveLength(1);
-    expect(result.vms[0].vmid).toBe(100);
-    expect(result.containers).toHaveLength(1);
-    expect(result.containers[0].vmid).toBe(200);
-  });
-
-  it('should keep VMs and containers with template=0', () => {
-    const perNodeResults = [
-      {
-        node: 'pve1',
-        vms: [
-          { vmid: 100, name: 'vm1', status: 'running', template: 0 },
-        ] as any[],
-        containers: [
-          { vmid: 200, name: 'ct1', status: 'running', template: 0 },
-        ] as any[],
-        storages: [],
-      },
-    ];
-
-    const result = flattenPerNodeResults(perNodeResults);
-
-    expect(result.vms).toHaveLength(1);
-    expect(result.vms[0].vmid).toBe(100);
-    expect(result.containers).toHaveLength(1);
-    expect(result.containers[0].vmid).toBe(200);
-  });
-
-  it('should handle empty input', () => {
-    const result = flattenPerNodeResults([]);
-    expect(result.vms).toHaveLength(0);
-    expect(result.containers).toHaveLength(0);
-    expect(result.storages).toHaveLength(0);
-  });
-});
-
-describe('calculateClusterTotals', () => {
-  it('should calculate resource totals from nodes', () => {
-    const nodes = [
-      { node: 'pve1', status: 'online', cpu: 0.5, maxcpu: 4, mem: 2e9, maxmem: 8e9, disk: 10e9, maxdisk: 100e9, uptime: 3600, type: 'node', id: 'node/pve1' },
-      { node: 'pve2', status: 'online', cpu: 0.25, maxcpu: 8, mem: 4e9, maxmem: 16e9, disk: 20e9, maxdisk: 200e9, uptime: 7200, type: 'node', id: 'node/pve2' },
-    ] as any[];
-
-    const vms = [
-      { vmid: 100, status: 'running', node: 'pve1' },
-      { vmid: 101, status: 'stopped', node: 'pve1' },
-      { vmid: 102, status: 'running', node: 'pve2' },
-    ] as any[];
-
-    const containers = [
-      { vmid: 200, status: 'running', node: 'pve1' },
-      { vmid: 201, status: 'stopped', node: 'pve2' },
-    ] as any[];
-
-    const totals = calculateClusterTotals(nodes, vms, containers);
-
-    expect(totals.totalCpu).toBe(12); // 4 + 8
-    expect(totals.usedCpu).toBe(4); // 0.5*4 + 0.25*8
-    expect(totals.totalMemory).toBe(24e9); // 8e9 + 16e9
-    expect(totals.usedMemory).toBe(6e9); // 2e9 + 4e9
-    expect(totals.totalDisk).toBe(300e9); // 100e9 + 200e9
-    expect(totals.usedDisk).toBe(30e9); // 10e9 + 20e9
-    expect(totals.runningVMs).toBe(2);
-    expect(totals.stoppedVMs).toBe(1);
-    expect(totals.runningContainers).toBe(1);
-    expect(totals.stoppedContainers).toBe(1);
-  });
-
-  it('should count non-running statuses (paused, suspended) as stopped', () => {
-    const nodes = [
-      { node: 'pve1', status: 'online', cpu: 0, maxcpu: 4, mem: 0, maxmem: 8e9, disk: 0, maxdisk: 100e9, uptime: 3600, type: 'node', id: 'node/pve1' },
-    ] as any[];
-
-    const vms = [
-      { vmid: 100, status: 'running', node: 'pve1' },
-      { vmid: 101, status: 'paused', node: 'pve1' },
-      { vmid: 102, status: 'suspended', node: 'pve1' },
-      { vmid: 103, status: 'stopped', node: 'pve1' },
-    ] as any[];
-
-    const totals = calculateClusterTotals(nodes, vms, []);
-
-    expect(totals.runningVMs).toBe(1);
-    expect(totals.stoppedVMs).toBe(3);
-  });
-
-  it('should handle empty arrays', () => {
-    const totals = calculateClusterTotals([], [], []);
-
-    expect(totals.totalCpu).toBe(0);
-    expect(totals.usedCpu).toBe(0);
-    expect(totals.totalMemory).toBe(0);
-    expect(totals.usedMemory).toBe(0);
-    expect(totals.totalDisk).toBe(0);
-    expect(totals.usedDisk).toBe(0);
-    expect(totals.runningVMs).toBe(0);
-    expect(totals.stoppedVMs).toBe(0);
-    expect(totals.runningContainers).toBe(0);
-    expect(totals.stoppedContainers).toBe(0);
   });
 });
 

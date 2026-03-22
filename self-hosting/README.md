@@ -120,8 +120,6 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 >       - 127.0.0.1:2375:2375  # Local: bind to localhost. Remote: change to 0.0.0.0:2375
 >     environment:
 >       - CONTAINERS=1
->       - POST=1              # Required for agent provisioning (create/start containers)
->       - IMAGES=1            # Required for agent provisioning (pull images)
 >       - EVENTS=1
 >       - INFO=1
 >       - PING=1

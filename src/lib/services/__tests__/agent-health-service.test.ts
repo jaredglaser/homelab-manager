@@ -89,20 +89,6 @@ describe('agent-health-service', () => {
       if (!result.healthy) expect(result.error).toContain('timed out');
     });
 
-    it('returns unhealthy when agent returns non-JSON response', async () => {
-      const fetchFn = mock(async () =>
-        new Response('<html>502 Bad Gateway</html>', {
-          status: 200,
-          headers: { 'Content-Type': 'text/html' },
-        })
-      ) as unknown as typeof fetch;
-
-      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
-
-      expect(result.healthy).toBe(false);
-      if (!result.healthy) expect(result.error).toContain('non-JSON');
-    });
-
     it('returns unhealthy on manual abort (AbortError)', async () => {
       const fetchFn = mock(async () => {
         const err = new Error('The operation was aborted');

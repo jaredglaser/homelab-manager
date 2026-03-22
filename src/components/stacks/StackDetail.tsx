@@ -6,19 +6,16 @@ import DeployHistoryList from '@/components/stacks/DeployHistoryList';
 
 interface StackDetailProps {
   stackName: string;
-  host: string;
 }
 
-export default function StackDetail({ stackName, host }: StackDetailProps) {
-  const stackId = `${host}/${stackName}`;
-
+export default function StackDetail({ stackName }: StackDetailProps) {
   const { data: detail, isLoading, error } = useQuery({
-    queryKey: ['stack-detail', stackId],
+    queryKey: ['stack-detail', stackName],
     queryFn: () => getStackDetail({ data: { stackName } }),
   });
 
   const { data: history, isLoading: historyLoading } = useQuery({
-    queryKey: ['deploy-history', stackId],
+    queryKey: ['deploy-history', stackName],
     queryFn: () => getDeployHistory({ data: { stackName, limit: 10 } }),
   });
 

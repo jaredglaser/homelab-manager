@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Button, Paper, Typography, CircularProgress } from '@mui/material';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks.functions';
-import { extractVariableNames } from '@/lib/stacks/stack-mappers';
 import VariablesPanel from '@/components/stacks/VariablesPanel';
 
 interface ComposeEditorProps {
@@ -14,8 +13,16 @@ interface ComposeEditorProps {
   variables: string[];
 }
 
-/** @deprecated Use extractVariableNames from stack-mappers instead */
-export const parseVariables = extractVariableNames;
+/** Parse ${VAR} and ${VAR:-default} patterns from compose content */
+export function parseVariables(content: string): string[] {
+  const regex = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::-[^}]*)?\}/g;
+  const vars = new Set<string>();
+  let match: RegExpMatchArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    vars.add(match[1]);
+  }
+  return Array.from(vars).sort();
+}
 
 export default function ComposeEditor({ stackName, content, variables: initialVariables }: ComposeEditorProps) {
   const [editorContent, setEditorContent] = useState(content);
@@ -23,17 +30,12 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const queryClient = useQueryClient();
 
-  useEffect(() => {
-    setEditorContent(content);
-    setDetectedVars(extractVariableNames(content));
-  }, [content]);
-
   const isDirty = editorContent !== content;
 
   const saveMutation = useMutation({
     mutationFn: () => saveComposeFile({ data: { stackName, content: editorContent } }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stack-detail'] });
+      void queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
     },
   });
 
@@ -59,7 +61,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   const handleChange = useCallback((value: string | undefined) => {
     const newContent = value ?? '';
     setEditorContent(newContent);
-    setDetectedVars(extractVariableNames(newContent));
+    setDetectedVars(parseVariables(newContent));
   }, []);
 
   // Reads the current theme on each render. Theme toggles trigger re-renders

@@ -463,6 +463,143 @@ describe('OpenBaoClient', () => {
     });
   });
 
+  describe('host secrets', () => {
+    describe('getHostSecret', () => {
+      test('reads secret value from hosts data path', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              data: {
+                data: { value: 'host-token-123' },
+                metadata: { version: 1 },
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+
+        const value = await client.getHostSecret('server1', 'AGENT_TOKEN');
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe(
+          'http://openbao:8200/v1/secret/data/hosts/server1/AGENT_TOKEN',
+        );
+        expect(opts.method).toBe('GET');
+        expect(value).toBe('host-token-123');
+      });
+
+      test('returns null when secret does not exist (404)', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(null, { status: 404 }),
+        );
+
+        const value = await client.getHostSecret('server1', 'MISSING');
+        expect(value).toBeNull();
+      });
+
+      test('throws with context on non-404 error responses', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(JSON.stringify({ errors: ['permission denied'] }), { status: 403 }),
+        );
+
+        await expect(
+          client.getHostSecret('server1', 'AGENT_TOKEN'),
+        ).rejects.toThrow(
+          'OpenBao GET_HOST failed for host "server1" key "AGENT_TOKEN" (HTTP 403): permission denied',
+        );
+      });
+
+      test('throws on unexpected response shape', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(JSON.stringify({ data: { data: { wrong: 123 } } }), { status: 200 }),
+        );
+
+        await expect(client.getHostSecret('server1', 'KEY')).rejects.toThrow(
+          'unexpected response shape',
+        );
+      });
+    });
+
+    describe('setHostSecret', () => {
+      test('writes secret value to hosts data path', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ data: { version: 1 } }),
+            { status: 200 },
+          ),
+        );
+
+        await client.setHostSecret('server1', 'AGENT_TOKEN', 'new-token');
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe(
+          'http://openbao:8200/v1/secret/data/hosts/server1/AGENT_TOKEN',
+        );
+        expect(opts.method).toBe('POST');
+        expect(opts.headers).toEqual({
+          'X-Vault-Token': 'dev-root-token',
+          'Content-Type': 'application/json',
+        });
+        expect(JSON.parse(opts.body as string)).toEqual({
+          data: { value: 'new-token' },
+        });
+      });
+
+      test('throws with context on error response', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(JSON.stringify({ errors: ['invalid request'] }), { status: 400 }),
+        );
+
+        await expect(
+          client.setHostSecret('server1', 'AGENT_TOKEN', 'val'),
+        ).rejects.toThrow(
+          'OpenBao SET_HOST failed for host "server1" key "AGENT_TOKEN" (HTTP 400): invalid request',
+        );
+      });
+    });
+
+    describe('deleteHostSecret', () => {
+      test('deletes secret metadata and all versions', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(null, { status: 204 }),
+        );
+
+        await client.deleteHostSecret('server1', 'AGENT_TOKEN');
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe(
+          'http://openbao:8200/v1/secret/metadata/hosts/server1/AGENT_TOKEN',
+        );
+        expect(opts.method).toBe('DELETE');
+      });
+
+      test('does not throw on 404 (already deleted)', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(null, { status: 404 }),
+        );
+
+        await expect(
+          client.deleteHostSecret('server1', 'AGENT_TOKEN'),
+        ).resolves.toBeUndefined();
+      });
+
+      test('throws with context on non-404 error response', async () => {
+        mockFetch.mockResolvedValueOnce(
+          new Response(JSON.stringify({ errors: ['permission denied'] }), { status: 403 }),
+        );
+
+        await expect(
+          client.deleteHostSecret('server1', 'AGENT_TOKEN'),
+        ).rejects.toThrow(
+          'OpenBao DELETE_HOST failed for host "server1" key "AGENT_TOKEN" (HTTP 403): permission denied',
+        );
+      });
+    });
+  });
+
   describe('error response body parsing', () => {
     test('includes error details from JSON response', async () => {
       mockFetch.mockResolvedValueOnce(

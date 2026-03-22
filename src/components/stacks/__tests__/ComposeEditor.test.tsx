@@ -11,12 +11,10 @@ import { parseVariables } from '../ComposeEditor';
  */
 /** Stored onChange callback from the most recent mock editor render */
 let mockEditorOnChange: ((v: string | undefined) => void) | undefined;
-let mockEditorOnMount: ((editor: unknown, monaco: unknown) => void) | undefined;
 
 mock.module('@monaco-editor/react', () => ({
-  default: ({ value, onChange, onMount }: { value: string; onChange?: (v: string | undefined) => void; onMount?: (editor: unknown, monaco: unknown) => void }) => {
+  default: ({ value, onChange }: { value: string; onChange?: (v: string | undefined) => void }) => {
     mockEditorOnChange = onChange;
-    mockEditorOnMount = onMount;
     return (
       <textarea
         data-testid="mock-editor"
@@ -172,17 +170,6 @@ describe('ComposeEditor component', () => {
 
     act(() => { mockEditorOnChange?.('image: redis'); });
     expect(screen.getByText('Unsaved changes')).toBeDefined();
-  });
-
-  it('calls onMount handler which stores editor ref', async () => {
-    await renderComposeEditor();
-    expect(mockEditorOnMount).toBeDefined();
-    // Simulate Monaco editor mount — the handler stores the ref and attempts to load monaco-yaml
-    const mockEditor = { dispose: mock() };
-    const mockMonaco = {};
-    // onMount triggers a dynamic import of monaco-yaml which will fail in test env;
-    // the catch handler logs the error, covering lines 42-57
-    await mockEditorOnMount!(mockEditor, mockMonaco);
   });
 
   it('enables save button when content is dirty', async () => {

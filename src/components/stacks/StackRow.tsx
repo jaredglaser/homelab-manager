@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Chip, Collapse } from '@mui/material';
 import { ChevronRight, Layers } from 'lucide-react';
 import type { StackSummary } from '@/types/stacks';
@@ -30,8 +30,6 @@ function formatRelativeTime(isoDate: string | null): string {
 export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
   const [iconError, setIconError] = useState(false);
   const iconUrl = stack.icon ? getIconUrl(stack.icon, '') : null;
-
-  useEffect(() => { setIconError(false); }, [iconUrl]);
 
   return (
     <div>
@@ -103,7 +101,7 @@ export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
       </div>
 
       <Collapse in={expanded} unmountOnExit>
-        <StackDetail stackName={stack.name} host={stack.host} />
+        <StackDetail stackName={stack.name} />
       </Collapse>
     </div>
   );

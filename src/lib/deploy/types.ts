@@ -49,15 +49,15 @@ export interface DeployRecord {
 // Re-export from canonical location to avoid duplication
 import type { HostStatus } from '@/lib/database/repositories/host-repository';
 export type { HostStatus as ManagedHostStatus } from '@/lib/database/repositories/host-repository';
+type ManagedHostStatus = HostStatus;
 
 export interface ManagedHost {
   id: number;
   name: string;
   agentUrl: string;
-  agentTokenHash: string;
   socketProxyUrl: string;
   agentVersion: string | null;
-  status: HostStatus;
+  status: ManagedHostStatus;
   createdAt: Date;
 }
 

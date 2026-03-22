@@ -46,8 +46,6 @@ describe('toHostListItem', () => {
     id: 1,
     name: 'test-host',
     agent_url: 'http://192.168.1.10:9090',
-    agent_token_hash: 'hash',
-    agent_token: 'token',
     socket_proxy_url: 'tcp://192.168.1.10:2375',
     agent_version: '1.0.0',
     status: 'healthy',
@@ -88,11 +86,6 @@ describe('toHostListItem', () => {
     const item = toHostListItem(baseRow, { agentVersion: '3.0.0', status: 'pending' });
     expect(item.agentVersion).toBe('3.0.0');
     expect(item.status).toBe('pending');
-  });
-
-  test('applies agentUrl override', () => {
-    const item = toHostListItem({ ...baseRow, agent_url: '' }, { agentUrl: 'http://192.168.1.20:9090' });
-    expect(item.agentUrl).toBe('http://192.168.1.20:9090');
   });
 
   test('preserves original values when no overrides', () => {
@@ -164,43 +157,28 @@ describe('retryHealthCheck', () => {
 });
 
 describe('getAgentImage', () => {
-  const originalNodeEnv = process.env.NODE_ENV;
-  const originalAgentImage = process.env.AGENT_IMAGE;
+  const originalEnv = process.env.NODE_ENV;
 
   afterEach(() => {
-    if (originalNodeEnv === undefined) {
+    if (originalEnv === undefined) {
       delete process.env.NODE_ENV;
     } else {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
-    if (originalAgentImage === undefined) {
-      delete process.env.AGENT_IMAGE;
-    } else {
-      process.env.AGENT_IMAGE = originalAgentImage;
+      process.env.NODE_ENV = originalEnv;
     }
   });
 
   test('returns dev image in development', () => {
-    delete process.env.AGENT_IMAGE;
     process.env.NODE_ENV = 'development';
     expect(getAgentImage()).toBe('homelab-manager-agent:dev');
   });
 
   test('returns prod image in production', () => {
-    delete process.env.AGENT_IMAGE;
     process.env.NODE_ENV = 'production';
     expect(getAgentImage()).toBe('ghcr.io/homelab-manager/agent:latest');
   });
 
   test('returns prod image when NODE_ENV is unset', () => {
-    delete process.env.AGENT_IMAGE;
     delete process.env.NODE_ENV;
     expect(getAgentImage()).toBe('ghcr.io/homelab-manager/agent:latest');
-  });
-
-  test('returns AGENT_IMAGE env var when set, overriding NODE_ENV', () => {
-    process.env.AGENT_IMAGE = 'custom-registry/agent:v2.0.0';
-    process.env.NODE_ENV = 'development';
-    expect(getAgentImage()).toBe('custom-registry/agent:v2.0.0');
   });
 });

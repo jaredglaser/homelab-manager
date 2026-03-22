@@ -27,6 +27,7 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 export class AgentStatsCollector extends BaseCollector {
   readonly name: string;
   private readonly host: ManagedHost;
+  private readonly token: string;
   private readonly fetchFn: FetchFn;
   private knownContainers = new Set<string>();
 
@@ -34,11 +35,13 @@ export class AgentStatsCollector extends BaseCollector {
     db: DatabaseClient,
     config: WorkerConfig,
     host: ManagedHost,
+    token: string,
     abortController?: AbortController,
     fetchFn?: FetchFn,
   ) {
     super(db, config, abortController);
     this.host = host;
+    this.token = token;
     this.name = `AgentStatsCollector[${host.name}]`;
     this.fetchFn = fetchFn ?? globalThis.fetch;
   }
@@ -49,7 +52,7 @@ export class AgentStatsCollector extends BaseCollector {
 
     const response = await this.fetchFn(url, {
       headers: {
-        Authorization: `Bearer ${this.host.agent_token}`,
+        Authorization: `Bearer ${this.token}`,
       },
       signal: this.signal,
     });
@@ -94,25 +97,21 @@ export class AgentStatsCollector extends BaseCollector {
           if (!dataLine) continue;
 
           const jsonStr = dataLine.slice(6); // Remove "data: " prefix
-          let parsed: unknown;
+          let event: AgentStatsEvent;
           try {
-            parsed = JSON.parse(jsonStr);
+            event = JSON.parse(jsonStr);
           } catch {
             console.error(`[${this.name}] Failed to parse SSE event: ${jsonStr.substring(0, 100)}`);
             continue;
           }
 
-          if (typeof parsed !== 'object' || parsed === null) continue;
-
           // Skip error events from the agent
-          if ('error' in parsed && !('containerId' in parsed)) continue;
-
-          const event = parsed as AgentStatsEvent;
+          if ('error' in event && !('containerId' in event)) continue;
 
           // Upsert entity metadata for new containers
           if (!this.knownContainers.has(event.containerId)) {
             try {
-              const entityPath = `${this.host.id}/${event.containerId}`;
+              const entityPath = `${this.host.name}/${event.containerId}`;
               await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', event.containerName);
               await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', event.image);
               // Use container name as service_key (agent doesn't have compose label info yet)
@@ -130,7 +129,7 @@ export class AgentStatsCollector extends BaseCollector {
           // Map agent event to DockerStatsRow
           const row: DockerStatsRow = {
             time: new Date(event.timestamp),
-            host: String(this.host.id),
+            host: this.host.name,
             container_id: event.containerId,
             container_name: event.containerName,
             image: event.image,

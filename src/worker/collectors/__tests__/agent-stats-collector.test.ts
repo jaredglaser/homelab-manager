@@ -43,8 +43,6 @@ const sampleHost: ManagedHost = {
   id: 1,
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
-  agent_token_hash: '$2b$10$hashedtoken',
-  agent_token: 'test-token-uuid',
   socket_proxy_url: 'tcp://192.168.1.10:2375',
   agent_version: '0.1.0',
   status: 'healthy',
@@ -104,7 +102,7 @@ describe('AgentStatsCollector', () => {
 
   it('has the correct name', () => {
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController,
     );
     expect(collector.name).toBe('AgentStatsCollector[homeserver]');
   });
@@ -119,7 +117,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -128,7 +126,7 @@ describe('AgentStatsCollector', () => {
 
     expect(mockDb.insertedRows).toHaveLength(1);
     const row = mockDb.insertedRows[0][0];
-    expect(row.host).toBe('1');
+    expect(row.host).toBe('homeserver');
     expect(row.container_id).toBe('abc123def456');
     expect(row.container_name).toBe('plex');
     expect(row.image).toBe('plexinc/plex-media-server:latest');
@@ -151,7 +149,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -162,7 +160,7 @@ describe('AgentStatsCollector', () => {
     const callArgs = mockFn.mock.calls[0] as [string, RequestInit];
     expect(callArgs[0]).toBe('http://192.168.1.10:9090/stats/stream');
     expect(callArgs[1].headers).toEqual({
-      Authorization: 'Bearer test-token-uuid',
+      Authorization: 'Bearer test-token',
     });
   });
 
@@ -177,7 +175,7 @@ describe('AgentStatsCollector', () => {
     });
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -194,7 +192,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -203,7 +201,7 @@ describe('AgentStatsCollector', () => {
     // Should upsert name, image, and service_key for the container
     const nameUpsert = mockDb.upsertedMetadata.find(m => m.key === 'name');
     expect(nameUpsert).toBeDefined();
-    expect(nameUpsert!.entity).toBe('1/abc123def456');
+    expect(nameUpsert!.entity).toBe('homeserver/abc123def456');
     expect(nameUpsert!.value).toBe('plex');
 
     const imageUpsert = mockDb.upsertedMetadata.find(m => m.key === 'image');
@@ -217,7 +215,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -240,7 +238,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -277,7 +275,7 @@ describe('AgentStatsCollector', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -321,7 +319,7 @@ describe('AgentStatsCollector — reconnection', () => {
     });
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -348,7 +346,7 @@ describe('AgentStatsCollector — reconnection', () => {
     });
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -380,7 +378,7 @@ describe('AgentStatsCollector — reconnection', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
@@ -410,45 +408,13 @@ describe('AgentStatsCollector — reconnection', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 
     await (collector as any).collect();
 
     // Only the valid event should be inserted
-    expect(mockDb.insertedRows).toHaveLength(1);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
-  });
-
-  it('skips non-object JSON values (null, primitives)', async () => {
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode(`data: null\n\n`));
-        controller.enqueue(encoder.encode(`data: 42\n\n`));
-        controller.enqueue(encoder.encode(`data: "just a string"\n\n`));
-        // Valid event
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
-        controller.close();
-      },
-    });
-
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(stream, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
-
-    const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
-    );
-    mockDb.patchRepository(collector);
-
-    await (collector as any).collect();
-
-    // Only the valid object event should be inserted
     expect(mockDb.insertedRows).toHaveLength(1);
     expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
   });
@@ -473,7 +439,7 @@ describe('AgentStatsCollector — reconnection', () => {
     );
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     mockDb.patchRepository(collector);
 

@@ -1,6 +1,5 @@
 import type Dockerode from 'dockerode';
 import { pullImage } from '@/lib/services/docker-image-utils';
-import { getAgentContainerName } from '@/lib/services/agent-constants';
 
 export interface ProvisionAgentOptions {
   hostId: number;
@@ -8,14 +7,14 @@ export interface ProvisionAgentOptions {
   agentToken: string;
   agentImage: string;
   socketProxyUrl: string;
-  /** IP to bind the agent port to. Defaults to the socket proxy hostname. */
-  hostIp?: string;
 }
 
 export interface ProvisionAgentResult {
   containerName: string;
   agentUrl: string;
 }
+
+const CONTAINER_NAME_PREFIX = 'homelab-agent-';
 const STACKS_VOLUME = 'homelab-stacks';
 const STACKS_MOUNT_PATH = '/opt/homelab-manager/stacks';
 
@@ -29,7 +28,7 @@ export class AgentProvisioningService {
    * Build the standard container name for a host using its immutable DB ID.
    */
   getContainerName(hostId: number): string {
-    return getAgentContainerName(hostId);
+    return `${CONTAINER_NAME_PREFIX}${hostId}`;
   }
 
   /**
@@ -51,10 +50,6 @@ export class AgentProvisioningService {
     // Remove existing agent container if present
     await this.removeExistingContainer(docker, containerName);
 
-    // Derive the host IP from the socket proxy URL if not explicitly provided.
-    const proxyUrl = new URL(options.socketProxyUrl.replace(/^tcp:\/\//, 'http://'));
-    const bindIp = options.hostIp ?? proxyUrl.hostname;
-
     // Create the agent container
     const container = await docker.createContainer({
       name: containerName,
@@ -69,8 +64,10 @@ export class AgentProvisioningService {
       },
       HostConfig: {
         Binds: [`${STACKS_VOLUME}:${STACKS_MOUNT_PATH}`],
+        // TODO: investigate binding to a specific HostIp (e.g. management interface)
+        // instead of 0.0.0.0 to limit agent exposure to the management network
         PortBindings: {
-          [`${options.agentPort}/tcp`]: [{ HostIp: bindIp, HostPort: String(options.agentPort) }],
+          [`${options.agentPort}/tcp`]: [{ HostPort: String(options.agentPort) }],
         },
         RestartPolicy: { Name: 'unless-stopped', MaximumRetryCount: 0 },
       },
@@ -78,7 +75,11 @@ export class AgentProvisioningService {
 
     await container.start();
 
-    const agentUrl = `http://${bindIp}:${options.agentPort}`;
+    // The agent URL must use the host's IP/hostname (not the container name),
+    // because the container DNS name is only resolvable within the same Docker
+    // network. Extract the host from the socket proxy URL.
+    const proxyUrl = new URL(options.socketProxyUrl.replace(/^tcp:\/\//, 'http://'));
+    const agentUrl = `http://${proxyUrl.hostname}:${options.agentPort}`;
 
     return { containerName, agentUrl };
   }

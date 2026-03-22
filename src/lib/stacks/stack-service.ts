@@ -39,29 +39,7 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
     }
 
     const manifest = parseManifest(manifestContent);
-    const summaries = Object.entries(manifest.stacks).map(([name, entry]) => manifestEntryToSummary(name, entry));
-
-    // Load persisted icon metadata from DB
-    try {
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-      const dbConfig = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(dbConfig);
-      const repo = new StatsRepository(dbClient.getPool());
-
-      const entityIds = summaries.map((s) => `${s.host}/${s.name}`);
-      const metadata = await repo.getEntityMetadata('docker', entityIds);
-      for (const summary of summaries) {
-        const entityMeta = metadata.get(`${summary.host}/${summary.name}`);
-        const icon = entityMeta?.get('icon');
-        if (icon) summary.icon = icon;
-      }
-    } catch {
-      // DB may not be available — return summaries without icons
-    }
-
-    return summaries;
+    return Object.entries(manifest.stacks).map(([name, entry]) => manifestEntryToSummary(name, entry));
   } catch (error) {
     console.error('[StackService] Failed to load stack summaries:', error);
     return [];
@@ -87,26 +65,7 @@ export async function getStackDetailByName(
       // Stack is in manifest but compose file doesn't exist yet
     }
 
-    const detail = manifestEntryToDetail(stackName, entry, composeContent);
-
-    // Load persisted icon from DB
-    try {
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-      const dbConfig = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(dbConfig);
-      const repo = new StatsRepository(dbClient.getPool());
-
-      const entityId = `${entry.host}/${stackName}`;
-      const metadata = await repo.getEntityMetadata('docker', [entityId]);
-      const icon = metadata.get(entityId)?.get('icon');
-      if (icon) detail.icon = icon;
-    } catch {
-      // DB may not be available — return detail without icon
-    }
-
-    return detail;
+    return manifestEntryToDetail(stackName, entry, composeContent);
   } catch (error) {
     console.error(`[StackService] Failed to load stack detail for "${stackName}":`, error);
     return null;
@@ -150,18 +109,17 @@ export async function triggerStackDeploy(params: {
     secretResolver: {
       async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
         if (variables.length === 0 || !baoClient) return {};
-        const entries = await Promise.all(
-          variables.map(async (v) => {
-            const val = await baoClient!.getSecret(stack, v);
-            return val !== null ? [v, val] as const : null;
-          })
-        );
-        return Object.fromEntries(entries.filter((e): e is [string, string] => e !== null));
+        const secrets: Record<string, string> = {};
+        for (const v of variables) {
+          const val = await baoClient.getSecret(stack, v);
+          if (val !== null) secrets[v] = val;
+        }
+        return secrets;
       },
     },
     tokenResolver: async (host) => {
       if (!baoClient) throw new Error('OpenBao not configured — cannot resolve agent token');
-      const token = await baoClient.getSecret(host.name, 'agent_token');
+      const token = await baoClient.getHostSecret(host.name, 'agent_token');
       if (!token) throw new Error(`No agent token found in OpenBao for host "${host.name}"`);
       return token;
     },

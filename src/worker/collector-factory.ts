@@ -94,11 +94,10 @@ export function createCollectors(
 
 /**
  * Create AgentStatsCollectors for managed hosts when the management feature flag is enabled.
- * Uses dependency injection for the feature flag check and host lookup to enable testing
- * without database or env var dependencies.
+ * Uses dependency injection for the feature flag check, host lookup, and token retrieval
+ * to enable testing without database, env var, or OpenBao dependencies.
  *
- * Managed hosts with no `agent_token` are skipped (token not yet stored — host was
- * provisioned before the migration that added the agent_token column).
+ * Hosts whose token cannot be found in OpenBao are skipped.
  */
 export async function createCollectorsForManagedHosts(
   db: DatabaseClient,
@@ -107,11 +106,12 @@ export async function createCollectorsForManagedHosts(
   stack: AsyncDisposableStack,
   isManagementEnabled: () => boolean,
   findAllHosts: () => Promise<ManagedHost[]>,
+  getToken: (hostname: string) => Promise<string | null>,
 ): Promise<CollectorFactoryResult> {
   const collectors: BaseCollector[] = [];
   const runners: Promise<void>[] = [];
 
-  if (!isManagementEnabled() || !workerConfig.docker.enabled) {
+  if (!isManagementEnabled()) {
     return { collectors, runners };
   }
 
@@ -124,14 +124,15 @@ export async function createCollectorsForManagedHosts(
   console.info(`[Worker] Starting ${hosts.length} AgentStatsCollector(s) for managed hosts`);
 
   for (const host of hosts) {
-    if (!host.agent_token) {
-      console.info(`[Worker] Skipping managed host ${host.name}: no agent_token (provisioned before migration)`);
+    const token = await getToken(host.name);
+    if (!token) {
+      console.info(`[Worker] Skipping managed host ${host.name}: no token found in OpenBao`);
       continue;
     }
 
     console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${host.agent_url})`);
     const collector = stack.use(
-      new AgentStatsCollector(db, workerConfig, host, shutdownController)
+      new AgentStatsCollector(db, workerConfig, host, token, shutdownController)
     );
     collectors.push(collector);
     runners.push(collector.run());
