@@ -96,25 +96,6 @@ services:
     networks:
       - homelab-network
 
-  # Docker socket proxy — exposes a filtered Docker API to the worker
-  socket-proxy:
-    image: lscr.io/linuxserver/socket-proxy:latest
-    container_name: homelab-socket-proxy-local
-    environment:
-      - CONTAINERS=1
-      - EVENTS=1
-      - INFO=1
-      - PING=1
-      - VERSION=1
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    read_only: true
-    tmpfs:
-      - /run
-    restart: unless-stopped
-    networks:
-      - homelab-network
-
   # Background worker (collects stats and persists to DB)
   worker:
     <<: *worker-dev
