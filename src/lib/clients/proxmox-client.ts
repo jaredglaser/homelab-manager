@@ -43,7 +43,14 @@ export class ProxmoxClient {
         .then(({ Agent }) => {
           this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
         })
-        .catch(() => {});
+        .catch((err: unknown) => {
+          // Expected to fail under Bun (uses tls option instead of undici dispatcher).
+          // Only log unexpected errors to aid debugging.
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!msg.includes('Cannot find module') && !msg.includes('MODULE_NOT_FOUND')) {
+            console.error('[ProxmoxClient] Failed to initialize undici Agent for self-signed cert support:', msg);
+          }
+        });
     } else {
       this.dispatcherReady = Promise.resolve();
     }

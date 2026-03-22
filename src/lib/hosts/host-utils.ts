@@ -53,12 +53,12 @@ export function parseDockerodeConfig(socketProxyUrl: string): DockerodeConfig {
  */
 export function toHostListItem(
   row: ManagedHostPublic,
-  overrides?: { agentVersion?: string | null; status?: HostStatus },
+  overrides?: { agentUrl?: string; agentVersion?: string | null; status?: HostStatus },
 ): HostListItem {
   return {
     id: row.id,
     name: row.name,
-    agentUrl: row.agent_url,
+    agentUrl: overrides?.agentUrl ?? row.agent_url,
     socketProxyUrl: row.socket_proxy_url,
     agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agent_version,
     status: overrides?.status ?? row.status,
@@ -84,7 +84,7 @@ export async function retryHealthCheck(
     await new Promise((resolve) => setTimeout(resolve, delays[i]));
     result = await checkFn(agentUrl);
     if (result.healthy) break;
-    console.error(`[retryHealthCheck] Attempt ${i + 1}/${delays.length} failed for ${agentUrl}: ${result.error}`);
+    console.info(`[retryHealthCheck] Attempt ${i + 1}/${delays.length} failed for ${agentUrl}: ${result.error}`);
   }
   return result;
 }

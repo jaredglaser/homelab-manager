@@ -129,6 +129,34 @@ describe('handleUpdateAgent', () => {
     expect(result.healthy).toBe(false);
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
   });
+
+  it('throws when host not found', async () => {
+    const updateAgentFn = mock(() => Promise.resolve({ healthy: true }));
+    const deps = { ...baseDeps({ findById: mock(() => Promise.resolve(null)) }), updateAgent: updateAgentFn };
+    await expect(handleUpdateAgent(deps, { hostId: 999 })).rejects.toThrow('not found');
+  });
+
+  it('throws when feature flag is off', async () => {
+    const updateAgentFn = mock(() => Promise.resolve({ healthy: true }));
+    const deps = { ...baseDeps(), isEnabled: () => false, updateAgent: updateAgentFn };
+    await expect(handleUpdateAgent(deps, { hostId: 1 })).rejects.toThrow('not enabled');
+  });
+
+  it('returns error result when updateAgent throws', async () => {
+    const repo = mockRepo();
+    const updateAgentFn = mock(() => Promise.reject(new Error('container crashed')));
+    const result = await handleUpdateAgent({ ...baseDeps(), repo, updateAgent: updateAgentFn }, { hostId: 1 });
+    expect(result.healthy).toBe(false);
+    expect(result.error).toBe('container crashed');
+  });
+
+  it('still returns error when updateStatus fails after updateAgent throws', async () => {
+    const repo = mockRepo({ updateStatus: mock(() => Promise.reject(new Error('db down'))) });
+    const updateAgentFn = mock(() => Promise.reject(new Error('container crashed')));
+    const result = await handleUpdateAgent({ ...baseDeps(), repo, updateAgent: updateAgentFn }, { hostId: 1 });
+    expect(result.healthy).toBe(false);
+    expect(result.error).toBe('container crashed');
+  });
 });
 
 describe('handleAddHost', () => {
@@ -150,6 +178,13 @@ describe('handleAddHost', () => {
     expect(deps.provision).toHaveBeenCalled();
     expect(deps.repo.create).toHaveBeenCalled();
     expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+  });
+
+  it('returns the provisioned agentUrl, not the empty placeholder', async () => {
+    const deps = addDeps({ create: mock(() => Promise.resolve(mockRow({ agent_url: '' }))) });
+    deps.provision = mock(() => Promise.resolve({ agentUrl: 'http://192.168.1.10:9090' }));
+    const result = await handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
+    expect(result.host.agentUrl).toBe('http://192.168.1.10:9090');
   });
 
   it('rolls back on health check failure', async () => {

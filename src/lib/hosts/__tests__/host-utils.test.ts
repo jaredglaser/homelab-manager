@@ -90,6 +90,11 @@ describe('toHostListItem', () => {
     expect(item.status).toBe('pending');
   });
 
+  test('applies agentUrl override', () => {
+    const item = toHostListItem({ ...baseRow, agent_url: '' }, { agentUrl: 'http://192.168.1.20:9090' });
+    expect(item.agentUrl).toBe('http://192.168.1.20:9090');
+  });
+
   test('preserves original values when no overrides', () => {
     const item = toHostListItem({ ...baseRow, agent_version: null, status: 'unhealthy' });
     expect(item.agentVersion).toBeNull();

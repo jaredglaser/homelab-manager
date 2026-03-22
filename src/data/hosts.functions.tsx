@@ -143,7 +143,9 @@ export async function handleUpdateAgent(
   try {
     result = await deps.updateAgent(host.socket_proxy_url, host.id);
   } catch (err) {
-    await deps.repo.updateStatus(host.id, 'unhealthy');
+    try { await deps.repo.updateStatus(host.id, 'unhealthy'); } catch (statusErr) {
+      console.error(`[updateAgent] Failed to update status for host ${host.id}:`, statusErr instanceof Error ? statusErr.message : statusErr);
+    }
     return { hostId: host.id, healthy: false, error: err instanceof Error ? err.message : String(err) };
   }
 
@@ -225,7 +227,7 @@ export async function handleAddHost(
   if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
 
   return {
-    host: toHostListItem(host, { agentVersion: healthResult.version || null, status }),
+    host: toHostListItem(host, { agentUrl: provisionResult.agentUrl, agentVersion: healthResult.version || null, status }),
   };
 }
 

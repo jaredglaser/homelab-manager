@@ -121,6 +121,15 @@ describe('AgentProvisioningService', () => {
       expect(binds).toContainEqual('homelab-stacks:/opt/homelab-manager/stacks');
     });
 
+    it('binds agent port to socket proxy hostname instead of 0.0.0.0', async () => {
+      await service.provision(mockDocker.docker, defaultOptions);
+      const config = mockDocker.createdContainers[0].config;
+      const hostConfig = config.HostConfig as Record<string, unknown>;
+      const portBindings = hostConfig.PortBindings as Record<string, { HostIp: string; HostPort: string }[]>;
+      expect(portBindings['9090/tcp'][0].HostIp).toBe('192.168.1.10');
+      expect(portBindings['9090/tcp'][0].HostPort).toBe('9090');
+    });
+
     it('starts the container after creation', async () => {
       await service.provision(mockDocker.docker, defaultOptions);
       expect(mockDocker.startedContainers).toHaveLength(1);

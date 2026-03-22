@@ -33,6 +33,8 @@ export interface CreateHostInput {
  * object only contains known ManagedHost fields and guards against future column
  * additions leaking through via SELECT *.
  */
+const HOST_COLUMNS = 'id, name, agent_url, agent_token_hash, agent_token, socket_proxy_url, agent_version, status, created_at, updated_at';
+
 function rowToHost(row: ManagedHost): ManagedHost {
   return {
     id: row.id,
@@ -55,7 +57,7 @@ export class HostRepository {
     const result = await this.pool.query(
       `INSERT INTO managed_hosts (name, agent_url, agent_token_hash, agent_token, socket_proxy_url)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING *`,
+       RETURNING ${HOST_COLUMNS}`,
       [input.name, input.agent_url, input.agent_token_hash, input.agent_token, input.socket_proxy_url]
     );
     return rowToHost(result.rows[0] as ManagedHost);
@@ -63,14 +65,14 @@ export class HostRepository {
 
   async findAll(): Promise<ManagedHost[]> {
     const result = await this.pool.query(
-      'SELECT * FROM managed_hosts ORDER BY name ASC'
+      `SELECT ${HOST_COLUMNS} FROM managed_hosts ORDER BY name ASC`
     );
     return (result.rows as ManagedHost[]).map(rowToHost);
   }
 
   async findByName(name: string): Promise<ManagedHost | null> {
     const result = await this.pool.query(
-      'SELECT * FROM managed_hosts WHERE name = $1',
+      `SELECT ${HOST_COLUMNS} FROM managed_hosts WHERE name = $1`,
       [name]
     );
     return result.rows.length > 0 ? rowToHost(result.rows[0] as ManagedHost) : null;
@@ -78,7 +80,7 @@ export class HostRepository {
 
   async findById(id: number): Promise<ManagedHost | null> {
     const result = await this.pool.query(
-      'SELECT * FROM managed_hosts WHERE id = $1',
+      `SELECT ${HOST_COLUMNS} FROM managed_hosts WHERE id = $1`,
       [id]
     );
     return result.rows.length > 0 ? rowToHost(result.rows[0] as ManagedHost) : null;

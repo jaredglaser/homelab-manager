@@ -1,0 +1,35 @@
+import { describe, it, expect } from 'bun:test';
+import { pullImage } from '../docker-image-utils';
+
+function createMockDocker(error?: Error) {
+  return {
+    pull: async () => 'mock-stream',
+    modem: {
+      followProgress: (_stream: unknown, cb: (err: Error | null) => void) => {
+        cb(error ?? null);
+      },
+    },
+  } as any;
+}
+
+describe('pullImage', () => {
+  it('resolves when pull succeeds', async () => {
+    const docker = createMockDocker();
+    await expect(pullImage(docker, 'test-image:latest')).resolves.toBeUndefined();
+  });
+
+  it('rejects when followProgress returns an error', async () => {
+    const docker = createMockDocker(new Error('pull failed: unauthorized'));
+    await expect(pullImage(docker, 'test-image:latest')).rejects.toThrow('pull failed: unauthorized');
+  });
+
+  it('passes the image name to docker.pull', async () => {
+    let pulledImage = '';
+    const docker = {
+      pull: async (image: string) => { pulledImage = image; return 'mock-stream'; },
+      modem: { followProgress: (_s: unknown, cb: (err: null) => void) => { cb(null); } },
+    } as any;
+    await pullImage(docker, 'ghcr.io/homelab-manager/agent:latest');
+    expect(pulledImage).toBe('ghcr.io/homelab-manager/agent:latest');
+  });
+});
