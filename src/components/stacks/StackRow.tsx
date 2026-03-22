@@ -106,7 +106,7 @@ export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
       </div>
 
       <Collapse in={expanded} unmountOnExit>
-        <StackDetail stackName={stack.name} />
+        <StackDetail host={stack.host} stackName={stack.name} />
       </Collapse>
     </div>
   );

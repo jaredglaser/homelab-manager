@@ -12,6 +12,7 @@ import {
 } from './settingsAtom';
 import { useToast } from './toastAtom';
 import { updateSetting } from '@/data/settings/functions';
+import type { SettingsKey } from '@/data/settings/schemas';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 // Re-export types for backward-compatible imports
@@ -66,7 +67,7 @@ export function useSettings(): SettingsValue {
   const { showToast } = useToast();
 
   const optimisticSet = useCallback(
-    (key: string, computeValue: (prev: string | undefined) => string) => {
+    (key: SettingsKey, computeValue: (prev: string | undefined) => string) => {
       let previousValue: string | undefined;
       let newValue: string;
 

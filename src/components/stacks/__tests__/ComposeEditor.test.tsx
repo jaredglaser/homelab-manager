@@ -34,9 +34,10 @@ function createWrapper() {
   };
 }
 
-async function renderComposeEditor(props?: Partial<{ stackName: string; content: string; variables: string[] }>) {
+async function renderComposeEditor(props?: Partial<{ host: string; stackName: string; content: string; variables: string[] }>) {
   const { default: ComposeEditor } = await import('../ComposeEditor');
   const defaultProps = {
+    host: 'test-host',
     stackName: 'test-stack',
     content: 'image: nginx:latest',
     variables: [],

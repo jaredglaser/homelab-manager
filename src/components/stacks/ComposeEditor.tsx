@@ -8,6 +8,7 @@ import { saveComposeFile } from '@/data/stacks/functions';
 import VariablesPanel from '@/components/stacks/VariablesPanel';
 
 interface ComposeEditorProps {
+  host: string;
   stackName: string;
   content: string;
   variables: string[];
@@ -24,7 +25,7 @@ export function parseVariables(content: string): string[] {
   return Array.from(vars).sort();
 }
 
-export default function ComposeEditor({ stackName, content, variables: initialVariables }: ComposeEditorProps) {
+export default function ComposeEditor({ host, stackName, content, variables: initialVariables }: ComposeEditorProps) {
   const [editorContent, setEditorContent] = useState(content);
   const [detectedVars, setDetectedVars] = useState<string[]>(initialVariables);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -41,7 +42,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   const saveMutation = useMutation({
     mutationFn: () => saveComposeFile({ data: { stackName, content: editorContent } }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
+      void queryClient.invalidateQueries({ queryKey: ['stack-detail', host, stackName] });
     },
   });
 

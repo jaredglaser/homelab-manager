@@ -58,14 +58,16 @@ export const removeHost = createServerFn()
     const baseDeps = await loadDeps();
     if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
-    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
     const provService = new AgentProvisioningService();
     return handleRemoveHost({
       ...baseDeps,
       removeAgent: async (url, hostId) => { const docker = await loadDockerClient(url); await provService.removeAgent(docker, hostId); },
-      deleteToken: (hostname) => baoClient.deleteHostSecret(hostname, 'agent_token'),
+      deleteToken: async (hostname) => {
+        const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+        const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+        const baoClient = new OpenBaoClient(loadOpenBaoConfig());
+        await baoClient.deleteHostSecret(hostname, 'agent_token');
+      },
     }, data);
   });
 
