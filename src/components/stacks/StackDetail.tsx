@@ -5,18 +5,17 @@ import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
 
 interface StackDetailProps {
-  host: string;
   stackName: string;
 }
 
-export default function StackDetail({ host, stackName }: StackDetailProps) {
+export default function StackDetail({ stackName }: Readonly<StackDetailProps>) {
   const { data: detail, isLoading, error } = useQuery({
-    queryKey: ['stack-detail', host, stackName],
+    queryKey: ['stack-detail', stackName],
     queryFn: () => getStackDetail({ data: { stackName } }),
   });
 
   const { data: history, isLoading: historyLoading } = useQuery({
-    queryKey: ['deploy-history', host, stackName],
+    queryKey: ['deploy-history', stackName],
     queryFn: () => getDeployHistory({ data: { stackName, limit: 10 } }),
   });
 
@@ -46,7 +45,6 @@ export default function StackDetail({ host, stackName }: StackDetailProps) {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
         <div>
           <ComposeEditorLoader
-            host={host}
             stackName={stackName}
             content={detail.composeContent}
             variables={detail.variableNames}

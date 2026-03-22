@@ -1,7 +1,7 @@
 import { useRef, useMemo } from 'react';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { Box, CircularProgress, Paper, Typography } from '@mui/material';
-import type { StackSummary } from '@/types/stacks';
+import type { StackStatusEntry, StackSummary } from '@/types/stacks';
 import StackRow from '@/components/stacks/StackRow';
 import { useStackExpansion } from '@/hooks/useStackExpansion';
 
@@ -15,9 +15,10 @@ interface StacksTableProps {
   stacks: StackSummary[];
   isLoading: boolean;
   error: Error | null;
+  statusMap: Map<string, StackStatusEntry>;
 }
 
-export default function StacksTable({ stacks, isLoading, error }: StacksTableProps) {
+export default function StacksTable({ stacks, isLoading, error, statusMap }: StacksTableProps) {
   const { isStackExpanded, toggleStackExpanded } = useStackExpansion();
 
   const sortedStacks = useMemo(
@@ -121,6 +122,7 @@ export default function StacksTable({ stacks, isLoading, error }: StacksTablePro
                         stack={stack}
                         expanded={isStackExpanded(`${stack.host}/${stack.name}`)}
                         onToggle={() => toggleStackExpanded(`${stack.host}/${stack.name}`)}
+                        statusMap={statusMap}
                       />
                     </div>
                   );

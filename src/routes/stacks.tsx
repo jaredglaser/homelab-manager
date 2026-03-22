@@ -5,8 +5,9 @@ import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
 import { listStacks } from '@/data/stacks/functions'
 import StacksTable from '@/components/stacks/StacksTable'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { useStackStatus } from '@/hooks/useStackStatus'
 
-export const Route = createFileRoute('/docker/stacks')({
+export const Route = createFileRoute('/stacks')({
   ssr: false,
   component: StacksPageContent,
 })
@@ -30,6 +31,7 @@ function StacksPage() {
     queryFn: () => listStacks(),
     refetchInterval: 10_000,
   })
+  const { statusMap } = useStackStatus()
 
   return (
     <div className="w-full p-6">
@@ -38,6 +40,7 @@ function StacksPage() {
         stacks={stacks ?? []}
         isLoading={isLoading}
         error={error}
+        statusMap={statusMap}
       />
     </div>
   )

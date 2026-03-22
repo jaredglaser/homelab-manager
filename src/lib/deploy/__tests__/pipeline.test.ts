@@ -14,6 +14,8 @@ const defaultPendingRecord = {
   envHash: '',
   status: 'pending' as const,
   trigger: 'git_push' as const,
+  action: 'deploy' as const,
+  forceRecreate: false,
   logs: null,
   createdAt: new Date(),
 };
@@ -29,6 +31,8 @@ function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): Deploy
     deduplicatePending: mock().mockResolvedValue(undefined),
     getDeployHistory: mock().mockResolvedValue([]),
     getPendingDeploys: mock().mockResolvedValue([]),
+    getLatestDeployPerStack: mock().mockResolvedValue([]),
+    notifyStackChange: mock().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as DeployRepository;
 }
@@ -121,6 +125,8 @@ describe('DeployPipeline', () => {
         envHash: '',
         status: 'succeeded',
         trigger: 'git_push',
+        action: 'deploy',
+        forceRecreate: false,
         logs: null,
         createdAt: new Date(),
       };
@@ -154,9 +160,7 @@ describe('DeployPipeline', () => {
         tokenResolver: () => 'test-token',
       });
 
-      const result = await pipeline.execute(testRequest);
-      expect(result.status).toBe('failed');
-      expect(result.logs).toContain('not found');
+      await expect(pipeline.execute(testRequest)).rejects.toThrow('not found in managed_hosts');
     });
 
     it('rejects deploy when another deploy is active for the stack', async () => {

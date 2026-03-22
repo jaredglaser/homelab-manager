@@ -4,14 +4,21 @@ import { isProxmoxConfigured, loadProxmoxConfig } from '@/lib/config/proxmox-con
 import { loadZFSConfig } from '@/lib/config/zfs-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import { StackStatusRepository } from '@/lib/database/repositories/stack-status-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
 import { DockerCollector } from './collectors/docker-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
 import { ZFSCollector } from './collectors/zfs-collector';
+import { StackStatusCollector } from './collectors/stack-status-collector';
 
 export interface CollectorFactoryResult {
   collectors: BaseCollector[];
+  runners: Promise<void>[];
+}
+
+export interface StackStatusCollectorFactoryResult {
+  collectors: StackStatusCollector[];
   runners: Promise<void>[];
 }
 
@@ -139,6 +146,55 @@ export async function createCollectorsForManagedHosts(
     console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${host.agent_url})`);
     const collector = stack.use(
       new AgentStatsCollector(db, workerConfig, host, token, shutdownController)
+    );
+    collectors.push(collector);
+    runners.push(collector.run());
+  }
+
+  return { collectors, runners };
+}
+
+/**
+ * Create StackStatusCollectors for managed hosts when the management feature flag is enabled.
+ * Uses dependency injection for the feature flag check, host lookup, and token retrieval
+ * to enable testing without database, env var, or OpenBao dependencies.
+ *
+ * Hosts whose token cannot be found in OpenBao are skipped.
+ */
+export async function createStackStatusCollectors(
+  db: DatabaseClient,
+  shutdownController: AbortController,
+  stack: AsyncDisposableStack,
+  isManagementEnabled: () => boolean,
+  findAllHosts: () => Promise<ManagedHost[]>,
+  getToken: (hostname: string) => Promise<string | null>,
+): Promise<StackStatusCollectorFactoryResult> {
+  const collectors: StackStatusCollector[] = [];
+  const runners: Promise<void>[] = [];
+
+  if (!isManagementEnabled()) {
+    return { collectors, runners };
+  }
+
+  const hosts = await findAllHosts();
+  if (hosts.length === 0) {
+    console.info('[Worker] Management feature enabled but no managed hosts found (StackStatusCollector)');
+    return { collectors, runners };
+  }
+
+  console.info(`[Worker] Starting ${hosts.length} StackStatusCollector(s) for managed hosts`);
+
+  for (const host of hosts) {
+    const token = await getToken(host.name);
+    if (!token) {
+      console.info(`[Worker] Skipping StackStatusCollector for ${host.name}: no token found in OpenBao`);
+      continue;
+    }
+
+    console.info(`[Worker] Starting StackStatusCollector for ${host.name} (${host.agent_url})`);
+    const repository = new StackStatusRepository(db.getPool());
+    const collector = stack.use(
+      new StackStatusCollector({ name: host.name, agentUrl: host.agent_url }, token, repository, shutdownController),
     );
     collectors.push(collector);
     runners.push(collector.run());

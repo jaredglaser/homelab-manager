@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Chip, Collapse } from '@mui/material';
 import { ChevronRight, Layers } from 'lucide-react';
-import type { StackSummary } from '@/types/stacks';
+import type { StackStatusEntry, StackSummary } from '@/types/stacks';
 import { STACKS_GRID } from '@/components/stacks/StacksTable';
 import SyncStatusBadge from '@/components/stacks/SyncStatusBadge';
 import StackDetail from '@/components/stacks/StackDetail';
@@ -11,6 +11,7 @@ interface StackRowProps {
   stack: StackSummary;
   expanded: boolean;
   onToggle: () => void;
+  statusMap: Map<string, StackStatusEntry>;
 }
 
 function formatRelativeTime(isoDate: string | null): string {
@@ -27,9 +28,34 @@ function formatRelativeTime(isoDate: string | null): string {
 
 // Per CLAUDE.md gotcha #5: Do not use React.memo on components receiving streaming/frequently-updated data.
 // Incorrect memoization can freeze streaming updates.
-export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
+function ContainerStatusBadge({ statusEntry }: { statusEntry: StackStatusEntry | undefined }) {
+  if (!statusEntry) {
+    return <span className="text-xs opacity-40">—</span>;
+  }
+
+  const total = statusEntry.containers.length;
+  const running = statusEntry.containers.filter((c) => c.status === 'running').length;
+
+  let color: string;
+  if (total === 0 || running === 0) {
+    color = 'var(--chart-deploy-failed)';
+  } else if (running < total) {
+    color = 'var(--chart-deploy-pending)';
+  } else {
+    color = 'var(--chart-deploy-success)';
+  }
+
+  return (
+    <span className="text-xs font-medium" style={{ color }}>
+      {running}/{total} running
+    </span>
+  );
+}
+
+export default function StackRow({ stack, expanded, onToggle, statusMap }: Readonly<StackRowProps>) {
   const [iconError, setIconError] = useState(false);
   const iconUrl = stack.icon ? getIconUrl(stack.icon, '') : null;
+  const statusEntry = statusMap.get(`${stack.name}/${stack.host}`);
 
   /** Reset error state when the icon URL changes */
   useEffect(() => {
@@ -67,12 +93,7 @@ export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
               <Layers size={18} className="flex-shrink-0 opacity-60" />
             )}
             <span className="font-medium truncate">{stack.name}</span>
-            <Chip
-              size="small"
-              variant="filled"
-              label={`${stack.containerCount} container${stack.containerCount !== 1 ? 's' : ''}`}
-              className="!text-xs"
-            />
+            <ContainerStatusBadge statusEntry={statusEntry} />
           </div>
         </div>
 

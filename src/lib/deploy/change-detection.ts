@@ -1,13 +1,12 @@
+import { createHash } from 'node:crypto';
 import type { DeployRecord } from '@/lib/deploy/types';
 
 /**
  * Compute a SHA-256 hex hash for content comparison.
- * Used for compose file and env content change detection.
+ * Uses node:crypto (works in both Bun and Vite SSR contexts).
  */
 export function computeHash(content: string): string {
-  const hasher = new Bun.CryptoHasher('sha256');
-  hasher.update(content);
-  return hasher.digest('hex');
+  return createHash('sha256').update(content).digest('hex');
 }
 
 export interface ChangeDetectionResult {

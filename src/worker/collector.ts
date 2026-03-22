@@ -10,7 +10,7 @@ import { SettingsRepository } from '@/lib/database/repositories/settings-reposit
 import { isDockerManagementEnabled } from '@/lib/config/feature-flags';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { createCollectors, createCollectorsForManagedHosts } from './collector-factory';
+import { createCollectors, createCollectorsForManagedHosts, createStackStatusCollectors } from './collector-factory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 
@@ -107,6 +107,14 @@ async function main() {
       );
       collectors.push(...managedCollectors);
       runners.push(...managedRunners);
+
+      const { runners: stackStatusRunners } = await createStackStatusCollectors(
+        db, shutdownController, stack,
+        isDockerManagementEnabled,
+        () => hostRepo.findAll(),
+        getToken ?? (() => Promise.resolve(null)),
+      );
+      runners.push(...stackStatusRunners);
 
       if (runners.length === 0) {
         console.log('[Worker] No collectors enabled, exiting');

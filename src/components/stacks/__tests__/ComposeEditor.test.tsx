@@ -1,17 +1,20 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { parseVariables } from '../ComposeEditor';
 
 /**
  * Monaco Editor cannot render in Happy-DOM (CDN script loading is blocked).
  * We mock only @monaco-editor/react (a narrow, component-specific dependency)
  * to provide a simple textarea stand-in. This lets us test the toolbar,
  * save button, VariablesPanel integration, and dirty-state logic.
+ *
+ * monaco-setup uses Vite ?worker imports that Bun can't resolve — must be
+ * mocked before ComposeEditor is imported.
  */
 /** Stored onChange callback from the most recent mock editor render */
 let mockEditorOnChange: ((v: string | undefined) => void) | undefined;
 
+mock.module('@/lib/monaco-setup', () => ({}));
 mock.module('@monaco-editor/react', () => ({
   default: ({ value, onChange }: { value: string; onChange?: (v: string | undefined) => void }) => {
     mockEditorOnChange = onChange;
@@ -24,6 +27,8 @@ mock.module('@monaco-editor/react', () => ({
     );
   },
 }));
+
+const { parseVariables } = await import('../ComposeEditor');
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -43,7 +48,10 @@ async function renderComposeEditor(props?: Partial<{ host: string; stackName: st
     variables: [],
     ...props,
   };
-  return render(<ComposeEditor {...defaultProps} />, { wrapper: createWrapper() });
+  const result = render(<ComposeEditor {...defaultProps} />, { wrapper: createWrapper() });
+  // Wait for monaco-setup dynamic import to resolve and Editor to render
+  await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
+  return result;
 }
 
 describe('parseVariables (compose variable detection)', () => {
