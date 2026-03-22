@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import type { HostHandlerDeps, HostRepo } from '../handlers';
+import type { HostHandlerDeps, HostRepo } from '../hosts.functions';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import {
   handleListHosts,
@@ -7,7 +7,8 @@ import {
   handleRemoveHost,
   handleUpdateAgent,
   handleAddHost,
-} from '../handlers';
+  handleUpdateHost,
+} from '../hosts.functions';
 
 const NOW = new Date('2026-03-01T00:00:00Z');
 
@@ -28,6 +29,7 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
     findById: mock(() => Promise.resolve(mockRow())),
     findAll: mock(() => Promise.resolve([mockRow()])),
     create: mock(() => Promise.resolve(mockRow())),
+    update: mock(() => Promise.resolve(mockRow())),
     delete: mock(() => Promise.resolve()),
     updateStatus: mock(() => Promise.resolve()),
     updateAgentVersion: mock(() => Promise.resolve()),
@@ -231,5 +233,40 @@ describe('handleAddHost', () => {
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow(/manual removal/);
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+});
+
+describe('handleUpdateHost', () => {
+  it('updates the host and returns mapped HostListItem', async () => {
+    const updatedRow = mockRow({ name: 'renamed', agent_url: 'http://new-url:9090' });
+    const repo = mockRepo({ update: mock(() => Promise.resolve(updatedRow)) });
+    const deps = baseDeps();
+    deps.repo = repo;
+
+    const result = await handleUpdateHost(deps, { hostId: 1, name: 'renamed', agentUrl: 'http://new-url:9090' });
+
+    expect(result.name).toBe('renamed');
+    expect(result.agentUrl).toBe('http://new-url:9090');
+    expect(repo.update).toHaveBeenCalledWith(1, { name: 'renamed', agent_url: 'http://new-url:9090' });
+  });
+
+  it('throws when host not found', async () => {
+    const deps = baseDeps({ findById: mock(() => Promise.resolve(null)) });
+    await expect(handleUpdateHost(deps, { hostId: 999 })).rejects.toThrow('not found');
+  });
+
+  it('throws when feature flag is off', async () => {
+    const deps = { ...baseDeps(), isEnabled: () => false };
+    await expect(handleUpdateHost(deps, { hostId: 1 })).rejects.toThrow('not enabled');
+  });
+
+  it('passes only provided fields to repo.update', async () => {
+    const repo = mockRepo();
+    const deps = baseDeps();
+    deps.repo = repo;
+
+    await handleUpdateHost(deps, { hostId: 1, socketProxyUrl: 'tcp://192.168.1.99:2375' });
+
+    expect(repo.update).toHaveBeenCalledWith(1, { socket_proxy_url: 'tcp://192.168.1.99:2375' });
   });
 });
