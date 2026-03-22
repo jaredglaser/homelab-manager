@@ -39,7 +39,29 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
     }
 
     const manifest = parseManifest(manifestContent);
-    return Object.entries(manifest.stacks).map(([name, entry]) => manifestEntryToSummary(name, entry));
+    const summaries = Object.entries(manifest.stacks).map(([name, entry]) => manifestEntryToSummary(name, entry));
+
+    // Load persisted icon metadata from DB
+    try {
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+      const dbConfig = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(dbConfig);
+      const repo = new StatsRepository(dbClient.getPool());
+
+      const entityIds = summaries.map((s) => `${s.host}/${s.name}`);
+      const metadata = await repo.getEntityMetadata('docker', entityIds);
+      for (const summary of summaries) {
+        const entityMeta = metadata.get(`${summary.host}/${summary.name}`);
+        const icon = entityMeta?.get('icon');
+        if (icon) summary.icon = icon;
+      }
+    } catch {
+      // DB may not be available — return summaries without icons
+    }
+
+    return summaries;
   } catch (error) {
     console.error('[StackService] Failed to load stack summaries:', error);
     return [];
@@ -65,7 +87,26 @@ export async function getStackDetailByName(
       // Stack is in manifest but compose file doesn't exist yet
     }
 
-    return manifestEntryToDetail(stackName, entry, composeContent);
+    const detail = manifestEntryToDetail(stackName, entry, composeContent);
+
+    // Load persisted icon from DB
+    try {
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+      const dbConfig = loadDatabaseConfig();
+      const dbClient = await databaseConnectionManager.getClient(dbConfig);
+      const repo = new StatsRepository(dbClient.getPool());
+
+      const entityId = `${entry.host}/${stackName}`;
+      const metadata = await repo.getEntityMetadata('docker', [entityId]);
+      const icon = metadata.get(entityId)?.get('icon');
+      if (icon) detail.icon = icon;
+    } catch {
+      // DB may not be available — return detail without icon
+    }
+
+    return detail;
   } catch (error) {
     console.error(`[StackService] Failed to load stack detail for "${stackName}":`, error);
     return null;

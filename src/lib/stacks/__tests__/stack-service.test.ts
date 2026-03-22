@@ -41,6 +41,26 @@ describe('extractVariableNames', () => {
   test('returns empty for empty string', () => {
     expect(extractVariableNames('')).toEqual([]);
   });
+
+  test('extracts variables with dash-default (no colon)', () => {
+    expect(extractVariableNames('${VAR-fallback}')).toEqual(['VAR']);
+  });
+
+  test('extracts variables with error operator', () => {
+    expect(extractVariableNames('${DB_HOST:?must be set}')).toEqual(['DB_HOST']);
+  });
+
+  test('extracts variables with error operator (no colon)', () => {
+    expect(extractVariableNames('${DB_HOST?must be set}')).toEqual(['DB_HOST']);
+  });
+
+  test('extracts variables with plus operator', () => {
+    expect(extractVariableNames('${DEBUG:+--verbose}')).toEqual(['DEBUG']);
+  });
+
+  test('extracts variables with plus operator (no colon)', () => {
+    expect(extractVariableNames('${DEBUG+--verbose}')).toEqual(['DEBUG']);
+  });
 });
 
 describe('toStackDeployRecord', () => {

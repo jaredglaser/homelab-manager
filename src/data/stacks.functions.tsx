@@ -35,7 +35,7 @@ const triggerDeploySchema = z.object({
 /**
  * Trigger a deploy, teardown, or restart for a stack.
  */
-export const triggerDeploy = createServerFn()
+export const triggerDeploy = createServerFn({ method: 'POST' })
   .inputValidator(triggerDeploySchema)
   .handler(async ({ data }): Promise<{ deployId: number }> => {
     const { triggerStackDeploy } = await import('@/lib/stacks/stack-service');
@@ -65,7 +65,7 @@ const saveComposeFileSchema = z.object({
 /**
  * Save compose file content (creates a git commit).
  */
-export const saveComposeFile = createServerFn()
+export const saveComposeFile = createServerFn({ method: 'POST' })
   .inputValidator(saveComposeFileSchema)
   .handler(async ({ data }): Promise<{ commitSha: string }> => {
     const { saveStackComposeFile } = await import('@/lib/stacks/stack-service');
@@ -80,7 +80,7 @@ const updateStackIconSchema = z.object({
 /**
  * Update stack icon.
  */
-export const updateStackIcon = createServerFn()
+export const updateStackIcon = createServerFn({ method: 'POST' })
   .inputValidator(updateStackIconSchema)
   .handler(async ({ data }): Promise<void> => {
     const { updateStackIconSlug } = await import('@/lib/stacks/stack-service');

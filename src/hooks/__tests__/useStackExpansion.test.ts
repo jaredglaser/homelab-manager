@@ -30,32 +30,42 @@ if (isCI) {
     it('returns false for unexpanded stacks by default', () => {
       const wrapper = createTestWrapper();
       const { result } = renderHook(() => useStackExpansion(), { wrapper });
-      expect(result.current.isStackExpanded('plex')).toBe(false);
+      expect(result.current.isStackExpanded('homeserver/plex')).toBe(false);
     });
 
     it('toggles stack expansion state', () => {
       const wrapper = createTestWrapper();
       const { result } = renderHook(() => useStackExpansion(), { wrapper });
       act(() => {
-        result.current.toggleStackExpanded('plex');
+        result.current.toggleStackExpanded('homeserver/plex');
       });
-      expect(result.current.isStackExpanded('plex')).toBe(true);
+      expect(result.current.isStackExpanded('homeserver/plex')).toBe(true);
       act(() => {
-        result.current.toggleStackExpanded('plex');
+        result.current.toggleStackExpanded('homeserver/plex');
       });
-      expect(result.current.isStackExpanded('plex')).toBe(false);
+      expect(result.current.isStackExpanded('homeserver/plex')).toBe(false);
     });
 
     it('tracks multiple stacks independently', () => {
       const wrapper = createTestWrapper();
       const { result } = renderHook(() => useStackExpansion(), { wrapper });
       act(() => {
-        result.current.toggleStackExpanded('plex');
-        result.current.toggleStackExpanded('traefik');
+        result.current.toggleStackExpanded('homeserver/plex');
+        result.current.toggleStackExpanded('homeserver/traefik');
       });
-      expect(result.current.isStackExpanded('plex')).toBe(true);
-      expect(result.current.isStackExpanded('traefik')).toBe(true);
-      expect(result.current.isStackExpanded('grafana')).toBe(false);
+      expect(result.current.isStackExpanded('homeserver/plex')).toBe(true);
+      expect(result.current.isStackExpanded('homeserver/traefik')).toBe(true);
+      expect(result.current.isStackExpanded('homeserver/grafana')).toBe(false);
+    });
+
+    it('distinguishes same stack name on different hosts', () => {
+      const wrapper = createTestWrapper();
+      const { result } = renderHook(() => useStackExpansion(), { wrapper });
+      act(() => {
+        result.current.toggleStackExpanded('homeserver/plex');
+      });
+      expect(result.current.isStackExpanded('homeserver/plex')).toBe(true);
+      expect(result.current.isStackExpanded('edge/plex')).toBe(false);
     });
   });
 }
