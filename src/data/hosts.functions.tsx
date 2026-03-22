@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import type { HostStatus } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
 import {
   parseDockerodeConfig,
   toHostListItem,
@@ -9,7 +9,7 @@ import {
 } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
-// ----- Schemas -----
+export type { HostListItem } from '@/lib/hosts/host-utils';
 
 const socketProxyUrlSchema = z.string().min(1).refine(
   (val) => /^(tcp|http|https):\/\/.+/.test(val),
@@ -22,21 +22,9 @@ const addHostSchema = z.object({
   agentPort: z.number().int().min(1).max(65535).optional().default(9090),
 });
 
-const removeHostSchema = z.object({
-  hostId: z.number().int().positive(),
-});
-
-const updateAgentSchema = z.object({
-  hostId: z.number().int().positive(),
-});
-
-const checkHostHealthSchema = z.object({
-  hostId: z.number().int().positive(),
-});
-
-// ----- Types -----
-
-export type { HostListItem } from '@/lib/hosts/host-utils';
+const removeHostSchema = z.object({ hostId: z.number().int().positive() });
+const updateAgentSchema = z.object({ hostId: z.number().int().positive() });
+const checkHostHealthSchema = z.object({ hostId: z.number().int().positive() });
 
 export interface AddHostResult {
   host: HostListItem;
@@ -53,12 +41,10 @@ export interface HostOperationResult {
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
 
-// ----- Handler dependencies -----
-
 export interface HostRepo {
-  findById(id: number): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date } | null>;
-  findAll(): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }[]>;
-  create(input: { name: string; agent_url: string; socket_proxy_url: string }): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }>;
+  findById(id: number): Promise<ManagedHost | null>;
+  findAll(): Promise<ManagedHost[]>;
+  create(input: { name: string; agent_url: string; socket_proxy_url: string }): Promise<ManagedHost>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
@@ -68,8 +54,6 @@ export interface HostHandlerDeps {
   repo: HostRepo;
   isEnabled: () => boolean;
 }
-
-// ----- Exported handler functions (testable via DI) -----
 
 export async function handleListHosts(deps: HostHandlerDeps): Promise<HostListItem[]> {
   if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
@@ -180,10 +164,9 @@ export async function handleAddHost(
 
   const plainToken = deps.generateToken();
 
-  // Create DB record first (as 'pending') so we have a stable hostId for the container name.
   const host = await deps.repo.create({
     name: data.name,
-    agent_url: '', // placeholder until provisioning resolves the URL
+    agent_url: '',
     socket_proxy_url: data.socketProxyUrl,
   });
 
@@ -242,12 +225,9 @@ export async function handleAddHost(
   };
 }
 
-// ----- Dependency wiring (dynamic imports for server-only modules) -----
-/* v8 ignore start -- server-only wiring, tested via integration */
-
+/* v8 ignore start -- server-only wiring with dynamic imports, tested via integration */
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { isDockerManagementEnabled } = await import('@/lib/config/feature-flags');
-  // Check flag before loading DB to avoid unnecessary connection attempts
   if (!isDockerManagementEnabled()) {
     return { repo: null as unknown as HostRepo, isEnabled: () => false };
   }
@@ -263,8 +243,6 @@ async function loadDockerClient(socketProxyUrl: string) {
   const Dockerode = (await import('dockerode')).default;
   return new Dockerode(parseDockerodeConfig(socketProxyUrl));
 }
-
-// ----- createServerFn wrappers (thin wiring only) -----
 
 export const addHost = createServerFn()
   .inputValidator(addHostSchema)
