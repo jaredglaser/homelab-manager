@@ -411,14 +411,14 @@ The `/health` endpoint reports which capabilities are available on the host:
   "version": "1.2.0",
   "capabilities": {
     "docker": { "available": true, "version": "24.0.9" },
-    "zfs": { "available": true, "version": "2.2.2" }
+    "zfs": { "available": true, "version": "2.2.2", "tier": 1, "permissions": ["read"] }
   }
 }
 ```
 
 The agent detects capabilities at startup:
 - **Docker**: Check if the socket proxy is reachable at `DOCKER_HOST` (TCP)
-- **ZFS**: Check if `zpool` binary exists and is executable
+- **ZFS**: Check if `zpool` binary exists and is executable, then detect permission tier
 
 The worker uses capabilities to decide which collectors to create for each agent. A host with only ZFS gets a `ZfsStatsCollector`; a host with both gets both collectors.
 
@@ -426,7 +426,7 @@ The worker uses capabilities to decide which collectors to create for each agent
 
 | Method | Path | Capability | Purpose |
 |--------|------|------------|---------|
-| GET | `/health` | *(always)* | Version, capabilities, heartbeat |
+| GET | `/health` | *(always)* | Version, capabilities (incl. ZFS tier), heartbeat |
 | GET | `/stats/stream` | docker | SSE container stats streaming |
 | GET | `/logs/{containerId}` | docker | SSE container log streaming |
 | POST | `/stacks/deploy` | docker | Run `docker compose up -d` |
@@ -434,8 +434,13 @@ The worker uses capabilities to decide which collectors to create for each agent
 | POST | `/stacks/restart` | docker | Run `docker compose restart` |
 | GET | `/stacks/status` | docker | List stacks in working directory |
 | GET | `/stacks/events` | docker | SSE container lifecycle events |
-| GET | `/zfs/stats/stream` | zfs | SSE `zpool iostat` streaming |
-| GET | `/zfs/pools` | zfs | List pools with properties |
+| GET | `/zfs/stats/stream` | zfs (tier 1) | SSE `zpool iostat` streaming |
+| GET | `/zfs/pools` | zfs (tier 1) | List pools with properties |
+| GET | `/zfs/snapshots` | zfs (tier 2) | *(future)* List snapshots |
+| POST | `/zfs/snapshots/create` | zfs (tier 2) | *(future)* Create snapshot |
+| DELETE | `/zfs/snapshots/{name}` | zfs (tier 2) | *(future)* Destroy snapshot |
+| POST | `/zfs/snapshots/{name}/rollback` | zfs (tier 2) | *(future)* Rollback to snapshot |
+| POST | `/zfs/snapshots/{name}/send` | zfs (tier 2) | *(future)* Send snapshot stream |
 
 Endpoints for unavailable capabilities return `404` with a clear error (e.g., `{ "error": "ZFS is not available on this host" }`).
 
@@ -561,13 +566,29 @@ sudo usermod -aG zfs hlm-zfs
 
 #### Granting ZFS Permissions
 
-ZFS supports **delegated permissions** that grant specific operations to non-root users without giving full admin access.
+ZFS supports **delegated permissions** that grant specific operations to non-root users without giving full admin access. Permissions are granted per-dataset and inherit downward, allowing fine-grained scoping.
+
+> **Note:** `zpool`-level operations (creating/destroying pools, adding vdevs) always require root. ZFS delegation only applies at the dataset (`zfs`) level. Pool management is out of scope for the agent.
+
+The agent supports tiered permission levels. Users grant only what they need:
+
+**Tier 1 — Monitoring (default)**
+
+No delegated permissions needed. Group membership in `zfs` provides read access to `/dev/zfs`, which is sufficient for `zpool iostat`, `zpool list`, and `zpool status`.
 
 ```bash
-# Grant read-only stats permissions on all pools
-# This is the minimum needed for monitoring
+# No additional setup beyond the user creation above
+# Group membership handles everything
+```
+
+**Tier 2 — Snapshot Management (future)**
+
+Delegated permissions for snapshot operations. Users opt in by running:
+
+```bash
+# Grant snapshot permissions on all pools
 for pool in $(zpool list -Ho name); do
-  sudo zfs allow hlm-zfs send,hold,snapshot,mount,userprop "$pool"
+  sudo zfs allow hlm-zfs snapshot,hold,send,rollback,destroy "$pool"
   sudo zpool set delegation=on "$pool"
 done
 
@@ -575,14 +596,54 @@ done
 zfs allow <pool-name>
 ```
 
+> **Scope note:** `destroy` here applies to snapshots only when combined with the `snapshot` permission and no `create`/`mount` permissions. The user cannot destroy datasets — only snapshots they created. To further limit scope, grant on a specific dataset instead of the pool root:
+> ```bash
+> sudo zfs allow hlm-zfs snapshot,hold,send,rollback,destroy poolname/containers
+> ```
+
+**Tier 3 — Dataset Management (not planned)**
+
+Would require `create`, `destroy`, `mount`, `rename` permissions. This gives the agent the ability to create and remove datasets, which is a significant privilege escalation. Not currently in scope — documenting for completeness.
+
 **Required ZFS permissions by agent endpoint:**
 
-| Endpoint | ZFS Operations | Permissions Needed |
-|----------|---------------|--------------------|
-| `/zfs/stats/stream` | `zpool iostat` | Read access to `/dev/zfs` (via `zfs` group membership) |
-| `/zfs/pools` | `zpool list`, `zpool status` | Read access to `/dev/zfs` (via `zfs` group membership) |
+| Endpoint | Tier | ZFS Operations | Permissions Needed |
+|----------|------|---------------|--------------------|
+| `/zfs/stats/stream` | 1 | `zpool iostat` | `/dev/zfs` read (group) |
+| `/zfs/pools` | 1 | `zpool list`, `zpool status` | `/dev/zfs` read (group) |
+| `/zfs/snapshots` *(future)* | 2 | `zfs list -t snapshot` | `/dev/zfs` read (group) |
+| `/zfs/snapshots/create` *(future)* | 2 | `zfs snapshot` | `snapshot` delegation |
+| `/zfs/snapshots/destroy` *(future)* | 2 | `zfs destroy <snap>` | `destroy` delegation |
+| `/zfs/snapshots/rollback` *(future)* | 2 | `zfs rollback` | `rollback` delegation |
+| `/zfs/snapshots/send` *(future)* | 2 | `zfs send`, `zfs hold` | `send`, `hold` delegation |
 
-For monitoring-only use, group membership in `zfs` is sufficient — no delegated permissions needed. The delegated permissions above are only required if future agent features need dataset-level operations (snapshots, sends, etc.).
+The agent reports its effective permission tier via `/health`:
+
+```json
+{
+  "zfs": {
+    "available": true,
+    "version": "2.2.2",
+    "tier": 1,
+    "permissions": ["read"]
+  }
+}
+```
+
+When Tier 2 permissions are detected:
+
+```json
+{
+  "zfs": {
+    "available": true,
+    "version": "2.2.2",
+    "tier": 2,
+    "permissions": ["read", "snapshot", "hold", "send", "rollback", "destroy"]
+  }
+}
+```
+
+The agent detects its tier at startup by attempting a dry-run permission check (e.g., `zfs allow` output parsing). Endpoints for unavailable tiers return `403` with a message like `{ "error": "Snapshot management requires Tier 2 ZFS permissions. See docs for setup." }`.
 
 #### Configuring the Agent Container
 
@@ -854,7 +915,7 @@ See [Security Analysis — Post-Migration](#security-analysis--post-migration) b
 | # | Concern | Risk | Mitigation |
 |---|---------|------|------------|
 | N1 | **Socket proxy in agent stack** | Socket proxy restricts Docker API surface, but the updater sidecar still needs raw socket access to manage sibling containers. | Socket proxy is on an `internal: true` network — not reachable from outside the stack. Updater is minimal code (~5MB image) with a narrow scope. Only the updater mounts the Docker socket; the agent never does. |
-| N2 | **Agent runs ZFS commands** | `zpool` commands need access to `/dev/zfs`. The agent could potentially run destructive ZFS operations. | Agent runs as a dedicated `hlm-zfs` user with read-only `/dev/zfs` access via group membership. No delegated write permissions granted. Agent code only executes `zpool iostat` and `zpool list` — no destructive commands. See [ZFS User Setup](#zfs-user-setup). |
+| N2 | **Agent runs ZFS commands** | `zpool` commands need access to `/dev/zfs`. Higher permission tiers grant increasingly powerful operations. | Agent runs as a dedicated `hlm-zfs` user with tiered permissions. Tier 1 (default) is read-only via group membership. Tier 2 adds snapshot operations via ZFS delegation — scoped per-dataset, user opts in explicitly. Pool-level operations (`zpool create/destroy`) always require root and are out of scope. See [ZFS User Setup](#zfs-user-setup). |
 | N3 | **Agent update lifecycle** | Users may run outdated agent versions with known vulnerabilities. | Updater sidecar automatically pulls new agent images and recreates the container. UI shows version warnings for outdated agents and updaters. Web server does **not** refuse connections from old agents — this is a homelab app, availability matters more than enforcing upgrades. Updater verifies health after update and rolls back on failure. |
 | N4 | **Agent token displayed in UI** | The compose file generation flow shows the plaintext token in the browser. | Token is embedded in the generated compose file, shown once. Token can be regenerated if compromised (requires stack redeploy with new token). |
 | N5 | **Single agent = single point of failure per host** | If the agent stack goes down, all monitoring and management for that host stops. | All stack services use `restart: unless-stopped`. Updater can restart failed agent containers. Health checks detect failures and show status in UI. Acceptable for homelab use. |
