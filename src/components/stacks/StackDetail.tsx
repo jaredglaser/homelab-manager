@@ -8,7 +8,7 @@ interface StackDetailProps {
   stackName: string;
 }
 
-export default function StackDetail({ stackName }: StackDetailProps) {
+export default function StackDetail({ stackName }: Readonly<StackDetailProps>) {
   const { data: detail, isLoading, error } = useQuery({
     queryKey: ['stack-detail', stackName],
     queryFn: () => getStackDetail({ data: { stackName } }),

@@ -1,14 +1,29 @@
 import { createServerFn } from '@tanstack/react-start';
+import { z } from 'zod';
 import { parseDockerodeConfig, getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostListItem } from '@/lib/hosts/host-utils';
-import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema } from '@/data/hosts/schemas';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
   handleUpdateAgent, handleAddHost,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps, type HostRepo,
-} from '@/data/hosts/handlers';
+} from '@/data/hosts.handlers';
 
-export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
+export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts.handlers';
+
+const socketProxyUrlSchema = z.string().min(1).refine(
+  (val) => /^(tcp|http|https):\/\/.+/.test(val),
+  { message: 'Must be a valid URL with tcp://, http://, or https:// scheme' }
+);
+
+const addHostSchema = z.object({
+  name: z.string().min(1).max(100),
+  socketProxyUrl: socketProxyUrlSchema,
+  agentPort: z.number().int().min(1).max(65535).optional().default(9090),
+});
+
+const removeHostSchema = z.object({ hostId: z.number().int().positive() });
+const updateAgentSchema = z.object({ hostId: z.number().int().positive() });
+const checkHostHealthSchema = z.object({ hostId: z.number().int().positive() });
 
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { isDockerManagementEnabled } = await import('@/lib/config/feature-flags');
@@ -39,7 +54,6 @@ export const addHost = createServerFn()
     const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
     const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
     const baoClient = new OpenBaoClient(loadOpenBaoConfig());
-    await baoClient.ensureSecretsEngine();
     const provService = new AgentProvisioningService();
     return handleAddHost({
       ...baseDeps,
