@@ -199,7 +199,14 @@ export async function handleAddHost(
     );
   }
 
-  const healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
+  let healthResult: HealthCheckOutcome;
+  try {
+    healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
+  } catch (err) {
+    // retryHealthCheck threw (unexpected) — clean up container and record
+    await bestEffortCleanup(deps, data, host.id);
+    throw err;
+  }
 
   if (!healthResult.healthy) {
     let cleanupSucceeded = true;
@@ -220,15 +227,41 @@ export async function handleAddHost(
     );
   }
 
-  await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
+  // Post-health-check DB updates — agent is running and healthy at this point.
+  // If these fail, clean up to avoid a half-initialized record with a live container.
+  try {
+    await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
+    await deps.repo.updateStatus(host.id, 'healthy');
+  } catch (err) {
+    await bestEffortCleanup(deps, data, host.id);
+    throw new Error(
+      `Agent is healthy but failed to finalize host record: ${err instanceof Error ? err.message : String(err)}. Host record and container have been cleaned up.`
+    );
+  }
 
-  const status: HostStatus = 'healthy';
-  await deps.repo.updateStatus(host.id, status);
-  if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
+  // Version update is metadata-only — don't roll back a healthy host for this
+  if (healthResult.version) {
+    try { await deps.repo.updateAgentVersion(host.id, healthResult.version); } catch (err) {
+      console.error(`[addHost] Failed to save agent version for ${data.name}:`, err instanceof Error ? err.message : err);
+    }
+  }
 
   return {
-    host: toHostListItem(host, { agentUrl: provisionResult.agentUrl, agentVersion: healthResult.version || null, status }),
+    host: toHostListItem(host, { agentUrl: provisionResult.agentUrl, agentVersion: healthResult.version || null, status: 'healthy' }),
   };
+}
+
+async function bestEffortCleanup(
+  deps: { removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>; repo: { delete(id: number): Promise<void> } },
+  data: { socketProxyUrl: string; name: string },
+  hostId: number,
+): Promise<void> {
+  try { await deps.removeAgent(data.socketProxyUrl, hostId); } catch (err) {
+    console.error(`[addHost] Best-effort container cleanup failed for ${data.name}:`, err instanceof Error ? err.message : err);
+  }
+  try { await deps.repo.delete(hostId); } catch (err) {
+    console.error(`[addHost] Best-effort record cleanup failed for ${data.name}:`, err instanceof Error ? err.message : err);
+  }
 }
 
 // ----- Dependency wiring (dynamic imports for server-only modules) -----
@@ -258,6 +291,7 @@ export const addHost = createServerFn()
   .inputValidator(addHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
     const { generateToken, hashToken } = await import('@/lib/services/token-service');
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
@@ -275,6 +309,7 @@ export const removeHost = createServerFn()
   .inputValidator(removeHostSchema)
   .handler(async ({ data }): Promise<{ success: boolean; containerRemoved: boolean; warning?: string }> => {
     const baseDeps = await loadDeps();
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
     const provService = new AgentProvisioningService();
     return handleRemoveHost({
@@ -293,6 +328,7 @@ export const updateAgent = createServerFn()
   .inputValidator(updateAgentSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
     const { AgentUpdateService } = await import('@/lib/services/agent-update-service');
     const svc = new AgentUpdateService();
     return handleUpdateAgent({
@@ -305,6 +341,7 @@ export const checkHostHealth = createServerFn()
   .inputValidator(checkHostHealthSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     return handleCheckHostHealth({ ...baseDeps, checkHealth: checkAgentHealth }, data);
   });

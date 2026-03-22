@@ -205,4 +205,45 @@ describe('handleAddHost', () => {
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow(/manual removal/);
   });
+
+  it('cleans up when retryHealthCheck throws', async () => {
+    const deps = addDeps();
+    deps.checkHealth = mock(() => Promise.reject(new Error('unexpected error')));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow('unexpected error');
+    expect(deps.removeAgent).toHaveBeenCalled();
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('cleans up when updateAgentUrl fails after healthy check', async () => {
+    const repo = mockRepo({ updateAgentUrl: mock(() => Promise.reject(new Error('db connection lost'))) });
+    const deps = addDeps();
+    deps.repo = repo;
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/failed to finalize/i);
+    expect(deps.removeAgent).toHaveBeenCalled();
+    expect(repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('cleans up when updateStatus fails after healthy check', async () => {
+    const repo = mockRepo({ updateStatus: mock(() => Promise.reject(new Error('db timeout'))) });
+    const deps = addDeps();
+    deps.repo = repo;
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/failed to finalize/i);
+    expect(deps.removeAgent).toHaveBeenCalled();
+    expect(repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('succeeds even when updateAgentVersion fails (metadata-only)', async () => {
+    const repo = mockRepo({ updateAgentVersion: mock(() => Promise.reject(new Error('db error'))) });
+    const deps = addDeps();
+    deps.repo = repo;
+    const result = await handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
+    expect(result.host.status).toBe('healthy');
+    expect(deps.removeAgent).not.toHaveBeenCalled();
+  });
 });
