@@ -206,6 +206,8 @@ export function handleStatsStream(
           openContainerStream(ctx, docker, c);
         }
 
+        sendSSE(ctx, JSON.stringify({ ids: containers.map(c => c.Id) }), 'containers');
+
         while (!ctx.closed) {
           await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
           if (ctx.closed) break;

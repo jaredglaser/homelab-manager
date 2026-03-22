@@ -77,8 +77,9 @@ describe('handleStatsStream', () => {
     ac.abort();
 
     expect(text).toContain('data:');
-    const eventData = text.split('\n\n').filter(Boolean)[0];
-    const parsed = JSON.parse(eventData.replace(/^data:\s*/, ''));
+    const dataEvent = text.split('\n\n').filter(Boolean).find(e => e.includes('"containerId"'));
+    expect(dataEvent).toBeDefined();
+    const parsed = JSON.parse(dataEvent!.replace(/^data:\s*/, ''));
 
     expect(parsed.containerId).toBe('abc123def456');
     expect(parsed.containerName).toBe('my-container');
@@ -169,7 +170,7 @@ describe('handleStatsStream', () => {
     goodEmitter.emit('data', Buffer.from(makeStatsJson() + '\n'));
 
     const text = await readUntil(response, (s) =>
-      s.includes('"good111"') && s.includes('container-error')
+      s.includes('container-error') && s.includes('"containerId":"good111"')
     );
     ac.abort();
 
@@ -263,8 +264,9 @@ describe('handleStatsStream', () => {
     const text = await readUntil(response, (s) => s.includes('"containerId"'));
     ac.abort();
 
-    const eventData = text.split('\n\n').filter(Boolean)[0];
-    const parsed = JSON.parse(eventData.replace(/^data:\s*/, ''));
+    const dataEvent = text.split('\n\n').filter(Boolean).find(e => e.includes('"containerId"'));
+    expect(dataEvent).toBeDefined();
+    const parsed = JSON.parse(dataEvent!.replace(/^data:\s*/, ''));
     expect(parsed.containerName).toBe('noname123');
   });
 
