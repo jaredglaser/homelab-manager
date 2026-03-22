@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
-import { AgentClient, AgentClientError } from '../agent-client';
+import { AgentClient, AgentClientError, type ZfsPool } from '../agent-client';
 
 describe('AgentClient', () => {
   let client: AgentClient;
@@ -142,6 +142,183 @@ describe('AgentClient', () => {
       fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
 
       await expect(client.health()).rejects.toThrow(AgentClientError);
+    });
+  });
+
+  describe('getZfsPools', () => {
+    it('returns parsed pool list from agent', async () => {
+      const pools: ZfsPool[] = [
+        {
+          name: 'tank',
+          size: 1000000000,
+          allocated: 500000000,
+          free: 500000000,
+          fragmentation: 5,
+          capacity: 50,
+          dedup: 1,
+          health: 'ONLINE',
+        },
+      ];
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ pools }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const result = await client.getZfsPools();
+      expect(result).toEqual(pools);
+
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/zfs/pools');
+      expect(options.method).toBe('GET');
+      expect(options.headers['Authorization']).toBe('Bearer test-token');
+    });
+
+    it('handles null fragmentation', async () => {
+      const pools: ZfsPool[] = [
+        {
+          name: 'data',
+          size: 2000000000,
+          allocated: 100000000,
+          free: 1900000000,
+          fragmentation: null,
+          capacity: 5,
+          dedup: 1,
+          health: 'ONLINE',
+        },
+      ];
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ pools }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const result = await client.getZfsPools();
+      expect(result[0].fragmentation).toBeNull();
+    });
+
+    it('throws AgentClientError on non-200 response', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('Forbidden', { status: 403 })
+      );
+
+      await expect(client.getZfsPools()).rejects.toThrow(AgentClientError);
+    });
+  });
+
+  describe('streamZfsStats', () => {
+    it('yields parsed SSE events from stream', async () => {
+      const events = [
+        { line: 'tank  1.00G  512M  512M  -  -  5%  51%  1.00x  ONLINE  -', timestamp: 1000 },
+        { line: 'data  2.00G  100M  1.90G  -  -  0%  5%  1.00x  ONLINE  -', timestamp: 2000 },
+      ];
+
+      const sseBody = events.map(e => `data: ${JSON.stringify(e)}\n`).join('\n') + '\n';
+      const encoder = new TextEncoder();
+      const encoded = encoder.encode(sseBody);
+
+      let offset = 0;
+      const readable = new ReadableStream({
+        pull(controller) {
+          if (offset < encoded.length) {
+            controller.enqueue(encoded.slice(offset));
+            offset = encoded.length;
+          } else {
+            controller.close();
+          }
+        },
+      });
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(readable, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      );
+
+      const controller = new AbortController();
+      const results: typeof events = [];
+      for await (const event of client.streamZfsStats(controller.signal)) {
+        results.push(event);
+      }
+
+      expect(results).toEqual(events);
+    });
+
+    it('throws AgentClientError on non-200 response', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('Unauthorized', { status: 401 })
+      );
+
+      const controller = new AbortController();
+      const gen = client.streamZfsStats(controller.signal);
+      await expect(gen.next()).rejects.toThrow(AgentClientError);
+    });
+
+    it('throws AgentClientError when response has no body', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(null, { status: 200 })
+      );
+
+      const controller = new AbortController();
+      const gen = client.streamZfsStats(controller.signal);
+      await expect(gen.next()).rejects.toThrow(AgentClientError);
+    });
+
+    it('handles stream end gracefully with no events', async () => {
+      const readable = new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      });
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(readable, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      );
+
+      const controller = new AbortController();
+      const results = [];
+      for await (const event of client.streamZfsStats(controller.signal)) {
+        results.push(event);
+      }
+
+      expect(results).toHaveLength(0);
+    });
+
+    it('skips malformed SSE events', async () => {
+      const sseBody = 'data: {valid: json}\ndata: {"line":"ok","timestamp":999}\n\n';
+      const encoder = new TextEncoder();
+      const encoded = encoder.encode(sseBody);
+
+      const readable = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoded);
+          controller.close();
+        },
+      });
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(readable, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      );
+
+      const controller = new AbortController();
+      const results = [];
+      for await (const event of client.streamZfsStats(controller.signal)) {
+        results.push(event);
+      }
+
+      expect(results).toHaveLength(1);
+      expect(results[0]).toEqual({ line: 'ok', timestamp: 999 });
     });
   });
 });

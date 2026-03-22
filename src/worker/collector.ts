@@ -1,7 +1,6 @@
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
-import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
@@ -163,7 +162,6 @@ async function main() {
     await Promise.all([
       databaseConnectionManager.closeAll(),
       dockerConnectionManager.closeAll(),
-      sshConnectionManager.closeAll(),
     ]);
 
     console.info('[Worker] Shutdown complete');
