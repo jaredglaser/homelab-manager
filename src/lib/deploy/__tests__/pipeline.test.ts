@@ -66,7 +66,7 @@ const testHost: ManagedHost = {
   id: 1,
   name: 'homeserver',
   agentUrl: 'http://agent:9090',
-  socketProxyUrl: 'tcp://proxy:2375',
+  capabilities: { docker: true },
   agentVersion: '0.1.0',
   status: 'healthy',
   createdAt: new Date(),

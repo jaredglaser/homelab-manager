@@ -24,7 +24,7 @@ const sampleRow = {
   id: 1, // SERIAL (INT4) returns number from node-postgres (only BIGINT returns strings)
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
-  socket_proxy_url: 'tcp://192.168.1.10:2375',
+  capabilities: { docker: true, zfs: true },
   agent_version: '0.1.0',
   status: 'healthy',
   created_at: new Date('2026-01-01T00:00:00Z'),
@@ -47,7 +47,7 @@ describe('HostRepository', () => {
       const input: CreateHostInput = {
         name: 'homeserver',
         agent_url: 'http://192.168.1.10:9090',
-        socket_proxy_url: 'tcp://192.168.1.10:2375',
+        capabilities: { docker: true },
       };
 
       const result = await repo.create(input);

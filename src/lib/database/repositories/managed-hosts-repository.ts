@@ -1,10 +1,10 @@
 import type { Pool } from 'pg';
-import type { ManagedHost, ManagedHostStatus } from '@/lib/deploy/types';
+import type { ManagedHost, ManagedHostStatus, HostCapabilities } from '@/lib/deploy/types';
 
 interface InsertHostParams {
   name: string;
   agentUrl: string;
-  socketProxyUrl: string;
+  capabilities?: HostCapabilities;
 }
 
 export class ManagedHostsRepository {
@@ -28,10 +28,10 @@ export class ManagedHostsRepository {
 
   async insert(params: InsertHostParams): Promise<number> {
     const result = await this.pool.query(
-      `INSERT INTO managed_hosts (name, agent_url, socket_proxy_url)
+      `INSERT INTO managed_hosts (name, agent_url, capabilities)
        VALUES ($1, $2, $3)
        RETURNING id`,
-      [params.name, params.agentUrl, params.socketProxyUrl]
+      [params.name, params.agentUrl, JSON.stringify(params.capabilities ?? {})]
     );
     return Number(result.rows[0].id);
   }
@@ -56,7 +56,7 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
     id: Number(row.id),
     name: row.name as string,
     agentUrl: row.agent_url as string,
-    socketProxyUrl: row.socket_proxy_url as string,
+    capabilities: (row.capabilities as HostCapabilities) ?? {},
     agentVersion: (row.agent_version as string) ?? null,
     status: row.status as ManagedHostStatus,
     createdAt: row.created_at as Date,

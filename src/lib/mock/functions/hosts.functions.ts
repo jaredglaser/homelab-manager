@@ -10,7 +10,7 @@ const mockHosts: readonly HostListItem[] = [
     id: 1,
     name: 'homeserver',
     agentUrl: 'http://192.168.1.10:9090',
-    socketProxyUrl: 'tcp://192.168.1.10:2375',
+    capabilities: { docker: true },
     agentVersion: '0.1.0',
     status: 'healthy',
     createdAt: '2026-01-15T10:00:00Z',
@@ -20,7 +20,7 @@ const mockHosts: readonly HostListItem[] = [
     id: 2,
     name: 'media-server',
     agentUrl: 'http://192.168.1.20:9090',
-    socketProxyUrl: 'tcp://192.168.1.20:2375',
+    capabilities: { docker: true, zfs: true },
     agentVersion: '0.1.0',
     status: 'healthy',
     createdAt: '2026-02-01T14:30:00Z',
@@ -31,17 +31,18 @@ const mockHosts: readonly HostListItem[] = [
 let nextMockId = mockHosts.length + 1;
 
 /** Intentionally stateless — returns a plausible result without mutating mockHosts. Demo mode shows a fixed set of hosts. */
-export async function addHost(_data: {
+export async function verifyHost(_data: {
   name: string;
-  socketProxyUrl: string;
-  agentPort?: number;
+  agentUrl: string;
+  agentToken: string;
+  capabilities?: { docker?: boolean; zfs?: boolean };
 }): Promise<AddHostResult> {
   const now = new Date().toISOString();
   const newHost: HostListItem = {
     id: nextMockId++,
     name: _data.name,
-    agentUrl: `http://mock-host:${_data.agentPort ?? 9090}`,
-    socketProxyUrl: _data.socketProxyUrl,
+    agentUrl: _data.agentUrl,
+    capabilities: _data.capabilities ?? {},
     agentVersion: '0.1.0',
     status: 'healthy',
     createdAt: now,
@@ -53,8 +54,8 @@ export async function addHost(_data: {
 /** Intentionally stateless — returns success without mutating mockHosts. */
 export async function removeHost(_data: {
   hostId: number;
-}): Promise<{ success: boolean; containerRemoved: boolean }> {
-  return { success: true, containerRemoved: true };
+}): Promise<{ success: boolean }> {
+  return { success: true };
 }
 
 export async function listHosts(): Promise<HostListItem[]> {
