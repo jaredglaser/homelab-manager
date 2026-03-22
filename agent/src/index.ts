@@ -26,6 +26,13 @@ if (!AGENT_TOKEN) {
   process.exit(1);
 }
 
+const TLS_CERT_PATH = process.env.TLS_CERT_PATH;
+const TLS_KEY_PATH = process.env.TLS_KEY_PATH;
+
+const tlsConfig = TLS_CERT_PATH && TLS_KEY_PATH
+  ? { cert: Bun.file(TLS_CERT_PATH), key: Bun.file(TLS_KEY_PATH) }
+  : undefined;
+
 let docker: Dockerode | null = null;
 if (DOCKER_HOST) {
   let dockerUrl: URL;
@@ -53,6 +60,7 @@ if (!docker && !zfsCapabilities.available) {
 
 Bun.serve({
   port: PORT,
+  tls: tlsConfig,
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
@@ -106,4 +114,4 @@ else console.info('Docker capability: disabled (DOCKER_HOST not set)');
 if (zfsCapabilities.available) console.info(`ZFS capability: tier ${zfsCapabilities.tier} (v${zfsCapabilities.version ?? 'unknown'})`);
 else console.info('ZFS capability: disabled (zpool not found)');
 console.info(`Using stacks directory: ${STACKS_DIR}`);
-console.info(`Agent listening on port ${PORT}`);
+console.info(`Agent listening on port ${PORT} (${tlsConfig ? 'HTTPS' : 'HTTP'})`);
