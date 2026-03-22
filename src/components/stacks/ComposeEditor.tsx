@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Paper, Typography, CircularProgress } from '@mui/material';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -29,6 +29,12 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   const [detectedVars, setDetectedVars] = useState<string[]>(initialVariables);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const queryClient = useQueryClient();
+
+  /** Sync editor state when the parent provides new content (e.g., switching stacks) */
+  useEffect(() => {
+    setEditorContent(content);
+    setDetectedVars(initialVariables);
+  }, [stackName, content, initialVariables]);
 
   const isDirty = editorContent !== content;
 

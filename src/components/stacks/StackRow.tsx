@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Chip, Collapse } from '@mui/material';
 import { ChevronRight, Layers } from 'lucide-react';
 import type { StackSummary } from '@/types/stacks';
@@ -30,6 +30,11 @@ function formatRelativeTime(isoDate: string | null): string {
 export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
   const [iconError, setIconError] = useState(false);
   const iconUrl = stack.icon ? getIconUrl(stack.icon, '') : null;
+
+  /** Reset error state when the icon URL changes */
+  useEffect(() => {
+    setIconError(false);
+  }, [iconUrl]);
 
   return (
     <div>
