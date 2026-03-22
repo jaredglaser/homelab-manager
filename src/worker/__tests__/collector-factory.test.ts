@@ -406,6 +406,28 @@ describe('createCollectorsForManagedHosts', () => {
     shutdownController.abort();
   });
 
+  it('returns empty when docker collection is disabled', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [sampleManagedHost]);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: false } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+    expect(result.runners).toHaveLength(0);
+    expect(mockFindAll).not.toHaveBeenCalled();
+
+    shutdownController.abort();
+  });
+
   it('skips managed hosts with no agent_token', async () => {
     const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [

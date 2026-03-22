@@ -111,7 +111,7 @@ export async function createCollectorsForManagedHosts(
   const collectors: BaseCollector[] = [];
   const runners: Promise<void>[] = [];
 
-  if (!isManagementEnabled()) {
+  if (!isManagementEnabled() || !workerConfig.docker.enabled) {
     return { collectors, runners };
   }
 

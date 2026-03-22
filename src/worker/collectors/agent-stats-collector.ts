@@ -94,21 +94,25 @@ export class AgentStatsCollector extends BaseCollector {
           if (!dataLine) continue;
 
           const jsonStr = dataLine.slice(6); // Remove "data: " prefix
-          let event: AgentStatsEvent;
+          let parsed: unknown;
           try {
-            event = JSON.parse(jsonStr);
+            parsed = JSON.parse(jsonStr);
           } catch {
             console.error(`[${this.name}] Failed to parse SSE event: ${jsonStr.substring(0, 100)}`);
             continue;
           }
 
+          if (typeof parsed !== 'object' || parsed === null) continue;
+
           // Skip error events from the agent
-          if ('error' in event && !('containerId' in event)) continue;
+          if ('error' in parsed && !('containerId' in parsed)) continue;
+
+          const event = parsed as AgentStatsEvent;
 
           // Upsert entity metadata for new containers
           if (!this.knownContainers.has(event.containerId)) {
             try {
-              const entityPath = `${this.host.name}/${event.containerId}`;
+              const entityPath = `${this.host.id}/${event.containerId}`;
               await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', event.containerName);
               await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', event.image);
               // Use container name as service_key (agent doesn't have compose label info yet)
@@ -126,7 +130,7 @@ export class AgentStatsCollector extends BaseCollector {
           // Map agent event to DockerStatsRow
           const row: DockerStatsRow = {
             time: new Date(event.timestamp),
-            host: this.host.name,
+            host: String(this.host.id),
             container_id: event.containerId,
             container_name: event.containerName,
             image: event.image,
