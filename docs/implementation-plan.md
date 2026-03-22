@@ -2,24 +2,24 @@
 
 > **Context:** This plan implements the architecture described in [`docs/openbao-architecture.md`](./openbao-architecture.md). Read that document first — it is the source of truth for all design decisions.
 >
-> **Constraint:** All hosts have Docker. There is no non-Docker deployment path. The updater sidecar lives in the monorepo as a `updater/` package.
+> **Constraint:** All hosts have Docker. There is no non-Docker deployment path. The agent-updater sidecar lives in the monorepo as a `agent-updater/` package.
 
 ---
 
 ## Phase 1 — Agent Stack & User-Managed Deployment
 
-### 1.1 Updater Sidecar (`updater/`)
+### 1.1 Agent Updater Sidecar (`agent-updater/`)
 
-Create a new package at `updater/` in the monorepo. This is a minimal Bun application (~5MB image target) that manages agent container lifecycle.
+Create a new package at `agent-updater/` in the monorepo. This is a minimal Bun application (~5MB image target) that manages agent container lifecycle.
 
 **Files to create:**
-- `updater/package.json` — Bun package, no external dependencies beyond Dockerode
-- `updater/tsconfig.json` — Strict TypeScript, mirrors agent config
-- `updater/src/index.ts` — Entry point
-- `updater/src/updater.ts` — Core logic: poll GHCR, compare digests, pull + recreate
-- `updater/src/health-reporter.ts` — Reports update status to agent via localhost
-- `updater/Dockerfile` — Multi-stage build, minimal final image
-- `updater/src/__tests__/` — Tests with coverage enforcement matching agent (96%/99%)
+- `agent-updater/package.json` — Bun package, no external dependencies beyond Dockerode
+- `agent-updater/tsconfig.json` — Strict TypeScript, mirrors agent config
+- `agent-updater/src/index.ts` — Entry point
+- `agent-updater/src/agent-updater.ts` — Core logic: poll GHCR, compare digests, pull + recreate
+- `agent-updater/src/health-reporter.ts` — Reports update status to agent via localhost
+- `agent-updater/Dockerfile` — Multi-stage build, minimal final image
+- `agent-updater/src/__tests__/` — Tests with coverage enforcement matching agent (96%/99%)
 
 **Behavior:**
 1. On startup, read `AGENT_CONTAINER_NAME` (default: `hlm-agent`) and `AGENT_IMAGE` env vars
@@ -28,7 +28,7 @@ Create a new package at `updater/` in the monorepo. This is a minimal Bun applic
 4. Expose no ports, no API. Communicates with Docker daemon via mounted socket only
 5. Log updates via `console.info` (operational messages only, per CLAUDE.md rules)
 
-**Testing:** Unit test the digest comparison, recreate logic, and rollback flow. Mock Dockerode. Run `bun test` and `bun run typecheck` in `updater/`.
+**Testing:** Unit test the digest comparison, recreate logic, and rollback flow. Mock Dockerode. Run `bun test` and `bun run typecheck` in `agent-updater/`.
 
 ### 1.2 Reference Agent Stack Compose Template
 
@@ -42,7 +42,7 @@ This is a TypeScript module that exports a function to generate a compose YAML s
 interface AgentStackConfig {
   agentToken: string;
   agentImage: string;       // e.g. "ghcr.io/your-org/homelab-manager-agent:latest"
-  updaterImage: string;     // e.g. "ghcr.io/your-org/homelab-manager-updater:latest"
+  agentUpdaterImage: string; // e.g. "ghcr.io/your-org/homelab-manager-agent-updater:latest"
   capabilities: {
     docker: boolean;        // include socket-proxy service
     zfs: boolean;           // include ZFS volume mounts + hlm-zfs user config
@@ -59,7 +59,7 @@ export function generateAgentStackCompose(config: AgentStackConfig): string
 The generated compose file should match the [Reference Agent Stack](./openbao-architecture.md#reference-agent-stack) in the architecture doc. Key points:
 - Socket proxy uses `tecnativa/docker-socket-proxy` with restrictive env vars
 - `agent-internal` network is `internal: true`
-- Only the updater mounts the Docker socket
+- Only the agent-updater mounts the Docker socket
 - Agent connects to socket proxy via `DOCKER_HOST=tcp://socket-proxy:2375`
 - All services use `restart: unless-stopped`
 
@@ -102,7 +102,7 @@ Check the current `managed_hosts` schema first — look at existing migrations a
 
 **Files to edit/delete:**
 - `src/lib/services/agent-provisioning-service.ts` — Gut the Dockerode provisioning logic. Replace with compose file generation. If the file is mostly provisioning, delete it and create a simpler service.
-- `src/lib/services/agent-update-service.ts` — Remove Dockerode-based update logic. Keep version-check logic (compare agent's reported version vs latest GHCR tag) for UI warnings. The updater sidecar handles actual updates.
+- `src/lib/services/agent-update-service.ts` — Remove Dockerode-based update logic. Keep version-check logic (compare agent's reported version vs latest GHCR tag) for UI warnings. The agent-updater sidecar handles actual updates.
 
 ### 1.7 UI — Add Host Flow
 
@@ -240,8 +240,8 @@ Refactor to use the agent client instead of SSH:
 **File to edit:** The "Add Host" UI components from Phase 1.5
 
 The compose file generation should produce different files based on selected capabilities:
-- **Docker-only:** Agent + socket-proxy + updater. No ZFS mounts, no `hlm-zfs` user.
-- **ZFS-only:** Agent + updater. No socket-proxy. ZFS binary mounts + `/dev/zfs`.
+- **Docker-only:** Agent + socket-proxy + agent-updater. No ZFS mounts, no `hlm-zfs` user.
+- **ZFS-only:** Agent + agent-updater. No socket-proxy. ZFS binary mounts + `/dev/zfs`.
 - **Docker + ZFS:** Full stack — all three services + ZFS mounts.
 
 ### 2.9 Update Documentation
@@ -316,10 +316,10 @@ Add env vars: `TLS_CERT_PATH`, `TLS_KEY_PATH`. When not set, agent runs without 
 ### 3.4 Certificate Rotation
 
 Create a helper that periodically requests new certs from OpenBao PKI and writes them to the agent's mounted volume. This could be:
-- A function in the updater sidecar (it already has access to manage the agent)
+- A function in the agent-updater sidecar (it already has access to manage the agent)
 - A separate cert-renewal sidecar (may be overengineering for a homelab)
 
-Recommend: add cert renewal to the updater sidecar since it already manages agent lifecycle.
+Recommend: add cert renewal to the agent-updater sidecar since it already manages agent lifecycle.
 
 ### 3.5 Move Agent Token from Env Var to Mounted File
 
@@ -341,7 +341,7 @@ cd agent && bun test
 ## Key Decisions (for the implementing session)
 
 1. **All hosts have Docker.** No standalone agent binary or systemd service. The agent always runs as a Docker compose stack.
-2. **Updater lives in monorepo** at `updater/` — same pattern as `agent/`.
+2. **Agent-updater lives in monorepo** at `agent-updater/` — same pattern as `agent/`.
 3. **Socket proxy is retained** inside the agent stack on `internal: true` network. It is NOT removed.
 4. **ZFS permissions are tiered:** Tier 1 (monitoring, default) requires only group membership. Tier 2 (snapshots, future) requires ZFS delegation. Tier 3 (datasets) is not planned.
 5. **UI generates compose files.** The user copies them to their host. The UI cannot discover host-specific values (UID/GID) — it shows commands for the user to run and provides input fields.
