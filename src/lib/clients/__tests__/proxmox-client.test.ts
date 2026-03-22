@@ -53,6 +53,31 @@ describe('ProxmoxClient', () => {
     });
   });
 
+  describe('handleDispatcherError', () => {
+    it('silently ignores module-not-found errors', () => {
+      ProxmoxClient.handleDispatcherError(new Error('Cannot find module undici'));
+      expect(console.error).not.toHaveBeenCalled();
+    });
+
+    it('silently ignores MODULE_NOT_FOUND code errors', () => {
+      ProxmoxClient.handleDispatcherError(new Error('MODULE_NOT_FOUND'));
+      expect(console.error).not.toHaveBeenCalled();
+    });
+
+    it('logs unexpected errors', () => {
+      ProxmoxClient.handleDispatcherError(new Error('Agent constructor failed'));
+      expect(console.error).toHaveBeenCalledWith(
+        '[ProxmoxClient] Failed to initialize undici Agent for self-signed cert support:',
+        'Agent constructor failed'
+      );
+    });
+
+    it('handles non-Error values', () => {
+      ProxmoxClient.handleDispatcherError('something broke');
+      expect(console.error).toHaveBeenCalled();
+    });
+  });
+
   describe('testConnection', () => {
     it('should return true on success', async () => {
       fetchSpy.mockResolvedValueOnce(

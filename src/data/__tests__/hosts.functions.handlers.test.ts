@@ -247,6 +247,19 @@ describe('handleAddHost', () => {
     expect(repo.delete).toHaveBeenCalledWith(1);
   });
 
+  it('still throws original error when bestEffortCleanup also fails', async () => {
+    const repo = mockRepo({
+      updateAgentUrl: mock(() => Promise.reject(new Error('db connection lost'))),
+      delete: mock(() => Promise.reject(new Error('delete also failed'))),
+    });
+    const deps = addDeps();
+    deps.repo = repo;
+    deps.removeAgent = mock(() => Promise.reject(new Error('container removal failed')));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/failed to finalize/i);
+  });
+
   it('succeeds even when updateAgentVersion fails (metadata-only)', async () => {
     const repo = mockRepo({ updateAgentVersion: mock(() => Promise.reject(new Error('db error'))) });
     const deps = addDeps();
