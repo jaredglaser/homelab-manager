@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import { pullImage } from '../docker-image-utils';
 
 function createMockDocker(error?: Error) {
@@ -31,5 +31,19 @@ describe('pullImage', () => {
     } as any;
     await pullImage(docker, 'ghcr.io/homelab-manager/agent:latest');
     expect(pulledImage).toBe('ghcr.io/homelab-manager/agent:latest');
+  });
+
+  it('rejects with timeout error and destroys stream when pull hangs', async () => {
+    const destroy = mock();
+    const docker = {
+      pull: async () => ({ destroy }),
+      modem: {
+        followProgress: () => {
+          // Never call the callback — simulates a hanging pull
+        },
+      },
+    } as any;
+    await expect(pullImage(docker, 'stuck-image:latest', 50)).rejects.toThrow(/timed out/);
+    expect(destroy).toHaveBeenCalled();
   });
 });
