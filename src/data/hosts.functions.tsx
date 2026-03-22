@@ -243,6 +243,7 @@ export async function handleAddHost(
 }
 
 // ----- Dependency wiring (dynamic imports for server-only modules) -----
+/* v8 ignore start -- server-only wiring, tested via integration */
 
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { isDockerManagementEnabled } = await import('@/lib/config/feature-flags');
@@ -331,3 +332,4 @@ export const checkHostHealth = createServerFn()
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     return handleCheckHostHealth({ ...baseDeps, checkHealth: checkAgentHealth }, data);
   });
+/* v8 ignore stop */
