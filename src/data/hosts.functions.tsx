@@ -17,7 +17,7 @@ const socketProxyUrlSchema = z.string().min(1).refine(
 );
 
 const addHostSchema = z.object({
-  name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/, 'Must contain only letters, numbers, hyphens, and underscores'),
+  name: z.string().min(1).max(100),
   socketProxyUrl: socketProxyUrlSchema,
   agentPort: z.number().int().min(1).max(65535).optional().default(9090),
 });
@@ -255,7 +255,6 @@ export const addHost = createServerFn()
     const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
     const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
     const baoClient = new OpenBaoClient(loadOpenBaoConfig());
-    await baoClient.ensureSecretsEngine();
     const provService = new AgentProvisioningService();
     return handleAddHost({
       ...baseDeps,

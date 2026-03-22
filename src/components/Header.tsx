@@ -4,7 +4,7 @@ import Tab from '@mui/material/Tab'
 import Alert from '@mui/material/Alert'
 import MuiLink from '@mui/material/Link'
 import { Link, useLocation } from '@tanstack/react-router'
-import { HardDrive, Settings } from 'lucide-react'
+import { HardDrive, Layers, Settings } from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
 import { queryClient } from '@/components/AppShell'
 import {
@@ -35,8 +35,9 @@ function ProxmoxIcon({ size = 18 }: IconProps) {
 
 type NavIcon = React.ComponentType<{ size?: number }>
 
-const NAV_ITEMS: { to: '/docker' | '/zfs' | '/proxmox' | '/settings'; label: string; icon: NavIcon }[] = [
+const NAV_ITEMS: { to: '/docker' | '/stacks' | '/zfs' | '/proxmox' | '/settings'; label: string; icon: NavIcon }[] = [
   { to: '/docker', label: 'Docker', icon: DockerIcon },
+  { to: '/stacks', label: 'Stacks', icon: Layers },
   { to: '/zfs', label: 'ZFS', icon: HardDrive },
   { to: '/proxmox', label: 'Proxmox', icon: ProxmoxIcon },
   { to: '/settings', label: 'Settings', icon: Settings },

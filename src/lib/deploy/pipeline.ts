@@ -43,7 +43,7 @@ export class DeployPipeline {
     // 1. Validate: host exists in managed_hosts
     const host = await this.hostsRepo.getByName(request.host);
     if (!host) {
-      return { status: 'failed', logs: `Host "${request.host}" not found in managed_hosts` };
+      throw new Error(`Host "${request.host}" not found in managed_hosts. Add it via the Hosts page first.`);
     }
 
     // 2. Change detection (skip for teardown/restart -- always execute those)
@@ -51,7 +51,7 @@ export class DeployPipeline {
     let envHash = '';
     const resolvedEnvContent = await this.resolveEnv(request);
 
-    if (request.action === 'deploy') {
+    if (request.action === 'deploy' && request.trigger !== 'manual_rollback') {
       const previousDeploy = await this.deployRepo.getLatestSuccessful(request.stack, request.host);
       const changeResult = detectChanges(request.composeContent, resolvedEnvContent, previousDeploy);
       composeHash = changeResult.composeHash;
@@ -66,7 +66,10 @@ export class DeployPipeline {
           envHash,
           status: 'no_change',
           trigger: request.trigger,
+          action: request.action,
+          forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
         });
+        await this.deployRepo.notifyStackChange(request.stack, request.host);
         return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId };
       }
     }
@@ -80,6 +83,8 @@ export class DeployPipeline {
       envHash,
       status: 'pending',
       trigger: request.trigger,
+      action: request.action,
+      forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
     });
 
     if (deployId === null) {
@@ -125,6 +130,7 @@ export class DeployPipeline {
       console.error(errorMsg, err);
       try {
         await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+        await this.deployRepo.notifyStackChange(request.stack, request.host);
       } catch (dbErr) {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
       }
@@ -162,6 +168,7 @@ export class DeployPipeline {
             composeContent: request.composeContent,
             envContent,
             action: 'deploy',
+            forceRecreate: request.forceRecreate,
           });
           break;
         case 'teardown':
@@ -176,6 +183,7 @@ export class DeployPipeline {
       console.error(`Deploy dispatch failed for stack "${request.stack}" on host "${host.name}":`, err);
       try {
         await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+        await this.deployRepo.notifyStackChange(request.stack, host.name);
       } catch (dbErr) {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
       }
@@ -185,6 +193,7 @@ export class DeployPipeline {
     // Record result outside try — a DB failure here must not be misattributed to the agent
     const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
     await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
+    await this.deployRepo.notifyStackChange(request.stack, host.name);
 
     return { status: finalStatus, logs: result.logs, deployId };
   }
