@@ -1,0 +1,116 @@
+import type { Pool } from 'pg';
+
+export interface GitTokenRow {
+  id: number;
+  userId: number;
+  label: string;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+}
+
+export interface GitTokenWithUser extends GitTokenRow {
+  userName: string | null;
+  userEmail: string;
+}
+
+export interface GitTokenWithEncrypted {
+  id: number;
+  userId: number;
+  encryptedToken: string;
+}
+
+export interface CreateGitTokenInput {
+  userId: number;
+  encryptedToken: string;
+  label: string;
+}
+
+function rowToGitToken(row: {
+  id: unknown;
+  user_id: unknown;
+  label: unknown;
+  last_used_at: unknown;
+  created_at: unknown;
+}): GitTokenRow {
+  return {
+    id: Number(row.id),
+    userId: Number(row.user_id),
+    label: row.label as string,
+    lastUsedAt: (row.last_used_at as Date | null) ?? null,
+    createdAt: row.created_at as Date,
+  };
+}
+
+export class GitTokenRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async create(input: CreateGitTokenInput): Promise<GitTokenRow> {
+    const result = await this.pool.query(
+      `INSERT INTO git_tokens (user_id, encrypted_token, label)
+       VALUES ($1, $2, $3)
+       RETURNING id, user_id, label, last_used_at, created_at`,
+      [input.userId, input.encryptedToken, input.label]
+    );
+    return rowToGitToken(result.rows[0] as Parameters<typeof rowToGitToken>[0]);
+  }
+
+  async findByUserId(userId: number): Promise<GitTokenRow[]> {
+    const result = await this.pool.query(
+      `SELECT id, user_id, label, last_used_at, created_at
+       FROM git_tokens
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+    return (result.rows as Parameters<typeof rowToGitToken>[0][]).map(rowToGitToken);
+  }
+
+  async findAll(): Promise<GitTokenWithUser[]> {
+    const result = await this.pool.query(
+      `SELECT gt.id, gt.user_id, gt.label, gt.last_used_at, gt.created_at,
+              u.name AS user_name, u.email AS user_email
+       FROM git_tokens gt
+       JOIN users u ON gt.user_id = u.id
+       ORDER BY gt.created_at DESC`
+    );
+    return (result.rows as {
+      id: unknown;
+      user_id: unknown;
+      label: unknown;
+      last_used_at: unknown;
+      created_at: unknown;
+      user_name: unknown;
+      user_email: unknown;
+    }[]).map(row => ({
+      ...rowToGitToken(row),
+      userName: (row.user_name as string | null) ?? null,
+      userEmail: row.user_email as string,
+    }));
+  }
+
+  async findAllEncrypted(): Promise<GitTokenWithEncrypted[]> {
+    const result = await this.pool.query(
+      `SELECT id, user_id, encrypted_token FROM git_tokens`
+    );
+    return (result.rows as { id: unknown; user_id: unknown; encrypted_token: unknown }[]).map(row => ({
+      id: Number(row.id),
+      userId: Number(row.user_id),
+      encryptedToken: row.encrypted_token as string,
+    }));
+  }
+
+  async deleteById(id: number): Promise<void> {
+    await this.pool.query('DELETE FROM git_tokens WHERE id = $1', [id]);
+  }
+
+  async deleteByUserId(userId: number): Promise<void> {
+    await this.pool.query('DELETE FROM git_tokens WHERE user_id = $1', [userId]);
+  }
+
+  async updateLastUsed(id: number): Promise<void> {
+    await this.pool.query(
+      'UPDATE git_tokens SET last_used_at = now() WHERE id = $1',
+      [id]
+    );
+  }
+}
