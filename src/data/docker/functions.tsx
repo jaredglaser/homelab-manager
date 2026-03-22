@@ -5,7 +5,7 @@ import {
   getContainerHistorySchema,
   getContainerInfoSchema,
   updateContainerIconSchema,
-} from '@/data/docker.schemas';
+} from '@/data/docker/schemas';
 
 /**
  * Get historical Docker stats (wide rows) for preloading.

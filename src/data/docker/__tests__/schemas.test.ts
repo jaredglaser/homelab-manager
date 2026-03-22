@@ -4,7 +4,7 @@ import {
   getContainerHistorySchema,
   getContainerInfoSchema,
   updateContainerIconSchema,
-} from '../docker.schemas';
+} from '../schemas';
 
 describe('getHistoricalDockerStatsSchema', () => {
   it('defaults seconds to 60', () => {

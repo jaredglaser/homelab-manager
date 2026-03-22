@@ -1,6 +1,6 @@
-import { getHistoricalDockerStats } from '@/data/docker.functions'
-import { getHistoricalZFSStats } from '@/data/zfs.functions'
-import { getHistoricalProxmoxStats } from '@/data/proxmox.functions'
+import { getHistoricalDockerStats } from '@/data/docker/functions'
+import { getHistoricalZFSStats } from '@/data/zfs/functions'
+import { getHistoricalProxmoxStats } from '@/data/proxmox/functions'
 
 export const DOCKER_PRELOAD_KEY = ['preload', 'docker-stats'] as const
 export const ZFS_PRELOAD_KEY = ['preload', 'zfs-stats'] as const

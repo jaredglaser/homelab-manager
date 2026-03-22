@@ -11,7 +11,7 @@ import {
   type LightPalette,
 } from './settingsAtom';
 import { useToast } from './toastAtom';
-import { updateSetting } from '@/data/settings.functions';
+import { updateSetting } from '@/data/settings/functions';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 // Re-export types for backward-compatible imports

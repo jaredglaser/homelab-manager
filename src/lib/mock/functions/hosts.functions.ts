@@ -3,7 +3,7 @@ import type {
   AddHostResult,
   HealthCheckResult,
   UpdateAgentResult,
-} from '@/data/hosts.functions';
+} from '@/data/hosts/functions';
 
 const mockHosts: readonly HostListItem[] = [
   {

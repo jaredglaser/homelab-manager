@@ -1,10 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
-
-const getHistoricalProxmoxStatsSchema = z.object({
-  seconds: z.number().optional().default(120),
-});
+import { getHistoricalProxmoxStatsSchema } from '@/data/proxmox/schemas';
 
 /**
  * Fetch historical Proxmox stats rows from the database.

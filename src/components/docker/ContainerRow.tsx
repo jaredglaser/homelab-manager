@@ -9,7 +9,7 @@ import { MetricValue } from '@/components/shared-table';
 import ContainerChartsCard from '@/components/docker/ContainerChartsCard';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
-import { updateContainerIcon } from '@/data/docker.functions';
+import { updateContainerIcon } from '@/data/docker/functions';
 import { DOCKER_GRID, DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable';
 import { PULSE_DURATION_MS, LATE_THRESHOLD_MS } from '@/lib/constants/ui-timing';
 

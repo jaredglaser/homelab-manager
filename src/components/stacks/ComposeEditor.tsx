@@ -4,7 +4,7 @@ import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { saveComposeFile } from '@/data/stacks.functions';
+import { saveComposeFile } from '@/data/stacks/functions';
 import VariablesPanel from '@/components/stacks/VariablesPanel';
 
 interface ComposeEditorProps {

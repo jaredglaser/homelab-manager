@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import type { HostHandlerDeps, HostRepo } from '../hosts.handlers';
+import type { HostHandlerDeps, HostRepo } from '../handlers';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import {
   handleListHosts,
@@ -7,7 +7,7 @@ import {
   handleRemoveHost,
   handleUpdateAgent,
   handleAddHost,
-} from '../hosts.handlers';
+} from '../handlers';
 
 const NOW = new Date('2026-03-01T00:00:00Z');
 

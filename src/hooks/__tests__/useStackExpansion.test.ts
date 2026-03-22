@@ -13,7 +13,7 @@ if (isCI) {
   type ReactNode = import('react').ReactNode;
 
   // Mock settings functions to prevent real server calls
-  mock.module('@/data/settings.functions', () => ({
+  mock.module('@/data/settings/functions', () => ({
     updateSetting: mock(() => Promise.resolve()),
   }));
 

@@ -1,6 +1,6 @@
 /**
  * Stack service — integration layer between git management and deploy pipeline.
- * Called by server functions in src/data/stacks.functions.tsx.
+ * Called by server functions in src/data/stacks/functions.tsx.
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';

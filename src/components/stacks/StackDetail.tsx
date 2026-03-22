@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { CircularProgress, Typography } from '@mui/material';
-import { getStackDetail, getDeployHistory } from '@/data/stacks.functions';
+import { getStackDetail, getDeployHistory } from '@/data/stacks/functions';
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
 

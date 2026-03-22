@@ -8,7 +8,7 @@ import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/dock
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
-import { getDockerEntityIcons } from '@/data/docker.functions'
+import { getDockerEntityIcons } from '@/data/docker/functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'

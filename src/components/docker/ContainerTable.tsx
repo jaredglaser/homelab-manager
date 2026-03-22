@@ -10,7 +10,7 @@ import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hiera
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import { MetricValue, MetricHeader } from '../shared-table';
 import ContainerRow from './ContainerRow';
-import { getDockerEntityIcons } from '@/data/docker.functions';
+import { getDockerEntityIcons } from '@/data/docker/functions';
 
 export const DOCKER_ENTITY_ICONS_QUERY_KEY = ['docker-entity-icons'] as const;
 

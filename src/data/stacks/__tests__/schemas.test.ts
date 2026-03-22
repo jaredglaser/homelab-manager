@@ -5,7 +5,7 @@ import {
   getDeployHistorySchema,
   saveComposeFileSchema,
   updateStackIconSchema,
-} from '../stacks.schemas';
+} from '../schemas';
 
 describe('getStackDetailSchema', () => {
   it('accepts valid stackName', () => {

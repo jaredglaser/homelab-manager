@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import PageHeader from '@/components/PageHeader'
 import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
-import { listStacks } from '@/data/stacks.functions'
+import { listStacks } from '@/data/stacks/functions'
 import StacksTable from '@/components/stacks/StacksTable'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 

@@ -1,14 +1,14 @@
 import { createServerFn } from '@tanstack/react-start';
 import { parseDockerodeConfig, getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostListItem } from '@/lib/hosts/host-utils';
-import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema } from '@/data/hosts.schemas';
+import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema } from '@/data/hosts/schemas';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
   handleUpdateAgent, handleAddHost,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps, type HostRepo,
-} from '@/data/hosts.handlers';
+} from '@/data/hosts/handlers';
 
-export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts.handlers';
+export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { isDockerManagementEnabled } = await import('@/lib/config/feature-flags');

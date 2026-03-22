@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema } from '../hosts.schemas';
+import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema } from '../schemas';
 
 describe('addHostSchema', () => {
   it('accepts valid input with all fields', () => {

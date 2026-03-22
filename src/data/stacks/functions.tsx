@@ -6,7 +6,7 @@ import {
   getDeployHistorySchema,
   saveComposeFileSchema,
   updateStackIconSchema,
-} from '@/data/stacks.schemas';
+} from '@/data/stacks/schemas';
 
 /**
  * List all stacks from the manifest with their current sync status.

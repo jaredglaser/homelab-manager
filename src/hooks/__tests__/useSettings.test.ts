@@ -17,7 +17,7 @@ if (isCI) {
     // Mock the settings functions
     const mockUpdateSetting = mock(() => Promise.resolve());
 
-    mock.module('@/data/settings.functions', () => ({
+    mock.module('@/data/settings/functions', () => ({
         updateSetting: mockUpdateSetting,
     }));
 
