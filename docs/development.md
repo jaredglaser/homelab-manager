@@ -51,6 +51,8 @@ Access the UI at http://localhost:3000
 
 Run the web server locally with HMR, while Docker handles the database and worker:
 
+**Docker monitoring:** The local compose file includes a socket proxy service that gives the worker read-only access to your Docker API. Set `DOCKER_HOST_1=socket-proxy` in `.env` — the worker resolves it by service name on the shared Docker network. No need to expose the Docker socket on a host port.
+
 ```bash
 bun install                    # Install dependencies
 

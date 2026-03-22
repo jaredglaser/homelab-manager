@@ -46,7 +46,9 @@ export interface DeployRecord {
   createdAt: Date;
 }
 
-export type ManagedHostStatus = 'pending' | 'healthy' | 'unhealthy' | 'error';
+// Re-export from canonical location to avoid duplication
+import type { HostStatus } from '@/lib/database/repositories/host-repository';
+export type { HostStatus as ManagedHostStatus } from '@/lib/database/repositories/host-repository';
 
 export interface ManagedHost {
   id: number;
@@ -55,7 +57,7 @@ export interface ManagedHost {
   agentTokenHash: string;
   socketProxyUrl: string;
   agentVersion: string | null;
-  status: ManagedHostStatus;
+  status: HostStatus;
   createdAt: Date;
 }
 

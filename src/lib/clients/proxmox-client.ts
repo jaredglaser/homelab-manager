@@ -96,6 +96,7 @@ export class ProxmoxClient {
   private baseUrl: string;
   private authHeader: string;
   private fetchOptions: CrossRuntimeRequestInit;
+  private dispatcherReady: Promise<void>;
 
   constructor(config: ProxmoxConfig) {
     this.baseUrl = `https://${config.host}:${config.port}/api2/json`;
@@ -107,16 +108,26 @@ export class ProxmoxClient {
       // `dispatcher` is the undici Agent option (used in Vite SSR dev mode via Node.js-compat fetch)
       // Both are set so the correct one is picked up by whichever fetch implementation is active
       this.fetchOptions.tls = { rejectUnauthorized: false };
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Agent } = require('undici') as { Agent: new (opts: Record<string, unknown>) => unknown };
-        this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
-      } catch (err: unknown) {
-        // Only swallow missing-module errors (Bun where `tls` is used instead)
-        if (!(err instanceof Error && 'code' in err && err.code === 'MODULE_NOT_FOUND')) {
-          throw err;
-        }
-      }
+      // Dynamic import keeps undici out of Vite's dependency scan.
+      // Resolves at runtime in Node.js/Vite SSR; silently fails under Bun (which uses `tls` instead).
+      this.dispatcherReady = (import('undici' as string) as Promise<{ Agent: new (opts: Record<string, unknown>) => unknown }>)
+        .then(({ Agent }) => {
+          this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+        })
+        .catch((err: unknown) => ProxmoxClient.handleDispatcherError(err));
+    } else {
+      this.dispatcherReady = Promise.resolve();
+    }
+  }
+
+  /**
+   * Handle errors from the undici dispatcher import.
+   * Module-not-found errors are expected (Bun uses tls instead). Other errors are logged.
+   */
+  static handleDispatcherError(err: unknown): void {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('Cannot find module') && !msg.includes('MODULE_NOT_FOUND')) {
+      console.error('[ProxmoxClient] Failed to initialize undici Agent for self-signed cert support:', msg);
     }
   }
 
@@ -125,6 +136,7 @@ export class ProxmoxClient {
    */
   private async get<T>(path: string): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    await this.dispatcherReady;
     const response = await fetch(url, {
       ...this.fetchOptions,
       headers: {

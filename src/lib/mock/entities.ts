@@ -22,7 +22,7 @@ export interface DockerEntityDef {
 const MINUTE = 60_000;
 const HOUR = 3_600_000;
 
-export const DOCKER_ENTITIES: DockerEntityDef[] = [
+export const DOCKER_ENTITIES: readonly DockerEntityDef[] = [
   // ── nas01 ──────────────────────────────────────────────────────────────────
   {
     // nginx-proxy: low CPU, stable memory, bursty network
@@ -297,7 +297,7 @@ const SYSTEM_ACTIVITY: ActivityProfile = {
   high: { readBytes: 40_000_000, writeBytes: 8_000_000, readOps: 380, writeOps: 150 },
 };
 
-export const ZFS_ENTITIES: ZFSEntityDef[] = [
+export const ZFS_ENTITIES: readonly ZFSEntityDef[] = [
   // ── application pool ──────────────────────────────────────────────────────
   // Entity paths use slashes so buildHierarchyFromRows places them correctly:
   //   depth 0 (no '/')  → pool
@@ -352,7 +352,7 @@ export interface ProxmoxEntityDef {
 
 export const PROXMOX_HOST = '192.168.1.100';
 
-export const PROXMOX_ENTITIES: ProxmoxEntityDef[] = [
+export const PROXMOX_ENTITIES: readonly ProxmoxEntityDef[] = [
   // ── Cluster ────────────────────────────────────────────────────────────────
   {
     entityType: 'cluster', host: PROXMOX_HOST, node: null,

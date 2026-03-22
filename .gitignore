@@ -30,6 +30,7 @@ nul
 /refs
 docs/plans
 docs/superpowers
+.worktrees
 .openviking
 ov.conf
 data/
