@@ -114,7 +114,6 @@ describe('createCollectors', () => {
 
     const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Docker collector disabled');
-    expect(logCalls).toContain('[Worker] ZFS collector disabled');
 
     controller.abort();
   });
@@ -153,7 +152,7 @@ describe('createCollectors', () => {
     controller.abort();
   });
 
-  it('should log "no hosts" when zfs enabled but no hosts configured', async () => {
+  it('should not create ZFS collectors in createCollectors (ZFS uses managed hosts)', async () => {
     const { createCollectors } = await import('../collector-factory');
     const controller = new AbortController();
     await using stack = new AsyncDisposableStack();
@@ -161,51 +160,9 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ zfs: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockInfoCalls();
-    expect(logCalls).toContain('[Worker] ZFS enabled but no hosts configured');
+    // ZFS collectors are now created via createCollectorsForManagedHosts, not here
     expect(collectors).toHaveLength(0);
     expect(runners).toHaveLength(0);
-
-    controller.abort();
-  });
-
-  it('should create ZFS collectors when zfs enabled and hosts configured', async () => {
-    process.env.ZFS_HOST_1 = '192.168.1.50';
-    process.env.ZFS_HOST_USER_1 = 'root';
-    process.env.ZFS_HOST_NAME_1 = 'zfs-host-1';
-    process.env.ZFS_HOST_KEY_PATH_1 = '/keys/id_rsa';
-
-    const { createCollectors } = await import('../collector-factory');
-    const controller = new AbortController();
-    await using stack = new AsyncDisposableStack();
-
-    const config = createWorkerConfig({ zfs: { enabled: true } });
-    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
-
-    expect(collectors).toHaveLength(1);
-    expect(runners).toHaveLength(1);
-    expect(collectors[0].name).toBe('ZFSCollector[zfs-host-1]');
-
-    controller.abort();
-  });
-
-  it('should create both docker and zfs collectors when both enabled', async () => {
-    process.env.DOCKER_HOST_1 = '192.168.1.100';
-    process.env.DOCKER_HOST_NAME_1 = 'docker-1';
-    process.env.ZFS_HOST_1 = '192.168.1.50';
-    process.env.ZFS_HOST_USER_1 = 'root';
-    process.env.ZFS_HOST_NAME_1 = 'zfs-1';
-    process.env.ZFS_HOST_KEY_PATH_1 = '/keys/id_rsa';
-
-    const { createCollectors } = await import('../collector-factory');
-    const controller = new AbortController();
-    await using stack = new AsyncDisposableStack();
-
-    const config = createWorkerConfig({ docker: { enabled: true }, zfs: { enabled: true } });
-    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
-
-    expect(collectors).toHaveLength(2);
-    expect(runners).toHaveLength(2);
 
     controller.abort();
   });
@@ -278,13 +235,9 @@ describe('createCollectors', () => {
     controller.abort();
   });
 
-  it('should create all collectors when all enabled and configured', async () => {
+  it('should create Docker and Proxmox collectors when both enabled and configured', async () => {
     process.env.DOCKER_HOST_1 = '192.168.1.100';
     process.env.DOCKER_HOST_NAME_1 = 'docker-1';
-    process.env.ZFS_HOST_1 = '192.168.1.50';
-    process.env.ZFS_HOST_USER_1 = 'root';
-    process.env.ZFS_HOST_NAME_1 = 'zfs-1';
-    process.env.ZFS_HOST_KEY_PATH_1 = '/keys/id_rsa';
     process.env.PROXMOX_HOST = '192.168.1.200';
     process.env.PROXMOX_TOKEN_ID = 'root@pam!test';
     process.env.PROXMOX_TOKEN_SECRET = '12345678-1234-1234-1234-123456789012';
@@ -295,13 +248,13 @@ describe('createCollectors', () => {
 
     const config = createWorkerConfig({
       docker: { enabled: true },
-      zfs: { enabled: true },
       proxmox: { enabled: true },
     });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    expect(collectors).toHaveLength(3);
-    expect(runners).toHaveLength(3);
+    // ZFS collectors are now created via createCollectorsForManagedHosts
+    expect(collectors).toHaveLength(2);
+    expect(runners).toHaveLength(2);
 
     controller.abort();
   });
@@ -330,7 +283,9 @@ describe('createCollectorsForManagedHosts', () => {
     id: 1,
     name: 'homeserver',
     agent_url: 'http://192.168.1.10:9090',
-    capabilities: { docker: true },
+    agent_token_hash: '$2b$10$hash',
+    agent_token: 'token-1',
+    socket_proxy_url: 'tcp://192.168.1.10:2375',
     agent_version: '0.1.0',
     status: 'healthy',
     created_at: new Date(),
@@ -340,7 +295,6 @@ describe('createCollectorsForManagedHosts', () => {
   it('creates AgentStatsCollector for each managed host when feature flag is on', async () => {
     const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost]);
-    const mockGetToken = mock(() => Promise.resolve('test-token'));
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -351,13 +305,12 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, mockGetToken,
+      mockIsEnabled, mockFindAll,
     );
 
     expect(result.collectors).toHaveLength(1);
     expect(result.collectors[0].name).toBe('AgentStatsCollector[homeserver]');
     expect(result.runners).toHaveLength(1);
-    expect(mockGetToken).toHaveBeenCalledWith('homeserver');
 
     shutdownController.abort();
   });
@@ -365,7 +318,6 @@ describe('createCollectorsForManagedHosts', () => {
   it('returns empty when feature flag is off', async () => {
     const mockIsEnabled = mock(() => false);
     const mockFindAll = mock(async () => []);
-    const mockGetToken = mock(() => Promise.resolve(null));
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -375,7 +327,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, mockGetToken,
+      mockIsEnabled, mockFindAll,
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -388,7 +340,6 @@ describe('createCollectorsForManagedHosts', () => {
   it('returns empty when no managed hosts exist', async () => {
     const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => []);
-    const mockGetToken = mock(() => Promise.resolve('test-token'));
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -398,7 +349,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, mockGetToken,
+      mockIsEnabled, mockFindAll,
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -408,10 +359,79 @@ describe('createCollectorsForManagedHosts', () => {
     shutdownController.abort();
   });
 
-  it('skips managed hosts when OpenBao returns no token', async () => {
+  it('returns empty when both docker and zfs collection are disabled', async () => {
     const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost]);
-    const mockGetToken = mock(() => Promise.resolve(null));
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: false }, zfs: { enabled: false } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+    expect(result.runners).toHaveLength(0);
+    expect(mockFindAll).not.toHaveBeenCalled();
+
+    shutdownController.abort();
+  });
+
+  it('creates only ZFSCollector when docker disabled but zfs enabled', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [sampleManagedHost]);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: false }, zfs: { enabled: true } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(1);
+    expect(result.collectors[0].name).toBe('ZFSCollector[homeserver]');
+    expect(result.runners).toHaveLength(1);
+
+    shutdownController.abort();
+  });
+
+  it('creates both AgentStatsCollector and ZFSCollector when both enabled', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [sampleManagedHost]);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: true }, zfs: { enabled: true } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(2);
+    const names = result.collectors.map(c => c.name);
+    expect(names).toContain('AgentStatsCollector[homeserver]');
+    expect(names).toContain('ZFSCollector[homeserver]');
+    expect(result.runners).toHaveLength(2);
+
+    shutdownController.abort();
+  });
+
+  it('skips managed hosts with no agent_token', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [
+      { ...sampleManagedHost, agent_token: null },
+    ]);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -421,11 +441,10 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, mockGetToken,
+      mockIsEnabled, mockFindAll,
     );
 
     expect(result.collectors).toHaveLength(0);
-    expect(mockGetToken).toHaveBeenCalledWith('homeserver');
 
     shutdownController.abort();
   });
