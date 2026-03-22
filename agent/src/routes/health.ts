@@ -1,41 +1,67 @@
 import type Dockerode from 'dockerode';
+import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 import pkg from '../../package.json';
 
 const { version } = pkg;
 
+interface DockerCapability {
+  available: boolean;
+  version?: string;
+  apiVersion?: string;
+}
+
 /**
- * Perform a health check against the Docker daemon and produce an HTTP JSON Response describing agent and Docker status.
- *
- * @param docker - Dockerode client used to query the Docker daemon
- * @returns An HTTP Response whose JSON body is:
- * - On success (HTTP 200): `{ status: "healthy", agentVersion, docker: { version, apiVersion } }`
- * - On failure (HTTP 503): `{ status: "unhealthy", agentVersion, error: "docker_unreachable", detail: string }`
+ * Query the Docker daemon for its version info and return a capability object.
  */
-export async function handleHealth(docker: Dockerode): Promise<Response> {
+async function getDockerCapability(
+  docker: Dockerode
+): Promise<DockerCapability> {
   try {
     const dockerVersion = await docker.version();
-    return Response.json(
-      {
-        status: 'healthy',
-        agentVersion: version,
-        docker: {
-          version: dockerVersion.Version,
-          apiVersion: dockerVersion.ApiVersion,
-        },
-      },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error('Health check failed:', error);
-    const detail = error instanceof Error ? error.message : String(error);
-    return Response.json(
-      {
-        status: 'unhealthy',
-        agentVersion: version,
-        error: 'docker_unreachable',
-        detail,
-      },
-      { status: 503 }
-    );
+    return {
+      available: true,
+      version: dockerVersion.Version,
+      apiVersion: dockerVersion.ApiVersion,
+    };
+  } catch {
+    return { available: false };
   }
+}
+
+/**
+ * Perform a health check and produce an HTTP JSON Response describing agent capabilities.
+ *
+ * @param docker - Dockerode client, or null when Docker is not configured
+ * @param zfsCapabilities - Pre-detected ZFS capabilities (detected once at startup)
+ * @returns An HTTP Response whose JSON body includes status, agentVersion, and capabilities
+ */
+export async function handleHealth(
+  docker: Dockerode | null,
+  zfsCapabilities?: ZfsCapabilities
+): Promise<Response> {
+  const dockerCapability = docker
+    ? await getDockerCapability(docker)
+    : { available: false };
+
+  const zfsAvailable = zfsCapabilities?.available ?? false;
+  const isHealthy = dockerCapability.available || zfsAvailable;
+
+  return Response.json(
+    {
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      agentVersion: version,
+      capabilities: {
+        docker: dockerCapability,
+        zfs: zfsAvailable
+          ? {
+              available: true,
+              version: zfsCapabilities!.version,
+              tier: zfsCapabilities!.tier,
+              permissions: zfsCapabilities!.permissions,
+            }
+          : { available: false },
+      },
+    },
+    { status: isHealthy ? 200 : 503 }
+  );
 }
