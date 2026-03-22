@@ -18,12 +18,12 @@ export type UpdateAgentResult = HostOperationResult;
 export interface HostRepo {
   findById(id: number): Promise<ManagedHost | null>;
   findAll(): Promise<ManagedHost[]>;
-  create(input: { name: string; agent_url: string; socket_proxy_url: string }): Promise<ManagedHost>;
+  create(input: { name: string; agent_url: string; socket_proxy_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
-  updateAgentUrl(id: number, agentUrl: string): Promise<void>;
-  update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string }): Promise<ManagedHost>;
+  updateAgentUrl?(id: number, agentUrl: string): Promise<void>;
+  update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
 
 export interface HostHandlerDeps {
@@ -61,26 +61,14 @@ export async function handleCheckHostHealth(
 
 export async function handleRemoveHost(
   deps: HostHandlerDeps & {
-    removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>;
     deleteToken: (hostname: string) => Promise<void>;
   },
   data: { hostId: number },
-): Promise<{ success: boolean; containerRemoved: boolean; warning?: string }> {
+): Promise<{ success: boolean }> {
   if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
 
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
-
-  let containerRemoved = true;
-  try {
-    await deps.removeAgent(host.socket_proxy_url, host.id);
-  } catch (err) {
-    containerRemoved = false;
-    console.error(
-      `[removeHost] Failed to remove agent container for ${host.name}:`,
-      err instanceof Error ? err.message : err
-    );
-  }
 
   try {
     await deps.deleteToken(host.name);
@@ -89,17 +77,11 @@ export async function handleRemoveHost(
   }
 
   await deps.repo.delete(data.hostId);
-  return {
-    success: true,
-    containerRemoved,
-    warning: containerRemoved
-      ? undefined
-      : `Host record deleted, but the agent container on ${host.name} could not be removed. It may need manual cleanup.`,
-  };
+  return { success: true };
 }
 
 export async function handleUpdateAgent(
-  deps: HostHandlerDeps & { updateAgent: (socketProxyUrl: string, hostId: number) => Promise<{ healthy: boolean; version?: string; error?: string }> },
+  deps: HostHandlerDeps & { checkHealth: (url: string) => Promise<HealthCheckOutcome> },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
   if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
@@ -107,26 +89,16 @@ export async function handleUpdateAgent(
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  let result: { healthy: boolean; version?: string; error?: string };
-  try {
-    result = await deps.updateAgent(host.socket_proxy_url, host.id);
-  } catch (err) {
-    try {
-      await deps.repo.updateStatus(host.id, 'unhealthy');
-    } catch (statusErr) {
-      console.error(`[updateAgent] Failed to update status for host ${host.id}:`, statusErr instanceof Error ? statusErr.message : statusErr);
-    }
-    return { hostId: host.id, healthy: false, error: err instanceof Error ? err.message : String(err) };
+  const healthResult = await deps.checkHealth(host.agent_url);
+  const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
+  await deps.repo.updateStatus(host.id, newStatus);
+  if (healthResult.healthy && healthResult.version) {
+    await deps.repo.updateAgentVersion(host.id, healthResult.version);
   }
 
-  if (result.healthy) {
-    await deps.repo.updateStatus(host.id, 'healthy');
-    if (result.version) await deps.repo.updateAgentVersion(host.id, result.version);
-    return { hostId: host.id, healthy: true, version: result.version };
-  }
-
-  await deps.repo.updateStatus(host.id, 'unhealthy');
-  return { hostId: host.id, healthy: false, error: result.error ?? 'Unknown error' };
+  return healthResult.healthy
+    ? { hostId: host.id, healthy: true, version: healthResult.version, dockerVersion: healthResult.dockerVersion }
+    : { hostId: host.id, healthy: false, error: healthResult.error };
 }
 
 export async function handleUpdateHost(
@@ -188,6 +160,50 @@ export async function handleRegisterExistingHost(
       agentVersion: (healthResult.healthy && healthResult.version) ? healthResult.version : null,
       status,
     }),
+  };
+}
+
+/**
+ * Verify and register a user-managed agent. Health-checks first (before creating
+ * any DB record), then creates the host record and stores the token in OpenBao.
+ */
+export async function handleVerifyHost(
+  deps: HostHandlerDeps & {
+    storeToken: (hostname: string, token: string) => Promise<void>;
+    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+  },
+  data: { name: string; agentUrl: string; agentToken: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+): Promise<AddHostResult> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  // 1. Health check the agent before creating any records
+  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, [500, 1000, 2000]);
+  if (!healthResult.healthy) {
+    throw new Error(`Agent health check failed: ${healthResult.error}`);
+  }
+
+  // 2. Create DB record
+  const host = await deps.repo.create({
+    name: data.name,
+    agent_url: data.agentUrl,
+    capabilities: data.capabilities,
+  });
+
+  // 3. Store token in OpenBao
+  try {
+    await deps.storeToken(data.name, data.agentToken);
+  } catch (err) {
+    await deps.repo.delete(host.id);
+    throw new Error(`Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record has been cleaned up.`);
+  }
+
+  // 4. Update status
+  const status: HostStatus = 'healthy';
+  await deps.repo.updateStatus(host.id, status);
+  if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
+
+  return {
+    host: toHostListItem(host, { agentVersion: healthResult.version || null, status }),
   };
 }
 
@@ -306,7 +322,7 @@ export async function handleAddHost(
   }
 
   try {
-    await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
+    await deps.repo.updateAgentUrl?.(host.id, provisionResult.agentUrl);
     await deps.storeToken(data.name, plainToken);
   } catch (err) {
     await rollbackPostProvision(deps, host.id, data, err, `for ${data.name} after post-provision failure`);

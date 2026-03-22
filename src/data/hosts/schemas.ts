@@ -18,6 +18,16 @@ export const registerExistingHostSchema = z.object({
   agentToken: z.string().min(1),
 });
 
+export const verifyHostSchema = z.object({
+  name: z.string().min(1).max(100),
+  agentUrl: z.string().url(),
+  agentToken: z.string().min(1),
+  capabilities: z.object({
+    docker: z.boolean().optional().default(false),
+    zfs: z.boolean().optional().default(false),
+  }).optional().default({ docker: false, zfs: false }),
+});
+
 export const removeHostSchema = z.object({ hostId: z.number().int().positive() });
 export const updateAgentSchema = z.object({ hostId: z.number().int().positive() });
 export const checkHostHealthSchema = z.object({ hostId: z.number().int().positive() });

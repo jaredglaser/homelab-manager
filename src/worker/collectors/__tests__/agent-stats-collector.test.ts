@@ -43,7 +43,7 @@ const sampleHost: ManagedHost = {
   id: 1,
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
-  socket_proxy_url: 'tcp://192.168.1.10:2375',
+  capabilities: { docker: true },
   agent_version: '0.1.0',
   status: 'healthy',
   created_at: new Date('2026-01-01T00:00:00Z'),
