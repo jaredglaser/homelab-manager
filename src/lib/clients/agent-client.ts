@@ -46,6 +46,10 @@ export interface AgentHealthResponse {
  * Thin HTTP client for communicating with the homelab-manager agent.
  * All requests include the bearer token and a timeout via AbortSignal.
  * Adapts the raw agent JSON into the internal AgentDeployResponse / AgentHealthResponse shapes.
+ *
+ * HTTPS is supported natively — use https:// in the agent URL.
+ * For self-signed certs (e.g., from OpenBao PKI), set NODE_EXTRA_CA_CERTS
+ * env var to the CA certificate path.
  */
 export class AgentClient {
   private readonly agentUrl: string;
