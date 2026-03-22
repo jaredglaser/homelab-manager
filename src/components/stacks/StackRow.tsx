@@ -36,17 +36,17 @@ function ContainerStatusBadge({ statusEntry }: { statusEntry: StackStatusEntry |
   const total = statusEntry.containers.length;
   const running = statusEntry.containers.filter((c) => c.status === 'running').length;
 
-  let color: string;
+  let colorClass: string;
   if (total === 0 || running === 0) {
-    color = 'var(--chart-deploy-failed)';
+    colorClass = 'text-red-500';
   } else if (running < total) {
-    color = 'var(--chart-deploy-pending)';
+    colorClass = 'text-amber-500';
   } else {
-    color = 'var(--chart-deploy-success)';
+    colorClass = 'text-green-500';
   }
 
   return (
-    <span className="text-xs font-medium" style={{ color }}>
+    <span className={`text-xs font-medium ${colorClass}`}>
       {running}/{total} running
     </span>
   );
@@ -127,7 +127,11 @@ export default function StackRow({ stack, expanded, onToggle, statusMap }: Reado
       </div>
 
       <Collapse in={expanded} unmountOnExit>
-        <StackDetail stackName={stack.name} />
+        <StackDetail
+          stackName={stack.name}
+          host={stack.host}
+          containers={statusEntry?.containers ?? []}
+        />
       </Collapse>
     </div>
   );
