@@ -5,6 +5,7 @@ import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
 import { handleStackDeploy, handleStackTeardown, handleStackRestart, handleStackStatus } from './routes/stacks';
 import { handleStackEvents } from './routes/stack-events';
+import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
 
 const portEnv = process.env.AGENT_PORT;
@@ -82,6 +83,14 @@ Bun.serve({
         if (url.pathname === '/stacks/teardown' && request.method === 'POST') return handleStackTeardown(request, STACKS_DIR);
         if (url.pathname === '/stacks/restart' && request.method === 'POST') return handleStackRestart(request, STACKS_DIR);
         if (url.pathname === '/stacks/status' && request.method === 'GET') return handleStackStatus(STACKS_DIR);
+      }
+
+      // ZFS routes
+      if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') {
+        return handleZfsStatsStream(request, zfsCapabilities);
+      }
+      if (url.pathname === '/zfs/pools' && request.method === 'GET') {
+        return handleZfsPools(zfsCapabilities);
       }
 
       return new Response('Not Found', { status: 404 });
