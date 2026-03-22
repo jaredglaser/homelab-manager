@@ -77,6 +77,8 @@ export function toStackDeployRecord(record: DeployRecord): StackDeployRecord {
     envHash: record.envHash,
     status: record.status,
     trigger: record.trigger,
+    action: record.action,
+    forceRecreate: record.forceRecreate,
     logs: record.logs,
     createdAt: record.createdAt.toISOString(),
   };
@@ -85,14 +87,14 @@ export function toStackDeployRecord(record: DeployRecord): StackDeployRecord {
 export interface DeployDeps {
   readCompose: (stack: string) => Promise<string>;
   getCommitSha: () => Promise<string>;
-  buildRequest: (input: { stack: string; host: string; composeContent: string; commitSha: string; action: 'deploy' | 'teardown' | 'restart' }) => DeployRequest;
-  executePipeline: (request: DeployRequest) => Promise<{ deployId?: number }>;
+  buildRequest: (input: { stack: string; host: string; composeContent: string; commitSha: string; action: 'deploy' | 'teardown' | 'restart'; forceRecreate?: boolean }) => DeployRequest;
+  executePipeline: (request: DeployRequest) => Promise<{ deployId?: number; logs?: string }>;
 }
 
 /** Testable deploy handler — takes deps instead of importing them. */
 export async function handleTriggerDeploy(
   deps: DeployDeps,
-  params: { stack: string; host: string; action: 'deploy' | 'teardown' | 'restart' },
+  params: { stack: string; host: string; action: 'deploy' | 'teardown' | 'restart'; forceRecreate?: boolean },
 ): Promise<{ deployId: number }> {
   let composeContent = '';
   try {
@@ -111,8 +113,12 @@ export async function handleTriggerDeploy(
     composeContent,
     commitSha,
     action: params.action,
+    forceRecreate: params.forceRecreate,
   });
 
   const result = await deps.executePipeline(request);
-  return { deployId: result.deployId ?? 0 };
+  if (result.deployId === undefined) {
+    throw new Error(`Deploy could not be queued: ${result.logs}`);
+  }
+  return { deployId: result.deployId };
 }

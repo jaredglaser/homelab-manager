@@ -47,6 +47,7 @@ const triggerDeploySchema = z.object({
   host: z.string().min(1),
   action: z.enum(['deploy', 'teardown', 'restart']),
   commitSha: z.string().optional(),
+  forceRecreate: z.boolean().optional(),
 });
 
 /**
@@ -139,11 +140,8 @@ export const updateStackIcon = createServerFn()
     return updateStackIconSlug(data.stackName, data.iconSlug);
   });
 
-const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
-const safePathSegment = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Must contain only letters, numbers, hyphens, and underscores');
-
 const stackVariablesSchema = z.object({
-  stackName: safePathSegment,
+  stackName: z.string().min(1),
 });
 
 /**
@@ -157,8 +155,8 @@ export const getStackVariables = createServerFn({ method: 'GET' })
   });
 
 const getVariableValueSchema = z.object({
-  stackName: safePathSegment,
-  variableName: safePathSegment,
+  stackName: z.string().min(1),
+  variableName: z.string().min(1),
 });
 
 /**
@@ -172,8 +170,8 @@ export const getVariableValue = createServerFn({ method: 'GET' })
   });
 
 const setVariableValueSchema = z.object({
-  stackName: safePathSegment,
-  variableName: safePathSegment,
+  stackName: z.string().min(1),
+  variableName: z.string().min(1),
   value: z.string(),
 });
 
@@ -188,8 +186,8 @@ export const setVariableValue = createServerFn({ method: 'POST' })
   });
 
 const deleteVariableSchema = z.object({
-  stackName: safePathSegment,
-  variableName: safePathSegment,
+  stackName: z.string().min(1),
+  variableName: z.string().min(1),
 });
 
 /**
@@ -202,9 +200,73 @@ export const deleteVariable = createServerFn({ method: 'POST' })
     await client.deleteSecret(data.stackName, data.variableName);
   });
 
+/**
+ * List managed host names for use in the create stack dialog host selector.
+ */
+export const listManagedHostNames = createServerFn({ method: 'GET' })
+  .handler(async (): Promise<string[]> => {
+    const { getManagedHostNames } = await import('@/lib/stacks/stack-service');
+    return getManagedHostNames();
+  });
+
+const createStackSchema = z.object({
+  stackName: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]*$/),
+  host: z.string().min(1),
+  autoDeploy: z.boolean(),
+});
+
+/**
+ * Create a new stack: adds an empty compose file and updates the manifest in one commit.
+ */
+export const createStack = createServerFn({ method: 'POST' })
+  .inputValidator(createStackSchema)
+  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+    const { createStackInRepo } = await import('@/lib/stacks/stack-service');
+    return createStackInRepo(data.stackName, data.host, data.autoDeploy);
+  });
+
+const deleteStackSchema = z.object({
+  stackName: z.string(),
+  teardown: z.boolean(),
+});
+
+/**
+ * Delete a stack from the git repo, optionally tearing down containers first.
+ */
+export const deleteStack = createServerFn({ method: 'POST' })
+  .inputValidator(deleteStackSchema)
+  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+    const { deleteStackFromRepo } = await import('@/lib/stacks/stack-service');
+    return deleteStackFromRepo(data.stackName, data.teardown);
+  });
+
+const updateStackSettingsSchema = z.object({
+  stackName: z.string().min(1),
+  host: z.string().min(1),
+  autoDeploy: z.boolean(),
+});
+
+/**
+ * Update stack settings (host assignment and deploy mode) by writing to manifest.yaml.
+ */
+export const updateStackSettings = createServerFn({ method: 'POST' })
+  .inputValidator(updateStackSettingsSchema)
+  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+    const { loadGitConfig } = await import('@/lib/config/git-config');
+    const { updateManifest } = await import('@/lib/git/editor-operations');
+    const config = loadGitConfig();
+    if (!config.enabled || !config.repoPath) throw new Error('Git management is not enabled');
+    return updateManifest(config.repoPath, {
+      stackName: data.stackName,
+      host: data.host,
+      autoDeploy: data.autoDeploy,
+      author: { name: 'homelab-manager', email: 'homelab-manager@localhost' },
+    });
+  });
+
 const ensureVariablesExistSchema = z.object({
-  stackName: safePathSegment,
-  variableNames: z.array(safePathSegment),
+  stackName: z.string().min(1),
+  variableNames: z.array(z.string().min(1)),
 });
 
 /**

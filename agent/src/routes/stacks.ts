@@ -6,6 +6,17 @@ const MAX_COMPOSE_SIZE_BYTES = 1_048_576; // 1 MB
 const MAX_ENV_SIZE_BYTES = 65_536; // 64 KB
 const COMPOSE_TIMEOUT_MS = 300_000; // 5 minutes
 
+/** Extract explicit `container_name` values from a compose YAML string. */
+export function parseContainerNames(composeContent: string): string[] {
+  const regex = /^\s*container_name:\s*["']?([^\s"'#]+)["']?/gm;
+  const names: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(composeContent)) !== null) {
+    names.push(match[1]);
+  }
+  return names;
+}
+
 /**
  * Validate a stack name and produce an HTTP 400 response when it is missing or invalid.
  *
@@ -74,7 +85,7 @@ export async function handleStackDeploy(
   spawn: SpawnFn = Bun.spawn,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
 ): Promise<Response> {
-  let body: { stack?: string; composeContent?: string; envContent?: string };
+  let body: { stack?: string; composeContent?: string; envContent?: string; forceRecreate?: boolean };
   try {
     body = await request.json();
   } catch (error) {
@@ -118,22 +129,40 @@ export async function handleStackDeploy(
     return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
   }
 
+  const composePath = join(stackDir, 'docker-compose.yml');
+  const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: body.stack };
+
+  // When force recreate is enabled, remove any containers with explicit
+  // container_name values that might conflict — they could belong to a
+  // different compose project so `docker compose down` won't touch them.
+  if (body.forceRecreate) {
+    const namedContainers = parseContainerNames(body.composeContent);
+    for (const name of namedContainers) {
+      try {
+        await spawnWithTimeout(spawn, {
+          cmd: ['docker', 'rm', '-f', name],
+          cwd: stackDir,
+          stdout: 'pipe',
+          stderr: 'pipe',
+          env: composeEnv,
+        }, 10_000);
+      } catch {
+        // Non-fatal — container may not exist
+      }
+    }
+  }
+
+  const cmd = ['docker', 'compose', '-f', composePath, 'up', '-d', '--remove-orphans'];
+  if (body.forceRecreate) cmd.push('--force-recreate');
+
   let result: SpawnResult;
   try {
     result = await spawnWithTimeout(spawn, {
-      cmd: [
-        'docker',
-        'compose',
-        '-f',
-        join(stackDir, 'docker-compose.yml'),
-        'up',
-        '-d',
-        '--remove-orphans',
-      ],
+      cmd,
       cwd: stackDir,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
+      env: composeEnv,
     }, timeoutMs);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

@@ -1,7 +1,7 @@
 FROM oven/bun:1 AS base
 
 # Pin versions for reproducible builds
-ARG DOCKER_CLI_VERSION=24.0.9
+ARG DOCKER_CLI_VERSION=27.5.1
 ARG DOCKER_COMPOSE_VERSION=2.32.4
 
 # Install Docker CLI (static binary — no daemon) and Docker Compose v2 plugin

@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
+import type { HostStatus } from '@/lib/database/repositories/host-repository';
 import {
   parseDockerodeConfig,
   toHostListItem,
@@ -9,7 +9,7 @@ import {
 } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
-export type { HostListItem } from '@/lib/hosts/host-utils';
+// ----- Schemas -----
 
 const socketProxyUrlSchema = z.string().min(1).refine(
   (val) => /^(tcp|http|https):\/\/.+/.test(val),
@@ -22,9 +22,35 @@ const addHostSchema = z.object({
   agentPort: z.number().int().min(1).max(65535).optional().default(9090),
 });
 
-const removeHostSchema = z.object({ hostId: z.number().int().positive() });
-const updateAgentSchema = z.object({ hostId: z.number().int().positive() });
-const checkHostHealthSchema = z.object({ hostId: z.number().int().positive() });
+const registerExistingHostSchema = z.object({
+  name: z.string().min(1).max(100),
+  agentUrl: z.string().url(),
+  socketProxyUrl: socketProxyUrlSchema,
+  agentToken: z.string().min(1),
+});
+
+const removeHostSchema = z.object({
+  hostId: z.number().int().positive(),
+});
+
+const updateAgentSchema = z.object({
+  hostId: z.number().int().positive(),
+});
+
+const checkHostHealthSchema = z.object({
+  hostId: z.number().int().positive(),
+});
+
+const updateHostSchema = z.object({
+  hostId: z.number().int().positive(),
+  name: z.string().min(1).max(100).optional(),
+  agentUrl: z.string().url().optional(),
+  socketProxyUrl: socketProxyUrlSchema.optional(),
+});
+
+// ----- Types -----
+
+export type { HostListItem } from '@/lib/hosts/host-utils';
 
 export interface AddHostResult {
   host: HostListItem;
@@ -41,10 +67,13 @@ export interface HostOperationResult {
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
 
+// ----- Handler dependencies -----
+
 export interface HostRepo {
-  findById(id: number): Promise<ManagedHost | null>;
-  findAll(): Promise<ManagedHost[]>;
-  create(input: { name: string; agent_url: string; socket_proxy_url: string }): Promise<ManagedHost>;
+  findById(id: number): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date } | null>;
+  findAll(): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }[]>;
+  create(input: { name: string; agent_url: string; socket_proxy_url: string }): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }>;
+  update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string }): Promise<{ id: number; name: string; agent_url: string; socket_proxy_url: string; agent_version: string | null; status: HostStatus; created_at: Date; updated_at: Date }>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
@@ -54,6 +83,8 @@ export interface HostHandlerDeps {
   repo: HostRepo;
   isEnabled: () => boolean;
 }
+
+// ----- Exported handler functions (testable via DI) -----
 
 export async function handleListHosts(deps: HostHandlerDeps): Promise<HostListItem[]> {
   if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
@@ -149,6 +180,24 @@ export async function handleUpdateAgent(
   return { hostId: host.id, healthy: false, error: result.error };
 }
 
+export async function handleUpdateHost(
+  deps: HostHandlerDeps,
+  data: { hostId: number; name?: string; agentUrl?: string; socketProxyUrl?: string },
+): Promise<HostListItem> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const fields: { name?: string; agent_url?: string; socket_proxy_url?: string } = {};
+  if (data.name !== undefined) fields.name = data.name;
+  if (data.agentUrl !== undefined) fields.agent_url = data.agentUrl;
+  if (data.socketProxyUrl !== undefined) fields.socket_proxy_url = data.socketProxyUrl;
+
+  const updated = await deps.repo.update(data.hostId, fields);
+  return toHostListItem(updated);
+}
+
 export async function handleAddHost(
   deps: HostHandlerDeps & {
     provision: (socketProxyUrl: string, opts: { hostId: number; agentPort: number; agentToken: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
@@ -164,9 +213,10 @@ export async function handleAddHost(
 
   const plainToken = deps.generateToken();
 
+  // Create DB record first (as 'pending') so we have a stable hostId for the container name.
   const host = await deps.repo.create({
     name: data.name,
-    agent_url: '',
+    agent_url: '', // placeholder until provisioning resolves the URL
     socket_proxy_url: data.socketProxyUrl,
   });
 
@@ -225,9 +275,55 @@ export async function handleAddHost(
   };
 }
 
-/* v8 ignore start -- server-only wiring with dynamic imports, tested via integration */
+/**
+ * Register an existing agent that's already running. No container provisioning —
+ * just creates the DB record, stores the token in OpenBao, and health-checks.
+ */
+export async function handleRegisterExistingHost(
+  deps: HostHandlerDeps & {
+    storeToken: (hostname: string, token: string) => Promise<void>;
+    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+  },
+  data: { name: string; agentUrl: string; socketProxyUrl: string; agentToken: string },
+): Promise<AddHostResult> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.create({
+    name: data.name,
+    agent_url: data.agentUrl,
+    socket_proxy_url: data.socketProxyUrl,
+  });
+
+  try {
+    await deps.storeToken(data.name, data.agentToken);
+  } catch (err) {
+    await deps.repo.delete(host.id);
+    throw new Error(
+      `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record has been cleaned up.`
+    );
+  }
+
+  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, [500, 1000, 2000]);
+  const status: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
+  await deps.repo.updateStatus(host.id, status);
+
+  if (healthResult.healthy && healthResult.version) {
+    await deps.repo.updateAgentVersion(host.id, healthResult.version);
+  }
+
+  return {
+    host: toHostListItem(host, {
+      agentVersion: (healthResult.healthy && healthResult.version) ? healthResult.version : null,
+      status,
+    }),
+  };
+}
+
+// ----- Dependency wiring (dynamic imports for server-only modules) -----
+
 async function loadDeps(): Promise<HostHandlerDeps> {
   const { isDockerManagementEnabled } = await import('@/lib/config/feature-flags');
+  // Check flag before loading DB to avoid unnecessary connection attempts
   if (!isDockerManagementEnabled()) {
     return { repo: null as unknown as HostRepo, isEnabled: () => false };
   }
@@ -243,6 +339,8 @@ async function loadDockerClient(socketProxyUrl: string) {
   const Dockerode = (await import('dockerode')).default;
   return new Dockerode(parseDockerodeConfig(socketProxyUrl));
 }
+
+// ----- createServerFn wrappers (thin wiring only) -----
 
 export const addHost = createServerFn()
   .inputValidator(addHostSchema)
@@ -264,6 +362,24 @@ export const addHost = createServerFn()
       checkHealth: checkAgentHealth,
       provision: async (url, opts) => { const docker = await loadDockerClient(url); return provService.provision(docker, opts); },
       removeAgent: async (url, hostId) => { const docker = await loadDockerClient(url); await provService.removeAgent(docker, hostId); },
+    }, data);
+  });
+
+export const registerExistingHost = createServerFn()
+  .inputValidator(registerExistingHostSchema)
+  .handler(async ({ data }): Promise<AddHostResult> => {
+    const baseDeps = await loadDeps();
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    const { initializeOpenBao } = await import('@/lib/services/openbao-init');
+    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
+    await initializeOpenBao(baoClient);
+    return handleRegisterExistingHost({
+      ...baseDeps,
+      storeToken: (hostname, token) => baoClient.setHostSecret(hostname, 'agent_token', token),
+      checkHealth: checkAgentHealth,
     }, data);
   });
 
@@ -309,4 +425,10 @@ export const checkHostHealth = createServerFn()
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     return handleCheckHostHealth({ ...baseDeps, checkHealth: checkAgentHealth }, data);
   });
-/* v8 ignore stop */
+
+export const updateHost = createServerFn()
+  .inputValidator(updateHostSchema)
+  .handler(async ({ data }): Promise<HostListItem> => {
+    const deps = await loadDeps();
+    return handleUpdateHost(deps, data);
+  });
