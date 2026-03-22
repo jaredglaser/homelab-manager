@@ -1,4 +1,5 @@
 import type Dockerode from 'dockerode';
+import type { HealthReporter } from './health-reporter';
 
 export interface AgentUpdaterConfig {
   containerName: string;
@@ -26,10 +27,12 @@ export interface UpdateResult {
 export class AgentUpdater {
   private docker: Dockerode;
   private config: AgentUpdaterConfig;
+  private healthReporter: HealthReporter;
 
-  constructor(docker: Dockerode, config: AgentUpdaterConfig) {
+  constructor(docker: Dockerode, config: AgentUpdaterConfig, healthReporter: HealthReporter) {
     this.docker = docker;
     this.config = config;
+    this.healthReporter = healthReporter;
   }
 
   /** Check whether a newer image digest is available on the registry. */
@@ -82,13 +85,26 @@ export class AgentUpdater {
         this.config.healthCheckIntervalMs
       );
       if (!healthy) {
-        console.info('Health check failed, rolling back to previous image');
+        console.info('Docker health check failed, rolling back to previous image');
         await this.rollback(newContainer, containerInfo, previousImage);
         return {
           success: false,
           previousImage,
           newImage: this.config.imageName,
           error: 'Health check failed after update',
+          rolledBack: true,
+        };
+      }
+
+      const httpHealthy = await this.healthReporter.checkAgentHealth();
+      if (!httpHealthy) {
+        console.info('Agent HTTP health check failed, rolling back to previous image');
+        await this.rollback(newContainer, containerInfo, previousImage);
+        return {
+          success: false,
+          previousImage,
+          newImage: this.config.imageName,
+          error: 'Agent HTTP health check failed after update',
           rolledBack: true,
         };
       }

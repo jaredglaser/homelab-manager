@@ -1,5 +1,6 @@
 import Dockerode from 'dockerode';
 import { AgentUpdater } from './agent-updater';
+import { HealthReporter } from './health-reporter';
 import { parseInterval } from './parse-interval';
 
 async function main(): Promise<void> {
@@ -21,12 +22,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const agentUrl = process.env.HLM_AGENT_URL || 'http://localhost:9090';
   const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
+  const healthReporter = new HealthReporter(agentUrl);
   const updater = new AgentUpdater(docker, {
     containerName,
     imageName,
     checkIntervalMs,
-  });
+  }, healthReporter);
 
   console.info(`Agent updater started — watching container '${containerName}' for image '${imageName}'`);
   console.info(`Check interval: ${intervalStr} (${checkIntervalMs}ms)`);

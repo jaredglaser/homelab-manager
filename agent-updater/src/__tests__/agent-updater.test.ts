@@ -1,11 +1,18 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { AgentUpdater } from '../agent-updater';
 import type { AgentUpdaterConfig } from '../agent-updater';
+import type { HealthReporter } from '../health-reporter';
 
 beforeAll(() => {
   console.info = mock(() => {});
   console.error = mock(() => {});
 });
+
+function createMockHealthReporter(healthy = true): HealthReporter {
+  return {
+    checkAgentHealth: mock(() => Promise.resolve(healthy)),
+  } as unknown as HealthReporter;
+}
 
 const defaultConfig: AgentUpdaterConfig = {
   containerName: 'hlm-agent',
@@ -80,7 +87,7 @@ describe('AgentUpdater', () => {
         getImage: mock(() => mockImage),
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
       const result = await updater.checkForUpdate();
 
       expect(result.updateAvailable).toBe(true);
@@ -108,7 +115,7 @@ describe('AgentUpdater', () => {
         getImage: mock(() => mockImage),
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
       const result = await updater.checkForUpdate();
 
       expect(result.updateAvailable).toBe(false);
@@ -125,7 +132,7 @@ describe('AgentUpdater', () => {
         getImage: mock(() => ({})),
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
       const result = await updater.checkForUpdate();
 
       expect(result.updateAvailable).toBe(false);
@@ -144,7 +151,7 @@ describe('AgentUpdater', () => {
         getImage: mock(() => mockImage),
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
       const result = await updater.checkForUpdate();
 
       expect(result.updateAvailable).toBe(false);
@@ -176,7 +183,8 @@ describe('AgentUpdater', () => {
         createContainer: mock(() => Promise.resolve(mockNewContainer)),
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const mockHealthReporter = createMockHealthReporter();
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, mockHealthReporter);
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(true);
@@ -186,6 +194,7 @@ describe('AgentUpdater', () => {
       expect(mockOldContainer.remove).toHaveBeenCalledTimes(1);
       expect(mockNewContainer.start).toHaveBeenCalledTimes(1);
       expect(mockDocker.createContainer).toHaveBeenCalledTimes(1);
+      expect(mockHealthReporter.checkAgentHealth).toHaveBeenCalledTimes(1);
     });
 
     test('considers container healthy when no healthcheck is defined and running', async () => {
@@ -211,7 +220,7 @@ describe('AgentUpdater', () => {
         createContainer: mock(() => Promise.resolve(mockNewContainer)),
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(true);
@@ -266,7 +275,7 @@ describe('AgentUpdater', () => {
         imageName: 'ghcr.io/org/agent:v2',
       };
 
-      const updater = new AgentUpdater(mockDocker as any, config);
+      const updater = new AgentUpdater(mockDocker as any, config, createMockHealthReporter());
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(false);
@@ -327,7 +336,7 @@ describe('AgentUpdater', () => {
         imageName: 'ghcr.io/org/agent:v2',
       };
 
-      const updater = new AgentUpdater(mockDocker as any, config);
+      const updater = new AgentUpdater(mockDocker as any, config, createMockHealthReporter());
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(false);
@@ -353,7 +362,7 @@ describe('AgentUpdater', () => {
         modem: createMockModem(),
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(false);
@@ -378,7 +387,7 @@ describe('AgentUpdater', () => {
         },
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(false);
@@ -419,11 +428,73 @@ describe('AgentUpdater', () => {
         }),
       };
 
-      const updater = new AgentUpdater(mockDocker as any, defaultConfig);
+      const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
       const result = await updater.performUpdate();
 
       expect(result.success).toBe(false);
       expect(result.rolledBack).toBe(true);
+    });
+
+    test('rolls back when Docker health passes but HTTP health check fails', async () => {
+      const containerInfo = createMockContainerInfo({
+        Config: {
+          ...createMockContainerInfo().Config,
+          Image: 'ghcr.io/org/agent:v1',
+        },
+      });
+      const healthyDockerInfo = createMockContainerInfo({
+        State: { Running: true, Health: { Status: 'healthy' } },
+      });
+
+      const mockOldContainer = {
+        inspect: mock(() => Promise.resolve(containerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+
+      const mockNewContainer = {
+        start: mock(() => Promise.resolve()),
+        inspect: mock(() => Promise.resolve(healthyDockerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+
+      const mockRollbackContainer = {
+        start: mock(() => Promise.resolve()),
+      };
+
+      let createCallCount = 0;
+
+      const mockDocker = {
+        getContainer: mock(() => mockOldContainer),
+        pull: createMockPull(),
+        modem: createMockModem(),
+        createContainer: mock(() => {
+          createCallCount++;
+          if (createCallCount === 1) {
+            return Promise.resolve(mockNewContainer);
+          }
+          return Promise.resolve(mockRollbackContainer);
+        }),
+      };
+
+      const config: AgentUpdaterConfig = {
+        ...defaultConfig,
+        imageName: 'ghcr.io/org/agent:v2',
+      };
+
+      const mockHealthReporter = createMockHealthReporter(false);
+      const updater = new AgentUpdater(mockDocker as any, config, mockHealthReporter);
+      const result = await updater.performUpdate();
+
+      expect(result.success).toBe(false);
+      expect(result.previousImage).toBe('ghcr.io/org/agent:v1');
+      expect(result.newImage).toBe('ghcr.io/org/agent:v2');
+      expect(result.error).toBe('Agent HTTP health check failed after update');
+      expect(result.rolledBack).toBe(true);
+      expect(mockDocker.createContainer).toHaveBeenCalledTimes(2);
+      expect(mockRollbackContainer.start).toHaveBeenCalledTimes(1);
+      expect(mockHealthReporter.checkAgentHealth).toHaveBeenCalledTimes(1);
     });
   });
 });
