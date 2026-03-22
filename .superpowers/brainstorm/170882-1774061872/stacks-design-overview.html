@@ -1,0 +1,286 @@
+<h2>Stacks Page — Full Design Overview</h2>
+<p class="subtitle">Review each section. We'll refine individually after.</p>
+
+<div class="section">
+  <h3>1. Data Flow — Event-Driven Stack Status</h3>
+  <div class="mockup">
+    <div class="mockup-header">Architecture: Worker → DB → NOTIFY → SSE → UI</div>
+    <div class="mockup-body" style="font-family: monospace; font-size: 13px; line-height: 1.8; padding: 20px;">
+      <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center;">
+        <div style="background: #2563eb; color: white; padding: 8px 14px; border-radius: 8px;">Worker (30s poll)</div>
+        <span>→</span>
+        <div style="background: #7c3aed; color: white; padding: 8px 14px; border-radius: 8px;">Agent /stacks/status</div>
+        <span>→</span>
+        <div style="background: #059669; color: white; padding: 8px 14px; border-radius: 8px;">Upsert stack_status table</div>
+        <span>→</span>
+        <div style="background: #d97706; color: white; padding: 8px 14px; border-radius: 8px;">NOTIFY stack_change</div>
+        <span>→</span>
+        <div style="background: #dc2626; color: white; padding: 8px 14px; border-radius: 8px;">SSE /api/stack-status</div>
+        <span>→</span>
+        <div style="background: #2563eb; color: white; padding: 8px 14px; border-radius: 8px;">UI updates</div>
+      </div>
+      <div style="margin-top: 16px; opacity: 0.7; text-align: center;">
+        Deploy pipeline also triggers NOTIFY after status changes → instant UI refresh on deploy
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>2. Stack Row — Collapsed View</h3>
+  <div class="mockup">
+    <div class="mockup-header">Table Row Columns</div>
+    <div class="mockup-body" style="padding: 0;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <thead>
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left;">
+            <th style="padding: 10px 12px; opacity: 0.6; font-weight: 500;"></th>
+            <th style="padding: 10px 12px; opacity: 0.6; font-weight: 500;">Stack</th>
+            <th style="padding: 10px 12px; opacity: 0.6; font-weight: 500;">Host</th>
+            <th style="padding: 10px 12px; opacity: 0.6; font-weight: 500;">Containers</th>
+            <th style="padding: 10px 12px; opacity: 0.6; font-weight: 500;">Sync</th>
+            <th style="padding: 10px 12px; opacity: 0.6; font-weight: 500;">Deploy Mode</th>
+            <th style="padding: 10px 12px; opacity: 0.6; font-weight: 500;">Last Deploy</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <td style="padding: 10px 12px;">&#9654;</td>
+            <td style="padding: 10px 12px; font-weight: 600;">plex</td>
+            <td style="padding: 10px 12px; opacity: 0.7;">server1</td>
+            <td style="padding: 10px 12px;"><span style="color: #22c55e;">3/3 running</span></td>
+            <td style="padding: 10px 12px;"><span style="background: #166534; padding: 2px 8px; border-radius: 10px; font-size: 12px;">in sync</span></td>
+            <td style="padding: 10px 12px;"><span style="background: #1e3a5f; padding: 2px 8px; border-radius: 10px; font-size: 12px;">auto</span></td>
+            <td style="padding: 10px 12px; opacity: 0.7;">3m ago</td>
+          </tr>
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <td style="padding: 10px 12px;">&#9654;</td>
+            <td style="padding: 10px 12px; font-weight: 600;">traefik</td>
+            <td style="padding: 10px 12px; opacity: 0.7;">server1</td>
+            <td style="padding: 10px 12px;"><span style="color: #f59e0b;">1/2 running</span></td>
+            <td style="padding: 10px 12px;"><span style="background: #854d0e; padding: 2px 8px; border-radius: 10px; font-size: 12px;">pending</span></td>
+            <td style="padding: 10px 12px;"><span style="background: #1e3a5f; padding: 2px 8px; border-radius: 10px; font-size: 12px;">manual</span></td>
+            <td style="padding: 10px 12px; opacity: 0.7;">2h ago</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 12px;">&#9654;</td>
+            <td style="padding: 10px 12px; font-weight: 600;">grafana</td>
+            <td style="padding: 10px 12px; opacity: 0.7;">server2</td>
+            <td style="padding: 10px 12px;"><span style="color: #ef4444;">0/2 running</span></td>
+            <td style="padding: 10px 12px;"><span style="background: #7f1d1d; padding: 2px 8px; border-radius: 10px; font-size: 12px;">failed</span></td>
+            <td style="padding: 10px 12px;"><span style="background: #1e3a5f; padding: 2px 8px; border-radius: 10px; font-size: 12px;">auto</span></td>
+            <td style="padding: 10px 12px; opacity: 0.7;">15m ago</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p style="margin-top: 8px; opacity: 0.6; font-size: 13px;">Container column replaces the old "container count". Color: green (all up), amber (partial), red (none). Sync status computed from deploy history vs current HEAD.</p>
+</div>
+
+<div class="section">
+  <h3>3. Expanded Stack Detail</h3>
+  <div class="mockup">
+    <div class="mockup-header">Expanded: plex stack</div>
+    <div class="mockup-body" style="padding: 16px;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <!-- Left: Compose Editor + Variables -->
+        <div>
+          <div style="font-weight: 600; margin-bottom: 8px; font-size: 13px; opacity: 0.7;">COMPOSE EDITOR</div>
+          <div style="background: #1e1e2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 12px; min-height: 150px;">
+            <span style="color: #89b4fa;">version</span>: <span style="color: #a6e3a1;">"3.8"</span><br>
+            <span style="color: #89b4fa;">services</span>:<br>
+            &nbsp;&nbsp;<span style="color: #89b4fa;">plex</span>:<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #89b4fa;">image</span>: <span style="color: #a6e3a1;">plexinc/pms-docker</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span style="color: #89b4fa;">environment</span>:<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span style="color: #fab387;">PLEX_CLAIM=${PLEX_CLAIM}</span><br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;- <span style="color: #fab387;">TZ=${TIMEZONE}</span>
+          </div>
+          <div style="margin-top: 12px;">
+            <div style="font-weight: 600; margin-bottom: 8px; font-size: 13px; opacity: 0.7;">VARIABLES (OpenBao)</div>
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 10px; font-size: 13px;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <code style="opacity: 0.8;">PLEX_CLAIM</code>
+                <input type="text" value="claim-xxxxxxxxxxxxx" style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 4px 8px; color: white; font-size: 12px;" disabled>
+                <span style="cursor: pointer; opacity: 0.5;" title="Toggle visibility">&#128065;</span>
+                <span style="cursor: pointer; opacity: 0.5;" title="Save">&#128190;</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <code style="opacity: 0.8;">TIMEZONE</code>
+                <input type="text" value="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" style="flex: 1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 4px 8px; color: white; font-size: 12px;" disabled>
+                <span style="cursor: pointer; opacity: 0.5;" title="Toggle visibility">&#128065;</span>
+                <span style="cursor: pointer; opacity: 0.5;" title="Save">&#128190;</span>
+              </div>
+            </div>
+            <p style="font-size: 11px; opacity: 0.4; margin-top: 4px;">Values fetched from OpenBao only when eye icon clicked. Never pre-loaded.</p>
+          </div>
+        </div>
+        <!-- Right: Containers + Deploy History -->
+        <div>
+          <div style="font-weight: 600; margin-bottom: 8px; font-size: 13px; opacity: 0.7;">CONTAINERS</div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 10px; font-size: 13px; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>
+              <img width="16" height="16" style="opacity: 0.7;" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2'%3E%3Crect x='2' y='6' width='20' height='12' rx='2'/%3E%3C/svg%3E" alt="">
+              <span>plex-server</span>
+              <span style="opacity: 0.4; margin-left: auto;">running</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>
+              <img width="16" height="16" style="opacity: 0.7;" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2'%3E%3Crect x='2' y='6' width='20' height='12' rx='2'/%3E%3C/svg%3E" alt="">
+              <span>plex-db</span>
+              <span style="opacity: 0.4; margin-left: auto;">running</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block;"></span>
+              <img width="16" height="16" style="opacity: 0.7;" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2'%3E%3C/svg%3E" alt="">
+              <span>plex-redis</span>
+              <span style="opacity: 0.4; margin-left: auto;">running</span>
+            </div>
+          </div>
+          <div style="font-weight: 600; margin-bottom: 8px; font-size: 13px; opacity: 0.7;">DEPLOY HISTORY</div>
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 10px; font-size: 13px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <span style="color: #22c55e;">&#10004;</span>
+              <span style="font-family: monospace; font-size: 11px; opacity: 0.6;">a1b2c3d</span>
+              <span>ui deploy</span>
+              <span style="opacity: 0.4; margin-left: auto;">3m ago</span>
+              <button style="background: #7f1d1d; border: 1px solid #991b1b; color: #fca5a5; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Rollback</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <span style="color: #22c55e;">&#10004;</span>
+              <span style="font-family: monospace; font-size: 11px; opacity: 0.6;">e4f5g6h</span>
+              <span>git push</span>
+              <span style="opacity: 0.4; margin-left: auto;">2h ago</span>
+              <button style="background: #7f1d1d; border: 1px solid #991b1b; color: #fca5a5; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Rollback</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="color: #ef4444;">&#10008;</span>
+              <span style="font-family: monospace; font-size: 11px; opacity: 0.6;">i7j8k9l</span>
+              <span>git push</span>
+              <span style="opacity: 0.4; margin-left: auto;">1d ago</span>
+              <button style="background: #7f1d1d; border: 1px solid #991b1b; color: #fca5a5; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;">Rollback</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Actions bar -->
+      <div style="display: flex; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
+        <button style="background: #2563eb; color: white; border: none; padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;">Deploy</button>
+        <button style="background: rgba(255,255,255,0.08); color: white; border: 1px solid rgba(255,255,255,0.15); padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;">Restart</button>
+        <button style="background: rgba(255,255,255,0.08); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;">Teardown</button>
+        <div style="margin-left: auto;">
+          <button style="background: rgba(239,68,68,0.1); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); padding: 6px 16px; border-radius: 6px; cursor: pointer; font-size: 13px;">Delete Stack...</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>4. Stack Creation</h3>
+  <div class="mockup">
+    <div class="mockup-header">Create Stack Dialog</div>
+    <div class="mockup-body" style="padding: 20px; max-width: 450px;">
+      <div style="margin-bottom: 14px;">
+        <label style="font-size: 12px; opacity: 0.6; display: block; margin-bottom: 4px;">Stack Name</label>
+        <input type="text" placeholder="my-stack" style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 8px; color: white; box-sizing: border-box;">
+      </div>
+      <div style="margin-bottom: 14px;">
+        <label style="font-size: 12px; opacity: 0.6; display: block; margin-bottom: 4px;">Target Host</label>
+        <select style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; padding: 8px; color: white; box-sizing: border-box;">
+          <option>server1</option>
+          <option>server2</option>
+        </select>
+      </div>
+      <div style="margin-bottom: 14px;">
+        <label style="font-size: 12px; opacity: 0.6; display: block; margin-bottom: 4px;">Deploy Mode</label>
+        <div style="display: flex; gap: 8px;">
+          <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; cursor: pointer;"><input type="radio" name="mode" checked> Auto</label>
+          <label style="display: flex; align-items: center; gap: 4px; padding: 6px 12px; border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; cursor: pointer;"><input type="radio" name="mode"> Manual</label>
+        </div>
+      </div>
+      <p style="font-size: 12px; opacity: 0.5;">Creates an empty compose file in the git repo. Edit in the compose editor after creation, or push via git.</p>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px;">
+        <button style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 6px 16px; border-radius: 6px; cursor: pointer;">Cancel</button>
+        <button style="background: #2563eb; border: none; color: white; padding: 6px 16px; border-radius: 6px; cursor: pointer;">Create Stack</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>5. Delete Confirmation</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Rollback Confirmation</div>
+      <div class="mockup-body" style="padding: 20px; text-align: center;">
+        <p style="font-size: 16px; margin-bottom: 8px;">Rollback <strong>plex</strong>?</p>
+        <p style="opacity: 0.6; font-size: 13px;">This will redeploy commit <code style="background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px;">e4f5g6h</code></p>
+        <p style="opacity: 0.5; font-size: 12px; margin-bottom: 16px;">Containers will be recreated with the previous compose configuration.</p>
+        <div style="display: flex; gap: 8px; justify-content: center;">
+          <button style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 6px 16px; border-radius: 6px;">Cancel</button>
+          <button style="background: #dc2626; border: none; color: white; padding: 6px 16px; border-radius: 6px;">Confirm Rollback</button>
+        </div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">Delete Stack — User Chooses</div>
+      <div class="mockup-body" style="padding: 20px; text-align: center;">
+        <p style="font-size: 16px; margin-bottom: 8px;">Delete <strong>grafana</strong>?</p>
+        <p style="opacity: 0.6; font-size: 13px; margin-bottom: 16px;">Choose what to do with running containers:</p>
+        <div style="display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 0 auto 16px;">
+          <label style="display: flex; align-items: flex-start; gap: 8px; padding: 10px; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; cursor: pointer; text-align: left;">
+            <input type="radio" name="delete" style="margin-top: 2px;">
+            <div>
+              <div style="font-weight: 600; font-size: 13px;">Remove from management</div>
+              <div style="font-size: 11px; opacity: 0.5;">Containers keep running. Removes from git repo only.</div>
+            </div>
+          </label>
+          <label style="display: flex; align-items: flex-start; gap: 8px; padding: 10px; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; cursor: pointer; text-align: left;">
+            <input type="radio" name="delete" style="margin-top: 2px;">
+            <div>
+              <div style="font-weight: 600; font-size: 13px; color: #fca5a5;">Tear down &amp; remove</div>
+              <div style="font-size: 11px; opacity: 0.5;">Stops containers, removes from git repo.</div>
+            </div>
+          </label>
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: center;">
+          <button style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: white; padding: 6px 16px; border-radius: 6px;">Cancel</button>
+          <button style="background: #dc2626; border: none; color: white; padding: 6px 16px; border-radius: 6px;">Delete Stack</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>6. Summary of All Changes</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 13px;">
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px;">
+      <div style="font-weight: 600; margin-bottom: 6px; color: #60a5fa;">Backend</div>
+      <ul style="margin: 0; padding-left: 18px; line-height: 1.8;">
+        <li>New <code>stack_status</code> DB table + NOTIFY trigger</li>
+        <li>Worker: StackStatusCollector polls agent every 30s</li>
+        <li>SSE endpoint: <code>/api/stack-status</code></li>
+        <li>Sync status computed from deploy_history vs HEAD</li>
+        <li>OpenBao read/write server functions for variables</li>
+        <li>Stack create/delete server functions</li>
+        <li>Git post-receive → deploy pipeline wiring</li>
+      </ul>
+    </div>
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px;">
+      <div style="font-weight: 600; margin-bottom: 6px; color: #60a5fa;">Frontend</div>
+      <ul style="margin: 0; padding-left: 18px; line-height: 1.8;">
+        <li>StackRow: container status summary column</li>
+        <li>StackDetail: container list with status + icons</li>
+        <li>VariablesPanel: eye toggle → lazy fetch from OpenBao</li>
+        <li>DeployHistoryList: per-deploy rollback buttons</li>
+        <li>Rollback confirmation dialog</li>
+        <li>Create Stack dialog + button</li>
+        <li>Delete Stack dialog (unmanage vs teardown)</li>
+        <li>SSE hook for live stack status updates</li>
+      </ul>
+    </div>
+  </div>
+</div>

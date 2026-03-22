@@ -53,8 +53,6 @@ describe('toStackDeployRecord', () => {
     envHash: 'hash2',
     status: 'succeeded',
     trigger: 'ui',
-    action: 'deploy',
-    forceRecreate: false,
     logs: 'deploy ok',
     createdAt: new Date('2026-03-01T12:00:00Z'),
   };
@@ -175,13 +173,12 @@ describe('handleTriggerDeploy', () => {
     expect(result.deployId).toBe(42);
   });
 
-  test('throws when pipeline returns no deployId', async () => {
+  test('returns 0 when pipeline returns no deployId', async () => {
     const deps = mockDeps({
       executePipeline: mock(() => Promise.resolve({})),
     });
-    await expect(
-      handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' })
-    ).rejects.toThrow(/Deploy could not be queued/);
+    const result = await handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' });
+    expect(result.deployId).toBe(0);
   });
 
   test('passes compose content and commit SHA to buildRequest', async () => {

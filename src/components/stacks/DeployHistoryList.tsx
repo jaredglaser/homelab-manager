@@ -1,9 +1,8 @@
-import { useMemo, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { Button, Chip, Collapse, Paper, Skeleton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
-import { ChevronRight, GitCommit, HelpCircle } from 'lucide-react';
-import type { StackDeployRecord, DeployAction, DeployStatus } from '@/types/stacks';
+import { Button, Chip, Collapse, Paper, Skeleton, Typography } from '@mui/material';
+import { ChevronRight, GitCommit } from 'lucide-react';
+import type { StackDeployRecord, DeployStatus, DeployTrigger } from '@/types/stacks';
 import { triggerDeploy } from '@/data/stacks.functions';
 import RollbackDialog from '@/components/stacks/RollbackDialog';
 
@@ -12,7 +11,7 @@ const STATUS_COLOR: Record<DeployStatus, string> = {
   failed: 'var(--chart-deploy-failed)',
   pending: 'var(--chart-deploy-pending)',
   in_progress: 'var(--chart-deploy-in-progress)',
-  no_change: 'var(--chart-deploy-success)',
+  no_change: 'var(--chart-text-muted)',
 };
 
 const STATUS_LABEL: Record<DeployStatus, string> = {
@@ -20,31 +19,22 @@ const STATUS_LABEL: Record<DeployStatus, string> = {
   failed: 'Failed',
   pending: 'Pending',
   in_progress: 'In Progress',
-  no_change: 'No Changes',
+  no_change: 'No Change',
 };
 
-const ACTION_LABEL: Record<DeployAction, string> = {
-  deploy: 'Deploy',
-  teardown: 'Teardown',
-  restart: 'Restart',
+const TRIGGER_LABEL: Record<DeployTrigger, string> = {
+  git_push: 'Git Push',
+  ui: 'UI',
+  manual_rollback: 'Rollback',
 };
-
-function getActionLabel(record: StackDeployRecord): string {
-  if (record.action === 'deploy' && record.forceRecreate) return 'Force Deploy';
-  return ACTION_LABEL[record.action];
-}
 
 const ROLLBACK_ELIGIBLE: Set<DeployStatus> = new Set(['succeeded', 'no_change']);
-
-type StatusFilter = DeployStatus | 'all';
 
 interface DeployHistoryListProps {
   records: StackDeployRecord[];
   isLoading: boolean;
   stackName?: string;
   host?: string;
-  onRollbackComplete?: () => void;
-  onRollbackError?: (err: Error) => void;
 }
 
 export default function DeployHistoryList({
@@ -52,25 +42,7 @@ export default function DeployHistoryList({
   isLoading,
   stackName,
   host,
-  onRollbackComplete,
-  onRollbackError,
 }: DeployHistoryListProps) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const listRef = useRef<HTMLDivElement>(null);
-
-  const filtered = useMemo(() => {
-    if (statusFilter === 'all') return records;
-    return records.filter((r) => r.status === statusFilter);
-  }, [records, statusFilter]);
-
-  const virtualizer = useWindowVirtualizer({
-    count: filtered.length,
-    estimateSize: () => 44,
-    overscan: 10,
-    scrollMargin: listRef.current?.offsetTop ?? 0,
-    getItemKey: (index) => filtered[index].id,
-  });
-
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -89,92 +61,16 @@ export default function DeployHistoryList({
     );
   }
 
-  const hasStatusVariety = new Set(records.map((r) => r.status)).size > 1;
-  const virtualItems = virtualizer.getVirtualItems();
-
   return (
-    <div>
-      {hasStatusVariety && (
-        <div className="flex items-center gap-3 mb-3 flex-wrap">
-          <ToggleButtonGroup
-            value={statusFilter}
-            exclusive
-            onChange={(_e, v) => { if (v) setStatusFilter(v) }}
-            size="small"
-          >
-            <ToggleButton value="all" className="!normal-case !px-3 !text-xs">All</ToggleButton>
-            <ToggleButton value="succeeded" className="!normal-case !px-3 !text-xs">Succeeded</ToggleButton>
-            <ToggleButton value="failed" className="!normal-case !px-3 !text-xs">Failed</ToggleButton>
-          </ToggleButtonGroup>
-          {filtered.length !== records.length && (
-            <Typography variant="caption" className="opacity-50">
-              {filtered.length} of {records.length}
-            </Typography>
-          )}
-          <Tooltip
-            title={
-              <div className="p-1">
-                <Typography variant="subtitle2" className="!text-inherit mb-1">Deploy History</Typography>
-                <Typography variant="caption" className="!text-inherit block opacity-90">
-                  Showing the most recent 100 deployments for this stack. Use the filters
-                  to narrow by status. Expand a row to view its deploy logs.
-                </Typography>
-                <Typography variant="caption" className="!text-inherit block opacity-70 mt-1">
-                  Eligible deployments can be rolled back to recreate containers from a previous compose configuration.
-                </Typography>
-              </div>
-            }
-            placement="top-start"
-            slotProps={{ tooltip: { className: '!max-w-xs' } }}
-          >
-            <span className="p-0.5 opacity-40 hover:opacity-80 transition-opacity cursor-help">
-              <HelpCircle size={14} />
-            </span>
-          </Tooltip>
-        </div>
-      )}
-
-      {filtered.length === 0 ? (
-        <Typography variant="body2" className="opacity-50 py-2">
-          No deploys match the selected filters.
-        </Typography>
-      ) : (
-        <div ref={listRef}>
-          <div
-            style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translate3d(0, ${(virtualItems[0]?.start ?? 0) - virtualizer.options.scrollMargin}px, 0)`,
-              }}
-            >
-              {virtualItems.map((virtualRow) => {
-                const record = filtered[virtualRow.index];
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                    className="pb-1"
-                  >
-                    <DeployHistoryRow
-                      record={record}
-                      stackName={stackName}
-                      host={host}
-                      onRollbackComplete={onRollbackComplete}
-                      onRollbackError={onRollbackError}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+    <div className="space-y-1">
+      {records.map((record) => (
+        <DeployHistoryRow
+          key={record.id}
+          record={record}
+          stackName={stackName}
+          host={host}
+        />
+      ))}
     </div>
   );
 }
@@ -183,22 +79,18 @@ interface DeployHistoryRowProps {
   record: StackDeployRecord;
   stackName?: string;
   host?: string;
-  onRollbackComplete?: () => void;
-  onRollbackError?: (err: Error) => void;
 }
 
-function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError }: DeployHistoryRowProps) {
+function DeployHistoryRow({ record, stackName, host }: DeployHistoryRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const statusColor = STATUS_COLOR[record.status];
   const timestamp = new Date(record.createdAt);
-  const canRollback = stackName !== undefined && host !== undefined && record.action === 'deploy' && ROLLBACK_ELIGIBLE.has(record.status);
+  const canRollback = stackName !== undefined && host !== undefined && ROLLBACK_ELIGIBLE.has(record.status);
 
   const rollbackMutation = useMutation({
     mutationFn: () =>
       triggerDeploy({ data: { stack: stackName!, host: host!, action: 'deploy', commitSha: record.commitSha } }),
-    onSuccess: () => onRollbackComplete?.(),
-    onError: (err) => onRollbackError?.(err instanceof Error ? err : new Error(String(err))),
   });
 
   function handleRollbackConfirm() {
@@ -229,17 +121,17 @@ function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollb
 
           <Chip
             size="small"
-            label={getActionLabel(record)}
-            className="!text-xs !h-5"
-            variant="filled"
-          />
-
-          <Chip
-            size="small"
             label={STATUS_LABEL[record.status]}
             className="!text-xs !h-5"
             style={{ color: statusColor, borderColor: statusColor }}
             variant="outlined"
+          />
+
+          <Chip
+            size="small"
+            label={TRIGGER_LABEL[record.trigger]}
+            className="!text-xs !h-5"
+            variant="filled"
           />
 
           <span className="ml-auto opacity-50 text-xs whitespace-nowrap">
