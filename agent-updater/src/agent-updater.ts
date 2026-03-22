@@ -62,10 +62,12 @@ export class AgentUpdater {
   /** Pull new image, stop old container, recreate with same config, verify health. Rolls back on failure. */
   async performUpdate(): Promise<UpdateResult> {
     let previousImage: string | undefined;
+    let containerInfo: Dockerode.ContainerInspectInfo | undefined;
+    let teardownCompleted = false;
 
     try {
       const container = this.docker.getContainer(this.config.containerName);
-      const containerInfo = await container.inspect();
+      containerInfo = await container.inspect();
       previousImage = containerInfo.Config.Image;
 
       console.info(`Pulling new image: ${this.config.imageName}`);
@@ -74,6 +76,7 @@ export class AgentUpdater {
       console.info(`Stopping container: ${this.config.containerName}`);
       await container.stop();
       await container.remove();
+      teardownCompleted = true;
 
       console.info(`Creating container: ${this.config.containerName}`);
       const newContainer = await this.recreateContainer(containerInfo);
@@ -86,26 +89,26 @@ export class AgentUpdater {
       );
       if (!healthy) {
         console.info('Docker health check failed, rolling back to previous image');
-        await this.rollback(newContainer, containerInfo, previousImage);
+        const rolledBack = await this.rollback(newContainer, containerInfo, previousImage);
         return {
           success: false,
           previousImage,
           newImage: this.config.imageName,
           error: 'Health check failed after update',
-          rolledBack: true,
+          rolledBack,
         };
       }
 
       const httpHealthy = await this.healthReporter.checkAgentHealth();
       if (!httpHealthy) {
         console.info('Agent HTTP health check failed, rolling back to previous image');
-        await this.rollback(newContainer, containerInfo, previousImage);
+        const rolledBack = await this.rollback(newContainer, containerInfo, previousImage);
         return {
           success: false,
           previousImage,
           newImage: this.config.imageName,
           error: 'Agent HTTP health check failed after update',
-          rolledBack: true,
+          rolledBack,
         };
       }
 
@@ -118,6 +121,19 @@ export class AgentUpdater {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Update failed: ${message}`);
+
+      if (teardownCompleted && previousImage && containerInfo) {
+        console.info('Attempting rollback after mid-update failure');
+        const rolledBack = await this.rollback(undefined, containerInfo, previousImage);
+        return {
+          success: false,
+          previousImage,
+          newImage: this.config.imageName,
+          error: message,
+          rolledBack,
+        };
+      }
+
       return {
         success: false,
         previousImage,
@@ -152,24 +168,30 @@ export class AgentUpdater {
     });
   }
 
-  private async recreateContainer(
-    previousInfo: Dockerode.ContainerInspectInfo
-  ): Promise<Dockerode.Container> {
-    const createOptions: Dockerode.ContainerCreateOptions = {
+  private buildContainerOptions(
+    image: string,
+    info: Dockerode.ContainerInspectInfo
+  ): Dockerode.ContainerCreateOptions {
+    return {
       name: this.config.containerName,
-      Image: this.config.imageName,
-      Env: previousInfo.Config.Env,
-      HostConfig: previousInfo.HostConfig,
-      ExposedPorts: previousInfo.Config.ExposedPorts,
-      Labels: previousInfo.Config.Labels,
+      Image: image,
+      Env: info.Config.Env,
+      HostConfig: info.HostConfig,
+      ExposedPorts: info.Config.ExposedPorts,
+      Labels: info.Config.Labels,
       NetworkingConfig: {
-        EndpointsConfig: previousInfo.NetworkSettings.Networks as Record<
+        EndpointsConfig: info.NetworkSettings.Networks as Record<
           string,
           Dockerode.EndpointSettings
         >,
       },
     };
+  }
 
+  private async recreateContainer(
+    previousInfo: Dockerode.ContainerInspectInfo
+  ): Promise<Dockerode.Container> {
+    const createOptions = this.buildContainerOptions(this.config.imageName, previousInfo);
     return this.docker.createContainer(createOptions);
   }
 
@@ -184,6 +206,9 @@ export class AgentUpdater {
         const healthStatus = info.State.Health?.Status;
         if (healthStatus === 'healthy') {
           return true;
+        }
+        if (healthStatus === 'unhealthy') {
+          return false;
         }
         if (healthStatus === undefined) {
           // No healthcheck defined — consider running as healthy
@@ -200,38 +225,33 @@ export class AgentUpdater {
   }
 
   private async rollback(
-    failedContainer: Dockerode.Container,
+    failedContainer: Dockerode.Container | undefined,
     previousInfo: Dockerode.ContainerInspectInfo,
     previousImage: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
-      await failedContainer.stop();
-    } catch {
-      // May already be stopped
-    }
-    try {
-      await failedContainer.remove();
-    } catch {
-      // May already be removed
-    }
+      if (failedContainer) {
+        try {
+          await failedContainer.stop();
+        } catch {
+          // May already be stopped
+        }
+        try {
+          await failedContainer.remove();
+        } catch {
+          // May already be removed
+        }
+      }
 
-    const rollbackOptions: Dockerode.ContainerCreateOptions = {
-      name: this.config.containerName,
-      Image: previousImage,
-      Env: previousInfo.Config.Env,
-      HostConfig: previousInfo.HostConfig,
-      ExposedPorts: previousInfo.Config.ExposedPorts,
-      Labels: previousInfo.Config.Labels,
-      NetworkingConfig: {
-        EndpointsConfig: previousInfo.NetworkSettings.Networks as Record<
-          string,
-          Dockerode.EndpointSettings
-        >,
-      },
-    };
-
-    const rolledBackContainer = await this.docker.createContainer(rollbackOptions);
-    await rolledBackContainer.start();
-    console.info(`Rolled back to previous image: ${previousImage}`);
+      const rollbackOptions = this.buildContainerOptions(previousImage, previousInfo);
+      const rolledBackContainer = await this.docker.createContainer(rollbackOptions);
+      await rolledBackContainer.start();
+      console.info(`Rolled back to previous image: ${previousImage}`);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Rollback failed: ${message}`);
+      return false;
+    }
   }
 }

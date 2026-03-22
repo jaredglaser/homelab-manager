@@ -1,11 +1,19 @@
-import { describe, expect, test, mock, beforeAll } from 'bun:test';
+import { describe, expect, test, mock, beforeAll, afterAll } from 'bun:test';
 import { AgentUpdater } from '../agent-updater';
 import type { AgentUpdaterConfig } from '../agent-updater';
 import type { HealthReporter } from '../health-reporter';
 
+const originalConsoleInfo = console.info;
+const originalConsoleError = console.error;
+
 beforeAll(() => {
   console.info = mock(() => {});
   console.error = mock(() => {});
+});
+
+afterAll(() => {
+  console.info = originalConsoleInfo;
+  console.error = originalConsoleError;
 });
 
 function createMockHealthReporter(healthy = true): HealthReporter {
@@ -433,6 +441,107 @@ describe('AgentUpdater', () => {
 
       expect(result.success).toBe(false);
       expect(result.rolledBack).toBe(true);
+    });
+
+    test('returns rolledBack false when rollback itself fails', async () => {
+      const containerInfo = createMockContainerInfo({
+        Config: {
+          ...createMockContainerInfo().Config,
+          Image: 'ghcr.io/org/agent:v1',
+        },
+      });
+
+      const unhealthyInfo = createMockContainerInfo({
+        State: { Running: true, Health: { Status: 'unhealthy' } },
+      });
+
+      const mockOldContainer = {
+        inspect: mock(() => Promise.resolve(containerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+
+      const mockUnhealthyContainer = {
+        start: mock(() => Promise.resolve()),
+        inspect: mock(() => Promise.resolve(unhealthyInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+
+      let createCallCount = 0;
+
+      const mockDocker = {
+        getContainer: mock(() => mockOldContainer),
+        pull: createMockPull(),
+        modem: createMockModem(),
+        createContainer: mock(() => {
+          createCallCount++;
+          if (createCallCount === 1) {
+            return Promise.resolve(mockUnhealthyContainer);
+          }
+          return Promise.reject(new Error('no space left on device'));
+        }),
+      };
+
+      const config: AgentUpdaterConfig = {
+        ...defaultConfig,
+        imageName: 'ghcr.io/org/agent:v2',
+      };
+
+      const updater = new AgentUpdater(mockDocker as any, config, createMockHealthReporter());
+      const result = await updater.performUpdate();
+
+      expect(result.success).toBe(false);
+      expect(result.rolledBack).toBe(false);
+      expect(result.error).toBe('Health check failed after update');
+    });
+
+    test('attempts rollback after mid-update failure when teardown completed', async () => {
+      const containerInfo = createMockContainerInfo({
+        Config: {
+          ...createMockContainerInfo().Config,
+          Image: 'ghcr.io/org/agent:v1',
+        },
+      });
+
+      const mockOldContainer = {
+        inspect: mock(() => Promise.resolve(containerInfo)),
+        stop: mock(() => Promise.resolve()),
+        remove: mock(() => Promise.resolve()),
+      };
+
+      const mockRollbackContainer = {
+        start: mock(() => Promise.resolve()),
+      };
+
+      let createCallCount = 0;
+
+      const mockDocker = {
+        getContainer: mock(() => mockOldContainer),
+        pull: createMockPull(),
+        modem: createMockModem(),
+        createContainer: mock(() => {
+          createCallCount++;
+          if (createCallCount === 1) {
+            return Promise.reject(new Error('create failed'));
+          }
+          return Promise.resolve(mockRollbackContainer);
+        }),
+      };
+
+      const config: AgentUpdaterConfig = {
+        ...defaultConfig,
+        imageName: 'ghcr.io/org/agent:v2',
+      };
+
+      const updater = new AgentUpdater(mockDocker as any, config, createMockHealthReporter());
+      const result = await updater.performUpdate();
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('create failed');
+      expect(result.rolledBack).toBe(true);
+      expect(mockDocker.createContainer).toHaveBeenCalledTimes(2);
+      expect(mockRollbackContainer.start).toHaveBeenCalledTimes(1);
     });
 
     test('rolls back when Docker health passes but HTTP health check fails', async () => {

@@ -23,4 +23,10 @@ describe('parseInterval', () => {
     expect(() => parseInterval('')).toThrow('Invalid interval format');
     expect(() => parseInterval('h')).toThrow('Invalid interval format');
   });
+
+  test('throws on zero values', () => {
+    expect(() => parseInterval('0h')).toThrow('Value must be greater than zero');
+    expect(() => parseInterval('0m')).toThrow('Value must be greater than zero');
+    expect(() => parseInterval('0s')).toThrow('Value must be greater than zero');
+  });
 });
