@@ -65,10 +65,10 @@ describe('buildDeployRequests', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('should build deploy requests for auto_deploy stacks', async () => {
+  it('should build deploy requests for autoDeploy stacks', async () => {
     const sha1 = await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n  traefik:\n    host: homeserver\n    auto_deploy: false\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n  traefik:\n    host: homeserver\n    autoDeploy: false\n' },
         { path: 'plex/docker-compose.yml', content: 'services:\n  plex:\n    image: plex:v1\n' },
         { path: 'traefik/docker-compose.yml', content: 'services:\n  traefik:\n    image: traefik:v1\n' },
       ],
@@ -103,7 +103,7 @@ describe('buildDeployRequests', () => {
   it('should skip stacks not in manifest', async () => {
     const sha1 = await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'unknown/docker-compose.yml', content: 'services: {}' },
       ],
       message: 'initial',
@@ -123,7 +123,7 @@ describe('buildDeployRequests', () => {
   it('should include compose path in deploy request', async () => {
     const sha1 = await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'v1' },
       ],
       message: 'initial',

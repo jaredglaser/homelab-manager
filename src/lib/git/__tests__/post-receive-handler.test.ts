@@ -24,7 +24,7 @@ describe('processPostReceive', () => {
 
     const sha1 = await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'v1' },
       ],
       message: 'initial',
@@ -54,7 +54,7 @@ describe('processPostReceive', () => {
 
     const sha1 = await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'v1' },
       ],
       message: 'initial',
@@ -63,7 +63,7 @@ describe('processPostReceive', () => {
 
     const sha2 = await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: false\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: false\n' },
       ],
       message: 'update manifest only',
       author: { name: 'test', email: 'test@test.com' },

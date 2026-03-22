@@ -10,13 +10,15 @@
 
 ```bash
 # Development (local web + Docker services)
-bun run dev:local:up          # Start postgres + worker in Docker
+bun run dev:local:up          # Start postgres + worker + agent + OpenBao in Docker
 bun dev                       # Start web server on port 3000 with HMR
 bun run dev:local:down        # Stop Docker services
-bun run dev:local:restart      # Restart Docker services (rebuild)
+bun run dev:local:restart      # Recreate containers (picks up .env changes)
 bun run dev:local:rebuild     # Full rebuild (no cache) and restart
 bun run dev:local:wipe        # Stop Docker services and delete volumes
 bun run dev:local:logs        # Tail all Docker service logs
+bun run dev:local:logs:worker # Worker logs only
+bun run dev:local:logs:agent  # Agent logs only
 
 # Testing & Build
 bun run typecheck             # TypeScript type checking

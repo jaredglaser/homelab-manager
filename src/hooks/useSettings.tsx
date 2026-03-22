@@ -27,6 +27,8 @@ interface SettingsValue extends Settings {
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   toggleContainerExpanded: (containerId: string) => void;
   isContainerExpanded: (containerId: string) => boolean;
+  toggleStackExpanded: (stackId: string) => void;
+  isStackExpanded: (stackId: string) => boolean;
   toggleZfsHostExpanded: (hostName: string) => void;
   isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
   togglePoolExpanded: (poolId: string) => void;
@@ -130,6 +132,17 @@ export function useSettings(): SettingsValue {
       return settings.docker.expandedContainers.has(containerId);
     },
     [settings.docker.expandedContainers]
+  );
+
+  const toggleStackExpanded = useCallback((stackId: string) => {
+    optimisticSet(SETTINGS_KEYS.stacks.expandedStacks, prev => toggleInSet(prev, stackId));
+  }, [optimisticSet]);
+
+  const isStackExpanded = useCallback(
+    (stackId: string): boolean => {
+      return settings.stacks.expandedStacks.has(stackId);
+    },
+    [settings.stacks.expandedStacks]
   );
 
   const toggleZfsHostExpanded = useCallback((hostName: string) => {
@@ -239,6 +252,8 @@ export function useSettings(): SettingsValue {
     isHostExpanded,
     toggleContainerExpanded,
     isContainerExpanded,
+    toggleStackExpanded,
+    isStackExpanded,
     toggleZfsHostExpanded,
     isZfsHostExpanded,
     togglePoolExpanded,

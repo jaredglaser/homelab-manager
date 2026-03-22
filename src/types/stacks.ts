@@ -1,32 +1,48 @@
-/** Summary returned when listing all stacks. */
+// Re-export canonical types from deploy layer to avoid duplication (Issue 12)
+export type { DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployStatus, DeployTrigger, DeployAction } from '@/lib/deploy/types';
+
+// Issue 15: use underscores consistently (in_sync, not in-sync)
+export type SyncStatus = 'in_sync' | 'pending' | 'failed' | 'unknown';
+
+export type DeployMode = 'auto' | 'manual';
+
+/** Summary of a stack as shown in the list view */
 export interface StackSummary {
   name: string;
-  iconSlug: string | null;
-  /** Last deploy status per host. */
-  hosts: Array<{
-    host: string;
-    status: 'synced' | 'drift' | 'pending' | 'failed' | 'unknown';
-    lastDeployedAt: string | null;
-  }>;
+  host: string;
+  syncStatus: SyncStatus;
+  deployMode: DeployMode;
+  lastDeployAt: string | null;
+  lastDeployStatus: DeployStatus | null;
+  containerCount: number;
+  icon: string | null;
 }
 
-/** Full detail for a single stack. */
-export interface StackDetail {
-  name: string;
-  iconSlug: string | null;
+/** Full stack detail shown in expanded view */
+export interface StackDetail extends Pick<StackSummary, 'name' | 'host' | 'syncStatus' | 'deployMode' | 'icon'> {
   composeContent: string;
-  variables: Record<string, string>;
-  hosts: StackSummary['hosts'];
+  lastDeployCommitSha: string | null;
+  currentCommitSha: string;
+  variableNames: string[];
 }
 
-/** UI-facing deploy history entry, distinct from the internal DeployRecord in lib/deploy/types. */
+/** Serialized deploy record for API responses (Date → string vs canonical DeployRecord). */
 export interface StackDeployRecord {
   id: number;
-  stackName: string;
+  stack: string;
   host: string;
-  action: 'deploy' | 'teardown' | 'restart';
-  status: 'pending' | 'running' | 'success' | 'failed';
-  startedAt: string;
-  finishedAt: string | null;
-  error: string | null;
+  commitSha: string;
+  envHash: string;
+  status: DeployStatus;
+  trigger: DeployTrigger;
+  logs: string | null;
+  createdAt: string;
+}
+
+/** Request to trigger a deploy from the UI — reuses canonical DeployAction. */
+export interface UIDeployRequest {
+  stack: string;
+  host: string;
+  action: DeployAction;
 }

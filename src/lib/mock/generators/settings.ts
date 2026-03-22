@@ -24,6 +24,8 @@ export function generateDefaultSettings(): Record<string, string> {
     [SETTINGS_KEYS.docker.decimals.diskSpeed]: '1',
     [SETTINGS_KEYS.docker.decimals.networkSpeed]: '1',
 
+    [SETTINGS_KEYS.stacks.expandedStacks]: '[]',
+
     [SETTINGS_KEYS.zfs.expandedHosts]: '[]',
     [SETTINGS_KEYS.zfs.expandedPools]: '[]',
     [SETTINGS_KEYS.zfs.expandedVdevs]: '[]',

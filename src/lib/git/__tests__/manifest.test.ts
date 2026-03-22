@@ -7,21 +7,21 @@ describe('parseManifest', () => {
 stacks:
   plex:
     host: homeserver
-    auto_deploy: true
+    autoDeploy: true
   traefik:
     host: homeserver
-    auto_deploy: false
+    autoDeploy: false
 `;
     const result = parseManifest(yaml);
-    expect(result.stacks.plex).toEqual({ host: 'homeserver', auto_deploy: true });
-    expect(result.stacks.traefik).toEqual({ host: 'homeserver', auto_deploy: false });
+    expect(result.stacks.plex).toEqual({ host: 'homeserver', autoDeploy: true });
+    expect(result.stacks.traefik).toEqual({ host: 'homeserver', autoDeploy: false });
   });
 
   it('should reject manifest with missing host', () => {
     const yaml = `
 stacks:
   plex:
-    auto_deploy: true
+    autoDeploy: true
 `;
     expect(() => parseManifest(yaml)).toThrow();
   });
@@ -35,14 +35,14 @@ something_else:
     expect(() => parseManifest(yaml)).toThrow();
   });
 
-  it('should default auto_deploy to false when omitted', () => {
+  it('should default autoDeploy to false when omitted', () => {
     const yaml = `
 stacks:
   plex:
     host: homeserver
 `;
     const result = parseManifest(yaml);
-    expect(result.stacks.plex.auto_deploy).toBe(false);
+    expect(result.stacks.plex.autoDeploy).toBe(false);
   });
 
   it('should reject invalid YAML', () => {
@@ -55,10 +55,10 @@ stacks:
 stacks:
   plex:
     host: homeserver
-    auto_deploy: true
+    autoDeploy: true
   pihole:
     host: pihole-host
-    auto_deploy: true
+    autoDeploy: true
 `;
     const result = parseManifest(yaml);
     expect(Object.keys(result.stacks)).toHaveLength(2);
@@ -70,7 +70,7 @@ stacks:
 stacks:
   plex:
     host: homeserver
-    autoDeploy: true
+    auto_deploy: true
 `;
     expect(() => parseManifest(yaml)).toThrow();
   });
@@ -98,7 +98,7 @@ stacks: {}
 stacks:
   plex:
     host: ""
-    auto_deploy: true
+    autoDeploy: true
 `;
     expect(() => parseManifest(yaml)).toThrow();
   });

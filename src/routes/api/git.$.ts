@@ -19,14 +19,35 @@ function authenticateRequest(request: Request): Response | null {
   }
 
   const authHeader = request.headers.get('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader) {
     return new Response('Unauthorized', {
       status: 401,
-      headers: { 'WWW-Authenticate': 'Bearer' },
+      headers: { 'WWW-Authenticate': 'Basic realm="git"' },
     });
   }
 
-  const providedToken = authHeader.slice('Bearer '.length);
+  let providedToken: string;
+  if (authHeader.startsWith('Bearer ')) {
+    providedToken = authHeader.slice('Bearer '.length);
+  } else if (authHeader.startsWith('Basic ')) {
+    // Git sends Basic auth as base64(username:password) — the token is the password
+    let decoded: string;
+    try {
+      decoded = atob(authHeader.slice('Basic '.length));
+    } catch {
+      return new Response('Unauthorized', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Basic realm="git"' },
+      });
+    }
+    const colonIndex = decoded.indexOf(':');
+    providedToken = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : decoded;
+  } else {
+    return new Response('Unauthorized', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Basic realm="git"' },
+    });
+  }
   if (!constantTimeEqual(providedToken, token)) {
     return new Response('Forbidden', { status: 403 });
   }
@@ -50,7 +71,7 @@ export const Route = createFileRoute('/api/git/$')({
           '@/lib/git/git-http'
         );
         const { handleInfoRefs } = await import('@/lib/git/git-server');
-        const { initBareRepo } = await import('@/lib/git/repo');
+        const { ensureRepoInitialized } = await import('@/lib/git/init-repo');
 
         const url = new URL(request.url);
         const pathInfo = parseGitPath(url.pathname);
@@ -69,7 +90,7 @@ export const Route = createFileRoute('/api/git/$')({
         }
         const repoPath = config.repoPath;
 
-        await initBareRepo(repoPath);
+        await ensureRepoInitialized();
 
         const service = url.searchParams.get('service');
         if (!service) {
@@ -98,7 +119,7 @@ export const Route = createFileRoute('/api/git/$')({
           handleReceivePack,
           getHeadOid,
         } = await import('@/lib/git/git-server');
-        const { initBareRepo } = await import('@/lib/git/repo');
+        const { ensureRepoInitialized } = await import('@/lib/git/init-repo');
 
         const url = new URL(request.url);
         const pathInfo = parseGitPath(url.pathname);
@@ -113,7 +134,7 @@ export const Route = createFileRoute('/api/git/$')({
         }
         const repoPath = config.repoPath;
 
-        await initBareRepo(repoPath);
+        await ensureRepoInitialized();
 
         if (isGitUploadPackRequest('POST', pathInfo.action)) {
           return handleUploadPack(repoPath, request.body);

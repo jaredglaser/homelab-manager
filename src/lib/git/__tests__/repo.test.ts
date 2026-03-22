@@ -71,7 +71,7 @@ describe('readFileFromRepo', () => {
     // Seed with a commit
     await commitFiles(repoPath, {
       files: [
-        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    auto_deploy: true\n' },
+        { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'services:\n  plex:\n    image: plexinc/pms-docker\n' },
       ],
       message: 'initial commit',
