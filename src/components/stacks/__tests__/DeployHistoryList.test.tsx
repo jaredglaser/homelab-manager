@@ -13,6 +13,8 @@ const mockRecords: StackDeployRecord[] = [
     envHash: 'abc123',
     status: 'succeeded',
     trigger: 'ui',
+    action: 'deploy',
+    forceRecreate: false,
     logs: 'Deploy output here',
     createdAt: new Date().toISOString(),
   },
@@ -24,6 +26,8 @@ const mockRecords: StackDeployRecord[] = [
     envHash: 'def456',
     status: 'failed',
     trigger: 'git_push',
+    action: 'deploy',
+    forceRecreate: false,
     logs: 'Error: something went wrong',
     createdAt: new Date(Date.now() - 86400_000).toISOString(),
   },
@@ -61,14 +65,13 @@ describe('DeployHistoryList', () => {
 
   it('renders status badges', () => {
     render(<DeployHistoryList records={mockRecords} isLoading={false} />, { wrapper: createWrapper() });
-    expect(screen.getByText('Succeeded')).toBeDefined();
-    expect(screen.getByText('Failed')).toBeDefined();
+    expect(screen.getAllByText('Succeeded').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Failed').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('renders trigger labels', () => {
+  it('renders action labels', () => {
     render(<DeployHistoryList records={mockRecords} isLoading={false} />, { wrapper: createWrapper() });
-    expect(screen.getByText('UI')).toBeDefined();
-    expect(screen.getByText('Git Push')).toBeDefined();
+    expect(screen.getAllByText('Deploy')).toHaveLength(2);
   });
 
   it('expands log output on click', () => {

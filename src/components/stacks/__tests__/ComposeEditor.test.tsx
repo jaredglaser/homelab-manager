@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -10,22 +10,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
  *
  * monaco-setup uses Vite ?worker imports that Bun can't resolve — must be
  * mocked before ComposeEditor is imported.
- *
- * getStackVariables is mocked so VariablesPanel does not make real HTTP calls.
  */
 /** Stored onChange callback from the most recent mock editor render */
 let mockEditorOnChange: ((v: string | undefined) => void) | undefined;
-
-const mockGetStackVariables = mock((args: { data: { stackName: string } }) => {
-  // Return variables matching the initial compose content for the relevant tests.
-  // Default: no variables.
-  void args;
-  return Promise.resolve([] as string[]);
-});
-const mockSaveComposeFile = mock(() => Promise.resolve({ commitSha: 'abc123' }));
-const mockGetVariableValue = mock(() => Promise.resolve(null as string | null));
-const mockSetVariableValue = mock(() => Promise.resolve(undefined));
-const mockDeleteVariable = mock(() => Promise.resolve(undefined));
 
 mock.module('@/lib/monaco-setup', () => ({}));
 mock.module('@monaco-editor/react', () => ({
@@ -39,13 +26,6 @@ mock.module('@monaco-editor/react', () => ({
       />
     );
   },
-}));
-mock.module('@/data/stacks.functions', () => ({
-  getStackVariables: mockGetStackVariables,
-  getVariableValue: mockGetVariableValue,
-  setVariableValue: mockSetVariableValue,
-  deleteVariable: mockDeleteVariable,
-  saveComposeFile: mockSaveComposeFile,
 }));
 
 const { parseVariables } = await import('../ComposeEditor');
@@ -135,15 +115,6 @@ describe('parseVariables (compose variable detection)', () => {
 });
 
 describe('ComposeEditor component', () => {
-  beforeEach(() => {
-    mockGetStackVariables.mockClear();
-    mockGetStackVariables.mockImplementation(() => Promise.resolve([] as string[]));
-    mockSaveComposeFile.mockClear();
-    mockGetVariableValue.mockClear();
-    mockSetVariableValue.mockClear();
-    mockDeleteVariable.mockClear();
-  });
-
   it('renders the toolbar with docker-compose.yml title', async () => {
     await renderComposeEditor();
     expect(screen.getByText('docker-compose.yml')).toBeDefined();
@@ -151,43 +122,30 @@ describe('ComposeEditor component', () => {
 
   it('renders the Save & Commit button', async () => {
     await renderComposeEditor();
-    const saveButton = screen.getByRole('button', { name: /save & commit/i });
+    const saveButton = screen.getByRole('button', { name: /save/i });
     expect(saveButton).toBeDefined();
   });
 
   it('save button is disabled when content is not dirty', async () => {
     await renderComposeEditor({ content: 'image: nginx' });
-    const saveButton = screen.getByRole('button', { name: /save & commit/i });
+    const saveButton = screen.getByRole('button', { name: /save/i });
     expect((saveButton as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('renders VariablesPanel with variables from OpenBao', async () => {
-    mockGetStackVariables.mockImplementationOnce(() =>
-      Promise.resolve(['DATABASE_URL', 'SECRET_KEY']),
-    );
+  it('renders VariablesPanel with initial variables', async () => {
     await renderComposeEditor({ variables: ['DATABASE_URL', 'SECRET_KEY'] });
-    await waitFor(() => {
-      expect(screen.getByText('DATABASE_URL')).toBeDefined();
-      expect(screen.getByText('SECRET_KEY')).toBeDefined();
-    });
+    expect(screen.getByText(/DATABASE_URL/)).toBeDefined();
+    expect(screen.getByText(/SECRET_KEY/)).toBeDefined();
   });
 
-  it('renders VariablesPanel empty state when OpenBao has no variables', async () => {
-    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve([]));
+  it('renders VariablesPanel empty state when no variables', async () => {
     await renderComposeEditor({ variables: [] });
-    await waitFor(() => {
-      expect(screen.getByText('No variables in OpenBao.')).toBeDefined();
-    });
+    expect(screen.getByText('No variables detected.')).toBeDefined();
   });
 
-  it('renders variable count badge when OpenBao has variables', async () => {
-    mockGetStackVariables.mockImplementationOnce(() =>
-      Promise.resolve(['A', 'B', 'C']),
-    );
+  it('renders variable count badge when variables exist', async () => {
     await renderComposeEditor({ variables: ['A', 'B', 'C'] });
-    await waitFor(() => {
-      expect(screen.getByText('3')).toBeDefined();
-    });
+    expect(screen.getByText('3')).toBeDefined();
   });
 
   it('does not show "Unsaved changes" when content matches', async () => {
@@ -201,24 +159,17 @@ describe('ComposeEditor component', () => {
     expect((editor as HTMLTextAreaElement).value).toBe('image: redis:7');
   });
 
-  it('detects variables on editor change and updates detectedVars state', async () => {
+  it('detects variables and updates VariablesPanel on editor change', async () => {
     const { act } = await import('@testing-library/react');
-    // OpenBao returns MY_IMAGE — simulates that it was already provisioned
-    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['MY_IMAGE']));
     await renderComposeEditor({ content: 'image: nginx', variables: [] });
-    await waitFor(() => {
-      // MY_IMAGE is in OpenBao so it appears in the panel
-      expect(screen.getByText('MY_IMAGE')).toBeDefined();
-    });
+    expect(screen.getByText('No variables detected.')).toBeDefined();
     expect(mockEditorOnChange).toBeDefined();
 
-    // After typing the variable in the editor, detectedVars includes MY_IMAGE.
-    // Because MY_IMAGE is now in composeVariables, the delete button should be disabled.
     await act(async () => { mockEditorOnChange?.('image: ${MY_IMAGE}'); });
-    await waitFor(() => {
-      const deleteBtn = screen.getByLabelText('Delete variable');
-      expect((deleteBtn as HTMLButtonElement).disabled).toBe(true);
-    });
+    // The variable count badge appears when variables are detected
+    expect(screen.getByText('1')).toBeDefined();
+    // Variable name appears in the panel (also in textarea, so use getAllBy)
+    expect(screen.getAllByText(/MY_IMAGE/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows "Unsaved changes" when editor content differs from original', async () => {
@@ -233,7 +184,7 @@ describe('ComposeEditor component', () => {
   it('enables save button when content is dirty', async () => {
     const { act } = await import('@testing-library/react');
     await renderComposeEditor({ content: 'image: nginx' });
-    const saveButton = screen.getByRole('button', { name: /save & commit/i });
+    const saveButton = screen.getByRole('button', { name: /save/i });
     expect((saveButton as HTMLButtonElement).disabled).toBe(true);
 
     act(() => { mockEditorOnChange?.('image: redis'); });

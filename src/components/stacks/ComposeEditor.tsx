@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Paper, Typography, CircularProgress } from '@mui/material';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { saveComposeFile } from '@/data/stacks/functions';
+import { saveComposeFile } from '@/data/stacks.functions';
 import VariablesPanel from '@/components/stacks/VariablesPanel';
 
 interface ComposeEditorProps {
@@ -56,29 +56,6 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
     setDetectedVars(parseVariables(newContent));
   }, []);
 
-  const [panelWidth, setPanelWidth] = useState(280);
-
-  const handleDragStart = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = panelWidth;
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-
-    const onMove = (ev: globalThis.PointerEvent) => {
-      const delta = startX - ev.clientX;
-      setPanelWidth(Math.max(80, startWidth + delta));
-    };
-    const onUp = () => {
-      target.removeEventListener('pointermove', onMove);
-      target.removeEventListener('pointerup', onUp);
-      target.removeEventListener('pointercancel', onUp);
-    };
-    target.addEventListener('pointermove', onMove);
-    target.addEventListener('pointerup', onUp);
-    target.addEventListener('pointercancel', onUp);
-  }, [panelWidth]);
-
   // Reads the current theme on each render. Theme toggles trigger re-renders
   // via the settings atom, so this stays in sync without a MutationObserver.
   const isDark = typeof document !== 'undefined'
@@ -108,12 +85,9 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
         </Button>
       </div>
 
-      {/* Editor + resizable variables panel — use calc() so Monaco gets an explicit width */}
-      <div className="relative min-h-[400px]">
-        <div
-          className="absolute inset-y-0 left-0 overflow-hidden"
-          style={{ right: panelWidth + 4 }}
-        >
+      {/* Editor + variables panel */}
+      <div className="flex min-h-[400px]">
+        <div className="flex-1 min-w-0">
           {monacoReady ? (
             <Editor
               height="400px"
@@ -146,19 +120,9 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
           )}
         </div>
 
-        {/* Drag handle */}
-        <div
-          className="absolute inset-y-0 w-1 cursor-col-resize hover:bg-[var(--mui-palette-primary-main)]/30 active:bg-[var(--mui-palette-primary-main)]/50 transition-colors z-10"
-          style={{ right: panelWidth, touchAction: 'none' }}
-          onPointerDown={handleDragStart}
-        />
-
         {/* Variables side panel */}
-        <div
-          className="absolute inset-y-0 right-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto"
-          style={{ width: panelWidth }}
-        >
-          <VariablesPanel stackName={stackName} composeVariables={detectedVars} />
+        <div className="w-[280px] flex-shrink-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto">
+          <VariablesPanel variables={detectedVars} />
         </div>
       </div>
     </Paper>

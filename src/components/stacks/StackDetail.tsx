@@ -1,21 +1,14 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Alert, CircularProgress, Snackbar, Typography } from '@mui/material';
-import { getStackDetail, getDeployHistory, triggerDeploy } from '@/data/stacks.functions';
+import { useQuery } from '@tanstack/react-query';
+import { CircularProgress, Typography } from '@mui/material';
+import { getStackDetail, getDeployHistory } from '@/data/stacks.functions';
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
-import ContainerList from '@/components/stacks/ContainerList';
-import StackActionBar from '@/components/stacks/StackActionBar';
-import type { StackContainer } from '@/types/stacks';
 
 interface StackDetailProps {
   stackName: string;
-  host: string;
-  containers: StackContainer[];
 }
 
-export default function StackDetail({ stackName, host, containers }: Readonly<StackDetailProps>) {
-  const queryClient = useQueryClient();
+export default function StackDetail({ stackName }: Readonly<StackDetailProps>) {
   const { data: detail, isLoading, error } = useQuery({
     queryKey: ['stack-detail', stackName],
     queryFn: () => getStackDetail({ data: { stackName } }),
@@ -24,21 +17,6 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: ['deploy-history', stackName],
     queryFn: () => getDeployHistory({ data: { stackName, limit: 10 } }),
-  });
-
-  const [deployMessage, setDeployMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  const deployMutation = useMutation({
-    mutationFn: (action: 'deploy' | 'restart' | 'teardown') =>
-      triggerDeploy({ data: { stack: stackName, host, action } }),
-    onSuccess: (_data, action) => {
-      setDeployMessage({ type: 'success', text: `${action} triggered successfully` });
-      void queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] });
-      void queryClient.invalidateQueries({ queryKey: ['stacks-list'] });
-    },
-    onError: (err) => {
-      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) });
-    },
   });
 
   if (isLoading) {
@@ -73,41 +51,12 @@ export default function StackDetail({ stackName, host, containers }: Readonly<St
           />
         </div>
         <div>
-          <ContainerList containers={containers} />
-          <div className="mt-4">
-            <DeployHistoryList
-              records={history ?? []}
-              isLoading={historyLoading}
-              stackName={stackName}
-              host={host}
-            />
-          </div>
+          <DeployHistoryList
+            records={history ?? []}
+            isLoading={historyLoading}
+          />
         </div>
       </div>
-      <StackActionBar
-        onDeploy={() => deployMutation.mutate('deploy')}
-        onRestart={() => deployMutation.mutate('restart')}
-        onTeardown={() => deployMutation.mutate('teardown')}
-        onDelete={() => { /* wired to DeleteStackDialog in Task 13 */ }}
-        isDeploying={deployMutation.isPending}
-      />
-      <Snackbar
-        open={deployMessage !== null}
-        autoHideDuration={5000}
-        onClose={() => setDeployMessage(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        {deployMessage ? (
-          <Alert
-            severity={deployMessage.type}
-            onClose={() => setDeployMessage(null)}
-            variant="filled"
-            className="!text-sm"
-          >
-            {deployMessage.text}
-          </Alert>
-        ) : undefined}
-      </Snackbar>
     </div>
   );
 }
