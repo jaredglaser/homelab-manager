@@ -60,7 +60,7 @@ export function toHostListItem(
     name: row.name,
     agentUrl: row.agent_url,
     socketProxyUrl: row.socket_proxy_url,
-    agentVersion: overrides && 'agentVersion' in overrides ? overrides.agentVersion! : row.agent_version,
+    agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agent_version,
     status: overrides?.status ?? row.status,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -89,10 +89,10 @@ export async function retryHealthCheck(
   return result;
 }
 
-const AGENT_IMAGE_PROD = 'ghcr.io/homelab-manager/agent:latest';
 const AGENT_IMAGE_DEV = 'homelab-manager-agent:dev';
 
-/** Get the agent Docker image based on NODE_ENV. */
+/** Get the agent Docker image. Uses AGENT_IMAGE env var if set, otherwise defaults by NODE_ENV. */
 export function getAgentImage(): string {
-  return process.env.NODE_ENV === 'development' ? AGENT_IMAGE_DEV : AGENT_IMAGE_PROD;
+  if (process.env.AGENT_IMAGE) return process.env.AGENT_IMAGE;
+  return process.env.NODE_ENV === 'development' ? AGENT_IMAGE_DEV : 'ghcr.io/homelab-manager/agent:latest';
 }

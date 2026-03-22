@@ -41,7 +41,8 @@ function createMockDockerode() {
     pull: async (image: string) => {
       pulledImages.push(image);
       // Return a mock stream that resolves immediately
-      return { pipe: () => {}, on: (_e: string, cb: () => void) => { if (_e === 'end') cb(); } };
+      const stream = { pipe: () => stream, on: (_e: string, cb: () => void) => { if (_e === 'end') cb(); return stream; } };
+      return stream;
     },
     createContainer: async (config: Record<string, unknown>) => {
       const name = (config.name as string) || 'unnamed';

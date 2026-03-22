@@ -159,28 +159,43 @@ describe('retryHealthCheck', () => {
 });
 
 describe('getAgentImage', () => {
-  const originalEnv = process.env.NODE_ENV;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAgentImage = process.env.AGENT_IMAGE;
 
   afterEach(() => {
-    if (originalEnv === undefined) {
+    if (originalNodeEnv === undefined) {
       delete process.env.NODE_ENV;
     } else {
-      process.env.NODE_ENV = originalEnv;
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    if (originalAgentImage === undefined) {
+      delete process.env.AGENT_IMAGE;
+    } else {
+      process.env.AGENT_IMAGE = originalAgentImage;
     }
   });
 
   test('returns dev image in development', () => {
+    delete process.env.AGENT_IMAGE;
     process.env.NODE_ENV = 'development';
     expect(getAgentImage()).toBe('homelab-manager-agent:dev');
   });
 
   test('returns prod image in production', () => {
+    delete process.env.AGENT_IMAGE;
     process.env.NODE_ENV = 'production';
     expect(getAgentImage()).toBe('ghcr.io/homelab-manager/agent:latest');
   });
 
   test('returns prod image when NODE_ENV is unset', () => {
+    delete process.env.AGENT_IMAGE;
     delete process.env.NODE_ENV;
     expect(getAgentImage()).toBe('ghcr.io/homelab-manager/agent:latest');
+  });
+
+  test('returns AGENT_IMAGE env var when set, overriding NODE_ENV', () => {
+    process.env.AGENT_IMAGE = 'custom-registry/agent:v2.0.0';
+    process.env.NODE_ENV = 'development';
+    expect(getAgentImage()).toBe('custom-registry/agent:v2.0.0');
   });
 });

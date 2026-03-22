@@ -11,26 +11,26 @@ import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
 // ----- Schemas -----
 
-const socketProxyUrlSchema = z.string().min(1).refine(
+export const socketProxyUrlSchema = z.string().min(1).refine(
   (val) => /^(tcp|http|https):\/\/.+/.test(val),
   { message: 'Must be a valid URL with tcp://, http://, or https:// scheme' }
 );
 
-const addHostSchema = z.object({
+export const addHostSchema = z.object({
   name: z.string().min(1).max(100),
   socketProxyUrl: socketProxyUrlSchema,
   agentPort: z.number().int().min(1).max(65535).optional().default(9090),
 });
 
-const removeHostSchema = z.object({
+export const removeHostSchema = z.object({
   hostId: z.number().int().positive(),
 });
 
-const updateAgentSchema = z.object({
+export const updateAgentSchema = z.object({
   hostId: z.number().int().positive(),
 });
 
-const checkHostHealthSchema = z.object({
+export const checkHostHealthSchema = z.object({
   hostId: z.number().int().positive(),
 });
 
@@ -192,7 +192,9 @@ export async function handleAddHost(
     });
   } catch (err) {
     await deps.repo.delete(host.id);
-    throw err;
+    throw new Error(
+      `Failed to provision agent on host '${data.name}': ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   const healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
