@@ -170,7 +170,11 @@ describe('handleAddHost', () => {
     const result = await handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
     expect(result.host.name).toBe('test-host');
     expect(deps.provision).toHaveBeenCalled();
-    expect(deps.repo.create).toHaveBeenCalled();
+    expect(deps.repo.create).toHaveBeenCalledWith({
+      name: 'new',
+      agent_url: '',
+      socket_proxy_url: 'tcp://x:2375',
+    });
     expect(deps.storeToken).toHaveBeenCalledWith('new', 'mock-token');
     expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
   });

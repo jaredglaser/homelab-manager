@@ -13,4 +13,16 @@ describe('getHistoricalZFSStatsSchema', () => {
   it('accepts seconds as undefined', () => {
     expect(getHistoricalZFSStatsSchema.parse({ seconds: undefined }).seconds).toBe(60);
   });
+
+  it('rejects zero seconds', () => {
+    expect(() => getHistoricalZFSStatsSchema.parse({ seconds: 0 })).toThrow();
+  });
+
+  it('rejects negative seconds', () => {
+    expect(() => getHistoricalZFSStatsSchema.parse({ seconds: -1 })).toThrow();
+  });
+
+  it('rejects fractional seconds', () => {
+    expect(() => getHistoricalZFSStatsSchema.parse({ seconds: 1.5 })).toThrow();
+  });
 });

@@ -15,6 +15,20 @@ describe('getStackDetailSchema', () => {
   it('rejects empty stackName', () => {
     expect(() => getStackDetailSchema.parse({ stackName: '' })).toThrow();
   });
+
+  it('accepts stackName with dots, hyphens, underscores', () => {
+    expect(getStackDetailSchema.parse({ stackName: 'my-stack_v2.0' }).stackName).toBe('my-stack_v2.0');
+  });
+
+  it('rejects stackName with slashes (path traversal)', () => {
+    expect(() => getStackDetailSchema.parse({ stackName: '../etc' })).toThrow();
+    expect(() => getStackDetailSchema.parse({ stackName: 'foo/bar' })).toThrow();
+  });
+
+  it('rejects stackName with spaces or special chars', () => {
+    expect(() => getStackDetailSchema.parse({ stackName: 'my stack' })).toThrow();
+    expect(() => getStackDetailSchema.parse({ stackName: 'stack;rm' })).toThrow();
+  });
 });
 
 describe('triggerDeploySchema', () => {
@@ -47,6 +61,10 @@ describe('getDeployHistorySchema', () => {
   it('rejects limit out of range', () => {
     expect(() => getDeployHistorySchema.parse({ stackName: 'x', limit: 0 })).toThrow();
     expect(() => getDeployHistorySchema.parse({ stackName: 'x', limit: 101 })).toThrow();
+  });
+
+  it('rejects fractional limit', () => {
+    expect(() => getDeployHistorySchema.parse({ stackName: 'x', limit: 5.5 })).toThrow();
   });
 });
 
