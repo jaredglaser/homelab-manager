@@ -654,19 +654,28 @@ The agent container runs as the `hlm-zfs` user's UID/GID:
 agent:
   # ...
   user: "${HLM_ZFS_UID}:${HLM_ZFS_GID}"
+  # Docker+ZFS hosts only: add docker group for network access to socket-proxy
+  # Omit group_add on ZFS-only hosts
   group_add:
-    - "${DOCKER_GID}"  # For socket-proxy access (if Docker host)
+    - "${DOCKER_GID}"
 ```
 
-The `.env` file alongside the stack compose:
+The `.env` file alongside the stack compose. The UI **cannot** discover these values automatically (they're on the remote host), so the setup instructions tell the user to run these commands on the target host and fill in the values:
 
 ```bash
-# Run: id hlm-zfs
+# Run on the target host:
+#   id hlm-zfs
+# Then fill in:
 HLM_ZFS_UID=996
 HLM_ZFS_GID=996
-# Run: getent group docker | cut -d: -f3
+
+# Docker+ZFS hosts only — run on the target host:
+#   getent group docker | cut -d: -f3
+# Then fill in:
 DOCKER_GID=999
 ```
+
+> **ZFS-only hosts without Docker:** If the host has no Docker, the agent stack can't be deployed as a compose file. Options: (1) install Docker minimally just to run the agent stack, or (2) run the agent binary directly as a systemd service under the `hlm-zfs` user. The UI detects the host type during the "Add Host" flow and provides tailored instructions. A standalone agent binary and systemd unit file will be provided in Implementation Phase 2.
 
 #### Distro-Specific Notes
 
@@ -689,13 +698,14 @@ sudo udevadm trigger
 
 | Removed Component | Replaced By |
 |-------------------|-------------|
-| `socket-proxy` container | Agent mounts Docker socket directly |
+| Centrally-managed `socket-proxy` | Socket proxy moves into agent stack (user-deployed, stack-internal) |
 | `ssh2` library (worker) | Agent runs `zpool` commands locally |
 | SSH connection manager | Agent HTTP client (already exists) |
 | SSH middleware | *(removed)* |
 | `ZFS_HOST_*` env vars | Managed hosts in DB (with `zfs` capability) |
 | SSH credentials in OpenBao | *(not needed)* |
 | Per-host SSH key management | *(not needed)* |
+| Dockerode-based agent provisioning | User deploys agent stack themselves |
 
 ---
 
@@ -721,43 +731,61 @@ flowchart TD
     style SHOW fill:#16213e,stroke:#0f3460,color:#fff
 ```
 
-### One-Liner
+### Deployment Options
 
-The UI generates a token and displays a copy-pasteable command. The user runs it on their host using whatever method they prefer:
+The UI generates a token and displays deployment instructions. The **recommended** path is the full agent stack (compose file). For quick testing, a one-liner is also available.
+
+**Recommended: Agent Stack (compose file)**
+
+The UI generates a host-specific `docker-compose.yml` (see [Reference Agent Stack](#reference-agent-stack)) with the token pre-filled. The user copies it to their host and runs:
+
+```bash
+# Copy the generated compose file to the host, then:
+docker compose up -d
+```
+
+The stack includes the agent, socket proxy, and updater sidecar — no additional setup needed for Docker hosts.
+
+**Quick start: One-liner (no socket proxy, no updater)**
+
+For quick testing or non-Docker (ZFS-only) hosts where Docker socket access isn't needed:
 
 ```bash
 docker run -d \
-  --name homelab-agent \
+  --name hlm-agent \
   --restart unless-stopped \
-  -v /var/run/docker.sock:/var/run/docker.sock \
   -p 9090:9090 \
   -e AGENT_TOKEN=<generated-token> \
-  ghcr.io/your-org/homelab-agent:latest
+  ghcr.io/your-org/homelab-manager-agent:latest
 ```
 
-For hosts with ZFS but no Docker, the agent can run as a systemd service or any other process manager. A standalone binary or install script will be provided for non-Docker hosts.
+> **Note:** The one-liner skips the socket proxy and updater. For production use, deploy the full agent stack.
+
+For ZFS-only hosts without Docker, the agent can also run as a systemd service or any other process manager. A standalone binary will be provided for non-Docker hosts. The UI will detect the host type and tailor the instructions accordingly.
 
 ### Agent Updates
 
-Users update the agent themselves — pull the new image and restart the container. This can be automated with tools like Watchtower, or done manually:
+The agent stack includes an **updater sidecar** that automatically watches GHCR for new agent image tags and recreates the agent container (see [Updater Sidecar](#updater-sidecar)). No manual intervention needed for routine updates.
+
+For hosts using the one-liner (no updater), users update manually:
 
 ```bash
-docker pull ghcr.io/your-org/homelab-agent:latest
-docker stop homelab-agent && docker rm homelab-agent
+docker pull ghcr.io/your-org/homelab-manager-agent:latest
+docker stop hlm-agent && docker rm hlm-agent
 # re-run the original docker run command
 ```
 
-The UI shows the current agent version (from `/health`) and whether a newer version is available, so users know when to update.
+The UI shows the current agent and updater versions (from `/health`) and displays warnings when either is outdated. The web server does **not** refuse connections from old agents — availability matters more than enforcing upgrades in a homelab.
 
 ### Agent Container Changes
 
 | Change | Before | After |
 |--------|--------|-------|
-| Docker access | `DOCKER_HOST=tcp://socket-proxy:2375` | `/var/run/docker.sock` mounted |
-| ZFS access | *(not in agent)* | `zpool` binary available, pools accessible |
-| `depends_on` | `socket-proxy` | *(none)* |
-| Compose services | `socket-proxy` + `agent` | `agent` only |
-| Deployment | Provisioned by homelab-manager via Dockerode | User-managed |
+| Docker access | `DOCKER_HOST=tcp://socket-proxy:2375` (centrally managed) | `DOCKER_HOST=tcp://socket-proxy:2375` (stack-local, `internal: true` network) |
+| ZFS access | *(not in agent)* | `zpool` binary available, runs as dedicated `hlm-zfs` user |
+| Socket proxy | Separate central service | Part of agent stack (user-deployed) |
+| Compose services | Central: `socket-proxy` + `agent` | Per-host stack: `agent` + `socket-proxy` + `updater` |
+| Deployment | Provisioned by homelab-manager via Dockerode | User-managed (UI generates compose file) |
 
 ### Database Schema Changes
 
@@ -782,17 +810,14 @@ graph LR
 
     HOSTS --> H1["docker-host-1/"]
     H1 --> H1_TOKEN["agent_token"]
-    H1 --> H1_TLS["tls_cert<br/>tls_key"]
-
     HOSTS --> H2["zfs-nas/"]
     H2 --> H2_TOKEN["agent_token"]
-    H2 --> H2_TLS["tls_cert<br/>tls_key"]
 
     style H1_TOKEN fill:#8b4513,stroke:#ffa500,color:#fff
     style H2_TOKEN fill:#8b4513,stroke:#ffa500,color:#fff
-    style H1_TLS fill:#16213e,stroke:#0f3460,color:#fff
-    style H2_TLS fill:#16213e,stroke:#0f3460,color:#fff
 ```
+
+> **Note:** TLS certificates for agent communication are issued dynamically via the OpenBao **PKI secrets engine** (not stored as static KV entries). The PKI engine acts as an internal CA — agents request certs with short TTLs that auto-renew. See Implementation Phase 3 for details.
 
 ---
 
@@ -823,6 +848,7 @@ Architecture diagrams and documentation updated to reflect the target state. No 
 7. Remove `ssh2` dependency from worker, remove SSH connection manager, remove SSH middleware
 8. Document ZFS user setup — create dedicated `hlm-zfs` user with minimum permissions (see [ZFS User Setup](#zfs-user-setup))
 9. Agent runs ZFS commands as the dedicated user (not root)
+10. Provide standalone agent binary + systemd unit file for ZFS-only hosts without Docker
 
 ### Phase 3 — TLS for Agent Communication
 
@@ -907,8 +933,7 @@ See [Security Analysis — Post-Migration](#security-analysis--post-migration) b
 
 | # | Original Finding | Resolution |
 |---|-----------------|------------|
-| 4 | Agent tokens passed as container env vars | Still applies — agent token is still an env var in the container. Mitigated in Phase 3 by mounting tokens from files instead. |
-| 6 | Resolved secrets sent in plaintext to agent | Mitigated by TLS in Phase 3. Agent communication encrypted end-to-end. |
+| 6 | Resolved secrets sent in plaintext to agent | Mitigated by TLS in implementation Phase 3. Agent communication encrypted end-to-end. |
 
 ### New Considerations
 
@@ -924,12 +949,15 @@ See [Security Analysis — Post-Migration](#security-analysis--post-migration) b
 
 ### Unchanged Findings
 
-The following findings from the original security analysis remain unchanged and are addressed by the existing mitigation phases:
+The following findings from the original security analysis remain unchanged and are addressed by the OpenBao mitigation phases (see [Recommended Mitigations](#recommended-mitigations-priority-order)):
 
-- **[1] Root token shared across all services** → Phase 2 (AppRole credentials)
-- **[2] No TLS on OpenBao listener** → Phase 1 (enable TLS)
-- **[3] Init keys in plaintext on disk** → Phase 4 (encrypt at rest)
-- **[5] Agent tokens held in memory indefinitely** → Phase 3 (short-lived tokens)
-- **[7] No token rotation** → Phase 3 (token lifecycle)
-- **[8] Single Shamir share** → Phase 4 (increase shares)
-- **[9–12] Audit, ACL, storage** → Phase 2/4 (operational security)
+- **[1] Root token shared across all services** → Mitigation Phase 2 (AppRole credentials)
+- **[2] No TLS on OpenBao listener** → Mitigation Phase 1 (enable TLS)
+- **[3] Init keys in plaintext on disk** → Mitigation Phase 4 (encrypt at rest)
+- **[4] Agent tokens passed as container env vars** → Mitigation Phase 3 (mount tokens from files)
+- **[5] Agent tokens held in memory indefinitely** → Mitigation Phase 3 (short-lived tokens)
+- **[7] No token rotation** → Mitigation Phase 3 (token lifecycle)
+- **[8] Single Shamir share** → Mitigation Phase 4 (increase shares)
+- **[9–12] Audit, ACL, storage** → Mitigation Phase 2/4 (operational security)
+
+> **Phase numbering note:** This document has two separate phase sequences. "Mitigation Phases 1–4" (above) refer to the [OpenBao security mitigations](#recommended-mitigations-priority-order). "Implementation Phases 0–3" refer to the [universal agent rollout](#implementation-phases). These are independent workstreams that can proceed in parallel.
