@@ -153,21 +153,13 @@ export const Route = createFileRoute('/api/git/$')({
           // Post-receive: diff and trigger deploys (non-blocking)
           const newHead = await getHeadOid(repoPath);
           if (oldHead && newHead && oldHead !== newHead) {
-            processPostReceive(repoPath, oldHead, newHead)
-              .then((requests) => {
-                if (requests.length > 0) {
-                  console.info(
-                    `[GitServer] Post-receive generated ${requests.length} deploy request(s)`,
-                  );
-                }
-              })
-              .catch((err) => {
-                console.error(
-                  `[GitServer] Post-receive failed for ${oldHead}..${newHead}:`,
-                  err instanceof Error ? err.message : err,
-                  err instanceof Error ? err.stack : '',
-                );
-              });
+            processPostReceive(repoPath, oldHead, newHead).catch((err) => {
+              console.error(
+                `[GitServer] Post-receive failed for ${oldHead}..${newHead}:`,
+                err instanceof Error ? err.message : err,
+                err instanceof Error ? err.stack : '',
+              );
+            });
           }
 
           return response;

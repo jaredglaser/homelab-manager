@@ -107,15 +107,19 @@ async function main() {
 
       if (isDockerManagementEnabled()) {
         try {
-          const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-          const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-          const baoConfig = loadOpenBaoConfig();
-          const baoClient = new OpenBaoClient(baoConfig);
-          await baoClient.ensureSecretsEngine();
-          console.info('[Worker] OpenBao client initialized for managed host tokens');
-          getToken = (hostname: string) => baoClient.getHostSecret(hostname, 'agent_token');
+          const { loadOpenBaoConfig, isOpenBaoConfigured } = await import('@/lib/config/openbao-config');
+          if (isOpenBaoConfigured()) {
+            const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+            const baoConfig = loadOpenBaoConfig();
+            const baoClient = new OpenBaoClient(baoConfig);
+            await baoClient.ensureSecretsEngine();
+            console.info('[Worker] OpenBao client initialized for managed host tokens');
+            getToken = (hostname: string) => baoClient.getHostSecret(hostname, 'agent_token');
+          } else {
+            console.info('[Worker] OpenBao not configured, skipping token resolution');
+          }
         } catch (err) {
-          console.error('[Worker] Failed to initialize OpenBao client — managed host collectors will be skipped:', err instanceof Error ? err.message : err);
+          console.error('[Worker] OpenBao initialization failed (non-fatal, deploys will lack token resolution):', err instanceof Error ? err.message : err);
         }
       }
 

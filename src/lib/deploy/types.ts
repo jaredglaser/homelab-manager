@@ -86,6 +86,7 @@ export interface AgentDeployPayload {
   composeContent: string;
   envContent: string;
   action: DeployAction;
+  forceRecreate?: boolean;
 }
 
 export interface AgentDeployResponse {

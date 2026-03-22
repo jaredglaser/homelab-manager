@@ -23,6 +23,7 @@ export interface HostRepo {
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
   updateAgentUrl(id: number, agentUrl: string): Promise<void>;
+  update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string }): Promise<ManagedHost>;
 }
 
 export interface HostHandlerDeps {
@@ -126,6 +127,68 @@ export async function handleUpdateAgent(
 
   await deps.repo.updateStatus(host.id, 'unhealthy');
   return { hostId: host.id, healthy: false, error: result.error ?? 'Unknown error' };
+}
+
+export async function handleUpdateHost(
+  deps: HostHandlerDeps,
+  data: { hostId: number; name?: string; agentUrl?: string; socketProxyUrl?: string },
+): Promise<HostListItem> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  const fields: { name?: string; agent_url?: string; socket_proxy_url?: string } = {};
+  if (data.name !== undefined) fields.name = data.name;
+  if (data.agentUrl !== undefined) fields.agent_url = data.agentUrl;
+  if (data.socketProxyUrl !== undefined) fields.socket_proxy_url = data.socketProxyUrl;
+
+  const updated = await deps.repo.update(data.hostId, fields);
+  return toHostListItem(updated);
+}
+
+/**
+ * Register an existing agent that's already running. No container provisioning —
+ * just creates the DB record, stores the token in OpenBao, and health-checks.
+ */
+export async function handleRegisterExistingHost(
+  deps: HostHandlerDeps & {
+    storeToken: (hostname: string, token: string) => Promise<void>;
+    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+  },
+  data: { name: string; agentUrl: string; socketProxyUrl: string; agentToken: string },
+): Promise<AddHostResult> {
+  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
+  const host = await deps.repo.create({
+    name: data.name,
+    agent_url: data.agentUrl,
+    socket_proxy_url: data.socketProxyUrl,
+  });
+
+  try {
+    await deps.storeToken(data.name, data.agentToken);
+  } catch (err) {
+    await deps.repo.delete(host.id);
+    throw new Error(
+      `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record has been cleaned up.`
+    );
+  }
+
+  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, [500, 1000, 2000]);
+  const status: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
+  await deps.repo.updateStatus(host.id, status);
+
+  if (healthResult.healthy && healthResult.version) {
+    await deps.repo.updateAgentVersion(host.id, healthResult.version);
+  }
+
+  return {
+    host: toHostListItem(host, {
+      agentVersion: (healthResult.healthy && healthResult.version) ? healthResult.version : null,
+      status,
+    }),
+  };
 }
 
 function errorMessage(err: unknown): string {

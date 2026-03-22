@@ -4,6 +4,7 @@ import {
   handleStackTeardown,
   handleStackRestart,
   handleStackStatus,
+  parseContainerNames,
 } from '../routes/stacks';
 import { mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -837,5 +838,123 @@ describe('handleStackStatus', () => {
     // If concurrent, both spawns start nearly simultaneously and total time ≈ 50ms
     // If sequential, total time ≈ 100ms
     expect(elapsed).toBeLessThan(90);
+  });
+});
+
+describe('parseContainerNames', () => {
+  test('extracts container_name values', () => {
+    const compose = `services:
+  web:
+    container_name: my-web
+    image: nginx
+  db:
+    container_name: my-db
+    image: postgres`;
+    expect(parseContainerNames(compose)).toEqual(['my-web', 'my-db']);
+  });
+
+  test('handles quoted container names', () => {
+    const compose = `services:
+  app:
+    container_name: "my-app"`;
+    expect(parseContainerNames(compose)).toEqual(['my-app']);
+  });
+
+  test('handles single-quoted container names', () => {
+    const compose = `services:
+  app:
+    container_name: 'my-app'`;
+    expect(parseContainerNames(compose)).toEqual(['my-app']);
+  });
+
+  test('returns empty array when no container_name is present', () => {
+    const compose = `services:
+  app:
+    image: nginx`;
+    expect(parseContainerNames(compose)).toEqual([]);
+  });
+});
+
+describe('handleStackDeploy — force recreate', () => {
+  test('runs docker rm -f for each container_name then docker compose up --force-recreate', async () => {
+    const spawnCalls: { cmd: string[] }[] = [];
+    const trackingSpawn = mock((opts: any) => {
+      spawnCalls.push({ cmd: opts.cmd });
+      return {
+        exited: Promise.resolve(0),
+        stdout: emptyStream(),
+        stderr: emptyStream(),
+      };
+    });
+
+    const body = {
+      stack: 'myapp',
+      composeContent: `services:
+  web:
+    container_name: myapp-web
+    image: nginx
+  db:
+    container_name: myapp-db
+    image: postgres`,
+      forceRecreate: true,
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, trackingSpawn as any);
+    expect(response.status).toBe(200);
+
+    // Should have called docker rm -f for each container_name
+    const rmCalls = spawnCalls.filter(c => c.cmd.includes('rm'));
+    expect(rmCalls).toHaveLength(2);
+    expect(rmCalls[0].cmd).toEqual(['docker', 'rm', '-f', 'myapp-web']);
+    expect(rmCalls[1].cmd).toEqual(['docker', 'rm', '-f', 'myapp-db']);
+
+    // Final compose up should include --force-recreate
+    const upCall = spawnCalls.find(c => c.cmd.includes('up'));
+    expect(upCall).toBeDefined();
+    expect(upCall!.cmd).toContain('--force-recreate');
+  });
+
+  test('does not run docker rm or --force-recreate when forceRecreate is false', async () => {
+    const spawnCalls: { cmd: string[] }[] = [];
+    const trackingSpawn = mock((opts: any) => {
+      spawnCalls.push({ cmd: opts.cmd });
+      return {
+        exited: Promise.resolve(0),
+        stdout: emptyStream(),
+        stderr: emptyStream(),
+      };
+    });
+
+    const body = {
+      stack: 'myapp',
+      composeContent: `services:
+  web:
+    container_name: myapp-web
+    image: nginx`,
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, trackingSpawn as any);
+    expect(response.status).toBe(200);
+
+    // No rm calls
+    const rmCalls = spawnCalls.filter(c => c.cmd.includes('rm'));
+    expect(rmCalls).toHaveLength(0);
+
+    // No --force-recreate
+    const upCall = spawnCalls.find(c => c.cmd.includes('up'));
+    expect(upCall).toBeDefined();
+    expect(upCall!.cmd).not.toContain('--force-recreate');
   });
 });

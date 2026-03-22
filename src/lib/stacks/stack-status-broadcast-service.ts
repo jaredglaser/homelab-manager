@@ -87,6 +87,15 @@ class StackStatusBroadcastService {
         }
       });
 
+      this.listenerClient.on('error', (err) => {
+        console.error('[StackStatusBroadcastService] Listener connection error:', err.message);
+        this.stopListening();
+        // Restart if there are still subscribers
+        if (this.subscribers.size > 0) {
+          this.startListening();
+        }
+      });
+
       await this.listenerClient.query('LISTEN stack_change');
     } catch (error) {
       console.error('[StackStatusBroadcastService] Failed to start listener:', error);

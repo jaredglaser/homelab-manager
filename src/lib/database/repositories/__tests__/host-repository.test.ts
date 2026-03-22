@@ -148,6 +148,48 @@ describe('HostRepository', () => {
     });
   });
 
+  describe('update', () => {
+    it('updates provided fields and returns the updated host', async () => {
+      const updated = { ...sampleRow, name: 'renamed-host', agent_url: 'http://192.168.1.20:9090' };
+      mock.pushResult([updated]);
+
+      const result = await repo.update(1, { name: 'renamed-host', agent_url: 'http://192.168.1.20:9090' });
+
+      expect(result.name).toBe('renamed-host');
+      expect(result.agent_url).toBe('http://192.168.1.20:9090');
+      expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
+      expect(mock.queries[0].sql).toContain('RETURNING');
+      expect(mock.queries[0].params).toContain('renamed-host');
+      expect(mock.queries[0].params).toContain('http://192.168.1.20:9090');
+      expect(mock.queries[0].params).toContain(1);
+    });
+
+    it('updates only name when only name is provided', async () => {
+      mock.pushResult([{ ...sampleRow, name: 'new-name' }]);
+
+      await repo.update(1, { name: 'new-name' });
+
+      expect(mock.queries[0].sql).toContain('name = $1');
+      expect(mock.queries[0].sql).not.toContain('agent_url');
+      expect(mock.queries[0].params).toContain('new-name');
+    });
+
+    it('returns existing host without issuing UPDATE when no fields provided', async () => {
+      mock.pushResult([sampleRow]); // findById result
+
+      const result = await repo.update(1, {});
+
+      expect(result.id).toBe(1);
+      expect(mock.queries[0].sql).toContain('SELECT');
+    });
+
+    it('throws when host id not found during update', async () => {
+      mock.pushResult([]); // UPDATE returns no rows
+
+      await expect(repo.update(999, { name: 'x' })).rejects.toThrow('not found');
+    });
+  });
+
   describe('delete', () => {
     it('deletes the host by id', async () => {
       mock.pushResult([]);

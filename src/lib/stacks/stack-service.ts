@@ -129,6 +129,7 @@ export async function triggerStackDeploy(params: {
   host: string;
   action: 'deploy' | 'teardown' | 'restart';
   commitSha?: string;
+  forceRecreate?: boolean;
 }): Promise<{ deployId: number }> {
   const repoPath = getRepoPath();
   if (!repoPath) throw new Error('Git management is not enabled');
@@ -404,7 +405,6 @@ export async function getManagedHostNames(): Promise<string[]> {
     return [];
   }
 }
-
 
 export async function updateStackIconSlug(
   stackName: string,

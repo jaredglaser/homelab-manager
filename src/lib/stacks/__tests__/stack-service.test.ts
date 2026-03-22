@@ -175,12 +175,13 @@ describe('handleTriggerDeploy', () => {
     expect(result.deployId).toBe(42);
   });
 
-  test('returns 0 when pipeline returns no deployId', async () => {
+  test('throws when pipeline returns no deployId', async () => {
     const deps = mockDeps({
       executePipeline: mock(() => Promise.resolve({})),
     });
-    const result = await handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' });
-    expect(result.deployId).toBe(0);
+    await expect(
+      handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' })
+    ).rejects.toThrow(/Deploy could not be queued/);
   });
 
   test('passes compose content and commit SHA to buildRequest', async () => {

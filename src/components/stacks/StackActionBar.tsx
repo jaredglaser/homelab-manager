@@ -1,5 +1,5 @@
-import { Button, CircularProgress } from '@mui/material';
-import { Play, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { Button, Checkbox, CircularProgress, FormControlLabel, Tooltip, Typography } from '@mui/material';
+import { HelpCircle, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
 
 interface StackActionBarProps {
   onDeploy: () => void;
@@ -7,6 +7,8 @@ interface StackActionBarProps {
   onTeardown: () => void;
   onDelete: () => void;
   isDeploying: boolean;
+  forceRecreate: boolean;
+  onForceRecreateChange: (value: boolean) => void;
 }
 
 export default function StackActionBar({
@@ -15,9 +17,11 @@ export default function StackActionBar({
   onTeardown,
   onDelete,
   isDeploying,
+  forceRecreate,
+  onForceRecreateChange,
 }: StackActionBarProps) {
   return (
-    <div className="flex items-center gap-2 pt-4 border-t border-[var(--mui-palette-divider)]">
+    <div className="flex items-center gap-2">
       <Button
         variant="contained"
         size="small"
@@ -33,6 +37,43 @@ export default function StackActionBar({
       >
         Deploy
       </Button>
+
+      <div className="flex items-center">
+        <FormControlLabel
+          control={
+            <Checkbox
+              size="small"
+              checked={forceRecreate}
+              onChange={(e) => onForceRecreateChange(e.target.checked)}
+              disabled={isDeploying}
+            />
+          }
+          label={<Typography variant="caption" className="select-none">Force</Typography>}
+          className="!mr-0"
+        />
+        <Tooltip
+          title={
+            <div className="p-1">
+              <Typography variant="subtitle2" className="!text-inherit mb-1">Force Recreate</Typography>
+              <Typography variant="caption" className="!text-inherit block opacity-90">
+                By default, Docker Compose only recreates containers whose configuration has changed.
+                Enable this to forcefully recreate all containers in the stack, even if their
+                config is unchanged. This also removes any containers with conflicting names
+                from other projects before deploying.
+              </Typography>
+              <Typography variant="caption" className="!text-inherit block opacity-70 mt-1">
+                Use this when you encounter name conflicts or need a clean restart of all services.
+              </Typography>
+            </div>
+          }
+          placement="top-start"
+          slotProps={{ tooltip: { className: '!max-w-xs' } }}
+        >
+          <span className="p-0.5 opacity-40 hover:opacity-80 transition-opacity cursor-help">
+            <HelpCircle size={14} />
+          </span>
+        </Tooltip>
+      </div>
 
       <Button
         variant="outlined"
