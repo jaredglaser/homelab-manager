@@ -1,11 +1,13 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { Pool } from 'pg';
 import { BaseCollector } from '../collectors/base-collector';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
+const originalConsoleInfo = console.info;
 const originalConsoleError = console.error;
 
 function createMockDb() {
@@ -18,9 +20,9 @@ function createMockDb() {
   };
 }
 
-/** Extract first argument from each console.log mock call */
-function getMockLogCalls(): unknown[] {
-  const mockFn = console.log as unknown as { mock: { calls: unknown[][] } };
+/** Extract first argument from each console.info mock call */
+function getMockInfoCalls(): unknown[] {
+  const mockFn = console.info as unknown as { mock: { calls: unknown[][] } };
   return mockFn.mock.calls.map((c) => c[0]);
 }
 
@@ -71,6 +73,7 @@ describe('createCollectors', () => {
   beforeEach(() => {
     db = createMockDb();
     console.log = mock(() => {});
+    console.info = mock(() => {});
     console.error = mock(() => {});
     // Prevent collectors from actually running (and making real network calls)
     runSpy = spyOn(BaseCollector.prototype, 'run').mockResolvedValue(undefined);
@@ -81,6 +84,7 @@ describe('createCollectors', () => {
 
   afterEach(() => {
     console.log = originalConsoleLog;
+    console.info = originalConsoleInfo;
     console.error = originalConsoleError;
     runSpy.mockRestore();
     restoreEnv();
@@ -108,7 +112,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ docker: { enabled: false }, zfs: { enabled: false } });
     createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Docker collector disabled');
     expect(logCalls).toContain('[Worker] ZFS collector disabled');
 
@@ -123,7 +127,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ docker: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Docker enabled but no hosts configured');
     expect(collectors).toHaveLength(0);
     expect(runners).toHaveLength(0);
@@ -157,7 +161,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ zfs: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] ZFS enabled but no hosts configured');
     expect(collectors).toHaveLength(0);
     expect(runners).toHaveLength(0);
@@ -233,7 +237,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ proxmox: { enabled: false } });
     createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Proxmox collector disabled');
 
     controller.abort();
@@ -247,7 +251,7 @@ describe('createCollectors', () => {
     const config = createWorkerConfig({ proxmox: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockLogCalls();
+    const logCalls = getMockInfoCalls();
     expect(logCalls).toContain('[Worker] Proxmox enabled but not configured');
     expect(collectors).toHaveLength(0);
     expect(runners).toHaveLength(0);
@@ -300,5 +304,149 @@ describe('createCollectors', () => {
     expect(runners).toHaveLength(3);
 
     controller.abort();
+  });
+});
+
+describe('createCollectorsForManagedHosts', () => {
+  let db: ReturnType<typeof createMockDb>;
+  let runSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    db = createMockDb();
+    console.log = mock(() => {});
+    console.info = mock(() => {});
+    console.error = mock(() => {});
+    runSpy = spyOn(BaseCollector.prototype, 'run').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    console.log = originalConsoleLog;
+    console.info = originalConsoleInfo;
+    console.error = originalConsoleError;
+    runSpy.mockRestore();
+  });
+
+  const sampleManagedHost: ManagedHost = {
+    id: 1,
+    name: 'homeserver',
+    agent_url: 'http://192.168.1.10:9090',
+    agent_token_hash: '$2b$10$hash',
+    agent_token: 'token-1',
+    socket_proxy_url: 'tcp://192.168.1.10:2375',
+    agent_version: '0.1.0',
+    status: 'healthy',
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+
+  it('creates AgentStatsCollector for each managed host when feature flag is on', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [sampleManagedHost]);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const workerConfig = createWorkerConfig({ docker: { enabled: true } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(1);
+    expect(result.collectors[0].name).toBe('AgentStatsCollector[homeserver]');
+    expect(result.runners).toHaveLength(1);
+
+    shutdownController.abort();
+  });
+
+  it('returns empty when feature flag is off', async () => {
+    const mockIsEnabled = mock(() => false);
+    const mockFindAll = mock(async () => []);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: true } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+    expect(result.runners).toHaveLength(0);
+    expect(mockFindAll).not.toHaveBeenCalled();
+
+    shutdownController.abort();
+  });
+
+  it('returns empty when no managed hosts exist', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => []);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: true } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+    expect(result.runners).toHaveLength(0);
+    expect(mockFindAll).toHaveBeenCalledTimes(1);
+
+    shutdownController.abort();
+  });
+
+  it('returns empty when docker collection is disabled', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [sampleManagedHost]);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: false } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+    expect(result.runners).toHaveLength(0);
+    expect(mockFindAll).not.toHaveBeenCalled();
+
+    shutdownController.abort();
+  });
+
+  it('skips managed hosts with no agent_token', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [
+      { ...sampleManagedHost, agent_token: null },
+    ]);
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: true } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll,
+    );
+
+    expect(result.collectors).toHaveLength(0);
+
+    shutdownController.abort();
   });
 });
