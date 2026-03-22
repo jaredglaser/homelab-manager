@@ -96,10 +96,6 @@ services:
     labels:
       - hlm.managed=true
       - hlm.role=agent-updater
-networks:
-  agent-internal:
-    driver: bridge
-    internal: true
 "
 `;
 

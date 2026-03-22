@@ -52,15 +52,17 @@ describe('generateAgentStackCompose', () => {
     expect(result).toMatchSnapshot();
   });
 
-  it('includes agent-internal network as internal: true in all cases', () => {
-    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
-      const result = generateAgentStackCompose(config);
-      const parsed = parseYaml(result);
-      expect(parsed.networks['agent-internal']).toEqual({
-        driver: 'bridge',
-        internal: true,
-      });
-    }
+  it('agent-internal network declared only when docker capability is enabled', () => {
+    const dockerResult = generateAgentStackCompose(dockerOnlyConfig);
+    const dockerParsed = parseYaml(dockerResult);
+    expect(dockerParsed.networks['agent-internal']).toEqual({
+      driver: 'bridge',
+      internal: true,
+    });
+
+    const zfsResult = generateAgentStackCompose(zfsOnlyConfig);
+    const zfsParsed = parseYaml(zfsResult);
+    expect(zfsParsed.networks).toBeUndefined();
   });
 
   it('includes agent token placeholder in all cases', () => {
@@ -159,6 +161,29 @@ describe('generateAgentStackCompose', () => {
     const dockerParsed = parseYaml(dockerResult);
     expect(dockerParsed.services.agent.networks).toContain('agent-internal');
   });
+
+  it('ZFS-only: top-level networks key is absent', () => {
+    const result = generateAgentStackCompose(zfsOnlyConfig);
+    const parsed = parseYaml(result);
+    expect(parsed.networks).toBeUndefined();
+  });
+
+  it('neither docker nor zfs: minimal agent + updater only', () => {
+    const noneConfig: AgentStackConfig = {
+      agentToken: 'test-token-none',
+      agentImage: 'ghcr.io/homelab-manager/agent:latest',
+      agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+      capabilities: { docker: false, zfs: false },
+    };
+    const result = generateAgentStackCompose(noneConfig);
+    const parsed = parseYaml(result);
+    expect(parsed.services['socket-proxy']).toBeUndefined();
+    expect(parsed.services['agent']).toBeDefined();
+    expect(parsed.services['agent-updater']).toBeDefined();
+    expect(parsed.networks).toBeUndefined();
+    expect(parsed.services.agent.networks).toBeUndefined();
+    expect(parsed.services.agent.depends_on).toBeUndefined();
+  });
 });
 
 describe('generateAgentStackEnv', () => {
@@ -206,5 +231,56 @@ describe('generateAgentStackEnv', () => {
 
     const bothResult = generateAgentStackEnv(dockerZfsConfig);
     expect(bothResult).toContain('DOCKER_GID=999');
+  });
+
+  it('throws when zfs is true but hlmZfsUid is missing', () => {
+    const bad: AgentStackConfig = {
+      agentToken: 'tok',
+      agentImage: 'img',
+      agentUpdaterImage: 'upd',
+      capabilities: { docker: false, zfs: true },
+      hlmZfsGid: 1100,
+    };
+    expect(() => generateAgentStackEnv(bad)).toThrow(
+      'hlmZfsUid and hlmZfsGid are required when zfs capability is enabled'
+    );
+  });
+
+  it('throws when zfs is true but hlmZfsGid is missing', () => {
+    const bad: AgentStackConfig = {
+      agentToken: 'tok',
+      agentImage: 'img',
+      agentUpdaterImage: 'upd',
+      capabilities: { docker: false, zfs: true },
+      hlmZfsUid: 1100,
+    };
+    expect(() => generateAgentStackEnv(bad)).toThrow(
+      'hlmZfsUid and hlmZfsGid are required when zfs capability is enabled'
+    );
+  });
+
+  it('throws when docker and zfs are true but dockerGid is missing', () => {
+    const bad: AgentStackConfig = {
+      agentToken: 'tok',
+      agentImage: 'img',
+      agentUpdaterImage: 'upd',
+      capabilities: { docker: true, zfs: true },
+      hlmZfsUid: 1100,
+      hlmZfsGid: 1100,
+    };
+    expect(() => generateAgentStackEnv(bad)).toThrow(
+      'dockerGid is required when both docker and zfs capabilities are enabled'
+    );
+  });
+
+  it('strips newlines from agentToken', () => {
+    const config: AgentStackConfig = {
+      agentToken: 'token\nwith\nnewlines',
+      agentImage: 'img',
+      agentUpdaterImage: 'upd',
+      capabilities: { docker: false, zfs: false },
+    };
+    const result = generateAgentStackEnv(config);
+      expect(result).toContain('HLM_AGENT_TOKEN=tokenwithnewlines');
   });
 });

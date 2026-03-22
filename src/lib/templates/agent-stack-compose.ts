@@ -27,12 +27,14 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
 
   const doc: Record<string, unknown> = { services };
 
-  doc['networks'] = {
-    'agent-internal': {
-      driver: 'bridge',
-      internal: true,
-    },
-  };
+  if (docker) {
+    doc['networks'] = {
+      'agent-internal': {
+        driver: 'bridge',
+        internal: true,
+      },
+    };
+  }
 
   const header = [
     '# homelab-manager agent stack',
@@ -40,14 +42,24 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
     '',
   ].join('\n');
 
-  return header + dump(doc, { lineWidth: -1, quotingType: '"', forceQuotes: false });
+  return header + dump(doc, { lineWidth: -1, quotingType: '"' });
 }
 
 /** Generate a .env file content string for the agent stack. */
 export function generateAgentStackEnv(config: AgentStackConfig): string {
   const { docker, zfs } = config.capabilities;
+
+  if (zfs) {
+    if (config.hlmZfsUid === undefined || config.hlmZfsGid === undefined) {
+      throw new Error('hlmZfsUid and hlmZfsGid are required when zfs capability is enabled');
+    }
+    if (docker && config.dockerGid === undefined) {
+      throw new Error('dockerGid is required when both docker and zfs capabilities are enabled');
+    }
+  }
+
   const lines: string[] = [
-    `HLM_AGENT_TOKEN=${config.agentToken}`,
+    `HLM_AGENT_TOKEN=${config.agentToken.replace(/\n/g, '')}`,
     `AGENT_IMAGE=${config.agentImage}`,
     `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,
