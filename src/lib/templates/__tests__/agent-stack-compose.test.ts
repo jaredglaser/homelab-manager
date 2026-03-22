@@ -65,10 +65,13 @@ describe('generateAgentStackCompose', () => {
     expect(zfsParsed.networks).toBeUndefined();
   });
 
-  it('includes agent token placeholder in all cases', () => {
+  it('uses file-based token mount in all cases', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackCompose(config);
-      expect(result).toContain('${HLM_AGENT_TOKEN}');
+      const parsed = parseYaml(result);
+      expect(parsed.services.agent.environment.AGENT_TOKEN_FILE).toBe('/run/secrets/agent_token');
+      expect(parsed.services.agent.volumes).toContain('./agent-token:/run/secrets/agent_token:ro');
+      expect(parsed.services.agent.environment.AGENT_TOKEN).toBeUndefined();
     }
   });
 
@@ -96,7 +99,8 @@ describe('generateAgentStackCompose', () => {
 
     expect(parsed.services.agent.user).toBeUndefined();
     expect(parsed.services.agent.group_add).toBeUndefined();
-    expect(parsed.services.agent.volumes).toBeUndefined();
+    // volumes only contains the token mount, no ZFS paths
+    expect(parsed.services.agent.volumes).toEqual(['./agent-token:/run/secrets/agent_token:ro']);
   });
 
   it('ZFS-only: no socket-proxy, no DOCKER_HOST, has ZFS mounts + user', () => {
@@ -108,6 +112,7 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.depends_on).toBeUndefined();
 
     expect(parsed.services.agent.volumes).toEqual([
+      './agent-token:/run/secrets/agent_token:ro',
       '/usr/sbin/zpool:/usr/sbin/zpool:ro',
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
       '/dev/zfs:/dev/zfs',
@@ -126,6 +131,7 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.depends_on).toContain('socket-proxy');
 
     expect(parsed.services.agent.volumes).toEqual([
+      './agent-token:/run/secrets/agent_token:ro',
       '/usr/sbin/zpool:/usr/sbin/zpool:ro',
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
       '/dev/zfs:/dev/zfs',
@@ -202,14 +208,19 @@ describe('generateAgentStackEnv', () => {
     expect(result).toMatchSnapshot();
   });
 
-  it('always includes token, images, and port', () => {
+  it('always includes images and port but not HLM_AGENT_TOKEN key', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackEnv(config);
-      expect(result).toContain('HLM_AGENT_TOKEN=');
+      expect(result).not.toContain('HLM_AGENT_TOKEN=');
       expect(result).toContain('AGENT_IMAGE=');
       expect(result).toContain('AGENT_UPDATER_IMAGE=');
       expect(result).toContain('HLM_AGENT_PORT=9090');
     }
+  });
+
+  it('includes agent token value in comment for reference', () => {
+    const result = generateAgentStackEnv(dockerOnlyConfig);
+    expect(result).toContain('test-token-abc123');
   });
 
   it('includes ZFS UIDs only when zfs capability', () => {
@@ -273,7 +284,7 @@ describe('generateAgentStackEnv', () => {
     );
   });
 
-  it('strips newlines from agentToken', () => {
+  it('strips newlines from agentToken in comment', () => {
     const config: AgentStackConfig = {
       agentToken: 'token\nwith\nnewlines',
       agentImage: 'img',
@@ -281,6 +292,6 @@ describe('generateAgentStackEnv', () => {
       capabilities: { docker: false, zfs: false },
     };
     const result = generateAgentStackEnv(config);
-      expect(result).toContain('HLM_AGENT_TOKEN=tokenwithnewlines');
+    expect(result).toContain('tokenwithnewlines');
   });
 });

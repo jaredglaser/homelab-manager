@@ -59,7 +59,8 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
   }
 
   const lines: string[] = [
-    `HLM_AGENT_TOKEN=${config.agentToken.replace(/\n/g, '')}`,
+    `# Agent token — copy this value into the agent-token file in this directory`,
+    `# echo '${config.agentToken.replace(/\n/g, '')}' > agent-token`,
     `AGENT_IMAGE=${config.agentImage}`,
     `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,
@@ -107,7 +108,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const { docker, zfs } = config.capabilities;
 
   const environment: Record<string, string> = {
-    AGENT_TOKEN: '${HLM_AGENT_TOKEN}',
+    AGENT_TOKEN_FILE: '/run/secrets/agent_token',
   };
 
   if (docker) {
@@ -120,16 +121,21 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     restart: 'unless-stopped',
     ports: ['${HLM_AGENT_PORT:-9090}:9090'],
     environment,
+    volumes: [] as string[],
   };
 
+  const volumes: string[] = ['./agent-token:/run/secrets/agent_token:ro'];
+
   if (zfs) {
-    agent['volumes'] = [
+    volumes.push(
       '/usr/sbin/zpool:/usr/sbin/zpool:ro',
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
-      '/dev/zfs:/dev/zfs',
-    ];
+      '/dev/zfs:/dev/zfs'
+    );
     agent['user'] = '${HLM_ZFS_UID}:${HLM_ZFS_GID}';
   }
+
+  agent['volumes'] = volumes;
 
   if (docker && zfs) {
     agent['group_add'] = ['${DOCKER_GID}'];

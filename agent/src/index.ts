@@ -18,11 +18,22 @@ if (portEnv !== undefined && portEnv !== '') {
   }
 }
 const STACKS_DIR = process.env.STACKS_DIR || '/opt/homelab-manager/stacks';
-const AGENT_TOKEN = process.env.AGENT_TOKEN;
+const AGENT_TOKEN_FILE = process.env.AGENT_TOKEN_FILE;
+const AGENT_TOKEN_ENV = process.env.AGENT_TOKEN;
 const DOCKER_HOST = process.env.DOCKER_HOST;
 
-if (!AGENT_TOKEN) {
-  console.error('AGENT_TOKEN environment variable is required');
+let AGENT_TOKEN: string;
+if (AGENT_TOKEN_FILE) {
+  const file = Bun.file(AGENT_TOKEN_FILE);
+  if (!(await file.exists())) {
+    console.error(`AGENT_TOKEN_FILE not found: ${AGENT_TOKEN_FILE}`);
+    process.exit(1);
+  }
+  AGENT_TOKEN = (await file.text()).trim();
+} else if (AGENT_TOKEN_ENV) {
+  AGENT_TOKEN = AGENT_TOKEN_ENV;
+} else {
+  console.error('AGENT_TOKEN or AGENT_TOKEN_FILE environment variable is required');
   process.exit(1);
 }
 
