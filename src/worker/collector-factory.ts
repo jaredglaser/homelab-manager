@@ -3,10 +3,12 @@ import { loadDockerConfig } from '@/lib/config/docker-config';
 import { isProxmoxConfigured, loadProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import { StackStatusRepository } from '@/lib/database/repositories/stack-status-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
 import { DockerCollector } from './collectors/docker-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
+import { StackStatusCollector } from './collectors/stack-status-collector';
 import { ZFSCollector } from './collectors/zfs-collector';
 
 export interface CollectorFactoryResult {
@@ -76,8 +78,9 @@ export function createCollectors(
  * without database or env var dependencies.
  *
  * Creates both AgentStatsCollectors (Docker) and ZFSCollectors for each managed host.
- * Managed hosts with no `agent_token` are skipped (token not yet stored — host was
- * provisioned before the migration that added the agent_token column).
+ * Hosts whose token cannot be resolved from OpenBao are skipped.
+ *
+ * @param getToken - Callback to look up a host's agent token from OpenBao (or other secret store)
  */
 export async function createCollectorsForManagedHosts(
   db: DatabaseClient,
@@ -86,6 +89,7 @@ export async function createCollectorsForManagedHosts(
   stack: AsyncDisposableStack,
   isManagementEnabled: () => boolean,
   findAllHosts: () => Promise<ManagedHost[]>,
+  getToken: (hostname: string) => Promise<string | null>,
 ): Promise<CollectorFactoryResult> {
   const collectors: BaseCollector[] = [];
   const runners: Promise<void>[] = [];
@@ -101,15 +105,16 @@ export async function createCollectorsForManagedHosts(
   }
 
   for (const host of hosts) {
-    if (!host.agent_token) {
-      console.info(`[Worker] Skipping managed host ${host.name}: no agent_token (provisioned before migration)`);
+    const token = await getToken(host.name);
+    if (!token) {
+      console.info(`[Worker] Skipping managed host ${host.name}: no agent token in secret store`);
       continue;
     }
 
     if (workerConfig.docker.enabled) {
       console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${host.agent_url})`);
       const dockerCollector = stack.use(
-        new AgentStatsCollector(db, workerConfig, host, shutdownController)
+        new AgentStatsCollector(db, workerConfig, host, token, shutdownController)
       );
       collectors.push(dockerCollector);
       runners.push(dockerCollector.run());
@@ -118,7 +123,7 @@ export async function createCollectorsForManagedHosts(
     if (workerConfig.zfs.enabled) {
       console.info(`[Worker] Starting ZFSCollector for ${host.name} (${host.agent_url})`);
       const zfsCollector = stack.use(
-        new ZFSCollector(db, workerConfig, host, shutdownController)
+        new ZFSCollector(db, workerConfig, host, token, shutdownController)
       );
       collectors.push(zfsCollector);
       runners.push(zfsCollector.run());
@@ -126,4 +131,50 @@ export async function createCollectorsForManagedHosts(
   }
 
   return { collectors, runners };
+}
+
+/**
+ * Create StackStatusCollectors for managed hosts when the management feature flag is enabled.
+ * Each collector connects to the agent's /stacks/events SSE endpoint and persists
+ * container status to the database.
+ *
+ * @param getToken - Callback to look up a host's agent token from OpenBao (or other secret store)
+ */
+export async function createStackStatusCollectors(
+  db: DatabaseClient,
+  shutdownController: AbortController,
+  stack: AsyncDisposableStack,
+  isManagementEnabled: () => boolean,
+  findAllHosts: () => Promise<ManagedHost[]>,
+  getToken: (hostname: string) => Promise<string | null>,
+): Promise<{ runners: Promise<void>[] }> {
+  const runners: Promise<void>[] = [];
+
+  if (!isManagementEnabled()) {
+    return { runners };
+  }
+
+  const hosts = await findAllHosts();
+  const repo = new StackStatusRepository(db.getPool());
+
+  for (const host of hosts) {
+    const token = await getToken(host.name);
+    if (!token) {
+      console.info(`[Worker] Skipping StackStatusCollector for ${host.name}: no agent token in secret store`);
+      continue;
+    }
+
+    console.info(`[Worker] Starting StackStatusCollector for ${host.name} (${host.agent_url})`);
+    const collector = stack.use(
+      new StackStatusCollector(
+        { name: host.name, agentUrl: host.agent_url },
+        token,
+        repo,
+        shutdownController,
+      )
+    );
+    runners.push(collector.run());
+  }
+
+  return { runners };
 }

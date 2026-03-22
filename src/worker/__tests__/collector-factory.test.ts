@@ -283,9 +283,7 @@ describe('createCollectorsForManagedHosts', () => {
     id: 1,
     name: 'homeserver',
     agent_url: 'http://192.168.1.10:9090',
-    agent_token_hash: '$2b$10$hash',
-    agent_token: 'token-1',
-    socket_proxy_url: 'tcp://192.168.1.10:2375',
+    capabilities: { docker: true, zfs: false },
     agent_version: '0.1.0',
     status: 'healthy',
     created_at: new Date(),
@@ -305,7 +303,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(1);
@@ -327,7 +325,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -349,7 +347,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -371,7 +369,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -393,7 +391,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(1);
@@ -415,7 +413,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(2);
@@ -427,11 +425,9 @@ describe('createCollectorsForManagedHosts', () => {
     shutdownController.abort();
   });
 
-  it('skips managed hosts with no agent_token', async () => {
+  it('skips managed hosts when getToken returns null', async () => {
     const mockIsEnabled = mock(() => true);
-    const mockFindAll = mock(async () => [
-      { ...sampleManagedHost, agent_token: null },
-    ]);
+    const mockFindAll = mock(async () => [sampleManagedHost]);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -441,7 +437,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, async () => null,
     );
 
     expect(result.collectors).toHaveLength(0);

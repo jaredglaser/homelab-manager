@@ -92,17 +92,20 @@ export class ZFSCollector extends BaseCollector {
   readonly name: string;
   private readonly calculator = new ZFSRateCalculator();
   private readonly host: ManagedHost;
+  private readonly token: string;
   private readonly fetchFn: FetchFn;
 
   constructor(
     db: DatabaseClient,
     config: WorkerConfig,
     host: ManagedHost,
+    token: string,
     abortController?: AbortController,
     fetchFn?: FetchFn,
   ) {
     super(db, config, abortController);
     this.host = host;
+    this.token = token;
     this.name = `ZFSCollector[${host.name}]`;
     this.fetchFn = fetchFn ?? globalThis.fetch;
   }
@@ -113,7 +116,7 @@ export class ZFSCollector extends BaseCollector {
 
     const response = await this.fetchFn(url, {
       headers: {
-        Authorization: `Bearer ${this.host.agent_token}`,
+        Authorization: `Bearer ${this.token}`,
       },
       signal: this.signal,
     });
