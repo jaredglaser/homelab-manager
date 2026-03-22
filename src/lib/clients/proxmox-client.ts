@@ -7,12 +7,83 @@ import type {
   ProxmoxContainer,
   ProxmoxStorage,
   ProxmoxClusterOverview,
+  WithNode,
 } from '../../types/proxmox';
 
 // Covers both Bun's native fetch (`tls`) and Node.js-compat/undici fetch (`dispatcher`)
 interface CrossRuntimeRequestInit extends RequestInit {
   tls?: { rejectUnauthorized?: boolean };
   dispatcher?: unknown;
+}
+
+interface PerNodeResult {
+  node: string;
+  vms: ProxmoxVM[];
+  containers: ProxmoxContainer[];
+  storages: ProxmoxStorage[];
+}
+
+/**
+ * Flatten per-node API results into unified arrays with node attribution.
+ * Filters out template VMs and containers.
+ */
+export function flattenPerNodeResults(perNodeResults: PerNodeResult[]): {
+  vms: WithNode<ProxmoxVM>[];
+  containers: WithNode<ProxmoxContainer>[];
+  storages: WithNode<ProxmoxStorage>[];
+} {
+  const vms = perNodeResults.flatMap((r) =>
+    r.vms
+      .filter((vm) => !vm.template)
+      .map((vm) => ({ ...vm, node: r.node }))
+  );
+  const containers = perNodeResults.flatMap((r) =>
+    r.containers
+      .filter((ct) => !ct.template)
+      .map((ct) => ({ ...ct, node: r.node }))
+  );
+  const storages = perNodeResults.flatMap((r) =>
+    r.storages.map((s) => ({ ...s, node: r.node }))
+  );
+  return { vms, containers, storages };
+}
+
+/**
+ * Calculate aggregate resource totals from nodes and guest lists.
+ */
+export function calculateClusterTotals(
+  nodes: ProxmoxNode[],
+  allVMs: WithNode<ProxmoxVM>[],
+  allContainers: WithNode<ProxmoxContainer>[]
+): ProxmoxClusterOverview['totals'] {
+  const totalCpu = nodes.reduce((sum, n) => sum + n.maxcpu, 0);
+  const usedCpu = nodes.reduce((sum, n) => sum + n.cpu * n.maxcpu, 0);
+  const totalMemory = nodes.reduce((sum, n) => sum + n.maxmem, 0);
+  const usedMemory = nodes.reduce((sum, n) => sum + n.mem, 0);
+  const totalDisk = nodes.reduce((sum, n) => sum + n.maxdisk, 0);
+  const usedDisk = nodes.reduce((sum, n) => sum + n.disk, 0);
+
+  const runningVMs = allVMs.filter((vm) => vm.status === 'running').length;
+  const stoppedVMs = allVMs.filter((vm) => vm.status !== 'running').length;
+  const runningContainers = allContainers.filter(
+    (ct) => ct.status === 'running'
+  ).length;
+  const stoppedContainers = allContainers.filter(
+    (ct) => ct.status !== 'running'
+  ).length;
+
+  return {
+    totalCpu,
+    usedCpu,
+    totalMemory,
+    usedMemory,
+    totalDisk,
+    usedDisk,
+    runningVMs,
+    stoppedVMs,
+    runningContainers,
+    stoppedContainers,
+  };
 }
 
 /**
@@ -160,58 +231,18 @@ export class ProxmoxClient {
       })
     );
 
-    // Flatten results with node attribution
-    const allVMs = perNodeResults.flatMap((r) =>
-      r.vms
-        .filter((vm) => !vm.template)
-        .map((vm) => ({ ...vm, node: r.node }))
-    );
-    const allContainers = perNodeResults.flatMap((r) =>
-      r.containers
-        .filter((ct) => !ct.template)
-        .map((ct) => ({ ...ct, node: r.node }))
-    );
-    const allStorages = perNodeResults.flatMap((r) =>
-      r.storages.map((s) => ({ ...s, node: r.node }))
-    );
-
-    // Calculate totals
-    const totalCpu = nodes.reduce((sum, n) => sum + n.maxcpu, 0);
-    const usedCpu = nodes.reduce((sum, n) => sum + n.cpu * n.maxcpu, 0);
-    const totalMemory = nodes.reduce((sum, n) => sum + n.maxmem, 0);
-    const usedMemory = nodes.reduce((sum, n) => sum + n.mem, 0);
-    const totalDisk = nodes.reduce((sum, n) => sum + n.maxdisk, 0);
-    const usedDisk = nodes.reduce((sum, n) => sum + n.disk, 0);
-
-    const runningVMs = allVMs.filter((vm) => vm.status === 'running').length;
-    const stoppedVMs = allVMs.filter((vm) => vm.status !== 'running').length;
-    const runningContainers = allContainers.filter(
-      (ct) => ct.status === 'running'
-    ).length;
-    const stoppedContainers = allContainers.filter(
-      (ct) => ct.status !== 'running'
-    ).length;
+    const { vms, containers, storages } = flattenPerNodeResults(perNodeResults);
+    const totals = calculateClusterTotals(nodes, vms, containers);
 
     return {
       clusterName,
       quorate,
       version,
       nodes,
-      vms: allVMs,
-      containers: allContainers,
-      storages: allStorages,
-      totals: {
-        totalCpu,
-        usedCpu,
-        totalMemory,
-        usedMemory,
-        totalDisk,
-        usedDisk,
-        runningVMs,
-        stoppedVMs,
-        runningContainers,
-        stoppedContainers,
-      },
+      vms,
+      containers,
+      storages,
+      totals,
     };
   }
 }

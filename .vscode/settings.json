@@ -7,5 +7,9 @@
   },
   "files.readonlyInclude": {
     "**/routeTree.gen.ts": true
+  },
+  "sonarlint.connectedMode.project": {
+    "connectionId": "jared-glaser",
+    "projectKey": "jared-glaser_homelab-manager"
   }
 }
