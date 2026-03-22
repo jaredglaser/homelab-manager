@@ -49,11 +49,11 @@ services:
       dockerfile: Dockerfile
     environment:
       DOCKER_HOST: "tcp://socket-proxy:2375"
-      AGENT_TOKEN: "${AGENT_TOKEN:-dev-agent-token}"
+      AGENT_TOKEN: "${AGENT_TOKEN}"
       AGENT_PORT: "9090"
       STACKS_DIR: "/opt/homelab-manager/stacks"
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - homelab-stacks:/opt/homelab-manager/stacks
       - ./agent/src:/app/src  # Hot reload in dev
@@ -68,7 +68,7 @@ services:
     environment:
       BAO_DEV_ROOT_TOKEN_ID: "${BAO_DEV_ROOT_TOKEN_ID:-dev-root-token}"
     ports:
-      - "8200:8200"
+      - "127.0.0.1:8200:8200"
     networks:
       - homelab-network
 

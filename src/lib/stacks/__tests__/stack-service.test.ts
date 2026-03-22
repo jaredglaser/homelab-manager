@@ -128,7 +128,7 @@ describe('handleTriggerDeploy', () => {
         host: input.host,
         composeContent: input.composeContent,
         commitSha: input.commitSha,
-        action: input.action as 'deploy',
+        action: input.action,
         trigger: 'ui' as const,
         autoApproved: true,
         envContent: '',
