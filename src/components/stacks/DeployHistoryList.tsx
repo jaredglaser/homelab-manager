@@ -1,9 +1,8 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { Button, Chip, Collapse, Paper, Skeleton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
-import { ChevronRight, GitCommit, HelpCircle } from 'lucide-react';
-import type { StackDeployRecord, DeployAction, DeployStatus } from '@/types/stacks';
+import { Button, Chip, Collapse, Paper, Skeleton, Typography } from '@mui/material';
+import { ChevronRight, GitCommit } from 'lucide-react';
+import type { StackDeployRecord, DeployStatus, DeployTrigger } from '@/types/stacks';
 import { triggerDeploy } from '@/data/stacks/functions';
 import RollbackDialog from '@/components/stacks/RollbackDialog';
 
@@ -12,7 +11,7 @@ const STATUS_COLOR: Record<DeployStatus, string> = {
   failed: 'var(--chart-deploy-failed)',
   pending: 'var(--chart-deploy-pending)',
   in_progress: 'var(--chart-deploy-in-progress)',
-  no_change: 'var(--chart-deploy-success)',
+  no_change: 'var(--chart-text-muted)',
 };
 
 const STATUS_LABEL: Record<DeployStatus, string> = {
@@ -20,31 +19,22 @@ const STATUS_LABEL: Record<DeployStatus, string> = {
   failed: 'Failed',
   pending: 'Pending',
   in_progress: 'In Progress',
-  no_change: 'No Changes',
+  no_change: 'No Change',
 };
 
-const ACTION_LABEL: Record<DeployAction, string> = {
-  deploy: 'Deploy',
-  teardown: 'Teardown',
-  restart: 'Restart',
+const TRIGGER_LABEL: Record<DeployTrigger, string> = {
+  git_push: 'Git Push',
+  ui: 'UI',
+  manual_rollback: 'Rollback',
 };
-
-function getActionLabel(record: StackDeployRecord): string {
-  if (record.action === 'deploy' && record.forceRecreate) return 'Force Deploy';
-  return ACTION_LABEL[record.action];
-}
 
 const ROLLBACK_ELIGIBLE: Set<DeployStatus> = new Set(['succeeded', 'no_change']);
-
-type StatusFilter = DeployStatus | 'all';
 
 interface DeployHistoryListProps {
   records: StackDeployRecord[];
   isLoading: boolean;
   stackName?: string;
   host?: string;
-  onRollbackComplete?: () => void;
-  onRollbackError?: (err: Error) => void;
 }
 
 export default function DeployHistoryList({
@@ -52,32 +42,7 @@ export default function DeployHistoryList({
   isLoading,
   stackName,
   host,
-  onRollbackComplete,
-  onRollbackError,
 }: Readonly<DeployHistoryListProps>) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [scrollMargin, setScrollMargin] = useState(0);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (listRef.current) {
-      setScrollMargin(listRef.current.offsetTop);
-    }
-  }, []);
-
-  const filtered = useMemo(() => {
-    if (statusFilter === 'all') return records;
-    return records.filter((r) => r.status === statusFilter);
-  }, [records, statusFilter]);
-
-  const virtualizer = useWindowVirtualizer({
-    count: filtered.length,
-    estimateSize: () => 44,
-    overscan: 10,
-    scrollMargin,
-    getItemKey: (index) => filtered[index].id,
-  });
-
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -95,9 +60,6 @@ export default function DeployHistoryList({
       </Typography>
     );
   }
-
-  const hasStatusVariety = new Set(records.map((r) => r.status)).size > 1;
-  const virtualItems = virtualizer.getVirtualItems();
 
   return (
     <div>
@@ -193,22 +155,18 @@ interface DeployHistoryRowProps {
   record: StackDeployRecord;
   stackName?: string;
   host?: string;
-  onRollbackComplete?: () => void;
-  onRollbackError?: (err: Error) => void;
 }
 
-function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError }: Readonly<DeployHistoryRowProps>) {
+function DeployHistoryRow({ record, stackName, host }: Readonly<DeployHistoryRowProps>) {
   const [expanded, setExpanded] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const statusColor = STATUS_COLOR[record.status];
   const timestamp = new Date(record.createdAt);
-  const canRollback = stackName !== undefined && host !== undefined && record.action === 'deploy' && ROLLBACK_ELIGIBLE.has(record.status);
+  const canRollback = stackName !== undefined && host !== undefined && ROLLBACK_ELIGIBLE.has(record.status);
 
   const rollbackMutation = useMutation({
     mutationFn: () =>
       triggerDeploy({ data: { stack: stackName!, host: host!, action: 'deploy', commitSha: record.commitSha } }),
-    onSuccess: () => onRollbackComplete?.(),
-    onError: (err) => onRollbackError?.(err instanceof Error ? err : new Error(String(err))),
   });
 
   function handleRollbackConfirm() {
@@ -242,17 +200,17 @@ function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollb
 
           <Chip
             size="small"
-            label={getActionLabel(record)}
-            className="!text-xs !h-5"
-            variant="filled"
-          />
-
-          <Chip
-            size="small"
             label={STATUS_LABEL[record.status]}
             className="!text-xs !h-5"
             style={{ color: statusColor, borderColor: statusColor }}
             variant="outlined"
+          />
+
+          <Chip
+            size="small"
+            label={TRIGGER_LABEL[record.trigger]}
+            className="!text-xs !h-5"
+            variant="filled"
           />
 
           <span className="ml-auto opacity-50 text-xs whitespace-nowrap">

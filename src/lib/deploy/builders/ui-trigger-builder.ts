@@ -6,7 +6,6 @@ interface UITriggerInput {
   composeContent: string;
   commitSha: string;
   action: DeployAction;
-  forceRecreate?: boolean;
 }
 
 interface UIRollbackInput {
@@ -30,7 +29,7 @@ export class UITriggerBuilder {
       autoApproved: true,
     };
     if (input.action === 'deploy') {
-      return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '', forceRecreate: input.forceRecreate ?? false };
+      return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '' };
     }
     return { ...base, action: input.action };
   }

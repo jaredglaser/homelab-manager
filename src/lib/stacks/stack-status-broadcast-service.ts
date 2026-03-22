@@ -51,49 +51,45 @@ class StackStatusBroadcastService {
   private async startListening(): Promise<void> {
     this.stopped = false;
 
-    while (!this.stopped) {
-      try {
-        const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-        const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    try {
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
 
-        const config = loadDatabaseConfig();
-        const client = await databaseConnectionManager.getClient(config);
-        const pool = client.getPool();
-        const poolClient = await pool.connect();
+      const config = loadDatabaseConfig();
+      const client = await databaseConnectionManager.getClient(config);
+      const pool = client.getPool();
+      const poolClient = await pool.connect();
 
-        if (this.stopped) {
-          try { poolClient.release(); } catch { /* best-effort */ }
-          return;
-        }
-
-        this.listenerClient = poolClient;
-
-        this.listenerClient.on('notification', (msg) => {
-          if (msg.channel === 'stack_change') {
-            this.broadcastAll(msg.payload);
-          }
-        });
-
-        this.listenerClient.on('error', (err) => {
-          console.error('[StackStatusBroadcastService] Listener client error:', err);
-          this.cleanupListenerClient();
-          if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
-            this.reconnecting = true;
-            setTimeout(() => {
-              this.reconnecting = false;
-              if (!this.stopped && this.subscribers.size > 0) {
-                this.startListening();
-              }
-            }, 5_000);
-          }
-        });
-
-        await this.listenerClient.query('LISTEN stack_change');
+      if (this.stopped) {
+        try { poolClient.release(); } catch { /* best-effort */ }
         return;
-      } catch (error) {
-        console.error('[StackStatusBroadcastService] Failed to start listener, retrying in 5s:', error);
-        await new Promise((resolve) => setTimeout(resolve, 5_000));
       }
+
+      this.listenerClient = poolClient;
+
+      this.listenerClient.on('notification', (msg) => {
+        if (msg.channel === 'stack_change') {
+          this.broadcastAll(msg.payload);
+        }
+      });
+
+      this.listenerClient.on('error', (err) => {
+        console.error('[StackStatusBroadcastService] Listener client error:', err);
+        this.cleanupListenerClient();
+        if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
+          this.reconnecting = true;
+          setTimeout(() => {
+            this.reconnecting = false;
+            if (!this.stopped && this.subscribers.size > 0) {
+              this.startListening();
+            }
+          }, 5_000);
+        }
+      });
+
+      await this.listenerClient.query('LISTEN stack_change');
+    } catch (error) {
+      console.error('[StackStatusBroadcastService] Failed to start listener:', error);
     }
   }
 

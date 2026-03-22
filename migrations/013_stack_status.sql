@@ -18,5 +18,5 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER stack_status_notify
-  AFTER INSERT OR UPDATE OR DELETE ON stack_status
+  AFTER INSERT OR UPDATE ON stack_status
   FOR EACH ROW EXECUTE FUNCTION notify_stack_change();
