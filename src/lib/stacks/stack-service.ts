@@ -5,10 +5,9 @@
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
 import { loadGitConfig } from '@/lib/config/git-config';
-import { readFileFromRepo, commitFiles } from '@/lib/git/repo';
+import { readFileFromRepo } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
-import yaml from 'js-yaml';
 import {
   manifestEntryToSummary,
   manifestEntryToDetail,
@@ -103,7 +102,6 @@ export async function triggerStackDeploy(params: {
   host: string;
   action: 'deploy' | 'teardown' | 'restart';
   commitSha?: string;
-  forceRecreate?: boolean;
 }): Promise<{ deployId: number }> {
   const repoPath = getRepoPath();
   if (!repoPath) throw new Error('Git management is not enabled');
@@ -221,151 +219,6 @@ export async function saveStackComposeFile(
     author: SYSTEM_AUTHOR,
     message: `Update ${stackName}/${COMPOSE_FILENAME}`,
   });
-}
-
-export async function createStackInRepo(
-  stackName: string,
-  host: string,
-  autoDeploy: boolean,
-): Promise<{ commitSha: string }> {
-  const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
-
-  // Validate host exists in managed_hosts
-  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
-
-  const dbConfig = loadDatabaseConfig();
-  const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  const hostsRepo = new ManagedHostsRepository(dbClient.getPool());
-  const managedHost = await hostsRepo.getByName(host);
-  if (!managedHost) throw new Error(`Host "${host}" not found in managed_hosts`);
-
-  // Read manifest and validate stack doesn't already exist
-  let manifest: ReturnType<typeof parseManifest>;
-  try {
-    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-    manifest = parseManifest(manifestContent);
-  } catch {
-    // No manifest yet — start with empty stacks
-    manifest = { stacks: {} };
-  }
-
-  if (manifest.stacks[stackName]) {
-    throw new Error(`Stack "${stackName}" already exists`);
-  }
-
-  // Build updated manifest
-  manifest.stacks[stackName] = { host, autoDeploy };
-  const newManifestContent = yaml.dump(manifest, {
-    indent: 2,
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: true,
-  });
-
-  // Atomic commit: empty compose file + updated manifest
-  const commitSha = await commitFiles(repoPath, {
-    files: [
-      { path: `${stackName}/${COMPOSE_FILENAME}`, content: '' },
-      { path: MANIFEST_FILENAME, content: newManifestContent },
-    ],
-    message: `Add stack: ${stackName} on ${host}`,
-    author: SYSTEM_AUTHOR,
-  });
-
-  return { commitSha };
-}
-
-export async function deleteStackFromRepo(
-  stackName: string,
-  teardown: boolean,
-): Promise<{ commitSha: string }> {
-  const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
-
-  // Read manifest to get host for this stack
-  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-  const manifest = parseManifest(manifestContent);
-  const entry = manifest.stacks[stackName];
-  if (!entry) throw new Error(`Stack "${stackName}" not found in manifest`);
-
-  const { host } = entry;
-
-  // Check for active deploys
-  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
-  const { StackStatusRepository } = await import('@/lib/database/repositories/stack-status-repository');
-
-  const dbConfig = loadDatabaseConfig();
-  const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  const pool = dbClient.getPool();
-
-  const deployRepo = new DeployRepository(pool);
-  const hasActive = await deployRepo.hasActiveDeployForStack(stackName, host);
-  if (hasActive) {
-    throw new Error(`Stack "${stackName}" has an active deploy in progress — cannot delete`);
-  }
-
-  // Optionally teardown before removing from repo
-  if (teardown) {
-    const { deployId } = await triggerStackDeploy({ stack: stackName, host, action: 'teardown' });
-    // Check if teardown actually succeeded
-    const deployRecord = await deployRepo.getById(deployId);
-    if (deployRecord && deployRecord.status === 'failed') {
-      throw new Error(`Teardown failed: ${deployRecord.logs ?? 'unknown error'}. Stack not deleted.`);
-    }
-  }
-
-  // Remove stack from manifest
-  delete manifest.stacks[stackName];
-  const newManifestContent = yaml.dump(manifest, {
-    indent: 2,
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: true,
-  });
-
-  // Get all files in the stack directory to remove them
-  let stackFiles: string[];
-  try {
-    stackFiles = await (await import('@/lib/git/repo')).listFilesInRepo(repoPath, stackName);
-  } catch {
-    stackFiles = [];
-  }
-
-  // Atomic commit: remove stack files + update manifest
-  const commitSha = await commitFiles(repoPath, {
-    files: [{ path: MANIFEST_FILENAME, content: newManifestContent }],
-    filesToDelete: stackFiles,
-    message: `Remove stack: ${stackName}`,
-    author: SYSTEM_AUTHOR,
-  });
-
-  // Delete stack_status row
-  const statusRepo = new StackStatusRepository(pool);
-  await statusRepo.deleteByStackHost(stackName, host);
-
-  return { commitSha };
-}
-
-export async function getManagedHostNames(): Promise<string[]> {
-  try {
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
-
-    const dbConfig = loadDatabaseConfig();
-    const dbClient = await databaseConnectionManager.getClient(dbConfig);
-    const hostsRepo = new ManagedHostsRepository(dbClient.getPool());
-    const hosts = await hostsRepo.getAll();
-    return hosts.map((h) => h.name);
-  } catch (error) {
-    console.error('[StackService] Failed to list managed hosts:', error);
-    return [];
-  }
 }
 
 export async function updateStackIconSlug(

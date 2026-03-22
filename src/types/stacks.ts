@@ -1,6 +1,6 @@
 // Re-export canonical types from deploy layer to avoid duplication (Issue 12)
-export type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
-import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+export type { DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployStatus, DeployTrigger, DeployAction } from '@/lib/deploy/types';
 
 // Issue 15: use underscores consistently (in_sync, not in-sync)
 export type SyncStatus = 'in_sync' | 'pending' | 'failed' | 'unknown';
@@ -36,8 +36,6 @@ export interface StackDeployRecord {
   envHash: string;
   status: DeployStatus;
   trigger: DeployTrigger;
-  action: DeployAction;
-  forceRecreate: boolean;
   logs: string | null;
   createdAt: string;
 }
