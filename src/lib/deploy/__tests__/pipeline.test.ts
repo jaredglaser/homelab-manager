@@ -14,6 +14,8 @@ const defaultPendingRecord = {
   envHash: '',
   status: 'pending' as const,
   trigger: 'git_push' as const,
+  action: 'deploy' as const,
+  forceRecreate: false,
   logs: null,
   createdAt: new Date(),
 };
@@ -123,6 +125,8 @@ describe('DeployPipeline', () => {
         envHash: '',
         status: 'succeeded',
         trigger: 'git_push',
+        action: 'deploy',
+        forceRecreate: false,
         logs: null,
         createdAt: new Date(),
       };

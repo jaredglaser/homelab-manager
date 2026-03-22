@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployAction, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 
 interface InsertDeployParams {
   stack: string;
@@ -9,6 +9,8 @@ interface InsertDeployParams {
   envHash: string;
   status: DeployStatus;
   trigger: DeployTrigger;
+  action: DeployAction;
+  forceRecreate?: boolean;
 }
 
 export class DeployRepository {
@@ -16,10 +18,10 @@ export class DeployRepository {
 
   async insertDeploy(params: InsertDeployParams): Promise<number> {
     const result = await this.pool.query(
-      `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, status, trigger)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, force_recreate)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
-      [params.stack, params.host, params.commitSha, params.composeHash, params.envHash, params.status, params.trigger]
+      [params.stack, params.host, params.commitSha, params.composeHash, params.envHash, params.status, params.trigger, params.action, params.forceRecreate ?? false]
     );
     return Number(result.rows[0].id);
   }
@@ -112,7 +114,7 @@ export class DeployRepository {
    */
   async getLatestDeployPerStack(): Promise<DeployRecord[]> {
     const { rows } = await this.pool.query(
-      `SELECT DISTINCT ON (stack, host) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, logs, created_at
+      `SELECT DISTINCT ON (stack, host) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, logs, created_at
        FROM deploy_history
        ORDER BY stack, host, created_at DESC`
     );
@@ -141,6 +143,8 @@ function toDeployRecord(row: Record<string, unknown>): DeployRecord {
     envHash: row.env_hash as string,
     status: row.status as DeployRecord['status'],
     trigger: row.trigger as DeployRecord['trigger'],
+    action: (row.action as DeployRecord['action']) ?? 'deploy',
+    forceRecreate: row.force_recreate === true,
     logs: (row.logs as string) ?? null,
     createdAt: row.created_at as Date,
   };

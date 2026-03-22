@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Paper, Typography, CircularProgress } from '@mui/material';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks.functions';
-import VariablesPanel from '@/components/stacks/VariablesPanel';
 
 interface ComposeEditorProps {
   stackName: string;
   content: string;
-  variables: string[];
+  onVariablesChange?: (vars: string[]) => void;
 }
 
 /** Parse ${VAR} and ${VAR:-default} patterns from compose content */
@@ -24,10 +23,9 @@ export function parseVariables(content: string): string[] {
   return Array.from(vars).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-export default function ComposeEditor({ stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
+export default function ComposeEditor({ stackName, content, onVariablesChange }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
   const [editorContent, setEditorContent] = useState(content);
-  const [detectedVars, setDetectedVars] = useState<string[]>(initialVariables);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const queryClient = useQueryClient();
 
@@ -53,29 +51,9 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
 
   const handleChange = useCallback((newContent = '') => {
     setEditorContent(newContent);
-    setDetectedVars(parseVariables(newContent));
-  }, []);
-
-  const [panelWidth, setPanelWidth] = useState(280);
-
-  const handleDragStart = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = panelWidth;
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-
-    const onMove = (ev: globalThis.PointerEvent) => {
-      const delta = startX - ev.clientX;
-      setPanelWidth(Math.max(80, startWidth + delta));
-    };
-    const onUp = () => {
-      target.removeEventListener('pointermove', onMove);
-      target.removeEventListener('pointerup', onUp);
-    };
-    target.addEventListener('pointermove', onMove);
-    target.addEventListener('pointerup', onUp);
-  }, [panelWidth]);
+    const vars = parseVariables(newContent);
+    onVariablesChange?.(vars);
+  }, [onVariablesChange]);
 
   // Reads the current theme on each render. Theme toggles trigger re-renders
   // via the settings atom, so this stays in sync without a MutationObserver.
@@ -83,7 +61,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
     && document.documentElement.dataset.colorScheme === 'dark';
 
   return (
-    <Paper elevation={0} className="mb-4 !bg-[var(--mui-palette-background-chartBg)] rounded-sm overflow-hidden">
+    <Paper elevation={0} className="!bg-[var(--mui-palette-background-chartBg)] rounded-sm overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--mui-palette-divider)]">
         <Typography variant="subtitle2" className="flex-1">
@@ -106,58 +84,38 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
         </Button>
       </div>
 
-      {/* Editor + resizable variables panel — use calc() so Monaco gets an explicit width */}
-      <div className="relative min-h-[400px]">
-        <div
-          className="absolute inset-y-0 left-0 overflow-hidden"
-          style={{ right: panelWidth + 4 }}
-        >
-          {monacoReady ? (
-            <Editor
-              height="400px"
-              language="yaml"
-              theme={isDark ? 'vs-dark' : 'light'}
-              value={editorContent}
-              onChange={handleChange}
-              onMount={handleEditorMount}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                tabSize: 2,
-                automaticLayout: true,
-                padding: { top: 8, bottom: 8 },
-                renderLineHighlight: 'line',
-              }}
-              loading={
-                <div className="flex items-center justify-center h-full">
-                  <CircularProgress size={24} />
-                </div>
-              }
-            />
-          ) : (
-            <div className="flex items-center justify-center h-[400px]">
-              <CircularProgress size={24} />
-            </div>
-          )}
-        </div>
-
-        {/* Drag handle */}
-        <div
-          className="absolute inset-y-0 w-1 cursor-col-resize hover:bg-[var(--mui-palette-primary-main)]/30 active:bg-[var(--mui-palette-primary-main)]/50 transition-colors z-10"
-          style={{ right: panelWidth, touchAction: 'none' }}
-          onPointerDown={handleDragStart}
-        />
-
-        {/* Variables side panel */}
-        <div
-          className="absolute inset-y-0 right-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto"
-          style={{ width: panelWidth }}
-        >
-          <VariablesPanel stackName={stackName} composeVariables={detectedVars} />
-        </div>
+      {/* Editor */}
+      <div className="min-h-[400px]">
+        {monacoReady ? (
+          <Editor
+            height="400px"
+            language="yaml"
+            theme={isDark ? 'vs-dark' : 'light'}
+            value={editorContent}
+            onChange={handleChange}
+            onMount={handleEditorMount}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 13,
+              lineNumbers: 'on',
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+              tabSize: 2,
+              automaticLayout: true,
+              padding: { top: 8, bottom: 8 },
+              renderLineHighlight: 'line',
+            }}
+            loading={
+              <div className="flex items-center justify-center h-full">
+                <CircularProgress size={24} />
+              </div>
+            }
+          />
+        ) : (
+          <div className="flex items-center justify-center h-[400px]">
+            <CircularProgress size={24} />
+          </div>
+        )}
       </div>
     </Paper>
   );

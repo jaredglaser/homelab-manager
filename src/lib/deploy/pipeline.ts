@@ -66,6 +66,8 @@ export class DeployPipeline {
           envHash,
           status: 'no_change',
           trigger: request.trigger,
+          action: request.action,
+          forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
         });
         await this.deployRepo.notifyStackChange(request.stack, request.host);
         return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId };
@@ -81,6 +83,8 @@ export class DeployPipeline {
       envHash,
       status: 'pending',
       trigger: request.trigger,
+      action: request.action,
+      forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
     });
 
     if (deployId === null) {
@@ -164,6 +168,7 @@ export class DeployPipeline {
             composeContent: request.composeContent,
             envContent,
             action: 'deploy',
+            forceRecreate: request.forceRecreate,
           });
           break;
         case 'teardown':

@@ -139,10 +139,11 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
   });
 
   const [deployMessage, setDeployMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [forceRecreate, setForceRecreate] = useState(false);
 
   const deployMutation = useMutation({
     mutationFn: (action: 'deploy' | 'restart' | 'teardown') =>
-      triggerDeploy({ data: { stack: stackName, host, action } }),
+      triggerDeploy({ data: { stack: stackName, host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
     onSuccess: (_data, action) => {
       setDeployMessage({ type: 'success', text: `${action} triggered successfully` });
       void queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] });
@@ -227,7 +228,6 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
           <ComposeEditorLoader
             stackName={stackName}
             content={detail.composeContent}
-            variables={detail.variableNames}
           />
         </div>
         <div>
@@ -256,6 +256,8 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
         onTeardown={() => deployMutation.mutate('teardown')}
         onDelete={() => setDeleteDialogOpen(true)}
         isDeploying={deployMutation.isPending}
+        forceRecreate={forceRecreate}
+        onForceRecreateChange={setForceRecreate}
       />
       <StackSettingsDialog
         open={settingsDialogOpen}

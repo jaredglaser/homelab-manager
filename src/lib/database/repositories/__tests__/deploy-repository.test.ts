@@ -22,12 +22,13 @@ describe('DeployRepository', () => {
         envHash: 'hash2',
         status: 'pending',
         trigger: 'git_push',
+        action: 'deploy',
       });
 
       expect(id).toBe(42);
       expect(mock.queries[0].sql).toContain('INSERT INTO deploy_history');
       expect(mock.queries[0].params).toEqual([
-        'plex', 'homeserver', 'abc123', 'hash1', 'hash2', 'pending', 'git_push',
+        'plex', 'homeserver', 'abc123', 'hash1', 'hash2', 'pending', 'git_push', 'deploy', false,
       ]);
     });
   });
@@ -129,6 +130,7 @@ describe('DeployRepository', () => {
       envHash: 'hash2',
       status: 'pending' as const,
       trigger: 'git_push' as const,
+      action: 'deploy' as const,
     };
 
     it('returns the deploy id when no active deploy exists', async () => {
