@@ -338,14 +338,16 @@ graph TB
         UP2 -.->|"watches"| A2
     end
 
-    subgraph host3["ZFS-Only Host"]
+    subgraph host3["ZFS Storage Host"]
         subgraph stack3["Agent Stack (docker-compose)"]
             A3["Agent<br/>capabilities: zfs"]
             UP3["Updater"]
         end
+        D3["Docker Daemon"]
         Z3["ZFS (zpool)<br/>via dedicated zfs user"]
         A3 -->|"zpool iostat<br/>zpool list"| Z3
         UP3 -.->|"watches"| A3
+        UP3 -->|"unix socket"| D3
     end
 
     WEB -->|"TLS + Bearer"| A1
@@ -446,7 +448,7 @@ Endpoints for unavailable capabilities return `404` with a clear error (e.g., `{
 
 ### Reference Agent Stack
 
-The UI generates a compose file tailored to the host's capabilities. Below is the reference for a Docker + ZFS host. Docker-only hosts omit the ZFS volume mounts; ZFS-only hosts omit the socket-proxy service.
+The UI generates a compose file tailored to the host's capabilities. All hosts run Docker (at minimum for the agent stack). Below is the reference for a Docker + ZFS host. Docker-only hosts omit the ZFS volume mounts and `hlm-zfs` user configuration. ZFS-only hosts (no managed containers) omit the socket-proxy service.
 
 ```yaml
 # homelab-manager agent stack
@@ -537,7 +539,7 @@ networks:
 
 ### Updater Sidecar
 
-The updater is a minimal container (~5MB) that:
+The updater is a minimal container (~5MB) that lives in the monorepo alongside the agent (`updater/` package):
 
 1. Periodically checks GHCR for new tags matching the agent image
 2. Compares the remote digest with the running container's image digest
@@ -654,8 +656,7 @@ The agent container runs as the `hlm-zfs` user's UID/GID:
 agent:
   # ...
   user: "${HLM_ZFS_UID}:${HLM_ZFS_GID}"
-  # Docker+ZFS hosts only: add docker group for network access to socket-proxy
-  # Omit group_add on ZFS-only hosts
+  # Include group_add only if the host manages Docker containers (socket-proxy present)
   group_add:
     - "${DOCKER_GID}"
 ```
@@ -669,13 +670,13 @@ The `.env` file alongside the stack compose. The UI **cannot** discover these va
 HLM_ZFS_UID=996
 HLM_ZFS_GID=996
 
-# Docker+ZFS hosts only — run on the target host:
+# Hosts with managed Docker containers — run on the target host:
 #   getent group docker | cut -d: -f3
-# Then fill in:
+# Then fill in (only needed if socket-proxy is in the stack):
 DOCKER_GID=999
 ```
 
-> **ZFS-only hosts without Docker:** If the host has no Docker, the agent stack can't be deployed as a compose file. Options: (1) install Docker minimally just to run the agent stack, or (2) run the agent binary directly as a systemd service under the `hlm-zfs` user. The UI detects the host type during the "Add Host" flow and provides tailored instructions. A standalone agent binary and systemd unit file will be provided in Implementation Phase 2.
+> **Assumption:** All hosts have Docker installed. Even ZFS-only storage hosts use Docker to run the agent stack. The socket-proxy service is only included when the host also manages Docker containers.
 
 #### Distro-Specific Notes
 
@@ -748,7 +749,7 @@ The stack includes the agent, socket proxy, and updater sidecar — no additiona
 
 **Quick start: One-liner (no socket proxy, no updater)**
 
-For quick testing or non-Docker (ZFS-only) hosts where Docker socket access isn't needed:
+For quick testing:
 
 ```bash
 docker run -d \
@@ -760,8 +761,6 @@ docker run -d \
 ```
 
 > **Note:** The one-liner skips the socket proxy and updater. For production use, deploy the full agent stack.
-
-For ZFS-only hosts without Docker, the agent can also run as a systemd service or any other process manager. A standalone binary will be provided for non-Docker hosts. The UI will detect the host type and tailor the instructions accordingly.
 
 ### Agent Updates
 
@@ -848,7 +847,7 @@ Architecture diagrams and documentation updated to reflect the target state. No 
 7. Remove `ssh2` dependency from worker, remove SSH connection manager, remove SSH middleware
 8. Document ZFS user setup — create dedicated `hlm-zfs` user with minimum permissions (see [ZFS User Setup](#zfs-user-setup))
 9. Agent runs ZFS commands as the dedicated user (not root)
-10. Provide standalone agent binary + systemd unit file for ZFS-only hosts without Docker
+10. UI generates tailored compose file based on host capabilities (Docker-only, ZFS-only, or both)
 
 ### Phase 3 — TLS for Agent Communication
 
