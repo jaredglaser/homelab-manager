@@ -3,11 +3,16 @@ import type { Pool } from 'pg';
 /** Valid statuses for managed_hosts, matching the DB CHECK constraint in migration 010. */
 export type HostStatus = 'pending' | 'healthy' | 'unhealthy' | 'error';
 
+export interface HostCapabilities {
+  docker?: boolean;
+  zfs?: boolean;
+}
+
 export interface ManagedHost {
   id: number;
   name: string;
   agent_url: string;
-  socket_proxy_url: string;
+  capabilities: HostCapabilities;
   agent_version: string | null;
   status: HostStatus;
   created_at: Date;
@@ -17,7 +22,7 @@ export interface ManagedHost {
 export interface CreateHostInput {
   name: string;
   agent_url: string;
-  socket_proxy_url: string;
+  capabilities?: HostCapabilities;
 }
 
 // No separate ManagedHostRow needed — SERIAL (INT4) returns JavaScript numbers
@@ -34,7 +39,7 @@ function rowToHost(row: ManagedHost): ManagedHost {
     id: row.id,
     name: row.name,
     agent_url: row.agent_url,
-    socket_proxy_url: row.socket_proxy_url,
+    capabilities: row.capabilities ?? {},
     agent_version: row.agent_version,
     status: row.status,
     created_at: row.created_at,
@@ -47,10 +52,10 @@ export class HostRepository {
 
   async create(input: CreateHostInput): Promise<ManagedHost> {
     const result = await this.pool.query(
-      `INSERT INTO managed_hosts (name, agent_url, socket_proxy_url)
+      `INSERT INTO managed_hosts (name, agent_url, capabilities)
        VALUES ($1, $2, $3)
        RETURNING *`,
-      [input.name, input.agent_url, input.socket_proxy_url]
+      [input.name, input.agent_url, JSON.stringify(input.capabilities ?? {})]
     );
     return rowToHost(result.rows[0] as ManagedHost);
   }
@@ -92,7 +97,7 @@ export class HostRepository {
     );
   }
 
-  async update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string }): Promise<ManagedHost> {
+  async update(id: number, fields: { name?: string; agent_url?: string; capabilities?: HostCapabilities }): Promise<ManagedHost> {
     const setClauses: string[] = [];
     const params: unknown[] = [];
 
@@ -104,9 +109,9 @@ export class HostRepository {
       params.push(fields.agent_url);
       setClauses.push(`agent_url = $${params.length}`);
     }
-    if (fields.socket_proxy_url !== undefined) {
-      params.push(fields.socket_proxy_url);
-      setClauses.push(`socket_proxy_url = $${params.length}`);
+    if (fields.capabilities !== undefined) {
+      params.push(JSON.stringify(fields.capabilities));
+      setClauses.push(`capabilities = $${params.length}`);
     }
 
     if (setClauses.length === 0) {
