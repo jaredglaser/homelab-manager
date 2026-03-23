@@ -79,7 +79,7 @@ export async function retryHealthCheck(
     await new Promise((resolve) => setTimeout(resolve, delays[i]));
     result = await checkFn(agentUrl);
     if (result.healthy) break;
-    console.info(`[retryHealthCheck] Attempt ${i + 1}/${delays.length} failed for ${agentUrl}: ${result.error}`);
+    console.error(`[retryHealthCheck] Attempt ${i + 1}/${delays.length} failed for ${agentUrl}: ${result.error}`);
   }
   return result;
 }
