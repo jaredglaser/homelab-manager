@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
+import { CircularProgress } from '@mui/material'
 import {
   DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
   PRELOAD_STALE_TIME,
@@ -12,6 +13,7 @@ import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
 import { queryClient } from '@/lib/query-client'
 import { IS_DEMO_MODE } from '@/lib/constants/demo'
+import { useAuth } from '@/hooks/useAuth'
 
 if (IS_DEMO_MODE && typeof window !== 'undefined') {
   // Use .then() instead of top-level await to avoid circular dependency deadlock.
@@ -23,6 +25,7 @@ if (IS_DEMO_MODE && typeof window !== 'undefined') {
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  const { loading } = useAuth()
   useSettingsSync()
   useLightPaletteEffect()
 
@@ -32,6 +35,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     queryClient.ensureQueryData({ queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats, staleTime: PRELOAD_STALE_TIME }).catch((err) => console.error('Failed to preload ZFS stats:', err))
     queryClient.ensureQueryData({ queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats, staleTime: PRELOAD_STALE_TIME }).catch((err) => console.error('Failed to preload Proxmox stats:', err))
   }, [])
+
+  if (loading) {
+    return (
+      <ThemeProvider>
+        <div className="flex items-center justify-center min-h-screen">
+          <CircularProgress />
+        </div>
+      </ThemeProvider>
+    )
+  }
 
   return (
     <ThemeProvider>
