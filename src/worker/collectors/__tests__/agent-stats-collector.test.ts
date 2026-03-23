@@ -209,6 +209,25 @@ describe('AgentStatsCollector', () => {
     expect(imageUpsert!.value).toBe('plexinc/plex-media-server:latest');
   });
 
+  it('throws when response has no body', async () => {
+    const fetchFn: FetchFn = mock(async () => {
+      const response = new Response(null, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+      // Override body to be null
+      Object.defineProperty(response, 'body', { value: null });
+      return response;
+    });
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await expect((collector as any).collect()).rejects.toThrow('Agent response has no body');
+  });
+
   it('throws on non-200 response', async () => {
     const fetchFn: FetchFn = mock(async () =>
       new Response('Unauthorized', { status: 401 })
@@ -220,6 +239,43 @@ describe('AgentStatsCollector', () => {
     mockDb.patchRepository(collector);
 
     await expect((collector as any).collect()).rejects.toThrow('Agent returned 401');
+  });
+
+  it('retries entity metadata upsert on failure', async () => {
+    let upsertCallCount = 0;
+    const insertCount = { value: 0 };
+    const events = [sampleAgentEvent, sampleAgentEvent];
+    const fetchFn: FetchFn = mock(async () =>
+      new Response(createMockSSEStream(events), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+    );
+    const repo = (collector as any).repository;
+    // First upsert call throws (first event), second succeeds (retry on second event)
+    repo.upsertEntityMetadata = async () => {
+      upsertCallCount++;
+      if (upsertCallCount === 1) throw new Error('DB connection lost');
+    };
+    repo.insertDockerStats = async () => { insertCount.value++; };
+
+    const origError = console.error;
+    console.error = () => {};
+    try {
+      await (collector as any).collect();
+    } finally {
+      console.error = origError;
+    }
+
+    // Both events should still produce stats (error doesn't prevent stat insertion)
+    expect(insertCount.value).toBe(2);
+    // Container was NOT added to knownContainers on first failure, so second event retries upsert
+    // First event: 1 call (throws) → Second event: 3 calls (name, image, service_key succeed)
+    expect(upsertCallCount).toBe(4);
   });
 
   it('handles multiple events in sequence', async () => {

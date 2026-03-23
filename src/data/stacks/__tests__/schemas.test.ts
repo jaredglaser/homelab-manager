@@ -16,8 +16,12 @@ describe('getStackDetailSchema', () => {
     expect(() => getStackDetailSchema.parse({ stackName: '' })).toThrow();
   });
 
-  it('accepts stackName with dots, hyphens, underscores', () => {
-    expect(getStackDetailSchema.parse({ stackName: 'my-stack_v2.0' }).stackName).toBe('my-stack_v2.0');
+  it('accepts stackName with hyphens and underscores', () => {
+    expect(getStackDetailSchema.parse({ stackName: 'my-stack_v2' }).stackName).toBe('my-stack_v2');
+  });
+
+  it('rejects stackName with dots', () => {
+    expect(() => getStackDetailSchema.parse({ stackName: 'my-stack.v2' })).toThrow();
   });
 
   it('rejects stackName with slashes (path traversal)', () => {
@@ -74,8 +78,8 @@ describe('saveComposeFileSchema', () => {
     expect(result.content).toBe('version: "3"');
   });
 
-  it('accepts empty content', () => {
-    expect(saveComposeFileSchema.parse({ stackName: 'app', content: '' }).content).toBe('');
+  it('rejects empty content', () => {
+    expect(() => saveComposeFileSchema.parse({ stackName: 'app', content: '' })).toThrow();
   });
 
   it('rejects empty stackName', () => {

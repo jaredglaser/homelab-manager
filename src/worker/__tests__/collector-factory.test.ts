@@ -408,6 +408,39 @@ describe('createCollectorsForManagedHosts', () => {
     shutdownController.abort();
   });
 
+  it('skips managed host and continues when getToken throws', async () => {
+    const host2: ManagedHost = { ...sampleManagedHost, id: 2, name: 'other-host', agent_url: 'http://192.168.1.11:9090' };
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [sampleManagedHost, host2]);
+    let callCount = 0;
+    const mockGetToken = mock(async (hostname: string) => {
+      callCount++;
+      if (hostname === 'homeserver') throw new Error('OpenBao unreachable');
+      return 'test-token';
+    });
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: true } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll, mockGetToken,
+    );
+
+    expect(result.collectors).toHaveLength(1);
+    expect(result.collectors[0].name).toBe('AgentStatsCollector[other-host]');
+    expect(callCount).toBe(2);
+
+    const errorCalls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const tokenErrorCall = errorCalls.find((c) => String(c[0]).includes('Failed to retrieve token'));
+    expect(tokenErrorCall).toBeDefined();
+
+    shutdownController.abort();
+  });
+
   it('skips managed hosts when OpenBao returns no token', async () => {
     const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost]);

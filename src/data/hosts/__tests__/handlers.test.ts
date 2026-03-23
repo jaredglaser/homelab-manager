@@ -150,6 +150,16 @@ describe('handleUpdateAgent', () => {
     expect(result.healthy).toBe(false);
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
   });
+
+  it('returns original error when updateStatus also throws', async () => {
+    const repo = mockRepo({
+      updateStatus: mock(() => Promise.reject(new Error('DB connection lost'))),
+    });
+    const updateAgentFn = mock(() => Promise.reject(new Error('container crashed')));
+    const result = await handleUpdateAgent({ ...baseDeps(), repo, updateAgent: updateAgentFn }, { hostId: 1 });
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) expect(result.error).toBe('container crashed');
+  });
 });
 
 describe('handleAddHost', () => {
@@ -218,8 +228,31 @@ describe('handleAddHost', () => {
     deps.storeToken = mock(() => Promise.reject(new Error('bao unreachable')));
     await expect(
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
-    ).rejects.toThrow(/Failed to store agent token in OpenBao/);
+    ).rejects.toThrow(/Failed to finalize host after provisioning/);
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
+    expect(deps.removeAgent).toHaveBeenCalled();
+  });
+
+  it('rolls back on updateAgentUrl failure', async () => {
+    const deps = addDeps({
+      updateAgentUrl: mock(() => Promise.reject(new Error('DB write failed'))),
+    });
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/Failed to finalize host after provisioning/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+    expect(deps.removeAgent).toHaveBeenCalled();
+  });
+
+  it('rolls back when finalization DB updates fail after health check', async () => {
+    const deps = addDeps({
+      updateStatus: mock(() => Promise.reject(new Error('DB down'))),
+    });
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/Agent is healthy but failed to finalize host record/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+    expect(deps.deleteToken).toHaveBeenCalledWith('new');
     expect(deps.removeAgent).toHaveBeenCalled();
   });
 

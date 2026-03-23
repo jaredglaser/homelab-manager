@@ -103,7 +103,7 @@ async function main() {
         db, workerConfig, shutdownController, stack,
         isDockerManagementEnabled,
         () => hostRepo.findAll(),
-        getToken ?? (() => Promise.resolve(null)),
+        getToken ?? (() => { throw new Error('OpenBao client is not available — initialization failed at startup'); }),
       );
       collectors.push(...managedCollectors);
       runners.push(...managedRunners);

@@ -76,6 +76,20 @@ describe('OpenBaoClient', () => {
         'response body is not valid JSON',
       );
     });
+
+    test('filters out non-string keys from response', async () => {
+      mockFetch.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { keys: ['DB_PASSWORD', 123, null, 'API_KEY'] },
+          }),
+          { status: 200 },
+        ),
+      );
+
+      const keys = await client.listSecrets('plex');
+      expect(keys).toEqual(['DB_PASSWORD', 'API_KEY']);
+    });
   });
 
   describe('getSecret', () => {

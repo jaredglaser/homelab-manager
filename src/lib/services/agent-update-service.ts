@@ -84,7 +84,7 @@ export class AgentUpdateService {
       await new Promise((resolve) => setTimeout(resolve, HEALTH_CHECK_RETRY_DELAYS_MS[i]));
       healthResult = await checkAgentHealth(agentUrl, POST_UPDATE_HEALTH_CHECK_TIMEOUT_MS, fetchFn);
       if (healthResult.healthy) break;
-      console.error(
+      console.info(
         `[AgentUpdateService] Health check attempt ${i + 1}/${HEALTH_CHECK_RETRY_DELAYS_MS.length} failed for ${containerName}: ${healthResult.error}`
       );
     }

@@ -42,6 +42,19 @@ describe('getContainerHistorySchema', () => {
     expect(() => getContainerHistorySchema.parse({ containerId: 'x', fromMs: 0, toMs: 0, targetPoints: 0 })).toThrow();
     expect(() => getContainerHistorySchema.parse({ containerId: 'x', fromMs: 0, toMs: 0, targetPoints: 5001 })).toThrow();
   });
+
+  it('rejects negative timestamps', () => {
+    expect(() => getContainerHistorySchema.parse({ containerId: 'x', fromMs: -1, toMs: 1000 })).toThrow();
+    expect(() => getContainerHistorySchema.parse({ containerId: 'x', fromMs: 0, toMs: -1 })).toThrow();
+  });
+
+  it('rejects fractional timestamps', () => {
+    expect(() => getContainerHistorySchema.parse({ containerId: 'x', fromMs: 1.5, toMs: 2000 })).toThrow();
+  });
+
+  it('rejects fromMs greater than toMs', () => {
+    expect(() => getContainerHistorySchema.parse({ containerId: 'x', fromMs: 2000, toMs: 1000 })).toThrow();
+  });
 });
 
 describe('getContainerInfoSchema', () => {

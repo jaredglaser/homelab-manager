@@ -121,7 +121,7 @@ export class OpenBaoClient {
         `OpenBao LIST failed for stack "${stack}": unexpected response shape`,
       );
     }
-    return keys as string[];
+    return keys.filter((k): k is string => typeof k === 'string');
   }
 
   /**

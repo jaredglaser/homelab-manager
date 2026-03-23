@@ -8,9 +8,12 @@ export const getHistoricalDockerStatsSchema = z.object({
 export const getContainerHistorySchema = z.object({
   containerId: z.string().min(1),
   host: z.string().optional(),
-  fromMs: z.number(),
-  toMs: z.number(),
+  fromMs: z.number().int().nonnegative(),
+  toMs: z.number().int().nonnegative(),
   targetPoints: z.number().min(1).max(5000).optional(),
+}).refine((data) => data.fromMs <= data.toMs, {
+  message: 'fromMs must be less than or equal to toMs',
+  path: ['fromMs'],
 });
 
 export const getContainerInfoSchema = z.object({

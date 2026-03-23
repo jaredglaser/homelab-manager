@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
-/** Allowed stack name pattern — alphanumeric, hyphens, underscores, dots. No slashes or path traversal. */
-const stackNameField = z.string().min(1).regex(/^[a-zA-Z0-9._-]+$/, 'Stack name must be alphanumeric (hyphens, underscores, dots allowed)');
+import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
+
+/** Allowed stack name pattern — must match SAFE_PATH_SEGMENT_PATTERN used by OpenBao client. No dots, slashes, or path traversal. */
+const stackNameField = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Stack name must contain only letters, numbers, hyphens, and underscores');
 
 export const getStackDetailSchema = z.object({
   stackName: stackNameField,
@@ -20,7 +22,7 @@ export const getDeployHistorySchema = z.object({
 
 export const saveComposeFileSchema = z.object({
   stackName: stackNameField,
-  content: z.string(),
+  content: z.string().min(1, 'Compose file content cannot be empty'),
 });
 
 export const updateStackIconSchema = z.object({

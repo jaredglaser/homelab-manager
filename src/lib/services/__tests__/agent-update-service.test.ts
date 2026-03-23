@@ -126,6 +126,28 @@ describe('AgentUpdateService', () => {
       if (result.healthy) expect(result.version).toBe('0.2.0');
     });
 
+    it('skips stop when container is not running', async () => {
+      const dockerStopped = createMockDockerode();
+      const originalGetContainer = dockerStopped.docker.getContainer;
+      dockerStopped.docker.getContainer = (_name: string) => {
+        const container = originalGetContainer(_name);
+        const originalInspect = container.inspect;
+        container.inspect = async () => {
+          const data = await originalInspect();
+          data.State.Running = false;
+          return data;
+        };
+        return container;
+      };
+
+      await service.updateAgent(dockerStopped.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
+
+      expect(dockerStopped.stoppedContainers).toHaveLength(0);
+      expect(dockerStopped.removedContainers).toHaveLength(1);
+      expect(dockerStopped.createdContainers).toHaveLength(1);
+      expect(dockerStopped.startedContainers).toHaveLength(1);
+    });
+
     it('throws when container has no port bindings', async () => {
       const dockerNoBindings = createMockDockerode();
       const originalGetContainer = dockerNoBindings.docker.getContainer;

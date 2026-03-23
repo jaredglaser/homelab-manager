@@ -8,13 +8,9 @@ export interface AddHostResult {
   host: HostListItem;
 }
 
-export interface HostOperationResult {
-  hostId: number;
-  healthy: boolean;
-  version?: string;
-  dockerVersion?: string;
-  error?: string;
-}
+export type HostOperationResult =
+  | { hostId: number; healthy: true; version?: string; dockerVersion?: string }
+  | { hostId: number; healthy: false; error: string };
 
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
@@ -114,7 +110,11 @@ export async function handleUpdateAgent(
   try {
     result = await deps.updateAgent(host.socket_proxy_url, host.id);
   } catch (err) {
-    await deps.repo.updateStatus(host.id, 'unhealthy');
+    try {
+      await deps.repo.updateStatus(host.id, 'unhealthy');
+    } catch (statusErr) {
+      console.error(`[updateAgent] Failed to update status for host ${host.id}:`, statusErr instanceof Error ? statusErr.message : statusErr);
+    }
     return { hostId: host.id, healthy: false, error: err instanceof Error ? err.message : String(err) };
   }
 
@@ -125,7 +125,7 @@ export async function handleUpdateAgent(
   }
 
   await deps.repo.updateStatus(host.id, 'unhealthy');
-  return { hostId: host.id, healthy: false, error: result.error };
+  return { hostId: host.id, healthy: false, error: result.error ?? 'Unknown error' };
 }
 
 export async function handleAddHost(
@@ -163,27 +163,32 @@ export async function handleAddHost(
     throw err;
   }
 
-  await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
-
   try {
+    await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
     await deps.storeToken(data.name, plainToken);
   } catch (err) {
     await deps.repo.delete(host.id);
     let containerCleaned = true;
-    try { await deps.removeAgent(data.socketProxyUrl, host.id); } catch {
+    try { await deps.removeAgent(data.socketProxyUrl, host.id); } catch (cleanupErr) {
       containerCleaned = false;
+      console.error(
+        `[addHost] Failed to clean up agent container for ${data.name} after post-provision failure:`,
+        cleanupErr instanceof Error ? cleanupErr.message : cleanupErr
+      );
     }
     throw new Error(
       containerCleaned
-        ? `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record and container have been cleaned up.`
-        : `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record deleted but agent container cleanup failed — manual removal may be required.`
+        ? `Failed to finalize host after provisioning: ${err instanceof Error ? err.message : err}. Host record and container have been cleaned up.`
+        : `Failed to finalize host after provisioning: ${err instanceof Error ? err.message : err}. Host record deleted but agent container cleanup failed — manual removal may be required.`
     );
   }
 
   const healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
 
   if (!healthResult.healthy) {
-    try { await deps.deleteToken(data.name); } catch { /* best-effort */ }
+    try { await deps.deleteToken(data.name); } catch (tokenErr) {
+      console.error(`[addHost] Failed to delete OpenBao token for ${data.name} during rollback:`, tokenErr instanceof Error ? tokenErr.message : tokenErr);
+    }
     let cleanupSucceeded = true;
     try {
       await deps.removeAgent(data.socketProxyUrl, host.id);
@@ -203,8 +208,22 @@ export async function handleAddHost(
   }
 
   const status: HostStatus = 'healthy';
-  await deps.repo.updateStatus(host.id, status);
-  if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
+  try {
+    await deps.repo.updateStatus(host.id, status);
+    if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
+  } catch (err) {
+    console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, err instanceof Error ? err.message : err);
+    try { await deps.deleteToken(data.name); } catch (tokenErr) {
+      console.error(`[addHost] Failed to delete token during finalization rollback:`, tokenErr instanceof Error ? tokenErr.message : tokenErr);
+    }
+    try { await deps.removeAgent(data.socketProxyUrl, host.id); } catch (agentErr) {
+      console.error(`[addHost] Failed to remove agent during finalization rollback:`, agentErr instanceof Error ? agentErr.message : agentErr);
+    }
+    await deps.repo.delete(host.id);
+    throw new Error(
+      `Agent is healthy but failed to finalize host record: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 
   return {
     host: toHostListItem(host, { agentVersion: healthResult.version || null, status }),
