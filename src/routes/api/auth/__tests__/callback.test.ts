@@ -4,6 +4,11 @@ import type { CallbackHandlerDeps } from '../callback';
 import type { OidcTokens, Role } from '@/lib/auth/types';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
 
+// ----- Shared test constants -----
+
+const validState = 'state-abc123';
+const validNonce = 'nonce-xyz789';
+
 // ----- Helpers -----
 
 function makeTokens(overrides?: Partial<OidcTokens>): OidcTokens {
@@ -18,14 +23,14 @@ function makeTokens(overrides?: Partial<OidcTokens>): OidcTokens {
 function makeUser(overrides?: Partial<UserRow>): UserRow {
   return {
     id: 42,
-    oidc_subject: 'sub-123',
+    oidcSubject: 'sub-123',
     email: 'alice@example.com',
     name: 'Alice',
     role: 'viewer',
-    oidc_groups: ['homelab-viewers'],
-    last_login: new Date(),
-    created_at: new Date(),
-    updated_at: new Date(),
+    oidcGroups: ['homelab-viewers'],
+    lastLogin: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
     ...overrides,
   };
 }
@@ -36,6 +41,7 @@ function makeIdTokenClaims(overrides?: Record<string, unknown>): Record<string, 
     email: 'alice@example.com',
     name: 'Alice',
     groups: [],
+    nonce: validNonce,
     ...overrides,
   };
 }
@@ -68,16 +74,13 @@ function makeDeps(overrides?: Partial<CallbackHandlerDeps>): CallbackHandlerDeps
   };
 }
 
+function validCookieHeader(): string {
+  return `oidc_state=${encodedStateParam(validState, validNonce)}`;
+}
+
 // ----- Tests -----
 
 describe('handleCallback', () => {
-  const validState = 'state-abc123';
-  const validNonce = 'nonce-xyz789';
-
-  function validCookieHeader(): string {
-    return `oidc_state=${encodedStateParam(validState, validNonce)}`;
-  }
-
   describe('request validation', () => {
     it('returns 400 when state cookie is missing', async () => {
       const deps = makeDeps();
@@ -134,6 +137,86 @@ describe('handleCallback', () => {
       );
       // Valid state — should not be a 400
       expect(response.status).not.toBe(400);
+    });
+
+    it('returns 400 when id_token nonce does not match stored nonce', async () => {
+      const deps = makeDeps({
+        extractIdTokenClaims: mock(() => makeIdTokenClaims({ nonce: 'wrong-nonce' })),
+      });
+      const response = await handleCallback(
+        deps,
+        'auth-code',
+        validState,
+        validCookieHeader(),
+        null,
+        null,
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('Nonce mismatch');
+    });
+
+    it('returns 400 when id_token is missing sub claim', async () => {
+      const deps = makeDeps({
+        extractIdTokenClaims: mock(() => makeIdTokenClaims({ sub: undefined })),
+      });
+      const response = await handleCallback(
+        deps,
+        'auth-code',
+        validState,
+        validCookieHeader(),
+        null,
+        null,
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('ID token missing required "sub" claim');
+    });
+
+    it('returns 400 when id_token has empty sub claim', async () => {
+      const deps = makeDeps({
+        extractIdTokenClaims: mock(() => makeIdTokenClaims({ sub: '' })),
+      });
+      const response = await handleCallback(
+        deps,
+        'auth-code',
+        validState,
+        validCookieHeader(),
+        null,
+        null,
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('ID token missing required "sub" claim');
+    });
+
+    it('returns 400 when id_token is missing email claim', async () => {
+      const deps = makeDeps({
+        extractIdTokenClaims: mock(() => makeIdTokenClaims({ email: undefined })),
+      });
+      const response = await handleCallback(
+        deps,
+        'auth-code',
+        validState,
+        validCookieHeader(),
+        null,
+        null,
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('ID token missing required "email" claim');
+    });
+
+    it('returns 400 when id_token has empty email claim', async () => {
+      const deps = makeDeps({
+        extractIdTokenClaims: mock(() => makeIdTokenClaims({ email: '' })),
+      });
+      const response = await handleCallback(
+        deps,
+        'auth-code',
+        validState,
+        validCookieHeader(),
+        null,
+        null,
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('ID token missing required "email" claim');
     });
   });
 

@@ -5,6 +5,7 @@ export const Route = createFileRoute('/api/auth/login')({
   server: {
     handlers: {
       GET: async () => {
+        try {
         const { isAuthDisabled, loadAuthConfig } = await import('@/lib/config/auth-config');
         if (isAuthDisabled()) {
           return new Response(null, { status: 302, headers: { Location: '/' } });
@@ -35,6 +36,13 @@ export const Route = createFileRoute('/api/auth/login')({
             'Set-Cookie': stateCookie,
           },
         });
+        } catch (err) {
+          console.error('[auth/login] Unhandled error during login:', err);
+          return new Response(null, {
+            status: 302,
+            headers: { Location: '/login?error=login_failed' },
+          });
+        }
       },
     },
   },

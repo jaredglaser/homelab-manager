@@ -81,6 +81,22 @@ export async function handleCallback(
   // Get groups from userinfo AND id_token claims (merge, deduplicate)
   const userinfoGroups = await deps.oidcClient.getUserGroups(tokens.accessToken);
   const idTokenClaims = deps.extractIdTokenClaims(tokens.idToken);
+
+  // Issue 1: Validate nonce claim matches stored nonce
+  if (idTokenClaims.nonce !== storedState.nonce) {
+    return new Response('Nonce mismatch', { status: 400 });
+  }
+
+  // Issue 4: Validate required sub and email claims
+  const subject = idTokenClaims.sub;
+  if (typeof subject !== 'string' || !subject) {
+    return new Response('ID token missing required "sub" claim', { status: 400 });
+  }
+  const email = idTokenClaims.email;
+  if (typeof email !== 'string' || !email) {
+    return new Response('ID token missing required "email" claim', { status: 400 });
+  }
+
   const idTokenGroups = Array.isArray(idTokenClaims.groups)
     ? (idTokenClaims.groups as string[])
     : [];
@@ -100,9 +116,7 @@ export async function handleCallback(
   }
 
   // Extract user info from id_token
-  const email = (idTokenClaims.email as string) ?? '';
   const name = (idTokenClaims.name as string) ?? null;
-  const subject = idTokenClaims.sub as string;
 
   // Upsert user
   const user = await deps.userRepo.upsertFromOidc({
@@ -140,6 +154,7 @@ export const Route = createFileRoute('/api/auth/callback')({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        try {
         const { isAuthDisabled, loadAuthConfig } = await import('@/lib/config/auth-config');
         if (isAuthDisabled()) {
           return new Response(null, { status: 302, headers: { Location: '/' } });
@@ -181,7 +196,8 @@ export const Route = createFileRoute('/api/auth/callback')({
           request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? null;
         const userAgent = request.headers.get('user-agent') ?? null;
 
-        const isSecure = !config.redirectUri.startsWith('http://localhost');
+        // Issue 2: Correct Secure flag logic — set when using HTTPS
+        const isSecure = config.redirectUri.startsWith('https://');
 
         return handleCallback(
           {
@@ -199,6 +215,13 @@ export const Route = createFileRoute('/api/auth/callback')({
           ipAddress,
           userAgent,
         );
+        } catch (err) {
+          console.error('[auth/callback] Unhandled error during callback:', err);
+          return new Response(null, {
+            status: 302,
+            headers: { Location: '/login?error=callback_failed' },
+          });
+        }
       },
     },
   },
