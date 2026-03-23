@@ -9,6 +9,7 @@ import { readFileFromRepo, commitFiles } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
 import yaml from 'js-yaml';
+import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
 import {
   manifestEntryToSummary,
   manifestEntryToDetail,
@@ -29,20 +30,20 @@ function getRepoPath(): string | null {
 // ----- Service functions (wiring layer) -----
 
 export async function getStackSummaries(): Promise<StackSummary[]> {
+  const repoPath = getRepoPath();
+  if (!repoPath) return [];
+
+  let manifestContent: string;
   try {
-    const repoPath = getRepoPath();
-    if (!repoPath) return [];
+    manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  } catch {
+    return [];
+  }
 
-    let manifestContent: string;
-    try {
-      manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-    } catch {
-      return [];
-    }
+  const manifest = parseManifest(manifestContent);
+  const entries = Object.entries(manifest.stacks);
 
-    const manifest = parseManifest(manifestContent);
-    const entries = Object.entries(manifest.stacks);
-
+  try {
     // Batch-fetch latest deploy per stack and resolve HEAD SHA in parallel
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -59,16 +60,17 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
       git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' }).catch(() => null),
     ]);
 
-    const latestDeployMap = new Map(latestDeploys.map((d) => [d.stack, d]));
+    const latestDeployMap = new Map(latestDeploys.map((d) => [`${d.host}/${d.stack}`, d]));
 
     return entries.map(([name, entry]) => {
       const summary = manifestEntryToSummary(name, entry);
-      summary.syncStatus = computeSyncStatus(latestDeployMap.get(name) ?? null, headSha);
+      summary.syncStatus = computeSyncStatus(latestDeployMap.get(`${entry.host}/${name}`) ?? null, headSha);
       return summary;
     });
   } catch (error) {
-    console.error('[StackService] Failed to load stack summaries:', error);
-    return [];
+    console.error('[StackService] Failed to enrich stack summaries:', error);
+    // Return manifest stacks with 'unknown' sync status when DB/git fails
+    return entries.map(([name, entry]) => manifestEntryToSummary(name, entry));
   }
 }
 
@@ -233,6 +235,10 @@ export async function createStackInRepo(
   const repoPath = getRepoPath();
   if (!repoPath) throw new Error('Git management is not enabled');
 
+  if (!SAFE_PATH_SEGMENT_PATTERN.test(stackName)) {
+    throw new Error(`Invalid stack name "${stackName}" — must contain only letters, numbers, hyphens, and underscores`);
+  }
+
   // Validate host exists in managed_hosts
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -249,9 +255,13 @@ export async function createStackInRepo(
   try {
     const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
     manifest = parseManifest(manifestContent);
-  } catch {
-    // No manifest yet — start with empty stacks
-    manifest = { stacks: {} };
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      // No manifest yet — start with empty stacks
+      manifest = { stacks: {} };
+    } else {
+      throw err;
+    }
   }
 
   if (manifest.stacks[stackName]) {
@@ -334,8 +344,12 @@ export async function deleteStackFromRepo(
   let stackFiles: string[];
   try {
     stackFiles = await (await import('@/lib/git/repo')).listFilesInRepo(repoPath, stackName);
-  } catch {
-    stackFiles = [];
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      stackFiles = [];
+    } else {
+      throw err;
+    }
   }
 
   // Atomic commit: remove stack files + update manifest
@@ -346,9 +360,13 @@ export async function deleteStackFromRepo(
     author: SYSTEM_AUTHOR,
   });
 
-  // Delete stack_status row
-  const statusRepo = new StackStatusRepository(pool);
-  await statusRepo.deleteByStackHost(stackName, host);
+  // Delete stack_status row (best-effort — don't block the delete on this)
+  try {
+    const statusRepo = new StackStatusRepository(pool);
+    await statusRepo.deleteByStackHost(stackName, host);
+  } catch (err) {
+    console.error(`[StackService] Failed to delete stack_status row for "${stackName}" on "${host}":`, err);
+  }
 
   return { commitSha };
 }

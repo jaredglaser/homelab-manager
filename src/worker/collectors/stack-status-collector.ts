@@ -33,7 +33,14 @@ export class StackStatusCollector implements AsyncDisposable {
     parentAbortController?: AbortController,
     fetchFn?: FetchFn,
   ) {
-    this.abortController = parentAbortController ?? new AbortController();
+    this.abortController = new AbortController();
+    if (parentAbortController) {
+      if (parentAbortController.signal.aborted) {
+        this.abortController.abort();
+      } else {
+        parentAbortController.signal.addEventListener('abort', () => this.abortController.abort(), { once: true });
+      }
+    }
     this.fetchFn = fetchFn ?? globalThis.fetch;
   }
 
@@ -113,11 +120,17 @@ export class StackStatusCollector implements AsyncDisposable {
           const dataLine = msg.split('\n').find((line) => line.startsWith('data: '));
           if (!dataLine) continue;
           const json = dataLine.slice(6);
+          let event: StackEvent;
           try {
-            const event: StackEvent = JSON.parse(json);
-            await this.repository.upsertStackStatus(event.stack, this.host.name, event.containers);
+            event = JSON.parse(json);
           } catch {
-            // Skip malformed events
+            // Skip malformed JSON silently
+            continue;
+          }
+          try {
+            await this.repository.upsertStackStatus(event.stack, this.host.name, event.containers);
+          } catch (dbErr) {
+            console.error(`[StackStatusCollector] DB error for ${this.host.name}/${event.stack}:`, dbErr);
           }
         }
       }

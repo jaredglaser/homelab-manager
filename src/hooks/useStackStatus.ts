@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { apiUrl } from '@/lib/utils/api-url'
 import type { StackStatusEntry } from '@/types/stacks'
 
@@ -6,11 +6,9 @@ export function useStackStatus() {
   const [statusMap, setStatusMap] = useState<Map<string, StackStatusEntry>>(new Map())
   const [isConnected, setIsConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const sourceRef = useRef<EventSource | null>(null)
 
   useEffect(() => {
     const source = new EventSource(apiUrl('/api/stack-status'))
-    sourceRef.current = source
 
     source.onopen = () => {
       setIsConnected(true)
@@ -20,7 +18,13 @@ export function useStackStatus() {
     source.onmessage = (event) => {
       try {
         const entries: StackStatusEntry[] = JSON.parse(event.data)
-        setStatusMap(new Map(entries.map((e) => [`${e.stack}/${e.host}`, e])))
+        setStatusMap((prev) => {
+          const next = new Map(prev)
+          for (const e of entries) {
+            next.set(`${e.stack}/${e.host}`, e)
+          }
+          return next
+        })
       } catch {
         // Skip malformed events
       }
@@ -33,7 +37,6 @@ export function useStackStatus() {
 
     return () => {
       source.close()
-      sourceRef.current = null
     }
   }, [])
 

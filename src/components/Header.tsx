@@ -57,6 +57,7 @@ function useCurrentTab(): string {
 
 const PREFETCH_CONFIG: Partial<Record<string, { queryKey: readonly string[]; queryFn: () => Promise<unknown> }>> = {
   '/docker': { queryKey: [...DOCKER_PRELOAD_KEY], queryFn: () => preloadDockerStats() },
+  '/stacks': { queryKey: ['stacks'], queryFn: async () => { const { listStacks } = await import('@/data/stacks/functions'); return listStacks(); } },
   '/zfs': { queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats },
   '/proxmox': { queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats },
 }

@@ -272,7 +272,7 @@ describe('DeployRepository', () => {
       await repo.notifyStackChange('plex', 'homeserver');
 
       expect(mock.queries[0].sql).toContain("pg_notify('stack_change'");
-      expect(mock.queries[0].params).toEqual(['plex', 'homeserver']);
+      expect(mock.queries[0].params).toEqual(['homeserver', 'plex']);
     });
   });
 });

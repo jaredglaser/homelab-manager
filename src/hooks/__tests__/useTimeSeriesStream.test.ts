@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { useTimeSeriesStream, VISIBILITY_REFRESH_COOLDOWN_MS } from '../useTimeSeriesStream';
-import { MockEventSource } from './test-utils/mock-event-source';
+import { MockEventSource } from '@/lib/test/mock-event-source';
 
 const originalEventSource = globalThis.EventSource;
 

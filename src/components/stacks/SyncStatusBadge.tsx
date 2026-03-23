@@ -1,5 +1,5 @@
 import { Chip } from '@mui/material';
-import { CheckCircle, AlertTriangle, XCircle, HelpCircle } from 'lucide-react';
+import { CheckCircle, AlertTriangle, XCircle, HelpCircle, Loader } from 'lucide-react';
 import type { SyncStatus } from '@/types/stacks';
 
 const STATUS_CONFIG: Record<SyncStatus, {
@@ -16,6 +16,11 @@ const STATUS_CONFIG: Record<SyncStatus, {
     label: 'Pending',
     colorVar: 'var(--chart-deploy-pending)',
     icon: <AlertTriangle size={14} />,
+  },
+  'in_progress': {
+    label: 'Deploying',
+    colorVar: 'var(--chart-deploy-in-progress)',
+    icon: <Loader size={14} />,
   },
   failed: {
     label: 'Failed',

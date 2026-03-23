@@ -21,6 +21,8 @@ export function computeSyncStatus(
 ): SyncStatus {
   if (!latestDeploy) return 'unknown';
   if (latestDeploy.status === 'failed') return 'failed';
+  if (latestDeploy.status === 'in_progress') return 'in_progress';
+  if (latestDeploy.status === 'pending') return 'pending';
   const isDeployed = latestDeploy.status === 'succeeded' || latestDeploy.status === 'no_change';
   if (isDeployed && latestDeploy.commitSha === currentHeadSha) return 'in_sync';
   if (isDeployed) return 'pending';

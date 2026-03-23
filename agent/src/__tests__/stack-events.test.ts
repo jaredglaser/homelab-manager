@@ -1,9 +1,15 @@
-import { describe, expect, test, mock, beforeAll, beforeEach } from 'bun:test';
+import { describe, expect, test, mock, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { handleStackEvents, _resetStateForTesting } from '../routes/stack-events';
 
+const originalConsoleError = console.error;
+
 beforeAll(() => {
   console.error = mock(() => {});
+});
+
+afterAll(() => {
+  console.error = originalConsoleError;
 });
 
 beforeEach(() => {
@@ -191,15 +197,17 @@ describe('handleStackEvents — Docker lifecycle events', () => {
   test('emits stack snapshot when a compose container starts', async () => {
     const eventsEmitter = new EventEmitter();
     const initialContainer = makeContainer('c1', 'app', 'mystack', 'running');
-    const updatedContainers = [makeContainer('c1', 'app', 'mystack', 'running')];
 
-    let listCallCount = 0;
     const mockDocker = {
-      listContainers: mock(() => {
-        listCallCount++;
-        // First call (initial) returns the container; subsequent calls (event handling) also return it
-        return Promise.resolve(listCallCount === 1 ? [initialContainer] : updatedContainers);
-      }),
+      listContainers: mock(() => Promise.resolve([initialContainer])),
+      getContainer: mock((id: string) => ({
+        inspect: mock(() => Promise.resolve({
+          Id: id,
+          Name: '/app',
+          State: { Status: 'running' },
+          Config: { Image: 'nginx:latest', Labels: { 'com.docker.compose.project': 'mystack' } },
+        })),
+      })),
       getEvents: mock(() => Promise.resolve(eventsEmitter)),
     };
 
@@ -329,17 +337,16 @@ describe('handleStackEvents — Docker lifecycle events', () => {
   test('ignores irrelevant container actions (e.g. exec_create)', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app', 'mystack')];
-    let broadcastCount = 0;
+    const getContainerMock = mock(() => ({
+      inspect: mock(() => Promise.resolve({
+        Id: 'c1', Name: '/app', State: { Status: 'running' },
+        Config: { Image: 'nginx:latest', Labels: { 'com.docker.compose.project': 'mystack' } },
+      })),
+    }));
 
     const mockDocker = {
-      listContainers: mock(() => {
-        if (broadcastCount === 0) {
-          broadcastCount++;
-          return Promise.resolve(containers);
-        }
-        broadcastCount++;
-        return Promise.resolve(containers);
-      }),
+      listContainers: mock(() => Promise.resolve(containers)),
+      getContainer: getContainerMock,
       getEvents: mock(() => Promise.resolve(eventsEmitter)),
     };
 
@@ -349,7 +356,7 @@ describe('handleStackEvents — Docker lifecycle events', () => {
 
     // Wait for initial snapshot
     await readUntil(response, (s) => s.includes('"stack":"mystack"'));
-    const initialListCallCount = (mockDocker.listContainers as ReturnType<typeof mock>).mock.calls.length;
+    const initialGetContainerCalls = getContainerMock.mock.calls.length;
 
     // Emit exec_create — should be ignored
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
@@ -361,8 +368,8 @@ describe('handleStackEvents — Docker lifecycle events', () => {
     await new Promise((r) => setTimeout(r, 30));
     ac.abort();
 
-    // listContainers should not have been called again
-    expect((mockDocker.listContainers as ReturnType<typeof mock>).mock.calls.length).toBe(initialListCallCount);
+    // getContainer should not have been called after initial setup
+    expect(getContainerMock.mock.calls.length).toBe(initialGetContainerCalls);
   });
 });
 

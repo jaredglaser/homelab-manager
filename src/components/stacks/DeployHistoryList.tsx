@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useWindowVirtualizer } from '@tanstack/react-virtual';
 import { Button, Chip, Collapse, Paper, Skeleton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
@@ -56,7 +56,14 @@ export default function DeployHistoryList({
   onRollbackError,
 }: DeployHistoryListProps) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [scrollMargin, setScrollMargin] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (listRef.current) {
+      setScrollMargin(listRef.current.offsetTop);
+    }
+  });
 
   const filtered = useMemo(() => {
     if (statusFilter === 'all') return records;
@@ -67,7 +74,7 @@ export default function DeployHistoryList({
     count: filtered.length,
     estimateSize: () => 44,
     overscan: 10,
-    scrollMargin: listRef.current?.offsetTop ?? 0,
+    scrollMargin,
     getItemKey: (index) => filtered[index].id,
   });
 

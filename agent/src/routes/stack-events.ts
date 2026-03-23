@@ -124,27 +124,33 @@ async function handleDockerEvent(docker: Dockerode, event: DockerEventMessage): 
 
   // For other actions, refresh container info from Docker
   try {
-    const allContainers = await docker.listContainers({ all: true });
-    const updated = allContainers.find(c => c.Id === containerId);
-
-    if (updated) {
-      const stackName = getStackName(updated);
-      if (stackName === null) {
-        // Container lost its label somehow — remove it and move on
-        state.containers.delete(containerId);
-        return;
-      }
-      state.containers.set(containerId, updated);
-      broadcastStack(stackName);
-    } else {
-      // Container no longer exists — clean up
+    const inspectData = await docker.getContainer(containerId).inspect();
+    const stackName = inspectData.Config?.Labels?.[COMPOSE_PROJECT_LABEL] ?? null;
+    if (stackName === null) {
+      // Container lost its label somehow — remove it and move on
+      state.containers.delete(containerId);
+      return;
+    }
+    // Convert inspect result to ContainerInfo shape for state storage
+    const containerInfo: Dockerode.ContainerInfo = {
+      Id: inspectData.Id,
+      Names: [inspectData.Name],
+      State: inspectData.State?.Status ?? 'unknown',
+      Image: inspectData.Config?.Image ?? '',
+      Labels: inspectData.Config?.Labels ?? {},
+    } as Dockerode.ContainerInfo;
+    state.containers.set(containerId, containerInfo);
+    broadcastStack(stackName);
+  } catch (err: unknown) {
+    if (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 404) {
+      // Container was removed — clean up
       const existing = state.containers.get(containerId);
       const stackName = existing ? getStackName(existing) : null;
       state.containers.delete(containerId);
       if (stackName) broadcastStack(stackName);
+    } else {
+      console.error(`Failed to refresh container info after '${action}' event for ${containerId}:`, err);
     }
-  } catch (err) {
-    console.error(`Failed to refresh container info after '${action}' event for ${containerId}:`, err);
   }
 }
 

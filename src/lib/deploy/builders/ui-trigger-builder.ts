@@ -32,7 +32,7 @@ export class UITriggerBuilder {
       autoApproved: true,
     };
     if (input.action === 'deploy') {
-      return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '', forceRecreate: input.forceRecreate };
+      return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '', forceRecreate: input.forceRecreate ?? false };
     }
     return { ...base, action: input.action };
   }
@@ -47,6 +47,7 @@ export class UITriggerBuilder {
       action: 'deploy',
       trigger: 'manual_rollback',
       autoApproved: true,
+      forceRecreate: true,
     };
   }
 }

@@ -88,7 +88,9 @@ describe('StackStatusCollector', () => {
     const controller = new AbortController();
     const repo = makeRepository();
     const collector = new StackStatusCollector(sampleHost, 'token', repo, controller);
-    expect(collector.signal).toBe(controller.signal);
+    expect(collector.signal.aborted).toBe(false);
+    controller.abort();
+    expect(collector.signal.aborted).toBe(true);
   });
 
   it('connects to agent URL with Bearer token auth', async () => {
@@ -263,7 +265,9 @@ describe('StackStatusCollector', () => {
     const controller = new AbortController();
     const repo = makeRepository();
     const collector = new StackStatusCollector(sampleHost, 'token', repo, controller);
-    expect(collector.signal).toBe(controller.signal);
+    expect(collector.signal.aborted).toBe(false);
+    controller.abort();
+    expect(collector.signal.aborted).toBe(true);
   });
 
   it('resets consecutive errors after a successful collect', async () => {

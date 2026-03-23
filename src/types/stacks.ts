@@ -3,7 +3,7 @@ export type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/typ
 import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 
 // Issue 15: use underscores consistently (in_sync, not in-sync)
-export type SyncStatus = 'in_sync' | 'pending' | 'failed' | 'unknown';
+export type SyncStatus = 'in_sync' | 'pending' | 'in_progress' | 'failed' | 'unknown';
 
 export type DeployMode = 'auto' | 'manual';
 

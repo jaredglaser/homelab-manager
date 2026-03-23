@@ -114,7 +114,7 @@ export class DeployRepository {
    */
   async getLatestDeployPerStack(): Promise<DeployRecord[]> {
     const { rows } = await this.pool.query(
-      `SELECT DISTINCT ON (stack, host) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, logs, created_at
+      `SELECT DISTINCT ON (stack, host) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, force_recreate, logs, created_at
        FROM deploy_history
        ORDER BY stack, host, created_at DESC`
     );
@@ -122,7 +122,7 @@ export class DeployRepository {
   }
 
   async notifyStackChange(stack: string, host: string): Promise<void> {
-    await this.pool.query("SELECT pg_notify('stack_change', $1 || '/' || $2)", [stack, host]);
+    await this.pool.query("SELECT pg_notify('stack_change', $1 || '/' || $2)", [host, stack]);
   }
 }
 

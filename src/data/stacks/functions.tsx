@@ -10,11 +10,15 @@ import {
   updateStackIconSchema,
 } from '@/data/stacks/schemas';
 
+/** Module-scoped cached OpenBao client to avoid repeated init overhead. */
+let cachedBaoClient: OpenBaoClient | null = null;
+
 /**
  * Get an initialized OpenBao client. Ensures the KV v2 secrets engine
  * is enabled on first use (idempotent singleton).
  */
 async function getOpenBaoClient(): Promise<OpenBaoClient> {
+  if (cachedBaoClient) return cachedBaoClient;
   const { isOpenBaoConfigured, loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
   if (!isOpenBaoConfigured()) throw new Error('OpenBao is not configured');
   const { OpenBaoClient: Client } = await import('@/lib/clients/openbao-client');
@@ -22,6 +26,7 @@ async function getOpenBaoClient(): Promise<OpenBaoClient> {
   const config = loadOpenBaoConfig();
   const client = new Client(config);
   await initializeOpenBao(client);
+  cachedBaoClient = client;
   return client;
 }
 
@@ -66,17 +71,6 @@ export const getDeployHistory = createServerFn()
     return getStackDeployHistory(data.stackName, data.limit);
   });
 
-/** Parse variable references from compose content (server-side utility, no React deps). */
-function extractComposeVariables(content: string): string[] {
-  const varPattern = /\$\{([a-zA-Z_]\w*)(?::-[^}]*)?\}/g;
-  const vars = new Set<string>();
-  let match: RegExpMatchArray | null;
-  while ((match = varPattern.exec(content)) !== null) {
-    vars.add(match[1]);
-  }
-  return Array.from(vars).sort((a, b) => a.localeCompare(b));
-}
-
 /**
  * Save compose file content (creates a git commit).
  * After a successful commit, ensures OpenBao entries exist for all detected variables.
@@ -86,9 +80,10 @@ export const saveComposeFile = createServerFn()
   .inputValidator(saveComposeFileSchema)
   .handler(async ({ data }): Promise<{ commitSha: string; warnings?: string[] }> => {
     const { saveStackComposeFile } = await import('@/lib/stacks/stack-service');
+    const { extractVariableNames } = await import('@/lib/stacks/stack-mappers');
     const result = await saveStackComposeFile(data.stackName, data.content);
 
-    const variableNames = extractComposeVariables(data.content);
+    const variableNames = extractVariableNames(data.content);
     if (variableNames.length > 0) {
       try {
         const client = await getOpenBaoClient();
@@ -206,7 +201,7 @@ export const createStack = createServerFn({ method: 'POST' })
   });
 
 const deleteStackSchema = z.object({
-  stackName: z.string(),
+  stackName: z.string().min(1),
   teardown: z.boolean(),
 });
 

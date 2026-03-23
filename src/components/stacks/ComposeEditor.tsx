@@ -27,6 +27,7 @@ export function parseVariables(content: string): string[] {
 
 export default function ComposeEditor({ host, stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
+  const [monacoLoadFailed, setMonacoLoadFailed] = useState(false);
   const [editorContent, setEditorContent] = useState(content);
   const [detectedVars, setDetectedVars] = useState<string[]>(initialVariables);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -42,7 +43,7 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
   // Vite's ?worker imports. Must complete before Editor mounts to avoid
   // "Could not create web worker(s)" warning.
   useEffect(() => {
-    import('@/lib/monaco-setup').then(() => setMonacoReady(true));
+    import('@/lib/monaco-setup').then(() => setMonacoReady(true)).catch(() => setMonacoLoadFailed(true));
   }, []);
 
   const isDirty = editorContent !== content;
@@ -95,7 +96,13 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
       {/* Editor + variables panel */}
       <div className="flex min-h-[400px]">
         <div className="flex-1 min-w-0">
-          {monacoReady ? (
+          {monacoLoadFailed ? (
+            <div className="flex items-center justify-center h-[400px]">
+              <Typography variant="body2" className="opacity-50">
+                Failed to load editor. Please refresh the page.
+              </Typography>
+            </div>
+          ) : monacoReady ? (
             <Editor
               height="400px"
               language="yaml"

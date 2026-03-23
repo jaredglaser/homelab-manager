@@ -56,14 +56,14 @@ describe('computeSyncStatus', () => {
     expect(computeSyncStatus(deploy, 'new-sha')).toBe('pending');
   });
 
-  test('returns unknown for pending status (deploy not yet complete)', () => {
+  test('returns pending for pending status (deploy not yet complete)', () => {
     const deploy: DeployRecord = { ...baseRecord, status: 'pending' };
-    expect(computeSyncStatus(deploy, 'abc123')).toBe('unknown');
+    expect(computeSyncStatus(deploy, 'abc123')).toBe('pending');
   });
 
-  test('returns unknown for in_progress status (deploy not yet complete)', () => {
+  test('returns in_progress for in_progress status (deploy not yet complete)', () => {
     const deploy: DeployRecord = { ...baseRecord, status: 'in_progress' };
-    expect(computeSyncStatus(deploy, 'abc123')).toBe('unknown');
+    expect(computeSyncStatus(deploy, 'abc123')).toBe('in_progress');
   });
 
   test('returns pending when succeeded SHA matches but HEAD is null', () => {

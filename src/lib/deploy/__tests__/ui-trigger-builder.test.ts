@@ -23,6 +23,7 @@ describe('UITriggerBuilder', () => {
         action: 'deploy',
         trigger: 'ui',
         autoApproved: true,
+        forceRecreate: false,
       });
     });
 
@@ -59,6 +60,7 @@ describe('UITriggerBuilder', () => {
         action: 'deploy',
         trigger: 'manual_rollback',
         autoApproved: true,
+        forceRecreate: true,
       });
     });
   });

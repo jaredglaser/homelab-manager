@@ -9,10 +9,10 @@ CREATE TABLE stack_status (
 CREATE OR REPLACE FUNCTION notify_stack_change() RETURNS trigger AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
-    PERFORM pg_notify('stack_change', OLD.stack || '/' || OLD.host);
+    PERFORM pg_notify('stack_change', row_to_json(OLD)::text);
     RETURN OLD;
   END IF;
-  PERFORM pg_notify('stack_change', NEW.stack || '/' || NEW.host);
+  PERFORM pg_notify('stack_change', row_to_json(NEW)::text);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

@@ -17,6 +17,7 @@ class StackStatusBroadcastService {
   private subscribers = new Set<StackStatusCallback>();
   private listenerClient: PoolClient | null = null;
   private stopped = true;
+  private reconnecting = false;
 
   subscribe(callback: StackStatusCallback): () => void {
     this.subscribers.add(callback);
@@ -72,7 +73,7 @@ class StackStatusBroadcastService {
         const poolClient = await pool.connect();
 
         if (this.stopped) {
-          poolClient.release();
+          try { poolClient.release(); } catch { /* best-effort */ }
           return;
         }
 
@@ -80,15 +81,22 @@ class StackStatusBroadcastService {
 
         this.listenerClient.on('notification', (msg) => {
           if (msg.channel === 'stack_change') {
-            this.broadcastAll();
+            this.broadcastAll(msg.payload);
           }
         });
 
         this.listenerClient.on('error', (err) => {
           console.error('[StackStatusBroadcastService] Listener client error:', err);
-          this.listenerClient?.removeAllListeners();
-          this.listenerClient?.release();
-          this.listenerClient = null;
+          this.cleanupListenerClient();
+          if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
+            this.reconnecting = true;
+            setTimeout(() => {
+              this.reconnecting = false;
+              if (!this.stopped && this.subscribers.size > 0) {
+                this.startListening();
+              }
+            }, 5_000);
+          }
         });
 
         await this.listenerClient.query('LISTEN stack_change');
@@ -100,34 +108,68 @@ class StackStatusBroadcastService {
     }
   }
 
-  private async broadcastAll(): Promise<void> {
+  private async broadcastAll(payload?: string): Promise<void> {
     try {
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { StackStatusRepository } = await import(
-        '@/lib/database/repositories/stack-status-repository'
-      );
+      let entries: StackStatusRow[];
 
-      const config = loadDatabaseConfig();
-      const client = await databaseConnectionManager.getClient(config);
-      const repo = new StackStatusRepository(client.getPool());
-      const all = await repo.getAll();
+      if (payload) {
+        try {
+          const row = JSON.parse(payload);
+          entries = [{
+            stack: row.stack,
+            host: row.host,
+            containers: row.containers,
+            updated_at: new Date(row.updated_at),
+          }];
+        } catch {
+          // Payload is not JSON (legacy format) — fall back to full table load
+          const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+          const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+          const { StackStatusRepository } = await import(
+            '@/lib/database/repositories/stack-status-repository'
+          );
+
+          const config = loadDatabaseConfig();
+          const client = await databaseConnectionManager.getClient(config);
+          const repo = new StackStatusRepository(client.getPool());
+          entries = await repo.getAll();
+        }
+      } else {
+        const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+        const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+        const { StackStatusRepository } = await import(
+          '@/lib/database/repositories/stack-status-repository'
+        );
+
+        const config = loadDatabaseConfig();
+        const client = await databaseConnectionManager.getClient(config);
+        const repo = new StackStatusRepository(client.getPool());
+        entries = await repo.getAll();
+      }
 
       for (const cb of this.subscribers) {
-        cb(all);
+        cb(entries);
       }
     } catch (error) {
       console.error('[StackStatusBroadcastService] Failed to broadcast:', error);
     }
   }
 
-  private stopListening(): void {
-    this.stopped = true;
+  private cleanupListenerClient(): void {
     if (this.listenerClient) {
       this.listenerClient.removeAllListeners();
-      this.listenerClient.release();
+      try {
+        this.listenerClient.release();
+      } catch {
+        // best-effort release
+      }
       this.listenerClient = null;
     }
+  }
+
+  private stopListening(): void {
+    this.stopped = true;
+    this.cleanupListenerClient();
   }
 
   async stop(): Promise<void> {

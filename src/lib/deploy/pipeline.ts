@@ -57,7 +57,7 @@ export class DeployPipeline {
       composeHash = changeResult.composeHash;
       envHash = changeResult.envHash;
 
-      if (!changeResult.changed) {
+      if (!changeResult.changed && !request.forceRecreate) {
         const deployId = await this.deployRepo.insertDeploy({
           stack: request.stack,
           host: request.host,
@@ -69,7 +69,11 @@ export class DeployPipeline {
           action: request.action,
           forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
         });
-        await this.deployRepo.notifyStackChange(request.stack, request.host);
+        try {
+          await this.deployRepo.notifyStackChange(request.stack, request.host);
+        } catch (err) {
+          console.error(`Failed to notify stack change for "${request.stack}":`, err);
+        }
         return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId };
       }
     }
@@ -193,7 +197,11 @@ export class DeployPipeline {
     // Record result outside try — a DB failure here must not be misattributed to the agent
     const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
     await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
-    await this.deployRepo.notifyStackChange(request.stack, host.name);
+    try {
+      await this.deployRepo.notifyStackChange(request.stack, host.name);
+    } catch (err) {
+      console.error(`Failed to notify stack change for "${request.stack}":`, err);
+    }
 
     return { status: finalStatus, logs: result.logs, deployId };
   }

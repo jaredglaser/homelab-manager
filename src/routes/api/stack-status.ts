@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import type { StackStatusRow } from '@/lib/database/repositories/stack-status-repository';
 
 export const Route = createFileRoute('/api/stack-status')({
   server: {
@@ -14,12 +15,15 @@ export const Route = createFileRoute('/api/stack-status')({
 
         const stream = new ReadableStream({
           start(controller) {
-            const sendData = (entries: unknown) => {
+            const sendData = (entries: StackStatusRow[]) => {
               if (closed) return;
               try {
                 const data = `data: ${JSON.stringify(entries)}\n\n`;
                 controller.enqueue(encoder.encode(data));
-              } catch {
+              } catch (err) {
+                if (!(err instanceof TypeError)) {
+                  console.error('[stack-status SSE] Unexpected enqueue error:', err);
+                }
                 closed = true;
               }
             };
