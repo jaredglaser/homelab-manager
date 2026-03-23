@@ -4,6 +4,12 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
   server: {
     handlers: {
       GET: async ({ request, params }) => {
+        const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+        const user = await authenticateSSE(request);
+        if (!user) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
         const { loadDockerConfig } = await import('@/lib/config/docker-config');
         const { dockerConnectionManager } = await import('@/lib/clients/docker-client');
         const { parseMuxedChunk, parseTtyChunk } = await import('@/lib/utils/docker-log-demux');
