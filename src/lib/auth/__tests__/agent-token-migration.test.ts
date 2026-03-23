@@ -103,8 +103,10 @@ describe('migrateAgentTokensToTransit', () => {
     await expect(migrateAgentTokensToTransit(pool, transit)).resolves.toBeUndefined();
 
     expect(errorSpy).toHaveBeenCalledTimes(1);
-    expect(errorSpy.mock.calls[0][0]).toContain('[agent-token-migration]');
-    expect(errorSpy.mock.calls[0][0]).toContain('host 1');
+    const firstArg = errorSpy.mock.calls[0][0] as string;
+    expect(firstArg).toContain('[agent-token-migration]');
+    expect(firstArg).toContain('host 1');
+    expect(errorSpy.mock.calls[0][1]).toBeInstanceOf(Error);
 
     // The second row should still have been processed
     expect(transit.encrypt).toHaveBeenCalledTimes(2);
