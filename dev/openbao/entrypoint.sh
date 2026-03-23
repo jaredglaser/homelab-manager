@@ -61,4 +61,7 @@ else
   echo "[openbao-init] Unsealed."
 fi
 
+# Set up Transit engine and keys
+/bin/sh /openbao/setup-transit.sh
+
 wait $BAO_PID

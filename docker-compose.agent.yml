@@ -75,6 +75,7 @@ services:
       - openbao-data:/openbao/data
       - ./dev/openbao/local.hcl:/openbao/config/local.hcl:ro
       - ./dev/openbao/entrypoint.sh:/openbao/entrypoint.sh:ro
+      - ./dev/openbao/setup-transit.sh:/openbao/setup-transit.sh:ro
     entrypoint: ["/bin/sh", "/openbao/entrypoint.sh"]
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
