@@ -137,6 +137,17 @@ describe('HostRepository', () => {
     });
   });
 
+  describe('updateAgentUrl', () => {
+    it('updates the agent_url field', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentUrl(1, 'http://192.168.1.10:9090');
+      expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
+      expect(mock.queries[0].sql).toContain('agent_url');
+      expect(mock.queries[0].params).toContain('http://192.168.1.10:9090');
+      expect(mock.queries[0].params).toContain(1);
+    });
+  });
+
   describe('delete', () => {
     it('deletes the host by id', async () => {
       mock.pushResult([]);
