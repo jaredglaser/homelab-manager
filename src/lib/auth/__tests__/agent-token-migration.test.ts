@@ -28,8 +28,11 @@ describe('migrateAgentTokensToTransit', () => {
     ];
     const pool = makePool(rows);
     const transit = makeTransit();
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
 
-    await migrateAgentTokensToTransit(pool, transit);
+    const result = await migrateAgentTokensToTransit(pool, transit);
+    expect(result).toEqual({ migrated: 2, failed: 0 });
+    infoSpy.mockRestore();
 
     expect(transit.encrypt).toHaveBeenCalledTimes(2);
     expect(transit.encrypt).toHaveBeenCalledWith('agent-tokens', 'token-abc');
@@ -51,6 +54,7 @@ describe('migrateAgentTokensToTransit', () => {
     const rows = [{ id: 42, agent_token: 'secret-token' }];
     const pool = makePool(rows);
     const transit = makeTransit();
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
 
     await migrateAgentTokensToTransit(pool, transit);
 
@@ -61,6 +65,7 @@ describe('migrateAgentTokensToTransit', () => {
     expect(updateCall).toBeDefined();
     // The UPDATE sets agent_token = NULL (via the SQL) and agent_token_encrypted = encrypted value
     expect((updateCall![0] as string)).toContain('agent_token = NULL');
+    infoSpy.mockRestore();
   });
 
   it('skips rows where agent_token is already null (query returns no such rows)', async () => {
@@ -81,7 +86,8 @@ describe('migrateAgentTokensToTransit', () => {
     const pool = makePool([]);
     const transit = makeTransit();
 
-    await expect(migrateAgentTokensToTransit(pool, transit)).resolves.toBeUndefined();
+    const result = await migrateAgentTokensToTransit(pool, transit);
+    expect(result).toEqual({ migrated: 0, failed: 0 });
     expect(transit.encrypt).toHaveBeenCalledTimes(0);
   });
 
@@ -99,8 +105,10 @@ describe('migrateAgentTokensToTransit', () => {
     });
 
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
 
-    await expect(migrateAgentTokensToTransit(pool, transit)).resolves.toBeUndefined();
+    const result = await migrateAgentTokensToTransit(pool, transit);
+    expect(result).toEqual({ migrated: 1, failed: 1 });
 
     expect(errorSpy).toHaveBeenCalledTimes(1);
     const firstArg = errorSpy.mock.calls[0][0] as string;
@@ -117,6 +125,7 @@ describe('migrateAgentTokensToTransit', () => {
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0][1]).toEqual([`vault:v1:${btoa('will-succeed')}`, 2]);
 
+    infoSpy.mockRestore();
     errorSpy.mockRestore();
   });
 });
