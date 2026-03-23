@@ -1,6 +1,8 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { HostListItem } from '@/lib/hosts/host-utils';
 import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema, registerExistingHostSchema, verifyHostSchema, updateHostSchema } from '@/data/hosts/schemas';
+import { authMiddleware } from '@/middleware/auth-middleware';
+import { requireRole } from '@/lib/auth/require-role';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
   handleUpdateAgent, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
@@ -41,8 +43,10 @@ async function loadDockerClient(socketProxyUrl: string) {
 }
 
 export const addHost = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(addHostSchema)
-  .handler(async ({ data }): Promise<AddHostResult> => {
+  .handler(async ({ data, context }): Promise<AddHostResult> => {
+    requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
@@ -67,8 +71,10 @@ export const addHost = createServerFn()
   });
 
 export const registerExistingHost = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(registerExistingHostSchema)
-  .handler(async ({ data }): Promise<AddHostResult> => {
+  .handler(async ({ data, context }): Promise<AddHostResult> => {
+    requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     return handleRegisterExistingHost({
@@ -81,8 +87,10 @@ export const registerExistingHost = createServerFn()
   });
 
 export const verifyHost = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(verifyHostSchema)
-  .handler(async ({ data }): Promise<AddHostResult> => {
+  .handler(async ({ data, context }): Promise<AddHostResult> => {
+    requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     return handleVerifyHost({
@@ -95,8 +103,10 @@ export const verifyHost = createServerFn()
   });
 
 export const removeHost = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(removeHostSchema)
-  .handler(async ({ data }): Promise<{ success: boolean }> => {
+  .handler(async ({ data, context }): Promise<{ success: boolean }> => {
+    requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     return handleRemoveHost({
       ...baseDeps,
@@ -118,14 +128,17 @@ export const removeHost = createServerFn()
   });
 
 export const listHosts = createServerFn()
+  .middleware([authMiddleware])
   .handler(async (): Promise<HostListItem[]> => {
     const deps = await loadDeps();
     return handleListHosts(deps);
   });
 
 export const updateAgent = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(updateAgentSchema)
-  .handler(async ({ data }): Promise<HostOperationResult> => {
+  .handler(async ({ data, context }): Promise<HostOperationResult> => {
+    requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
@@ -142,6 +155,7 @@ export const updateAgent = createServerFn()
   });
 
 export const checkHostHealth = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(checkHostHealthSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
@@ -150,8 +164,10 @@ export const checkHostHealth = createServerFn()
   });
 
 export const updateHost = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(updateHostSchema)
-  .handler(async ({ data }): Promise<HostListItem> => {
+  .handler(async ({ data, context }): Promise<HostListItem> => {
+    requireRole('admin')(context.user);
     const deps = await loadDeps();
     return handleUpdateHost(deps, data);
   });
