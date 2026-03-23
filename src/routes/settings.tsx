@@ -3,7 +3,9 @@ import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Switch, Typogra
 import { useSettings, type MemoryDisplayMode, type DecimalSettings, type LightPalette } from '@/hooks/useSettings'
 import PageHeader from '@/components/PageHeader'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCard'
+import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
 import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
+import { useAuth } from '@/hooks/useAuth'
 
 export const Route = createFileRoute('/settings')({
   ssr: false,
@@ -12,6 +14,7 @@ export const Route = createFileRoute('/settings')({
 
 function SettingsContent() {
   const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setChartWindowSeconds, setShowSparklines, setUseAbbreviatedUnits, setLightPalette, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
+  const { user } = useAuth();
 
   return (
     <div className="w-full p-6">
@@ -213,6 +216,9 @@ function SettingsContent() {
         </Card>
 
         {isDockerManagementEnabledClient() && <ManagedHostsCard />}
+
+        {/* TODO: Redesign settings page with navigation similar to stacks page */}
+        {user?.role === 'admin' && <AuthManagementCard />}
 
         <Card variant="outlined" className="p-4">
           <Typography variant="h6" className="mb-4">Developer</Typography>

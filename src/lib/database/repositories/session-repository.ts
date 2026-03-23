@@ -96,6 +96,22 @@ export class SessionRepository {
     await this.pool.query('DELETE FROM sessions WHERE user_id = $1', [userId]);
   }
 
+  async findAllWithUser(): Promise<(SessionRow & { userName: string | null; userEmail: string })[]> {
+    const result = await this.pool.query(
+      `SELECT s.id, s.user_id, s.encrypted_oidc, s.ip_address, s.user_agent, s.expires_at, s.created_at,
+              u.name AS user_name, u.email AS user_email
+       FROM sessions s
+       JOIN users u ON s.user_id = u.id
+       WHERE s.expires_at > now()
+       ORDER BY s.created_at DESC`
+    );
+    return (result.rows as (Parameters<typeof rowToSession>[0] & { user_name: string | null; user_email: string })[]).map(row => ({
+      ...rowToSession(row),
+      userName: row.user_name ?? null,
+      userEmail: row.user_email,
+    }));
+  }
+
   async deleteExpired(): Promise<void> {
     await this.pool.query('DELETE FROM sessions WHERE expires_at <= now()');
   }
