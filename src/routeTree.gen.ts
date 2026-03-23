@@ -29,6 +29,8 @@ import { Route as ApiDockerLogsContainerIdRouteImport } from './routes/api/docke
 import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
 import { Route as ApiAuthCallbackRouteImport } from './routes/api/auth/callback'
 import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as DeniedRouteImport } from './routes/denied'
 
 const ZfsRoute = ZfsRouteImport.update({
   id: '/zfs',
@@ -131,6 +133,16 @@ const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
   path: '/api/auth/logout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeniedRoute = DeniedRouteImport.update({
+  id: '/denied',
+  path: '/denied',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -153,6 +165,8 @@ export interface FileRoutesByFullPath {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/login': typeof LoginRoute
+  '/denied': typeof DeniedRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -174,6 +188,8 @@ export interface FileRoutesByTo {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/login': typeof LoginRoute
+  '/denied': typeof DeniedRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -197,6 +213,8 @@ export interface FileRoutesById {
   '/api/auth/login': typeof ApiAuthLoginRoute
   '/api/auth/callback': typeof ApiAuthCallbackRoute
   '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/login': typeof LoginRoute
+  '/denied': typeof DeniedRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -221,6 +239,8 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/callback'
     | '/api/auth/logout'
+    | '/login'
+    | '/denied'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -242,6 +262,8 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/callback'
     | '/api/auth/logout'
+    | '/login'
+    | '/denied'
   id:
     | '__root__'
     | '/'
@@ -264,6 +286,8 @@ export interface FileRouteTypes {
     | '/api/auth/login'
     | '/api/auth/callback'
     | '/api/auth/logout'
+    | '/login'
+    | '/denied'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -283,6 +307,8 @@ export interface RootRouteChildren {
   ApiAuthLoginRoute: typeof ApiAuthLoginRoute
   ApiAuthCallbackRoute: typeof ApiAuthCallbackRoute
   ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  LoginRoute: typeof LoginRoute
+  DeniedRoute: typeof DeniedRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -427,6 +453,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthLogoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/denied': {
+      id: '/denied'
+      path: '/denied'
+      fullPath: '/denied'
+      preLoaderRoute: typeof DeniedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -473,6 +513,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthLoginRoute: ApiAuthLoginRoute,
   ApiAuthCallbackRoute: ApiAuthCallbackRoute,
   ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  LoginRoute: LoginRoute,
+  DeniedRoute: DeniedRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
