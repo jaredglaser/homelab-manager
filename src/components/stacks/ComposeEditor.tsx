@@ -14,18 +14,18 @@ interface ComposeEditorProps {
   variables: string[];
 }
 
-/** Parse ${VAR} and ${VAR:-default} patterns from compose content */
+/** Parse Docker Compose variable references from compose content (supports ${VAR}, ${VAR:-default}, ${VAR-default}, ${VAR:?err}, ${VAR?err}, ${VAR:+alt}, ${VAR+alt}). */
 export function parseVariables(content: string): string[] {
-  const regex = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::-[^}]*)?\}/g;
+  const regex = /\$\{([a-zA-Z_]\w*)(?::?[-?+][^}]*)?\}/g;
   const vars = new Set<string>();
   let match: RegExpMatchArray | null;
   while ((match = regex.exec(content)) !== null) {
     vars.add(match[1]);
   }
-  return Array.from(vars).sort();
+  return Array.from(vars).sort((a, b) => a.localeCompare(b));
 }
 
-export default function ComposeEditor({ host, stackName, content, variables: initialVariables }: ComposeEditorProps) {
+export default function ComposeEditor({ host, stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
   const [editorContent, setEditorContent] = useState(content);
   const [detectedVars, setDetectedVars] = useState<string[]>(initialVariables);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -41,8 +41,8 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
 
   const saveMutation = useMutation({
     mutationFn: () => saveComposeFile({ data: { stackName, content: editorContent } }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stack-detail', host, stackName] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['stack-detail', host, stackName] });
     },
   });
 

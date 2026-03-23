@@ -176,14 +176,10 @@ export class ProxmoxClient {
     const totalDisk = nodes.reduce((sum, n) => sum + n.maxdisk, 0);
     const usedDisk = nodes.reduce((sum, n) => sum + n.disk, 0);
 
-    const runningVMs = allVMs.filter((vm) => vm.status === 'running').length;
-    const stoppedVMs = allVMs.filter((vm) => vm.status !== 'running').length;
-    const runningContainers = allContainers.filter(
-      (ct) => ct.status === 'running'
-    ).length;
-    const stoppedContainers = allContainers.filter(
-      (ct) => ct.status !== 'running'
-    ).length;
+    const runningVMs = allVMs.reduce((n, vm) => n + (vm.status === 'running' ? 1 : 0), 0);
+    const stoppedVMs = allVMs.length - runningVMs;
+    const runningContainers = allContainers.reduce((n, ct) => n + (ct.status === 'running' ? 1 : 0), 0);
+    const stoppedContainers = allContainers.length - runningContainers;
 
     return {
       clusterName,

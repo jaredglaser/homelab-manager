@@ -27,6 +27,7 @@ describe('getStackDetailSchema', () => {
   it('rejects stackName with slashes (path traversal)', () => {
     expect(() => getStackDetailSchema.parse({ stackName: '../etc' })).toThrow();
     expect(() => getStackDetailSchema.parse({ stackName: 'foo/bar' })).toThrow();
+    expect(() => getStackDetailSchema.parse({ stackName: '..' })).toThrow();
   });
 
   it('rejects stackName with spaces or special chars', () => {

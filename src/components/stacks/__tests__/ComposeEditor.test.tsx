@@ -73,7 +73,7 @@ describe('parseVariables (compose variable detection)', () => {
 
   it('matches lowercase and mixed-case variable names', () => {
     const content = '${lowercase}\n${Mixed_Case}\n${UPPER}';
-    expect(parseVariables(content)).toEqual(['Mixed_Case', 'UPPER', 'lowercase']);
+    expect(parseVariables(content)).toEqual(['lowercase', 'Mixed_Case', 'UPPER']);
   });
 
   it('ignores $VAR without braces', () => {
@@ -88,7 +88,7 @@ describe('parseVariables (compose variable detection)', () => {
 
   it('handles variables with underscores at start', () => {
     const content = '${_PRIVATE}\n${__DOUBLE}';
-    expect(parseVariables(content)).toEqual(['_PRIVATE', '__DOUBLE']);
+    expect(parseVariables(content)).toEqual(['__DOUBLE', '_PRIVATE']);
   });
 
   it('handles complex defaults with colons and slashes', () => {

@@ -64,8 +64,8 @@ export class AgentProvisioningService {
       },
       HostConfig: {
         Binds: [`${STACKS_VOLUME}:${STACKS_MOUNT_PATH}`],
-        // TODO: investigate binding to a specific HostIp (e.g. management interface)
-        // instead of 0.0.0.0 to limit agent exposure to the management network
+        // Binds to 0.0.0.0; a future improvement could restrict HostIp
+        // to the management interface to limit agent network exposure
         PortBindings: {
           [`${options.agentPort}/tcp`]: [{ HostPort: String(options.agentPort) }],
         },

@@ -242,7 +242,7 @@ export class OpenBaoClient {
       { data?: { data?: { value?: unknown } } } | undefined;
     const value = body?.data?.data?.value;
     if (typeof value !== 'string') {
-      throw new Error(
+      throw new TypeError(
         `OpenBao GET_HOST failed for host "${hostname}" key "${key}": unexpected response shape`,
       );
     }

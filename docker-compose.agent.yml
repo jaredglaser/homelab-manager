@@ -49,7 +49,7 @@ services:
       dockerfile: Dockerfile
     environment:
       DOCKER_HOST: "tcp://socket-proxy:2375"
-      AGENT_TOKEN: "${AGENT_TOKEN:-dev-agent-token}"
+      AGENT_TOKEN: "${AGENT_TOKEN:?AGENT_TOKEN is required}"
       AGENT_PORT: "9090"
       STACKS_DIR: "/opt/homelab-manager/stacks"
     ports:

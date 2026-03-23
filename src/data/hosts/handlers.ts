@@ -128,6 +128,37 @@ export async function handleUpdateAgent(
   return { hostId: host.id, healthy: false, error: result.error ?? 'Unknown error' };
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function tryRemoveAgent(
+  removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>,
+  socketProxyUrl: string,
+  hostId: number,
+  context: string,
+): Promise<boolean> {
+  try {
+    await removeAgent(socketProxyUrl, hostId);
+    return true;
+  } catch (err) {
+    console.error(`[addHost] Failed to clean up agent container ${context}:`, errorMessage(err));
+    return false;
+  }
+}
+
+async function tryDeleteToken(
+  deleteToken: (hostname: string) => Promise<void>,
+  hostname: string,
+  context: string,
+): Promise<void> {
+  try {
+    await deleteToken(hostname);
+  } catch (err) {
+    console.error(`[addHost] Failed to delete OpenBao token for ${hostname} ${context}:`, errorMessage(err));
+  }
+}
+
 export async function handleAddHost(
   deps: HostHandlerDeps & {
     provision: (socketProxyUrl: string, opts: { hostId: number; agentPort: number; agentToken: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
@@ -168,43 +199,23 @@ export async function handleAddHost(
     await deps.storeToken(data.name, plainToken);
   } catch (err) {
     await deps.repo.delete(host.id);
-    let containerCleaned = true;
-    try { await deps.removeAgent(data.socketProxyUrl, host.id); } catch (cleanupErr) {
-      containerCleaned = false;
-      console.error(
-        `[addHost] Failed to clean up agent container for ${data.name} after post-provision failure:`,
-        cleanupErr instanceof Error ? cleanupErr.message : cleanupErr
-      );
-    }
-    throw new Error(
-      containerCleaned
-        ? `Failed to finalize host after provisioning: ${err instanceof Error ? err.message : err}. Host record and container have been cleaned up.`
-        : `Failed to finalize host after provisioning: ${err instanceof Error ? err.message : err}. Host record deleted but agent container cleanup failed — manual removal may be required.`
-    );
+    const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, host.id, `for ${data.name} after post-provision failure`);
+    const suffix = containerCleaned
+      ? 'Host record and container have been cleaned up.'
+      : 'Host record deleted but agent container cleanup failed — manual removal may be required.';
+    throw new Error(`Failed to finalize host after provisioning: ${errorMessage(err)}. ${suffix}`);
   }
 
   const healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
 
   if (!healthResult.healthy) {
-    try { await deps.deleteToken(data.name); } catch (tokenErr) {
-      console.error(`[addHost] Failed to delete OpenBao token for ${data.name} during rollback:`, tokenErr instanceof Error ? tokenErr.message : tokenErr);
-    }
-    let cleanupSucceeded = true;
-    try {
-      await deps.removeAgent(data.socketProxyUrl, host.id);
-    } catch (cleanupErr) {
-      cleanupSucceeded = false;
-      console.error(
-        `[addHost] Failed to clean up agent container for ${data.name} after health check failure:`,
-        cleanupErr instanceof Error ? cleanupErr.message : cleanupErr
-      );
-    }
+    await tryDeleteToken(deps.deleteToken, data.name, 'during rollback');
+    const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, host.id, `for ${data.name} after health check failure`);
     await deps.repo.delete(host.id);
-    throw new Error(
-      cleanupSucceeded
-        ? `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record, token, and container have been cleaned up.`
-        : `Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. Host record and token deleted but agent container cleanup failed — manual removal may be required.`
-    );
+    const suffix = containerCleaned
+      ? 'Host record, token, and container have been cleaned up.'
+      : 'Host record and token deleted but agent container cleanup failed — manual removal may be required.';
+    throw new Error(`Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. ${suffix}`);
   }
 
   const status: HostStatus = 'healthy';
@@ -212,20 +223,17 @@ export async function handleAddHost(
     await deps.repo.updateStatus(host.id, status);
     if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
   } catch (err) {
-    console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, err instanceof Error ? err.message : err);
-    try { await deps.deleteToken(data.name); } catch (tokenErr) {
-      console.error(`[addHost] Failed to delete token during finalization rollback:`, tokenErr instanceof Error ? tokenErr.message : tokenErr);
-    }
-    try { await deps.removeAgent(data.socketProxyUrl, host.id); } catch (agentErr) {
-      console.error(`[addHost] Failed to remove agent during finalization rollback:`, agentErr instanceof Error ? agentErr.message : agentErr);
-    }
+    console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, errorMessage(err));
+    await tryDeleteToken(deps.deleteToken, data.name, 'during finalization rollback');
+    await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, host.id, `for ${data.name} during finalization rollback`);
     await deps.repo.delete(host.id);
-    throw new Error(
-      `Agent is healthy but failed to finalize host record: ${err instanceof Error ? err.message : String(err)}`
-    );
+    throw new Error(`Agent is healthy but failed to finalize host record: ${errorMessage(err)}`);
   }
 
   return {
-    host: toHostListItem(host, { agentVersion: healthResult.version || null, status }),
+    host: toHostListItem(
+      { ...host, agent_url: provisionResult.agentUrl },
+      { agentVersion: healthResult.version || null, status },
+    ),
   };
 }

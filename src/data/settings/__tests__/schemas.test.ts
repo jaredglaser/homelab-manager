@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'bun:test';
 import { updateSettingSchema } from '../schemas';
+import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
+
+function collectValues(obj: Record<string, unknown>): string[] {
+  const result: string[] = [];
+  for (const value of Object.values(obj)) {
+    if (typeof value === 'string') result.push(value);
+    else if (typeof value === 'object' && value !== null) result.push(...collectValues(value as Record<string, unknown>));
+  }
+  return result;
+}
 
 describe('updateSettingSchema', () => {
   it('accepts a valid settings key and value', () => {
@@ -9,18 +19,9 @@ describe('updateSettingSchema', () => {
   });
 
   it('accepts all known settings keys', () => {
-    const knownKeys = [
-      'general/use12HourTime',
-      'general/updateIntervalMs',
-      'docker/memoryDisplayMode',
-      'docker/decimals/cpu',
-      'zfs/expandedHosts',
-      'proxmox/updateInterval',
-      'retention/rawDataHours',
-      'developer/dockerDebugLogging',
-      'stacks/expandedStacks',
-    ];
-    for (const key of knownKeys) {
+    const allKeys = collectValues(SETTINGS_KEYS as unknown as Record<string, unknown>);
+    expect(allKeys.length).toBeGreaterThan(0);
+    for (const key of allKeys) {
       expect(() => updateSettingSchema.parse({ key, value: 'x' })).not.toThrow();
     }
   });

@@ -87,6 +87,10 @@ function openContainerStream(
 
   container.stats({ stream: true }).then((statsStream) => {
     const readable = statsStream as unknown as Readable;
+    if (ctx.closed) {
+      if (typeof readable.destroy === 'function') readable.destroy();
+      return;
+    }
     ctx.containerStreams.set(id, readable);
 
     let buffer = '';
@@ -144,6 +148,88 @@ function reconcileContainers(
   sendSSE(ctx, JSON.stringify({ ids: [...currentIds] }), 'containers');
 }
 
+/** Try to close a ReadableStream controller, ignoring errors if already closed. */
+function tryCloseController(controller: ReadableStreamDefaultController<Uint8Array>): void {
+  try {
+    controller.close();
+  } catch (err) {
+    if (!(err instanceof TypeError)) console.error('Unexpected error closing controller:', err);
+  }
+}
+
+/**
+ * Attempt a single container-list refresh. Returns the updated container list
+ * on success, or `null` on failure (after logging and sending an SSE error).
+ */
+async function tryRefreshContainers(
+  ctx: StreamContext,
+  docker: Dockerode,
+  previous: Dockerode.ContainerInfo[],
+  failureCount: number,
+  maxFailures: number,
+): Promise<{ containers: Dockerode.ContainerInfo[]; shouldBreak: boolean } | null> {
+  try {
+    const current = await docker.listContainers({ all: false });
+    if (ctx.closed) return { containers: current, shouldBreak: true };
+    reconcileContainers(ctx, docker, previous, current);
+    return { containers: current, shouldBreak: false };
+  } catch (error) {
+    const count = failureCount + 1;
+    console.error(`Failed to refresh container list (${count}/${maxFailures}):`, error);
+    const msg = error instanceof Error ? error.message : String(error);
+    sendErrorSSE(ctx, { error: msg, type: 'refresh_failed' });
+
+    if (count >= maxFailures) {
+      console.error('Max consecutive refresh failures reached, closing stats stream');
+      sendSSE(ctx, JSON.stringify({ error: 'Docker daemon unreachable, stream closed' }), 'error');
+    }
+    return null;
+  }
+}
+
+/** Run the poll-and-refresh loop, emitting SSE events for container stats. */
+async function runStatsLoop(
+  ctx: StreamContext,
+  docker: Dockerode,
+  pollIntervalMs: number,
+  refreshIntervalMs: number,
+  maxConsecutiveFailures: number,
+): Promise<void> {
+  let containers = await docker.listContainers({ all: false });
+  if (ctx.closed) return;
+  let lastRefresh = Date.now();
+  let consecutiveFailures = 0;
+
+  for (const c of containers) {
+    openContainerStream(ctx, docker, c);
+  }
+
+  sendSSE(ctx, JSON.stringify({ ids: containers.map(c => c.Id) }), 'containers');
+
+  while (!ctx.closed) {
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    if (ctx.closed) break;
+
+    const now = Date.now();
+    if (now - lastRefresh < refreshIntervalMs) continue;
+    lastRefresh = now;
+
+    const result = await tryRefreshContainers(ctx, docker, containers, consecutiveFailures, maxConsecutiveFailures);
+    if (!result) {
+      consecutiveFailures++;
+      if (consecutiveFailures >= maxConsecutiveFailures) break;
+      continue;
+    }
+    if (result.shouldBreak) break;
+    containers = result.containers;
+    consecutiveFailures = 0;
+  }
+
+  destroyAllStreams(ctx.containerStreams);
+  ctx.closed = true;
+  tryCloseController(ctx.controller);
+}
+
 /**
  * Create an SSE Response that streams live Docker container stats.
  *
@@ -190,68 +276,16 @@ export function handleStatsStream(
       request.signal.addEventListener('abort', () => {
         ctx.closed = true;
         destroyAllStreams(ctx.containerStreams);
-        try {
-          controller.close();
-        } catch {
-          // controller already closed
-        }
+        tryCloseController(controller);
       });
 
       try {
-        let containers = await docker.listContainers({ all: false });
-        let lastRefresh = Date.now();
-        let consecutiveFailures = 0;
-
-        for (const c of containers) {
-          openContainerStream(ctx, docker, c);
-        }
-
-        sendSSE(ctx, JSON.stringify({ ids: containers.map(c => c.Id) }), 'containers');
-
-        while (!ctx.closed) {
-          await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-          if (ctx.closed) break;
-
-          const now = Date.now();
-          if (now - lastRefresh < refreshIntervalMs) continue;
-          lastRefresh = now;
-
-          try {
-            const current = await docker.listContainers({ all: false });
-            reconcileContainers(ctx, docker, containers, current);
-            containers = current;
-            consecutiveFailures = 0;
-          } catch (error) {
-            consecutiveFailures++;
-            console.error(`Failed to refresh container list (${consecutiveFailures}/${maxConsecutiveFailures}):`, error);
-            const msg = error instanceof Error ? error.message : String(error);
-            sendErrorSSE(ctx, { error: msg, type: 'refresh_failed' });
-
-            if (consecutiveFailures >= maxConsecutiveFailures) {
-              console.error('Max consecutive refresh failures reached, closing stats stream');
-              sendSSE(ctx, JSON.stringify({ error: 'Docker daemon unreachable, stream closed' }), 'error');
-              break;
-            }
-          }
-        }
-
-        // Clean up after while loop exits (circuit breaker or normal shutdown)
-        destroyAllStreams(ctx.containerStreams);
-        ctx.closed = true;
-        try {
-          controller.close();
-        } catch (err) {
-          if (!(err instanceof TypeError)) console.error('Unexpected error closing controller:', err);
-        }
+        await runStatsLoop(ctx, docker, pollIntervalMs, refreshIntervalMs, maxConsecutiveFailures);
       } catch (error) {
         console.error('Failed to start stats stream:', error);
         const msg = error instanceof Error ? error.message : String(error);
         sendSSE(ctx, JSON.stringify({ error: msg }), 'error');
-        try {
-          controller.close();
-        } catch {
-          // controller already closed
-        }
+        tryCloseController(controller);
       }
     },
   });

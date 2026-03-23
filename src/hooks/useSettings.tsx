@@ -9,14 +9,14 @@ import {
   type DecimalSettings,
   type ProxmoxUpdateInterval,
   type LightPalette,
-} from './settingsAtom';
-import { useToast } from './toastAtom';
+} from '@/hooks/settingsAtom';
+import { useToast } from '@/hooks/toastAtom';
 import { updateSetting } from '@/data/settings/functions';
 import type { SettingsKey } from '@/data/settings/schemas';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 // Re-export types for backward-compatible imports
-export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval, LightPalette } from './settingsAtom';
+export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval, LightPalette } from '@/hooks/settingsAtom';
 
 interface SettingsValue extends Settings {
   setUse12HourTime: (value: boolean) => void;
@@ -28,8 +28,8 @@ interface SettingsValue extends Settings {
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   toggleContainerExpanded: (containerId: string) => void;
   isContainerExpanded: (containerId: string) => boolean;
-  toggleStackExpanded: (stackName: string) => void;
-  isStackExpanded: (stackName: string) => boolean;
+  toggleStackExpanded: (stackEntityId: string) => void;
+  isStackExpanded: (stackEntityId: string) => boolean;
   toggleZfsHostExpanded: (hostName: string) => void;
   isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
   togglePoolExpanded: (poolId: string) => void;
@@ -135,13 +135,13 @@ export function useSettings(): SettingsValue {
     [settings.docker.expandedContainers]
   );
 
-  const toggleStackExpanded = useCallback((stackName: string) => {
-    optimisticSet(SETTINGS_KEYS.stacks.expandedStacks, prev => toggleInSet(prev, stackName));
+  const toggleStackExpanded = useCallback((stackEntityId: string) => {
+    optimisticSet(SETTINGS_KEYS.stacks.expandedStacks, prev => toggleInSet(prev, stackEntityId));
   }, [optimisticSet]);
 
   const isStackExpanded = useCallback(
-    (stackName: string): boolean => {
-      return settings.stacks.expandedStacks.has(stackName);
+    (stackEntityId: string): boolean => {
+      return settings.stacks.expandedStacks.has(stackEntityId);
     },
     [settings.stacks.expandedStacks]
   );
