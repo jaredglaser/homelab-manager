@@ -84,6 +84,32 @@ describe('OidcClient', () => {
       const client = new OidcClient(config, failingFetch);
       await expect(client.discoverEndpoints()).rejects.toThrow('OIDC discovery failed (HTTP 503)');
     });
+
+    it('throws when discovery response is missing required endpoint fields', async () => {
+      const missingFetch = asFetch(async () =>
+        makeResponse({ authorization_endpoint: 'https://auth.example.com/authorize' }),
+      );
+
+      const client = new OidcClient(config, missingFetch);
+      await expect(client.discoverEndpoints()).rejects.toThrow(
+        'OIDC discovery response missing required endpoints (authorization_endpoint, token_endpoint, userinfo_endpoint)',
+      );
+    });
+
+    it('throws when discovery response has non-string endpoint fields', async () => {
+      const badFetch = asFetch(async () =>
+        makeResponse({
+          authorization_endpoint: 42,
+          token_endpoint: 'https://auth.example.com/token',
+          userinfo_endpoint: 'https://auth.example.com/userinfo',
+        }),
+      );
+
+      const client = new OidcClient(config, badFetch);
+      await expect(client.discoverEndpoints()).rejects.toThrow(
+        'OIDC discovery response missing required endpoints (authorization_endpoint, token_endpoint, userinfo_endpoint)',
+      );
+    });
   });
 
   describe('getAuthorizationUrl', () => {
@@ -176,6 +202,30 @@ describe('OidcClient', () => {
       const client = new OidcClient(config, mockFetch);
       await expect(client.exchangeCode('bad-code')).rejects.toThrow(
         'OIDC token exchange failed (HTTP 400): invalid_grant',
+      );
+    });
+
+    it('throws when token response is missing access_token or id_token', async () => {
+      const mockFetch = makeDiscoveryFetch({
+        'https://auth.example.com/token': () =>
+          makeResponse({ access_token: 'at' /* no id_token */ }),
+      });
+
+      const client = new OidcClient(config, mockFetch);
+      await expect(client.exchangeCode('code')).rejects.toThrow(
+        'OIDC token response missing required fields (access_token, id_token)',
+      );
+    });
+
+    it('throws when token response fields are not strings', async () => {
+      const mockFetch = makeDiscoveryFetch({
+        'https://auth.example.com/token': () =>
+          makeResponse({ access_token: 123, id_token: true }),
+      });
+
+      const client = new OidcClient(config, mockFetch);
+      await expect(client.exchangeCode('code')).rejects.toThrow(
+        'OIDC token response missing required fields (access_token, id_token)',
       );
     });
   });

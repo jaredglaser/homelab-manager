@@ -34,11 +34,13 @@ export class OidcClient {
     }
 
     const body = await response.json();
-    this.endpoints = {
-      authorizationEndpoint: body.authorization_endpoint,
-      tokenEndpoint: body.token_endpoint,
-      userinfoEndpoint: body.userinfo_endpoint,
-    };
+    const authEndpoint = body.authorization_endpoint;
+    const tokenEndpoint = body.token_endpoint;
+    const userinfoEndpoint = body.userinfo_endpoint;
+    if (typeof authEndpoint !== 'string' || typeof tokenEndpoint !== 'string' || typeof userinfoEndpoint !== 'string') {
+      throw new Error('OIDC discovery response missing required endpoints (authorization_endpoint, token_endpoint, userinfo_endpoint)');
+    }
+    this.endpoints = { authorizationEndpoint: authEndpoint, tokenEndpoint, userinfoEndpoint };
     return this.endpoints;
   }
 
@@ -77,6 +79,9 @@ export class OidcClient {
     }
 
     const body = await response.json();
+    if (typeof body.access_token !== 'string' || typeof body.id_token !== 'string') {
+      throw new Error('OIDC token response missing required fields (access_token, id_token)');
+    }
     return {
       accessToken: body.access_token,
       refreshToken: body.refresh_token ?? null,
@@ -91,7 +96,10 @@ export class OidcClient {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
-    if (!response.ok) return [];
+    if (!response.ok) {
+      console.error(`[OidcClient] Userinfo endpoint returned HTTP ${response.status} — proceeding with empty groups`);
+      return [];
+    }
 
     const body = await response.json();
     return Array.isArray(body.groups) ? body.groups : [];

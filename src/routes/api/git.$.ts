@@ -78,13 +78,15 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
 
   let matchedTokenId: number | null = null;
   let matchedUserId: number | null = null;
+  let decryptFailures = 0;
 
   for (const tokenRecord of encryptedTokens) {
     let decrypted: string;
     try {
       decrypted = await decryptValue(tokenRecord.encryptedToken, keyring);
-    } catch {
-      // Skip tokens that fail to decrypt (e.g., key rotation edge cases)
+    } catch (error) {
+      decryptFailures++;
+      console.error(`[GitAuth] Failed to decrypt token ${tokenRecord.id}:`, error instanceof Error ? error.message : error);
       continue;
     }
 
@@ -93,6 +95,10 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
       matchedUserId = tokenRecord.userId;
       break;
     }
+  }
+
+  if (decryptFailures > 0 && decryptFailures === encryptedTokens.length) {
+    console.error(`[GitAuth] ALL ${decryptFailures} token(s) failed to decrypt — Transit may be unavailable`);
   }
 
   if (matchedTokenId === null || matchedUserId === null) {
