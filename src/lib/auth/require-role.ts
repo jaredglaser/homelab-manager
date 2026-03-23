@@ -10,12 +10,12 @@ export class ForbiddenError extends Error {
 }
 
 /**
- * Returns a guard function that throws ForbiddenError if the user's role
- * is not among the allowed roles.
+ * Returns a guard function that throws ForbiddenError if the user is absent
+ * or their role is not among the allowed roles.
  */
 export function requireRole(...allowed: Role[]) {
-  return (user: AuthUser): void => {
-    if (!allowed.includes(user.role)) {
+  return (user: AuthUser | null | undefined): void => {
+    if (!user || !allowed.includes(user.role)) {
       throw new ForbiddenError();
     }
   };
