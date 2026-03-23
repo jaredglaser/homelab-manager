@@ -1,5 +1,8 @@
 import { createServerFn } from '@tanstack/react-start';
 import { createMiddleware } from '@tanstack/react-start';
+import { z } from 'zod';
+import { authMiddleware } from '@/middleware/auth-middleware';
+import { requireRole } from '@/lib/auth/require-role';
 import type { AuthUser } from '@/lib/auth/types';
 
 let cachedSessionManager: import('@/lib/auth/session-manager').SessionManager | null = null;
@@ -49,6 +52,84 @@ export const getSession = createServerFn()
   .handler(async ({ context }): Promise<AuthUser | null> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (context as any).sessionUser as AuthUser | null;
+  });
+
+/**
+ * List all users (admin only).
+ */
+export const listUsers = createServerFn()
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    requireRole('admin')(context.user);
+
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { UserRepository } = await import('@/lib/database/repositories/user-repository');
+
+    const dbConfig = loadDatabaseConfig();
+    const dbClient = await databaseConnectionManager.getClient(dbConfig);
+    const repo = new UserRepository(dbClient.getPool());
+
+    return repo.findAll();
+  });
+
+/**
+ * List all active sessions with user info (admin only).
+ */
+export const listSessions = createServerFn()
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    requireRole('admin')(context.user);
+
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { SessionRepository } = await import('@/lib/database/repositories/session-repository');
+
+    const dbConfig = loadDatabaseConfig();
+    const dbClient = await databaseConnectionManager.getClient(dbConfig);
+    const repo = new SessionRepository(dbClient.getPool());
+
+    return repo.findAllWithUser();
+  });
+
+/**
+ * Revoke a session by ID (admin only).
+ */
+export const revokeSession = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ sessionId: z.string() }))
+  .handler(async ({ data, context }): Promise<void> => {
+    requireRole('admin')(context.user);
+
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { SessionRepository } = await import('@/lib/database/repositories/session-repository');
+
+    const dbConfig = loadDatabaseConfig();
+    const dbClient = await databaseConnectionManager.getClient(dbConfig);
+    const repo = new SessionRepository(dbClient.getPool());
+
+    await repo.deleteById(data.sessionId);
+  });
+
+/**
+ * Revoke all sessions for a user (admin only).
+ */
+export const revokeAllUserSessions = createServerFn()
+  .middleware([authMiddleware])
+  .inputValidator(z.object({ userId: z.number() }))
+  .handler(async ({ data, context }): Promise<void> => {
+    requireRole('admin')(context.user);
+
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { SessionRepository } = await import('@/lib/database/repositories/session-repository');
+
+    const dbConfig = loadDatabaseConfig();
+    const dbClient = await databaseConnectionManager.getClient(dbConfig);
+    const repo = new SessionRepository(dbClient.getPool());
+
+    await repo.deleteByUserId(data.userId);
   });
 
 /**
