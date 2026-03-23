@@ -116,7 +116,7 @@ function UsersTable() {
                   <TableCell>{user.name ?? '—'}</TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>{user.role}</TableCell>
-                  <TableCell>{formatDate(user.last_login)}</TableCell>
+                  <TableCell>{formatDate(user.lastLogin)}</TableCell>
                 </TableRow>
               ))
             )}

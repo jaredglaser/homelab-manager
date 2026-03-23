@@ -7,27 +7,13 @@ export interface AuthUser {
   role: Role;
 }
 
-export interface SessionData {
-  id: string;
-  userId: number;
-  encryptedOidc: string | null;
-  ipAddress: string | null;
-  userAgent: string | null;
-  expiresAt: Date;
-  createdAt: Date;
-}
-
 export interface OidcTokens {
   accessToken: string;
   refreshToken: string | null;
   idToken: string;
 }
 
-export interface RoleMappingConfig {
-  admin: string;
-  operator: string;
-  viewer: string;
-}
+export type RoleMappingConfig = Record<Role, string>;
 
 export interface AuthConfig {
   issuerUrl: string;

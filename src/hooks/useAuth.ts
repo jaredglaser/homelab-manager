@@ -23,7 +23,8 @@ export function useAuth(): { user: AuthUser | null; loading: boolean } {
           setUser(result);
         }
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('[useAuth] Session check failed:', error);
         void navigate({ to: '/login' });
       })
       .finally(() => setLoading(false));

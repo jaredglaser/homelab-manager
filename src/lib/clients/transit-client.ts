@@ -53,7 +53,7 @@ export class TransitClient {
    */
   async encrypt(keyName: string, plaintext: string): Promise<string> {
     this.validateKeyName(keyName);
-    const encoded = btoa(plaintext);
+    const encoded = Buffer.from(plaintext).toString('base64');
 
     const response = await this.fetchFn(`${this.url}/v1/transit/encrypt/${keyName}`, {
       method: 'POST',
@@ -104,6 +104,6 @@ export class TransitClient {
     if (typeof encoded !== 'string') {
       throw new Error(`Transit decrypt failed for key "${keyName}": unexpected response shape`);
     }
-    return atob(encoded);
+    return Buffer.from(encoded, 'base64').toString();
   }
 }
