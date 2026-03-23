@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
+import { updateSettingSchema } from '@/data/settings/schemas';
 
 async function getSettingsRepository() {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -12,11 +12,6 @@ async function getSettingsRepository() {
   const client = await databaseConnectionManager.getClient(config);
   return new SettingsRepository(client.getPool());
 }
-
-const updateSettingSchema = z.object({
-  key: z.string().min(1),
-  value: z.string(),
-});
 
 export const updateSetting = createServerFn()
   .inputValidator(updateSettingSchema)

@@ -1,8 +1,5 @@
 import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest } from '@/types/stacks';
 
-const mockComposeOverrides = new Map<string, string>();
-const mockIconOverrides = new Map<string, string>();
-
 const MOCK_STACKS: StackSummary[] = [
   {
     name: 'plex',
@@ -119,37 +116,25 @@ export async function getStackDetail(opts: {
   const stack = MOCK_STACKS.find((s) => s.name === opts.data.stackName);
   if (!stack) return null;
 
-  const composeContent = mockComposeOverrides.get(stack.name) ?? MOCK_COMPOSE;
   return {
     name: stack.name,
     host: stack.host,
     syncStatus: stack.syncStatus,
     deployMode: stack.deployMode,
-    composeContent,
+    composeContent: MOCK_COMPOSE,
     lastDeployCommitSha: 'a1b2c3d',
     currentCommitSha: 'x9y8z7w',
     variableNames: ['APP_IMAGE', 'APP_PORT', 'DATABASE_URL', 'SECRET_KEY'],
-    icon: mockIconOverrides.get(stack.name) ?? stack.icon,
+    icon: stack.icon,
   };
 }
 
-export async function triggerDeploy(opts: {
+export async function triggerDeploy(_opts: {
   data: UIDeployRequest;
 }): Promise<{ deployId: number }> {
+  // Simulate a short delay
   await new Promise((resolve) => setTimeout(resolve, 500));
-  const newId = MOCK_DEPLOY_HISTORY.length + 1;
-  MOCK_DEPLOY_HISTORY.unshift({
-    id: newId,
-    stack: opts.data.stack,
-    host: opts.data.host,
-    commitSha: 'mock' + Date.now().toString(36),
-    envHash: '',
-    status: 'succeeded',
-    trigger: 'ui',
-    logs: `$ docker compose ${opts.data.action === 'teardown' ? 'down' : 'up -d --remove-orphans'}\nDone.\n`,
-    createdAt: new Date().toISOString(),
-  });
-  return { deployId: newId };
+  return { deployId: MOCK_DEPLOY_HISTORY.length + 1 };
 }
 
 export async function getDeployHistory(opts: {
@@ -161,21 +146,15 @@ export async function getDeployHistory(opts: {
     .slice(0, limit);
 }
 
-export async function saveComposeFile(opts: {
+export async function saveComposeFile(_opts: {
   data: { stackName: string; content: string };
 }): Promise<{ commitSha: string }> {
   await new Promise((resolve) => setTimeout(resolve, 300));
-  const commitSha = 'mock' + Date.now().toString(36);
-  // Update mock compose content for subsequent getStackDetail reads
-  mockComposeOverrides.set(opts.data.stackName, opts.data.content);
-  return { commitSha };
+  return { commitSha: 'mock' + Date.now().toString(36) };
 }
 
-
-export async function updateStackIcon(opts: {
+export async function updateStackIcon(_opts: {
   data: { stackName: string; iconSlug: string };
 }): Promise<void> {
-  const stack = MOCK_STACKS.find((s) => s.name === opts.data.stackName);
-  if (stack) stack.icon = opts.data.iconSlug;
-  mockIconOverrides.set(opts.data.stackName, opts.data.iconSlug);
+  // No-op in demo mode
 }

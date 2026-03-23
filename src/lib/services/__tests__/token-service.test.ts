@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { generateToken, hashToken, verifyToken } from '../token-service';
+import { generateToken } from '../token-service';
 
 describe('token-service', () => {
   describe('generateToken', () => {
@@ -24,31 +24,4 @@ describe('token-service', () => {
     });
   });
 
-  describe('hashToken', () => {
-    it('returns a bcrypt hash string', async () => {
-      const hash = await hashToken('test-token');
-      expect(hash).toMatch(/^\$2[aby]?\$/);
-    });
-
-    it('produces different hashes for the same input (salted)', async () => {
-      const hash1 = await hashToken('same-token');
-      const hash2 = await hashToken('same-token');
-      expect(hash1).not.toBe(hash2);
-    });
-  });
-
-  describe('verifyToken', () => {
-    it('returns true for matching token and hash', async () => {
-      const token = 'my-secret-token';
-      const hash = await hashToken(token);
-      const result = await verifyToken(token, hash);
-      expect(result).toBe(true);
-    });
-
-    it('returns false for non-matching token', async () => {
-      const hash = await hashToken('correct-token');
-      const result = await verifyToken('wrong-token', hash);
-      expect(result).toBe(false);
-    });
-  });
 });

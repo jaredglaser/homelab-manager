@@ -41,8 +41,7 @@ function createMockDockerode() {
     pull: async (image: string) => {
       pulledImages.push(image);
       // Return a mock stream that resolves immediately
-      const stream = { pipe: () => stream, on: (_e: string, cb: () => void) => { if (_e === 'end') cb(); return stream; } };
-      return stream;
+      return { pipe: () => {}, on: (_e: string, cb: () => void) => { if (_e === 'end') cb(); } };
     },
     createContainer: async (config: Record<string, unknown>) => {
       const name = (config.name as string) || 'unnamed';
@@ -119,15 +118,6 @@ describe('AgentProvisioningService', () => {
       const hostConfig = config.HostConfig as Record<string, unknown>;
       const binds = hostConfig.Binds as string[];
       expect(binds).toContainEqual('homelab-stacks:/opt/homelab-manager/stacks');
-    });
-
-    it('binds agent port to socket proxy hostname instead of 0.0.0.0', async () => {
-      await service.provision(mockDocker.docker, defaultOptions);
-      const config = mockDocker.createdContainers[0].config;
-      const hostConfig = config.HostConfig as Record<string, unknown>;
-      const portBindings = hostConfig.PortBindings as Record<string, { HostIp: string; HostPort: string }[]>;
-      expect(portBindings['9090/tcp'][0].HostIp).toBe('192.168.1.10');
-      expect(portBindings['9090/tcp'][0].HostPort).toBe('9090');
     });
 
     it('starts the container after creation', async () => {

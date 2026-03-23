@@ -47,37 +47,37 @@ describe('stacks.functions module', () => {
 
   describe('exports', () => {
     it('exports listStacks server function', async () => {
-      const mod = await import('../stacks.functions');
+      const mod = await import('../functions');
       expect(mod.listStacks).toBeDefined();
       expect(typeof mod.listStacks).toBe('function');
     });
 
     it('exports getStackDetail server function', async () => {
-      const mod = await import('../stacks.functions');
+      const mod = await import('../functions');
       expect(mod.getStackDetail).toBeDefined();
       expect(typeof mod.getStackDetail).toBe('function');
     });
 
     it('exports triggerDeploy server function', async () => {
-      const mod = await import('../stacks.functions');
+      const mod = await import('../functions');
       expect(mod.triggerDeploy).toBeDefined();
       expect(typeof mod.triggerDeploy).toBe('function');
     });
 
     it('exports getDeployHistory server function', async () => {
-      const mod = await import('../stacks.functions');
+      const mod = await import('../functions');
       expect(mod.getDeployHistory).toBeDefined();
       expect(typeof mod.getDeployHistory).toBe('function');
     });
 
     it('exports saveComposeFile server function', async () => {
-      const mod = await import('../stacks.functions');
+      const mod = await import('../functions');
       expect(mod.saveComposeFile).toBeDefined();
       expect(typeof mod.saveComposeFile).toBe('function');
     });
 
     it('exports updateStackIcon server function', async () => {
-      const mod = await import('../stacks.functions');
+      const mod = await import('../functions');
       expect(mod.updateStackIcon).toBeDefined();
       expect(typeof mod.updateStackIcon).toBe('function');
     });
@@ -85,7 +85,7 @@ describe('stacks.functions module', () => {
 
   describe('listStacks', () => {
     it('delegates to getStackSummaries', async () => {
-      const { listStacks } = await import('../stacks.functions');
+      const { listStacks } = await import('../functions');
       await listStacks({});
       expect(mockGetStackSummaries).toHaveBeenCalledTimes(1);
     });
@@ -93,14 +93,14 @@ describe('stacks.functions module', () => {
 
   describe('getStackDetail', () => {
     it('delegates to getStackDetailByName with stackName', async () => {
-      const { getStackDetail } = await import('../stacks.functions');
+      const { getStackDetail } = await import('../functions');
       await getStackDetail({ data: { stackName: 'nginx' } });
       expect(mockGetStackDetailByName).toHaveBeenCalledTimes(1);
       expect(mockGetStackDetailByName).toHaveBeenCalledWith('nginx');
     });
 
     it('passes through different stack names', async () => {
-      const { getStackDetail } = await import('../stacks.functions');
+      const { getStackDetail } = await import('../functions');
       await getStackDetail({ data: { stackName: 'redis' } });
       expect(mockGetStackDetailByName).toHaveBeenCalledWith('redis');
     });
@@ -108,7 +108,7 @@ describe('stacks.functions module', () => {
 
   describe('triggerDeploy', () => {
     it('delegates to triggerStackDeploy with deploy action', async () => {
-      const { triggerDeploy } = await import('../stacks.functions');
+      const { triggerDeploy } = await import('../functions');
       await triggerDeploy({
         data: { stack: 'nginx', host: 'server1', action: 'deploy' },
       });
@@ -121,7 +121,7 @@ describe('stacks.functions module', () => {
     });
 
     it('delegates with teardown action', async () => {
-      const { triggerDeploy } = await import('../stacks.functions');
+      const { triggerDeploy } = await import('../functions');
       await triggerDeploy({
         data: { stack: 'nginx', host: 'server1', action: 'teardown' },
       });
@@ -133,7 +133,7 @@ describe('stacks.functions module', () => {
     });
 
     it('delegates with restart action', async () => {
-      const { triggerDeploy } = await import('../stacks.functions');
+      const { triggerDeploy } = await import('../functions');
       await triggerDeploy({
         data: { stack: 'nginx', host: 'server1', action: 'restart' },
       });
@@ -147,14 +147,14 @@ describe('stacks.functions module', () => {
 
   describe('getDeployHistory', () => {
     it('delegates to getStackDeployHistory with stackName and limit', async () => {
-      const { getDeployHistory } = await import('../stacks.functions');
+      const { getDeployHistory } = await import('../functions');
       await getDeployHistory({ data: { stackName: 'nginx', limit: 50 } });
       expect(mockGetStackDeployHistory).toHaveBeenCalledTimes(1);
       expect(mockGetStackDeployHistory).toHaveBeenCalledWith('nginx', 50);
     });
 
     it('passes through stackName correctly', async () => {
-      const { getDeployHistory } = await import('../stacks.functions');
+      const { getDeployHistory } = await import('../functions');
       await getDeployHistory({ data: { stackName: 'postgres', limit: 10 } });
       expect(mockGetStackDeployHistory).toHaveBeenCalledWith('postgres', 10);
     });
@@ -162,7 +162,7 @@ describe('stacks.functions module', () => {
 
   describe('saveComposeFile', () => {
     it('delegates to saveStackComposeFile with stackName and content', async () => {
-      const { saveComposeFile } = await import('../stacks.functions');
+      const { saveComposeFile } = await import('../functions');
       await saveComposeFile({
         data: { stackName: 'nginx', content: 'version: "3.8"' },
       });
@@ -171,7 +171,7 @@ describe('stacks.functions module', () => {
     });
 
     it('handles empty content string', async () => {
-      const { saveComposeFile } = await import('../stacks.functions');
+      const { saveComposeFile } = await import('../functions');
       await saveComposeFile({ data: { stackName: 'nginx', content: '' } });
       expect(mockSaveStackComposeFile).toHaveBeenCalledWith('nginx', '');
     });
@@ -179,14 +179,14 @@ describe('stacks.functions module', () => {
 
   describe('updateStackIcon', () => {
     it('delegates to updateStackIconSlug with stackName and iconSlug', async () => {
-      const { updateStackIcon } = await import('../stacks.functions');
+      const { updateStackIcon } = await import('../functions');
       await updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'nginx' } });
       expect(mockUpdateStackIconSlug).toHaveBeenCalledTimes(1);
       expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('nginx', 'nginx');
     });
 
     it('passes through different icon slugs', async () => {
-      const { updateStackIcon } = await import('../stacks.functions');
+      const { updateStackIcon } = await import('../functions');
       await updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } });
       expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('redis', 'redis-stack');
     });
@@ -197,7 +197,7 @@ describe('stacks.functions module', () => {
       mockGetStackSummaries.mockImplementationOnce(() =>
         Promise.reject(new Error('Database connection failed'))
       );
-      const { listStacks } = await import('../stacks.functions');
+      const { listStacks } = await import('../functions');
       await expect(listStacks({})).rejects.toThrow('Database connection failed');
     });
 
@@ -205,7 +205,7 @@ describe('stacks.functions module', () => {
       mockGetStackDetailByName.mockImplementationOnce(() =>
         Promise.reject(new Error('Git repo not found'))
       );
-      const { getStackDetail } = await import('../stacks.functions');
+      const { getStackDetail } = await import('../functions');
       await expect(
         getStackDetail({ data: { stackName: 'missing' } })
       ).rejects.toThrow('Git repo not found');
@@ -215,7 +215,7 @@ describe('stacks.functions module', () => {
       mockTriggerStackDeploy.mockImplementationOnce(() =>
         Promise.reject(new Error('Agent unreachable'))
       );
-      const { triggerDeploy } = await import('../stacks.functions');
+      const { triggerDeploy } = await import('../functions');
       await expect(
         triggerDeploy({ data: { stack: 'nginx', host: 'server1', action: 'deploy' } })
       ).rejects.toThrow('Agent unreachable');
@@ -225,7 +225,7 @@ describe('stacks.functions module', () => {
       mockSaveStackComposeFile.mockImplementationOnce(() =>
         Promise.reject(new Error('Commit failed'))
       );
-      const { saveComposeFile } = await import('../stacks.functions');
+      const { saveComposeFile } = await import('../functions');
       await expect(
         saveComposeFile({ data: { stackName: 'nginx', content: 'bad' } })
       ).rejects.toThrow('Commit failed');
@@ -235,7 +235,7 @@ describe('stacks.functions module', () => {
       mockUpdateStackIconSlug.mockImplementationOnce(() =>
         Promise.reject(new Error('Entity not found'))
       );
-      const { updateStackIcon } = await import('../stacks.functions');
+      const { updateStackIcon } = await import('../functions');
       await expect(
         updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'bad' } })
       ).rejects.toThrow('Entity not found');
@@ -245,7 +245,7 @@ describe('stacks.functions module', () => {
       mockGetStackDeployHistory.mockImplementationOnce(() =>
         Promise.reject(new Error('Query timeout'))
       );
-      const { getDeployHistory } = await import('../stacks.functions');
+      const { getDeployHistory } = await import('../functions');
       await expect(
         getDeployHistory({ data: { stackName: 'nginx', limit: 10 } })
       ).rejects.toThrow('Query timeout');

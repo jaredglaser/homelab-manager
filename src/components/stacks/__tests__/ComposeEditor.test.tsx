@@ -11,12 +11,10 @@ import { parseVariables } from '../ComposeEditor';
  */
 /** Stored onChange callback from the most recent mock editor render */
 let mockEditorOnChange: ((v: string | undefined) => void) | undefined;
-let mockEditorOnMount: ((editor: unknown, monaco: unknown) => void) | undefined;
 
 mock.module('@monaco-editor/react', () => ({
-  default: ({ value, onChange, onMount }: { value: string; onChange?: (v: string | undefined) => void; onMount?: (editor: unknown, monaco: unknown) => void }) => {
+  default: ({ value, onChange }: { value: string; onChange?: (v: string | undefined) => void }) => {
     mockEditorOnChange = onChange;
-    mockEditorOnMount = onMount;
     return (
       <textarea
         data-testid="mock-editor"
@@ -36,9 +34,10 @@ function createWrapper() {
   };
 }
 
-async function renderComposeEditor(props?: Partial<{ stackName: string; content: string; variables: string[] }>) {
+async function renderComposeEditor(props?: Partial<{ host: string; stackName: string; content: string; variables: string[] }>) {
   const { default: ComposeEditor } = await import('../ComposeEditor');
   const defaultProps = {
+    host: 'test-host',
     stackName: 'test-stack',
     content: 'image: nginx:latest',
     variables: [],
@@ -74,7 +73,7 @@ describe('parseVariables (compose variable detection)', () => {
 
   it('matches lowercase and mixed-case variable names', () => {
     const content = '${lowercase}\n${Mixed_Case}\n${UPPER}';
-    expect(parseVariables(content)).toEqual(['Mixed_Case', 'UPPER', 'lowercase']);
+    expect(parseVariables(content)).toEqual(['lowercase', 'Mixed_Case', 'UPPER']);
   });
 
   it('ignores $VAR without braces', () => {
@@ -89,7 +88,7 @@ describe('parseVariables (compose variable detection)', () => {
 
   it('handles variables with underscores at start', () => {
     const content = '${_PRIVATE}\n${__DOUBLE}';
-    expect(parseVariables(content)).toEqual(['_PRIVATE', '__DOUBLE']);
+    expect(parseVariables(content)).toEqual(['__DOUBLE', '_PRIVATE']);
   });
 
   it('handles complex defaults with colons and slashes', () => {
@@ -172,17 +171,6 @@ describe('ComposeEditor component', () => {
 
     act(() => { mockEditorOnChange?.('image: redis'); });
     expect(screen.getByText('Unsaved changes')).toBeDefined();
-  });
-
-  it('calls onMount handler which stores editor ref', async () => {
-    await renderComposeEditor();
-    expect(mockEditorOnMount).toBeDefined();
-    // Simulate Monaco editor mount — the handler stores the ref and attempts to load monaco-yaml
-    const mockEditor = { dispose: mock() };
-    const mockMonaco = {};
-    // onMount triggers a dynamic import of monaco-yaml which will fail in test env;
-    // the catch handler logs the error, covering lines 42-57
-    await mockEditorOnMount!(mockEditor, mockMonaco);
   });
 
   it('enables save button when content is dirty', async () => {

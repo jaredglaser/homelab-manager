@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Typography, CircularProgress, IconButton, Skeleton } from '@mui/material';
 import { X } from 'lucide-react';
-import { getContainerHistory, getContainerInfo } from '@/data/docker.functions';
+import { getContainerHistory, getContainerInfo } from '@/data/docker/functions';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import MetricCheckboxes, { type MetricType } from '@/components/docker/MetricCheckboxes';
 import HistoricalChartsGrid from '@/components/docker/HistoricalChartsGrid';

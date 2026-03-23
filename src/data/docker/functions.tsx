@@ -1,11 +1,11 @@
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
 import type { DockerStatsRow } from '@/types/docker';
-
-const getHistoricalDockerStatsSchema = z.object({
-  /** Number of seconds of historical data to fetch. Default: 60 */
-  seconds: z.number().min(1).max(3600).optional().default(60),
-});
+import {
+  getHistoricalDockerStatsSchema,
+  getContainerHistorySchema,
+  getContainerInfoSchema,
+  updateContainerIconSchema,
+} from '@/data/docker/schemas';
 
 /**
  * Get historical Docker stats (wide rows) for preloading.
@@ -58,14 +58,6 @@ export const getDockerEntityIcons = createServerFn()
     }
   });
 
-const getContainerHistorySchema = z.object({
-  containerId: z.string().min(1),
-  host: z.string().optional(),
-  fromMs: z.number(),
-  toMs: z.number(),
-  targetPoints: z.number().min(1).max(5000).optional(),
-});
-
 export const getContainerHistory = createServerFn()
   .inputValidator(getContainerHistorySchema)
   .handler(async ({ data }): Promise<DockerStatsRow[]> => {
@@ -106,11 +98,6 @@ export const getContainerHistory = createServerFn()
     }
   });
 
-const getContainerInfoSchema = z.object({
-  containerId: z.string().min(1),
-  host: z.string().optional(),
-});
-
 export const getContainerInfo = createServerFn()
   .inputValidator(getContainerInfoSchema)
   .handler(async ({ data }): Promise<{
@@ -147,12 +134,6 @@ export const getContainerInfo = createServerFn()
       return null;
     }
   });
-
-const updateContainerIconSchema = z.object({
-  /** Service-key entity path (host/service_key) - icon is stored here so it survives recreation. */
-  serviceKeyEntity: z.string().min(1),
-  iconSlug: z.string().min(1),
-});
 
 /**
  * Update the icon for a container service.

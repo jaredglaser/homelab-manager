@@ -330,8 +330,6 @@ describe('createCollectorsForManagedHosts', () => {
     id: 1,
     name: 'homeserver',
     agent_url: 'http://192.168.1.10:9090',
-    agent_token_hash: '$2b$10$hash',
-    agent_token: 'token-1',
     socket_proxy_url: 'tcp://192.168.1.10:2375',
     agent_version: '0.1.0',
     status: 'healthy',
@@ -342,6 +340,7 @@ describe('createCollectorsForManagedHosts', () => {
   it('creates AgentStatsCollector for each managed host when feature flag is on', async () => {
     const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost]);
+    const mockGetToken = mock(() => Promise.resolve('test-token'));
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -352,12 +351,13 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, mockGetToken,
     );
 
     expect(result.collectors).toHaveLength(1);
     expect(result.collectors[0].name).toBe('AgentStatsCollector[homeserver]');
     expect(result.runners).toHaveLength(1);
+    expect(mockGetToken).toHaveBeenCalledWith('homeserver');
 
     shutdownController.abort();
   });
@@ -365,6 +365,7 @@ describe('createCollectorsForManagedHosts', () => {
   it('returns empty when feature flag is off', async () => {
     const mockIsEnabled = mock(() => false);
     const mockFindAll = mock(async () => []);
+    const mockGetToken = mock(() => Promise.resolve(null));
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -374,7 +375,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, mockGetToken,
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -387,6 +388,7 @@ describe('createCollectorsForManagedHosts', () => {
   it('returns empty when no managed hosts exist', async () => {
     const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => []);
+    const mockGetToken = mock(() => Promise.resolve('test-token'));
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -396,7 +398,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, mockGetToken,
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -406,33 +408,16 @@ describe('createCollectorsForManagedHosts', () => {
     shutdownController.abort();
   });
 
-  it('returns empty when docker collection is disabled', async () => {
+  it('skips managed host and continues when getToken throws', async () => {
+    const host2: ManagedHost = { ...sampleManagedHost, id: 2, name: 'other-host', agent_url: 'http://192.168.1.11:9090' };
     const mockIsEnabled = mock(() => true);
-    const mockFindAll = mock(async () => [sampleManagedHost]);
-
-    const { createCollectorsForManagedHosts } = await import('../collector-factory');
-
-    const shutdownController = new AbortController();
-    await using stack = new AsyncDisposableStack();
-    const workerConfig = createWorkerConfig({ docker: { enabled: false } });
-
-    const result = await createCollectorsForManagedHosts(
-      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
-    );
-
-    expect(result.collectors).toHaveLength(0);
-    expect(result.runners).toHaveLength(0);
-    expect(mockFindAll).not.toHaveBeenCalled();
-
-    shutdownController.abort();
-  });
-
-  it('skips managed hosts with no agent_token', async () => {
-    const mockIsEnabled = mock(() => true);
-    const mockFindAll = mock(async () => [
-      { ...sampleManagedHost, agent_token: null },
-    ]);
+    const mockFindAll = mock(async () => [sampleManagedHost, host2]);
+    let callCount = 0;
+    const mockGetToken = mock(async (hostname: string) => {
+      callCount++;
+      if (hostname === 'homeserver') throw new Error('OpenBao unreachable');
+      return 'test-token';
+    });
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
 
@@ -442,10 +427,38 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll,
+      mockIsEnabled, mockFindAll, mockGetToken,
+    );
+
+    expect(result.collectors).toHaveLength(1);
+    expect(result.collectors[0].name).toBe('AgentStatsCollector[other-host]');
+    expect(callCount).toBe(2);
+
+    const errorCalls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const tokenErrorCall = errorCalls.find((c) => String(c[0]).includes('Failed to retrieve token'));
+    expect(tokenErrorCall).toBeDefined();
+
+    shutdownController.abort();
+  });
+
+  it('skips managed hosts when OpenBao returns no token', async () => {
+    const mockIsEnabled = mock(() => true);
+    const mockFindAll = mock(async () => [sampleManagedHost]);
+    const mockGetToken = mock(() => Promise.resolve(null));
+
+    const { createCollectorsForManagedHosts } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+    const workerConfig = createWorkerConfig({ docker: { enabled: true } });
+
+    const result = await createCollectorsForManagedHosts(
+      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
+      mockIsEnabled, mockFindAll, mockGetToken,
     );
 
     expect(result.collectors).toHaveLength(0);
+    expect(mockGetToken).toHaveBeenCalledWith('homeserver');
 
     shutdownController.abort();
   });

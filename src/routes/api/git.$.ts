@@ -35,9 +35,9 @@ function authenticateRequest(request: Request): Response | null {
     try {
       decoded = atob(authHeader.slice('Basic '.length));
     } catch {
-      return new Response('Unauthorized', {
+      return new Response('Malformed Basic auth encoding', {
         status: 401,
-        headers: { 'WWW-Authenticate': 'Basic realm="git"' },
+        headers: { 'WWW-Authenticate': 'Basic realm="Git", charset="UTF-8"' },
       });
     }
     const colonIndex = decoded.indexOf(':');

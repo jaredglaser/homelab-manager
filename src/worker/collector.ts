@@ -9,10 +9,30 @@ import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
 import { isDockerManagementEnabled } from '@/lib/config/feature-flags';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
+import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
 import { createCollectors, createCollectorsForManagedHosts } from './collector-factory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
+
+function handleSettingChange(collectors: BaseCollector[], key: string, value: string | null): void {
+  if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
+    const enabled = value === 'true';
+    for (const c of collectors) c.dockerDebugLogging = enabled;
+    dockerConnectionManager.debugLogging = enabled;
+  } else if (key === SETTINGS_KEYS.developer.dbFlushDebugLogging) {
+    const enabled = value === 'true';
+    for (const c of collectors) c.dbFlushDebugLogging = enabled;
+  } else if (key === SETTINGS_KEYS.proxmox.updateInterval) {
+    const parsed = value ? parseInt(value, 10) : 10_000;
+    const interval = (parsed === 1000 || parsed === 10000) ? parsed : 10_000;
+    for (const c of collectors) {
+      if (c instanceof ProxmoxCollector) {
+        c.pollInterval = interval;
+      }
+    }
+  }
+}
 
 /**
  * Start and run the background worker that coordinates collectors, database migrations, settings updates, and graceful shutdown.
@@ -20,18 +40,18 @@ import { SettingsListener } from './settings-listener';
  * Loads configuration and database connection, runs migrations, resolves collection and Proxmox poll intervals, creates and runs enabled collectors, and listens for settings changes (developer/dockerDebugLogging, developer/dbFlushDebugLogging, proxmox/updateInterval) to adjust collector behavior at runtime. Handles SIGTERM/SIGINT to abort collectors and performs orderly cleanup of connections; on unrecoverable errors the process exits with a non-zero code.
  */
 async function main() {
-  console.log('[Worker] Starting homelab-manager background collector');
+  console.info('[Worker] Starting homelab-manager background collector');
 
   try {
     const dbConfig = loadDatabaseConfig();
     const workerConfig = loadWorkerConfig();
 
     if (!workerConfig.enabled) {
-      console.log('[Worker] Worker disabled via WORKER_ENABLED=false, exiting');
+      console.info('[Worker] Worker disabled via WORKER_ENABLED=false, exiting');
       process.exit(0);
     }
 
-    console.log('[Worker] Configuration loaded:', {
+    console.info('[Worker] Configuration loaded:', {
       database: `${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
       docker: workerConfig.docker.enabled,
       zfs: workerConfig.zfs.enabled,
@@ -39,10 +59,10 @@ async function main() {
       collectionInterval: `${workerConfig.collection.interval}ms`,
     });
 
-    console.log('[Worker] Connecting to PostgreSQL...');
+    console.info('[Worker] Connecting to PostgreSQL...');
     const db = await databaseConnectionManager.getClient(dbConfig);
 
-    console.log('[Worker] Running database migrations...');
+    console.info('[Worker] Running database migrations...');
     await runMigrations(db);
 
     // Override collection interval from database if configured
@@ -50,9 +70,9 @@ async function main() {
     const resolvedInterval = await resolveCollectionInterval(settingsRepo, workerConfig.collection.interval);
     if (resolvedInterval !== workerConfig.collection.interval) {
       workerConfig.collection.interval = resolvedInterval;
-      console.log(`[Worker] Using update interval from database: ${resolvedInterval}ms`);
+      console.info(`[Worker] Using update interval from database: ${resolvedInterval}ms`);
     } else {
-      console.log(`[Worker] Using update interval from config: ${workerConfig.collection.interval}ms`);
+      console.info(`[Worker] Using update interval from config: ${workerConfig.collection.interval}ms`);
     }
 
     // Resolve Proxmox poll interval from DB settings (default 10s)
@@ -69,7 +89,7 @@ async function main() {
     const shutdownController = new AbortController();
 
     const shutdown = () => {
-      console.log('[Worker] Shutdown signal received, aborting collectors...');
+      console.info('[Worker] Shutdown signal received, aborting collectors...');
       shutdownController.abort(new DOMException('Shutdown', 'AbortError'));
     };
     process.on('SIGTERM', shutdown);
@@ -83,16 +103,33 @@ async function main() {
 
       // Also start AgentStatsCollectors for managed hosts (if feature flag is on)
       const hostRepo = new HostRepository(db.getPool());
+      let getToken: ((hostname: string) => Promise<string | null>) | undefined;
+
+      if (isDockerManagementEnabled()) {
+        try {
+          const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+          const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+          const baoConfig = loadOpenBaoConfig();
+          const baoClient = new OpenBaoClient(baoConfig);
+          await baoClient.ensureSecretsEngine();
+          console.info('[Worker] OpenBao client initialized for managed host tokens');
+          getToken = (hostname: string) => baoClient.getHostSecret(hostname, 'agent_token');
+        } catch (err) {
+          console.error('[Worker] Failed to initialize OpenBao client — managed host collectors will be skipped:', err instanceof Error ? err.message : err);
+        }
+      }
+
       const { collectors: managedCollectors, runners: managedRunners } = await createCollectorsForManagedHosts(
         db, workerConfig, shutdownController, stack,
         isDockerManagementEnabled,
         () => hostRepo.findAll(),
+        getToken ?? (() => { throw new Error('OpenBao client is not available — initialization failed at startup'); }),
       );
       collectors.push(...managedCollectors);
       runners.push(...managedRunners);
 
       if (runners.length === 0) {
-        console.log('[Worker] No collectors enabled, exiting');
+        console.info('[Worker] No collectors enabled, exiting');
         process.exit(0);
       }
 
@@ -106,35 +143,18 @@ async function main() {
             SETTINGS_KEYS.developer.dbFlushDebugLogging,
             SETTINGS_KEYS.proxmox.updateInterval,
           ],
-          (key, value) => {
-            if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
-              const enabled = value === 'true';
-              for (const c of collectors) c.dockerDebugLogging = enabled;
-              dockerConnectionManager.debugLogging = enabled;
-            } else if (key === SETTINGS_KEYS.developer.dbFlushDebugLogging) {
-              const enabled = value === 'true';
-              for (const c of collectors) c.dbFlushDebugLogging = enabled;
-            } else if (key === SETTINGS_KEYS.proxmox.updateInterval) {
-              const parsed = value ? parseInt(value, 10) : 10_000;
-              const interval = (parsed === 1000 || parsed === 10000) ? parsed : 10_000;
-              for (const c of collectors) {
-                if (c instanceof ProxmoxCollector) {
-                  c.pollInterval = interval;
-                }
-              }
-            }
-          },
+          (key, value) => handleSettingChange(collectors, key, value),
           shutdownController.signal,
         )
       );
       await settingsListener.start();
 
-      console.log(`[Worker] ${runners.length} collector(s) started, running...`);
+      console.info(`[Worker] ${runners.length} collector(s) started, running...`);
       await Promise.all(runners);
     }
     // AsyncDisposableStack disposes here - cleans up
 
-    console.log('[Worker] Closing connections...');
+    console.info('[Worker] Closing connections...');
     proxmoxConnectionManager.clearAll();
     await Promise.all([
       databaseConnectionManager.closeAll(),
@@ -142,7 +162,7 @@ async function main() {
       sshConnectionManager.closeAll(),
     ]);
 
-    console.log('[Worker] Shutdown complete');
+    console.info('[Worker] Shutdown complete');
   } catch (err) {
     console.error('[Worker] Fatal error:', err);
     process.exit(1);

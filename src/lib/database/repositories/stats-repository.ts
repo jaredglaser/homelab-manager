@@ -3,139 +3,128 @@ import type { DockerStatsRow } from '@/types/docker';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
 
-type PgArrayType = 'timestamptz' | 'text' | 'int' | 'bigint' | 'float8' | 'boolean';
-
-interface ColumnSpec {
-  name: string;
-  sqlType: PgArrayType;
-}
-
-/**
- * Generic bulk insert using PostgreSQL unnest for columnar parameter binding.
- * Builds the INSERT ... SELECT * FROM unnest(...) query dynamically from column specs.
- *
- * @param pool - The pg connection pool
- * @param table - Target table name
- * @param columns - Column names and their SQL cast types
- * @param rows - Data rows to insert
- * @param mapper - Extracts ordered column values from each row
- */
-async function bulkInsert<T>(
-  pool: Pool,
-  table: string,
-  columns: ColumnSpec[],
-  rows: T[],
-  mapper: (row: T) => unknown[],
-): Promise<void> {
-  if (rows.length === 0) return;
-
-  const columnList = columns.map((c) => c.name).join(', ');
-  const unnestParams = columns
-    .map((c, i) => `$${i + 1}::${c.sqlType}[]`)
-    .join(', ');
-
-  const paramArrays: unknown[][] = columns.map(() => []);
-  for (const row of rows) {
-    const values = mapper(row);
-    if (values.length !== columns.length) {
-      throw new Error(
-        `[StatsRepository] Column/value mismatch for ${table}: expected ${columns.length} values, got ${values.length}`,
-      );
-    }
-    for (let i = 0; i < columns.length; i++) {
-      paramArrays[i].push(values[i]);
-    }
-  }
-
-  try {
-    await pool.query(
-      `INSERT INTO ${table} (${columnList})
-        SELECT * FROM unnest(${unnestParams})`,
-      paramArrays,
-    );
-  } catch (err) {
-    console.error(`[StatsRepository] Failed to insert ${table}:`, err);
-    throw err;
-  }
-}
-
-const DOCKER_STATS_COLUMNS: ColumnSpec[] = [
-  { name: 'time', sqlType: 'timestamptz' },
-  { name: 'host', sqlType: 'text' },
-  { name: 'container_id', sqlType: 'text' },
-  { name: 'container_name', sqlType: 'text' },
-  { name: 'image', sqlType: 'text' },
-  { name: 'cpu_percent', sqlType: 'float8' },
-  { name: 'memory_usage', sqlType: 'bigint' },
-  { name: 'memory_limit', sqlType: 'bigint' },
-  { name: 'memory_percent', sqlType: 'float8' },
-  { name: 'network_rx_bytes_per_sec', sqlType: 'float8' },
-  { name: 'network_tx_bytes_per_sec', sqlType: 'float8' },
-  { name: 'block_io_read_bytes_per_sec', sqlType: 'float8' },
-  { name: 'block_io_write_bytes_per_sec', sqlType: 'float8' },
-];
-
-const ZFS_STATS_COLUMNS: ColumnSpec[] = [
-  { name: 'time', sqlType: 'timestamptz' },
-  { name: 'host', sqlType: 'text' },
-  { name: 'pool', sqlType: 'text' },
-  { name: 'entity', sqlType: 'text' },
-  { name: 'entity_type', sqlType: 'text' },
-  { name: 'indent', sqlType: 'int' },
-  { name: 'capacity_alloc', sqlType: 'bigint' },
-  { name: 'capacity_free', sqlType: 'bigint' },
-  { name: 'read_ops_per_sec', sqlType: 'float8' },
-  { name: 'write_ops_per_sec', sqlType: 'float8' },
-  { name: 'read_bytes_per_sec', sqlType: 'float8' },
-  { name: 'write_bytes_per_sec', sqlType: 'float8' },
-  { name: 'utilization_percent', sqlType: 'float8' },
-];
-
-const PROXMOX_STATS_COLUMNS: ColumnSpec[] = [
-  { name: 'time', sqlType: 'timestamptz' },
-  { name: 'host', sqlType: 'text' },
-  { name: 'entity_type', sqlType: 'text' },
-  { name: 'node', sqlType: 'text' },
-  { name: 'entity_id', sqlType: 'text' },
-  { name: 'entity_name', sqlType: 'text' },
-  { name: 'status', sqlType: 'text' },
-  { name: 'cpu', sqlType: 'float8' },
-  { name: 'max_cpu', sqlType: 'float8' },
-  { name: 'mem', sqlType: 'bigint' },
-  { name: 'max_mem', sqlType: 'bigint' },
-  { name: 'disk', sqlType: 'bigint' },
-  { name: 'max_disk', sqlType: 'bigint' },
-  { name: 'uptime', sqlType: 'bigint' },
-  { name: 'vmid', sqlType: 'int' },
-  { name: 'netin', sqlType: 'bigint' },
-  { name: 'netout', sqlType: 'bigint' },
-  { name: 'storage_type', sqlType: 'text' },
-  { name: 'storage_content', sqlType: 'text' },
-  { name: 'storage_avail', sqlType: 'bigint' },
-  { name: 'storage_shared', sqlType: 'boolean' },
-  { name: 'cluster_version', sqlType: 'int' },
-];
-
 export class StatsRepository {
   constructor(private pool: Pool) {}
 
   async insertDockerStats(rows: DockerStatsRow[]): Promise<void> {
-    return bulkInsert(this.pool, 'docker_stats', DOCKER_STATS_COLUMNS, rows, (r) => [
-      r.time, r.host, r.container_id, r.container_name, r.image,
-      r.cpu_percent, r.memory_usage, r.memory_limit, r.memory_percent,
-      r.network_rx_bytes_per_sec, r.network_tx_bytes_per_sec,
-      r.block_io_read_bytes_per_sec, r.block_io_write_bytes_per_sec,
-    ]);
+    if (rows.length === 0) return;
+
+    try {
+      const times: (string | Date)[] = [];
+      const hosts: string[] = [];
+      const containerIds: string[] = [];
+      const containerNames: (string | null)[] = [];
+      const images: (string | null)[] = [];
+      const cpuPercents: (number | null)[] = [];
+      const memoryUsages: (number | null)[] = [];
+      const memoryLimits: (number | null)[] = [];
+      const memoryPercents: (number | null)[] = [];
+      const networkRx: (number | null)[] = [];
+      const networkTx: (number | null)[] = [];
+      const blockRead: (number | null)[] = [];
+      const blockWrite: (number | null)[] = [];
+
+      for (const row of rows) {
+        times.push(row.time);
+        hosts.push(row.host);
+        containerIds.push(row.container_id);
+        containerNames.push(row.container_name);
+        images.push(row.image);
+        cpuPercents.push(row.cpu_percent);
+        memoryUsages.push(row.memory_usage);
+        memoryLimits.push(row.memory_limit);
+        memoryPercents.push(row.memory_percent);
+        networkRx.push(row.network_rx_bytes_per_sec);
+        networkTx.push(row.network_tx_bytes_per_sec);
+        blockRead.push(row.block_io_read_bytes_per_sec);
+        blockWrite.push(row.block_io_write_bytes_per_sec);
+      }
+
+      await this.pool.query(
+        `INSERT INTO docker_stats (
+          time, host, container_id, container_name, image,
+          cpu_percent, memory_usage, memory_limit, memory_percent,
+          network_rx_bytes_per_sec, network_tx_bytes_per_sec,
+          block_io_read_bytes_per_sec, block_io_write_bytes_per_sec
+        )
+        SELECT * FROM unnest(
+          $1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[],
+          $6::float8[], $7::bigint[], $8::bigint[], $9::float8[],
+          $10::float8[], $11::float8[], $12::float8[], $13::float8[]
+        )`,
+        [
+          times, hosts, containerIds, containerNames, images,
+          cpuPercents, memoryUsages, memoryLimits, memoryPercents,
+          networkRx, networkTx, blockRead, blockWrite,
+        ]
+      );
+    } catch (err) {
+      console.error('[StatsRepository] Failed to insert docker stats:', err);
+      throw err;
+    }
   }
 
   async insertZFSStats(rows: ZFSStatsRow[]): Promise<void> {
-    return bulkInsert(this.pool, 'zfs_stats', ZFS_STATS_COLUMNS, rows, (r) => [
-      r.time, r.host, r.pool, r.entity, r.entity_type, r.indent,
-      r.capacity_alloc, r.capacity_free,
-      r.read_ops_per_sec, r.write_ops_per_sec,
-      r.read_bytes_per_sec, r.write_bytes_per_sec,
-      r.utilization_percent,
-    ]);
+    if (rows.length === 0) return;
+
+    try {
+      const times: (string | Date)[] = [];
+      const hosts: string[] = [];
+      const pools: string[] = [];
+      const entities: string[] = [];
+      const entityTypes: string[] = [];
+      const indents: number[] = [];
+      const capacityAllocs: (number | null)[] = [];
+      const capacityFrees: (number | null)[] = [];
+      const readOps: (number | null)[] = [];
+      const writeOps: (number | null)[] = [];
+      const readBytes: (number | null)[] = [];
+      const writeBytes: (number | null)[] = [];
+      const utilizations: (number | null)[] = [];
+
+      for (const row of rows) {
+        times.push(row.time);
+        hosts.push(row.host);
+        pools.push(row.pool);
+        entities.push(row.entity);
+        entityTypes.push(row.entity_type);
+        indents.push(row.indent);
+        capacityAllocs.push(row.capacity_alloc);
+        capacityFrees.push(row.capacity_free);
+        readOps.push(row.read_ops_per_sec);
+        writeOps.push(row.write_ops_per_sec);
+        readBytes.push(row.read_bytes_per_sec);
+        writeBytes.push(row.write_bytes_per_sec);
+        utilizations.push(row.utilization_percent);
+      }
+
+      await this.pool.query(
+        `INSERT INTO zfs_stats (
+          time, host, pool, entity, entity_type, indent,
+          capacity_alloc, capacity_free,
+          read_ops_per_sec, write_ops_per_sec,
+          read_bytes_per_sec, write_bytes_per_sec,
+          utilization_percent
+        )
+        SELECT * FROM unnest(
+          $1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::int[],
+          $7::bigint[], $8::bigint[],
+          $9::float8[], $10::float8[],
+          $11::float8[], $12::float8[],
+          $13::float8[]
+        )`,
+        [
+          times, hosts, pools, entities, entityTypes, indents,
+          capacityAllocs, capacityFrees,
+          readOps, writeOps,
+          readBytes, writeBytes,
+          utilizations,
+        ]
+      );
+    } catch (err) {
+      console.error('[StatsRepository] Failed to insert zfs stats:', err);
+      throw err;
+    }
   }
 
   async getDockerStatsSince(since: Date): Promise<DockerStatsRow[]> {
@@ -280,13 +269,84 @@ export class StatsRepository {
   }
 
   async insertProxmoxStats(rows: ProxmoxStatsRow[]): Promise<void> {
-    return bulkInsert(this.pool, 'proxmox_stats', PROXMOX_STATS_COLUMNS, rows, (r) => [
-      r.time, r.host, r.entity_type, r.node, r.entity_id, r.entity_name, r.status,
-      r.cpu, r.max_cpu, r.mem, r.max_mem, r.disk, r.max_disk, r.uptime,
-      r.vmid, r.netin, r.netout,
-      r.storage_type, r.storage_content, r.storage_avail, r.storage_shared,
-      r.cluster_version,
-    ]);
+    if (rows.length === 0) return;
+
+    try {
+      const times: (string | Date)[] = [];
+      const hosts: string[] = [];
+      const entityTypes: string[] = [];
+      const nodes: (string | null)[] = [];
+      const entityIds: string[] = [];
+      const entityNames: (string | null)[] = [];
+      const statuses: (string | null)[] = [];
+      const cpus: (number | null)[] = [];
+      const maxCpus: (number | null)[] = [];
+      const mems: (number | null)[] = [];
+      const maxMems: (number | null)[] = [];
+      const disks: (number | null)[] = [];
+      const maxDisks: (number | null)[] = [];
+      const uptimes: (number | null)[] = [];
+      const vmids: (number | null)[] = [];
+      const netins: (number | null)[] = [];
+      const netouts: (number | null)[] = [];
+      const storageTypes: (string | null)[] = [];
+      const storageContents: (string | null)[] = [];
+      const storageAvails: (number | null)[] = [];
+      const storageShareds: (boolean | null)[] = [];
+      const clusterVersions: (number | null)[] = [];
+
+      for (const row of rows) {
+        times.push(row.time);
+        hosts.push(row.host);
+        entityTypes.push(row.entity_type);
+        nodes.push(row.node);
+        entityIds.push(row.entity_id);
+        entityNames.push(row.entity_name);
+        statuses.push(row.status);
+        cpus.push(row.cpu);
+        maxCpus.push(row.max_cpu);
+        mems.push(row.mem);
+        maxMems.push(row.max_mem);
+        disks.push(row.disk);
+        maxDisks.push(row.max_disk);
+        uptimes.push(row.uptime);
+        vmids.push(row.vmid);
+        netins.push(row.netin);
+        netouts.push(row.netout);
+        storageTypes.push(row.storage_type);
+        storageContents.push(row.storage_content);
+        storageAvails.push(row.storage_avail);
+        storageShareds.push(row.storage_shared);
+        clusterVersions.push(row.cluster_version);
+      }
+
+      await this.pool.query(
+        `INSERT INTO proxmox_stats (
+          time, host, entity_type, node, entity_id, entity_name, status,
+          cpu, max_cpu, mem, max_mem, disk, max_disk, uptime,
+          vmid, netin, netout,
+          storage_type, storage_content, storage_avail, storage_shared,
+          cluster_version
+        )
+        SELECT * FROM unnest(
+          $1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
+          $8::float8[], $9::float8[], $10::bigint[], $11::bigint[], $12::bigint[], $13::bigint[], $14::bigint[],
+          $15::int[], $16::bigint[], $17::bigint[],
+          $18::text[], $19::text[], $20::bigint[], $21::boolean[],
+          $22::int[]
+        )`,
+        [
+          times, hosts, entityTypes, nodes, entityIds, entityNames, statuses,
+          cpus, maxCpus, mems, maxMems, disks, maxDisks, uptimes,
+          vmids, netins, netouts,
+          storageTypes, storageContents, storageAvails, storageShareds,
+          clusterVersions,
+        ]
+      );
+    } catch (err) {
+      console.error('[StatsRepository] Failed to insert proxmox stats:', err);
+      throw err;
+    }
   }
 
   async getProxmoxStatsSince(since: Date): Promise<ProxmoxStatsRow[]> {

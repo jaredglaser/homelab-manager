@@ -5,7 +5,6 @@ import type {
   ProxmoxContainer,
   ProxmoxStorage,
   ProxmoxStatsRow,
-  WithNode,
 } from '@/types/proxmox';
 
 /**
@@ -65,7 +64,7 @@ export function buildProxmoxOverview(
   }));
 
   // Reconstruct VMs
-  const vms: WithNode<ProxmoxVM>[] = vmRows.map((r) => ({
+  const vms: (ProxmoxVM & { node: string })[] = vmRows.map((r) => ({
     vmid: r.vmid ?? 0,
     name: r.entity_name ?? '',
     status: (r.status ?? 'stopped') as 'running' | 'stopped' | 'paused' | 'suspended',
@@ -84,7 +83,7 @@ export function buildProxmoxOverview(
   }));
 
   // Reconstruct containers
-  const containers: WithNode<ProxmoxContainer>[] = containerRows.map((r) => ({
+  const containers: (ProxmoxContainer & { node: string })[] = containerRows.map((r) => ({
     vmid: r.vmid ?? 0,
     name: r.entity_name ?? '',
     status: (r.status ?? 'stopped') as 'running' | 'stopped',
@@ -106,7 +105,7 @@ export function buildProxmoxOverview(
   }));
 
   // Reconstruct storages
-  const storages: WithNode<ProxmoxStorage>[] = storageRows.map((r) => ({
+  const storages: (ProxmoxStorage & { node: string })[] = storageRows.map((r) => ({
     storage: r.entity_name ?? '',
     type: r.storage_type ?? '',
     content: r.storage_content ?? '',

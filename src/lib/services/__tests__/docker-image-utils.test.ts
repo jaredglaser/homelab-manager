@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { pullImage } from '../docker-image-utils';
 
 function createMockDocker(error?: Error) {
@@ -33,17 +33,11 @@ describe('pullImage', () => {
     expect(pulledImage).toBe('ghcr.io/homelab-manager/agent:latest');
   });
 
-  it('rejects with timeout error and destroys stream when pull hangs', async () => {
-    const destroy = mock();
+  it('rejects when docker.pull throws', async () => {
     const docker = {
-      pull: async () => ({ destroy }),
-      modem: {
-        followProgress: () => {
-          // Never call the callback — simulates a hanging pull
-        },
-      },
+      pull: async () => { throw new Error('connection refused'); },
+      modem: { followProgress: () => {} },
     } as any;
-    await expect(pullImage(docker, 'stuck-image:latest', 50)).rejects.toThrow(/timed out/);
-    expect(destroy).toHaveBeenCalled();
+    await expect(pullImage(docker, 'bad-image:latest')).rejects.toThrow('connection refused');
   });
 });

@@ -63,7 +63,6 @@ const testHost: ManagedHost = {
   name: 'homeserver',
   agentUrl: 'http://agent:9090',
   socketProxyUrl: 'tcp://proxy:2375',
-  agentTokenHash: '$2b$10$hashedtoken',
   agentVersion: '0.1.0',
   status: 'healthy',
   createdAt: new Date(),

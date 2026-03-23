@@ -37,9 +37,9 @@ export function manifestEntryToDetail(name: string, entry: StackEntry, composeCo
   };
 }
 
-/** Extract ${VAR_NAME} references from compose content. Handles all Docker Compose operators: :-, -, :+, +, :?, ? */
+/** Extract ${VAR_NAME} references from compose content (supports all Docker Compose variable forms: ${VAR}, ${VAR:-default}, ${VAR-default}, ${VAR:?err}, ${VAR?err}, ${VAR:+alt}, ${VAR+alt}). */
 export function extractVariableNames(content: string): string[] {
-  const regex = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::?[-+?][^}]*)?\}/g;
+  const regex = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::?[-?+][^}]*)?\}/g;
   const vars = new Set<string>();
   let match: RegExpMatchArray | null;
   while ((match = regex.exec(content)) !== null) {

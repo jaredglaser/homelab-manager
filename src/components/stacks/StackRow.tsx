@@ -31,7 +31,10 @@ export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
   const [iconError, setIconError] = useState(false);
   const iconUrl = stack.icon ? getIconUrl(stack.icon, '') : null;
 
-  useEffect(() => { setIconError(false); }, [iconUrl]);
+  /** Reset error state when the icon URL changes */
+  useEffect(() => {
+    setIconError(false);
+  }, [iconUrl]);
 
   return (
     <div>
@@ -103,7 +106,7 @@ export default function StackRow({ stack, expanded, onToggle }: StackRowProps) {
       </div>
 
       <Collapse in={expanded} unmountOnExit>
-        <StackDetail stackName={stack.name} host={stack.host} />
+        <StackDetail host={stack.host} stackName={stack.name} />
       </Collapse>
     </div>
   );

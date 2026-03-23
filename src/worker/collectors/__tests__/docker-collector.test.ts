@@ -211,7 +211,7 @@ describe('DockerCollector', () => {
         source: 'docker',
         entity: 'test-host/abc123def456789',
         key: 'name',
-        value: 'web-server', // Leading / stripped by findContainerName helper
+        value: 'web-server', // Leading / stripped by containerInfo helper
       });
       expect(metadataUpserts[1]).toEqual({
         source: 'docker',
@@ -229,7 +229,7 @@ describe('DockerCollector', () => {
       // Stats should have been written - 2 stats events produce 2 rows
       expect(writtenRows.length).toBe(2);
 
-      // Verify row structure: the private findContainerName() helper resolved the name
+      // Verify row structure: the private containerInfo() helper resolved the name
       const row = writtenRows[0][0];
       expect(row.host).toBe('test-host');
       expect(row.container_id).toBe('abc123def456789');
@@ -484,7 +484,7 @@ describe('DockerCollector', () => {
       await (collector as any).collect();
 
       expect(writtenRows.length).toBe(1);
-      // findContainerName() should fall back to substring(0, 12) when Names is empty
+      // containerInfo() should fall back to substring(0, 12) when Names is empty
       expect(writtenRows[0][0].container_name).toBe('deadbeef1234');
 
       controller.abort();

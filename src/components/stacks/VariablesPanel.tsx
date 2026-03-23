@@ -31,7 +31,7 @@ export default function VariablesPanel({ variables }: VariablesPanelProps) {
       <div className="space-y-2">
         {variables.map((varName) => (
           <div key={varName} className="flex items-center gap-2">
-            <code className="text-xs font-mono min-w-[120px] opacity-80">{`\${${varName}}`}</code>
+            <code className="text-xs font-mono min-w-[120px] opacity-80">${'{'}${varName}{'}'}</code>
             <TextField
               size="small"
               placeholder="Value (managed by OpenBao)"

@@ -1,24 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
 import { CircularProgress, Typography } from '@mui/material';
-import { getStackDetail, getDeployHistory } from '@/data/stacks.functions';
+import { getStackDetail, getDeployHistory } from '@/data/stacks/functions';
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader';
 import DeployHistoryList from '@/components/stacks/DeployHistoryList';
 
 interface StackDetailProps {
-  stackName: string;
   host: string;
+  stackName: string;
 }
 
-export default function StackDetail({ stackName, host }: StackDetailProps) {
-  const stackId = `${host}/${stackName}`;
-
+export default function StackDetail({ host, stackName }: StackDetailProps) {
   const { data: detail, isLoading, error } = useQuery({
-    queryKey: ['stack-detail', stackId],
+    queryKey: ['stack-detail', host, stackName],
     queryFn: () => getStackDetail({ data: { stackName } }),
   });
 
   const { data: history, isLoading: historyLoading } = useQuery({
-    queryKey: ['deploy-history', stackId],
+    queryKey: ['deploy-history', host, stackName],
     queryFn: () => getDeployHistory({ data: { stackName, limit: 10 } }),
   });
 
@@ -48,6 +46,7 @@ export default function StackDetail({ stackName, host }: StackDetailProps) {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
         <div>
           <ComposeEditorLoader
+            host={host}
             stackName={stackName}
             content={detail.composeContent}
             variables={detail.variableNames}

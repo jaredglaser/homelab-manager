@@ -121,7 +121,7 @@ export class OpenBaoClient {
         `OpenBao LIST failed for stack "${stack}": unexpected response shape`,
       );
     }
-    return keys as string[];
+    return keys.filter((k): k is string => typeof k === 'string');
   }
 
   /**
@@ -210,6 +210,95 @@ export class OpenBaoClient {
 
     if (!response.ok) {
       await this.throwApiError(response, 'DELETE', `stack "${stack}" key "${key}"`);
+    }
+  }
+
+  /**
+   * Get a single host secret value. Returns null if not found.
+   */
+  async getHostSecret(hostname: string, key: string): Promise<string | null> {
+    this.validatePathSegment(hostname, 'hostname');
+    this.validatePathSegment(key, 'key');
+
+    const response = await this.request(
+      `${this.url}/v1/secret/data/hosts/${hostname}/${key}`,
+      {
+        method: 'GET',
+        headers: { 'X-Vault-Token': this.token },
+      },
+      'GET_HOST',
+      `host "${hostname}" key "${key}"`,
+    );
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      await this.throwApiError(response, 'GET_HOST', `host "${hostname}" key "${key}"`);
+    }
+
+    const body = await this.parseJsonResponse(response, 'GET_HOST', `host "${hostname}" key "${key}"`) as
+      { data?: { data?: { value?: unknown } } } | undefined;
+    const value = body?.data?.data?.value;
+    if (typeof value !== 'string') {
+      throw new TypeError(
+        `OpenBao GET_HOST failed for host "${hostname}" key "${key}": unexpected response shape`,
+      );
+    }
+    return value;
+  }
+
+  /**
+   * Set or update a host secret value.
+   */
+  async setHostSecret(hostname: string, key: string, value: string): Promise<void> {
+    this.validatePathSegment(hostname, 'hostname');
+    this.validatePathSegment(key, 'key');
+
+    const response = await this.request(
+      `${this.url}/v1/secret/data/hosts/${hostname}/${key}`,
+      {
+        method: 'POST',
+        headers: {
+          'X-Vault-Token': this.token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data: { value } }),
+      },
+      'SET_HOST',
+      `host "${hostname}" key "${key}"`,
+    );
+
+    if (!response.ok) {
+      await this.throwApiError(response, 'SET_HOST', `host "${hostname}" key "${key}"`);
+    }
+  }
+
+  /**
+   * Delete a host secret (metadata and all versions).
+   * Does not throw if the secret does not exist.
+   */
+  async deleteHostSecret(hostname: string, key: string): Promise<void> {
+    this.validatePathSegment(hostname, 'hostname');
+    this.validatePathSegment(key, 'key');
+
+    const response = await this.request(
+      `${this.url}/v1/secret/metadata/hosts/${hostname}/${key}`,
+      {
+        method: 'DELETE',
+        headers: { 'X-Vault-Token': this.token },
+      },
+      'DELETE_HOST',
+      `host "${hostname}" key "${key}"`,
+    );
+
+    if (response.status === 404) {
+      return;
+    }
+
+    if (!response.ok) {
+      await this.throwApiError(response, 'DELETE_HOST', `host "${hostname}" key "${key}"`);
     }
   }
 

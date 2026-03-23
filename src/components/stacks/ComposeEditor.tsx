@@ -4,36 +4,45 @@ import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
-import { saveComposeFile } from '@/data/stacks.functions';
-import { extractVariableNames } from '@/lib/stacks/stack-mappers';
+import { saveComposeFile } from '@/data/stacks/functions';
 import VariablesPanel from '@/components/stacks/VariablesPanel';
 
 interface ComposeEditorProps {
+  host: string;
   stackName: string;
   content: string;
   variables: string[];
 }
 
-/** @deprecated Use extractVariableNames from stack-mappers instead */
-export const parseVariables = extractVariableNames;
+/** Parse Docker Compose variable references from compose content (supports ${VAR}, ${VAR:-default}, ${VAR-default}, ${VAR:?err}, ${VAR?err}, ${VAR:+alt}, ${VAR+alt}). */
+export function parseVariables(content: string): string[] {
+  const regex = /\$\{([a-zA-Z_]\w*)(?::?[-?+][^}]*)?\}/g;
+  const vars = new Set<string>();
+  let match: RegExpMatchArray | null;
+  while ((match = regex.exec(content)) !== null) {
+    vars.add(match[1]);
+  }
+  return Array.from(vars).sort((a, b) => a.localeCompare(b));
+}
 
-export default function ComposeEditor({ stackName, content, variables: initialVariables }: ComposeEditorProps) {
+export default function ComposeEditor({ host, stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
   const [editorContent, setEditorContent] = useState(content);
   const [detectedVars, setDetectedVars] = useState<string[]>(initialVariables);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const queryClient = useQueryClient();
 
+  /** Sync editor state when the parent provides new content (e.g., switching stacks) */
   useEffect(() => {
     setEditorContent(content);
-    setDetectedVars(extractVariableNames(content));
-  }, [content]);
+    setDetectedVars(initialVariables);
+  }, [stackName, content, initialVariables]);
 
   const isDirty = editorContent !== content;
 
   const saveMutation = useMutation({
     mutationFn: () => saveComposeFile({ data: { stackName, content: editorContent } }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stack-detail'] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['stack-detail', host, stackName] });
     },
   });
 
@@ -59,7 +68,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   const handleChange = useCallback((value: string | undefined) => {
     const newContent = value ?? '';
     setEditorContent(newContent);
-    setDetectedVars(extractVariableNames(newContent));
+    setDetectedVars(parseVariables(newContent));
   }, []);
 
   // Reads the current theme on each render. Theme toggles trigger re-renders

@@ -9,13 +9,14 @@ import {
   type DecimalSettings,
   type ProxmoxUpdateInterval,
   type LightPalette,
-} from './settingsAtom';
-import { useToast } from './toastAtom';
-import { updateSetting } from '@/data/settings.functions';
+} from '@/hooks/settingsAtom';
+import { useToast } from '@/hooks/toastAtom';
+import { updateSetting } from '@/data/settings/functions';
+import type { SettingsKey } from '@/data/settings/schemas';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 // Re-export types for backward-compatible imports
-export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval, LightPalette } from './settingsAtom';
+export type { Settings, MemoryDisplayMode, DecimalSettings, ProxmoxUpdateInterval, LightPalette } from '@/hooks/settingsAtom';
 
 interface SettingsValue extends Settings {
   setUse12HourTime: (value: boolean) => void;
@@ -27,8 +28,8 @@ interface SettingsValue extends Settings {
   isHostExpanded: (hostName: string, totalHosts: number) => boolean;
   toggleContainerExpanded: (containerId: string) => void;
   isContainerExpanded: (containerId: string) => boolean;
-  toggleStackExpanded: (stackId: string) => void;
-  isStackExpanded: (stackId: string) => boolean;
+  toggleStackExpanded: (stackEntityId: string) => void;
+  isStackExpanded: (stackEntityId: string) => boolean;
   toggleZfsHostExpanded: (hostName: string) => void;
   isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
   togglePoolExpanded: (poolId: string) => void;
@@ -66,7 +67,7 @@ export function useSettings(): SettingsValue {
   const { showToast } = useToast();
 
   const optimisticSet = useCallback(
-    (key: string, computeValue: (prev: string | undefined) => string) => {
+    (key: SettingsKey, computeValue: (prev: string | undefined) => string) => {
       let previousValue: string | undefined;
       let newValue: string;
 
@@ -134,13 +135,13 @@ export function useSettings(): SettingsValue {
     [settings.docker.expandedContainers]
   );
 
-  const toggleStackExpanded = useCallback((stackId: string) => {
-    optimisticSet(SETTINGS_KEYS.stacks.expandedStacks, prev => toggleInSet(prev, stackId));
+  const toggleStackExpanded = useCallback((stackEntityId: string) => {
+    optimisticSet(SETTINGS_KEYS.stacks.expandedStacks, prev => toggleInSet(prev, stackEntityId));
   }, [optimisticSet]);
 
   const isStackExpanded = useCallback(
-    (stackId: string): boolean => {
-      return settings.stacks.expandedStacks.has(stackId);
+    (stackEntityId: string): boolean => {
+      return settings.stacks.expandedStacks.has(stackEntityId);
     },
     [settings.stacks.expandedStacks]
   );

@@ -21,7 +21,7 @@ export default function StacksTable({ stacks, isLoading, error }: StacksTablePro
   const { isStackExpanded, toggleStackExpanded } = useStackExpansion();
 
   const sortedStacks = useMemo(
-    () => [...stacks].sort((a, b) => `${a.host}/${a.name}`.localeCompare(`${b.host}/${b.name}`)),
+    () => [...stacks].sort((a, b) => a.name.localeCompare(b.name) || a.host.localeCompare(b.host)),
     [stacks],
   );
 

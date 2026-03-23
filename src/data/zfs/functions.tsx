@@ -1,11 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
-import { z } from 'zod';
 import type { ZFSStatsRow } from '@/types/zfs';
-
-const getHistoricalZFSStatsSchema = z.object({
-  /** Number of seconds of historical data to fetch. Default: 60 */
-  seconds: z.number().optional().default(60),
-});
+import { getHistoricalZFSStatsSchema } from '@/data/zfs/schemas';
 
 /**
  * Get historical ZFS stats (wide rows) for preloading.
