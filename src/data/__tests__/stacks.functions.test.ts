@@ -107,41 +107,25 @@ describe('stacks.functions module', () => {
   });
 
   describe('triggerDeploy', () => {
-    it('delegates to triggerStackDeploy with deploy action', async () => {
+    it('requires admin or operator role (rejects unauthenticated calls)', async () => {
       const { triggerDeploy } = await import('../stacks.functions');
-      await triggerDeploy({
-        data: { stack: 'nginx', host: 'server1', action: 'deploy' },
-      });
-      expect(mockTriggerStackDeploy).toHaveBeenCalledTimes(1);
-      expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
-        stack: 'nginx',
-        host: 'server1',
-        action: 'deploy',
-      });
+      await expect(
+        triggerDeploy({ data: { stack: 'nginx', host: 'server1', action: 'deploy' } }),
+      ).rejects.toThrow('Insufficient permissions');
     });
 
-    it('delegates with teardown action', async () => {
+    it('requires admin or operator role for teardown', async () => {
       const { triggerDeploy } = await import('../stacks.functions');
-      await triggerDeploy({
-        data: { stack: 'nginx', host: 'server1', action: 'teardown' },
-      });
-      expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
-        stack: 'nginx',
-        host: 'server1',
-        action: 'teardown',
-      });
+      await expect(
+        triggerDeploy({ data: { stack: 'nginx', host: 'server1', action: 'teardown' } }),
+      ).rejects.toThrow('Insufficient permissions');
     });
 
-    it('delegates with restart action', async () => {
+    it('requires admin or operator role for restart', async () => {
       const { triggerDeploy } = await import('../stacks.functions');
-      await triggerDeploy({
-        data: { stack: 'nginx', host: 'server1', action: 'restart' },
-      });
-      expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
-        stack: 'nginx',
-        host: 'server1',
-        action: 'restart',
-      });
+      await expect(
+        triggerDeploy({ data: { stack: 'nginx', host: 'server1', action: 'restart' } }),
+      ).rejects.toThrow('Insufficient permissions');
     });
   });
 
@@ -161,34 +145,34 @@ describe('stacks.functions module', () => {
   });
 
   describe('saveComposeFile', () => {
-    it('delegates to saveStackComposeFile with stackName and content', async () => {
+    it('requires admin or operator role (rejects unauthenticated calls)', async () => {
       const { saveComposeFile } = await import('../stacks.functions');
-      await saveComposeFile({
-        data: { stackName: 'nginx', content: 'version: "3.8"' },
-      });
-      expect(mockSaveStackComposeFile).toHaveBeenCalledTimes(1);
-      expect(mockSaveStackComposeFile).toHaveBeenCalledWith('nginx', 'version: "3.8"');
+      await expect(
+        saveComposeFile({ data: { stackName: 'nginx', content: 'version: "3.8"' } }),
+      ).rejects.toThrow('Insufficient permissions');
     });
 
-    it('handles empty content string', async () => {
+    it('requires admin or operator role for empty content', async () => {
       const { saveComposeFile } = await import('../stacks.functions');
-      await saveComposeFile({ data: { stackName: 'nginx', content: '' } });
-      expect(mockSaveStackComposeFile).toHaveBeenCalledWith('nginx', '');
+      await expect(
+        saveComposeFile({ data: { stackName: 'nginx', content: '' } }),
+      ).rejects.toThrow('Insufficient permissions');
     });
   });
 
   describe('updateStackIcon', () => {
-    it('delegates to updateStackIconSlug with stackName and iconSlug', async () => {
+    it('requires admin or operator role (rejects unauthenticated calls)', async () => {
       const { updateStackIcon } = await import('../stacks.functions');
-      await updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'nginx' } });
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledTimes(1);
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('nginx', 'nginx');
+      await expect(
+        updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'nginx' } }),
+      ).rejects.toThrow('Insufficient permissions');
     });
 
-    it('passes through different icon slugs', async () => {
+    it('requires admin or operator role for different icon slugs', async () => {
       const { updateStackIcon } = await import('../stacks.functions');
-      await updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } });
-      expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('redis', 'redis-stack');
+      await expect(
+        updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } }),
+      ).rejects.toThrow('Insufficient permissions');
     });
   });
 
@@ -211,34 +195,28 @@ describe('stacks.functions module', () => {
       ).rejects.toThrow('Git repo not found');
     });
 
-    it('triggerDeploy propagates service errors', async () => {
-      mockTriggerStackDeploy.mockImplementationOnce(() =>
-        Promise.reject(new Error('Agent unreachable'))
-      );
+    it('triggerDeploy is auth-gated (ForbiddenError before service layer)', async () => {
       const { triggerDeploy } = await import('../stacks.functions');
       await expect(
         triggerDeploy({ data: { stack: 'nginx', host: 'server1', action: 'deploy' } })
-      ).rejects.toThrow('Agent unreachable');
+      ).rejects.toThrow('Insufficient permissions');
+      expect(mockTriggerStackDeploy).not.toHaveBeenCalled();
     });
 
-    it('saveComposeFile propagates service errors', async () => {
-      mockSaveStackComposeFile.mockImplementationOnce(() =>
-        Promise.reject(new Error('Commit failed'))
-      );
+    it('saveComposeFile is auth-gated (ForbiddenError before service layer)', async () => {
       const { saveComposeFile } = await import('../stacks.functions');
       await expect(
         saveComposeFile({ data: { stackName: 'nginx', content: 'bad' } })
-      ).rejects.toThrow('Commit failed');
+      ).rejects.toThrow('Insufficient permissions');
+      expect(mockSaveStackComposeFile).not.toHaveBeenCalled();
     });
 
-    it('updateStackIcon propagates service errors', async () => {
-      mockUpdateStackIconSlug.mockImplementationOnce(() =>
-        Promise.reject(new Error('Entity not found'))
-      );
+    it('updateStackIcon is auth-gated (ForbiddenError before service layer)', async () => {
       const { updateStackIcon } = await import('../stacks.functions');
       await expect(
         updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'bad' } })
-      ).rejects.toThrow('Entity not found');
+      ).rejects.toThrow('Insufficient permissions');
+      expect(mockUpdateStackIconSlug).not.toHaveBeenCalled();
     });
 
     it('getDeployHistory propagates service errors', async () => {

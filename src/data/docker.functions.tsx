@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import type { DockerStatsRow } from '@/types/docker';
+import { authMiddleware } from '@/middleware/auth-middleware';
 
 const getHistoricalDockerStatsSchema = z.object({
   /** Number of seconds of historical data to fetch. Default: 60 */
@@ -11,6 +12,7 @@ const getHistoricalDockerStatsSchema = z.object({
  * Get historical Docker stats (wide rows) for preloading.
  */
 export const getHistoricalDockerStats = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(getHistoricalDockerStatsSchema)
   .handler(async ({ data }): Promise<DockerStatsRow[]> => {
     try {
@@ -40,6 +42,7 @@ export const getHistoricalDockerStats = createServerFn()
  * Icons are stored under the service_key entity so they survive container recreation.
  */
 export const getDockerEntityIcons = createServerFn()
+  .middleware([authMiddleware])
   .handler(async (): Promise<Record<string, { iconSlug: string | null; serviceKeyEntity: string }>> => {
     try {
       const { databaseConnectionManager } = await import('@/lib/clients/database-client');
@@ -67,6 +70,7 @@ const getContainerHistorySchema = z.object({
 });
 
 export const getContainerHistory = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(getContainerHistorySchema)
   .handler(async ({ data }): Promise<DockerStatsRow[]> => {
     try {
@@ -112,6 +116,7 @@ const getContainerInfoSchema = z.object({
 });
 
 export const getContainerInfo = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(getContainerInfoSchema)
   .handler(async ({ data }): Promise<{
     containerName: string;
@@ -159,6 +164,7 @@ const updateContainerIconSchema = z.object({
  * Stores the icon slug under the service_key entity so it persists across container recreations.
  */
 export const updateContainerIcon = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(updateContainerIconSchema)
   .handler(async ({ data }): Promise<void> => {
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');

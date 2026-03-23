@@ -1,5 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { authMiddleware } from '@/middleware/auth-middleware';
+import { requireRole } from '@/lib/auth/require-role';
 
 async function getSettingsRepository() {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -19,8 +21,10 @@ const updateSettingSchema = z.object({
 });
 
 export const updateSetting = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(updateSettingSchema)
-  .handler(async ({ data }): Promise<void> => {
+  .handler(async ({ data, context }): Promise<void> => {
+    requireRole('admin', 'operator')(context.user);
     const repo = await getSettingsRepository();
     await repo.set(data.key, data.value);
   });

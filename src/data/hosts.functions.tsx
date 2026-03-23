@@ -6,6 +6,8 @@ import {
   retryHealthCheck,
 } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
+import { authMiddleware } from '@/middleware/auth-middleware';
+import { requireRole } from '@/lib/auth/require-role';
 
 // ----- Schemas -----
 
@@ -221,10 +223,12 @@ async function loadDeps(): Promise<HostHandlerDeps> {
 // ----- createServerFn wrappers (thin wiring only) -----
 
 export const verifyHost = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(verifyHostSchema)
-  .handler(async ({ data }): Promise<AddHostResult> => {
+  .handler(async ({ data, context }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
     if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+    requireRole('admin')(context.user);
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
     const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
@@ -239,10 +243,12 @@ export const verifyHost = createServerFn()
   });
 
 export const removeHost = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(removeHostSchema)
-  .handler(async ({ data }): Promise<{ success: boolean }> => {
+  .handler(async ({ data, context }): Promise<{ success: boolean }> => {
     const baseDeps = await loadDeps();
     if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+    requireRole('admin')(context.user);
     const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
     const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
     const baoClient = new OpenBaoClient(loadOpenBaoConfig());
@@ -253,20 +259,25 @@ export const removeHost = createServerFn()
   });
 
 export const listHosts = createServerFn()
+  .middleware([authMiddleware])
   .handler(async (): Promise<HostListItem[]> => {
     const deps = await loadDeps();
     return handleListHosts(deps);
   });
 
 export const updateAgent = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(updateAgentSchema)
-  .handler(async ({ data }): Promise<HostOperationResult> => {
+  .handler(async ({ data, context }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
+    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+    requireRole('admin')(context.user);
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     return handleUpdateAgent({ ...baseDeps, checkHealth: checkAgentHealth }, data);
   });
 
 export const checkHostHealth = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(checkHostHealthSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
@@ -275,8 +286,10 @@ export const checkHostHealth = createServerFn()
   });
 
 export const updateHost = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(updateHostSchema)
-  .handler(async ({ data }): Promise<HostListItem> => {
+  .handler(async ({ data, context }): Promise<HostListItem> => {
+    requireRole('admin')(context.user);
     const deps = await loadDeps();
     return handleUpdateHost(deps, data);
   });

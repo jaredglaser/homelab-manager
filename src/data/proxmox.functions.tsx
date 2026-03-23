@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
+import { authMiddleware } from '@/middleware/auth-middleware';
 
 const getHistoricalProxmoxStatsSchema = z.object({
   seconds: z.number().optional().default(120),
@@ -11,6 +12,7 @@ const getHistoricalProxmoxStatsSchema = z.object({
  * Used by useTimeSeriesStream to preload data before SSE streaming begins.
  */
 export const getHistoricalProxmoxStats = createServerFn()
+  .middleware([authMiddleware])
   .inputValidator(getHistoricalProxmoxStatsSchema)
   .handler(async ({ data }): Promise<ProxmoxStatsRow[]> => {
     try {
@@ -37,6 +39,7 @@ export const getHistoricalProxmoxStats = createServerFn()
  * Test the Proxmox API connection.
  */
 export const testProxmoxConnection = createServerFn()
+  .middleware([authMiddleware])
   .handler(async (): Promise<{ connected: boolean; error?: string }> => {
     try {
       const { isProxmoxConfigured, loadProxmoxConfig } = await import(
