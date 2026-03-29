@@ -8,7 +8,7 @@ interface InsertHostParams {
 }
 
 export class ManagedHostsRepository {
-  constructor(private pool: Pool) {}
+  constructor(private readonly pool: Pool) {}
 
   async getByName(name: string): Promise<ManagedHost | null> {
     const result = await this.pool.query(

@@ -157,7 +157,7 @@ export function useTimeSeriesStream<TRow>({
   useEffect(() => {
     if (preloadedRef.current) {
       // preloadFn changed after initial mount - window size changed, re-fetch history.
-      void doRefreshRef.current();
+      doRefreshRef.current().catch(() => {});
       return;
     }
     preloadedRef.current = true;
@@ -185,7 +185,7 @@ export function useTimeSeriesStream<TRow>({
         if (t > maxTime) maxTime = t;
       }
       if (maxTime > 0 && Date.now() - maxTime > STALE_INITIAL_DATA_MS) {
-        setTimeout(() => { void doRefreshRef.current(); }, 0);
+        setTimeout(() => { doRefreshRef.current().catch(() => {}); }, 0);
       }
       return;
     }
@@ -288,7 +288,7 @@ export function useTimeSeriesStream<TRow>({
   // SSE stream has been running. Without this, a 30-min window accumulates ~1800 raw rows/container.
   useEffect(() => {
     if (!refreshIntervalMs) return;
-    const id = setInterval(() => { void doRefreshRef.current(); }, refreshIntervalMs);
+    const id = setInterval(() => { doRefreshRef.current().catch(() => {}); }, refreshIntervalMs);
     return () => clearInterval(id);
   }, [refreshIntervalMs]);
 
@@ -297,7 +297,7 @@ export function useTimeSeriesStream<TRow>({
     const handleVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
       if (Date.now() - lastRefreshRef.current < VISIBILITY_REFRESH_COOLDOWN_MS) return;
-      void doRefreshRef.current();
+      doRefreshRef.current().catch(() => {});
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);

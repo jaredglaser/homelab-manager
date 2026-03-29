@@ -57,7 +57,7 @@ export default function ContainerTable({
   error,
   isStale,
   onOpenHistory,
-}: ContainerTableProps) {
+}: Readonly<ContainerTableProps>) {
   const {
     docker,
     general,
@@ -91,7 +91,7 @@ export default function ContainerTable({
 
       // Reuse previous object if the underlying data hasn't changed
       const prevStat = prev.get(stat.serviceKeyEntity);
-      const reuse = prevStat && prevStat.timestamp === stat.timestamp;
+      const reuse = prevStat?.timestamp === stat.timestamp;
 
       const existing = byServiceKey.get(stat.serviceKeyEntity);
       if (!existing || stat.timestamp > existing.timestamp) {
@@ -125,7 +125,7 @@ export default function ContainerTable({
     const prev = prevChartDataRef.current;
     for (const [key, arr] of map) {
       const prevArr = prev.get(key);
-      if (prevArr && prevArr.length === arr.length && prevArr[prevArr.length - 1] === arr[arr.length - 1]) {
+      if (prevArr?.length === arr.length && prevArr.at(-1) === arr.at(-1)) {
         map.set(key, prevArr);
       }
     }
@@ -307,7 +307,7 @@ const HostRow = memo(function HostRow({
   memoryDisplayMode,
   showSparklines,
   useAbbreviatedUnits,
-}: HostRowProps) {
+}: Readonly<HostRowProps>) {
   const hasContainers = host.containers.size > 0;
 
   const handleClick = () => {
@@ -329,12 +329,21 @@ const HostRow = memo(function HostRow({
   const networkRxParts = formatBitsSIUnitsParts(networkRxBps, true, decimals.networkSpeed);
   const networkTxParts = formatBitsSIUnitsParts(networkTxBps, true, decimals.networkSpeed);
 
+  const hostBgClass = host.isStale
+    ? 'bg-amber-500/10'
+    : expanded
+      ? 'bg-[var(--mui-palette-action-hover)]'
+      : 'bg-[var(--mui-palette-background-level1)]';
+
   return (
     <div
+      role={hasContainers && totalHosts > 1 ? 'button' : undefined}
+      tabIndex={hasContainers && totalHosts > 1 ? 0 : undefined}
       onClick={handleClick}
+      onKeyDown={hasContainers && totalHosts > 1 ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } } : undefined}
       className={`${DOCKER_GRID} items-center border-t border-neutral-200 dark:border-neutral-700 transition-colors duration-150 ${
         hasContainers && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
-      } ${host.isStale ? 'bg-amber-500/10' : expanded ? 'bg-[var(--mui-palette-action-hover)]' : 'bg-[var(--mui-palette-background-level1)]'}`}
+      } ${hostBgClass}`}
     >
       <div className="px-3 py-2 flex items-center gap-2">
         {hasContainers && totalHosts > 1 && (

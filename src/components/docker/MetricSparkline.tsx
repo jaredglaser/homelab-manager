@@ -44,7 +44,7 @@ export default memo(function MetricSparkline({ data, color }: MetricSparklinePro
   // WARNING: Do not change the timestamp-based assumptions (e.g. switching to index-
   // based filtering or adding non-deterministic logic) without revisiting this pattern.
   if (data.length > 0) {
-    const latest = data[data.length - 1].timestamp;
+    const latest = data.at(-1)!.timestamp;
 
     if (stateRef.current !== 'seeded') {
       if (Date.now() - latest > STALE_THRESHOLD_MS) {

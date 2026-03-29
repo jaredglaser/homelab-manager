@@ -13,7 +13,7 @@ interface ProxmoxHostViewProps {
   overview: ProxmoxClusterOverview
 }
 
-export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
+export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewProps>) {
   const {
     isProxmoxHostExpanded,
     toggleProxmoxHostExpanded,
@@ -88,7 +88,10 @@ export default function ProxmoxHostView({ overview }: ProxmoxHostViewProps) {
           <div key={node.node}>
             {/* Host accordion row */}
             <div
+              role="button"
+              tabIndex={0}
               onClick={() => toggleProxmoxHostExpanded(node.node)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
                 nodeIdx > 0 ? BORDER : ''
               } ${hostExpanded ? 'bg-[var(--mui-palette-action-hover)]' : 'bg-[var(--mui-palette-background-level2)]'}`}

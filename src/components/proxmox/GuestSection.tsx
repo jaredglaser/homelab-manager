@@ -14,7 +14,7 @@ interface GuestSectionProps {
   useAbbreviatedUnits: boolean
 }
 
-export function GuestSection({ label, guests, expanded, onToggle, showSparklines, useAbbreviatedUnits }: GuestSectionProps) {
+export function GuestSection({ label, guests, expanded, onToggle, showSparklines, useAbbreviatedUnits }: Readonly<GuestSectionProps>) {
   const sorted = [...guests].sort((a, b) => a.vmid - b.vmid)
 
   return (
@@ -49,8 +49,9 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
           {/* Data rows */}
           {sorted.map((vm) => {
             const cpuParts = formatAsPercentParts(vm.cpu, true)
+            const memFraction = vm.maxmem > 0 ? vm.mem / vm.maxmem : 0
             const memParts = vm.status === 'running'
-              ? formatAsPercentParts(vm.maxmem > 0 ? vm.mem / vm.maxmem : 0, true)
+              ? formatAsPercentParts(memFraction, true)
               : formatBytesParts(vm.maxmem, false, false)
             const netInParts = formatBytesParts(vm.netin, false, false)
             const netOutParts = formatBytesParts(vm.netout, false, false)

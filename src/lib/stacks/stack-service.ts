@@ -73,7 +73,7 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
     const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
     const { default: git } = await import('isomorphic-git');
-    const fs = await import('fs');
+    const fs = await import('node:fs');
 
     const dbConfig = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(dbConfig);
@@ -135,7 +135,7 @@ export async function triggerStackDeploy(params: {
   if (!repoPath) throw new Error('Git management is not enabled');
 
   const { default: git } = await import('isomorphic-git');
-  const fs = await import('fs');
+  const fs = await import('node:fs');
   const { UITriggerBuilder } = await import('@/lib/deploy/builders/ui-trigger-builder');
   const { DeployPipeline } = await import('@/lib/deploy/pipeline');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');

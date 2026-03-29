@@ -13,7 +13,7 @@ interface StorageSectionProps {
   useAbbreviatedUnits: boolean
 }
 
-export function StorageSection({ storages, expanded, onToggle, showSparklines, useAbbreviatedUnits }: StorageSectionProps) {
+export function StorageSection({ storages, expanded, onToggle, showSparklines, useAbbreviatedUnits }: Readonly<StorageSectionProps>) {
   const sorted = [...storages].sort((a, b) => a.storage.localeCompare(b.storage))
 
   return (

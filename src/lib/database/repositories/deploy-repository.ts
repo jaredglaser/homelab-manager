@@ -14,7 +14,7 @@ interface InsertDeployParams {
 }
 
 export class DeployRepository {
-  constructor(private pool: Pool) {}
+  constructor(private readonly pool: Pool) {}
 
   async insertDeploy(params: InsertDeployParams): Promise<number> {
     const result = await this.pool.query(

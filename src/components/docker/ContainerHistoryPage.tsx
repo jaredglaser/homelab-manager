@@ -51,7 +51,7 @@ export default function ContainerHistoryPage({
   initialFrom,
   initialTo,
   onClose,
-}: ContainerHistoryPageProps) {
+}: Readonly<ContainerHistoryPageProps>) {
 
   const now = useRef(Date.now()).current;
   const initialRange = useRef({

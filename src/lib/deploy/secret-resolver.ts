@@ -8,8 +8,6 @@ import type { SecretResolver } from '@/lib/deploy/types';
  * provides a real implementation that replaces this.
  */
 export class NoOpSecretResolver implements SecretResolver {
-  /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
-  constructor() {}
   async resolve(_stack: string, variables: string[]): Promise<Record<string, string>> {
     if (variables.length > 0) {
       throw new Error(
@@ -29,7 +27,7 @@ export class NoOpSecretResolver implements SecretResolver {
  * Returns deduplicated variable names.
  */
 export function extractVariableReferences(composeContent: string): string[] {
-  const regex = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?:[:?+-][^}]*)?\}/g;
+  const regex = /\$\{([A-Za-z_]\w*)(?:[:?+-][^}]*)?\}/g;
   const vars = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = regex.exec(composeContent)) !== null) {

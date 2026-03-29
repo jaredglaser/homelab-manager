@@ -1,5 +1,5 @@
-import { mkdirSync, existsSync, readdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const MAX_COMPOSE_SIZE_BYTES = 1_048_576; // 1 MB
@@ -56,6 +56,77 @@ async function spawnWithTimeout(
 }
 
 /**
+ * Validate the deploy request payload and return the parsed body, or an error Response.
+ */
+async function parseDeployBody(
+  request: Request
+): Promise<{ stack: string; composeContent: string; envContent?: string } | Response> {
+  let body: { stack?: string; composeContent?: string; envContent?: string };
+  try {
+    body = await request.json();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
+  }
+
+  if (!body.stack || !body.composeContent) {
+    return Response.json({ error: 'Missing required fields: stack, composeContent' }, { status: 400 });
+  }
+
+  if (Buffer.byteLength(body.composeContent) > MAX_COMPOSE_SIZE_BYTES) {
+    return Response.json({ error: 'composeContent too large' }, { status: 413 });
+  }
+  if (body.envContent && Buffer.byteLength(body.envContent) > MAX_ENV_SIZE_BYTES) {
+    return Response.json({ error: 'envContent too large' }, { status: 413 });
+  }
+
+  const nameError = validateStackName(body.stack);
+  if (nameError) return nameError;
+
+  return { stack: body.stack, composeContent: body.composeContent, envContent: body.envContent };
+}
+
+/**
+ * Write compose and optional .env files into the stack directory.
+ */
+async function writeStackFiles(
+  stackDir: string,
+  composeContent: string,
+  envContent?: string,
+): Promise<Response | null> {
+  mkdirSync(stackDir, { recursive: true });
+  await Bun.write(join(stackDir, 'docker-compose.yml'), composeContent);
+  if (envContent) {
+    await Bun.write(join(stackDir, '.env'), envContent);
+  } else {
+    const envPath = join(stackDir, '.env');
+    if (existsSync(envPath)) unlinkSync(envPath);
+  }
+  return null;
+}
+
+/**
+ * Convert a SpawnResult into an appropriate HTTP Response.
+ */
+function composeResultToResponse(result: SpawnResult): Response {
+  if (result.timedOut) {
+    return Response.json(
+      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
+      { status: 500 }
+    );
+  }
+
+  if (result.exitCode !== 0) {
+    return Response.json(
+      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
+      { status: 500 }
+    );
+  }
+
+  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr });
+}
+
+/**
  * Deploys a Docker Compose stack described in the request JSON and returns the deployment result.
  *
  * Expects a JSON body with `stack` (name) and `composeContent` (docker-compose YAML); `envContent` is optional.
@@ -74,88 +145,38 @@ export async function handleStackDeploy(
   spawn: SpawnFn = Bun.spawn,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
 ): Promise<Response> {
-  let body: { stack?: string; composeContent?: string; envContent?: string };
-  try {
-    body = await request.json();
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
-  }
+  const parsed = await parseDeployBody(request);
+  if (parsed instanceof Response) return parsed;
 
-  if (!body.stack || !body.composeContent) {
-    return Response.json(
-      { error: 'Missing required fields: stack, composeContent' },
-      { status: 400 }
-    );
-  }
-
-  if (Buffer.byteLength(body.composeContent) > MAX_COMPOSE_SIZE_BYTES) {
-    return Response.json({ error: 'composeContent too large' }, { status: 413 });
-  }
-  if (body.envContent && Buffer.byteLength(body.envContent) > MAX_ENV_SIZE_BYTES) {
-    return Response.json({ error: 'envContent too large' }, { status: 413 });
-  }
-
-  const nameError = validateStackName(body.stack);
-  if (nameError) return nameError;
-
-  const stackDir = join(stacksDir, body.stack);
+  const stackDir = join(stacksDir, parsed.stack);
   if (!stackDir.startsWith(stacksDir + '/')) {
     return Response.json({ error: 'Invalid stack path' }, { status: 400 });
   }
+
   try {
-    mkdirSync(stackDir, { recursive: true });
-    await Bun.write(join(stackDir, 'docker-compose.yml'), body.composeContent);
-    if (body.envContent) {
-      await Bun.write(join(stackDir, '.env'), body.envContent);
-    } else {
-      const envPath = join(stackDir, '.env');
-      if (existsSync(envPath)) unlinkSync(envPath);
-    }
+    await writeStackFiles(stackDir, parsed.composeContent, parsed.envContent);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to write stack files for ${body.stack}:`, error);
+    console.error(`Failed to write stack files for ${parsed.stack}:`, error);
     return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
   }
 
   let result: SpawnResult;
   try {
     result = await spawnWithTimeout(spawn, {
-      cmd: [
-        'docker',
-        'compose',
-        '-f',
-        join(stackDir, 'docker-compose.yml'),
-        'up',
-        '-d',
-        '--remove-orphans',
-      ],
+      cmd: ['docker', 'compose', '-f', join(stackDir, 'docker-compose.yml'), 'up', '-d', '--remove-orphans'],
       cwd: stackDir,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
+      env: { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack },
     }, timeoutMs);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to execute docker compose for ${body.stack}:`, error);
+    console.error(`Failed to execute docker compose for ${parsed.stack}:`, error);
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  if (result.timedOut) {
-    return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
-      { status: 500 }
-    );
-  }
-
-  if (result.exitCode !== 0) {
-    return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
-      { status: 500 }
-    );
-  }
-
-  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr });
+  return composeResultToResponse(result);
 }
 
 /**
@@ -219,21 +240,7 @@ export async function handleStackTeardown(
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  if (result.timedOut) {
-    return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
-      { status: 500 }
-    );
-  }
-
-  if (result.exitCode !== 0) {
-    return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
-      { status: 500 }
-    );
-  }
-
-  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr });
+  return composeResultToResponse(result);
 }
 
 /**
@@ -305,21 +312,65 @@ export async function handleStackRestart(
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  if (result.timedOut) {
-    return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
-      { status: 500 }
-    );
+  return composeResultToResponse(result);
+}
+
+/**
+ * Parse Docker Compose ps output, handling both JSON array and NDJSON formats.
+ */
+function parseComposeOutput(output: string, stackName: string): { containers: unknown[]; error?: string } {
+  const trimmed = output.trim();
+  if (!trimmed) return { containers: [] };
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    return { containers: Array.isArray(parsed) ? parsed : [parsed] };
+  } catch {
+    // JSON array parse failed, trying NDJSON (Docker outputs vary by version)
   }
 
-  if (result.exitCode !== 0) {
-    return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
-      { status: 500 }
-    );
+  try {
+    const containers = trimmed.split('\n')
+      .filter(line => line.trim())
+      .map(line => JSON.parse(line));
+    return { containers };
+  } catch (parseError) {
+    console.error(`Failed to parse docker compose ps output for ${stackName}:`, parseError);
+    return { containers: [], error: 'Failed to parse status output' };
+  }
+}
+
+/**
+ * Collect status for a single stack by running `docker compose ps`.
+ */
+async function collectStackStatus(
+  stacksDir: string,
+  stackName: string,
+  spawn: SpawnFn,
+): Promise<{ name: string; containers: unknown[]; error?: string }> {
+  const composePath = join(stacksDir, stackName, 'docker-compose.yml');
+
+  const proc = spawn({
+    cmd: ['docker', 'compose', '-f', composePath, 'ps', '--format', 'json'],
+    cwd: join(stacksDir, stackName),
+    stdout: 'pipe',
+    stderr: 'pipe',
+    env: { ...process.env, COMPOSE_PROJECT_NAME: stackName },
+  });
+
+  const [exitCode, output, stderrOutput] = await Promise.all([
+    proc.exited,
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+
+  if (exitCode !== 0) {
+    console.error(`docker compose ps failed for ${stackName} (exit ${exitCode}): ${stderrOutput}`);
+    return { name: stackName, containers: [], error: stderrOutput.trim() || `Exit code ${exitCode}` };
   }
 
-  return Response.json({ status: 'success', stdout: result.stdout, stderr: result.stderr });
+  const { containers, error } = parseComposeOutput(output, stackName);
+  return { name: stackName, containers, ...(error ? { error } : {}) };
 }
 
 /**
@@ -355,59 +406,13 @@ export async function handleStackStatus(
 
   const results = await Promise.allSettled(
     stackDirs.map(async (entry) => {
-      const composePath = join(stacksDir, entry.name, 'docker-compose.yml');
-      let containers: unknown[] = [];
-      let error: string | undefined;
-
       try {
-        const proc = spawn({
-          cmd: [
-            'docker',
-            'compose',
-            '-f',
-            composePath,
-            'ps',
-            '--format',
-            'json',
-          ],
-          cwd: join(stacksDir, entry.name),
-          stdout: 'pipe',
-          stderr: 'pipe',
-          env: { ...process.env, COMPOSE_PROJECT_NAME: entry.name },
-        });
-
-        const [exitCode, output, stderrOutput] = await Promise.all([
-          proc.exited,
-          new Response(proc.stdout).text(),
-          new Response(proc.stderr).text(),
-        ]);
-        if (exitCode === 0) {
-          if (output.trim()) {
-            try {
-              const parsed = JSON.parse(output);
-              containers = Array.isArray(parsed) ? parsed : [parsed];
-            } catch {
-              // JSON array parse failed, trying NDJSON (Docker outputs vary by version)
-              try {
-                containers = output.trim().split('\n')
-                  .filter(line => line.trim())
-                  .map(line => JSON.parse(line));
-              } catch (parseError) {
-                console.error(`Failed to parse docker compose ps output for ${entry.name}:`, parseError);
-                error = 'Failed to parse status output';
-              }
-            }
-          }
-        } else {
-          console.error(`docker compose ps failed for ${entry.name} (exit ${exitCode}): ${stderrOutput}`);
-          error = stderrOutput.trim() || `Exit code ${exitCode}`;
-        }
+        return await collectStackStatus(stacksDir, entry.name, spawn);
       } catch (spawnError) {
         console.error(`Failed to get status for stack ${entry.name}:`, spawnError);
-        error = spawnError instanceof Error ? spawnError.message : String(spawnError);
+        const error = spawnError instanceof Error ? spawnError.message : String(spawnError);
+        return { name: entry.name, containers: [] as unknown[], error };
       }
-
-      return { name: entry.name, containers, ...(error ? { error } : {}) };
     })
   );
 

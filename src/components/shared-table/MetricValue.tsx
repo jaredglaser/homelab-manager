@@ -36,7 +36,7 @@ export const MetricValue = memo(function MetricValue({
   sparklineColor,
   hasDecimals = false,
   isStale = false,
-}: MetricValueProps) {
+}: Readonly<MetricValueProps>) {
 
   // Reserve minimum space to prevent layout shift on typical values,
   // but allow growth for larger numbers (e.g., 5+ digit ops/s)
@@ -47,10 +47,11 @@ export const MetricValue = memo(function MetricValue({
   const unitWidth = useAbbreviatedUnits ? 'w-[2.5rem]' : 'w-[3.5rem]';
 
   // Render sparkline: prefer data+color props (memo-friendly), fall back to ReactNode
+  const dataSparkline = sparklineData && sparklineColor
+    ? <MetricSparkline data={sparklineData} color={sparklineColor} />
+    : null;
   const sparklineElement = showSparklines
-    ? sparkline ?? (sparklineData && sparklineColor
-      ? <MetricSparkline data={sparklineData} color={sparklineColor} />
-      : null)
+    ? sparkline ?? dataSparkline
     : null;
 
   // Reserve space for sparkline when enabled (even if not passed) to keep columns aligned

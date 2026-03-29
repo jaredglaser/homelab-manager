@@ -1,7 +1,7 @@
 import git from 'isomorphic-git';
 import type { TreeEntry } from 'isomorphic-git';
-import * as fs from 'fs';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import * as fs from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
 const repoLocks = new Map<string, Promise<void>>();
 
@@ -179,7 +179,7 @@ export async function readFileFromRepo(
   }
 
   // Read the file blob
-  const fileName = parts[parts.length - 1];
+  const fileName = parts.at(-1);
   const fileEntry = currentTree.find((e) => e.path === fileName && e.type === 'blob');
   if (!fileEntry) {
     throw new Error(`File not found: ${filePath}`);
@@ -374,7 +374,7 @@ export async function diffCommits(
     }
   }
 
-  return changed.sort();
+  return changed.sort((a, b) => a.localeCompare(b));
 }
 
 /** Flatten a tree into a Map<filePath, blobOid>. */

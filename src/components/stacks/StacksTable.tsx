@@ -18,7 +18,7 @@ interface StacksTableProps {
   statusMap: Map<string, StackStatusEntry>;
 }
 
-export default function StacksTable({ stacks, isLoading, error, statusMap }: StacksTableProps) {
+export default function StacksTable({ stacks, isLoading, error, statusMap }: Readonly<StacksTableProps>) {
   const { isStackExpanded, toggleStackExpanded } = useStackExpansion();
 
   const sortedStacks = useMemo(

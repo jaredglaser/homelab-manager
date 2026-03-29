@@ -26,7 +26,7 @@ export async function handleListStackSecrets(
   data: z.infer<typeof stackInput>,
 ): Promise<string[]> {
   const keys = await client.listSecrets(data.stack);
-  return [...keys].sort();
+  return [...keys].sort((a, b) => a.localeCompare(b));
 }
 
 /** Get a single secret value. Throws if not found. */

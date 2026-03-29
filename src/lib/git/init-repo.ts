@@ -1,5 +1,5 @@
 import git from 'isomorphic-git';
-import fs from 'fs';
+import fs from 'node:fs';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { initBareRepo, commitFiles } from '@/lib/git/repo';
 

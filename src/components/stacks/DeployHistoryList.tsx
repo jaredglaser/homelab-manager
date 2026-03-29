@@ -194,7 +194,7 @@ interface DeployHistoryRowProps {
   onRollbackError?: (err: Error) => void;
 }
 
-function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError }: DeployHistoryRowProps) {
+function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError }: Readonly<DeployHistoryRowProps>) {
   const [expanded, setExpanded] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const statusColor = STATUS_COLOR[record.status];
@@ -220,7 +220,10 @@ function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollb
         className="!bg-[var(--mui-palette-background-chartBg)] rounded-sm overflow-hidden"
       >
         <div
+          role={record.logs ? 'button' : undefined}
+          tabIndex={record.logs ? 0 : undefined}
           onClick={() => record.logs && setExpanded(!expanded)}
+          onKeyDown={record.logs ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } } : undefined}
           className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-[var(--mui-palette-action-hover)]' : ''}`}
         >
           {record.logs && (

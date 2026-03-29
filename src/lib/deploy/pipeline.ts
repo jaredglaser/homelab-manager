@@ -230,7 +230,7 @@ function buildEnvContent(existingEnv: string, secrets: Record<string, string>): 
 
   for (const [key, value] of Object.entries(secrets)) {
     if (!existingKeys.has(key)) {
-      lines.push(`${key}=${value.replace(/[\r\n]/g, '')}`);
+      lines.push(`${key}=${value.replaceAll(/[\r\n]/g, '')}`);
     }
   }
 

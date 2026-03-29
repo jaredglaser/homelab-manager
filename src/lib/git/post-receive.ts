@@ -25,7 +25,7 @@ export function identifyChangedStacks(changedFiles: string[]): string[] {
     }
   }
 
-  return Array.from(stacks).sort();
+  return Array.from(stacks).sort((a, b) => a.localeCompare(b));
 }
 
 /**

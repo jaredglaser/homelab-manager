@@ -6,8 +6,8 @@
  * which runs under Node.js rather than Bun.
  */
 import git from 'isomorphic-git';
-import fs from 'fs';
-import { spawn } from 'child_process';
+import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { withRepoLock } from '@/lib/git/repo';
 
 const VALID_SERVICES = ['git-upload-pack', 'git-receive-pack'] as const;
