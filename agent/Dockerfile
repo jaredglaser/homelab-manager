@@ -8,12 +8,20 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     # Docker CLI static binary
+    # TODO: download.docker.com does not publish checksums for static binaries.
+    # Consider pinning by content-hash when upstream signatures become available.
     curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_CLI_VERSION}.tgz" | \
     tar xz --strip-components=1 -C /usr/local/bin docker/docker && \
-    # Docker Compose v2 plugin
+    # Docker Compose v2 plugin (with SHA-256 integrity verification)
     mkdir -p /usr/local/lib/docker/cli-plugins && \
-    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+    COMPOSE_ARCH="$(uname -m)" && \
+    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}" \
     -o /usr/local/lib/docker/cli-plugins/docker-compose && \
+    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}.sha256" \
+    -o /tmp/docker-compose.sha256 && \
+    cd /usr/local/lib/docker/cli-plugins && \
+    sha256sum -c /tmp/docker-compose.sha256 && \
+    rm /tmp/docker-compose.sha256 && \
     chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \
     # Cleanup
     apt-get purge -y curl && \
