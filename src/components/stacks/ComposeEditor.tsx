@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks/functions';
+import { parseVariables } from '@/lib/stacks/parse-variables';
 import VariablesPanel from '@/components/stacks/VariablesPanel';
 
 interface ComposeEditorProps {
@@ -12,17 +13,6 @@ interface ComposeEditorProps {
   stackName: string;
   content: string;
   variables: string[];
-}
-
-/** Parse Docker Compose variable references from compose content (supports ${VAR}, ${VAR:-default}, ${VAR-default}, ${VAR:?err}, ${VAR?err}, ${VAR:+alt}, ${VAR+alt}). */
-export function parseVariables(content: string): string[] {
-  const regex = /\$\{([a-zA-Z_]\w*)(?::?[-?+][^}]*)?\}/g;
-  const vars = new Set<string>();
-  let match: RegExpMatchArray | null;
-  while ((match = regex.exec(content)) !== null) {
-    vars.add(match[1]);
-  }
-  return Array.from(vars).sort((a, b) => a.localeCompare(b));
 }
 
 export default function ComposeEditor({ host, stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {

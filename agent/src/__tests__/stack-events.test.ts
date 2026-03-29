@@ -172,7 +172,7 @@ describe('handleStackEvents — initial snapshots', () => {
     const text = await readUntil(response, (s) => s.includes('"stack":"mystack"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean).replace(/^data: /, ''));
+    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
     expect(event.stack).toBe('mystack');
     expect(event.containers[0]).toEqual({
       id: 'abc123',
@@ -198,7 +198,7 @@ describe('handleStackEvents — initial snapshots', () => {
     const text = await readUntil(response, (s) => s.includes('"stack":"teststack"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean).replace(/^data: /, ''));
+    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
     expect(event.containers[0].name).toBe('test-app');
   });
 });

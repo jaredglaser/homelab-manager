@@ -28,7 +28,7 @@ mock.module('@monaco-editor/react', () => ({
   },
 }));
 
-const { parseVariables } = await import('../ComposeEditor');
+import { parseVariables } from '@/lib/stacks/parse-variables';
 
 function createWrapper() {
   const queryClient = new QueryClient({

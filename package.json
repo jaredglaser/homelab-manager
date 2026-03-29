@@ -31,7 +31,8 @@
     "dev:docker:restart": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml up -d --build",
     "dev:docker:rebuild": "docker compose -f docker-compose.dev.yml down && docker compose -f docker-compose.dev.yml build --no-cache && docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml logs -f",
     "dev:docker:wipe": "docker compose -f docker-compose.dev.yml down -v",
-    "icons:download": "bun scripts/download-icons.ts"
+    "icons:download": "bun scripts/download-icons.ts",
+    "schema:download": "bun scripts/download-compose-schema.ts"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
