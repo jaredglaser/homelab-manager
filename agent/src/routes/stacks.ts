@@ -93,7 +93,7 @@ async function writeStackFiles(
   stackDir: string,
   composeContent: string,
   envContent?: string,
-): Promise<Response | null> {
+): Promise<void> {
   mkdirSync(stackDir, { recursive: true });
   await Bun.write(join(stackDir, 'docker-compose.yml'), composeContent);
   if (envContent) {
@@ -102,7 +102,6 @@ async function writeStackFiles(
     const envPath = join(stackDir, '.env');
     if (existsSync(envPath)) unlinkSync(envPath);
   }
-  return null;
 }
 
 /**
@@ -350,7 +349,7 @@ async function collectStackStatus(
 ): Promise<{ name: string; containers: unknown[]; error?: string }> {
   const composePath = join(stacksDir, stackName, 'docker-compose.yml');
 
-  const proc = spawn({
+  const result = await spawnWithTimeout(spawn, {
     cmd: ['docker', 'compose', '-f', composePath, 'ps', '--format', 'json'],
     cwd: join(stacksDir, stackName),
     stdout: 'pipe',
@@ -358,18 +357,17 @@ async function collectStackStatus(
     env: { ...process.env, COMPOSE_PROJECT_NAME: stackName },
   });
 
-  const [exitCode, output, stderrOutput] = await Promise.all([
-    proc.exited,
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ]);
-
-  if (exitCode !== 0) {
-    console.error(`docker compose ps failed for ${stackName} (exit ${exitCode}): ${stderrOutput}`);
-    return { name: stackName, containers: [], error: stderrOutput.trim() || `Exit code ${exitCode}` };
+  if (result.timedOut) {
+    console.error(`docker compose ps timed out for ${stackName}`);
+    return { name: stackName, containers: [], error: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s` };
   }
 
-  const { containers, error } = parseComposeOutput(output, stackName);
+  if (result.exitCode !== 0) {
+    console.error(`docker compose ps failed for ${stackName} (exit ${result.exitCode}): ${result.stderr}`);
+    return { name: stackName, containers: [], error: result.stderr.trim() || `Exit code ${result.exitCode}` };
+  }
+
+  const { containers, error } = parseComposeOutput(result.stdout, stackName);
   return { name: stackName, containers, ...(error ? { error } : {}) };
 }
 

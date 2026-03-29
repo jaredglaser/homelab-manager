@@ -203,11 +203,14 @@ async function finalizeHostRecord(
     await deps.repo.updateStatus(hostId, 'healthy');
     if (healthResult.version) await deps.repo.updateAgentVersion(hostId, healthResult.version);
   } catch (err) {
-    console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, errorMessage(err));
     await tryDeleteToken(deps.deleteToken, data.name, 'during finalization rollback');
-    await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, hostId, `for ${data.name} during finalization rollback`);
+    const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, hostId, `for ${data.name} during finalization rollback`);
     await deps.repo.delete(hostId);
-    throw new Error(`Agent is healthy but failed to finalize host record: ${errorMessage(err)}`);
+    const suffix = containerCleaned
+      ? 'Host record, token, and container have been cleaned up.'
+      : 'Host record and token deleted but agent container cleanup failed — manual removal may be required.';
+    console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, errorMessage(err), suffix);
+    throw new Error(`Agent is healthy but failed to finalize host record: ${errorMessage(err)}. ${suffix}`);
   }
 }
 

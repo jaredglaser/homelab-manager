@@ -131,7 +131,11 @@ class StackStatusBroadcastService {
       }
 
       for (const cb of this.subscribers) {
-        cb(entries);
+        try {
+          cb(entries);
+        } catch (err) {
+          console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
+        }
       }
     } catch (error) {
       console.error('[StackStatusBroadcastService] Failed to broadcast:', error);

@@ -3,6 +3,14 @@ import type { TreeEntry } from 'isomorphic-git';
 import * as fs from 'node:fs';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
+/** Thrown when a requested file or path does not exist in the git tree. */
+export class FileNotFoundError extends Error {
+  constructor(path: string) {
+    super(`File not found: ${path}`);
+    this.name = 'FileNotFoundError';
+  }
+}
+
 const repoLocks = new Map<string, Promise<void>>();
 
 export async function withRepoLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
@@ -103,7 +111,8 @@ export async function commitFiles(
 
     if (filesToDelete) {
       for (const deletePath of filesToDelete) {
-        const normalized = deletePath.endsWith('/') ? deletePath.slice(0, -1) : deletePath;
+        const normalized = deletePath.replace(/^\/+|\/+$/g, '');
+        if (!normalized) continue;
         existingFiles.delete(normalized);
         const dirPrefix = `${normalized}/`;
         for (const key of Array.from(existingFiles.keys())) {
@@ -172,7 +181,7 @@ export async function readFileFromRepo(
   for (let i = 0; i < parts.length - 1; i++) {
     const entry = currentTree.find((e) => e.path === parts[i] && e.type === 'tree');
     if (!entry) {
-      throw new Error(`Path not found: ${filePath}`);
+      throw new FileNotFoundError(filePath);
     }
     const subtree = await git.readTree({ fs, gitdir: repoPath, oid: entry.oid });
     currentTree = subtree.tree;
@@ -182,7 +191,7 @@ export async function readFileFromRepo(
   const fileName = parts.at(-1);
   const fileEntry = currentTree.find((e) => e.path === fileName && e.type === 'blob');
   if (!fileEntry) {
-    throw new Error(`File not found: ${filePath}`);
+    throw new FileNotFoundError(filePath);
   }
 
   const { blob } = await git.readBlob({ fs, gitdir: repoPath, oid: fileEntry.oid });

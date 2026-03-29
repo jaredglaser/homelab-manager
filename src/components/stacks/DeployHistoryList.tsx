@@ -112,6 +112,9 @@ export default function DeployHistoryList({
             <ToggleButton value="all" className="!normal-case !px-3 !text-xs">All</ToggleButton>
             <ToggleButton value="succeeded" className="!normal-case !px-3 !text-xs">Succeeded</ToggleButton>
             <ToggleButton value="failed" className="!normal-case !px-3 !text-xs">Failed</ToggleButton>
+            <ToggleButton value="pending" className="!normal-case !px-3 !text-xs">Pending</ToggleButton>
+            <ToggleButton value="in_progress" className="!normal-case !px-3 !text-xs">In Progress</ToggleButton>
+            <ToggleButton value="no_change" className="!normal-case !px-3 !text-xs">No Changes</ToggleButton>
           </ToggleButtonGroup>
           {filtered.length !== records.length && (
             <Typography variant="caption" className="opacity-50">

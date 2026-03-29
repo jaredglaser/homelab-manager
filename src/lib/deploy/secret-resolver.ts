@@ -26,8 +26,14 @@ export class NoOpSecretResolver implements SecretResolver {
  * Both upper- and lowercase identifiers are supported (e.g. `${db_name}`, `${API_TOKEN}`).
  * Returns deduplicated variable names.
  */
+/**
+ * Regex matching Docker Compose `${VAR}` references with optional modifiers
+ * (`:-`, `-`, `:?`, `?`, `:+`, `+`). Shared across parse-variables and secret-resolver.
+ */
+export const COMPOSE_VARIABLE_REGEX = /\$\{([A-Za-z_]\w*)(?:[:?+-][^}]*)?\}/g;
+
 export function extractVariableReferences(composeContent: string): string[] {
-  const regex = /\$\{([A-Za-z_]\w*)(?:[:?+-][^}]*)?\}/g;
+  const regex = new RegExp(COMPOSE_VARIABLE_REGEX.source, COMPOSE_VARIABLE_REGEX.flags);
   const vars = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = regex.exec(composeContent)) !== null) {

@@ -10,13 +10,14 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
+const COMPOSE_SPEC_REF = process.env.COMPOSE_SPEC_REF ?? 'v2.4.0';
 const SCHEMA_URL =
-  'https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json';
+  `https://raw.githubusercontent.com/compose-spec/compose-spec/${COMPOSE_SPEC_REF}/schema/compose-spec.json`;
 const OUTPUT_DIR = './src/lib/schemas';
 const OUTPUT_PATH = `${OUTPUT_DIR}/compose-spec.json`;
 
 async function downloadComposeSchema() {
-  console.log(`Fetching Compose schema from ${SCHEMA_URL}...`);
+  console.info(`Fetching Compose schema from ${SCHEMA_URL}...`);
 
   const response = await fetch(SCHEMA_URL);
   if (!response.ok) {
@@ -33,7 +34,7 @@ async function downloadComposeSchema() {
   await writeFile(OUTPUT_PATH, content);
 
   const sizeKB = (Buffer.byteLength(content) / 1024).toFixed(1);
-  console.log(`Saved Compose schema to ${OUTPUT_PATH} (${sizeKB} KB)`);
+  console.info(`Saved Compose schema to ${OUTPUT_PATH} (${sizeKB} KB)`);
 }
 
 try {

@@ -90,6 +90,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
             <div
               role="button"
               tabIndex={0}
+              aria-expanded={hostExpanded}
+              aria-controls={`proxmox-host-panel-${node.node}`}
               onClick={() => toggleProxmoxHostExpanded(node.node)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
@@ -119,7 +121,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
             </div>
 
             {/* Expanded sections */}
-            <Collapse in={hostExpanded} unmountOnExit>
+            <Collapse id={`proxmox-host-panel-${node.node}`} in={hostExpanded} unmountOnExit>
               {vms.length > 0 && (
                 <GuestSection
                   label="Virtual Machines"

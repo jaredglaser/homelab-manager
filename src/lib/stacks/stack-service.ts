@@ -5,7 +5,7 @@
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
 import { loadGitConfig } from '@/lib/config/git-config';
-import { readFileFromRepo, commitFiles } from '@/lib/git/repo';
+import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
 import yaml from 'js-yaml';
@@ -280,7 +280,7 @@ export async function createStackInRepo(
     const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
     manifest = parseManifest(manifestContent);
   } catch (err: unknown) {
-    if (err instanceof Error && (err.message === 'File not found: manifest.yaml' || err.message === 'Path not found: manifest.yaml')) {
+    if (err instanceof FileNotFoundError) {
       // No manifest yet — start with empty stacks
       manifest = { stacks: {} };
     } else {
@@ -363,7 +363,7 @@ export async function deleteStackFromRepo(
   try {
     stackFiles = await (await import('@/lib/git/repo')).listFilesInRepo(repoPath, stackName);
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes('not found')) {
+    if (err instanceof FileNotFoundError || (err instanceof Error && err.message.includes('Could not resolve'))) {
       stackFiles = [];
     } else {
       throw err;

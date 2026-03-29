@@ -32,14 +32,15 @@ async function readUntil(
   predicate: (accumulated: string) => boolean,
   timeoutMs = 3000,
 ): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
   let text = '';
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   try {
     while (true) {
-      if (Date.now() > deadline) break;
-      const { done, value } = await reader.read();
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`readUntil timed out after ${timeoutMs}ms`)), timeoutMs),
+      );
+      const { done, value } = await Promise.race([reader.read(), timeoutPromise]);
       if (done) break;
       text += decoder.decode(value, { stream: true });
       if (predicate(text)) break;
