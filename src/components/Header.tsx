@@ -4,19 +4,20 @@ import Tab from '@mui/material/Tab'
 import Alert from '@mui/material/Alert'
 import MuiLink from '@mui/material/Link'
 import { Link, useLocation } from '@tanstack/react-router'
-import { HardDrive, Settings } from 'lucide-react'
+import { HardDrive, Layers, Settings } from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
 import { queryClient } from '@/components/AppShell'
 import {
   DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
 } from '@/lib/constants/preload-queries'
+import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
 interface IconProps {
   size?: number
 }
 
-function DockerIcon({ size = 18 }: IconProps) {
+function DockerIcon({ size = 18 }: Readonly<IconProps>) {
   return (
     <svg viewBox="-1 70 514 372" width={size} height={size} fill="currentColor" aria-hidden="true" focusable="false" className="mr-2">
       <path d="M501.4 212.3c-11.5-8-38-11-58.6-7-2.4-20-13.5-37.5-32.7-53l-11-8-7.7 11.5c-9.6 15-14.4 36-13 56 .5 7 2.9 19.5 10.1 30.5-6.7 4-20.7 9-38.9 9H2.3l-1 4c-3.4 20-3.4 82.5 36 130.5 29.8 36.5 74 55 132.1 55 125.9 0 219.1-60.5 262.8-170 17.3.5 54.3 0 73-37.5.5-1 1.4-3 4.8-10.5l1.9-4zM280 71.3h-52.8v50H280zm0 60h-52.8v50H280zm-62.5 0h-52.8v50h52.8zm-62.4 0h-52.8v50h52.8zm-62.5 60H39.8v50h52.8zm62.5 0h-52.8v50h52.8zm62.4 0h-52.8v50h52.8zm62.5 0h-52.8v50H280zm62.4 0h-52.8v50h52.8z" />
@@ -24,7 +25,7 @@ function DockerIcon({ size = 18 }: IconProps) {
   )
 }
 
-function ProxmoxIcon({ size = 18 }: IconProps) {
+function ProxmoxIcon({ size = 18 }: Readonly<IconProps>) {
   return (
     <svg viewBox="0 34 512 444" width={size} height={size} fill="currentColor" aria-hidden="true" focusable="false" className="mr-2">
       <path d="M137.9 34.1c-10.5 0-19.7 1.9-28.5 5.7-8.6 3.8-16.2 8.9-22.9 15.6l170 186.4L426.1 55.3c-6.7-6.7-14.3-11.8-23.4-15.6-8.3-3.8-18-5.7-28-5.7-10.5 0-20.5 2.2-29.4 6.2-9.2 4-16.7 10-23.7 17l-65.2 72.2-66-72.2c-6.7-7-14.3-12.9-23.7-17-8.3-4-18.3-6.1-28.8-6.1M256.4 270l-170 186.7c6.7 6.5 14.3 11.8 22.9 15.6 8.9 3.8 18.1 5.7 28 5.7 11 0 20.5-2.4 29.4-6.2 9.4-4.3 17.5-10 24.2-17l65.5-72.2 65.4 72.2c6.7 7 14.3 12.7 23.4 17 8.9 3.8 18.6 6.2 29.4 6.2 10 0 19.7-1.9 28-5.7 9.2-3.8 16.7-9.2 23.4-15.6z" />
@@ -35,8 +36,9 @@ function ProxmoxIcon({ size = 18 }: IconProps) {
 
 type NavIcon = React.ComponentType<{ size?: number }>
 
-const NAV_ITEMS: { to: '/docker' | '/zfs' | '/proxmox' | '/settings'; label: string; icon: NavIcon }[] = [
+const NAV_ITEMS: { to: '/docker' | '/stacks' | '/zfs' | '/proxmox' | '/settings'; label: string; icon: NavIcon }[] = [
   { to: '/docker', label: 'Docker', icon: DockerIcon },
+  { to: '/stacks', label: 'Stacks', icon: Layers },
   { to: '/zfs', label: 'ZFS', icon: HardDrive },
   { to: '/proxmox', label: 'Proxmox', icon: ProxmoxIcon },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -56,6 +58,7 @@ function useCurrentTab(): string {
 
 const PREFETCH_CONFIG: Partial<Record<string, { queryKey: readonly string[]; queryFn: () => Promise<unknown> }>> = {
   '/docker': { queryKey: [...DOCKER_PRELOAD_KEY], queryFn: () => preloadDockerStats() },
+  '/stacks': { queryKey: [...STACKS_QUERY_KEY], queryFn: async () => { const { listStacks } = await import('@/data/stacks/functions'); return listStacks(); } },
   '/zfs': { queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats },
   '/proxmox': { queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats },
 }
@@ -65,7 +68,7 @@ const PREFETCH_STALE_TIME = 1_000
 function handlePrefetch(route: string) {
   const config = PREFETCH_CONFIG[route]
   if (config) {
-    void queryClient.prefetchQuery({ ...config, staleTime: PREFETCH_STALE_TIME })
+    queryClient.prefetchQuery({ ...config, staleTime: PREFETCH_STALE_TIME }).catch(() => {})
   }
 }
 

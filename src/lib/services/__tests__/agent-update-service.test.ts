@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { AgentUpdateService } from '../agent-update-service';
 
 function createMockDockerode() {
@@ -79,6 +79,27 @@ describe('AgentUpdateService', () => {
   });
 
   describe('updateAgent', () => {
+    const realSetTimeout = globalThis.setTimeout;
+    let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+        ((fn: TimerHandler, ms?: number, ...args: unknown[]) => {
+          // Fire retry delays (≤2000ms) immediately; pass everything else through
+          // so AbortSignal.timeout and other internals work normally.
+          if (typeof fn === 'function' && (ms === undefined || ms <= 2000)) {
+            fn();
+            return 0;
+          }
+          return realSetTimeout(fn, ms, ...args);
+        }) as unknown as typeof setTimeout
+      );
+    });
+
+    afterEach(() => {
+      setTimeoutSpy.mockRestore();
+    });
+
     it('pulls the new image via socket proxy', async () => {
       await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
 
@@ -184,6 +205,48 @@ describe('AgentUpdateService', () => {
       await expect(
         service.updateAgent(dockerNoEnv.docker, 1, 'agent:latest', mockFetchFn)
       ).rejects.toThrow('missing DOCKER_HOST');
+    });
+
+    it('logs each retry attempt and returns unhealthy when all health checks fail', async () => {
+      const consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const unhealthyFetch = mock(async () =>
+        new Response(JSON.stringify({ error: 'service unavailable' }), { status: 503 })
+      ) as unknown as typeof fetch;
+
+      try {
+        const result = await service.updateAgent(mockDocker.docker, 1, 'agent:latest', unhealthyFetch);
+
+        expect(result.healthy).toBe(false);
+        const retryCalls = consoleErrorSpy.mock.calls.filter(
+          (args) => typeof args[0] === 'string' && args[0].includes('[AgentUpdateService]')
+        );
+        expect(retryCalls).toHaveLength(3);
+        expect(retryCalls[0][0]).toContain('Health check attempt 1/3 failed for homelab-agent-1');
+        expect(retryCalls[1][0]).toContain('Health check attempt 2/3 failed for homelab-agent-1');
+        expect(retryCalls[2][0]).toContain('Health check attempt 3/3 failed for homelab-agent-1');
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    });
+
+    it('throws when port binding key exists but has an empty array of host entries', async () => {
+      const dockerEmptyBindings = createMockDockerode();
+      const originalGetContainer = dockerEmptyBindings.docker.getContainer;
+      dockerEmptyBindings.docker.getContainer = (_name: string) => {
+        const container = originalGetContainer(_name);
+        const originalInspect = container.inspect;
+        container.inspect = async () => {
+          const data = await originalInspect();
+          data.HostConfig.PortBindings = { '9090/tcp': [] };
+          return data;
+        };
+        return container;
+      };
+
+      await expect(
+        service.updateAgent(dockerEmptyBindings.docker, 1, 'agent:latest', mockFetchFn)
+      ).rejects.toThrow('Container port binding has no host port entries');
     });
   });
 });

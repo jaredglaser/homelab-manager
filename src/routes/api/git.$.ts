@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 function constantTimeEqual(a: string, b: string): boolean {
   const hashA = createHash('sha256').update(a).digest();

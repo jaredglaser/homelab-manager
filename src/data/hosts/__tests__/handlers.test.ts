@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import type { HostHandlerDeps, HostRepo } from '../handlers';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import {
@@ -163,6 +163,21 @@ describe('handleUpdateAgent', () => {
 });
 
 describe('handleAddHost', () => {
+  let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler) => {
+        if (typeof fn === 'function') fn();
+        return 0;
+      }) as unknown as typeof setTimeout
+    );
+  });
+
+  afterEach(() => {
+    setTimeoutSpy.mockRestore();
+  });
+
   function addDeps(repo?: Partial<HostRepo>) {
     return {
       ...baseDeps(repo),
@@ -263,6 +278,28 @@ describe('handleAddHost', () => {
     await expect(
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow(/manual removal/);
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('deletes host record and re-throws when provision throws', async () => {
+    const deps = addDeps();
+    const provisionError = new Error('provision failed');
+    deps.provision = mock(() => Promise.reject(provisionError));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow('provision failed');
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('swallows deleteToken error during health check failure rollback', async () => {
+    const deps = addDeps();
+    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
+    deps.deleteToken = mock(() => Promise.reject(new Error('bao down')));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow(/health check failed/);
+    // deleteToken threw but the error was caught — the rollback error is the one that propagates
+    expect(deps.deleteToken).toHaveBeenCalledWith('new');
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 });

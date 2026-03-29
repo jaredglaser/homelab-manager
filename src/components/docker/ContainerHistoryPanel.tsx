@@ -15,7 +15,7 @@ export default function ContainerHistoryPanel({
   host,
   onClose,
   onExited,
-}: ContainerHistoryPanelProps) {
+}: Readonly<ContainerHistoryPanelProps>) {
   return (
     <BottomDrawer open={open} onClose={onClose} onExited={onExited}>
       <ContainerHistoryPage

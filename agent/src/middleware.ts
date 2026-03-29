@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 /**
  * Compares two strings for equality using a timing-safe algorithm to prevent timing attacks.

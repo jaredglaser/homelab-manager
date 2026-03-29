@@ -46,7 +46,7 @@ export default memo(function ContainerRow({
   showSparklines,
   useAbbreviatedUnits,
   onOpenHistory,
-}: ContainerRowProps) {
+}: Readonly<ContainerRowProps>) {
   const { rates } = container;
 
   const queryClient = useQueryClient();
@@ -182,17 +182,20 @@ export default memo(function ContainerRow({
     }
   }, [expanded]);
 
+  const rowBgClass = container.stale
+    ? 'bg-amber-500/10 opacity-70 hover:bg-amber-500/15 hover:shadow-[inset_0_0_0_1px_rgba(245,158,11,0.4)]'
+    : expanded
+      ? 'bg-[var(--mui-palette-action-hover)]'
+      : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]';
+
   return (
     <div ref={rowRef}>
       <div
+        role="button"
+        tabIndex={0}
         onClick={handleClick}
-        className={`group ${DOCKER_GRID} items-center cursor-pointer transition-[background-color,box-shadow] duration-150 ${
-          container.stale
-            ? 'bg-amber-500/10 opacity-70 hover:bg-amber-500/15 hover:shadow-[inset_0_0_0_1px_rgba(245,158,11,0.4)]'
-            : expanded
-              ? 'bg-[var(--mui-palette-action-hover)]'
-              : 'hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)]'
-        }`}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } }}
+        className={`group ${DOCKER_GRID} items-center cursor-pointer transition-[background-color,box-shadow] duration-150 ${rowBgClass}`}
       >
         <div className="px-3 py-2">
           <div className="flex items-center gap-2">

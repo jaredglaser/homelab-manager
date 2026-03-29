@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { join } from 'path';
+import { join } from 'node:path';
 import { isDockerManagementEnabled } from '@/lib/deploy/feature-flag';
 
 const GitConfigSchema = z.object({

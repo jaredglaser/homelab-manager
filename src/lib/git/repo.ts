@@ -1,7 +1,15 @@
 import git from 'isomorphic-git';
 import type { TreeEntry } from 'isomorphic-git';
-import * as fs from 'fs';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import * as fs from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+
+/** Thrown when a requested file or path does not exist in the git tree. */
+export class FileNotFoundError extends Error {
+  constructor(path: string) {
+    super(`File not found: ${path}`);
+    this.name = 'FileNotFoundError';
+  }
+}
 
 const repoLocks = new Map<string, Promise<void>>();
 
@@ -62,6 +70,8 @@ export interface FileEntry {
 
 export interface CommitOptions {
   files: FileEntry[];
+  /** Paths to remove from the tree in this commit (e.g. deleting a stack directory). */
+  filesToDelete?: string[];
   message: string;
   author: { name: string; email: string };
 }
@@ -80,7 +90,7 @@ export async function commitFiles(
   options: CommitOptions,
 ): Promise<string> {
   return withRepoLock(repoPath, async () => {
-    const { files, message, author } = options;
+    const { files, filesToDelete, message, author } = options;
 
     let existingFiles = new Map<string, string>();
     let parentCommit: string | undefined;
@@ -97,6 +107,20 @@ export async function commitFiles(
 
     for (const file of files) {
       existingFiles.set(file.path, file.content);
+    }
+
+    if (filesToDelete) {
+      for (const deletePath of filesToDelete) {
+        const normalized = deletePath.replace(/^\/+|\/+$/g, '');
+        if (!normalized) continue;
+        existingFiles.delete(normalized);
+        const dirPrefix = `${normalized}/`;
+        for (const key of Array.from(existingFiles.keys())) {
+          if (key.startsWith(dirPrefix)) {
+            existingFiles.delete(key);
+          }
+        }
+      }
     }
 
     const treeOid = await buildTree(repoPath, existingFiles);
@@ -157,17 +181,17 @@ export async function readFileFromRepo(
   for (let i = 0; i < parts.length - 1; i++) {
     const entry = currentTree.find((e) => e.path === parts[i] && e.type === 'tree');
     if (!entry) {
-      throw new Error(`Path not found: ${filePath}`);
+      throw new FileNotFoundError(filePath);
     }
     const subtree = await git.readTree({ fs, gitdir: repoPath, oid: entry.oid });
     currentTree = subtree.tree;
   }
 
   // Read the file blob
-  const fileName = parts[parts.length - 1];
+  const fileName = parts.at(-1);
   const fileEntry = currentTree.find((e) => e.path === fileName && e.type === 'blob');
   if (!fileEntry) {
-    throw new Error(`File not found: ${filePath}`);
+    throw new FileNotFoundError(filePath);
   }
 
   const { blob } = await git.readBlob({ fs, gitdir: repoPath, oid: fileEntry.oid });
@@ -359,7 +383,7 @@ export async function diffCommits(
     }
   }
 
-  return changed.sort();
+  return changed.sort((a, b) => a.localeCompare(b));
 }
 
 /** Flatten a tree into a Map<filePath, blobOid>. */

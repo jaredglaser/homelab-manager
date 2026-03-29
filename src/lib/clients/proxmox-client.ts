@@ -25,28 +25,33 @@ export class ProxmoxClient {
   private baseUrl: string;
   private authHeader: string;
   private fetchOptions: CrossRuntimeRequestInit;
-  private dispatcherReady: Promise<void>;
+  private readonly dispatcherReady: Promise<void>;
 
   constructor(config: ProxmoxConfig) {
     this.baseUrl = `https://${config.host}:${config.port}/api2/json`;
     this.authHeader = `PVEAPIToken=${config.tokenId}=${config.tokenSecret}`;
     this.fetchOptions = {};
+    this.dispatcherReady = config.allowSelfSignedCerts
+      ? this.initSelfSignedCerts()
+      : Promise.resolve();
+  }
 
-    if (config.allowSelfSignedCerts) {
-      // `tls` is Bun's native fetch option (used in production)
-      // `dispatcher` is the undici Agent option (used in Vite SSR dev mode via Node.js-compat fetch)
-      // Both are set so the correct one is picked up by whichever fetch implementation is active
-      this.fetchOptions.tls = { rejectUnauthorized: false };
-      // Dynamic import keeps undici out of Vite's dependency scan.
-      // Resolves at runtime in Node.js/Vite SSR; silently fails under Bun (which uses `tls` instead).
-      this.dispatcherReady = (import('undici' as string) as Promise<{ Agent: new (opts: Record<string, unknown>) => unknown }>)
-        .then(({ Agent }) => {
-          this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
-        })
-        .catch(() => {});
-    } else {
-      this.dispatcherReady = Promise.resolve();
-    }
+  /**
+   * Configure TLS bypass for self-signed certificates.
+   * Sets Bun's `tls` option and asynchronously loads undici's `dispatcher` for Node.js/Vite SSR.
+   */
+  private initSelfSignedCerts(): Promise<void> {
+    // `tls` is Bun's native fetch option (used in production)
+    // `dispatcher` is the undici Agent option (used in Vite SSR dev mode via Node.js-compat fetch)
+    // Both are set so the correct one is picked up by whichever fetch implementation is active
+    this.fetchOptions.tls = { rejectUnauthorized: false };
+    // Dynamic import keeps undici out of Vite's dependency scan.
+    // Resolves at runtime in Node.js/Vite SSR; silently fails under Bun (which uses `tls` instead).
+    return (import('undici' as string) as Promise<{ Agent: new (opts: Record<string, unknown>) => unknown }>)
+      .then(({ Agent }) => {
+        this.fetchOptions.dispatcher = new Agent({ connect: { rejectUnauthorized: false } });
+      })
+      .catch(() => {});
   }
 
   /**

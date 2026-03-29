@@ -10,7 +10,7 @@ interface ComposeEditorLoaderProps {
   variables: string[];
 }
 
-export default function ComposeEditorLoader(props: ComposeEditorLoaderProps) {
+export default function ComposeEditorLoader(props: Readonly<ComposeEditorLoaderProps>) {
   return (
     <Suspense
       fallback={

@@ -109,7 +109,7 @@ export interface SimplexProfile {
   max?: number;
 }
 
-const DEFAULT_WEIGHTS: readonly [number, number, number, number] = [0.5, 0.25, 0.15, 0.10];
+const DEFAULT_WEIGHTS: readonly [number, number, number, number] = [0.5, 0.25, 0.15, 0.1];
 
 /** Cache noise functions by seed to avoid rebuilding the 512-entry permutation table on every call. */
 const noiseCache = new Map<number, (x: number, y: number) => number>();

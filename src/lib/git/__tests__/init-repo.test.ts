@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import git from 'isomorphic-git';
 import { mkdtempSync, rmSync, existsSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import { join } from 'node:path';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { ensureRepoInitialized } from '../init-repo';
 import { repoExists, readFileFromRepo } from '../repo';
 
@@ -10,7 +11,7 @@ describe('ensureRepoInitialized', () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-init-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-init-'));
     process.env.GIT_REPOS_DIR = testDir;
     process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
   });
@@ -47,5 +48,22 @@ describe('ensureRepoInitialized', () => {
     await ensureRepoInitialized();
     const repoPath = join(testDir, 'stacks.git');
     expect(existsSync(repoPath)).toBe(false);
+  });
+
+  it('should complete initialization when resolveRef throws an unexpected error', async () => {
+    const resolveRefSpy = spyOn(git, 'resolveRef').mockRejectedValueOnce(
+      new Error('Disk I/O failure'),
+    );
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    await ensureRepoInitialized();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[GitInit] Unexpected error checking HEAD:',
+      'Disk I/O failure',
+    );
+
+    resolveRefSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });

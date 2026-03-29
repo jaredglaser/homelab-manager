@@ -32,7 +32,7 @@ export default function ZFSPoolsTable({
   isConnected,
   error,
   isStale,
-}: ZFSPoolsTableProps) {
+}: Readonly<ZFSPoolsTableProps>) {
   const { isZfsHostExpanded, toggleZfsHostExpanded, zfs, general } = useSettings();
 
   // Build multi-host hierarchy from latest rows
@@ -202,7 +202,7 @@ export default function ZFSPoolsTable({
 
 // ─── Metric Cells ───────────────────────────────────────────────────────────────
 
-function ZFSMetrics({ data, showCapacity = true, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: { data: ZFSIOStatWithRates; showCapacity?: boolean; showSparklines: boolean; useAbbreviatedUnits: boolean; diskSpeedDecimals: boolean }) {
+function ZFSMetrics({ data, showCapacity = true, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: Readonly<{ data: ZFSIOStatWithRates; showCapacity?: boolean; showSparklines: boolean; useAbbreviatedUnits: boolean; diskSpeedDecimals: boolean }>) {
   const decimals = { diskSpeed: diskSpeedDecimals };
 
   const totalBytes = data.capacity.alloc + data.capacity.free;
@@ -241,7 +241,7 @@ function ZFSMetrics({ data, showCapacity = true, showSparklines, useAbbreviatedU
   );
 }
 
-function HostAggregateMetrics({ host, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: { host: ZFSHostStats; showSparklines: boolean; useAbbreviatedUnits: boolean; diskSpeedDecimals: boolean }) {
+function HostAggregateMetrics({ host, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: Readonly<{ host: ZFSHostStats; showSparklines: boolean; useAbbreviatedUnits: boolean; diskSpeedDecimals: boolean }>) {
   const decimals = { diskSpeed: diskSpeedDecimals };
   const a = host.aggregated;
 
@@ -288,7 +288,7 @@ function HostRow({
   showSparklines,
   useAbbreviatedUnits,
   diskSpeedDecimals,
-}: {
+}: Readonly<{
   host: ZFSHostStats;
   totalHosts: number;
   isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
@@ -296,7 +296,7 @@ function HostRow({
   showSparklines: boolean;
   useAbbreviatedUnits: boolean;
   diskSpeedDecimals: boolean;
-}) {
+}>) {
   const expanded = isZfsHostExpanded(host.hostName, totalHosts);
   const hasPools = host.pools.size > 0;
 

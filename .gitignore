@@ -1,3 +1,4 @@
+.tmp
 node_modules
 .DS_Store
 dist
@@ -35,3 +36,4 @@ docs/superpowers
 ov.conf
 /data/
 /.worktrees/
+.paul

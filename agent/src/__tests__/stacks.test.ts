@@ -177,6 +177,21 @@ describe('handleStackDeploy — path traversal', () => {
     const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
   });
+
+  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+    // Passing stacksDir with a trailing slash causes join() to normalize it, so
+    // join('/dir/', 'stack') = '/dir/stack' which does not start with '/dir//'
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'mystack', composeContent: 'services: {}' }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR + '/', successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Invalid stack path');
+  });
 });
 
 describe('handleStackDeploy — file write failure', () => {
@@ -344,6 +359,21 @@ describe('handleStackTeardown', () => {
   });
 });
 
+describe('handleStackTeardown — path traversal', () => {
+  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+    const request = new Request('http://localhost/stacks/teardown', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'mystack' }),
+    });
+
+    const response = await handleStackTeardown(request, TEST_STACKS_DIR + '/', successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Invalid stack path');
+  });
+});
+
 describe('handleStackTeardown — subprocess timeout', () => {
   test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
@@ -478,6 +508,21 @@ describe('handleStackRestart', () => {
     const result = await response.json();
     expect(result.status).toBe('failed');
     expect(result.exitCode).toBe(1);
+  });
+});
+
+describe('handleStackRestart — path traversal', () => {
+  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'mystack' }),
+    });
+
+    const response = await handleStackRestart(request, TEST_STACKS_DIR + '/', successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Invalid stack path');
   });
 });
 

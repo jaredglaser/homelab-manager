@@ -117,7 +117,7 @@ export class OpenBaoClient {
       { data?: { keys?: unknown } } | undefined;
     const keys = body?.data?.keys;
     if (!Array.isArray(keys)) {
-      throw new Error(
+      throw new TypeError(
         `OpenBao LIST failed for stack "${stack}": unexpected response shape`,
       );
     }
@@ -153,7 +153,7 @@ export class OpenBaoClient {
       { data?: { data?: { value?: unknown } } } | undefined;
     const value = body?.data?.data?.value;
     if (typeof value !== 'string') {
-      throw new Error(
+      throw new TypeError(
         `OpenBao GET failed for stack "${stack}" key "${key}": unexpected response shape`,
       );
     }

@@ -6,6 +6,7 @@ interface UITriggerInput {
   composeContent: string;
   commitSha: string;
   action: DeployAction;
+  forceRecreate?: boolean;
 }
 
 interface UIRollbackInput {
@@ -20,8 +21,6 @@ interface UIRollbackInput {
  * UI deploys are always auto-approved (the user clicked the button).
  */
 export class UITriggerBuilder {
-  /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
-  constructor() {}
   build(input: UITriggerInput): DeployRequest {
     const base = {
       stack: input.stack,
@@ -31,7 +30,7 @@ export class UITriggerBuilder {
       autoApproved: true,
     };
     if (input.action === 'deploy') {
-      return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '' };
+      return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '', forceRecreate: input.forceRecreate ?? false };
     }
     return { ...base, action: input.action };
   }
@@ -46,6 +45,7 @@ export class UITriggerBuilder {
       action: 'deploy',
       trigger: 'manual_rollback',
       autoApproved: true,
+      forceRecreate: true,
     };
   }
 }

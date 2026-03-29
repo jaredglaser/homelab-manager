@@ -159,16 +159,64 @@ async function tryDeleteToken(
   }
 }
 
+interface AddHostDeps extends HostHandlerDeps {
+  provision: (socketProxyUrl: string, opts: { hostId: number; agentPort: number; agentToken: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
+  generateToken: () => string;
+  storeToken: (hostname: string, token: string) => Promise<void>;
+  deleteToken: (hostname: string) => Promise<void>;
+  checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+  removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>;
+}
+
+interface AddHostInput { name: string; socketProxyUrl: string; agentPort: number }
+
+/** Roll back all resources when post-provision finalization fails */
+async function rollbackPostProvision(
+  deps: AddHostDeps, hostId: number, data: AddHostInput, err: unknown, containerContext: string,
+): Promise<never> {
+  await deps.repo.delete(hostId);
+  const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, hostId, containerContext);
+  const suffix = containerCleaned
+    ? 'Host record and container have been cleaned up.'
+    : 'Host record deleted but agent container cleanup failed — manual removal may be required.';
+  throw new Error(`Failed to finalize host after provisioning: ${errorMessage(err)}. ${suffix}`);
+}
+
+/** Roll back all resources when the health check fails */
+async function rollbackHealthCheckFailure(
+  deps: AddHostDeps, hostId: number, data: AddHostInput, healthError: string,
+): Promise<never> {
+  await tryDeleteToken(deps.deleteToken, data.name, 'during rollback');
+  const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, hostId, `for ${data.name} after health check failure`);
+  await deps.repo.delete(hostId);
+  const suffix = containerCleaned
+    ? 'Host record, token, and container have been cleaned up.'
+    : 'Host record and token deleted but agent container cleanup failed — manual removal may be required.';
+  throw new Error(`Agent provisioned but health check failed after 3 attempts: ${healthError}. ${suffix}`);
+}
+
+/** Finalize the host record after a successful health check */
+async function finalizeHostRecord(
+  deps: AddHostDeps, hostId: number, data: AddHostInput, healthResult: HealthCheckOutcome & { healthy: true },
+): Promise<void> {
+  try {
+    await deps.repo.updateStatus(hostId, 'healthy');
+    if (healthResult.version) await deps.repo.updateAgentVersion(hostId, healthResult.version);
+  } catch (err) {
+    await tryDeleteToken(deps.deleteToken, data.name, 'during finalization rollback');
+    const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, hostId, `for ${data.name} during finalization rollback`);
+    await deps.repo.delete(hostId);
+    const suffix = containerCleaned
+      ? 'Host record, token, and container have been cleaned up.'
+      : 'Host record and token deleted but agent container cleanup failed — manual removal may be required.';
+    console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, errorMessage(err), suffix);
+    throw new Error(`Agent is healthy but failed to finalize host record: ${errorMessage(err)}. ${suffix}`);
+  }
+}
+
 export async function handleAddHost(
-  deps: HostHandlerDeps & {
-    provision: (socketProxyUrl: string, opts: { hostId: number; agentPort: number; agentToken: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
-    generateToken: () => string;
-    storeToken: (hostname: string, token: string) => Promise<void>;
-    deleteToken: (hostname: string) => Promise<void>;
-    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
-    removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>;
-  },
-  data: { name: string; socketProxyUrl: string; agentPort: number },
+  deps: AddHostDeps,
+  data: AddHostInput,
 ): Promise<AddHostResult> {
   if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
 
@@ -198,37 +246,17 @@ export async function handleAddHost(
     await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
     await deps.storeToken(data.name, plainToken);
   } catch (err) {
-    await deps.repo.delete(host.id);
-    const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, host.id, `for ${data.name} after post-provision failure`);
-    const suffix = containerCleaned
-      ? 'Host record and container have been cleaned up.'
-      : 'Host record deleted but agent container cleanup failed — manual removal may be required.';
-    throw new Error(`Failed to finalize host after provisioning: ${errorMessage(err)}. ${suffix}`);
+    await rollbackPostProvision(deps, host.id, data, err, `for ${data.name} after post-provision failure`);
   }
 
   const healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
 
   if (!healthResult.healthy) {
-    await tryDeleteToken(deps.deleteToken, data.name, 'during rollback');
-    const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, host.id, `for ${data.name} after health check failure`);
-    await deps.repo.delete(host.id);
-    const suffix = containerCleaned
-      ? 'Host record, token, and container have been cleaned up.'
-      : 'Host record and token deleted but agent container cleanup failed — manual removal may be required.';
-    throw new Error(`Agent provisioned but health check failed after 3 attempts: ${healthResult.error}. ${suffix}`);
+    return rollbackHealthCheckFailure(deps, host.id, data, healthResult.error);
   }
 
   const status: HostStatus = 'healthy';
-  try {
-    await deps.repo.updateStatus(host.id, status);
-    if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
-  } catch (err) {
-    console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, errorMessage(err));
-    await tryDeleteToken(deps.deleteToken, data.name, 'during finalization rollback');
-    await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, host.id, `for ${data.name} during finalization rollback`);
-    await deps.repo.delete(host.id);
-    throw new Error(`Agent is healthy but failed to finalize host record: ${errorMessage(err)}`);
-  }
+  await finalizeHostRecord(deps, host.id, data, healthResult);
 
   return {
     host: toHostListItem(

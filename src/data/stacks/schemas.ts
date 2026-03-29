@@ -13,6 +13,8 @@ export const triggerDeploySchema = z.object({
   stack: stackNameField,
   host: z.string().min(1),
   action: z.enum(['deploy', 'teardown', 'restart']),
+  commitSha: z.string().optional(),
+  forceRecreate: z.boolean().optional(),
 });
 
 export const getDeployHistorySchema = z.object({

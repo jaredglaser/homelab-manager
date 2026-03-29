@@ -1,9 +1,9 @@
 // Re-export canonical types from deploy layer to avoid duplication (Issue 12)
-export type { DeployStatus, DeployTrigger } from '@/lib/deploy/types';
-import type { DeployStatus, DeployTrigger, DeployAction } from '@/lib/deploy/types';
+export type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 
 // Issue 15: use underscores consistently (in_sync, not in-sync)
-export type SyncStatus = 'in_sync' | 'pending' | 'failed' | 'unknown';
+export type SyncStatus = 'in_sync' | 'pending' | 'in_progress' | 'failed' | 'unknown';
 
 export type DeployMode = 'auto' | 'manual';
 
@@ -36,6 +36,8 @@ export interface StackDeployRecord {
   envHash: string;
   status: DeployStatus;
   trigger: DeployTrigger;
+  action: DeployAction;
+  forceRecreate: boolean;
   logs: string | null;
   createdAt: string;
 }
@@ -45,4 +47,20 @@ export interface UIDeployRequest {
   stack: string;
   host: string;
   action: DeployAction;
+}
+
+/** Live container status for a single container within a stack. */
+export interface StackContainer {
+  id: string;
+  name: string;
+  status: string;
+  image: string;
+}
+
+/** Live status entry for a stack as received from the SSE endpoint. */
+export interface StackStatusEntry {
+  stack: string;
+  host: string;
+  containers: StackContainer[];
+  updated_at: string;
 }

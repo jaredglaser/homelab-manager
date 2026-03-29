@@ -43,7 +43,7 @@ export class DeployPipeline {
     // 1. Validate: host exists in managed_hosts
     const host = await this.hostsRepo.getByName(request.host);
     if (!host) {
-      return { status: 'failed', logs: `Host "${request.host}" not found in managed_hosts` };
+      throw new Error(`Host "${request.host}" not found in managed_hosts. Add it via the Hosts page first.`);
     }
 
     // 2. Change detection (skip for teardown/restart -- always execute those)
@@ -51,13 +51,13 @@ export class DeployPipeline {
     let envHash = '';
     const resolvedEnvContent = await this.resolveEnv(request);
 
-    if (request.action === 'deploy') {
+    if (request.action === 'deploy' && request.trigger !== 'manual_rollback') {
       const previousDeploy = await this.deployRepo.getLatestSuccessful(request.stack, request.host);
       const changeResult = detectChanges(request.composeContent, resolvedEnvContent, previousDeploy);
       composeHash = changeResult.composeHash;
       envHash = changeResult.envHash;
 
-      if (!changeResult.changed) {
+      if (!changeResult.changed && !request.forceRecreate) {
         const deployId = await this.deployRepo.insertDeploy({
           stack: request.stack,
           host: request.host,
@@ -66,7 +66,14 @@ export class DeployPipeline {
           envHash,
           status: 'no_change',
           trigger: request.trigger,
+          action: request.action,
+          forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
         });
+        try {
+          await this.deployRepo.notifyStackChange(request.stack, request.host);
+        } catch (err) {
+          console.error(`Failed to notify stack change for "${request.stack}":`, err);
+        }
         return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId };
       }
     }
@@ -80,6 +87,8 @@ export class DeployPipeline {
       envHash,
       status: 'pending',
       trigger: request.trigger,
+      action: request.action,
+      forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
     });
 
     if (deployId === null) {
@@ -128,6 +137,11 @@ export class DeployPipeline {
       } catch (dbErr) {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
       }
+      try {
+        await this.deployRepo.notifyStackChange(request.stack, request.host);
+      } catch (notifyErr) {
+        console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${request.host}"):`, notifyErr);
+      }
       return { status: 'failed', logs: errorMsg, deployId };
     }
 
@@ -162,6 +176,7 @@ export class DeployPipeline {
             composeContent: request.composeContent,
             envContent,
             action: 'deploy',
+            forceRecreate: request.forceRecreate,
           });
           break;
         case 'teardown':
@@ -179,12 +194,22 @@ export class DeployPipeline {
       } catch (dbErr) {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
       }
+      try {
+        await this.deployRepo.notifyStackChange(request.stack, host.name);
+      } catch (notifyErr) {
+        console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${host.name}"):`, notifyErr);
+      }
       return { status: 'failed', logs: errorMsg, deployId };
     }
 
     // Record result outside try — a DB failure here must not be misattributed to the agent
     const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
     await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
+    try {
+      await this.deployRepo.notifyStackChange(request.stack, host.name);
+    } catch (err) {
+      console.error(`Failed to notify stack change for "${request.stack}":`, err);
+    }
 
     return { status: finalStatus, logs: result.logs, deployId };
   }
@@ -205,7 +230,7 @@ function buildEnvContent(existingEnv: string, secrets: Record<string, string>): 
 
   for (const [key, value] of Object.entries(secrets)) {
     if (!existingKeys.has(key)) {
-      lines.push(`${key}=${value.replace(/[\r\n]/g, '')}`);
+      lines.push(`${key}=${value.replaceAll(/[\r\n]/g, '')}`);
     }
   }
 

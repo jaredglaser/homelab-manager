@@ -8,8 +8,6 @@ import type { SecretResolver } from '@/lib/deploy/types';
  * provides a real implementation that replaces this.
  */
 export class NoOpSecretResolver implements SecretResolver {
-  /** Workaround: explicit constructor so Bun counts it in function coverage (oven-sh/bun#7025) */
-  constructor() {}
   async resolve(_stack: string, variables: string[]): Promise<Record<string, string>> {
     if (variables.length > 0) {
       throw new Error(
@@ -28,8 +26,14 @@ export class NoOpSecretResolver implements SecretResolver {
  * Both upper- and lowercase identifiers are supported (e.g. `${db_name}`, `${API_TOKEN}`).
  * Returns deduplicated variable names.
  */
+/**
+ * Regex matching Docker Compose `${VAR}` references with optional modifiers
+ * (`:-`, `-`, `:?`, `?`, `:+`, `+`). Shared across parse-variables and secret-resolver.
+ */
+export const COMPOSE_VARIABLE_REGEX = /\$\{([A-Za-z_]\w*)(?:[:?+-][^}]*)?\}/g;
+
 export function extractVariableReferences(composeContent: string): string[] {
-  const regex = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?:[:?+-][^}]*)?\}/g;
+  const regex = new RegExp(COMPOSE_VARIABLE_REGEX.source, COMPOSE_VARIABLE_REGEX.flags);
   const vars = new Set<string>();
   let match: RegExpExecArray | null;
   while ((match = regex.exec(composeContent)) !== null) {

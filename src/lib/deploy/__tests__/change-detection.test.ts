@@ -33,6 +33,8 @@ describe('detectChanges', () => {
     envHash: computeHash('env-v1'),
     status: 'succeeded',
     trigger: 'git_push',
+    action: 'deploy',
+    forceRecreate: false,
     logs: null,
     createdAt: new Date(),
   };
