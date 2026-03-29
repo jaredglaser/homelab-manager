@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -245,7 +245,7 @@ describe('ComposeEditor component', () => {
     await waitFor(() => expect(mockSaveStackComposeFile).toHaveBeenCalledTimes(1));
 
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
-    expect(invalidateSpy.mock.calls[0][0]).toEqual({ queryKey: ['stack-detail', 'test-host', 'test-stack'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stack-detail', 'test-host', 'test-stack'] });
   });
 
 });

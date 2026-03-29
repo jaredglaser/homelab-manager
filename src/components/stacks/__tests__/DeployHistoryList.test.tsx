@@ -202,4 +202,66 @@ describe('DeployHistoryList', () => {
     });
   });
 
+  it('shows "Force Deploy" label when forceRecreate is true', () => {
+    const forceRecord: StackDeployRecord[] = [
+      {
+        id: 10,
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'aabb112233',
+        envHash: 'xyz',
+        status: 'succeeded',
+        trigger: 'ui',
+        action: 'deploy',
+        forceRecreate: true,
+        logs: null,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    render(<DeployHistoryList records={forceRecord} isLoading={false} />, { wrapper: createWrapper() });
+    expect(screen.getByText('Force Deploy')).toBeDefined();
+  });
+
+  it('calls onRollbackComplete after successful rollback', async () => {
+    mockTriggerStackDeploy.mockClear();
+    const onComplete = mock(() => {});
+
+    render(
+      <DeployHistoryList
+        records={mockRecords}
+        isLoading={false}
+        stackName="plex"
+        host="homeserver"
+        onRollbackComplete={onComplete}
+      />,
+      { wrapper: createWrapper() },
+    );
+
+    fireEvent.click(screen.getByText('Rollback'));
+    fireEvent.click(screen.getByText('Confirm Rollback'));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+  });
+
+  it('calls onRollbackError when rollback fails', async () => {
+    mockTriggerStackDeploy.mockImplementationOnce(() => Promise.reject(new Error('deploy failed')));
+    const onError = mock(() => {});
+
+    render(
+      <DeployHistoryList
+        records={mockRecords}
+        isLoading={false}
+        stackName="plex"
+        host="homeserver"
+        onRollbackError={onError}
+      />,
+      { wrapper: createWrapper() },
+    );
+
+    fireEvent.click(screen.getByText('Rollback'));
+    fireEvent.click(screen.getByText('Confirm Rollback'));
+
+    await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
+  });
+
 });

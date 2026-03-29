@@ -1496,7 +1496,6 @@ describe('scheduleReconnect — timeout behaviour', () => {
     // Wait for the first stream to be set up with normal timers
     await new Promise((r) => originalSetTimeout(r, 50));
 
-    const callsBefore = getEventsCallCount;
     const firstStream = streamEmitter!;
 
     // Now intercept setTimeout before triggering the error/reconnect

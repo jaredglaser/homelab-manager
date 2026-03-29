@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import git from 'isomorphic-git';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join } from 'node:path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import {
   initBareRepo,
@@ -48,15 +49,26 @@ describe('repo initialization', () => {
   });
 
   it('should return false and log error for unexpected git errors', async () => {
-    // Create a directory with a corrupted HEAD that triggers an unexpected error
-    const corruptPath = join(testDir, 'corrupt.git');
-    mkdirSync(corruptPath, { recursive: true });
-    writeFileSync(join(corruptPath, 'HEAD'), '');
-    mkdirSync(join(corruptPath, 'objects'), { recursive: true });
-    mkdirSync(join(corruptPath, 'refs'), { recursive: true });
-    const result = await repoExists(corruptPath);
-    // Either returns true (if empty HEAD doesn't throw) or false (unexpected error)
-    expect(typeof result).toBe('boolean');
+    const repoPath = join(testDir, 'unexpected.git');
+    mkdirSync(repoPath, { recursive: true });
+    writeFileSync(join(repoPath, 'HEAD'), 'ref: refs/heads/main\n');
+    mkdirSync(join(repoPath, 'objects'), { recursive: true });
+    mkdirSync(join(repoPath, 'refs'), { recursive: true });
+
+    const resolveRefSpy = spyOn(git, 'resolveRef').mockRejectedValueOnce(
+      new Error('Disk I/O failure'),
+    );
+    const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    const result = await repoExists(repoPath);
+    expect(result).toBe(false);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[Git] Unexpected error checking repo:',
+      'Disk I/O failure',
+    );
+
+    resolveRefSpy.mockRestore();
+    consoleSpy.mockRestore();
   });
 });
 
@@ -132,6 +144,72 @@ describe('listFilesInRepo', () => {
   it('should list files in a subdirectory', async () => {
     const files = await listFilesInRepo(repoPath, 'plex');
     expect(files).toEqual(['plex/docker-compose.yml']);
+  });
+});
+
+describe('commitFiles with filesToDelete', () => {
+  let testDir: string;
+  let repoPath: string;
+
+  beforeEach(async () => {
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-delete-'));
+    repoPath = join(testDir, 'test.git');
+    await initBareRepo(repoPath);
+    await commitFiles(repoPath, {
+      files: [
+        { path: 'manifest.yaml', content: 'stacks: {}' },
+        { path: 'plex/docker-compose.yml', content: 'services: {}' },
+        { path: 'plex/env.txt', content: 'KEY=value' },
+        { path: 'traefik/docker-compose.yml', content: 'services: {}' },
+      ],
+      message: 'initial',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('should delete a single file', async () => {
+    await commitFiles(repoPath, {
+      files: [],
+      filesToDelete: ['manifest.yaml'],
+      message: 'delete manifest',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+
+    const files = await listFilesInRepo(repoPath);
+    expect(files).not.toContain('manifest.yaml');
+    expect(files).toContain('plex/docker-compose.yml');
+  });
+
+  it('should delete an entire directory', async () => {
+    await commitFiles(repoPath, {
+      files: [],
+      filesToDelete: ['plex'],
+      message: 'delete plex stack',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+
+    const files = await listFilesInRepo(repoPath);
+    expect(files).not.toContain('plex/docker-compose.yml');
+    expect(files).not.toContain('plex/env.txt');
+    expect(files).toContain('manifest.yaml');
+    expect(files).toContain('traefik/docker-compose.yml');
+  });
+
+  it('should handle trailing slash in directory path', async () => {
+    await commitFiles(repoPath, {
+      files: [],
+      filesToDelete: ['plex/'],
+      message: 'delete plex with trailing slash',
+      author: { name: 'test', email: 'test@test.com' },
+    });
+
+    const files = await listFilesInRepo(repoPath);
+    expect(files).not.toContain('plex/docker-compose.yml');
+    expect(files).not.toContain('plex/env.txt');
   });
 });
 

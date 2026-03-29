@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtempSync, rmSync } from 'fs';
-import { join } from 'path';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import git from 'isomorphic-git';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles } from '../repo';
 import { handleInfoRefs, handleUploadPack, handleReceivePack, getHeadOid } from '../git-server';
@@ -86,6 +87,39 @@ describe('handleUploadPack', () => {
 
     const response = await handleUploadPack(repoPath, body);
     expect(response.status).toBe(500);
+  });
+
+  it('should return 500 when git process exits with non-zero code', async () => {
+    const flushPkt = new TextEncoder().encode('0000');
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(flushPkt);
+        controller.close();
+      },
+    });
+
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const response = await handleUploadPack('/nonexistent/path', body);
+    errorSpy.mockRestore();
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe('Internal server error');
+  });
+
+  it('should return 200 with correct Content-Type on success', async () => {
+    // A flush packet (0000) is a valid minimal git-upload-pack request
+    const flushPkt = new TextEncoder().encode('0000');
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(flushPkt);
+        controller.close();
+      },
+    });
+
+    const response = await handleUploadPack(repoPath, body);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('application/x-git-upload-pack-result');
+    expect(response.headers.get('Cache-Control')).toBe('no-cache');
   });
 });
 
@@ -205,5 +239,24 @@ describe('getHeadOid', () => {
 
     const oid = await getHeadOid(filePath);
     expect(oid).toBeNull();
+  });
+
+  it('should return null and log error when resolveRef throws an unexpected error', async () => {
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const resolveRefSpy = spyOn(git, 'resolveRef').mockRejectedValue(
+      new Error('Unexpected internal failure'),
+    );
+
+    const oid = await getHeadOid(repoPath);
+
+    expect(oid).toBeNull();
+    // Verify the unexpected error was logged (not swallowed silently)
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[GitServer] Unexpected error resolving HEAD:',
+      'Unexpected internal failure',
+    );
+
+    resolveRefSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });
