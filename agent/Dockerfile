@@ -1,10 +1,9 @@
-FROM oven/bun:1 AS base
+# Toolchain stage — downloads Docker CLI + Compose (cached independently)
+FROM oven/bun:1 AS toolchain
 
-# Pin versions for reproducible builds
 ARG DOCKER_CLI_VERSION=24.0.9
 ARG DOCKER_COMPOSE_VERSION=2.32.4
 
-# Install Docker CLI (static binary — no daemon) and Docker Compose v2 plugin
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
@@ -21,10 +20,17 @@ RUN apt-get update && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
+# Application stage
+FROM oven/bun:1 AS base
+
+COPY --from=toolchain /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=toolchain /usr/local/lib/docker /usr/local/lib/docker
+
 WORKDIR /app
 
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --production
 
 COPY src ./src
 COPY tsconfig.json package.json ./
