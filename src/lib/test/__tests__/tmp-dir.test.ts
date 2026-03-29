@@ -1,7 +1,7 @@
 import { describe, it, expect, spyOn, afterEach } from 'bun:test';
 import * as fs from 'node:fs';
 import { join } from 'node:path';
-import { getTestTmpDir } from '../tmp-dir';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 
 describe('getTestTmpDir', () => {
   let existsSyncSpy: ReturnType<typeof spyOn> | undefined;

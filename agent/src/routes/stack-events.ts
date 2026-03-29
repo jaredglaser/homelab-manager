@@ -85,6 +85,8 @@ interface EventsState {
   eventsStream: Readable | null;
   /** True while a reconnect loop is running. */
   reconnecting: boolean;
+  /** Pending reconnect timer, if any. */
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const state: EventsState = {
@@ -92,6 +94,7 @@ const state: EventsState = {
   subscribers: new Set(),
   eventsStream: null,
   reconnecting: false,
+  reconnectTimer: null,
 };
 
 /**
@@ -237,7 +240,8 @@ async function ensureEventsSubscription(docker: Dockerode): Promise<void> {
 
 function scheduleReconnect(docker: Dockerode): void {
   state.reconnecting = true;
-  setTimeout(async () => {
+  state.reconnectTimer = setTimeout(async () => {
+    state.reconnectTimer = null;
     if (state.subscribers.size === 0) {
       state.reconnecting = false;
       return;
@@ -337,6 +341,10 @@ export function handleStackEvents(docker: Dockerode, request: Request): Response
  * Reset shared singleton state. Intended for use in tests only.
  */
 export function _resetStateForTesting(): void {
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
   if (state.eventsStream) {
     state.eventsStream.destroy?.();
     state.eventsStream = null;
