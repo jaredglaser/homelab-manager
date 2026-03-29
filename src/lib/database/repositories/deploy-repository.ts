@@ -141,6 +141,8 @@ function toDeployRecord(row: Record<string, unknown>): DeployRecord {
     envHash: row.env_hash as string,
     status: row.status as DeployRecord['status'],
     trigger: row.trigger as DeployRecord['trigger'],
+    action: (row.action as DeployRecord['action']) ?? 'deploy',
+    forceRecreate: row.force_recreate === true,
     logs: (row.logs as string) ?? null,
     createdAt: row.created_at as Date,
   };

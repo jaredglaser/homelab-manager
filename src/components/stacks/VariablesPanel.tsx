@@ -24,7 +24,7 @@ import {
   setVariableValue,
   deleteVariable,
   ensureVariablesExist,
-} from '@/data/stacks.functions';
+} from '@/data/stacks/functions';
 
 interface VariablesPanelProps {
   stackName: string;

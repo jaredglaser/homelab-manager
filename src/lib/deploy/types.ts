@@ -21,6 +21,7 @@ export interface DeployActionRequest extends BaseDeployRequest {
   action: 'deploy';
   composeContent: string;
   envContent: string;
+  forceRecreate?: boolean;
 }
 
 export interface TeardownRequest extends BaseDeployRequest {
@@ -42,6 +43,8 @@ export interface DeployRecord {
   envHash: string;
   status: DeployStatus;
   trigger: DeployTrigger;
+  action: DeployAction;
+  forceRecreate: boolean;
   logs: string | null;
   createdAt: Date;
 }

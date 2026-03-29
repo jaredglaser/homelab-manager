@@ -53,6 +53,8 @@ describe('toStackDeployRecord', () => {
     envHash: 'hash2',
     status: 'succeeded',
     trigger: 'ui',
+    action: 'deploy',
+    forceRecreate: false,
     logs: 'deploy ok',
     createdAt: new Date('2026-03-01T12:00:00Z'),
   };

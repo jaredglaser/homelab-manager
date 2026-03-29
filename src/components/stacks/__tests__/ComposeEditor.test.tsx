@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -20,29 +20,15 @@ mock.module('@/lib/stacks/stack-service', () => ({
  * Monaco Editor cannot render in Happy-DOM (CDN script loading is blocked).
  * We mock only @monaco-editor/react (a narrow, component-specific dependency)
  * to provide a simple textarea stand-in. This lets us test the toolbar,
- * save button, VariablesPanel integration, and dirty-state logic.
+ * save button, and dirty-state logic.
  *
  * monaco-setup uses Vite ?worker imports that Bun can't resolve — must be
  * mocked before ComposeEditor is imported.
- *
- * getStackVariables is mocked so VariablesPanel does not make real HTTP calls.
  */
 /** Stored onChange callback from the most recent mock editor render */
 let mockEditorOnChange: ((v: string | undefined) => void) | undefined;
 /** Stored onMount callback from the most recent mock editor render */
 let mockEditorOnMount: ((editorInstance: unknown) => void) | undefined;
-
-const mockGetStackVariables = mock((args: { data: { stackName: string } }) => {
-  // Return variables matching the initial compose content for the relevant tests.
-  // Default: no variables.
-  void args;
-  return Promise.resolve([] as string[]);
-});
-const mockSaveComposeFile = mock(() => Promise.resolve({ commitSha: 'abc123' }));
-const mockGetVariableValue = mock(() => Promise.resolve(null as string | null));
-const mockSetVariableValue = mock(() => Promise.resolve(undefined));
-const mockDeleteVariable = mock(() => Promise.resolve(undefined));
-
 mock.module('@/lib/monaco-setup', () => ({}));
 mock.module('@monaco-editor/react', () => ({
   default: ({
@@ -64,13 +50,6 @@ mock.module('@monaco-editor/react', () => ({
       />
     );
   },
-}));
-mock.module('@/data/stacks/functions', () => ({
-  getStackVariables: mockGetStackVariables,
-  getVariableValue: mockGetVariableValue,
-  setVariableValue: mockSetVariableValue,
-  deleteVariable: mockDeleteVariable,
-  saveComposeFile: mockSaveComposeFile,
 }));
 
 import { parseVariables } from '@/lib/stacks/parse-variables';
@@ -160,15 +139,6 @@ describe('parseVariables (compose variable detection)', () => {
 });
 
 describe('ComposeEditor component', () => {
-  beforeEach(() => {
-    mockGetStackVariables.mockClear();
-    mockGetStackVariables.mockImplementation(() => Promise.resolve([] as string[]));
-    mockSaveComposeFile.mockClear();
-    mockGetVariableValue.mockClear();
-    mockSetVariableValue.mockClear();
-    mockDeleteVariable.mockClear();
-  });
-
   it('renders the toolbar with docker-compose.yml title', async () => {
     await renderComposeEditor();
     expect(screen.getByText('docker-compose.yml')).toBeDefined();
@@ -186,35 +156,6 @@ describe('ComposeEditor component', () => {
     expect((saveButton as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('renders VariablesPanel with variables from OpenBao', async () => {
-    mockGetStackVariables.mockImplementationOnce(() =>
-      Promise.resolve(['DATABASE_URL', 'SECRET_KEY']),
-    );
-    await renderComposeEditor({ variables: ['DATABASE_URL', 'SECRET_KEY'] });
-    await waitFor(() => {
-      expect(screen.getByText('DATABASE_URL')).toBeDefined();
-      expect(screen.getByText('SECRET_KEY')).toBeDefined();
-    });
-  });
-
-  it('renders VariablesPanel empty state when OpenBao has no variables', async () => {
-    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve([]));
-    await renderComposeEditor({ variables: [] });
-    await waitFor(() => {
-      expect(screen.getByText('No variables in OpenBao.')).toBeDefined();
-    });
-  });
-
-  it('renders variable count badge when OpenBao has variables', async () => {
-    mockGetStackVariables.mockImplementationOnce(() =>
-      Promise.resolve(['A', 'B', 'C']),
-    );
-    await renderComposeEditor({ variables: ['A', 'B', 'C'] });
-    await waitFor(() => {
-      expect(screen.getByText('3')).toBeDefined();
-    });
-  });
-
   it('does not show "Unsaved changes" when content matches', async () => {
     await renderComposeEditor({ content: 'image: nginx' });
     expect(screen.queryByText('Unsaved changes')).toBeNull();
@@ -224,26 +165,6 @@ describe('ComposeEditor component', () => {
     await renderComposeEditor({ content: 'image: redis:7' });
     const editor = screen.getByTestId('mock-editor');
     expect((editor as HTMLTextAreaElement).value).toBe('image: redis:7');
-  });
-
-  it('detects variables on editor change and updates detectedVars state', async () => {
-    const { act } = await import('@testing-library/react');
-    // OpenBao returns MY_IMAGE — simulates that it was already provisioned
-    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['MY_IMAGE']));
-    await renderComposeEditor({ content: 'image: nginx', variables: [] });
-    await waitFor(() => {
-      // MY_IMAGE is in OpenBao so it appears in the panel
-      expect(screen.getByText('MY_IMAGE')).toBeDefined();
-    });
-    expect(mockEditorOnChange).toBeDefined();
-
-    // After typing the variable in the editor, detectedVars includes MY_IMAGE.
-    // Because MY_IMAGE is now in composeVariables, the delete button should be disabled.
-    await act(async () => { mockEditorOnChange?.('image: ${MY_IMAGE}'); });
-    await waitFor(() => {
-      const deleteBtn = screen.getByLabelText('Delete variable');
-      expect((deleteBtn as HTMLButtonElement).disabled).toBe(true);
-    });
   });
 
   it('shows "Unsaved changes" when editor content differs from original', async () => {
@@ -289,7 +210,7 @@ describe('ComposeEditor component', () => {
     await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
 
     act(() => { mockEditorOnChange?.('image: redis'); });
-    const saveButton = screen.getByRole('button', { name: /save/i });
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
 
     await act(async () => { fireEvent.click(saveButton); });
     await waitFor(() => expect(mockSaveStackComposeFile).toHaveBeenCalledTimes(1));

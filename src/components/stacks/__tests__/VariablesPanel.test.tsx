@@ -8,7 +8,7 @@ const mockSetVariableValue = mock(() => Promise.resolve(undefined));
 const mockDeleteVariable = mock(() => Promise.resolve(undefined));
 const mockEnsureVariablesExist = mock(() => Promise.resolve(undefined));
 
-mock.module('@/data/stacks.functions', () => ({
+mock.module('@/data/stacks/functions', () => ({
   getStackVariables: mockGetStackVariables,
   getVariableValue: mockGetVariableValue,
   setVariableValue: mockSetVariableValue,
