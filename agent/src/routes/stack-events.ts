@@ -4,6 +4,18 @@ import type Dockerode from 'dockerode';
 const COMPOSE_PROJECT_LABEL = 'com.docker.compose.project';
 const RECONNECT_DELAY_MS = 5_000;
 
+/** Actions that trigger state updates. Hoisted to avoid re-allocation per event. */
+const RELEVANT_ACTIONS = new Set(['start', 'stop', 'die', 'restart', 'create', 'destroy']);
+
+/** Minimal shape we store in memory — avoids force-casting to the full Dockerode.ContainerInfo. */
+export interface MinimalContainerInfo {
+  Id: string;
+  Names: string[];
+  State: string;
+  Image: string;
+  Labels: Record<string, string>;
+}
+
 export interface ContainerSnapshot {
   id: string;
   name: string;
@@ -17,7 +29,7 @@ export interface StackSnapshot {
 }
 
 /** Enqueue an SSE data event, silently swallowing enqueue-after-close TypeError. */
-function sendSSE(
+export function _sendSSE(
   controller: ReadableStreamDefaultController<Uint8Array>,
   encoder: TextEncoder,
   closed: { value: boolean },
@@ -32,12 +44,12 @@ function sendSSE(
 }
 
 /** Extract the compose project name from container labels, or null if not a compose container. */
-function getStackName(container: Dockerode.ContainerInfo): string | null {
+export function _getStackName(container: MinimalContainerInfo): string | null {
   return container.Labels?.[COMPOSE_PROJECT_LABEL] ?? null;
 }
 
-/** Build a ContainerSnapshot from a ContainerInfo. */
-function toSnapshot(container: Dockerode.ContainerInfo): ContainerSnapshot {
+/** Build a ContainerSnapshot from a MinimalContainerInfo. */
+export function _toSnapshot(container: MinimalContainerInfo): ContainerSnapshot {
   const rawName = container.Names?.[0] ?? container.Id;
   return {
     id: container.Id,
@@ -47,11 +59,11 @@ function toSnapshot(container: Dockerode.ContainerInfo): ContainerSnapshot {
   };
 }
 
-/** Build a map of stackName → ContainerInfo[] from a flat container list. */
-function buildStackMap(containers: Dockerode.ContainerInfo[]): Map<string, Dockerode.ContainerInfo[]> {
-  const map = new Map<string, Dockerode.ContainerInfo[]>();
+/** Build a map of stackName → MinimalContainerInfo[] from a flat container list. */
+export function _buildStackMap(containers: MinimalContainerInfo[]): Map<string, MinimalContainerInfo[]> {
+  const map = new Map<string, MinimalContainerInfo[]>();
   for (const c of containers) {
-    const stack = getStackName(c);
+    const stack = _getStackName(c);
     if (stack === null) continue;
     const existing = map.get(stack);
     if (existing) {
@@ -66,7 +78,7 @@ function buildStackMap(containers: Dockerode.ContainerInfo[]): Map<string, Docke
 /** Shared singleton state across all SSE clients. */
 interface EventsState {
   /** All compose-labelled containers, keyed by container ID. */
-  containers: Map<string, Dockerode.ContainerInfo>;
+  containers: Map<string, MinimalContainerInfo>;
   /** Active SSE subscriber callbacks. */
   subscribers: Set<(snapshot: StackSnapshot) => void>;
   /** The active Docker events stream, if any. */
@@ -86,11 +98,11 @@ const state: EventsState = {
  * Rebuild the snapshot for one stack from current in-memory container state and
  * broadcast it to all subscribers.
  */
-function broadcastStack(stackName: string): void {
+export function _broadcastStack(stackName: string): void {
   const stackContainers: ContainerSnapshot[] = [];
   for (const c of state.containers.values()) {
-    if (getStackName(c) === stackName) {
-      stackContainers.push(toSnapshot(c));
+    if (_getStackName(c) === stackName) {
+      stackContainers.push(_toSnapshot(c));
     }
   }
   const snapshot: StackSnapshot = { stack: stackName, containers: stackContainers };
@@ -103,22 +115,21 @@ function broadcastStack(stackName: string): void {
  * Handle a single Docker event by updating in-memory state and broadcasting
  * the affected stack snapshot. Non-compose containers are silently ignored.
  */
-async function handleDockerEvent(docker: Dockerode, event: DockerEventMessage): Promise<void> {
+export async function _handleDockerEvent(docker: Dockerode, event: DockerEventMessage): Promise<void> {
   const eventType = event.Type;
   const action = event.Action;
   const containerId = event.Actor?.ID ?? event.id;
 
   if (eventType !== 'container') return;
 
-  const relevantActions = new Set(['start', 'stop', 'die', 'restart', 'create', 'destroy']);
-  if (!action || !relevantActions.has(action)) return;
+  if (!action || !RELEVANT_ACTIONS.has(action)) return;
   if (!containerId) return;
 
   if (action === 'destroy') {
     const existing = state.containers.get(containerId);
-    const stackName = existing ? getStackName(existing) : null;
+    const stackName = existing ? _getStackName(existing) : null;
     state.containers.delete(containerId);
-    if (stackName) broadcastStack(stackName);
+    if (stackName) _broadcastStack(stackName);
     return;
   }
 
@@ -131,30 +142,29 @@ async function handleDockerEvent(docker: Dockerode, event: DockerEventMessage): 
       state.containers.delete(containerId);
       return;
     }
-    // Convert inspect result to ContainerInfo shape for state storage
-    const containerInfo: Dockerode.ContainerInfo = {
+    const containerInfo: MinimalContainerInfo = {
       Id: inspectData.Id,
       Names: [inspectData.Name],
       State: inspectData.State?.Status ?? 'unknown',
       Image: inspectData.Config?.Image ?? '',
       Labels: inspectData.Config?.Labels ?? {},
-    } as Dockerode.ContainerInfo;
+    };
     state.containers.set(containerId, containerInfo);
-    broadcastStack(stackName);
+    _broadcastStack(stackName);
   } catch (err: unknown) {
     if (typeof err === 'object' && err !== null && 'statusCode' in err && (err as { statusCode: number }).statusCode === 404) {
       // Container was removed — clean up
       const existing = state.containers.get(containerId);
-      const stackName = existing ? getStackName(existing) : null;
+      const stackName = existing ? _getStackName(existing) : null;
       state.containers.delete(containerId);
-      if (stackName) broadcastStack(stackName);
+      if (stackName) _broadcastStack(stackName);
     } else {
       console.error(`Failed to refresh container info after '${action}' event for ${containerId}:`, err);
     }
   }
 }
 
-interface DockerEventMessage {
+export interface DockerEventMessage {
   Type?: string;
   Action?: string;
   Actor?: { ID?: string; Attributes?: Record<string, string> };
@@ -193,7 +203,7 @@ async function ensureEventsSubscription(docker: Dockerode): Promise<void> {
             // Skip malformed event frames
             continue;
           }
-          handleDockerEvent(docker, event).catch((err) => {
+          _handleDockerEvent(docker, event).catch((err) => {
             console.error('Error handling Docker event:', err);
           });
         }
@@ -263,7 +273,7 @@ export function handleStackEvents(docker: Dockerode, request: Request): Response
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (snapshot: StackSnapshot) => {
-        sendSSE(controller, encoder, closed, JSON.stringify(snapshot));
+        _sendSSE(controller, encoder, closed, JSON.stringify(snapshot));
       };
 
       request.signal.addEventListener('abort', () => {
@@ -281,11 +291,12 @@ export function handleStackEvents(docker: Dockerode, request: Request): Response
         }
       });
 
-      // Populate initial container state
+      // Populate initial container state, preserving any entries already set by
+      // concurrent Docker events that arrived while listContainers was in-flight.
       try {
         const allContainers = await docker.listContainers({ all: true });
         for (const c of allContainers) {
-          if (getStackName(c) !== null) {
+          if (_getStackName(c) !== null && !state.containers.has(c.Id)) {
             state.containers.set(c.Id, c);
           }
         }
@@ -297,13 +308,13 @@ export function handleStackEvents(docker: Dockerode, request: Request): Response
       state.subscribers.add(send);
 
       // Emit current status of all known stacks immediately
-      const stackMap = buildStackMap([...state.containers.values()]);
+      const stackMap = _buildStackMap([...state.containers.values()]);
       for (const [stackName, containers] of stackMap) {
         const snapshot: StackSnapshot = {
           stack: stackName,
-          containers: containers.map(toSnapshot),
+          containers: containers.map(_toSnapshot),
         };
-        sendSSE(controller, encoder, closed, JSON.stringify(snapshot));
+        _sendSSE(controller, encoder, closed, JSON.stringify(snapshot));
       }
 
       // Ensure shared Docker events subscription is active

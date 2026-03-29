@@ -54,7 +54,7 @@ export default function DeployHistoryList({
   host,
   onRollbackComplete,
   onRollbackError,
-}: DeployHistoryListProps) {
+}: Readonly<DeployHistoryListProps>) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [scrollMargin, setScrollMargin] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -63,7 +63,7 @@ export default function DeployHistoryList({
     if (listRef.current) {
       setScrollMargin(listRef.current.offsetTop);
     }
-  });
+  }, []);
 
   const filtered = useMemo(() => {
     if (statusFilter === 'all') return records;

@@ -134,9 +134,13 @@ export class DeployPipeline {
       console.error(errorMsg, err);
       try {
         await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
-        await this.deployRepo.notifyStackChange(request.stack, request.host);
       } catch (dbErr) {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
+      }
+      try {
+        await this.deployRepo.notifyStackChange(request.stack, request.host);
+      } catch (notifyErr) {
+        console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${request.host}"):`, notifyErr);
       }
       return { status: 'failed', logs: errorMsg, deployId };
     }
@@ -187,9 +191,13 @@ export class DeployPipeline {
       console.error(`Deploy dispatch failed for stack "${request.stack}" on host "${host.name}":`, err);
       try {
         await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
-        await this.deployRepo.notifyStackChange(request.stack, host.name);
       } catch (dbErr) {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
+      }
+      try {
+        await this.deployRepo.notifyStackChange(request.stack, host.name);
+      } catch (notifyErr) {
+        console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${host.name}"):`, notifyErr);
       }
       return { status: 'failed', logs: errorMsg, deployId };
     }

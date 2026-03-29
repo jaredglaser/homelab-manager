@@ -28,16 +28,21 @@ function formatRelativeTime(isoDate: string | null): string {
 
 // Per CLAUDE.md gotcha #5: Do not use React.memo on components receiving streaming/frequently-updated data.
 // Incorrect memoization can freeze streaming updates.
-function ContainerStatusBadge({ statusEntry }: { statusEntry: StackStatusEntry | undefined }) {
+function ContainerStatusBadge({ statusEntry }: Readonly<{ statusEntry: StackStatusEntry | undefined }>) {
   if (!statusEntry) {
     return <span className="text-xs opacity-40">—</span>;
   }
 
   const total = statusEntry.containers.length;
+
+  if (total === 0) {
+    return <span className="text-xs opacity-40">—</span>;
+  }
+
   const running = statusEntry.containers.filter((c) => c.status === 'running').length;
 
   let color: string;
-  if (total === 0 || running === 0) {
+  if (running === 0) {
     color = 'var(--chart-deploy-failed)';
   } else if (running < total) {
     color = 'var(--chart-deploy-pending)';

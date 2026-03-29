@@ -102,8 +102,15 @@ export async function commitFiles(
     }
 
     if (filesToDelete) {
-      for (const path of filesToDelete) {
-        existingFiles.delete(path);
+      for (const deletePath of filesToDelete) {
+        const normalized = deletePath.endsWith('/') ? deletePath.slice(0, -1) : deletePath;
+        existingFiles.delete(normalized);
+        const dirPrefix = `${normalized}/`;
+        for (const key of Array.from(existingFiles.keys())) {
+          if (key.startsWith(dirPrefix)) {
+            existingFiles.delete(key);
+          }
+        }
       }
     }
 

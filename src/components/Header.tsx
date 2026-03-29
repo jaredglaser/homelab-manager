@@ -11,6 +11,7 @@ import {
   DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
 } from '@/lib/constants/preload-queries'
+import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
 interface IconProps {
   size?: number
@@ -57,7 +58,7 @@ function useCurrentTab(): string {
 
 const PREFETCH_CONFIG: Partial<Record<string, { queryKey: readonly string[]; queryFn: () => Promise<unknown> }>> = {
   '/docker': { queryKey: [...DOCKER_PRELOAD_KEY], queryFn: () => preloadDockerStats() },
-  '/stacks': { queryKey: ['stacks'], queryFn: async () => { const { listStacks } = await import('@/data/stacks/functions'); return listStacks(); } },
+  '/stacks': { queryKey: [...STACKS_QUERY_KEY], queryFn: async () => { const { listStacks } = await import('@/data/stacks/functions'); return listStacks(); } },
   '/zfs': { queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats },
   '/proxmox': { queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats },
 }

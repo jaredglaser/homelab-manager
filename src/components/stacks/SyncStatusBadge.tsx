@@ -20,7 +20,7 @@ const STATUS_CONFIG: Record<SyncStatus, {
   'in_progress': {
     label: 'Deploying',
     colorVar: 'var(--chart-deploy-in-progress)',
-    icon: <Loader size={14} />,
+    icon: <Loader size={14} className="animate-spin" />,
   },
   failed: {
     label: 'Failed',

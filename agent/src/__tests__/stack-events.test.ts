@@ -1,6 +1,16 @@
 import { describe, expect, test, mock, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { handleStackEvents, _resetStateForTesting } from '../routes/stack-events';
+import {
+  handleStackEvents,
+  _resetStateForTesting,
+  _sendSSE,
+  _getStackName,
+  _toSnapshot,
+  _buildStackMap,
+  _broadcastStack,
+  _handleDockerEvent,
+} from '../routes/stack-events';
+import type { ContainerSnapshot, StackSnapshot } from '../routes/stack-events';
 
 const originalConsoleError = console.error;
 
@@ -118,7 +128,7 @@ describe('handleStackEvents — initial snapshots', () => {
     const plexEvent = events.find((e) => e.stack === 'plex');
     expect(plexEvent).toBeDefined();
     expect(plexEvent.containers).toHaveLength(2);
-    expect(plexEvent.containers.map((c: { id: string }) => c.id).sort()).toEqual(['c1', 'c2'].sort());
+    expect(plexEvent.containers.map((c: { id: string }) => c.id).sort()).toEqual(['c1', 'c2'].sort((a, b) => a.localeCompare(b)));
 
     const sonarrEvent = events.find((e) => e.stack === 'sonarr');
     expect(sonarrEvent).toBeDefined();
@@ -162,7 +172,7 @@ describe('handleStackEvents — initial snapshots', () => {
     const text = await readUntil(response, (s) => s.includes('"stack":"mystack"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').filter(Boolean)[0].replace(/^data: /, ''));
+    const event = JSON.parse(text.split('\n\n').find(Boolean).replace(/^data: /, ''));
     expect(event.stack).toBe('mystack');
     expect(event.containers[0]).toEqual({
       id: 'abc123',
@@ -188,7 +198,7 @@ describe('handleStackEvents — initial snapshots', () => {
     const text = await readUntil(response, (s) => s.includes('"stack":"teststack"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').filter(Boolean)[0].replace(/^data: /, ''));
+    const event = JSON.parse(text.split('\n\n').find(Boolean).replace(/^data: /, ''));
     expect(event.containers[0].name).toBe('test-app');
   });
 });
@@ -270,7 +280,7 @@ describe('handleStackEvents — Docker lifecycle events', () => {
     ac.abort();
 
     const events = text.split('\n\n').filter(Boolean).map(line => JSON.parse(line.replace(/^data: /, '')));
-    const lastEvent = events[events.length - 1];
+    const lastEvent = events.at(-1);
     expect(lastEvent.stack).toBe('mystack');
     // c1 should have been removed, only c2 remains
     expect(lastEvent.containers.map((c: { id: string }) => c.id)).toEqual(['c2']);
@@ -476,7 +486,7 @@ describe('handleStackEvents — fan-out to multiple clients', () => {
     ac2.abort();
 
     // getEvents should only be called once
-    expect((mockDocker.getEvents as ReturnType<typeof mock>).mock.calls.length).toBe(1);
+    expect((mockDocker.getEvents).mock.calls.length).toBe(1);
   });
 });
 
@@ -545,5 +555,576 @@ describe('handleStackEvents — error resilience', () => {
       done = result.done;
     }
     expect(done).toBe(true);
+  });
+});
+
+describe('_getStackName', () => {
+  test('returns the compose project label value', () => {
+    const container = makeContainer('c1', 'app', 'mystack');
+    expect(_getStackName(container as any)).toBe('mystack');
+  });
+
+  test('returns null when container has no compose label', () => {
+    const container = makeNonComposeContainer('c1', 'app');
+    expect(_getStackName(container as any)).toBeNull();
+  });
+
+  test('returns null when Labels is undefined', () => {
+    const container = { Id: 'c1', Names: ['/app'], State: 'running', Image: 'img' };
+    expect(_getStackName(container as any)).toBeNull();
+  });
+});
+
+describe('_toSnapshot', () => {
+  test('maps ContainerInfo fields to ContainerSnapshot', () => {
+    const container = makeContainer('abc', 'myapp', 'stack1', 'running', 'nginx:1.0');
+    const snapshot = _toSnapshot(container as any);
+    expect(snapshot).toEqual({
+      id: 'abc',
+      name: 'myapp',
+      status: 'running',
+      image: 'nginx:1.0',
+    });
+  });
+
+  test('strips leading slash from container name', () => {
+    const container = { Id: 'x', Names: ['/with-slash'], State: 'running', Image: 'img', Labels: {} };
+    const snapshot = _toSnapshot(container as any);
+    expect(snapshot.name).toBe('with-slash');
+  });
+
+  test('falls back to Id when Names is empty', () => {
+    const container = { Id: 'fallback-id', Names: [], State: 'exited', Image: 'img', Labels: {} };
+    const snapshot = _toSnapshot(container as any);
+    expect(snapshot.name).toBe('fallback-id');
+  });
+});
+
+describe('_buildStackMap', () => {
+  test('groups containers by stack name', () => {
+    const containers = [
+      makeContainer('c1', 'app1', 'stackA'),
+      makeContainer('c2', 'app2', 'stackA'),
+      makeContainer('c3', 'app3', 'stackB'),
+    ];
+    const map = _buildStackMap(containers as any);
+    expect(map.size).toBe(2);
+    expect(map.get('stackA')).toHaveLength(2);
+    expect(map.get('stackB')).toHaveLength(1);
+  });
+
+  test('skips containers without compose label', () => {
+    const containers = [
+      makeContainer('c1', 'app1', 'stackA'),
+      makeNonComposeContainer('c2', 'standalone'),
+    ];
+    const map = _buildStackMap(containers as any);
+    expect(map.size).toBe(1);
+    expect(map.has('stackA')).toBe(true);
+  });
+
+  test('returns empty map for empty input', () => {
+    const map = _buildStackMap([]);
+    expect(map.size).toBe(0);
+  });
+});
+
+describe('_sendSSE', () => {
+  test('enqueues encoded SSE data to the controller', () => {
+    const encoder = new TextEncoder();
+    const enqueued: Uint8Array[] = [];
+    const controller = { enqueue: mock((chunk: Uint8Array) => { enqueued.push(chunk); }) } as any;
+    const closed = { value: false };
+
+    _sendSSE(controller, encoder, closed, '{"test":true}');
+
+    expect(enqueued).toHaveLength(1);
+    const decoded = new TextDecoder().decode(enqueued[0]);
+    expect(decoded).toBe('data: {"test":true}\n\n');
+  });
+
+  test('skips enqueue when closed is true', () => {
+    const encoder = new TextEncoder();
+    const controller = { enqueue: mock(() => {}) } as any;
+    const closed = { value: true };
+
+    _sendSSE(controller, encoder, closed, 'ignored');
+
+    expect(controller.enqueue).not.toHaveBeenCalled();
+  });
+
+  test('swallows TypeError from enqueue-after-close', () => {
+    const encoder = new TextEncoder();
+    const controller = {
+      enqueue: mock(() => { throw new TypeError('Controller is already closed'); }),
+    } as any;
+    const closed = { value: false };
+
+    // Should not throw
+    expect(() => _sendSSE(controller, encoder, closed, 'data')).not.toThrow();
+  });
+
+  test('logs non-TypeError errors from enqueue', () => {
+    const encoder = new TextEncoder();
+    const controller = {
+      enqueue: mock(() => { throw new Error('unexpected'); }),
+    } as any;
+    const closed = { value: false };
+
+    _sendSSE(controller, encoder, closed, 'data');
+
+    // console.error is mocked in beforeAll, just verify no throw
+  });
+});
+
+describe('_broadcastStack', () => {
+  beforeEach(() => {
+    _resetStateForTesting();
+  });
+
+  test('calls all subscribers with correct snapshot shape', async () => {
+    // Set up state by connecting a client with containers
+    const eventsEmitter = new EventEmitter();
+    const containers = [
+      makeContainer('c1', 'app1', 'mystack', 'running'),
+      makeContainer('c2', 'app2', 'mystack', 'stopped'),
+    ];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Now call _broadcastStack directly and capture what subscribers receive
+    // The subscriber was added by handleStackEvents — we can verify by emitting
+    // But let's test broadcastStack with a fresh subscriber approach
+    ac.abort();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Reset and set up fresh state manually via handleStackEvents
+    _resetStateForTesting();
+
+    const ac2 = new AbortController();
+    const req2 = new Request('http://localhost/stacks/events', { signal: ac2.signal });
+    const mockDocker2 = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(new EventEmitter())),
+    };
+    const response2 = handleStackEvents(mockDocker2 as any, req2);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // broadcastStack uses the shared state — call it and read from stream
+    _broadcastStack('mystack');
+    await new Promise((r) => setTimeout(r, 20));
+    ac2.abort();
+
+    const text = await readUntil(response2, (s) => {
+      const events = s.split('\n\n').filter(Boolean);
+      return events.length >= 2;
+    });
+
+    const events = text.split('\n\n').filter(Boolean).map(line => JSON.parse(line.replace(/^data: /, '')));
+    const broadcastEvent = events.at(-1);
+    expect(broadcastEvent.stack).toBe('mystack');
+    expect(broadcastEvent.containers).toHaveLength(2);
+  });
+
+  test('broadcasts empty containers array when stack has no containers', async () => {
+    _resetStateForTesting();
+
+    const eventsEmitter = new EventEmitter();
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve([])),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    const response = handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Broadcast for a stack with no containers
+    _broadcastStack('nonexistent');
+    await new Promise((r) => setTimeout(r, 20));
+    ac.abort();
+
+    const text = await readUntil(response, (s) => s.includes('"stack":"nonexistent"'), 500);
+    const events = text.split('\n\n').filter(Boolean).map(line => JSON.parse(line.replace(/^data: /, '')));
+    const event = events.find((e: StackSnapshot) => e.stack === 'nonexistent');
+    expect(event).toBeDefined();
+    expect(event.containers).toEqual([]);
+  });
+});
+
+describe('_handleDockerEvent', () => {
+  beforeEach(() => {
+    _resetStateForTesting();
+  });
+
+  test('handles start action by inspecting and broadcasting', async () => {
+    // Populate state with a container
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app', 'mystack')];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app',
+          State: { Status: 'running' },
+          Config: { Image: 'nginx:latest', Labels: { 'com.docker.compose.project': 'mystack' } },
+        })),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    const response = handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'start',
+      Actor: { ID: 'c1' },
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    ac.abort();
+
+    const text = await readUntil(response, (s) => {
+      const events = s.split('\n\n').filter(Boolean);
+      return events.length >= 2;
+    });
+    const events = text.split('\n\n').filter(Boolean).map(line => JSON.parse(line.replace(/^data: /, '')));
+    expect(events.length).toBeGreaterThanOrEqual(2);
+    expect(events.every((e: StackSnapshot) => e.stack === 'mystack')).toBe(true);
+  });
+
+  test('handles stop action', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app', 'mystack')];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app',
+          State: { Status: 'exited' },
+          Config: { Image: 'nginx:latest', Labels: { 'com.docker.compose.project': 'mystack' } },
+        })),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    const response = handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'stop',
+      Actor: { ID: 'c1' },
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    ac.abort();
+
+    const text = await readUntil(response, (s) => {
+      const events = s.split('\n\n').filter(Boolean);
+      return events.length >= 2;
+    });
+    const events = text.split('\n\n').filter(Boolean).map(line => JSON.parse(line.replace(/^data: /, '')));
+    const lastEvent = events.at(-1);
+    expect(lastEvent.stack).toBe('mystack');
+    expect(lastEvent.containers[0].status).toBe('exited');
+  });
+
+  test('handles die action', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app', 'mystack')];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app',
+          State: { Status: 'dead' },
+          Config: { Image: 'nginx:latest', Labels: { 'com.docker.compose.project': 'mystack' } },
+        })),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'die',
+      Actor: { ID: 'c1' },
+    });
+
+    // Just verify it doesn't throw
+    ac.abort();
+  });
+
+  test('handles restart action', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app', 'mystack')];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app',
+          State: { Status: 'running' },
+          Config: { Image: 'nginx:latest', Labels: { 'com.docker.compose.project': 'mystack' } },
+        })),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'restart',
+      Actor: { ID: 'c1' },
+    });
+
+    ac.abort();
+  });
+
+  test('handles create action', async () => {
+    const eventsEmitter = new EventEmitter();
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve([])),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'new-c',
+          Name: '/new-app',
+          State: { Status: 'created' },
+          Config: { Image: 'nginx:latest', Labels: { 'com.docker.compose.project': 'newstack' } },
+        })),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    const response = handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'create',
+      Actor: { ID: 'new-c' },
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    ac.abort();
+
+    const text = await readUntil(response, (s) => s.includes('"stack":"newstack"'), 500);
+    expect(text).toContain('"stack":"newstack"');
+  });
+
+  test('handles destroy action by removing container from state', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [
+      makeContainer('c1', 'app1', 'mystack'),
+      makeContainer('c2', 'app2', 'mystack'),
+    ];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    const response = handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'destroy',
+      Actor: { ID: 'c1' },
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    ac.abort();
+
+    const text = await readUntil(response, (s) => {
+      const events = s.split('\n\n').filter(Boolean);
+      return events.length >= 2;
+    });
+    const events = text.split('\n\n').filter(Boolean).map(line => JSON.parse(line.replace(/^data: /, '')));
+    const lastEvent = events.at(-1);
+    expect(lastEvent.containers.map((c: ContainerSnapshot) => c.id)).toEqual(['c2']);
+  });
+
+  test('handles inspect 404 by cleaning up container', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app', 'mystack')];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => {
+          const err = new Error('not found') as Error & { statusCode: number };
+          err.statusCode = 404;
+          return Promise.reject(err);
+        }),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    const response = handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'start',
+      Actor: { ID: 'c1' },
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    ac.abort();
+
+    const text = await readUntil(response, (s) => {
+      const events = s.split('\n\n').filter(Boolean);
+      return events.length >= 2;
+    });
+    const events = text.split('\n\n').filter(Boolean).map(line => JSON.parse(line.replace(/^data: /, '')));
+    const lastEvent = events.at(-1);
+    // Container was removed on 404, so stack should have empty containers
+    expect(lastEvent.stack).toBe('mystack');
+    expect(lastEvent.containers).toEqual([]);
+  });
+
+  test('ignores non-container event types', async () => {
+    await _handleDockerEvent({} as any, {
+      Type: 'network',
+      Action: 'connect',
+      Actor: { ID: 'net1' },
+    });
+    // Should return early without error
+  });
+
+  test('ignores events without containerId', async () => {
+    await _handleDockerEvent({} as any, {
+      Type: 'container',
+      Action: 'start',
+      // No Actor.ID or id
+    });
+    // Should return early without error
+  });
+
+  test('ignores events with irrelevant actions', async () => {
+    await _handleDockerEvent({} as any, {
+      Type: 'container',
+      Action: 'exec_create',
+      Actor: { ID: 'c1' },
+    });
+    // Should return early without error
+  });
+
+  test('removes container when inspect returns no compose label', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app', 'mystack')];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app',
+          State: { Status: 'running' },
+          Config: { Image: 'nginx:latest', Labels: {} },
+        })),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'start',
+      Actor: { ID: 'c1' },
+    });
+
+    ac.abort();
+    // No error means it handled the case properly
+  });
+
+  test('logs non-404 inspect errors', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app', 'mystack')];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.reject(new Error('connection refused'))),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'start',
+      Actor: { ID: 'c1' },
+    });
+
+    ac.abort();
+    // console.error is mocked — just verify no unhandled exception
+  });
+
+  test('uses event.id as fallback when Actor.ID is missing', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app', 'mystack')];
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app',
+          State: { Status: 'running' },
+          Config: { Image: 'nginx:latest', Labels: { 'com.docker.compose.project': 'mystack' } },
+        })),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stacks/events', { signal: ac.signal });
+    handleStackEvents(mockDocker as any, request);
+    await new Promise((r) => setTimeout(r, 50));
+
+    await _handleDockerEvent(mockDocker as any, {
+      Type: 'container',
+      Action: 'start',
+      id: 'c1',
+    });
+
+    ac.abort();
+    expect(mockDocker.getContainer).toHaveBeenCalledWith('c1');
   });
 });

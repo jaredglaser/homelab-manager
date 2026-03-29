@@ -21,10 +21,34 @@ import {
 const COMPOSE_FILENAME = 'docker-compose.yml';
 const MANIFEST_FILENAME = 'manifest.yaml';
 const SYSTEM_AUTHOR = { name: 'homelab-manager', email: 'homelab-manager@localhost' };
+const TEARDOWN_POLL_INTERVAL_MS = 1_000;
+const TEARDOWN_POLL_TIMEOUT_MS = 120_000;
+const TERMINAL_DEPLOY_STATUSES = new Set(['succeeded', 'failed', 'no_change']);
 
 function getRepoPath(): string | null {
   const config = loadGitConfig();
   return config.enabled ? config.repoPath : null;
+}
+
+/** Trigger teardown and poll until it reaches a terminal status. */
+async function teardownAndAwait(
+  stackName: string,
+  host: string,
+  deployRepo: { getById: (id: number) => Promise<{ status: string; logs?: string | null } | null> },
+): Promise<void> {
+  const { deployId } = await triggerStackDeploy({ stack: stackName, host, action: 'teardown' });
+  const start = Date.now();
+  let record = await deployRepo.getById(deployId);
+  while (record && !TERMINAL_DEPLOY_STATUSES.has(record.status)) {
+    if (Date.now() - start > TEARDOWN_POLL_TIMEOUT_MS) {
+      throw new Error(`Teardown timed out after ${TEARDOWN_POLL_TIMEOUT_MS / 1_000}s. Stack not deleted.`);
+    }
+    await new Promise((r) => setTimeout(r, TEARDOWN_POLL_INTERVAL_MS));
+    record = await deployRepo.getById(deployId);
+  }
+  if (record && record.status === 'failed') {
+    throw new Error(`Teardown failed: ${record.logs ?? 'unknown error'}. Stack not deleted.`);
+  }
 }
 
 // ----- Service functions (wiring layer) -----
@@ -256,7 +280,7 @@ export async function createStackInRepo(
     const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
     manifest = parseManifest(manifestContent);
   } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes('not found')) {
+    if (err instanceof Error && (err.message === 'File not found: manifest.yaml' || err.message === 'Path not found: manifest.yaml')) {
       // No manifest yet — start with empty stacks
       manifest = { stacks: {} };
     } else {
@@ -321,14 +345,8 @@ export async function deleteStackFromRepo(
     throw new Error(`Stack "${stackName}" has an active deploy in progress — cannot delete`);
   }
 
-  // Optionally teardown before removing from repo
   if (teardown) {
-    const { deployId } = await triggerStackDeploy({ stack: stackName, host, action: 'teardown' });
-    // Check if teardown actually succeeded
-    const deployRecord = await deployRepo.getById(deployId);
-    if (deployRecord && deployRecord.status === 'failed') {
-      throw new Error(`Teardown failed: ${deployRecord.logs ?? 'unknown error'}. Stack not deleted.`);
-    }
+    await teardownAndAwait(stackName, host, deployRepo);
   }
 
   // Remove stack from manifest

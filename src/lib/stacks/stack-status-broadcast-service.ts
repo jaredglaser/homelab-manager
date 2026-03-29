@@ -39,18 +39,7 @@ class StackStatusBroadcastService {
 
   private async sendInit(callback: StackStatusCallback): Promise<void> {
     try {
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { StackStatusRepository } = await import(
-        '@/lib/database/repositories/stack-status-repository'
-      );
-
-      const config = loadDatabaseConfig();
-      const client = await databaseConnectionManager.getClient(config);
-      const repo = new StackStatusRepository(client.getPool());
-      const all = await repo.getAll();
-
-      // Only send if subscriber is still active
+      const all = await this.loadAllStackStatus();
       if (this.subscribers.has(callback)) {
         callback(all);
       }
@@ -108,6 +97,19 @@ class StackStatusBroadcastService {
     }
   }
 
+  private async loadAllStackStatus(): Promise<StackStatusRow[]> {
+    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+    const { StackStatusRepository } = await import(
+      '@/lib/database/repositories/stack-status-repository'
+    );
+
+    const config = loadDatabaseConfig();
+    const client = await databaseConnectionManager.getClient(config);
+    const repo = new StackStatusRepository(client.getPool());
+    return repo.getAll();
+  }
+
   private async broadcastAll(payload?: string): Promise<void> {
     try {
       let entries: StackStatusRow[];
@@ -122,29 +124,10 @@ class StackStatusBroadcastService {
             updated_at: new Date(row.updated_at),
           }];
         } catch {
-          // Payload is not JSON (legacy format) — fall back to full table load
-          const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-          const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-          const { StackStatusRepository } = await import(
-            '@/lib/database/repositories/stack-status-repository'
-          );
-
-          const config = loadDatabaseConfig();
-          const client = await databaseConnectionManager.getClient(config);
-          const repo = new StackStatusRepository(client.getPool());
-          entries = await repo.getAll();
+          entries = await this.loadAllStackStatus();
         }
       } else {
-        const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-        const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-        const { StackStatusRepository } = await import(
-          '@/lib/database/repositories/stack-status-repository'
-        );
-
-        const config = loadDatabaseConfig();
-        const client = await databaseConnectionManager.getClient(config);
-        const repo = new StackStatusRepository(client.getPool());
-        entries = await repo.getAll();
+        entries = await this.loadAllStackStatus();
       }
 
       for (const cb of this.subscribers) {

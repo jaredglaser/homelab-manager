@@ -43,7 +43,7 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
   // Vite's ?worker imports. Must complete before Editor mounts to avoid
   // "Could not create web worker(s)" warning.
   useEffect(() => {
-    import('@/lib/monaco-setup').then(() => setMonacoReady(true)).catch(() => setMonacoLoadFailed(true));
+    import('@/lib/monaco-setup').then(() => setMonacoReady(true)).catch((err) => { console.error('Monaco bootstrap failed:', err); setMonacoLoadFailed(true); });
   }, []);
 
   const isDirty = editorContent !== content;
