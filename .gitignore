@@ -38,3 +38,5 @@ ov.conf
 /.worktrees/
 .paul
 .superpowers
+.paul
+agent-token
