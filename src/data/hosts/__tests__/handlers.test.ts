@@ -160,6 +160,7 @@ describe('handleVerifyHost', () => {
       ...baseDeps(repo),
       storeToken: mock(() => Promise.resolve()),
       checkHealth: mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '1.0.0' })),
+      verifyToken: mock(() => Promise.resolve()),
     };
   }
 
@@ -189,6 +190,16 @@ describe('handleVerifyHost', () => {
     await expect(
       handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'tok' })
     ).rejects.toThrow(/health check failed/);
+    expect(deps.repo.create).not.toHaveBeenCalled();
+    expect(deps.storeToken).not.toHaveBeenCalled();
+  });
+
+  it('throws on token verification failure without creating DB record', async () => {
+    const deps = verifyDeps();
+    deps.verifyToken = mock(() => Promise.reject(new Error('agent rejected authentication')));
+    await expect(
+      handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'wrong-token' })
+    ).rejects.toThrow(/agent rejected authentication/);
     expect(deps.repo.create).not.toHaveBeenCalled();
     expect(deps.storeToken).not.toHaveBeenCalled();
   });

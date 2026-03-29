@@ -74,6 +74,7 @@ if (!docker && !zfsCapabilities.available) {
  */
 function matchRoute(request: Request, url: URL): Promise<Response> | Response | null {
   if (url.pathname === '/health' && request.method === 'GET') return handleHealth(docker, zfsCapabilities);
+  if (url.pathname === '/auth/verify' && request.method === 'GET') return Response.json({ status: 'ok' });
 
   if (docker) {
     if (url.pathname === '/stats/stream' && request.method === 'GET') return handleStatsStream(docker, request);
