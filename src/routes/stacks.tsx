@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
-import { listStacks, createStack, listManagedHostNames } from '@/data/stacks.functions'
+import { listStacks, createStack, listManagedHostNames } from '@/data/stacks/functions'
 import { useStackStatus } from '@/hooks/useStackStatus'
 import CreateStackDialog from '@/components/stacks/CreateStackDialog'
 import StackNav from '@/components/stacks/StackNav'
@@ -51,10 +51,10 @@ function StacksLayout() {
     mutationFn: (input: { stackName: string; host: string; autoDeploy: boolean }) =>
       createStack({ data: input }),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
       setDialogOpen(false)
       setCreateError(null)
-      void navigate({ to: '/stacks/$stackName', params: { stackName: variables.stackName } })
+      navigate({ to: '/stacks/$stackName', params: { stackName: variables.stackName } })
     },
     onError: (err) => {
       setCreateError(err instanceof Error ? err.message : String(err))

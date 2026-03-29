@@ -30,7 +30,7 @@ import {
   deleteStack,
   updateStackSettings,
   listManagedHostNames,
-} from '@/data/stacks.functions'
+} from '@/data/stacks/functions'
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
 import DeployHistoryList from '@/components/stacks/DeployHistoryList'
@@ -92,8 +92,8 @@ function StackEditorView() {
       triggerDeploy({ data: { stack: stackName, host: detail!.host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
     onSuccess: (_data, action) => {
       setDeployMessage({ type: 'success', text: `${action} triggered successfully` })
-      void queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] })
-      void queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] })
+      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
     },
     onError: (err) => {
       setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
@@ -104,9 +104,9 @@ function StackEditorView() {
     mutationFn: (teardown: boolean) =>
       deleteStack({ data: { stackName, teardown } }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
       setDeleteDialogOpen(false)
-      void navigate({ to: '/stacks' })
+      navigate({ to: '/stacks' })
     },
   })
 
@@ -114,8 +114,8 @@ function StackEditorView() {
     mutationFn: ({ newHost, autoDeploy }: { newHost: string; autoDeploy: boolean }) =>
       updateStackSettings({ data: { stackName, host: newHost, autoDeploy } }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] })
-      void queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] })
+      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
       setSettingsDialogOpen(false)
       setDeployMessage({ type: 'success', text: 'Stack settings updated' })
     },
@@ -203,8 +203,8 @@ function StackEditorView() {
               host={detail.host}
               onRollbackComplete={() => {
                 setDeployMessage({ type: 'success', text: 'Rollback triggered successfully' })
-                void queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] })
-                void queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+                queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] })
+                queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
               }}
               onRollbackError={(err) => {
                 setDeployMessage({ type: 'error', text: err.message })
@@ -274,7 +274,7 @@ function StackSettingsDialog({
   isLoading,
   onSave,
   onClose,
-}: {
+}: Readonly<{
   open: boolean
   currentHost: string
   currentAutoDeploy: boolean
@@ -282,7 +282,7 @@ function StackSettingsDialog({
   isLoading: boolean
   onSave: (host: string, autoDeploy: boolean) => void
   onClose: () => void
-}) {
+}>) {
   const [host, setHost] = useState(currentHost)
   const [autoDeploy, setAutoDeploy] = useState(currentAutoDeploy)
 

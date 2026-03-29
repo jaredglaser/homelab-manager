@@ -195,7 +195,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
   }, [variables, composeVariables, stackName, queryClient]);
 
   function handleDeleted() {
-    void queryClient.invalidateQueries({ queryKey: ['stack-variables', stackName] });
+    queryClient.invalidateQueries({ queryKey: ['stack-variables', stackName] });
   }
 
   if (isError) {

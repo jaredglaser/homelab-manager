@@ -289,7 +289,7 @@ function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollb
           open={rollbackOpen}
           onClose={() => setRollbackOpen(false)}
           onConfirm={handleRollbackConfirm}
-          stackName={stackName!}
+          stackName={stackName}
           commitSha={record.commitSha}
         />
       )}

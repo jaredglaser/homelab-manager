@@ -25,7 +25,7 @@ import { RefreshCw, Trash2, Plus, Server, Pencil, Copy, Check } from 'lucide-rea
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { getAgentImage } from '@/lib/hosts/host-utils'
-import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost } from '@/data/hosts.functions'
+import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost } from '@/data/hosts/functions'
 import { generateAgentStackCompose, generateAgentStackEnv } from '@/lib/templates/agent-stack-compose'
 
 // ----- Types for the presentational layer -----
