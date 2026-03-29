@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles, readFileFromRepo, listFilesInRepo, getLog, diffCommits } from '../repo';
 import { parseManifest } from '../manifest';
 import { identifyChangedStacks, buildDeployRequests } from '../post-receive';
@@ -13,7 +13,7 @@ describe('Git management integration', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-integration-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-integration-'));
     repoPath = join(testDir, 'stacks.git');
     await initBareRepo(repoPath);
   });

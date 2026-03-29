@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles } from '../repo';
 import { processPostReceive } from '../post-receive-handler';
 
@@ -10,7 +10,7 @@ describe('processPostReceive', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-handler-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-handler-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
   });

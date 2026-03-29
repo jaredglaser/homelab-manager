@@ -1,8 +1,23 @@
-import { describe, it, expect } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, mock } from 'bun:test';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDeployRecord } from '@/types/stacks';
-import DeployHistoryList from '../DeployHistoryList';
+
+const mockTriggerStackDeploy = mock(() => Promise.resolve({ deployId: 1 }));
+
+mock.module('@/lib/stacks/stack-service', () => ({
+  getStackSummaries: mock(() => Promise.resolve([])),
+  getStackDetailByName: mock(() => Promise.resolve(null)),
+  triggerStackDeploy: mockTriggerStackDeploy,
+  getStackDeployHistory: mock(() => Promise.resolve([])),
+  saveStackComposeFile: mock(() => Promise.resolve({ commitSha: 'abc123' })),
+  updateStackIconSlug: mock(() => Promise.resolve()),
+  createStackInRepo: mock(() => Promise.resolve()),
+  deleteStackFromRepo: mock(() => Promise.resolve()),
+  getManagedHostNames: mock(() => Promise.resolve([])),
+}));
+
+const { default: DeployHistoryList } = await import('../DeployHistoryList');
 
 const mockRecords: StackDeployRecord[] = [
   {
@@ -113,4 +128,78 @@ describe('DeployHistoryList', () => {
     fireEvent.click(screen.getByText('Rollback'));
     expect(screen.getByText('Rollback plex?')).toBeDefined();
   });
+
+  it('shows "No deploys match the selected filters." when all records are filtered out', () => {
+    // Two records with no_change and pending statuses so hasStatusVariety is true (filter UI renders),
+    // but neither is 'succeeded' or 'failed', so clicking "Succeeded" yields zero matches.
+    const noMatchRecords: StackDeployRecord[] = [
+      {
+        id: 3,
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'aabbccdd1122',
+        envHash: 'ghi789',
+        status: 'no_change',
+        trigger: 'ui',
+        action: 'deploy',
+        forceRecreate: false,
+        logs: null,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 4,
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: '11223344aabb',
+        envHash: 'jkl012',
+        status: 'pending',
+        trigger: 'ui',
+        action: 'deploy',
+        forceRecreate: false,
+        logs: null,
+        createdAt: new Date(Date.now() - 3600_000).toISOString(),
+      },
+    ];
+
+    render(
+      <DeployHistoryList records={noMatchRecords} isLoading={false} />,
+      { wrapper: createWrapper() },
+    );
+
+    // Click the "Succeeded" toggle button — no records have status 'succeeded', so none match
+    const succeededButton = screen.getByRole('button', { name: 'Succeeded' });
+    fireEvent.click(succeededButton);
+    expect(screen.getByText('No deploys match the selected filters.')).toBeDefined();
+  });
+
+  it('calls triggerDeploy when rollback is confirmed', async () => {
+    mockTriggerStackDeploy.mockClear();
+
+    render(
+      <DeployHistoryList
+        records={mockRecords}
+        isLoading={false}
+        stackName="plex"
+        host="homeserver"
+      />,
+      { wrapper: createWrapper() },
+    );
+
+    fireEvent.click(screen.getByText('Rollback'));
+    expect(screen.getByText('Rollback plex?')).toBeDefined();
+
+    fireEvent.click(screen.getByText('Confirm Rollback'));
+
+    await waitFor(() => {
+      expect(mockTriggerStackDeploy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
+      stack: 'plex',
+      host: 'homeserver',
+      action: 'deploy',
+      commitSha: 'a1b2c3d4e5f6',
+    });
+  });
+
 });

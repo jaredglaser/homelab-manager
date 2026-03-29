@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles, getLog, diffCommits } from '../repo';
 
 describe('getLog', () => {
@@ -9,7 +9,7 @@ describe('getLog', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-log-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-log-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
   });
@@ -64,7 +64,7 @@ describe('diffCommits', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-diff-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-diff-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
   });

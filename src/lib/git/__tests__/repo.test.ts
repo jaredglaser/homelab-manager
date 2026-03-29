@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import {
   initBareRepo,
   repoExists,
@@ -15,7 +15,7 @@ describe('repo initialization', () => {
   let testDir: string;
 
   beforeEach(() => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-test-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-test-'));
   });
 
   afterEach(() => {
@@ -65,7 +65,7 @@ describe('readFileFromRepo', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-read-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-read-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
     // Seed with a commit
@@ -104,7 +104,7 @@ describe('listFilesInRepo', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-list-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-list-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
     await commitFiles(repoPath, {
@@ -140,7 +140,7 @@ describe('commitFiles mutex', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-mutex-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-mutex-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
   });

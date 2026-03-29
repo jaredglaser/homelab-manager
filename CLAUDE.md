@@ -6,6 +6,9 @@
 - Run `bun run typecheck` and `bun test` after code changes.
 - Check if `README.md` and `CLAUDE.md` need updates.
 
+**After editing files:**
+- When `<new-diagnostics>` appear with SonarQube issues on files you just edited, fix them before moving on. Only fix issues on files you modified — do not touch unrelated files.
+
 ## Commands
 
 ```bash
@@ -44,7 +47,7 @@ cd agent && bun run typecheck  # Agent type checking
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app with `node:async_hooks` errors.
 5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Use div-based rows (not `<table>/<tr>/<td>`). Server handles client disconnect via `request.signal`. Never use TanStack Start streaming server functions for real-time data.
 6. **File Creation**: PREFER editing existing files over creating new ones.
-7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 96% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead.
+7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 96% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead. **Never `mock.module()` on `functions.tsx` barrel modules** (e.g., `@/data/stacks/functions`) — mock the underlying service layer instead (e.g., `@/lib/stacks/stack-service`). This avoids global pollution while still intercepting the dynamic `await import()` calls inside `createServerFn` handlers. Always provide ALL exports when mocking a service module to prevent other test files from seeing `undefined` exports. When tests need `setTimeout` to fire immediately (retry loops, health checks), spy on `globalThis.setTimeout` in `beforeEach`/`afterEach` at the appropriate `describe` scope.
 8. **Logging**: Be purposeful with console methods. Use `console.error` for actual errors, `console.info` for operational messages (startup, shutdown), and `console.log` sparingly for temporary debugging only (do not commit). No drive-by `console.log` statements in committed code.
 9. **Routing**: Never edit `routeTree.gen.ts` (auto-generated). `AppShell` renders in root layout (`__root.tsx`) - never wrap individual routes with it. All routes use `ssr: false`. QueryClient is a singleton in `AppShell.tsx` - never create per-route.
 10. **Entity IDs**: Always use entity IDs with host prefix (e.g., `server1/tank`, `192.168.1.10/abc123`) for state keys and uniqueness checks. Never use display names - they collide across hosts.

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles, readFileFromRepo, getLog } from '../repo';
 import { saveAndCommitFile, updateManifest } from '../editor-operations';
 
@@ -10,7 +10,7 @@ describe('saveAndCommitFile', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-editor-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-editor-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
     await commitFiles(repoPath, {
@@ -87,7 +87,7 @@ describe('updateManifest', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-manifest-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-manifest-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
     await commitFiles(repoPath, {

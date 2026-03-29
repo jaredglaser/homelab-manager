@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles } from '../repo';
 import {
   identifyChangedStacks,
@@ -56,7 +56,7 @@ describe('buildDeployRequests', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-deploy-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-deploy-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
   });

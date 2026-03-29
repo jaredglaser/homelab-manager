@@ -1,6 +1,20 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const mockSaveStackComposeFile = mock(() => Promise.resolve({ commitSha: 'abc123' }));
+
+mock.module('@/lib/stacks/stack-service', () => ({
+  getStackSummaries: mock(() => Promise.resolve([])),
+  getStackDetailByName: mock(() => Promise.resolve(null)),
+  triggerStackDeploy: mock(() => Promise.resolve({ deployId: 1 })),
+  getStackDeployHistory: mock(() => Promise.resolve([])),
+  saveStackComposeFile: mockSaveStackComposeFile,
+  updateStackIconSlug: mock(() => Promise.resolve()),
+  createStackInRepo: mock(() => Promise.resolve()),
+  deleteStackFromRepo: mock(() => Promise.resolve()),
+  getManagedHostNames: mock(() => Promise.resolve([])),
+}));
 
 /**
  * Monaco Editor cannot render in Happy-DOM (CDN script loading is blocked).
@@ -13,11 +27,21 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
  */
 /** Stored onChange callback from the most recent mock editor render */
 let mockEditorOnChange: ((v: string | undefined) => void) | undefined;
-
+/** Stored onMount callback from the most recent mock editor render */
+let mockEditorOnMount: ((editorInstance: unknown) => void) | undefined;
 mock.module('@/lib/monaco-setup', () => ({}));
 mock.module('@monaco-editor/react', () => ({
-  default: ({ value, onChange }: { value: string; onChange?: (v: string | undefined) => void }) => {
+  default: ({
+    value,
+    onChange,
+    onMount,
+  }: {
+    value: string;
+    onChange?: (v: string | undefined) => void;
+    onMount?: (editorInstance: unknown) => void;
+  }) => {
     mockEditorOnChange = onChange;
+    mockEditorOnMount = onMount;
     return (
       <textarea
         data-testid="mock-editor"
@@ -190,4 +214,38 @@ describe('ComposeEditor component', () => {
     act(() => { mockEditorOnChange?.('image: redis'); });
     expect((saveButton as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it('handleEditorMount stores the editor instance without error', async () => {
+    await renderComposeEditor();
+    expect(mockEditorOnMount).toBeDefined();
+    const fakeEditor = { getModel: () => null };
+    expect(() => { mockEditorOnMount?.(fakeEditor); }).not.toThrow();
+  });
+
+  it('triggers save mutation and invalidates queries on success', async () => {
+    mockSaveStackComposeFile.mockClear();
+    const { act } = await import('@testing-library/react');
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const invalidateSpy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = invalidateSpy as typeof queryClient.invalidateQueries;
+
+    const { default: ComposeEditor } = await import('../ComposeEditor');
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ComposeEditor host="test-host" stackName="test-stack" content="image: nginx" variables={[]} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
+
+    act(() => { mockEditorOnChange?.('image: redis'); });
+    const saveButton = screen.getByRole('button', { name: /save/i });
+
+    await act(async () => { fireEvent.click(saveButton); });
+    await waitFor(() => expect(mockSaveStackComposeFile).toHaveBeenCalledTimes(1));
+
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
+    expect(invalidateSpy.mock.calls[0][0]).toEqual({ queryKey: ['stack-detail', 'test-host', 'test-stack'] });
+  });
+
 });

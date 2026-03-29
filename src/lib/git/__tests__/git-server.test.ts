@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles } from '../repo';
 import { handleInfoRefs, handleUploadPack, handleReceivePack, getHeadOid } from '../git-server';
 
@@ -10,7 +10,7 @@ describe('handleInfoRefs', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-server-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-server-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
   });
@@ -63,7 +63,7 @@ describe('handleUploadPack', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-upload-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-upload-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
     await commitFiles(repoPath, {
@@ -94,7 +94,7 @@ describe('handleReceivePack', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-receive-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-receive-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
     await commitFiles(repoPath, {
@@ -126,7 +126,7 @@ describe('request body size limit', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-size-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-size-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
     await commitFiles(repoPath, {
@@ -168,7 +168,7 @@ describe('getHeadOid', () => {
   let repoPath: string;
 
   beforeEach(async () => {
-    testDir = mkdtempSync(join(tmpdir(), 'git-head-'));
+    testDir = mkdtempSync(join(getTestTmpDir(), 'git-head-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
   });
