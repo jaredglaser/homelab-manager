@@ -6,6 +6,9 @@
 - Run `bun run typecheck` and `bun test` after code changes.
 - Check if `README.md` and `CLAUDE.md` need updates.
 
+**After editing files:**
+- When `<new-diagnostics>` appear with SonarQube issues on files you just edited, fix them before moving on. Only fix issues on files you modified — do not touch unrelated files.
+
 ## Commands
 
 ```bash
