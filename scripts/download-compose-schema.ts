@@ -7,8 +7,8 @@
  *
  * @see https://github.com/compose-spec/compose-spec
  */
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import { writeFile, mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 
 const SCHEMA_URL =
   'https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json';
@@ -36,4 +36,9 @@ async function downloadComposeSchema() {
   console.log(`Saved Compose schema to ${OUTPUT_PATH} (${sizeKB} KB)`);
 }
 
-downloadComposeSchema().catch(console.error);
+try {
+  await downloadComposeSchema();
+} catch (err) {
+  console.error(err);
+  process.exit(1);
+}
