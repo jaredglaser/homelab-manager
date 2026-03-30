@@ -19,7 +19,11 @@ interface UseContainerLogsResult {
 /**
  * Streams container logs from the SSE endpoint and writes them to an xterm.js Terminal.
  *
- * Raw ANSI escape codes are preserved - xterm.js handles rendering them natively.
+ * The agent streams logs in two phases:
+ * 1. **Backlog** — last 200 lines, written to the terminal immediately
+ * 2. **Live** — new lines as they arrive, after a `backlog_done` event
+ *
+ * Clears the terminal on reconnection to prevent duplicate backlog lines.
  * Reconnects automatically up to MAX_RECONNECT_ATTEMPTS times on connection loss.
  */
 export function useContainerLogs({
@@ -34,6 +38,7 @@ export function useContainerLogs({
   const reconnectAttemptsRef = useRef(0);
   const terminalRef = useRef(terminal);
   terminalRef.current = terminal;
+  const hasConnectedRef = useRef(false);
 
   useEffect(() => {
     if (!enabled || !terminal) return;
@@ -45,11 +50,16 @@ export function useContainerLogs({
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
-      if (mounted) {
-        setIsConnected(true);
-        setError(null);
-        reconnectAttemptsRef.current = 0;
+      if (!mounted) return;
+      setIsConnected(true);
+      setError(null);
+      reconnectAttemptsRef.current = 0;
+
+      // Clear terminal on reconnection to prevent duplicate backlog lines
+      if (hasConnectedRef.current && terminalRef.current) {
+        terminalRef.current.clear();
       }
+      hasConnectedRef.current = true;
     };
 
     eventSource.onmessage = (event) => {
@@ -66,6 +76,9 @@ export function useContainerLogs({
         // Ignore malformed messages
       }
     };
+
+    // backlog_done is informational — listening prevents EventSource from treating it as an unknown event type
+    eventSource.addEventListener('backlog_done', () => {});
 
     const handleLogError = (event: Event) => {
       if (!mounted) return;
