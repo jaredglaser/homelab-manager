@@ -12,6 +12,7 @@ RUN apt-get update && \
     # Consider pinning by content-hash when upstream signatures become available.
     curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_CLI_VERSION}.tgz" | \
     tar xz --strip-components=1 -C /usr/local/bin docker/docker && \
+    docker --version && \
     # Docker Compose v2 plugin (with SHA-256 integrity verification)
     mkdir -p /usr/local/lib/docker/cli-plugins && \
     COMPOSE_ARCH="$(uname -m)" && \
@@ -19,8 +20,9 @@ RUN apt-get update && \
     -o /usr/local/lib/docker/cli-plugins/docker-compose && \
     curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}.sha256" \
     -o /tmp/docker-compose.sha256 && \
-    sed -i "s|docker-compose-linux-${COMPOSE_ARCH}|docker-compose|" /tmp/docker-compose.sha256 && \
-    cd /usr/local/lib/docker/cli-plugins && \
+    sed -i "s|docker-compose-linux-${COMPOSE_ARCH}|/usr/local/lib/docker/cli-plugins/docker-compose|" /tmp/docker-compose.sha256 && \
+    grep -q '/usr/local/lib/docker/cli-plugins/docker-compose$' /tmp/docker-compose.sha256 || \
+      { echo "ERROR: sha256 file rewrite failed — expected absolute path in checksum file"; exit 1; } && \
     sha256sum -c /tmp/docker-compose.sha256 && \
     rm /tmp/docker-compose.sha256 && \
     chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \
