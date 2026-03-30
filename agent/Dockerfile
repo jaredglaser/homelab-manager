@@ -19,6 +19,7 @@ RUN apt-get update && \
     -o /usr/local/lib/docker/cli-plugins/docker-compose && \
     curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}.sha256" \
     -o /tmp/docker-compose.sha256 && \
+    sed -i "s|docker-compose-linux-${COMPOSE_ARCH}|docker-compose|" /tmp/docker-compose.sha256 && \
     cd /usr/local/lib/docker/cli-plugins && \
     sha256sum -c /tmp/docker-compose.sha256 && \
     rm /tmp/docker-compose.sha256 && \
