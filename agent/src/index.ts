@@ -98,7 +98,6 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
 Bun.serve({
   port: PORT,
   tls: tlsConfig,
-  idleTimeout: 255,
   async fetch(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
