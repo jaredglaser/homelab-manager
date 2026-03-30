@@ -4,9 +4,11 @@ import type Dockerode from 'dockerode';
 /**
  * Stream a Docker container's logs to the client over a Server-Sent Events (SSE) connection.
  *
- * Streams recent and live stdout/stderr output from the specified container as SSE `data` events
- * containing JSON-encoded log objects; emits SSE `error` events on failures and closes the stream
- * when the request is aborted or the log stream ends.
+ * Uses a two-phase approach:
+ * 1. **Backlog phase** - Fetches the last 200 lines without following, sends them as SSE data
+ *    events, then emits a `backlog_done` event.
+ * 2. **Live phase** - Opens a following stream starting from the last backlog timestamp, streaming
+ *    new lines as they arrive.
  *
  * Clients MUST handle the `error` SSE event since the HTTP status is always 200
  * (the Response is returned before the async start() runs).
@@ -22,15 +24,15 @@ export function handleLogStream(
   request: Request
 ): Response {
   let closed = false;
-  let logStream: Readable | null = null;
+  let activeStream: Readable | null = null;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
       request.signal.addEventListener('abort', () => {
         closed = true;
-        if (typeof logStream?.destroy === 'function') {
-          logStream.destroy();
+        if (typeof activeStream?.destroy === 'function') {
+          activeStream.destroy();
         }
         try {
           controller.close();
@@ -44,19 +46,11 @@ export function handleLogStream(
         const info = await container.inspect();
         const isTty = info.Config?.Tty ?? false;
 
-        logStream = (await container.logs({
-          follow: true,
-          stdout: true,
-          stderr: true,
-          tail: 200,
-          timestamps: true,
-        })) as unknown as Readable;
-
         let muxedRemainder: Buffer = Buffer.alloc(0);
+        let lastTimestamp: string | null = null;
 
-        logStream.on('data', (chunk: Buffer) => {
-          if (closed) return;
-
+        /** Process a chunk and enqueue parsed lines. Returns parsed lines for timestamp tracking. */
+        function processChunk(chunk: Buffer): LogLine[] {
           let lines: LogLine[];
           if (isTty) {
             lines = parseTtyChunk(chunk);
@@ -71,23 +65,81 @@ export function handleLogStream(
 
           try {
             for (const line of lines) {
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify(line)}\n\n`)
-              );
+              if (!closed) {
+                controller.enqueue(
+                  encoder.encode(`data: ${JSON.stringify(line)}\n\n`)
+                );
+              }
             }
           } catch (err) {
             if (!(err instanceof TypeError)) console.error('Unexpected error enqueuing log line:', err);
           }
+
+          return lines;
+        }
+
+        /** Backlog phase: fetch tail lines without following. */
+        const backlogStream = (await container.logs({
+          follow: false,
+          stdout: true,
+          stderr: true,
+          tail: 200,
+          timestamps: true,
+        })) as unknown as Readable;
+
+        activeStream = backlogStream;
+
+        await new Promise<void>((resolve, reject) => {
+          backlogStream.on('data', (chunk: Buffer) => {
+            if (closed) return;
+            const lines = processChunk(chunk);
+            for (const line of lines) {
+              const ts = extractTimestamp(line.text);
+              if (ts) lastTimestamp = ts;
+            }
+          });
+
+          backlogStream.on('end', () => resolve());
+          backlogStream.on('error', (err: Error) => reject(err));
         });
 
-        logStream.on('end', () => {
+        if (closed) return;
+
+        // Emit backlog_done separator
+        controller.enqueue(encoder.encode('event: backlog_done\ndata: {}\n\n'));
+
+        // Reset muxed remainder for the live phase
+        muxedRemainder = Buffer.alloc(0);
+
+        // Determine since parameter for live stream
+        const sinceSeconds = lastTimestamp
+          ? Math.floor(new Date(lastTimestamp).getTime() / 1000)
+          : Math.floor(Date.now() / 1000);
+
+        /** Live phase: follow new logs from the last backlog timestamp. */
+        const liveStream = (await container.logs({
+          follow: true,
+          stdout: true,
+          stderr: true,
+          since: sinceSeconds,
+          timestamps: true,
+        })) as unknown as Readable;
+
+        activeStream = liveStream;
+
+        liveStream.on('data', (chunk: Buffer) => {
+          if (closed) return;
+          processChunk(chunk);
+        });
+
+        liveStream.on('end', () => {
           if (!closed) {
             closed = true;
             controller.close();
           }
         });
 
-        logStream.on('error', (error: Error) => {
+        liveStream.on('error', (error: Error) => {
           console.error(`Log stream error for container ${containerId}:`, error);
           if (!closed) {
             controller.enqueue(
@@ -124,6 +176,24 @@ export function handleLogStream(
       Connection: 'keep-alive',
     },
   });
+}
+
+/**
+ * Extract a Docker timestamp from the beginning of a log line.
+ *
+ * Docker timestamps appear as the first space-delimited token and look like
+ * `2026-03-29T12:30:45.123456789Z`. This function validates basic structure
+ * (length > 10, dash at index 4, contains 'T').
+ *
+ * @param text - A log line potentially prefixed with a Docker timestamp
+ * @returns The timestamp string if found, or null
+ */
+function extractTimestamp(text: string): string | null {
+  const token = text.split(' ')[0];
+  if (token && token.length > 10 && token[4] === '-' && token.includes('T')) {
+    return token;
+  }
+  return null;
 }
 
 interface LogLine {
