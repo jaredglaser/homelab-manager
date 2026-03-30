@@ -290,8 +290,7 @@ describe('createCollectorsForManagedHosts', () => {
     updated_at: new Date(),
   };
 
-  it('creates AgentStatsCollector for each managed host when feature flag is on', async () => {
-    const mockIsEnabled = mock(() => true);
+  it('creates AgentStatsCollector for each managed host', async () => {
     const mockFindAll = mock(async () => [sampleManagedHost]);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
@@ -303,7 +302,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(1);
@@ -313,30 +312,7 @@ describe('createCollectorsForManagedHosts', () => {
     shutdownController.abort();
   });
 
-  it('returns empty when feature flag is off', async () => {
-    const mockIsEnabled = mock(() => false);
-    const mockFindAll = mock(async () => []);
-
-    const { createCollectorsForManagedHosts } = await import('../collector-factory');
-
-    const shutdownController = new AbortController();
-    await using stack = new AsyncDisposableStack();
-    const workerConfig = createWorkerConfig({ docker: { enabled: true } });
-
-    const result = await createCollectorsForManagedHosts(
-      db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, async () => 'mock-token',
-    );
-
-    expect(result.collectors).toHaveLength(0);
-    expect(result.runners).toHaveLength(0);
-    expect(mockFindAll).not.toHaveBeenCalled();
-
-    shutdownController.abort();
-  });
-
   it('returns empty when no managed hosts exist', async () => {
-    const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => []);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
@@ -347,7 +323,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -359,7 +335,6 @@ describe('createCollectorsForManagedHosts', () => {
 
   it('skips managed host and continues when getToken throws', async () => {
     const host2: ManagedHost = { ...sampleManagedHost, id: 2, name: 'other-host', agent_url: 'http://192.168.1.11:9090' };
-    const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost, host2]);
     let callCount = 0;
     const mockGetToken = mock(async (hostname: string) => {
@@ -376,7 +351,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, mockGetToken,
+      mockFindAll, mockGetToken,
     );
 
     expect(result.collectors).toHaveLength(1);
@@ -391,7 +366,6 @@ describe('createCollectorsForManagedHosts', () => {
   });
 
   it('returns empty when both docker and zfs collection are disabled', async () => {
-    const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost]);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
@@ -402,7 +376,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -413,7 +387,6 @@ describe('createCollectorsForManagedHosts', () => {
   });
 
   it('creates only ZFSCollector when docker disabled but zfs enabled', async () => {
-    const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost]);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
@@ -424,7 +397,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(1);
@@ -435,7 +408,6 @@ describe('createCollectorsForManagedHosts', () => {
   });
 
   it('creates both AgentStatsCollector and ZFSCollector when both enabled', async () => {
-    const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost]);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
@@ -446,7 +418,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => 'mock-token',
     );
 
     expect(result.collectors).toHaveLength(2);
@@ -459,7 +431,6 @@ describe('createCollectorsForManagedHosts', () => {
   });
 
   it('skips managed hosts when getToken returns null', async () => {
-    const mockIsEnabled = mock(() => true);
     const mockFindAll = mock(async () => [sampleManagedHost]);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
@@ -470,7 +441,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockIsEnabled, mockFindAll, async () => null,
+      mockFindAll, async () => null,
     );
 
     expect(result.collectors).toHaveLength(0);

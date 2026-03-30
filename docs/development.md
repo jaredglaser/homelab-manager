@@ -55,11 +55,7 @@ DOCKER_HOST_NAME_1="dev-machine"
 # Web server
 WEB_PORT="3000"
 
-# Docker Management
-DOCKER_MANAGEMENT_FEATURE_FLAG="true"
-VITE_DOCKER_MANAGEMENT_FEATURE_FLAG="true"
-
-# Git stacks repo
+# Docker Stack Management / Git stacks repo
 GIT_REPOS_DIR="./data/repos"
 GIT_SERVER_TOKEN="dev-git-token"
 

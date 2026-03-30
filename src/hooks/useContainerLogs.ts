@@ -55,10 +55,11 @@ export function useContainerLogs({
     eventSource.onmessage = (event) => {
       if (!mounted || !terminalRef.current) return;
       try {
-        const data = JSON.parse(event.data) as {
-          lines: { text: string; stream: string }[];
-        };
-        for (const line of data.lines) {
+        const data = JSON.parse(event.data) as
+          | { lines: { text: string; stream: string }[] }
+          | { text: string; stream: string };
+        const lines = 'lines' in data ? data.lines : [data];
+        for (const line of lines) {
           terminalRef.current.writeln(line.text);
         }
       } catch {
@@ -66,18 +67,21 @@ export function useContainerLogs({
       }
     };
 
-    eventSource.addEventListener('log_error', (event) => {
+    const handleLogError = (event: Event) => {
       if (!mounted) return;
       try {
-        const data = JSON.parse((event as MessageEvent).data) as { message?: string };
-        const msg = data.message ?? 'Log stream error';
+        const data = JSON.parse((event as MessageEvent).data) as { message?: string; error?: string };
+        const msg = data.message ?? data.error ?? 'Log stream error';
         if (terminalRef.current) {
           terminalRef.current.writeln(`\x1b[31m[Error] ${msg}\x1b[0m`);
         }
       } catch {
         // Ignore parse errors
       }
-    });
+    };
+
+    eventSource.addEventListener('log_error', handleLogError);
+    eventSource.addEventListener('error', handleLogError);
 
     eventSource.onerror = () => {
       if (mounted) {

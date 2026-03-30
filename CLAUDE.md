@@ -84,7 +84,7 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 
 Pattern: `createFileRoute` with `server.handlers.GET` → dynamic import server-init + poll service → `ReadableStream` + subscribe → cleanup on `request.signal` abort. Track `closed` flag to prevent enqueue-after-close.
 
-Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `settings`, `docker-logs.$containerId` (parameterized), `git.$` (git HTTP smart protocol, feature-flagged).
+Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `settings`, `docker-logs.$containerId` (parameterized), `git.$` (git HTTP smart protocol).
 
 ```typescript
 // ALWAYS dynamic import - static imports break the client bundle:
@@ -106,11 +106,11 @@ Separate Bun package that runs as a sidecar container alongside Docker hosts. Pr
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Feature-flagged behind `DOCKER_MANAGEMENT_FEATURE_FLAG=true`. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index.
+Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index.
 
 ### Git Management (`src/lib/git/`)
 
-Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/git/stacks/...` via `Bun.spawn`. Post-receive hook diffs commits, identifies changed stacks, and builds deploy requests. Commits serialized per-repo via async mutex. Feature-flagged behind `DOCKER_MANAGEMENT_FEATURE_FLAG=true`.
+Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/git/stacks/...` via `Bun.spawn`. Post-receive hook diffs commits, identifies changed stacks, and builds deploy requests. Commits serialized per-repo via async mutex.
 
 ### Database Tables
 

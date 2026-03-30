@@ -235,7 +235,6 @@ export const updateStackSettings = createServerFn({ method: 'POST' })
     const { loadGitConfig } = await import('@/lib/config/git-config');
     const { updateManifest } = await import('@/lib/git/editor-operations');
     const config = loadGitConfig();
-    if (!config.enabled || !config.repoPath) throw new Error('Git management is not enabled');
     return updateManifest(config.repoPath, {
       stackName: data.stackName,
       host: data.host,

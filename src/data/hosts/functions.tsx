@@ -4,23 +4,18 @@ import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSche
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
   handleUpdateAgent, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
-  type AddHostResult, type HostOperationResult, type HostHandlerDeps, type HostRepo,
+  type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
 export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
 
 async function loadDeps(): Promise<HostHandlerDeps> {
-  const { isDockerManagementEnabled } = await import('@/lib/config/feature-flags');
-  // Check flag before loading DB to avoid unnecessary connection attempts
-  if (!isDockerManagementEnabled()) {
-    return { repo: null as unknown as HostRepo, isEnabled: () => false };
-  }
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { HostRepository } = await import('@/lib/database/repositories/host-repository');
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  return { repo: new HostRepository(dbClient.getPool()), isEnabled: isDockerManagementEnabled };
+  return { repo: new HostRepository(dbClient.getPool()) };
 }
 
 async function loadDockerClient(socketProxyUrl: string) {
@@ -35,7 +30,7 @@ export const addHost = createServerFn()
   .inputValidator(addHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
-    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
     const { generateToken } = await import('@/lib/services/token-service');
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
@@ -59,7 +54,7 @@ export const registerExistingHost = createServerFn()
   .inputValidator(registerExistingHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
-    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
     const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
@@ -77,7 +72,7 @@ export const verifyHost = createServerFn()
   .inputValidator(verifyHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
-    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
     const { checkAgentHealth, verifyAgentToken } = await import('@/lib/services/agent-health-service');
     const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
     const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
@@ -96,7 +91,7 @@ export const removeHost = createServerFn()
   .inputValidator(removeHostSchema)
   .handler(async ({ data }): Promise<{ success: boolean }> => {
     const baseDeps = await loadDeps();
-    if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
     const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
     const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
     const baoClient = new OpenBaoClient(loadOpenBaoConfig());

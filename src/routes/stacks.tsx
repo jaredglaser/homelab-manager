@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
 import { listStacks, createStack, listManagedHostNames } from '@/data/stacks/functions'
 import { useStackStatus } from '@/hooks/useStackStatus'
 import CreateStackDialog from '@/components/stacks/CreateStackDialog'
@@ -11,20 +10,8 @@ import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
 export const Route = createFileRoute('/stacks')({
   ssr: false,
-  component: StacksLayoutContent,
+  component: StacksLayout,
 })
-
-function StacksLayoutContent() {
-  if (!isDockerManagementEnabledClient()) {
-    return (
-      <div className="w-full p-6">
-        <p className="text-sm opacity-70">Docker management is not enabled.</p>
-      </div>
-    )
-  }
-
-  return <StacksLayout />
-}
 
 const HOST_NAMES_QUERY_KEY = ['managed-host-names']
 

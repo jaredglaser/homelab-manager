@@ -100,8 +100,6 @@ Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` disc
 
 ## Docker Stack Management
 
-> Feature-flagged behind `DOCKER_MANAGEMENT_FEATURE_FLAG=true`. When off, the existing monitoring-only Docker page is unaffected.
-
 GitOps-style Docker stack management. Users define stacks as docker-compose files in a git repository managed by homelab-manager. Changes — via an in-app editor or `git push` — trigger deployments to Docker hosts through lightweight agent containers.
 
 ### High-Level Flow
@@ -177,10 +175,9 @@ Server-side git repository using isomorphic-git for repo operations and git CLI 
 
 ```
 Server boots
-  → DOCKER_MANAGEMENT_FEATURE_FLAG=true?
-    → ensureRepoInitialized()
-      → initBareRepo (create /data/repos/stacks.git if needed)
-      → No commits? Seed manifest.yaml with "stacks: {}"
+  → ensureRepoInitialized()
+    → initBareRepo (create /data/repos/stacks.git if needed)
+    → No commits? Seed manifest.yaml with "stacks: {}"
 ```
 
 **Git HTTP smart protocol** (`src/routes/api/git.$.ts`):

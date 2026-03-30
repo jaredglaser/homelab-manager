@@ -1,8 +1,7 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
-import { isDockerManagementEnabled } from '@/lib/config/feature-flags';
+import { loadDockerConfig } from '@/lib/config/docker-config';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 
-const DEV_HOST_NAME = 'localhost';
 const DEV_AGENT_URL = 'http://localhost:9090';
 const DEV_HEALTH_CHECK_URL = 'http://hlm-agent:9090';
 const HEALTH_CHECK_ATTEMPTS = 5;
@@ -11,21 +10,37 @@ const OPENBAO_RETRY_ATTEMPTS = 10;
 const OPENBAO_RETRY_DELAY_MS = 2000;
 
 /**
- * Auto-seed a localhost managed host for local development.
+ * Derive the dev host name from the first Docker config host.
+ * This ensures the managed host name matches the env-var Docker config
+ * so entity IDs (host/containerId) resolve correctly for log streaming.
+ *
+ * @throws If no Docker hosts are configured — dev seed requires at least one
+ */
+function getDevHostName(): string {
+  const config = loadDockerConfig();
+  if (config.hosts.length === 0) {
+    throw new Error('[DevSeed] Cannot seed dev agent: no Docker hosts configured (DOCKER_HOST_1 is required)');
+  }
+  return config.hosts[0].name;
+}
+
+/**
+ * Auto-seed a managed host for local development.
+ * Uses the first Docker config host name so entity IDs align.
  * Gated by DEV_AGENT_TOKEN env var — never runs in production.
  * Idempotent: skips if any managed hosts already exist.
  */
 export async function seedDevAgent(db: DatabaseClient): Promise<void> {
   const devToken = process.env.DEV_AGENT_TOKEN;
   if (!devToken) return;
-  if (!isDockerManagementEnabled()) return;
 
+  const devHostName = getDevHostName();
   const hostRepo = new HostRepository(db.getPool());
   const existingHosts = await hostRepo.findAll();
   if (existingHosts.length > 0) {
     // Host exists — ensure token is stored and agent URL is up to date
-    await ensureTokenStored(DEV_HOST_NAME, devToken);
-    const devHost = existingHosts.find((h) => h.name === DEV_HOST_NAME);
+    await ensureTokenStored(devHostName, devToken);
+    const devHost = existingHosts.find((h) => h.name === devHostName);
     if (devHost && devHost.agent_url !== DEV_AGENT_URL) {
       await hostRepo.update(devHost.id, { agent_url: DEV_AGENT_URL });
       console.info(`[DevSeed] Updated agent URL from ${devHost.agent_url} to ${DEV_AGENT_URL}`);
@@ -33,16 +48,16 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
     return;
   }
 
-  console.info('[DevSeed] Seeding localhost managed host for development');
+  console.info(`[DevSeed] Seeding managed host "${devHostName}" for development`);
 
   const host = await hostRepo.create({
-    name: DEV_HOST_NAME,
+    name: devHostName,
     agent_url: DEV_AGENT_URL,
     capabilities: { docker: true },
   });
 
   // Store dev token in OpenBao (retries until OpenBao is ready)
-  await ensureTokenStored(DEV_HOST_NAME, devToken);
+  await ensureTokenStored(devHostName, devToken);
 
   // Health check with retries — agent may still be starting
   for (let attempt = 1; attempt <= HEALTH_CHECK_ATTEMPTS; attempt++) {

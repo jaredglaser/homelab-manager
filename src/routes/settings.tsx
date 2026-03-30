@@ -3,7 +3,6 @@ import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Switch, Typogra
 import { useSettings, type MemoryDisplayMode, type DecimalSettings, type LightPalette } from '@/hooks/useSettings'
 import PageHeader from '@/components/PageHeader'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCard'
-import { isDockerManagementEnabledClient } from '@/lib/utils/feature-flags'
 
 export const Route = createFileRoute('/settings')({
   ssr: false,
@@ -212,7 +211,7 @@ function SettingsContent() {
           </div>
         </Card>
 
-        {isDockerManagementEnabledClient() && <ManagedHostsCard />}
+        <ManagedHostsCard />
 
         <Card variant="outlined" className="p-4">
           <Typography variant="h6" className="mb-4">Developer</Typography>

@@ -28,11 +28,10 @@ export interface HostRepo {
 
 export interface HostHandlerDeps {
   repo: HostRepo;
-  isEnabled: () => boolean;
 }
 
 export async function handleListHosts(deps: HostHandlerDeps): Promise<HostListItem[]> {
-  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
   const hosts = await deps.repo.findAll();
   return hosts.map((h) => toHostListItem(h));
 }
@@ -41,7 +40,7 @@ export async function handleCheckHostHealth(
   deps: HostHandlerDeps & { checkHealth: (url: string) => Promise<HealthCheckOutcome> },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
-  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
 
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
@@ -65,7 +64,7 @@ export async function handleRemoveHost(
   },
   data: { hostId: number },
 ): Promise<{ success: boolean }> {
-  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
 
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
@@ -84,7 +83,7 @@ export async function handleUpdateAgent(
   deps: HostHandlerDeps & { checkHealth: (url: string) => Promise<HealthCheckOutcome> },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
-  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
 
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
@@ -105,7 +104,7 @@ export async function handleUpdateHost(
   deps: HostHandlerDeps,
   data: { hostId: number; name?: string; agentUrl?: string; socketProxyUrl?: string },
 ): Promise<HostListItem> {
-  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
 
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
@@ -130,7 +129,7 @@ export async function handleRegisterExistingHost(
   },
   data: { name: string; agentUrl: string; socketProxyUrl: string; agentToken: string },
 ): Promise<AddHostResult> {
-  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
 
   const host = await deps.repo.create({
     name: data.name,
@@ -175,7 +174,7 @@ export async function handleVerifyHost(
   },
   data: { name: string; agentUrl: string; agentToken: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
-  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
 
   // 1. Health check the agent before creating any records
   const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, [500, 1000, 2000]);
@@ -301,7 +300,7 @@ export async function handleAddHost(
   deps: AddHostDeps,
   data: AddHostInput,
 ): Promise<AddHostResult> {
-  if (!deps.isEnabled()) throw new Error('Docker management feature is not enabled');
+
 
   const plainToken = deps.generateToken();
 

@@ -99,20 +99,19 @@ export async function createCollectorsForManagedHosts(
   workerConfig: WorkerConfig,
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
-  isManagementEnabled: () => boolean,
   findAllHosts: () => Promise<ManagedHost[]>,
   getToken: (hostname: string) => Promise<string | null>,
 ): Promise<CollectorFactoryResult> {
   const collectors: BaseCollector[] = [];
   const runners: Promise<void>[] = [];
 
-  if (!isManagementEnabled() || (!workerConfig.docker.enabled && !workerConfig.zfs.enabled)) {
+  if (!workerConfig.docker.enabled && !workerConfig.zfs.enabled) {
     return { collectors, runners };
   }
 
   const hosts = await findAllHosts();
   if (hosts.length === 0) {
-    console.info('[Worker] Management feature enabled but no managed hosts found');
+    console.info('[Worker] No managed hosts found');
     return { collectors, runners };
   }
 
@@ -154,7 +153,7 @@ export async function createCollectorsForManagedHosts(
 }
 
 /**
- * Create StackStatusCollectors for managed hosts when the management feature flag is enabled.
+ * Create StackStatusCollectors for managed hosts.
  * Each collector connects to the agent's /stacks/events SSE endpoint and persists
  * container status to the database.
  *
@@ -164,15 +163,10 @@ export async function createStackStatusCollectors(
   db: DatabaseClient,
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
-  isManagementEnabled: () => boolean,
   findAllHosts: () => Promise<ManagedHost[]>,
   getToken: (hostname: string) => Promise<string | null>,
 ): Promise<{ runners: Promise<void>[] }> {
   const runners: Promise<void>[] = [];
-
-  if (!isManagementEnabled()) {
-    return { runners };
-  }
 
   const hosts = await findAllHosts();
   const repo = new StackStatusRepository(db.getPool());

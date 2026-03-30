@@ -25,9 +25,9 @@ const TEARDOWN_POLL_INTERVAL_MS = 1_000;
 const TEARDOWN_POLL_TIMEOUT_MS = 120_000;
 const TERMINAL_DEPLOY_STATUSES = new Set(['succeeded', 'failed', 'no_change']);
 
-function getRepoPath(): string | null {
+function getRepoPath(): string {
   const config = loadGitConfig();
-  return config.enabled ? config.repoPath : null;
+  return config.repoPath;
 }
 
 /** Trigger teardown and poll until it reaches a terminal status. */
@@ -55,7 +55,6 @@ async function teardownAndAwait(
 
 export async function getStackSummaries(): Promise<StackSummary[]> {
   const repoPath = getRepoPath();
-  if (!repoPath) return [];
 
   let manifestContent: string;
   try {
@@ -103,8 +102,6 @@ export async function getStackDetailByName(
 ): Promise<StackDetail | null> {
   try {
     const repoPath = getRepoPath();
-    if (!repoPath) return null;
-
     const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
     const manifest = parseManifest(manifestContent);
     const entry = manifest.stacks[stackName];
@@ -132,7 +129,6 @@ export async function triggerStackDeploy(params: {
   forceRecreate?: boolean;
 }): Promise<{ deployId: number }> {
   const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
 
   const { default: git } = await import('isomorphic-git');
   const fs = await import('node:fs');
@@ -213,8 +209,6 @@ export async function getStackDeployHistory(
 ): Promise<StackDeployRecord[]> {
   try {
     const repoPath = getRepoPath();
-    if (!repoPath) return [];
-
     const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
     const manifest = parseManifest(manifestContent);
     const entry = manifest.stacks[stackName];
@@ -241,7 +235,6 @@ export async function saveStackComposeFile(
   content: string,
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
 
   return saveAndCommitFile(repoPath, {
     filePath: `${stackName}/${COMPOSE_FILENAME}`,
@@ -257,7 +250,6 @@ export async function createStackInRepo(
   autoDeploy: boolean,
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
 
   if (!SAFE_PATH_SEGMENT_PATTERN.test(stackName)) {
     throw new Error(`Invalid stack name "${stackName}" — must contain only letters, numbers, hyphens, and underscores`);
@@ -319,7 +311,6 @@ export async function deleteStackFromRepo(
   teardown: boolean,
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
 
   // Read manifest to get host for this stack
   const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
@@ -412,8 +403,6 @@ export async function updateStackIconSlug(
 ): Promise<void> {
   try {
     const repoPath = getRepoPath();
-    if (!repoPath) return;
-
     const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
     const manifest = parseManifest(manifestContent);
     const entry = manifest.stacks[stackName];

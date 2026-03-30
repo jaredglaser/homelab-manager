@@ -8,16 +8,10 @@ const DEFAULT_MANIFEST = `stacks: {}
 
 /**
  * Ensure the stacks git repository is initialized.
- * Called on server startup when DOCKER_MANAGEMENT_FEATURE_FLAG is enabled.
  * Creates the bare repo and seeds it with an empty manifest if it doesn't exist.
  */
 export async function ensureRepoInitialized(): Promise<void> {
   const config = loadGitConfig();
-
-  if (!config.enabled) {
-    return;
-  }
-
   const { repoPath } = config;
 
   await initBareRepo(repoPath);

@@ -40,7 +40,7 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
 }
 
 function baseDeps(repo?: Partial<HostRepo>): HostHandlerDeps {
-  return { repo: mockRepo(repo), isEnabled: () => true };
+  return { repo: mockRepo(repo) };
 }
 
 describe('handleListHosts', () => {
@@ -57,10 +57,6 @@ describe('handleListHosts', () => {
     expect(await handleListHosts(deps)).toEqual([]);
   });
 
-  it('throws when feature flag is off', async () => {
-    const deps = { ...baseDeps(), isEnabled: () => false };
-    await expect(handleListHosts(deps)).rejects.toThrow('not enabled');
-  });
 });
 
 describe('handleCheckHostHealth', () => {
@@ -117,10 +113,6 @@ describe('handleRemoveHost', () => {
     await expect(handleRemoveHost(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 
-  it('throws when feature flag is off', async () => {
-    const deps = { ...removeDeps(), isEnabled: () => false };
-    await expect(handleRemoveHost(deps, { hostId: 1 })).rejects.toThrow('not enabled');
-  });
 });
 
 describe('handleUpdateAgent', () => {
@@ -148,10 +140,6 @@ describe('handleUpdateAgent', () => {
     await expect(handleUpdateAgent(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 
-  it('throws when feature flag is off', async () => {
-    const deps = { ...baseDeps(), isEnabled: () => false, checkHealth: mock() };
-    await expect(handleUpdateAgent(deps, { hostId: 1 })).rejects.toThrow('not enabled');
-  });
 });
 
 describe('handleVerifyHost', () => {
@@ -211,13 +199,6 @@ describe('handleVerifyHost', () => {
       handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'tok' })
     ).rejects.toThrow(/Failed to store agent token in OpenBao/);
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
-  });
-
-  it('throws when feature flag is off', async () => {
-    const deps = { ...verifyDeps(), isEnabled: () => false };
-    await expect(
-      handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'tok' })
-    ).rejects.toThrow('not enabled');
   });
 
   it('passes capabilities to repo.create', async () => {
@@ -402,11 +383,6 @@ describe('handleUpdateHost', () => {
   it('throws when host not found', async () => {
     const deps = baseDeps({ findById: mock(() => Promise.resolve(null)) });
     await expect(handleUpdateHost(deps, { hostId: 999 })).rejects.toThrow('not found');
-  });
-
-  it('throws when feature flag is off', async () => {
-    const deps = { ...baseDeps(), isEnabled: () => false };
-    await expect(handleUpdateHost(deps, { hostId: 1 })).rejects.toThrow('not enabled');
   });
 
   it('passes only provided fields to repo.update', async () => {

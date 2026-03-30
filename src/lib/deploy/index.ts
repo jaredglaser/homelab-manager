@@ -3,7 +3,6 @@ export { GitTriggerBuilder, UITriggerBuilder } from './builders';
 export { NoOpSecretResolver, extractVariableReferences, COMPOSE_VARIABLE_REGEX } from './secret-resolver';
 export { computeHash, detectChanges } from './change-detection';
 export type { ChangeDetectionResult } from './change-detection';
-export { isDockerManagementEnabled } from './feature-flag';
 export type {
   DeployAction,
   DeployStatus,
