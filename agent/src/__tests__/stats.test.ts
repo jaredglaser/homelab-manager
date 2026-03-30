@@ -537,7 +537,7 @@ describe('handleStatsStream — container refresh', () => {
     expect(text).toContain('"c2"');
   });
 
-  test('destroys streams for removed containers', async () => {
+  test('destroys streams for removed containers and cleans up previous frames', async () => {
     const container1 = { Id: 'rm1', Names: ['/removeme'], Image: 'x:latest' };
     const emitter1 = new EventEmitter();
     const destroySpy = mock(() => {});
@@ -559,8 +559,16 @@ describe('handleStatsStream — container refresh', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request, fastOptions);
 
-    // Wait for initial + refresh
-    const text = await readUntil(response, (s) => s.includes('event: containers'), 2000);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Emit a stats frame so prevFrames has an entry for rm1
+    emitter1.emit('data', Buffer.from(makeStatsJson() + '\n'));
+
+    // Wait for refresh cycle to remove the container
+    const text = await readUntil(response, (s) => {
+      const containerEvents = s.match(/event: containers/g);
+      return (containerEvents?.length ?? 0) >= 2;
+    }, 2000);
     ac.abort();
 
     expect(destroySpy).toHaveBeenCalledTimes(1);
