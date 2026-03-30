@@ -71,6 +71,9 @@ x-worker-dev: &worker-dev
   depends_on:
     postgres:
       condition: service_healthy
+    openbao:
+      condition: service_healthy
+      required: false
 
 services:
   # PostgreSQL database
@@ -111,13 +114,102 @@ services:
       WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
       DOCKER_MANAGEMENT_FEATURE_FLAG: ${DOCKER_MANAGEMENT_FEATURE_FLAG:-}
-      OPENBAO_URL: ${OPENBAO_URL:-}
+      OPENBAO_URL: "http://openbao:8200"
       OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+      DEV_AGENT_TOKEN: ${DEV_AGENT_TOKEN:-}
+      WORKER_LOCALHOST_AGENT: "hlm-agent"
+
+  # Socket proxy for secure Docker socket access (management profile)
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    container_name: hlm-socket-proxy
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      VERSION: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 1
+      POST: 1
+      EXEC: 1
+      CONTAINERS_CREATE: 1
+      CONTAINERS_DELETE: 1
+    networks:
+      - agent-internal
+    profiles:
+      - management
+
+  # Agent sidecar for Docker management (management profile)
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: hlm-agent
+    restart: unless-stopped
+    environment:
+      DOCKER_HOST: "tcp://socket-proxy:2375"
+      AGENT_TOKEN: ${DEV_AGENT_TOKEN:-dev-agent-token}
+      AGENT_PORT: "9090"
+      STACKS_DIR: "/opt/homelab-manager/stacks"
+    volumes:
+      - agent-stacks-local:/opt/homelab-manager/stacks
+    ports:
+      - "9090:9090"
+    networks:
+      - agent-internal
+      - homelab-network
+    depends_on:
+      - socket-proxy
+    labels:
+      - hlm.managed=true
+      - hlm.role=agent
+    profiles:
+      - management
+
+  # OpenBao with persistent file storage (management profile)
+  # Auto-initializes and unseals on first start via the entrypoint script.
+  openbao:
+    image: openbao/openbao
+    container_name: homelab-openbao-local
+    command: server -config=/openbao/config/local.hcl
+    environment:
+      BAO_ADDR: "http://127.0.0.1:8200"
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - openbao-data-local:/openbao/data
+      - ./dev/openbao/local.hcl:/openbao/config/local.hcl:ro
+      - ./dev/openbao/entrypoint.sh:/openbao/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/openbao/entrypoint.sh"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - homelab-network
+    profiles:
+      - management
 
 volumes:
   node_modules:
   pgdata-local:
+  openbao-data-local:
+  agent-stacks-local:
 
 networks:
   homelab-network:
     driver: bridge
+  agent-internal:
+    driver: bridge
+    internal: true

@@ -17,6 +17,18 @@ export interface CollectorFactoryResult {
 }
 
 /**
+ * Rewrite localhost agent URLs so the worker container can reach agents
+ * on the same Docker network. Uses WORKER_LOCALHOST_AGENT env var as the
+ * Docker-internal hostname (e.g. "hlm-agent"). Remote agent URLs
+ * (e.g. 192.168.1.50:9090) pass through unchanged.
+ */
+export function resolveAgentUrl(url: string): string {
+  const dockerHost = process.env.WORKER_LOCALHOST_AGENT;
+  if (!dockerHost) return url;
+  return url.replace('://localhost:', `://${dockerHost}:`);
+}
+
+/**
  * Create and register enabled collectors based on the provided worker configuration.
  *
  * @param proxmoxPollIntervalMs - Optional poll interval in milliseconds for the Proxmox collector; when omitted a default of 10000 ms is used
@@ -117,19 +129,21 @@ export async function createCollectorsForManagedHosts(
       continue;
     }
 
+    const resolvedHost = { ...host, agent_url: resolveAgentUrl(host.agent_url) };
+
     if (workerConfig.docker.enabled) {
-      console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${host.agent_url})`);
+      console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${resolvedHost.agent_url})`);
       const dockerCollector = stack.use(
-        new AgentStatsCollector(db, workerConfig, host, token, shutdownController)
+        new AgentStatsCollector(db, workerConfig, resolvedHost, token, shutdownController)
       );
       collectors.push(dockerCollector);
       runners.push(dockerCollector.run());
     }
 
     if (workerConfig.zfs.enabled) {
-      console.info(`[Worker] Starting ZFSCollector for ${host.name} (${host.agent_url})`);
+      console.info(`[Worker] Starting ZFSCollector for ${host.name} (${resolvedHost.agent_url})`);
       const zfsCollector = stack.use(
-        new ZFSCollector(db, workerConfig, host, token, shutdownController)
+        new ZFSCollector(db, workerConfig, resolvedHost, token, shutdownController)
       );
       collectors.push(zfsCollector);
       runners.push(zfsCollector.run());
@@ -170,10 +184,11 @@ export async function createStackStatusCollectors(
       continue;
     }
 
-    console.info(`[Worker] Starting StackStatusCollector for ${host.name} (${host.agent_url})`);
+    const resolvedUrl = resolveAgentUrl(host.agent_url);
+    console.info(`[Worker] Starting StackStatusCollector for ${host.name} (${resolvedUrl})`);
     const collector = stack.use(
       new StackStatusCollector(
-        { name: host.name, agentUrl: host.agent_url },
+        { name: host.name, agentUrl: resolvedUrl },
         token,
         repo,
         shutdownController,

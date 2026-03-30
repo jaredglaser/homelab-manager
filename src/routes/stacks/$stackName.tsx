@@ -64,7 +64,7 @@ function StackEditorView() {
   const [panel, setPanel] = useState<'secrets' | 'deploys'>('secrets')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-  const [detectedVars, setDetectedVars] = useState<string[]>([])
+  const [detectedVars] = useState<string[]>([])
   const [forceRecreate, setForceRecreate] = useState(false)
   const [deployMessage, setDeployMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -171,9 +171,10 @@ function StackEditorView() {
 
           {/* Compose Editor */}
           <ComposeEditorLoader
+            host={detail.host}
             stackName={stackName}
             content={detail.composeContent}
-            onVariablesChange={setDetectedVars}
+            variables={composeVars}
           />
 
           {/* Panel Toggle */}

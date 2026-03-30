@@ -64,6 +64,10 @@ async function main() {
     console.info('[Worker] Running database migrations...');
     await runMigrations(db);
 
+    // Auto-seed localhost agent in dev mode (gated by DEV_AGENT_TOKEN env var)
+    const { seedDevAgent } = await import('./dev-seed');
+    await seedDevAgent(db);
+
     // Override collection interval from database if configured
     const settingsRepo = new SettingsRepository(db.getPool());
     const resolvedInterval = await resolveCollectionInterval(settingsRepo, workerConfig.collection.interval);

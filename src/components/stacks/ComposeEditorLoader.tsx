@@ -7,7 +7,7 @@ interface ComposeEditorLoaderProps {
   host: string;
   stackName: string;
   content: string;
-  onVariablesChange?: (vars: string[]) => void;
+  variables: string[];
 }
 
 export default function ComposeEditorLoader(props: Readonly<ComposeEditorLoaderProps>) {

@@ -56,6 +56,9 @@ x-shared-dev: &shared-dev
   depends_on:
     postgres:
       condition: service_healthy
+    openbao:
+      condition: service_healthy
+      required: false
 
 services:
   # PostgreSQL database
@@ -98,6 +101,8 @@ services:
       DOCKER_MANAGEMENT_FEATURE_FLAG: ${DOCKER_MANAGEMENT_FEATURE_FLAG:-}
       OPENBAO_URL: "http://openbao:8200"
       OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+      DEV_AGENT_TOKEN: ${DEV_AGENT_TOKEN:-}
+      WORKER_LOCALHOST_AGENT: "hlm-agent"
 
   # Web server (development with HMR)
   web:
@@ -117,6 +122,60 @@ services:
       openbao:
         condition: service_healthy
         required: false
+
+  # Socket proxy for secure Docker socket access (management profile)
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    container_name: hlm-socket-proxy
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      VERSION: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 1
+      POST: 1
+      EXEC: 1
+      CONTAINERS_CREATE: 1
+      CONTAINERS_DELETE: 1
+    networks:
+      - agent-internal
+    profiles:
+      - management
+
+  # Agent sidecar for Docker management (management profile)
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: hlm-agent
+    restart: unless-stopped
+    environment:
+      DOCKER_HOST: "tcp://socket-proxy:2375"
+      AGENT_TOKEN: ${DEV_AGENT_TOKEN:-dev-agent-token}
+      AGENT_PORT: "9090"
+      STACKS_DIR: "/opt/homelab-manager/stacks"
+    volumes:
+      - agent-stacks:/opt/homelab-manager/stacks
+    ports:
+      - "9090:9090"
+    networks:
+      - agent-internal
+      - homelab-network
+    depends_on:
+      - socket-proxy
+    labels:
+      - hlm.managed=true
+      - hlm.role=agent
+    profiles:
+      - management
 
   # OpenBao with persistent file storage.
   # Uses file backend so secrets survive container restarts.
@@ -151,7 +210,11 @@ volumes:
   node_modules:
   pgdata-dev:
   openbao-data:
+  agent-stacks:
 
 networks:
   homelab-network:
     driver: bridge
+  agent-internal:
+    driver: bridge
+    internal: true

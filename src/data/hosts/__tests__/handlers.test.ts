@@ -129,7 +129,7 @@ describe('handleUpdateAgent', () => {
     const checkHealth = mock(() => Promise.resolve({ healthy: true as const, version: '3.0.0', dockerVersion: '24.0' }));
     const result = await handleUpdateAgent({ ...baseDeps(), repo, checkHealth }, { hostId: 1 });
     expect(result.healthy).toBe(true);
-    expect(result.version).toBe('3.0.0');
+    expect(result.healthy && result.version).toBe('3.0.0');
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
     expect(repo.updateAgentVersion).toHaveBeenCalledWith(1, '3.0.0');
   });
@@ -139,7 +139,7 @@ describe('handleUpdateAgent', () => {
     const checkHealth = mock(() => Promise.resolve({ healthy: false as const, error: 'timeout' }));
     const result = await handleUpdateAgent({ ...baseDeps(), repo, checkHealth }, { hostId: 1 });
     expect(result.healthy).toBe(false);
-    expect(result.error).toBe('timeout');
+    expect(!result.healthy && result.error).toBe('timeout');
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
   });
 

@@ -26,6 +26,7 @@ import ContainerList from '@/components/stacks/ContainerList';
 import StackActionBar from '@/components/stacks/StackActionBar';
 import DeleteStackDialog from '@/components/stacks/DeleteStackDialog';
 import type { StackContainer } from '@/types/stacks';
+import { parseVariables } from '@/lib/stacks/parse-variables';
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys';
 
 // ----- Stack settings dialog -----
@@ -229,6 +230,7 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
             host={host}
             stackName={stackName}
             content={detail.composeContent}
+            variables={parseVariables(detail.composeContent)}
           />
         </div>
         <div>

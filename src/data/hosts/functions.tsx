@@ -1,5 +1,4 @@
 import { createServerFn } from '@tanstack/react-start';
-import { parseDockerodeConfig, getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostListItem } from '@/lib/hosts/host-utils';
 import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema, registerExistingHostSchema, verifyHostSchema, updateHostSchema } from '@/data/hosts/schemas';
 import {
@@ -26,7 +25,8 @@ async function loadDeps(): Promise<HostHandlerDeps> {
 
 async function loadDockerClient(socketProxyUrl: string) {
   const Dockerode = (await import('dockerode')).default;
-  return new Dockerode(parseDockerodeConfig(socketProxyUrl));
+  const parsed = new URL(socketProxyUrl.replace(/^tcp:/, 'http:'));
+  return new Dockerode({ host: parsed.hostname, port: Number(parsed.port) || 2375 });
 }
 
 // ----- createServerFn wrappers (thin wiring only) -----

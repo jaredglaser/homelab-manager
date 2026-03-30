@@ -74,7 +74,7 @@ function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }: Remove
       <DialogTitle>Remove Host</DialogTitle>
       <DialogContent>
         <DialogContentText>
-          Remove <strong>{hostName}</strong>? The agent stack on that host will need to be stopped manually.
+          Remove <strong>{hostName}</strong>? This will also delete all deploy history for this host. The agent stack on that host will need to be stopped manually.
         </DialogContentText>
       </DialogContent>
       <DialogActions>
