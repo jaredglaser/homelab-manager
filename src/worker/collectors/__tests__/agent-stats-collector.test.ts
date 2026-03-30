@@ -475,6 +475,39 @@ describe('AgentStatsCollector — reconnection', () => {
     expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
   });
 
+  it('skips named SSE events like containers', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Named "containers" event — should be skipped
+        controller.enqueue(encoder.encode(`event: containers\ndata: {"ids":["abc123"]}\n\n`));
+        // Named "container-error" event — should be skipped
+        controller.enqueue(encoder.encode(`event: container-error\ndata: {"containerId":"abc123","error":"stream died"}\n\n`));
+        // Valid stats event (no event: prefix)
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
+        controller.close();
+      },
+    });
+
+    const fetchFn: FetchFn = mock(async () =>
+      new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    // Only the valid stats event should be inserted
+    expect(mockDb.insertedRows).toHaveLength(1);
+    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
+  });
+
   it('skips agent error events', async () => {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({

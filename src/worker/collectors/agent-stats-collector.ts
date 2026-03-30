@@ -24,12 +24,13 @@ interface AgentStatsEvent {
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** Extract the JSON payload from an SSE message, returning null if invalid */
+/** Extract the JSON payload from an SSE message, returning null if invalid.
+ *  Skips named events (e.g. "event: containers") — only default events carry stats data. */
 function extractDataLine(message: string): string | null {
   if (!message.trim()) return null;
-  const dataLine = message
-    .split('\n')
-    .find(line => line.startsWith('data: '));
+  const lines = message.split('\n');
+  if (lines.some(line => line.startsWith('event:'))) return null;
+  const dataLine = lines.find(line => line.startsWith('data: '));
   return dataLine ? dataLine.slice(6) : null;
 }
 
