@@ -78,7 +78,7 @@ export const verifyHost = createServerFn()
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
     if (!baseDeps.isEnabled()) throw new Error('Docker management feature is not enabled');
-    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    const { checkAgentHealth, verifyAgentToken } = await import('@/lib/services/agent-health-service');
     const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
     const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
     const { initializeOpenBao } = await import('@/lib/services/openbao-init');
@@ -88,6 +88,7 @@ export const verifyHost = createServerFn()
       ...baseDeps,
       storeToken: (hostname, token) => baoClient.setHostSecret(hostname, 'agent_token', token),
       checkHealth: checkAgentHealth,
+      verifyToken: verifyAgentToken,
     }, data);
   });
 

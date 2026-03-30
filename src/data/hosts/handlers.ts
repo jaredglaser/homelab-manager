@@ -171,6 +171,7 @@ export async function handleVerifyHost(
   deps: HostHandlerDeps & {
     storeToken: (hostname: string, token: string) => Promise<void>;
     checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+    verifyToken: (agentUrl: string, token: string) => Promise<void>;
   },
   data: { name: string; agentUrl: string; agentToken: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
@@ -182,14 +183,17 @@ export async function handleVerifyHost(
     throw new Error(`Agent health check failed: ${healthResult.error}`);
   }
 
-  // 2. Create DB record
+  // 2. Verify the token is accepted by the agent before storing anything
+  await deps.verifyToken(data.agentUrl, data.agentToken);
+
+  // 3. Create DB record
   const host = await deps.repo.create({
     name: data.name,
     agent_url: data.agentUrl,
     capabilities: data.capabilities,
   });
 
-  // 3. Store token in OpenBao
+  // 4. Store token in OpenBao
   try {
     await deps.storeToken(data.name, data.agentToken);
   } catch (err) {
@@ -197,7 +201,7 @@ export async function handleVerifyHost(
     throw new Error(`Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record has been cleaned up.`);
   }
 
-  // 4. Update status
+  // 5. Update status
   const status: HostStatus = 'healthy';
   await deps.repo.updateStatus(host.id, status);
   if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
