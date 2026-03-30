@@ -189,8 +189,10 @@ export function handleLogStream(
  * @returns The timestamp string if found, or null
  */
 function extractTimestamp(text: string): string | null {
-  const token = text.split(' ')[0];
-  if (token && token.length > 10 && token[4] === '-' && token.includes('T')) {
+  const spaceIdx = text.indexOf(' ');
+  if (spaceIdx <= 10) return null;
+  const token = text.substring(0, spaceIdx);
+  if (token[4] === '-' && token.includes('T')) {
     return token;
   }
   return null;

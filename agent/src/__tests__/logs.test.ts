@@ -324,16 +324,7 @@ describe('handleLogStream', () => {
   });
 
   test('two-phase: sends backlog lines then backlog_done event', async () => {
-    const backlogEmitter = new EventEmitter();
-    const liveEmitter = new EventEmitter();
-
-    const mockContainer = {
-      inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
-      logs: mock((opts: Record<string, unknown>) => {
-        if (!opts.follow) return Promise.resolve(backlogEmitter);
-        return Promise.resolve(liveEmitter);
-      }),
-    };
+    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
@@ -362,16 +353,7 @@ describe('handleLogStream', () => {
   });
 
   test('two-phase: live stream uses since timestamp from last backlog line', async () => {
-    const backlogEmitter = new EventEmitter();
-    const liveEmitter = new EventEmitter();
-
-    const mockContainer = {
-      inspect: mock(() => Promise.resolve({ Config: { Tty: false } })),
-      logs: mock((opts: Record<string, unknown>) => {
-        if (!opts.follow) return Promise.resolve(backlogEmitter);
-        return Promise.resolve(liveEmitter);
-      }),
-    };
+    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(false);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
@@ -397,16 +379,7 @@ describe('handleLogStream', () => {
   });
 
   test('two-phase: live lines stream after backlog_done', async () => {
-    const backlogEmitter = new EventEmitter();
-    const liveEmitter = new EventEmitter();
-
-    const mockContainer = {
-      inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
-      logs: mock((opts: Record<string, unknown>) => {
-        if (!opts.follow) return Promise.resolve(backlogEmitter);
-        return Promise.resolve(liveEmitter);
-      }),
-    };
+    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
@@ -461,16 +434,7 @@ describe('handleLogStream', () => {
   });
 
   test('two-phase: falls back to current time when backlog has no parseable timestamps', async () => {
-    const backlogEmitter = new EventEmitter();
-    const liveEmitter = new EventEmitter();
-
-    const mockContainer = {
-      inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
-      logs: mock((opts: Record<string, unknown>) => {
-        if (!opts.follow) return Promise.resolve(backlogEmitter);
-        return Promise.resolve(liveEmitter);
-      }),
-    };
+    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
