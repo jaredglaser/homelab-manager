@@ -39,30 +39,23 @@ async function drainStream(response: Response, ms = 500): Promise<string> {
   return result;
 }
 
-/** Create two-phase mock container with backlog and live emitters. */
-function makeTwoPhaseContainer(isTty: boolean) {
-  const backlogEmitter = new EventEmitter();
+/** Create two-phase mock container: Buffer for backlog, EventEmitter for live. */
+function makeTwoPhaseContainer(isTty: boolean, backlogData: Buffer = Buffer.alloc(0)) {
   const liveEmitter = new EventEmitter();
   const mockContainer = {
     inspect: mock(() => Promise.resolve({ Config: { Tty: isTty } })),
     logs: mock((opts: Record<string, unknown>) => {
-      if (!opts.follow) return Promise.resolve(backlogEmitter);
+      if (!opts.follow) return Promise.resolve(backlogData);
       return Promise.resolve(liveEmitter);
     }),
   };
-  return { backlogEmitter, liveEmitter, mockContainer };
+  return { liveEmitter, mockContainer };
 }
 
 describe('handleLogStream', () => {
   test('returns SSE response with correct headers', () => {
-    const backlogEmitter = new EventEmitter();
-    const mockContainer = {
-      logs: mock(() => Promise.resolve(backlogEmitter)),
-      inspect: mock(() => Promise.resolve({ Config: { Tty: false } })),
-    };
-    const mockDocker = {
-      getContainer: mock(() => mockContainer),
-    };
+    const { mockContainer } = makeTwoPhaseContainer(false);
+    const mockDocker = { getContainer: mock(() => mockContainer) };
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
 
@@ -73,16 +66,12 @@ describe('handleLogStream', () => {
   });
 
   test('TTY mode: streams log lines as SSE events', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const backlogData = Buffer.from('2026-03-29T12:00:00Z hello world\n2026-03-29T12:00:01Z foo bar\n');
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true, backlogData);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    backlogEmitter.emit('data', Buffer.from('2026-03-29T12:00:00Z hello world\n2026-03-29T12:00:01Z foo bar\n'));
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -95,16 +84,11 @@ describe('handleLogStream', () => {
   });
 
   test('TTY mode: empty lines are filtered out', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true, Buffer.from('\n\n'));
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    backlogEmitter.emit('data', Buffer.from('\n\n'));
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -117,20 +101,15 @@ describe('handleLogStream', () => {
   });
 
   test('muxed (non-TTY) mode: parses stdout and stderr mux frames', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(false);
+    const backlogData = Buffer.concat([
+      buildMuxedFrame(1, 'stdout line'),
+      buildMuxedFrame(2, 'stderr line'),
+    ]);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(false, backlogData);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    const chunk = Buffer.concat([
-      buildMuxedFrame(1, 'stdout line'),
-      buildMuxedFrame(2, 'stderr line'),
-    ]);
-    backlogEmitter.emit('data', chunk);
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -142,8 +121,8 @@ describe('handleLogStream', () => {
     expect(body).toContain(`data: ${JSON.stringify({ stream: 'stderr', text: 'stderr line' })}`);
   });
 
-  test('muxed mode: handles frames split across chunks', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(false);
+  test('muxed mode: handles frames split across live stream chunks', async () => {
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(false);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
@@ -155,15 +134,8 @@ describe('handleLogStream', () => {
 
     // Split the frame in the middle of the payload
     const splitPoint = 12; // 8-byte header + 4 bytes of payload
-    const chunk1 = fullFrame.subarray(0, splitPoint);
-    const chunk2 = fullFrame.subarray(splitPoint);
-
-    backlogEmitter.emit('data', chunk1);
-    backlogEmitter.emit('data', chunk2);
-    backlogEmitter.emit('end');
-
-    await new Promise((r) => setTimeout(r, 10));
-
+    liveEmitter.emit('data', fullFrame.subarray(0, splitPoint));
+    liveEmitter.emit('data', fullFrame.subarray(splitPoint));
     liveEmitter.emit('end');
 
     const body = await drainStream(response);
@@ -172,15 +144,11 @@ describe('handleLogStream', () => {
   });
 
   test('stream end: closes the SSE stream cleanly', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -191,15 +159,11 @@ describe('handleLogStream', () => {
   });
 
   test('stream error: enqueues an SSE error event and closes', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -244,7 +208,7 @@ describe('handleLogStream', () => {
   });
 
   test('abort signal: destroys the underlying Docker log stream', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
     const destroySpy = mock(() => {});
     (liveEmitter as any).destroy = destroySpy;
     const abortController = new AbortController();
@@ -256,10 +220,6 @@ describe('handleLogStream', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    backlogEmitter.emit('end');
-
-    await new Promise((r) => setTimeout(r, 10));
-
     abortController.abort();
     await new Promise((r) => setTimeout(r, 10));
 
@@ -267,17 +227,13 @@ describe('handleLogStream', () => {
   });
 
   test('abort after stream error does not throw (double close)', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
     const abortController = new AbortController();
 
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest(abortController);
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -295,17 +251,13 @@ describe('handleLogStream', () => {
   });
 
   test('abort signal: stops enqueuing data after client disconnects', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
     const abortController = new AbortController();
 
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest(abortController);
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -324,16 +276,11 @@ describe('handleLogStream', () => {
   });
 
   test('two-phase: sends backlog lines then backlog_done event', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true, Buffer.from('backlog line 1\n'));
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    backlogEmitter.emit('data', Buffer.from('backlog line 1\n'));
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -353,18 +300,13 @@ describe('handleLogStream', () => {
   });
 
   test('two-phase: live stream uses since timestamp from last backlog line', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(false);
+    const timestamp = '2026-03-29T12:30:45.123Z';
+    const backlogData = buildMuxedFrame(1, `${timestamp} some log line`);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(false, backlogData);
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    // Send a muxed backlog frame with a known timestamp prefix
-    const timestamp = '2026-03-29T12:30:45.123Z';
-    backlogEmitter.emit('data', buildMuxedFrame(1, `${timestamp} some log line`));
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -379,16 +321,11 @@ describe('handleLogStream', () => {
   });
 
   test('two-phase: live lines stream after backlog_done', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true, Buffer.from('history line\n'));
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    backlogEmitter.emit('data', Buffer.from('history line\n'));
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -404,49 +341,13 @@ describe('handleLogStream', () => {
     expect(backlogDoneIdx).toBeLessThan(liveLineIdx);
   });
 
-  test('two-phase: abort during backlog destroys backlog stream', async () => {
-    const backlogEmitter = new EventEmitter();
-    const destroySpy = mock(() => {});
-    (backlogEmitter as any).destroy = destroySpy;
-
-    const liveEmitter = new EventEmitter();
-    const abortController = new AbortController();
-
-    const mockContainer = {
-      inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
-      logs: mock((opts: Record<string, unknown>) => {
-        if (!opts.follow) return Promise.resolve(backlogEmitter);
-        return Promise.resolve(liveEmitter);
-      }),
-    };
-    const mockDocker = { getContainer: mock(() => mockContainer) };
-
-    const request = makeRequest(abortController);
-    handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    // Abort before backlog ends
-    abortController.abort();
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(destroySpy).toHaveBeenCalledTimes(1);
-  });
-
   test('two-phase: falls back to current time when backlog has no parseable timestamps', async () => {
-    const { backlogEmitter, liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+    const nowBefore = Date.now() / 1000;
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true, Buffer.from('no timestamp here\n'));
     const mockDocker = { getContainer: mock(() => mockContainer) };
 
     const request = makeRequest();
     const response = handleLogStream(mockDocker as any, 'abc123', request);
-
-    await new Promise((r) => setTimeout(r, 10));
-
-    const nowBefore = Date.now() / 1000;
-
-    // Emit a line with no timestamp prefix
-    backlogEmitter.emit('data', Buffer.from('no timestamp here\n'));
-    backlogEmitter.emit('end');
 
     await new Promise((r) => setTimeout(r, 10));
 

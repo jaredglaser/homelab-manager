@@ -79,29 +79,26 @@ export function handleLogStream(
         }
 
         /** Backlog phase: fetch tail lines without following. */
-        const backlogStream = (await container.logs({
+        const backlogResult = await container.logs({
           follow: false,
           stdout: true,
           stderr: true,
           tail: 200,
           timestamps: true,
-        })) as unknown as Readable;
-
-        activeStream = backlogStream;
-
-        await new Promise<void>((resolve, reject) => {
-          backlogStream.on('data', (chunk: Buffer) => {
-            if (closed) return;
-            const lines = processChunk(chunk);
-            for (const line of lines) {
-              const ts = extractTimestamp(line.text);
-              if (ts) lastTimestamp = ts;
-            }
-          });
-
-          backlogStream.on('end', () => resolve());
-          backlogStream.on('error', (err: Error) => reject(err));
         });
+
+        // Dockerode returns a Buffer (not a stream) when follow is false
+        const backlogBuffer = Buffer.isBuffer(backlogResult)
+          ? backlogResult
+          : Buffer.from(String(backlogResult));
+
+        if (!closed) {
+          const lines = processChunk(backlogBuffer);
+          for (const line of lines) {
+            const ts = extractTimestamp(line.text);
+            if (ts) lastTimestamp = ts;
+          }
+        }
 
         if (closed) return;
 
