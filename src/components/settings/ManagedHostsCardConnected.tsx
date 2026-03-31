@@ -5,7 +5,7 @@ import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
 
-export function ManagedHostsCard() {
+export function ManagedHostsCard({ filterHostName }: { filterHostName?: string } = {}) {
   const queryClient = useQueryClient()
   const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
   const [snackbar, setSnackbar] = useState<{
@@ -88,9 +88,13 @@ export function ManagedHostsCard() {
     },
   })
 
+  const filteredHosts = filterHostName
+    ? hosts.filter((h) => h.name === filterHostName)
+    : hosts
+
   return (
     <ManagedHostsCardView
-      hosts={hosts}
+      hosts={filteredHosts}
       isLoading={isLoading}
       onAdd={(name, agentUrl, agentToken, capabilities) => addMutation.mutate({ name, agentUrl, agentToken, capabilities })}
       isAdding={addMutation.isPending}

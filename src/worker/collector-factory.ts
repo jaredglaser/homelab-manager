@@ -172,6 +172,10 @@ export async function createStackStatusCollectors(
   const repo = new StackStatusRepository(db.getPool());
 
   for (const host of hosts) {
+    if (!host.capabilities?.docker) {
+      console.info(`[Worker] Skipping StackStatusCollector for ${host.name}: Docker capability not enabled`);
+      continue;
+    }
     let token: string | null;
     try {
       token = await getToken(host.name);
