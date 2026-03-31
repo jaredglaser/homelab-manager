@@ -6,17 +6,6 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: "false"
 
-x-docker-env: &docker-env
-  DOCKER_HOST_1: ${DOCKER_HOST_1:-}
-  DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1:-2375}
-  DOCKER_HOST_NAME_1: ${DOCKER_HOST_NAME_1:-}
-  DOCKER_HOST_2: ${DOCKER_HOST_2:-}
-  DOCKER_HOST_PORT_2: ${DOCKER_HOST_PORT_2:-2375}
-  DOCKER_HOST_NAME_2: ${DOCKER_HOST_NAME_2:-}
-  DOCKER_HOST_3: ${DOCKER_HOST_3:-}
-  DOCKER_HOST_PORT_3: ${DOCKER_HOST_PORT_3:-2375}
-  DOCKER_HOST_NAME_3: ${DOCKER_HOST_NAME_3:-}
-
 x-zfs-env: &zfs-env
   ZFS_HOST_1: ${ZFS_HOST_1:-}
   ZFS_HOST_PORT_1: ${ZFS_HOST_PORT_1:-22}
@@ -72,7 +61,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -90,7 +79,7 @@ services:
     container_name: homelab-worker
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      <<: [*postgres-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
       WORKER_ENABLED: ${WORKER_ENABLED}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}

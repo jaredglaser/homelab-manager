@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
+import { isContainerGone } from './stats';
 
 /**
  * Stream a Docker container's logs to the client over a Server-Sent Events (SSE) connection.
@@ -108,10 +109,11 @@ export function handleLogStream(
         // Reset muxed remainder for the live phase
         muxedRemainder = Buffer.alloc(0);
 
-        // Determine since parameter for live stream
+        // Use full millisecond precision to avoid duplicating logs from the
+        // same second. Docker's `since` accepts fractional Unix timestamps.
         const sinceSeconds = lastTimestamp
-          ? Math.floor(new Date(lastTimestamp).getTime() / 1000)
-          : Math.floor(Date.now() / 1000);
+          ? new Date(lastTimestamp).getTime() / 1000
+          : Date.now() / 1000;
 
         /** Live phase: follow new logs from the last backlog timestamp. */
         const liveStream = (await container.logs({
@@ -124,12 +126,23 @@ export function handleLogStream(
 
         activeStream = liveStream;
 
+        // Send periodic heartbeat to prevent proxies/browsers from killing idle connections
+        const heartbeatInterval = setInterval(() => {
+          if (closed) { clearInterval(heartbeatInterval); return; }
+          try {
+            controller.enqueue(encoder.encode(':\n\n'));
+          } catch {
+            clearInterval(heartbeatInterval);
+          }
+        }, 15_000);
+
         liveStream.on('data', (chunk: Buffer) => {
           if (closed) return;
           processChunk(chunk);
         });
 
         liveStream.on('end', () => {
+          clearInterval(heartbeatInterval);
           if (!closed) {
             closed = true;
             controller.close();
@@ -137,6 +150,7 @@ export function handleLogStream(
         });
 
         liveStream.on('error', (error: Error) => {
+          clearInterval(heartbeatInterval);
           console.error(`Log stream error for container ${containerId}:`, error);
           if (!closed) {
             controller.enqueue(
@@ -149,6 +163,18 @@ export function handleLogStream(
           }
         });
       } catch (error) {
+        if (error instanceof Error && isContainerGone(error)) {
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `event: error\ndata: ${JSON.stringify({ error: 'Container not found', gone: true })}\n\n`
+              )
+            );
+            closed = true;
+            controller.close();
+          } catch { /* controller already closed */ }
+          return;
+        }
         console.error(`Failed to start log stream for container ${containerId}:`, error);
         const msg = error instanceof Error ? error.message : String(error);
         try {

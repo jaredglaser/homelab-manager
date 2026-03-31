@@ -1,6 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
-import { loadDockerConfig } from '@/lib/config/docker-config';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
+import { hostname } from 'node:os';
 
 const DEV_AGENT_URL = 'http://localhost:9090';
 const DEV_HEALTH_CHECK_URL = 'http://hlm-agent:9090';
@@ -10,18 +10,11 @@ const OPENBAO_RETRY_ATTEMPTS = 10;
 const OPENBAO_RETRY_DELAY_MS = 2000;
 
 /**
- * Derive the dev host name from the first Docker config host.
- * This ensures the managed host name matches the env-var Docker config
- * so entity IDs (host/containerId) resolve correctly for log streaming.
- *
- * @throws If no Docker hosts are configured — dev seed requires at least one
+ * Resolve the dev host name from DEV_HOST_NAME env var,
+ * falling back to the OS hostname.
  */
 function getDevHostName(): string {
-  const config = loadDockerConfig();
-  if (config.hosts.length === 0) {
-    throw new Error('[DevSeed] Cannot seed dev agent: no Docker hosts configured (DOCKER_HOST_1 is required)');
-  }
-  return config.hosts[0].name;
+  return process.env.DEV_HOST_NAME || hostname();
 }
 
 /**

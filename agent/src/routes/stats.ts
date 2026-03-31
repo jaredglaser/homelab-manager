@@ -42,6 +42,11 @@ function safeNum(value: number): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+/** Check if a Dockerode error indicates the container no longer exists (404 or 409). */
+export function isContainerGone(error: Error): boolean {
+  return /\(HTTP code (404|409)\)/.test(error.message);
+}
+
 /** Sum rx_bytes and tx_bytes across all network interfaces. */
 function sumNetworkBytes(networks: Record<string, { rx_bytes?: number; tx_bytes?: number }> | undefined): { rx: number; tx: number } {
   if (!networks || typeof networks !== 'object') return { rx: 0, tx: 0 };
@@ -235,6 +240,11 @@ function openContainerStream(
     });
 
     readable.on('error', (error: Error) => {
+      if (isContainerGone(error)) {
+        // Container removed while streaming — normal lifecycle, not an error
+        ctx.containerStreams.delete(id);
+        return;
+      }
       console.error(`Stats stream error for container ${id}:`, error.message);
       sendErrorSSE(ctx, { containerId: id, error: error.message });
       ctx.containerStreams.delete(id);
@@ -244,6 +254,7 @@ function openContainerStream(
       ctx.containerStreams.delete(id);
     });
   }).catch((error: Error) => {
+    if (isContainerGone(error)) return; // Container removed between list and stats — race condition
     console.error(`Failed to open stats stream for container ${id}:`, error.message);
     sendErrorSSE(ctx, { containerId: id, error: error.message });
   });

@@ -14,17 +14,6 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: "false"
 
-x-docker-env: &docker-env
-  DOCKER_HOST_1: ${DOCKER_HOST_1:-}
-  DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1:-2375}
-  DOCKER_HOST_NAME_1: ${DOCKER_HOST_NAME_1:-}
-  DOCKER_HOST_2: ${DOCKER_HOST_2:-}
-  DOCKER_HOST_PORT_2: ${DOCKER_HOST_PORT_2:-2375}
-  DOCKER_HOST_NAME_2: ${DOCKER_HOST_NAME_2:-}
-  DOCKER_HOST_3: ${DOCKER_HOST_3:-}
-  DOCKER_HOST_PORT_3: ${DOCKER_HOST_PORT_3:-2375}
-  DOCKER_HOST_NAME_3: ${DOCKER_HOST_NAME_3:-}
-
 x-zfs-env: &zfs-env
   ZFS_HOST_1: ${ZFS_HOST_1:-}
   ZFS_HOST_PORT_1: ${ZFS_HOST_PORT_1:-22}
@@ -87,7 +76,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
     volumes:
       - pgdata-local:/var/lib/postgresql/data
     healthcheck:
@@ -106,7 +95,7 @@ services:
     mem_limit: 512m
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      <<: [*postgres-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
       WORKER_ENABLED: ${WORKER_ENABLED}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
@@ -116,6 +105,7 @@ services:
       OPENBAO_URL: "http://openbao:8200"
       OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
       DEV_AGENT_TOKEN: ${DEV_AGENT_TOKEN:-}
+      DEV_HOST_NAME: ${DEV_HOST_NAME:-}
       WORKER_LOCALHOST_AGENT: "hlm-agent"
 
   # Socket proxy for secure Docker socket access (management profile)
@@ -154,7 +144,7 @@ services:
     restart: unless-stopped
     environment:
       DOCKER_HOST: "tcp://socket-proxy:2375"
-      AGENT_TOKEN: ${DEV_AGENT_TOKEN:-dev-agent-token}
+      AGENT_TOKEN: ${DEV_AGENT_TOKEN:?Set DEV_AGENT_TOKEN in .env}
       AGENT_PORT: "9090"
       STACKS_DIR: "/opt/homelab-manager/stacks"
     volumes:
@@ -181,7 +171,7 @@ services:
     environment:
       BAO_ADDR: "http://127.0.0.1:8200"
     ports:
-      - "8200:8200"
+      - "127.0.0.1:8200:8200"
     cap_add:
       - IPC_LOCK
     volumes:

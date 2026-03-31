@@ -85,20 +85,24 @@ export default memo(function ContainerLogViewer({
     };
   }, []);
 
-  // Re-fit on container resize
+  // Re-fit on container resize (debounced to avoid rapid reflows during Collapse animation)
   useEffect(() => {
     if (!containerRef.current || !fitAddonRef.current) return;
+    let timer: ReturnType<typeof setTimeout>;
 
     const observer = new ResizeObserver(() => {
-      try {
-        fitAddonRef.current?.fit();
-      } catch {
-        // Ignore fit errors during layout transitions
-      }
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        try {
+          fitAddonRef.current?.fit();
+        } catch {
+          // Ignore fit errors during layout transitions
+        }
+      }, 100);
     });
 
     observer.observe(containerRef.current);
-    return () => observer.disconnect();
+    return () => { clearTimeout(timer); observer.disconnect(); };
   }, [terminal]);
 
   const { isConnected, error } = useContainerLogs({
