@@ -7,7 +7,6 @@
 import * as monaco from 'monaco-editor';
 import { loader } from '@monaco-editor/react';
 import { configureMonacoYaml } from 'monaco-yaml';
-import composeSchema from '@/lib/schemas/compose-spec.json';
 
 // Use local monaco-editor package instead of CDN.
 loader.config({ monaco });
@@ -38,12 +37,11 @@ window.MonacoEnvironment = {
 // Configure YAML language features (hover, validation, folding, etc.)
 // Schema is bundled locally — run `bun schema:download` to update.
 configureMonacoYaml(monaco, {
-  enableSchemaRequest: false,
+  enableSchemaRequest: true,
   schemas: [
     {
-      uri: 'compose-spec.json',
+      uri: new URL('/compose-spec.json', window.location.origin).href,
       fileMatch: ['*'],
-      schema: composeSchema as unknown as Record<string, unknown>,
     },
   ],
 });

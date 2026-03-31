@@ -136,6 +136,7 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
                 automaticLayout: true,
                 padding: { top: 8, bottom: 8 },
                 renderLineHighlight: 'line',
+                fixedOverflowWidgets: true,
               }}
               loading={
                 <div className="flex items-center justify-center h-full">
