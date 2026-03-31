@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 import { pullImage } from '../docker-image-utils';
 
 function createMockDocker(error?: Error) {
@@ -52,9 +52,20 @@ describe('pullImage', () => {
       },
     } as any;
 
-    await expect(pullImage(docker, 'slow-image:latest', 10)).rejects.toThrow(
-      'Image pull timed out after 0.01s: slow-image:latest',
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: (...args: unknown[]) => void) => {
+        fn();
+        return 0;
+      }) as unknown as typeof setTimeout,
     );
-    expect(destroy).toHaveBeenCalledTimes(1);
+
+    try {
+      await expect(pullImage(docker, 'slow-image:latest', 10)).rejects.toThrow(
+        'Image pull timed out after 0.01s: slow-image:latest',
+      );
+      expect(destroy).toHaveBeenCalledTimes(1);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 });

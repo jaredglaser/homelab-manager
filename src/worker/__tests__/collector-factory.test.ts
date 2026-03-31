@@ -570,4 +570,30 @@ describe('createStackStatusCollectors', () => {
 
     controller.abort();
   });
+
+  it('skips hosts that do not advertise Docker support', async () => {
+    const noDockerHost: ManagedHost = { ...sampleHost, capabilities: { docker: false, zfs: true } };
+    const { createStackStatusCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createStackStatusCollectors(
+      db as unknown as DatabaseClient,
+      controller,
+      stack,
+      mock(async () => [noDockerHost]),
+      async () => 'mock-token',
+    );
+
+    expect(result.runners).toHaveLength(0);
+    expect(stackStatusRunSpy).not.toHaveBeenCalled();
+
+    const infoCalls = getMockInfoCalls();
+    const skipMsg = infoCalls.find(
+      (c) => typeof c === 'string' && c.includes('Skipping StackStatusCollector') && c.includes('Docker capability'),
+    );
+    expect(skipMsg).toBeDefined();
+
+    controller.abort();
+  });
 });
