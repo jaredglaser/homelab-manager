@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Chip,
@@ -168,7 +168,7 @@ function VariableRow({ stackName, varName, isReferenced, onDeleted }: Readonly<V
  */
 export default function VariablesPanel({ stackName, composeVariables }: Readonly<VariablesPanelProps>) {
   const queryClient = useQueryClient();
-  const composeSet = new Set(composeVariables);
+  const composeSet = useMemo(() => new Set(composeVariables), [composeVariables]);
 
   const {
     data: variables,

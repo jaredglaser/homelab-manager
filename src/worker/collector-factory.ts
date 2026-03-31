@@ -25,7 +25,7 @@ export interface CollectorFactoryResult {
 export function resolveAgentUrl(url: string): string {
   const dockerHost = process.env.WORKER_LOCALHOST_AGENT;
   if (!dockerHost) return url;
-  return url.replace('://localhost:', `://${dockerHost}:`);
+  return url.replace(/:\/\/(localhost|127\.0\.0\.1|::1):/, `://${dockerHost}:`);
 }
 
 /**
@@ -172,7 +172,13 @@ export async function createStackStatusCollectors(
   const repo = new StackStatusRepository(db.getPool());
 
   for (const host of hosts) {
-    const token = await getToken(host.name);
+    let token: string | null;
+    try {
+      token = await getToken(host.name);
+    } catch (err) {
+      console.error(`[Worker] Failed to retrieve token for StackStatusCollector ${host.name}:`, err instanceof Error ? err.message : err);
+      continue;
+    }
     if (!token) {
       console.info(`[Worker] Skipping StackStatusCollector for ${host.name}: no agent token in secret store`);
       continue;

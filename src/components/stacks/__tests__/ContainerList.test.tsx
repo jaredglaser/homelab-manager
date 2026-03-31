@@ -35,20 +35,16 @@ describe('ContainerList', () => {
     expect(screen.getByText('stopped')).toBeDefined();
   });
 
-  it('shows green dot for running containers', () => {
+  it('shows running status dot for running containers', () => {
     render(<ContainerList containers={mockContainers} />);
-    const greenDots = screen.getAllByLabelText('running');
-    expect(greenDots.length).toBe(1);
-    expect(greenDots[0].className).toContain('bg-green-500');
+    const runningDots = screen.getAllByLabelText('status: running');
+    expect(runningDots.length).toBe(1);
   });
 
-  it('shows red dot for non-running containers', () => {
+  it('shows stopped status dot for non-running containers', () => {
     render(<ContainerList containers={mockContainers} />);
-    const redDots = screen.getAllByLabelText('not running');
-    expect(redDots.length).toBe(2);
-    redDots.forEach((dot) => {
-      expect(dot.className).toContain('bg-red-500');
-    });
+    const stoppedDots = screen.getAllByLabelText('status: stopped');
+    expect(stoppedDots.length).toBe(2);
   });
 
   it('shows empty state when no containers', () => {

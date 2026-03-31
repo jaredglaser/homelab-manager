@@ -70,6 +70,7 @@ describe('ManagedHostsRepository', () => {
 
       expect(id).toBe(5);
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
+      expect(mock.queries[0].params).toContain(JSON.stringify({ docker: true }));
     });
   });
 

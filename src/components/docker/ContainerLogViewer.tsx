@@ -88,10 +88,10 @@ export default memo(function ContainerLogViewer({
   // Re-fit on container resize (debounced to avoid rapid reflows during Collapse animation)
   useEffect(() => {
     if (!containerRef.current || !fitAddonRef.current) return;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     const observer = new ResizeObserver(() => {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       timer = setTimeout(() => {
         try {
           fitAddonRef.current?.fit();
@@ -102,7 +102,7 @@ export default memo(function ContainerLogViewer({
     });
 
     observer.observe(containerRef.current);
-    return () => { clearTimeout(timer); observer.disconnect(); };
+    return () => { if (timer !== undefined) clearTimeout(timer); observer.disconnect(); };
   }, [terminal]);
 
   const { isConnected, error } = useContainerLogs({

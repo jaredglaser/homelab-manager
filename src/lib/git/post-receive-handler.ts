@@ -89,10 +89,15 @@ export async function processPostReceive(
       secretResolver: {
         async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
           if (variables.length === 0 || !baoClient) return {};
+          const entries = await Promise.all(
+            variables.map(async (v) => {
+              const val = await baoClient.getSecret(stack, v);
+              return [v, val] as const;
+            }),
+          );
           const secrets: Record<string, string> = {};
-          for (const v of variables) {
-            const val = await baoClient.getSecret(stack, v);
-            if (val !== null) secrets[v] = val;
+          for (const [key, val] of entries) {
+            if (val !== null) secrets[key] = val;
           }
           return secrets;
         },
@@ -105,19 +110,28 @@ export async function processPostReceive(
       },
     });
 
-    // Dispatch each request; catch per-deploy errors so one failure doesn't block others
+    // Group deploys by host — sequential within each host, parallel across hosts
+    const byHost = new Map<string, typeof deployRequests>();
+    for (const request of deployRequests) {
+      const hostRequests = byHost.get(request.host) ?? [];
+      hostRequests.push(request);
+      byHost.set(request.host, hostRequests);
+    }
+
     await Promise.all(
-      deployRequests.map(async (request) => {
-        try {
-          const result = await pipeline.execute(request);
-          console.info(
-            `[PostReceive] Deploy pipeline result for "${request.stack}": ${result.status}`,
-          );
-        } catch (err) {
-          console.error(
-            `[PostReceive] Deploy pipeline failed for stack "${request.stack}":`,
-            err instanceof Error ? err.message : err,
-          );
+      [...byHost.values()].map(async (hostRequests) => {
+        for (const request of hostRequests) {
+          try {
+            const result = await pipeline.execute(request);
+            console.info(
+              `[PostReceive] Deploy pipeline result for "${request.stack}": ${result.status}`,
+            );
+          } catch (err) {
+            console.error(
+              `[PostReceive] Deploy pipeline failed for stack "${request.stack}":`,
+              err instanceof Error ? err.message : err,
+            );
+          }
         }
       }),
     );

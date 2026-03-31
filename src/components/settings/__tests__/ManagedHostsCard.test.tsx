@@ -30,7 +30,7 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     onUpdate: mock(() => {}),
     isUpdating: false,
     onHealthCheck: mock(() => {}),
-    checkingHostId: null,
+    checkingHostIds: new Set<number>(),
     snackbar: { open: false, message: '', severity: 'success' },
     onSnackbarClose: mock(() => {}),
     ...overrides,
@@ -92,6 +92,11 @@ describe('ManagedHostsCard', () => {
       expect(screen.getByLabelText('unhealthy')).toBeDefined()
     })
 
+    it('renders error status dot with aria-label', () => {
+      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ status: 'error' })] })} />)
+      expect(screen.getByLabelText('error')).toBeDefined()
+    })
+
     it('renders pending/unknown status dot with aria-label', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ status: 'pending' })] })} />)
       expect(screen.getByLabelText('unknown')).toBeDefined()
@@ -141,10 +146,10 @@ describe('ManagedHostsCard', () => {
       expect(onHealthCheck).toHaveBeenCalledWith(1)
     })
 
-    it('shows spinner when checkingHostId matches host id', () => {
+    it('shows spinner when checkingHostIds contains host id', () => {
       render(
         <ManagedHostsCardView
-          {...makeProps({ hosts: [makeHost()], checkingHostId: 1 })}
+          {...makeProps({ hosts: [makeHost()], checkingHostIds: new Set([1]) })}
         />
       )
       // The health check button should be disabled
@@ -152,10 +157,10 @@ describe('ManagedHostsCard', () => {
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
-    it('health check button is enabled when checkingHostId is different host', () => {
+    it('health check button is enabled when checkingHostIds does not contain host id', () => {
       render(
         <ManagedHostsCardView
-          {...makeProps({ hosts: [makeHost({ id: 1 })], checkingHostId: 2 })}
+          {...makeProps({ hosts: [makeHost({ id: 1 })], checkingHostIds: new Set([2]) })}
         />
       )
       const btn = screen.getByLabelText('check health')

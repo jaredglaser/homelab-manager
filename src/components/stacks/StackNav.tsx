@@ -36,7 +36,7 @@ export default function StackNav({ onCreateClick }: StackNavProps) {
       const hostStacks = byHost.get(host)!;
       hostStacks.sort((a, b) => a.name.localeCompare(b.name));
       for (const stack of hostStacks) {
-        const statusKey = `${stack.name}/${stack.host}`;
+        const statusKey = `${stack.host}/${stack.name}`;
         const status = statusMap.get(statusKey);
         items.push({
           type: 'stack',
@@ -57,7 +57,7 @@ export default function StackNav({ onCreateClick }: StackNavProps) {
     scrollMargin: listRef.current?.offsetTop ?? 0,
     getItemKey: (index) => {
       const item = navItems[index];
-      return item.type === 'host' ? `host-${item.host}` : `stack-${item.name}`;
+      return item.type === 'host' ? `host-${item.host}` : `stack-${item.host}-${item.name}`;
     },
   });
 

@@ -5,6 +5,7 @@ const GitConfigSchema = z.object({
   reposDir: z.string().trim().min(1),
   repoName: z.string().trim().min(1),
   repoPath: z.string().trim().min(1),
+  enabled: z.boolean(),
 });
 
 export type GitConfig = z.infer<typeof GitConfigSchema>;
@@ -19,5 +20,7 @@ export function loadGitConfig(): GitConfig {
   const repoName = 'stacks';
   const repoPath = join(reposDir, `${repoName}.git`);
 
-  return GitConfigSchema.parse({ reposDir, repoName, repoPath });
+  const enabled = process.env.DOCKER_MANAGEMENT_FEATURE_FLAG === 'true';
+
+  return GitConfigSchema.parse({ reposDir, repoName, repoPath, enabled });
 }

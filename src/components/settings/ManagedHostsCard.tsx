@@ -22,7 +22,7 @@ export interface ManagedHostsCardProps {
   onUpdate: (hostId: number, name: string, agentUrl: string) => void
   isUpdating: boolean
   onHealthCheck: (hostId: number) => void
-  checkingHostId: number | null
+  checkingHostIds: Set<number>
   snackbar: { open: boolean; message: string; severity: 'success' | 'error' | 'warning' }
   onSnackbarClose: () => void
 }
@@ -38,7 +38,7 @@ export function ManagedHostsCardView({
   onUpdate,
   isUpdating,
   onHealthCheck,
-  checkingHostId,
+  checkingHostIds,
   snackbar,
   onSnackbarClose,
 }: Readonly<ManagedHostsCardProps>) {
@@ -78,7 +78,7 @@ export function ManagedHostsCardView({
               <HostRow
                 key={host.id}
                 host={host}
-                isChecking={checkingHostId === host.id}
+                isChecking={checkingHostIds.has(host.id)}
                 isRemoving={isRemoving}
                 onHealthCheck={() => onHealthCheck(host.id)}
                 onEdit={() => setEditTarget(host)}

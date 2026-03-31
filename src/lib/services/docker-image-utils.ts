@@ -5,7 +5,8 @@ const IMAGE_PULL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 /**
  * Pull a Docker image and wait for completion.
  * Used for pulling agent images during host management operations.
- * Rejects if the pull takes longer than IMAGE_PULL_TIMEOUT_MS.
+ * Rejects if the pull takes longer than the configurable `timeoutMs`
+ * parameter (defaults to IMAGE_PULL_TIMEOUT_MS, 5 minutes).
  */
 export async function pullImage(docker: Dockerode, image: string, timeoutMs: number = IMAGE_PULL_TIMEOUT_MS): Promise<void> {
   const stream = await docker.pull(image);

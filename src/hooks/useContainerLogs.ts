@@ -94,7 +94,6 @@ export function useContainerLogs({
     };
 
     eventSource.addEventListener('log_error', handleLogError);
-    eventSource.addEventListener('error', handleLogError);
 
     eventSource.onerror = () => {
       if (mounted) {

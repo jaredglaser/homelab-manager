@@ -9,6 +9,9 @@ function StatusDot({ status }: { status: HostListItem['status'] }) {
   if (status === 'unhealthy') {
     return <span className="inline-block w-2 h-2 rounded-full bg-red-500" aria-label="unhealthy" />
   }
+  if (status === 'error') {
+    return <span className="inline-block w-2 h-2 rounded-full bg-red-700" aria-label="error" />
+  }
   return <span className="inline-block w-2 h-2 rounded-full bg-gray-400" aria-label="unknown" />
 }
 

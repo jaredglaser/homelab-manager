@@ -17,7 +17,7 @@ function StacksOverview() {
     for (const stack of stacks) {
       const entry = byHost.get(stack.host) ?? { total: 0, running: 0 };
       entry.total++;
-      const statusKey = `${stack.name}/${stack.host}`;
+      const statusKey = `${stack.host}/${stack.name}`;
       const status = statusMap.get(statusKey);
       if (status && status.containers.length > 0) {
         entry.running++;

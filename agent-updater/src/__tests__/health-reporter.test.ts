@@ -2,6 +2,7 @@ import { describe, expect, test, mock, beforeAll, afterAll, type Mock } from 'bu
 import { HealthReporter } from '../health-reporter';
 
 const originalFetch = globalThis.fetch;
+const originalConsoleError = console.error;
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -9,6 +10,7 @@ beforeAll(() => {
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
+  console.error = originalConsoleError;
 });
 
 function mockFetch(impl: () => Promise<Response | never>): Mock<typeof fetch> {
@@ -46,13 +48,19 @@ describe('HealthReporter', () => {
     expect(result).toBe(false);
   });
 
-  test('uses custom timeout', async () => {
-    mockFetch(() => Promise.resolve(new Response('OK', { status: 200 })));
+  test('uses custom timeout with AbortSignal', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const fn = mock((_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedSignal = init?.signal as AbortSignal | undefined;
+      return Promise.resolve(new Response('OK', { status: 200 }));
+    }) as unknown as Mock<typeof fetch>;
+    globalThis.fetch = fn as unknown as typeof fetch;
 
     const reporter = new HealthReporter('http://localhost:9090');
     const result = await reporter.checkAgentHealth(1000);
 
     expect(result).toBe(true);
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
   });
 
   test('returns false when request times out', async () => {

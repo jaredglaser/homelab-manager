@@ -14,7 +14,7 @@ BAO_PID=$!
 
 # Wait for server to accept connections
 echo "[openbao-init] Waiting for server..."
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   if wget -q -O /dev/null http://127.0.0.1:8200/v1/sys/health 2>/dev/null; then
     break
   fi
@@ -33,7 +33,9 @@ if [ ! -f "$INIT_FILE" ]; then
     --header="Content-Type: application/json" \
     "$BAO_ADDR/v1/sys/init"
 
-  # Extract unseal key and root token from JSON response
+  # Extract unseal key and root token from JSON response.
+  # These sed patterns assume OpenBao emits compact single-line JSON (no whitespace
+  # between keys/values). If the format ever changes, replace with jq.
   UNSEAL_KEY=$(sed -n 's/.*"keys_base64":\["\([^"]*\)".*/\1/p' "$INIT_FILE")
   ROOT_TOKEN=$(sed -n 's/.*"root_token":"\([^"]*\)".*/\1/p' "$INIT_FILE")
 

@@ -12,13 +12,6 @@ export type AgentHealthResult =
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 /**
- * Check the health of an agent by calling its /health endpoint.
- * Returns a result object indicating health status and version info.
- * Never throws — all errors are captured in the result.
- *
- * @param fetchFn - Injectable fetch function for testing (defaults to globalThis.fetch)
- */
-/**
  * Verify a bearer token authenticates against the agent's `/auth/verify` endpoint.
  * Throws on failure so callers get a clear error before storing an invalid token.
  */
@@ -50,6 +43,13 @@ export async function verifyAgentToken(
   }
 }
 
+/**
+ * Check the health of an agent by calling its /health endpoint.
+ * Returns a result object indicating health status and version info.
+ * Never throws — all errors are captured in the result.
+ *
+ * @param fetchFn - Injectable fetch function for testing (defaults to globalThis.fetch)
+ */
 export async function checkAgentHealth(
   agentUrl: string,
   timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS,

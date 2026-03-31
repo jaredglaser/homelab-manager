@@ -79,7 +79,7 @@ export async function handleRemoveHost(
   return { success: true };
 }
 
-export async function handleUpdateAgent(
+export async function handleRefreshHostStatus(
   deps: HostHandlerDeps & { checkHealth: (url: string) => Promise<HealthCheckOutcome> },
   data: { hostId: number },
 ): Promise<HostOperationResult> {

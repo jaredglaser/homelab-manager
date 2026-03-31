@@ -284,7 +284,7 @@ describe('createCollectorsForManagedHosts', () => {
     id: 1,
     name: 'homeserver',
     agent_url: 'http://192.168.1.10:9090',
-    capabilities: { docker: true, zfs: false },
+    capabilities: { docker: true, zfs: true },
     agent_version: '0.1.0',
     status: 'healthy',
     created_at: new Date(),

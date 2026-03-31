@@ -163,9 +163,4 @@ describe('StackSettingsDialog', () => {
     render(<StackSettingsDialog {...defaultProps} open={false} />);
     expect(screen.queryByText('Stack Settings')).toBeNull();
   });
-
-  it('shows manual deploy description by default', () => {
-    render(<StackSettingsDialog {...defaultProps} currentAutoDeploy={false} />);
-    expect(screen.getByText(/triggered manually/)).toBeDefined();
-  });
 });

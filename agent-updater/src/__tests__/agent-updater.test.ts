@@ -77,22 +77,34 @@ describe('AgentUpdater', () => {
   describe('checkForUpdate', () => {
     test('returns updateAvailable true when digests differ', async () => {
       const containerInfo = createMockContainerInfo({
-        Image: 'sha256:old-digest',
+        Image: 'sha256:old-image-id',
       });
 
       const mockContainer = {
         inspect: mock(() => Promise.resolve(containerInfo)),
       };
-      const mockImage = {
+      const mockLocalImage = {
+        inspect: mock(() =>
+          Promise.resolve({
+            RepoDigests: ['ghcr.io/org/agent@sha256:old-digest'],
+          })
+        ),
+      };
+      const mockRemoteImage = {
         distribution: mock(() =>
           Promise.resolve({
             Descriptor: { digest: 'sha256:new-digest' },
           })
         ),
       };
+      let getImageCallCount = 0;
       const mockDocker = {
         getContainer: mock(() => mockContainer),
-        getImage: mock(() => mockImage),
+        getImage: mock(() => {
+          getImageCallCount++;
+          if (getImageCallCount === 1) return mockLocalImage;
+          return mockRemoteImage;
+        }),
       };
 
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
@@ -105,22 +117,34 @@ describe('AgentUpdater', () => {
 
     test('returns updateAvailable false when digests match', async () => {
       const containerInfo = createMockContainerInfo({
-        Image: 'ghcr.io/org/agent@sha256:same-digest',
+        Image: 'sha256:some-image-id',
       });
 
       const mockContainer = {
         inspect: mock(() => Promise.resolve(containerInfo)),
       };
-      const mockImage = {
+      const mockLocalImage = {
+        inspect: mock(() =>
+          Promise.resolve({
+            RepoDigests: ['ghcr.io/org/agent@sha256:same-digest'],
+          })
+        ),
+      };
+      const mockRemoteImage = {
         distribution: mock(() =>
           Promise.resolve({
             Descriptor: { digest: 'sha256:same-digest' },
           })
         ),
       };
+      let getImageCallCount = 0;
       const mockDocker = {
         getContainer: mock(() => mockContainer),
-        getImage: mock(() => mockImage),
+        getImage: mock(() => {
+          getImageCallCount++;
+          if (getImageCallCount === 1) return mockLocalImage;
+          return mockRemoteImage;
+        }),
       };
 
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());
@@ -151,12 +175,24 @@ describe('AgentUpdater', () => {
       const mockContainer = {
         inspect: mock(() => Promise.resolve(containerInfo)),
       };
-      const mockImage = {
+      const mockLocalImage = {
+        inspect: mock(() =>
+          Promise.resolve({
+            RepoDigests: ['ghcr.io/org/agent@sha256:abc123'],
+          })
+        ),
+      };
+      const mockRemoteImage = {
         distribution: mock(() => Promise.resolve({ Descriptor: {} })),
       };
+      let getImageCallCount = 0;
       const mockDocker = {
         getContainer: mock(() => mockContainer),
-        getImage: mock(() => mockImage),
+        getImage: mock(() => {
+          getImageCallCount++;
+          if (getImageCallCount === 1) return mockLocalImage;
+          return mockRemoteImage;
+        }),
       };
 
       const updater = new AgentUpdater(mockDocker as any, defaultConfig, createMockHealthReporter());

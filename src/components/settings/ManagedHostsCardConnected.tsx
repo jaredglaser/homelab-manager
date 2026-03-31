@@ -7,7 +7,7 @@ const HOSTS_QUERY_KEY = ['managed-hosts'] as const
 
 export function ManagedHostsCard() {
   const queryClient = useQueryClient()
-  const [checkingHostId, setCheckingHostId] = useState<number | null>(null)
+  const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
   const [snackbar, setSnackbar] = useState<{
     open: boolean
     message: string
@@ -61,11 +61,11 @@ export function ManagedHostsCard() {
 
   const healthMutation = useMutation({
     mutationFn: (hostId: number) => {
-      setCheckingHostId(hostId)
+      setCheckingHostIds(prev => new Set(prev).add(hostId))
       return checkHostHealth({ data: { hostId } })
     },
-    onSuccess: (result) => {
-      setCheckingHostId(null)
+    onSuccess: (result, hostId) => {
+      setCheckingHostIds(prev => { const next = new Set(prev); next.delete(hostId); return next })
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       if (result.healthy) {
         setSnackbar({
@@ -81,8 +81,8 @@ export function ManagedHostsCard() {
         })
       }
     },
-    onError: (err: unknown) => {
-      setCheckingHostId(null)
+    onError: (err: unknown, hostId: number) => {
+      setCheckingHostIds(prev => { const next = new Set(prev); next.delete(hostId); return next })
       const message = err instanceof Error ? err.message : 'Health check failed'
       setSnackbar({ open: true, message, severity: 'error' })
     },
@@ -100,7 +100,7 @@ export function ManagedHostsCard() {
       onUpdate={(hostId, name, agentUrl) => updateMutation.mutate({ hostId, name, agentUrl })}
       isUpdating={updateMutation.isPending}
       onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
-      checkingHostId={checkingHostId}
+      checkingHostIds={checkingHostIds}
       snackbar={snackbar}
       onSnackbarClose={() => setSnackbar((s) => ({ ...s, open: false }))}
     />

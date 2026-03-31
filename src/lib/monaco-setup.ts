@@ -35,7 +35,7 @@ window.MonacoEnvironment = {
 };
 
 // Configure YAML language features (hover, validation, folding, etc.)
-// Schema is bundled locally — run `bun schema:download` to update.
+// Schema is fetched at runtime from /compose-spec.json served by the app.
 configureMonacoYaml(monaco, {
   enableSchemaRequest: true,
   schemas: [

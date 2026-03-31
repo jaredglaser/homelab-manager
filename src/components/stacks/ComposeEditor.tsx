@@ -8,6 +8,8 @@ import { saveComposeFile } from '@/data/stacks/functions';
 import { parseVariables } from '@/lib/stacks/parse-variables';
 import VariablesPanel from '@/components/stacks/VariablesPanel';
 
+const MAX_PANEL_WIDTH = 600;
+
 interface ComposeEditorProps {
   host: string;
   stackName: string;
@@ -65,7 +67,7 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
 
     const onMove = (ev: globalThis.PointerEvent) => {
       const delta = startX - ev.clientX;
-      setPanelWidth(Math.max(80, startWidth + delta));
+      setPanelWidth(Math.min(MAX_PANEL_WIDTH, Math.max(80, startWidth + delta)));
     };
     const onUp = () => {
       target.removeEventListener('pointermove', onMove);

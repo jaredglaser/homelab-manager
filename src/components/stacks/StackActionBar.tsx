@@ -91,7 +91,7 @@ export default function StackActionBar({
         disabled={isDeploying}
         onClick={onTeardown}
         startIcon={<Square size={14} />}
-        className="!text-[var(--chart-deploy-failed)] !border-[var(--chart-deploy-failed)]"
+        className="!text-[var(--mui-palette-error-main)] !border-[var(--mui-palette-error-main)]"
       >
         Teardown
       </Button>
@@ -103,7 +103,7 @@ export default function StackActionBar({
           disabled={isDeploying}
           onClick={onDelete}
           startIcon={<Trash2 size={14} />}
-          className="!text-[var(--chart-deploy-failed)] !border-[var(--chart-deploy-failed)]"
+          className="!text-[var(--mui-palette-error-main)] !border-[var(--mui-palette-error-main)]"
         >
           Delete Stack
         </Button>

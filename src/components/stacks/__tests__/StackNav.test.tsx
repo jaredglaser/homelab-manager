@@ -1,14 +1,18 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeAll } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
+import type { ComponentType } from 'react';
 
-// Mock TanStack Router Link and virtual
-mock.module('@tanstack/react-router', () => ({
-  Link: ({ children, to, params, className, activeProps, ...rest }: any) => (
-    <a href={to} data-params={JSON.stringify(params)} className={className} {...rest}>
-      {children}
-    </a>
-  ),
-}));
+// Provide a mock for the StacksContext
+const mockContextValue = {
+  stacks: [
+    { name: 'app-web', host: 'server-1', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 2, icon: 'nginx' },
+    { name: 'app-db', host: 'server-1', syncStatus: 'pending', deployMode: 'manual', lastDeployAt: null, lastDeployStatus: null, containerCount: 1, icon: null },
+    { name: 'monitoring', host: 'server-2', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 3, icon: 'grafana' },
+  ],
+  statusMap: new Map(),
+  hosts: ['server-1', 'server-2'],
+  isLoading: false,
+};
 
 mock.module('@tanstack/react-virtual', () => ({
   useWindowVirtualizer: ({ count, estimateSize }: any) => {
@@ -30,23 +34,24 @@ mock.module('@/lib/utils/icon-resolver', () => ({
   getIconUrl: (slug: string) => slug ? `https://icons.test/${slug}.png` : null,
 }));
 
-// Provide a mock for the StacksContext
-const mockContextValue = {
-  stacks: [
-    { name: 'app-web', host: 'server-1', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 2, icon: 'nginx' },
-    { name: 'app-db', host: 'server-1', syncStatus: 'pending', deployMode: 'manual', lastDeployAt: null, lastDeployStatus: null, containerCount: 1, icon: null },
-    { name: 'monitoring', host: 'server-2', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 3, icon: 'grafana' },
-  ],
-  statusMap: new Map(),
-  hosts: ['server-1', 'server-2'],
-  isLoading: false,
-};
-
 mock.module('@/components/stacks/stacks-context', () => ({
   useStacksContext: () => mockContextValue,
 }));
 
-const { default: StackNav } = await import('../StackNav');
+mock.module('@tanstack/react-router', () => ({
+  Link: ({ children, to, params, className, activeProps, ...rest }: any) => (
+    <a href={to} data-params={JSON.stringify(params)} className={className} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+let StackNav: ComponentType<{ onCreateClick: () => void }>;
+
+beforeAll(async () => {
+  const mod = await import('../StackNav');
+  StackNav = mod.default;
+});
 
 describe('StackNav', () => {
   it('renders the Stacks header', () => {

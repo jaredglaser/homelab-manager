@@ -5,7 +5,7 @@ import {
   handleListHosts,
   handleCheckHostHealth,
   handleRemoveHost,
-  handleUpdateAgent,
+  handleRefreshHostStatus,
   handleVerifyHost,
   handleAddHost,
   handleUpdateHost,
@@ -116,11 +116,11 @@ describe('handleRemoveHost', () => {
 
 });
 
-describe('handleUpdateAgent', () => {
+describe('handleRefreshHostStatus', () => {
   it('updates status to healthy on success', async () => {
     const repo = mockRepo();
     const checkHealth = mock(() => Promise.resolve({ healthy: true as const, version: '3.0.0', dockerVersion: '24.0' }));
-    const result = await handleUpdateAgent({ ...baseDeps(), repo, checkHealth }, { hostId: 1 });
+    const result = await handleRefreshHostStatus({ ...baseDeps(), repo, checkHealth }, { hostId: 1 });
     expect(result.healthy).toBe(true);
     expect(result.healthy && result.version).toBe('3.0.0');
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
@@ -130,7 +130,7 @@ describe('handleUpdateAgent', () => {
   it('updates status to unhealthy on failure', async () => {
     const repo = mockRepo();
     const checkHealth = mock(() => Promise.resolve({ healthy: false as const, error: 'timeout' }));
-    const result = await handleUpdateAgent({ ...baseDeps(), repo, checkHealth }, { hostId: 1 });
+    const result = await handleRefreshHostStatus({ ...baseDeps(), repo, checkHealth }, { hostId: 1 });
     expect(result.healthy).toBe(false);
     expect(!result.healthy && result.error).toBe('timeout');
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
@@ -138,7 +138,7 @@ describe('handleUpdateAgent', () => {
 
   it('throws when host not found', async () => {
     const deps = { ...baseDeps({ findById: mock(() => Promise.resolve(null)) }), checkHealth: mock() };
-    await expect(handleUpdateAgent(deps, { hostId: 999 })).rejects.toThrow('not found');
+    await expect(handleRefreshHostStatus(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 
 });

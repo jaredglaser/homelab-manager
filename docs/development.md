@@ -141,7 +141,7 @@ git commit -m "Add sample containers stack"
 git push
 ```
 
-The stack should now appear on the **Docker > Stacks** page. To actually start the sample containers, deploy the stack from the UI or run the compose file directly:
+The stack should now appear on the **Stacks** tab. To actually start the sample containers, deploy the stack from the UI or run the compose file directly:
 
 ```bash
 docker compose -f ~/stacks/samples/docker-compose.yml up -d

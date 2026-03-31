@@ -86,6 +86,7 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 /** Shape of SSE events emitted by the agent's GET /zfs/stats/stream endpoint */
 interface AgentZfsStatsEvent {
   line: string;
+  timestamp?: number;
 }
 
 export class ZFSCollector extends BaseCollector {
@@ -176,6 +177,7 @@ export class ZFSCollector extends BaseCollector {
           if ('error' in parsed && !('line' in parsed)) continue;
 
           const event = parsed as AgentZfsStatsEvent;
+          const agentTimestamp = event.timestamp ?? Date.now();
           const line = event.line;
           if (!line || !line.trim()) continue;
 
@@ -201,11 +203,13 @@ export class ZFSCollector extends BaseCollector {
           if (!iostat) continue;
 
           const statsWithRates = this.calculator.calculate(iostat.name, iostat);
+          statsWithRates.timestamp = agentTimestamp;
 
+          const hostId = this.host.agent_url.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
           const { path: entityPath, pool, entityType, ctx: newCtx } = buildEntityPath(statsWithRates, hierarchyCtx);
           hierarchyCtx = newCtx;
 
-          currentCycle.push(toZFSStatsRow(statsWithRates, this.host.name, entityPath, pool, entityType));
+          currentCycle.push(toZFSStatsRow(statsWithRates, this.host.name, `${hostId}/${entityPath}`, pool, entityType));
         }
       }
     } finally {

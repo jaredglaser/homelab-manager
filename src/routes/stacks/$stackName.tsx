@@ -64,7 +64,6 @@ function StackEditorView() {
   const [panel, setPanel] = useState<'secrets' | 'deploys'>('secrets')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-  const [detectedVars] = useState<string[]>([])
   const [forceRecreate, setForceRecreate] = useState(false)
   const [deployMessage, setDeployMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -141,7 +140,7 @@ function StackEditorView() {
     )
   }
 
-  const composeVars = detectedVars.length > 0 ? detectedVars : parseVariables(detail.composeContent)
+  const composeVars = parseVariables(detail.composeContent)
 
   return (
     <div className="flex flex-col h-full">

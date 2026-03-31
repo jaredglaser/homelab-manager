@@ -39,7 +39,6 @@ export default function DeleteStackDialog({
   function handleConfirm() {
     if (mode === null) return;
     onConfirm(mode === 'teardown');
-    setMode(null);
   }
 
   return (

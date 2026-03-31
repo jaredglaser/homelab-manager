@@ -3,3 +3,9 @@ ALTER TABLE deploy_history
   DROP CONSTRAINT fk_deploy_history_host,
   ADD CONSTRAINT fk_deploy_history_host
     FOREIGN KEY (host) REFERENCES managed_hosts(name) ON DELETE CASCADE;
+
+-- Rollback:
+-- ALTER TABLE deploy_history
+--   DROP CONSTRAINT fk_deploy_history_host,
+--   ADD CONSTRAINT fk_deploy_history_host
+--     FOREIGN KEY (host) REFERENCES managed_hosts(name);

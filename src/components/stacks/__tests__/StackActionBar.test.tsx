@@ -78,4 +78,23 @@ describe('StackActionBar', () => {
     fireEvent.click(screen.getByText('Delete Stack'));
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
+
+  it('renders Force Recreate checkbox checked when forceRecreate is true', () => {
+    render(<StackActionBar {...defaultProps} forceRecreate={true} />);
+    const checkbox = screen.getByRole('checkbox');
+    expect((checkbox as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('calls onForceRecreateChange when Force checkbox is clicked', () => {
+    const onForceRecreateChange = mock(() => {});
+    render(<StackActionBar {...defaultProps} onForceRecreateChange={onForceRecreateChange} />);
+    fireEvent.click(screen.getByRole('checkbox'));
+    expect(onForceRecreateChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables Force Recreate checkbox when isDeploying is true', () => {
+    render(<StackActionBar {...defaultProps} isDeploying={true} />);
+    const checkbox = screen.getByRole('checkbox');
+    expect((checkbox as HTMLInputElement).disabled).toBe(true);
+  });
 });

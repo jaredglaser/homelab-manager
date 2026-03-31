@@ -84,6 +84,10 @@ async function parseDeployBody(
     return Response.json({ error: 'Missing required fields: stack, composeContent' }, { status: 400 });
   }
 
+  if (body.forceRecreate !== undefined && typeof body.forceRecreate !== 'boolean') {
+    return Response.json({ error: 'forceRecreate must be a boolean' }, { status: 400 });
+  }
+
   if (Buffer.byteLength(body.composeContent) > MAX_COMPOSE_SIZE_BYTES) {
     return Response.json({ error: 'composeContent too large' }, { status: 413 });
   }

@@ -126,10 +126,7 @@ services:
       ALLOW_START: 1
       ALLOW_STOP: 1
       ALLOW_RESTARTS: 1
-      POST: 1
       EXEC: 1
-      CONTAINERS_CREATE: 1
-      CONTAINERS_DELETE: 1
     networks:
       - agent-internal
     profiles:
@@ -150,7 +147,7 @@ services:
     volumes:
       - agent-stacks-local:/opt/homelab-manager/stacks
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     networks:
       - agent-internal
       - homelab-network

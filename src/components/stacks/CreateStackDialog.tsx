@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Button,
@@ -46,6 +46,14 @@ export default function CreateStackDialog({
   const [host, setHost] = useState(hosts[0] ?? '');
   const [autoDeploy, setAutoDeploy] = useState(false);
 
+  useEffect(() => {
+    if (open) {
+      setStackName('');
+      setHost(hosts[0] ?? '');
+      setAutoDeploy(false);
+    }
+  }, [open, hosts]);
+
   const nameError =
     stackName.length > 0 && !STACK_NAME_REGEX.test(stackName)
       ? 'Must start with a letter and contain only letters, numbers, hyphens, and underscores.'
@@ -79,20 +87,22 @@ export default function CreateStackDialog({
           autoFocus
           disabled={isLoading}
         />
-        <FormControl fullWidth disabled={isLoading}>
-          <FormLabel className="!text-sm !mb-1">Target Host</FormLabel>
-          <Select
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            displayEmpty
-          >
-            {hosts.map((h) => (
-              <MenuItem key={h} value={h}>
-                {h}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        {hosts.length > 1 && (
+          <FormControl fullWidth disabled={isLoading}>
+            <FormLabel className="!text-sm !mb-1">Target Host</FormLabel>
+            <Select
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              displayEmpty
+            >
+              {hosts.map((h) => (
+                <MenuItem key={h} value={h}>
+                  {h}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
         <FormControl disabled={isLoading}>
           <FormLabel className="!text-sm !mb-1">Deploy Mode</FormLabel>
           <RadioGroup

@@ -95,11 +95,20 @@ export class AgentClient {
 
   async *streamZfsStats(signal: AbortSignal): AsyncGenerator<ZfsStatsEvent> {
     const url = `${this.agentUrl}/zfs/stats/stream`;
-    const response = await this.fetchFn(url, {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${this.agentToken}` },
-      signal,
-    });
+    let response: Response;
+    try {
+      response = await this.fetchFn(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.agentToken}` },
+        signal,
+      });
+    } catch (err) {
+      throw new AgentClientError(
+        `Agent request failed: ${err instanceof Error ? err.message : String(err)}`,
+        undefined,
+        url,
+      );
+    }
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');

@@ -1,9 +1,15 @@
-import { describe, expect, test, mock, beforeAll, afterEach } from 'bun:test';
+import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 import { handleZfsStatsStream, handleZfsPools } from '../routes/zfs';
 
-beforeAll(() => {
+const originalConsoleError = console.error;
+
+beforeEach(() => {
   console.error = mock(() => {});
+});
+
+afterEach(() => {
+  console.error = originalConsoleError;
 });
 
 const zfsAvailable: ZfsCapabilities = {

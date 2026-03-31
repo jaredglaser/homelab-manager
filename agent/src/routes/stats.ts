@@ -92,7 +92,7 @@ export function computeMetrics(
   // Memory
   const memUsageRaw = stats.memory_stats?.usage ?? 0;
   const memCache = stats.memory_stats?.stats?.cache ?? 0;
-  const memoryUsage = memUsageRaw - memCache;
+  const memoryUsage = Math.max(0, memUsageRaw - memCache);
   const memoryLimit = stats.memory_stats?.limit ?? 0;
   const memoryPercent = memoryLimit > 0 ? (memoryUsage / memoryLimit) * 100 : 0;
 
@@ -115,10 +115,10 @@ export function computeMetrics(
   if (prev) {
     const timeDeltaSec = (new Date(timestamp).getTime() - new Date(prev.timestamp).getTime()) / 1000;
     if (timeDeltaSec > 0) {
-      networkRxBytesPerSec = (net.rx - prev.networkRxBytes) / timeDeltaSec;
-      networkTxBytesPerSec = (net.tx - prev.networkTxBytes) / timeDeltaSec;
-      blockReadBytesPerSec = (blk.read - prev.blockReadBytes) / timeDeltaSec;
-      blockWriteBytesPerSec = (blk.write - prev.blockWriteBytes) / timeDeltaSec;
+      networkRxBytesPerSec = Math.max(0, (net.rx - prev.networkRxBytes) / timeDeltaSec);
+      networkTxBytesPerSec = Math.max(0, (net.tx - prev.networkTxBytes) / timeDeltaSec);
+      blockReadBytesPerSec = Math.max(0, (blk.read - prev.blockReadBytes) / timeDeltaSec);
+      blockWriteBytesPerSec = Math.max(0, (blk.write - prev.blockWriteBytes) / timeDeltaSec);
     }
   }
 

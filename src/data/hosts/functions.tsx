@@ -3,7 +3,7 @@ import type { HostListItem } from '@/lib/hosts/host-utils';
 import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema, registerExistingHostSchema, verifyHostSchema, updateHostSchema } from '@/data/hosts/schemas';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleUpdateAgent, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
+  handleRefreshHostStatus, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
@@ -20,7 +20,12 @@ async function loadDeps(): Promise<HostHandlerDeps> {
 
 async function loadDockerClient(socketProxyUrl: string) {
   const Dockerode = (await import('dockerode')).default;
-  const parsed = new URL(socketProxyUrl.replace(/^tcp:/, 'http:'));
+  let parsed: URL;
+  try {
+    parsed = new URL(socketProxyUrl.replace(/^tcp:/, 'http:'));
+  } catch {
+    throw new Error(`Invalid socketProxyUrl "${socketProxyUrl}": must be a valid URL with tcp://, http://, or https:// scheme`);
+  }
   return new Dockerode({ host: parsed.hostname, port: Number(parsed.port) || 2375 });
 }
 
@@ -112,7 +117,7 @@ export const updateAgent = createServerFn()
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    return handleUpdateAgent({ ...baseDeps, checkHealth: checkAgentHealth }, data);
+    return handleRefreshHostStatus({ ...baseDeps, checkHealth: checkAgentHealth }, data);
   });
 
 export const checkHostHealth = createServerFn()

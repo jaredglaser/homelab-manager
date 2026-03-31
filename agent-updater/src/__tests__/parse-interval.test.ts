@@ -29,4 +29,20 @@ describe('parseInterval', () => {
     expect(() => parseInterval('0m')).toThrow('Value must be greater than zero');
     expect(() => parseInterval('0s')).toThrow('Value must be greater than zero');
   });
+
+  test('throws on negative values', () => {
+    expect(() => parseInterval('-5m')).toThrow('Invalid interval format');
+  });
+
+  test('throws on decimal values', () => {
+    expect(() => parseInterval('1.5h')).toThrow('Invalid interval format');
+  });
+
+  test('throws on leading/trailing whitespace', () => {
+    expect(() => parseInterval(' 5m ')).toThrow('Invalid interval format');
+  });
+
+  test('throws on space between value and unit', () => {
+    expect(() => parseInterval('5 m')).toThrow('Invalid interval format');
+  });
 });

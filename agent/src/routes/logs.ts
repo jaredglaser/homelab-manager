@@ -79,6 +79,10 @@ export function handleLogStream(
           return lines;
         }
 
+        // Capture the current time BEFORE fetching backlog so the live phase
+        // `since` value covers any logs emitted during the backlog fetch.
+        const fallbackSinceSeconds = Date.now() / 1000;
+
         /** Backlog phase: fetch tail lines without following. */
         const backlogResult = await container.logs({
           follow: false,
@@ -113,7 +117,7 @@ export function handleLogStream(
         // same second. Docker's `since` accepts fractional Unix timestamps.
         const sinceSeconds = lastTimestamp
           ? new Date(lastTimestamp).getTime() / 1000
-          : Date.now() / 1000;
+          : fallbackSinceSeconds;
 
         /** Live phase: follow new logs from the last backlog timestamp. */
         const liveStream = (await container.logs({

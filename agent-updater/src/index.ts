@@ -34,7 +34,17 @@ async function main(): Promise<void> {
   console.info(`Agent updater started — watching container '${containerName}' for image '${imageName}'`);
   console.info(`Check interval: ${intervalStr} (${checkIntervalMs}ms)`);
 
-  while (true) {
+  let shutdownRequested = false;
+
+  function requestShutdown(): void {
+    console.info('Shutdown signal received, finishing current cycle...');
+    shutdownRequested = true;
+  }
+
+  process.on('SIGINT', requestShutdown);
+  process.on('SIGTERM', requestShutdown);
+
+  while (!shutdownRequested) {
     try {
       const check = await updater.checkForUpdate();
 
@@ -53,8 +63,12 @@ async function main(): Promise<void> {
       console.error(`Update check error: ${message}`);
     }
 
+    if (shutdownRequested) break;
+
     await new Promise((resolve) => setTimeout(resolve, checkIntervalMs));
   }
+
+  console.info('Agent updater shut down gracefully');
 }
 
 main();

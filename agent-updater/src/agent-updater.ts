@@ -40,10 +40,15 @@ export class AgentUpdater {
     try {
       const container = this.docker.getContainer(this.config.containerName);
       const containerInfo = await container.inspect();
-      const currentDigest = this.extractDigest(containerInfo.Image);
 
-      const image = this.docker.getImage(this.config.imageName);
-      const distribution = await image.distribution();
+      const image = this.docker.getImage(containerInfo.Image);
+      const imageInfo = await image.inspect();
+      const currentDigest = this.extractDigest(
+        imageInfo.RepoDigests?.[0] ?? containerInfo.Image
+      );
+
+      const remoteImage = this.docker.getImage(this.config.imageName);
+      const distribution = await remoteImage.distribution();
       const remoteDigest = distribution.Descriptor?.digest as string | undefined;
 
       if (!remoteDigest) {
@@ -176,6 +181,8 @@ export class AgentUpdater {
       name: this.config.containerName,
       Image: image,
       Env: info.Config.Env,
+      Cmd: info.Config.Cmd,
+      Entrypoint: info.Config.Entrypoint,
       HostConfig: info.HostConfig,
       ExposedPorts: info.Config.ExposedPorts,
       Labels: info.Config.Labels,

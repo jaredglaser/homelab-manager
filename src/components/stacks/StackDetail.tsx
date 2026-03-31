@@ -147,7 +147,7 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
       triggerDeploy({ data: { stack: stackName, host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
     onSuccess: (_data, action) => {
       setDeployMessage({ type: 'success', text: `${action} triggered successfully` });
-      queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] });
+      queryClient.invalidateQueries({ queryKey: ['deploy-history', host, stackName] });
       queryClient.invalidateQueries({ queryKey: ['stacks-list'] });
     },
     onError: (err) => {
@@ -169,7 +169,7 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
     mutationFn: ({ newHost, autoDeploy }: { newHost: string; autoDeploy: boolean }) =>
       updateStackSettings({ data: { stackName, host: newHost, autoDeploy } }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
+      queryClient.invalidateQueries({ queryKey: ['stack-detail', host, stackName] });
       queryClient.invalidateQueries({ queryKey: ['stacks-list'] });
       setSettingsDialogOpen(false);
       setDeployMessage({ type: 'success', text: 'Stack settings updated' });
@@ -243,7 +243,7 @@ export default function StackDetail({ stackName, host, containers, onDeleted }: 
               host={host}
               onRollbackComplete={() => {
                 setDeployMessage({ type: 'success', text: 'Rollback triggered successfully' });
-                queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] });
+                queryClient.invalidateQueries({ queryKey: ['deploy-history', host, stackName] });
                 queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY });
               }}
               onRollbackError={(err) => {

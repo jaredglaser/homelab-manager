@@ -31,14 +31,24 @@ if (AGENT_TOKEN_FILE) {
   }
   AGENT_TOKEN = (await file.text()).trim();
 } else if (AGENT_TOKEN_ENV) {
-  AGENT_TOKEN = AGENT_TOKEN_ENV;
+  AGENT_TOKEN = AGENT_TOKEN_ENV.trim();
 } else {
   console.error('AGENT_TOKEN or AGENT_TOKEN_FILE environment variable is required');
   process.exit(1);
 }
 
+if (AGENT_TOKEN === '') {
+  console.error('AGENT_TOKEN is empty after trimming. Provide a non-empty token.');
+  process.exit(1);
+}
+
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH;
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH;
+
+if ((TLS_CERT_PATH && !TLS_KEY_PATH) || (!TLS_CERT_PATH && TLS_KEY_PATH)) {
+  console.error('Both TLS_CERT_PATH and TLS_KEY_PATH must be set together. Only one was provided.');
+  process.exit(1);
+}
 
 const tlsConfig = TLS_CERT_PATH && TLS_KEY_PATH
   ? { cert: Bun.file(TLS_CERT_PATH), key: Bun.file(TLS_KEY_PATH) }
