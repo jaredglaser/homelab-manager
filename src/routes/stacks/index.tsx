@@ -19,7 +19,7 @@ function StacksOverview() {
       entry.total++;
       const statusKey = `${stack.host}/${stack.name}`;
       const status = statusMap.get(statusKey);
-      if (status && status.containers.length > 0) {
+      if (status && status.containers.some(c => c.status === 'running')) {
         entry.running++;
       }
       byHost.set(stack.host, entry);

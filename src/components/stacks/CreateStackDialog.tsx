@@ -52,6 +52,16 @@ export default function CreateStackDialog({
       setHost(hosts[0] ?? '');
       setAutoDeploy(false);
     }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reconcile host selection when the available hosts list changes (e.g., background refresh)
+  useEffect(() => {
+    if (!open) return;
+    if (hosts.length === 0) {
+      setHost('');
+    } else {
+      setHost((current) => hosts.includes(current) ? current : hosts[0]);
+    }
   }, [open, hosts]);
 
   const nameError =

@@ -37,4 +37,7 @@ export const updateHostSchema = z.object({
   name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/, 'Must contain only letters, numbers, hyphens, and underscores').optional(),
   agentUrl: z.string().url().optional(),
   socketProxyUrl: socketProxyUrlSchema.optional(),
-});
+}).refine(
+  (data) => data.name !== undefined || data.agentUrl !== undefined || data.socketProxyUrl !== undefined,
+  { message: 'At least one of name, agentUrl, or socketProxyUrl must be provided' },
+);

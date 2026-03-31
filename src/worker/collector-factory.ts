@@ -25,7 +25,7 @@ export interface CollectorFactoryResult {
 export function resolveAgentUrl(url: string): string {
   const dockerHost = process.env.WORKER_LOCALHOST_AGENT;
   if (!dockerHost) return url;
-  return url.replace(/:\/\/(localhost|127\.0\.0\.1|::1):/, `://${dockerHost}:`);
+  return url.replace(/:\/\/(\[?::1\]?|localhost|127\.0\.0\.1):/, `://${dockerHost}:`);
 }
 
 /**

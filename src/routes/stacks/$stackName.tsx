@@ -64,7 +64,7 @@ function StackEditorView() {
     enabled: settingsDialogOpen,
   })
 
-  const statusKey = detail ? `${detail.name}/${detail.host}` : ''
+  const statusKey = detail ? `${detail.host}/${detail.name}` : ''
   const containers = statusMap.get(statusKey)?.containers ?? []
 
   const deployMutation = useMutation({
@@ -87,6 +87,9 @@ function StackEditorView() {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
       setDeleteDialogOpen(false)
       navigate({ to: '/stacks' })
+    },
+    onError: (err) => {
+      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
     },
   })
 

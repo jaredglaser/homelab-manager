@@ -112,7 +112,14 @@ export class ZFSCollector extends BaseCollector {
   }
 
   protected async collect(): Promise<void> {
-    const url = `${this.host.agent_url}/zfs/stats/stream`;
+    let url: string;
+    try {
+      const parsed = new URL(this.host.agent_url);
+      parsed.pathname = parsed.pathname.replace(/\/$/, '') + '/zfs/stats/stream';
+      url = parsed.toString();
+    } catch {
+      url = `${this.host.agent_url}/zfs/stats/stream`;
+    }
     this.debugLog(`[${this.name}] Connecting to ${url}`);
 
     const response = await this.fetchFn(url, {
@@ -205,7 +212,13 @@ export class ZFSCollector extends BaseCollector {
           const statsWithRates = this.calculator.calculate(iostat.name, iostat);
           statsWithRates.timestamp = agentTimestamp;
 
-          const hostId = this.host.agent_url.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+          let hostId: string;
+          try {
+            const parsed = new URL(this.host.agent_url);
+            hostId = parsed.hostname + (parsed.port ? `:${parsed.port}` : '');
+          } catch {
+            hostId = this.host.agent_url.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+          }
           const { path: entityPath, pool, entityType, ctx: newCtx } = buildEntityPath(statsWithRates, hierarchyCtx);
           hierarchyCtx = newCtx;
 

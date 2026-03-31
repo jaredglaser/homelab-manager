@@ -15,7 +15,7 @@ const mockContextValue = {
 };
 
 mock.module('@tanstack/react-virtual', () => ({
-  useWindowVirtualizer: ({ count, estimateSize }: any) => {
+  useVirtualizer: ({ count, estimateSize }: any) => {
     const items = Array.from({ length: count }, (_, i) => ({
       index: i,
       key: String(i),
@@ -25,7 +25,6 @@ mock.module('@tanstack/react-virtual', () => ({
       getVirtualItems: () => items,
       getTotalSize: () => count * 36,
       measureElement: () => {},
-      options: { scrollMargin: 0 },
     };
   },
 }));

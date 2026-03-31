@@ -245,7 +245,7 @@ describe('DeployPipeline', () => {
       expect(resolver.resolve).toHaveBeenCalledWith('plex', ['API_TOKEN']);
       // Verify the resolved secret was passed to the agent deploy call
       const deployCall = (mockAgent.deploy as ReturnType<typeof mock>).mock.calls[0] as [any];
-      expect(deployCall[0].envContent).toContain('API_TOKEN="secret-value"');
+      expect(deployCall[0].envContent).toContain("API_TOKEN='secret-value'");
     });
 
     it('sanitizes newlines in secret values when building env content', async () => {
@@ -267,7 +267,7 @@ describe('DeployPipeline', () => {
 
       await pipeline.execute(requestWithVars);
       const deployCall = (mockAgent.deploy as ReturnType<typeof mock>).mock.calls[0] as [any];
-      expect(deployCall[0].envContent).toBe('PEM_KEY="line1line2line3"');
+      expect(deployCall[0].envContent).toBe("PEM_KEY='line1line2line3'");
     });
 
     it('deduplicates pending deploys for the same stack', async () => {

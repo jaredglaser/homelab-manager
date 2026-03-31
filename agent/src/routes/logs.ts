@@ -120,7 +120,15 @@ export function handleLogStream(
           : fallbackSinceSeconds;
 
         /** Live phase: follow new logs from the last backlog timestamp. */
-        const liveStream = (await container.logs({
+        let liveStream: Readable | null = null;
+        const onAbortDuringAwait = () => {
+          if (liveStream && typeof liveStream.destroy === 'function') {
+            liveStream.destroy();
+          }
+        };
+        request.signal.addEventListener('abort', onAbortDuringAwait);
+
+        liveStream = (await container.logs({
           follow: true,
           stdout: true,
           stderr: true,
@@ -128,7 +136,13 @@ export function handleLogStream(
           timestamps: true,
         })) as unknown as Readable;
 
+        request.signal.removeEventListener('abort', onAbortDuringAwait);
         activeStream = liveStream;
+
+        if (request.signal.aborted) {
+          liveStream.destroy();
+          return;
+        }
 
         // Send periodic heartbeat to prevent proxies/browsers from killing idle connections
         const heartbeatInterval = setInterval(() => {

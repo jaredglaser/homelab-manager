@@ -135,25 +135,25 @@ describe('ZFSCollector', () => {
       expect(rows.length).toBe(4);
 
       // Pool row (entity prefixed with host identifier from agent_url)
-      expect(rows[0].entity).toBe('192.168.1.50/tank');
+      expect(rows[0].entity).toBe('192.168.1.50:9090/tank');
       expect(rows[0].entity_type).toBe('pool');
       expect(rows[0].pool).toBe('tank');
       expect(rows[0].host).toBe('test-zfs');
       expect(rows[0].indent).toBe(0);
 
       // Vdev row
-      expect(rows[1].entity).toBe('192.168.1.50/tank/mirror-0');
+      expect(rows[1].entity).toBe('192.168.1.50:9090/tank/mirror-0');
       expect(rows[1].entity_type).toBe('vdev');
       expect(rows[1].pool).toBe('tank');
       expect(rows[1].indent).toBe(2);
 
       // Disk rows
-      expect(rows[2].entity).toBe('192.168.1.50/tank/mirror-0/sda');
+      expect(rows[2].entity).toBe('192.168.1.50:9090/tank/mirror-0/sda');
       expect(rows[2].entity_type).toBe('disk');
       expect(rows[2].pool).toBe('tank');
       expect(rows[2].indent).toBe(4);
 
-      expect(rows[3].entity).toBe('192.168.1.50/tank/mirror-0/sdb');
+      expect(rows[3].entity).toBe('192.168.1.50:9090/tank/mirror-0/sdb');
       expect(rows[3].entity_type).toBe('disk');
     });
 
@@ -182,7 +182,7 @@ describe('ZFSCollector', () => {
       // Final cycle should be written in the finally block
       expect(mockDb.insertedRows.length).toBe(1);
       expect(mockDb.insertedRows[0].length).toBe(1);
-      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50/rpool');
+      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/rpool');
       expect(mockDb.insertedRows[0][0].entity_type).toBe('pool');
     });
 
@@ -281,7 +281,7 @@ describe('ZFSCollector', () => {
 
       expect(mockDb.insertedRows.length).toBe(1);
       expect(mockDb.insertedRows[0].length).toBe(1);
-      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50/tank');
+      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/tank');
     });
 
     it('should skip malformed JSON in SSE events', async () => {
@@ -312,7 +312,7 @@ describe('ZFSCollector', () => {
 
       // Final cycle written - only the tank row
       expect(mockDb.insertedRows.length).toBe(1);
-      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50/tank');
+      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/tank');
     });
 
     it('should skip non-object JSON values', async () => {
@@ -402,7 +402,7 @@ describe('ZFSCollector', () => {
 
       // Final cycle written with the tank row
       expect(mockDb.insertedRows.length).toBe(1);
-      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50/tank');
+      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/tank');
     });
 
     it('should stop processing when abort signal fires', async () => {

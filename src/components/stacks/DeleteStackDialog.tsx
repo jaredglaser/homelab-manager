@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Button,
   Dialog,
@@ -30,6 +30,10 @@ export default function DeleteStackDialog({
   isLoading,
 }: Readonly<DeleteStackDialogProps>) {
   const [mode, setMode] = useState<DeleteMode | null>(null);
+
+  useEffect(() => {
+    if (!open) setMode(null);
+  }, [open]);
 
   function handleClose() {
     setMode(null);

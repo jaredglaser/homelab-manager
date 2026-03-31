@@ -84,6 +84,14 @@ async function parseDeployBody(
     return Response.json({ error: 'Missing required fields: stack, composeContent' }, { status: 400 });
   }
 
+  if (typeof body.stack !== 'string' || typeof body.composeContent !== 'string') {
+    return Response.json({ error: 'Fields stack and composeContent must be strings' }, { status: 400 });
+  }
+
+  if (body.envContent !== undefined && typeof body.envContent !== 'string') {
+    return Response.json({ error: 'Field envContent must be a string' }, { status: 400 });
+  }
+
   if (body.forceRecreate !== undefined && typeof body.forceRecreate !== 'boolean') {
     return Response.json({ error: 'forceRecreate must be a boolean' }, { status: 400 });
   }

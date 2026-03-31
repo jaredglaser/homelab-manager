@@ -46,10 +46,19 @@ if [ ! -f "$INIT_FILE" ]; then
 
   # Create our fixed dev root token
   echo "[openbao-init] Creating dev root token..."
-  wget -q -O /dev/null --post-data "{\"id\":\"$DEV_ROOT_TOKEN\",\"policies\":[\"root\"],\"no_default_policy\":true,\"no_parent\":true}" \
+  TOKEN_RESPONSE=$(wget -q -O - --post-data "{\"id\":\"$DEV_ROOT_TOKEN\",\"policies\":[\"root\"],\"no_default_policy\":true,\"no_parent\":true}" \
     --header="Content-Type: application/json" \
     --header="X-Vault-Token: $ROOT_TOKEN" \
-    "$BAO_ADDR/v1/auth/token/create-orphan" 2>/dev/null || true
+    "$BAO_ADDR/v1/auth/token/create-orphan" 2>&1) || {
+    # Token may already exist from a prior run — check for known error patterns
+    case "$TOKEN_RESPONSE" in
+      *"already exists"*|*"token already"*)
+        echo "[openbao-init] Dev root token already exists, continuing." ;;
+      *)
+        echo "[openbao-init] ERROR: Failed to create dev root token: $TOKEN_RESPONSE"
+        exit 1 ;;
+    esac
+  }
 
   echo "[openbao-init] Initialization complete."
 else

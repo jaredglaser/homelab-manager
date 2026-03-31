@@ -27,12 +27,19 @@ export async function processPostReceive(
   const manifestContent = await readFileFromRepo(repoPath, 'manifest.yaml', newHead);
   const manifest = parseManifest(manifestContent);
 
-  // Build a map of stackName -> composeContent for changed stacks
+  // Build a map of stackName -> composeContent for changed stacks.
+  // Delete/teardown actions don't need a compose file (it was removed from the repo).
   const changedStacks = new Map<string, string>();
+  const teardownActions = new Set<string>();
   for (const req of postReceiveRequests) {
     console.info(
       `[PostReceive] Deploy request: ${req.action} ${req.stack} on ${req.host} (auto=${req.autoApproved})`,
     );
+    if (req.action === 'teardown') {
+      teardownActions.add(req.stack);
+      changedStacks.set(req.stack, '');
+      continue;
+    }
     try {
       const composeContent = await readFileFromRepo(repoPath, req.composePath, newHead);
       changedStacks.set(req.stack, composeContent);

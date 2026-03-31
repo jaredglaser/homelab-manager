@@ -43,8 +43,9 @@ describe('ContainerList', () => {
 
   it('shows stopped status dot for non-running containers', () => {
     render(<ContainerList containers={mockContainers} />);
+    const exitedDots = screen.getAllByLabelText('status: exited');
     const stoppedDots = screen.getAllByLabelText('status: stopped');
-    expect(stoppedDots.length).toBe(2);
+    expect(exitedDots.length + stoppedDots.length).toBe(2);
   });
 
   it('shows empty state when no containers', () => {

@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react';
-import { useWindowVirtualizer } from '@tanstack/react-virtual';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Link } from '@tanstack/react-router';
 import { IconButton, Typography } from '@mui/material';
 import { Plus, Server } from 'lucide-react';
@@ -31,8 +31,11 @@ export default function StackNav({ onCreateClick }: StackNavProps) {
 
     const items: NavItem[] = [];
     const sortedHosts = Array.from(byHost.keys()).sort();
+    const multiHost = sortedHosts.length > 1;
     for (const host of sortedHosts) {
-      items.push({ type: 'host', host });
+      if (multiHost) {
+        items.push({ type: 'host', host });
+      }
       const hostStacks = byHost.get(host)!;
       hostStacks.sort((a, b) => a.name.localeCompare(b.name));
       for (const stack of hostStacks) {
@@ -50,11 +53,11 @@ export default function StackNav({ onCreateClick }: StackNavProps) {
     return items;
   }, [stacks, statusMap]);
 
-  const virtualizer = useWindowVirtualizer({
+  const virtualizer = useVirtualizer({
     count: navItems.length,
+    getScrollElement: () => listRef.current,
     estimateSize: (index) => navItems[index].type === 'host' ? HOST_ROW_HEIGHT : STACK_ROW_HEIGHT,
     overscan: 10,
-    scrollMargin: listRef.current?.offsetTop ?? 0,
     getItemKey: (index) => {
       const item = navItems[index];
       return item.type === 'host' ? `host-${item.host}` : `stack-${item.host}-${item.name}`;
@@ -81,7 +84,7 @@ export default function StackNav({ onCreateClick }: StackNavProps) {
               top: 0,
               left: 0,
               width: '100%',
-              transform: `translate3d(0, ${(virtualItems[0]?.start ?? 0) - virtualizer.options.scrollMargin}px, 0)`,
+              transform: `translate3d(0, ${virtualItems[0]?.start ?? 0}px, 0)`,
             }}
           >
             {virtualItems.map((virtualRow) => {

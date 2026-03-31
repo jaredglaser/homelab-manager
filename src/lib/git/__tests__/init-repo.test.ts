@@ -8,7 +8,6 @@ import { repoExists, readFileFromRepo } from '../repo';
 
 describe('ensureRepoInitialized', () => {
   let testDir: string;
-  const originalEnv = { ...process.env };
 
   beforeEach(() => {
     testDir = mkdtempSync(join(getTestTmpDir(), 'git-init-'));
@@ -18,7 +17,6 @@ describe('ensureRepoInitialized', () => {
   afterEach(() => {
     rmSync(testDir, { recursive: true, force: true });
     delete process.env.GIT_REPOS_DIR;
-    Object.assign(process.env, originalEnv);
   });
 
   it('should initialize a bare repo if it does not exist', async () => {
@@ -47,14 +45,17 @@ describe('ensureRepoInitialized', () => {
     );
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    await ensureRepoInitialized();
+    try {
+      await ensureRepoInitialized();
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[GitInit] Unexpected error checking HEAD:',
-      'Disk I/O failure',
-    );
-
-    resolveRefSpy.mockRestore();
-    errorSpy.mockRestore();
+      expect(resolveRefSpy).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[GitInit] Unexpected error checking HEAD:',
+        'Disk I/O failure',
+      );
+    } finally {
+      resolveRefSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 });

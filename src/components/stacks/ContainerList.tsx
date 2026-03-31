@@ -22,7 +22,7 @@ export default function ContainerList({ containers }: ContainerListProps) {
           <div key={container.id} className="flex items-center gap-2 text-sm py-1">
             <span
               className={`w-2 h-2 rounded-full flex-shrink-0 ${isRunning ? 'bg-green-500' : 'bg-red-500'}`}
-              aria-label={isRunning ? 'status: running' : 'status: stopped'}
+              aria-label={`status: ${container.status}`}
             />
             <span className="font-medium truncate">{container.name}</span>
             <span className="opacity-50 text-xs truncate">{container.status}</span>

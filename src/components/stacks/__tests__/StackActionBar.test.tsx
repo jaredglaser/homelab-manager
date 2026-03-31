@@ -89,7 +89,7 @@ describe('StackActionBar', () => {
     const onForceRecreateChange = mock(() => {});
     render(<StackActionBar {...defaultProps} onForceRecreateChange={onForceRecreateChange} />);
     fireEvent.click(screen.getByRole('checkbox'));
-    expect(onForceRecreateChange).toHaveBeenCalledTimes(1);
+    expect(onForceRecreateChange).toHaveBeenCalledWith(true);
   });
 
   it('disables Force Recreate checkbox when isDeploying is true', () => {

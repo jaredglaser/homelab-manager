@@ -4,15 +4,15 @@ import type { HostListItem } from '@/lib/hosts/host-utils'
 
 function StatusDot({ status }: { status: HostListItem['status'] }) {
   if (status === 'healthy') {
-    return <span className="inline-block w-2 h-2 rounded-full bg-green-500" aria-label="healthy" />
+    return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--mui-palette-success-main)' }} aria-label="healthy" />
   }
   if (status === 'unhealthy') {
-    return <span className="inline-block w-2 h-2 rounded-full bg-red-500" aria-label="unhealthy" />
+    return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--mui-palette-error-main)' }} aria-label="unhealthy" />
   }
   if (status === 'error') {
-    return <span className="inline-block w-2 h-2 rounded-full bg-red-700" aria-label="error" />
+    return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--mui-palette-error-dark)' }} aria-label="error" />
   }
-  return <span className="inline-block w-2 h-2 rounded-full bg-gray-400" aria-label="unknown" />
+  return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--mui-palette-grey-400)' }} aria-label="unknown" />
 }
 
 interface HostRowProps {

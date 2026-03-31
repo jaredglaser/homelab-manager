@@ -1,4 +1,4 @@
-import { Button, Checkbox, CircularProgress, FormControlLabel, Tooltip, Typography } from '@mui/material';
+import { Button, Checkbox, CircularProgress, FormControlLabel, IconButton, Tooltip, Typography } from '@mui/material';
 import { HelpCircle, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
 
 interface StackActionBarProps {
@@ -69,9 +69,9 @@ export default function StackActionBar({
           placement="top-start"
           slotProps={{ tooltip: { className: '!max-w-xs' } }}
         >
-          <span className="p-0.5 opacity-40 hover:opacity-80 transition-opacity cursor-help">
+          <IconButton size="small" aria-label="Force recreate help" className="!p-0.5 !opacity-40 hover:!opacity-80">
             <HelpCircle size={14} />
-          </span>
+          </IconButton>
         </Tooltip>
       </div>
 

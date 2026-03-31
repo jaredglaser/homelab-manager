@@ -201,14 +201,6 @@ describe('ManagedHostsCard', () => {
       expect(onRemove).not.toHaveBeenCalled()
     })
 
-    it('does not call onRemove when dialog is dismissed via Cancel', () => {
-      // Re-verifies cancel path: open dialog, cancel, confirm button no longer triggers onRemove
-      const onRemove = mock(() => {})
-      render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost()], onRemove })} />)
-      fireEvent.click(screen.getByLabelText('remove host'))
-      fireEvent.click(screen.getByText('Cancel'))
-      expect(onRemove).not.toHaveBeenCalled()
-    })
   })
 
   describe('add host wizard', () => {
