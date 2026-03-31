@@ -172,4 +172,101 @@ describe('VariablesPanel', () => {
 
     await waitFor(() => expect(mockDeleteVariable).toHaveBeenCalledTimes(1));
   });
+
+  it('calls deleteVariable mutation and invokes onDeleted callback on success', async () => {
+    // First call: list with the variable; second call: list after invalidation (variable gone)
+    mockGetStackVariables
+      .mockImplementationOnce(() => Promise.resolve(['TEMP_VAR']))
+      .mockImplementationOnce(() => Promise.resolve([]));
+    mockDeleteVariable.mockImplementationOnce(() => Promise.resolve(undefined));
+
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('TEMP_VAR')).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText('Delete variable'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(mockDeleteVariable).toHaveBeenCalledTimes(1);
+      // onDeleted triggers invalidateQueries which triggers a re-fetch
+      expect(mockGetStackVariables).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('does not call deleteVariable when Cancel is clicked in the dialog', async () => {
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['OLD_VAR']));
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText('Delete variable'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(mockDeleteVariable).not.toHaveBeenCalled();
+  });
+
+  it('saves variable value and marks field as clean on success', async () => {
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['API_KEY']));
+    mockGetVariableValue.mockImplementationOnce(() => Promise.resolve('original-value'));
+    mockSetVariableValue.mockImplementationOnce(() => Promise.resolve(undefined));
+
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('API_KEY')).toBeDefined());
+
+    // Reveal the field to fetch the value
+    fireEvent.click(screen.getByLabelText('Reveal value'));
+    await waitFor(() => expect(mockGetVariableValue).toHaveBeenCalledTimes(1));
+
+    // Modify the value to make the field dirty
+    const input = screen.getByDisplayValue('original-value');
+    fireEvent.change(input, { target: { value: 'new-value' } });
+
+    // Save button should now be enabled
+    const saveBtn = screen.getByLabelText('Save value');
+    await waitFor(() => expect((saveBtn as HTMLButtonElement).disabled).toBe(false));
+
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => expect(mockSetVariableValue).toHaveBeenCalledTimes(1));
+
+    // After save, field should no longer be dirty (save button disabled again)
+    await waitFor(() => expect((saveBtn as HTMLButtonElement).disabled).toBe(true));
+  });
+
+  it('calls ensureVariablesExist when compose variables are missing from OpenBao', async () => {
+    // OpenBao only has DB_URL, but compose references DB_URL and NEW_VAR
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['DB_URL']));
+    mockEnsureVariablesExist.mockImplementationOnce(() => Promise.resolve(undefined));
+    // After invalidation, return all variables
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['DB_URL', 'NEW_VAR']));
+
+    await renderPanel('mystack', ['DB_URL', 'NEW_VAR']);
+
+    await waitFor(() => {
+      expect(mockEnsureVariablesExist).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('does not call ensureVariablesExist when all compose variables already exist in OpenBao', async () => {
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['DB_URL', 'SECRET_KEY']));
+
+    await renderPanel('mystack', ['DB_URL', 'SECRET_KEY']);
+
+    await waitFor(() => expect(screen.getByText('DB_URL')).toBeDefined());
+
+    expect(mockEnsureVariablesExist).not.toHaveBeenCalled();
+  });
+
+  it('save button is disabled when field has not been fetched yet', async () => {
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['API_TOKEN']));
+
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('API_TOKEN')).toBeDefined());
+
+    const saveBtn = screen.getByLabelText('Save value');
+    expect((saveBtn as HTMLButtonElement).disabled).toBe(true);
+  });
 });

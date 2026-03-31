@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import { pullImage } from '../docker-image-utils';
 
 function createMockDocker(error?: Error) {
@@ -39,5 +39,22 @@ describe('pullImage', () => {
       modem: { followProgress: () => {} },
     } as any;
     await expect(pullImage(docker, 'bad-image:latest')).rejects.toThrow('connection refused');
+  });
+
+  it('rejects with timeout error and destroys the stream when pull exceeds timeoutMs', async () => {
+    const destroy = mock(() => {});
+    const stream = { destroy };
+    const docker = {
+      pull: async () => stream,
+      modem: {
+        // Never call the callback — simulates a stalled pull
+        followProgress: () => {},
+      },
+    } as any;
+
+    await expect(pullImage(docker, 'slow-image:latest', 10)).rejects.toThrow(
+      'Image pull timed out after 0.01s: slow-image:latest',
+    );
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 });

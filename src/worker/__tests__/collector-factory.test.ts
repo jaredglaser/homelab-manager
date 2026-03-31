@@ -4,6 +4,7 @@ import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { Pool } from 'pg';
 import { BaseCollector } from '../collectors/base-collector';
+import { StackStatusCollector } from '../collectors/stack-status-collector';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
@@ -447,5 +448,126 @@ describe('createCollectorsForManagedHosts', () => {
     expect(result.collectors).toHaveLength(0);
 
     shutdownController.abort();
+  });
+});
+
+describe('createStackStatusCollectors', () => {
+  let db: ReturnType<typeof createMockDb>;
+  let stackStatusRunSpy: ReturnType<typeof spyOn>;
+
+  const sampleHost: ManagedHost = {
+    id: 1,
+    name: 'homeserver',
+    agent_url: 'http://192.168.1.10:9090',
+    capabilities: { docker: true, zfs: false },
+    agent_version: '0.1.0',
+    status: 'healthy',
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+
+  beforeEach(() => {
+    db = createMockDb();
+    console.log = mock(() => {});
+    console.info = mock(() => {});
+    console.error = mock(() => {});
+    stackStatusRunSpy = spyOn(StackStatusCollector.prototype, 'run').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    console.log = originalConsoleLog;
+    console.info = originalConsoleInfo;
+    console.error = originalConsoleError;
+    stackStatusRunSpy.mockRestore();
+  });
+
+  it('returns empty runners when no hosts exist', async () => {
+    const { createStackStatusCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createStackStatusCollectors(
+      db as unknown as DatabaseClient,
+      controller,
+      stack,
+      mock(async () => []),
+      async () => 'mock-token',
+    );
+
+    expect(result.runners).toHaveLength(0);
+
+    controller.abort();
+  });
+
+  it('skips host with no token and logs info', async () => {
+    const { createStackStatusCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createStackStatusCollectors(
+      db as unknown as DatabaseClient,
+      controller,
+      stack,
+      mock(async () => [sampleHost]),
+      async () => null,
+    );
+
+    expect(result.runners).toHaveLength(0);
+    expect(stackStatusRunSpy).not.toHaveBeenCalled();
+
+    const infoCalls = getMockInfoCalls();
+    const skipMsg = infoCalls.find(
+      (c) => typeof c === 'string' && c.includes('Skipping StackStatusCollector') && c.includes('homeserver'),
+    );
+    expect(skipMsg).toBeDefined();
+
+    controller.abort();
+  });
+
+  it('creates collector and returns runner when host has a token', async () => {
+    const { createStackStatusCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createStackStatusCollectors(
+      db as unknown as DatabaseClient,
+      controller,
+      stack,
+      mock(async () => [sampleHost]),
+      async () => 'secret-token',
+    );
+
+    expect(result.runners).toHaveLength(1);
+    expect(stackStatusRunSpy).toHaveBeenCalledTimes(1);
+
+    controller.abort();
+  });
+
+  it('creates collectors only for hosts with tokens when mixed', async () => {
+    const hostB: ManagedHost = { ...sampleHost, id: 2, name: 'remotehost', agent_url: 'http://192.168.1.11:9090' };
+
+    const { createStackStatusCollectors } = await import('../collector-factory');
+    const controller = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createStackStatusCollectors(
+      db as unknown as DatabaseClient,
+      controller,
+      stack,
+      mock(async () => [sampleHost, hostB]),
+      async (hostname) => (hostname === 'homeserver' ? null : 'token-for-remote'),
+    );
+
+    // Only remotehost has a token — one runner expected
+    expect(result.runners).toHaveLength(1);
+    expect(stackStatusRunSpy).toHaveBeenCalledTimes(1);
+
+    const infoCalls = getMockInfoCalls();
+    const skipMsg = infoCalls.find(
+      (c) => typeof c === 'string' && c.includes('Skipping StackStatusCollector') && c.includes('homeserver'),
+    );
+    expect(skipMsg).toBeDefined();
+
+    controller.abort();
   });
 });

@@ -9,6 +9,7 @@ import {
   handleVerifyHost,
   handleAddHost,
   handleUpdateHost,
+  handleRegisterExistingHost,
 } from '../handlers';
 
 const NOW = new Date('2026-03-01T00:00:00Z');
@@ -221,6 +222,100 @@ describe('handleVerifyHost', () => {
     deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '2.0.0' }));
     await handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'tok' });
     expect(deps.repo.updateAgentVersion).toHaveBeenCalledWith(1, '2.0.0');
+  });
+});
+
+describe('handleRegisterExistingHost', () => {
+  let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler) => {
+        if (typeof fn === 'function') fn();
+        return 0;
+      }) as unknown as typeof setTimeout
+    );
+  });
+
+  afterEach(() => {
+    setTimeoutSpy.mockRestore();
+  });
+
+  function registerDeps(repo?: Partial<HostRepo>) {
+    return {
+      ...baseDeps(repo),
+      storeToken: mock(() => Promise.resolve()),
+      checkHealth: mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '1.0.0' })),
+    };
+  }
+
+  it('creates host, stores token, health checks, and returns healthy host', async () => {
+    const deps = registerDeps();
+    const result = await handleRegisterExistingHost(deps, {
+      name: 'existing-host',
+      agentUrl: 'http://192.168.1.20:9090',
+      socketProxyUrl: 'tcp://192.168.1.20:2375',
+      agentToken: 'my-token',
+    });
+
+    expect(result.host.name).toBe('test-host'); // from mockRow
+    expect(result.host.status).toBe('healthy');
+    expect(deps.repo.create).toHaveBeenCalledWith({
+      name: 'existing-host',
+      agent_url: 'http://192.168.1.20:9090',
+      socket_proxy_url: 'tcp://192.168.1.20:2375',
+    });
+    expect(deps.storeToken).toHaveBeenCalledWith('existing-host', 'my-token');
+    expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+    expect(deps.checkHealth).toHaveBeenCalled();
+  });
+
+  it('returns unhealthy host when health check fails', async () => {
+    const deps = registerDeps();
+    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
+
+    const result = await handleRegisterExistingHost(deps, {
+      name: 'existing-host',
+      agentUrl: 'http://192.168.1.20:9090',
+      socketProxyUrl: 'tcp://192.168.1.20:2375',
+      agentToken: 'my-token',
+    });
+
+    expect(result.host.status).toBe('unhealthy');
+    expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
+    expect(deps.repo.updateAgentVersion).not.toHaveBeenCalled();
+  });
+
+  it('rolls back DB record and throws when token storage fails', async () => {
+    const deps = registerDeps();
+    deps.storeToken = mock(() => Promise.reject(new Error('bao unreachable')));
+
+    await expect(
+      handleRegisterExistingHost(deps, {
+        name: 'existing-host',
+        agentUrl: 'http://192.168.1.20:9090',
+        socketProxyUrl: 'tcp://192.168.1.20:2375',
+        agentToken: 'my-token',
+      })
+    ).rejects.toThrow(/Failed to store agent token in OpenBao/);
+
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+    expect(deps.checkHealth).not.toHaveBeenCalled();
+  });
+
+  it('updates agent version when health check returns one', async () => {
+    const deps = registerDeps();
+    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '2.5.0' }));
+
+    const result = await handleRegisterExistingHost(deps, {
+      name: 'existing-host',
+      agentUrl: 'http://192.168.1.20:9090',
+      socketProxyUrl: 'tcp://192.168.1.20:2375',
+      agentToken: 'my-token',
+    });
+
+    expect(deps.repo.updateAgentVersion).toHaveBeenCalledWith(1, '2.5.0');
+    expect(result.host.agentVersion).toBe('2.5.0');
   });
 });
 
