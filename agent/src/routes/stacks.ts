@@ -395,6 +395,7 @@ async function collectStackStatus(
   stacksDir: string,
   stackName: string,
   spawn: SpawnFn,
+  timeoutMs?: number,
 ): Promise<{ name: string; containers: unknown[]; error?: string }> {
   const composePath = join(stacksDir, stackName, 'docker-compose.yml');
 
@@ -404,7 +405,7 @@ async function collectStackStatus(
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, COMPOSE_PROJECT_NAME: stackName },
-  });
+  }, timeoutMs);
 
   if (result.timedOut) {
     console.error(`docker compose ps timed out for ${stackName}`);
@@ -432,7 +433,8 @@ async function collectStackStatus(
  */
 export async function handleStackStatus(
   stacksDir: string,
-  spawn: SpawnFn = Bun.spawn
+  spawn: SpawnFn = Bun.spawn,
+  timeoutMs?: number,
 ): Promise<Response> {
   if (!existsSync(stacksDir)) {
     return Response.json({ stacks: [] });
@@ -454,7 +456,7 @@ export async function handleStackStatus(
   const results = await Promise.allSettled(
     stackDirs.map(async (entry) => {
       try {
-        return await collectStackStatus(stacksDir, entry.name, spawn);
+        return await collectStackStatus(stacksDir, entry.name, spawn, timeoutMs);
       } catch (spawnError) {
         console.error(`Failed to get status for stack ${entry.name}:`, spawnError);
         const error = spawnError instanceof Error ? spawnError.message : String(spawnError);

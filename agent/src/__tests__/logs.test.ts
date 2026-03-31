@@ -341,6 +341,214 @@ describe('handleLogStream', () => {
     expect(backlogDoneIdx).toBeLessThan(liveLineIdx);
   });
 
+  test('container gone (404): sends SSE error with gone flag', async () => {
+    const goneError = new Error('(HTTP code 404) no such container');
+    const mockContainer = {
+      inspect: mock(() => Promise.reject(goneError)),
+      logs: mock(() => Promise.resolve(new EventEmitter())),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest();
+    const response = handleLogStream(mockDocker as any, 'abc123', request);
+
+    const body = await drainStream(response);
+
+    expect(body).toContain('event: error');
+    expect(body).toContain('"gone":true');
+  });
+
+  test('container gone (409): sends SSE error with gone flag', async () => {
+    const goneError = new Error('(HTTP code 409) container is restarting');
+    const mockContainer = {
+      inspect: mock(() => Promise.reject(goneError)),
+      logs: mock(() => Promise.resolve(new EventEmitter())),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest();
+    const response = handleLogStream(mockDocker as any, 'abc123', request);
+
+    const body = await drainStream(response);
+
+    expect(body).toContain('event: error');
+    expect(body).toContain('"gone":true');
+  });
+
+  test('heartbeat: sends SSE comment when interval fires', async () => {
+    // Override setInterval to fire the callback immediately
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    let heartbeatCb: (() => void) | null = null;
+    const fakeTimerId = 999;
+    globalThis.setInterval = ((cb: () => void) => {
+      heartbeatCb = cb;
+      return fakeTimerId as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval;
+    globalThis.clearInterval = mock(() => {}) as typeof clearInterval;
+
+    try {
+      const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true);
+      const mockDocker = { getContainer: mock(() => mockContainer) };
+
+      const request = makeRequest();
+      const response = handleLogStream(mockDocker as any, 'abc123', request);
+
+      await new Promise((r) => originalSetInterval(r, 20));
+
+      // Fire the heartbeat callback
+      expect(heartbeatCb).not.toBeNull();
+      heartbeatCb!();
+
+      liveEmitter.emit('end');
+
+      const body = await drainStream(response);
+      // SSE comment is ":\n\n"
+      expect(body).toContain(':\n\n');
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
+  test('heartbeat: clears interval when stream is closed', async () => {
+    const originalSetInterval = globalThis.setInterval;
+    const originalClearInterval = globalThis.clearInterval;
+    let heartbeatCb: (() => void) | null = null;
+    const clearedIds: unknown[] = [];
+    const fakeTimerId = 888;
+    globalThis.setInterval = ((cb: () => void) => {
+      heartbeatCb = cb;
+      return fakeTimerId as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval;
+    globalThis.clearInterval = ((id: unknown) => { clearedIds.push(id); }) as typeof clearInterval;
+
+    try {
+      const { mockContainer } = makeTwoPhaseContainer(true);
+      const mockDocker = { getContainer: mock(() => mockContainer) };
+
+      const abortController = new AbortController();
+      const request = makeRequest(abortController);
+      handleLogStream(mockDocker as any, 'abc123', request);
+
+      await new Promise((r) => originalSetInterval(r, 20));
+
+      // Close the stream, then fire heartbeat — it should clearInterval
+      abortController.abort();
+      await new Promise((r) => originalSetInterval(r, 10));
+      heartbeatCb!();
+      expect(clearedIds).toContain(fakeTimerId);
+    } finally {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+    }
+  });
+
+  test('onAbortDuringAwait: destroys liveStream when abort fires after assignment', async () => {
+    const abortController = new AbortController();
+    const liveEmitter = new EventEmitter();
+    const destroySpy = mock(() => {});
+    (liveEmitter as any).destroy = destroySpy;
+
+    let resolveLogsPromise: ((value: any) => void) | null = null;
+    const mockContainer = {
+      inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
+      logs: mock((opts: Record<string, unknown>) => {
+        if (!opts.follow) return Promise.resolve(Buffer.alloc(0));
+        // Return a promise that we control — abort will fire while it's pending
+        return new Promise((resolve) => { resolveLogsPromise = resolve; });
+      }),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest(abortController);
+    handleLogStream(mockDocker as any, 'abc123', request);
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Now resolve the logs promise with our emitter, then immediately abort
+    resolveLogsPromise!(liveEmitter);
+    await new Promise((r) => setTimeout(r, 5));
+    abortController.abort();
+    await new Promise((r) => setTimeout(r, 20));
+
+    // The liveStream.destroy should have been called via the abort handler or post-await check
+    expect(destroySpy).toHaveBeenCalled();
+  });
+
+  test('abort during live stream await: destroys stream via onAbortDuringAwait', async () => {
+    const abortController = new AbortController();
+    const liveEmitter = new EventEmitter();
+    const destroySpy = mock(() => {});
+    (liveEmitter as any).destroy = destroySpy;
+
+    // Make container.logs for the live phase hang until we abort
+    const mockContainer = {
+      inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
+      logs: mock((opts: Record<string, unknown>) => {
+        if (!opts.follow) return Promise.resolve(Buffer.alloc(0));
+        // Abort while the live stream promise is pending
+        abortController.abort();
+        return Promise.resolve(liveEmitter);
+      }),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest(abortController);
+    const response = handleLogStream(mockDocker as any, 'abc123', request);
+
+    // Wait for the stream to process
+    await new Promise((r) => setTimeout(r, 50));
+
+    const body = await drainStream(response, 200);
+    expect(body).toContain('event: backlog_done');
+    // The stream should have been destroyed since abort happened during await
+    expect(liveEmitter.listenerCount('data')).toBe(0);
+  });
+
+  test('extractTimestamp: returns null for lines with short first tokens', async () => {
+    // A backlog line where the first space-delimited token is short (<=10 chars)
+    // should not be parsed as a timestamp, so live phase falls back to Date.now()
+    const nowBefore = Date.now() / 1000;
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true, Buffer.from('short tok rest of line\n'));
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest();
+    const response = handleLogStream(mockDocker as any, 'abc123', request);
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    liveEmitter.emit('end');
+    await drainStream(response);
+    const nowAfter = Date.now() / 1000;
+
+    const secondCall = mockContainer.logs.mock.calls[1]![0] as Record<string, unknown>;
+    const since = secondCall.since as number;
+    expect(since).toBeGreaterThanOrEqual(nowBefore - 1);
+    expect(since).toBeLessThanOrEqual(nowAfter + 1);
+  });
+
+  test('extractTimestamp: returns null for long tokens without dash at index 4', async () => {
+    // Token is long enough but doesn't have '-' at index 4 and no 'T'
+    const nowBefore = Date.now() / 1000;
+    const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true, Buffer.from('abcdefghijklmnop rest of line\n'));
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+
+    const request = makeRequest();
+    const response = handleLogStream(mockDocker as any, 'abc123', request);
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    liveEmitter.emit('end');
+    await drainStream(response);
+    const nowAfter = Date.now() / 1000;
+
+    const secondCall = mockContainer.logs.mock.calls[1]![0] as Record<string, unknown>;
+    const since = secondCall.since as number;
+    expect(since).toBeGreaterThanOrEqual(nowBefore - 1);
+    expect(since).toBeLessThanOrEqual(nowAfter + 1);
+  });
+
   test('two-phase: falls back to current time when backlog has no parseable timestamps', async () => {
     const nowBefore = Date.now() / 1000;
     const { liveEmitter, mockContainer } = makeTwoPhaseContainer(true, Buffer.from('no timestamp here\n'));

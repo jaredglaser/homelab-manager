@@ -128,6 +128,47 @@ describe('handleStackDeploy', () => {
   });
 });
 
+describe('handleStackDeploy — type validation', () => {
+  test('returns 400 when stack is not a string', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 123, composeContent: 'services: {}' }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toContain('must be strings');
+  });
+
+  test('returns 400 when envContent is not a string', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex', composeContent: 'services: {}', envContent: 42 }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toContain('envContent must be a string');
+  });
+
+  test('returns 400 when forceRecreate is not a boolean', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex', composeContent: 'services: {}', forceRecreate: 'yes' }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toContain('forceRecreate must be a boolean');
+  });
+});
+
 describe('handleStackDeploy — payload size limits', () => {
   test('returns 413 for oversized composeContent', async () => {
     const request = new Request('http://localhost/stacks/deploy', {
@@ -746,6 +787,28 @@ describe('handleStackStatus', () => {
     const result = await response.json();
 
     expect(result.hasErrors).toBeUndefined();
+  });
+
+  test('returns error when docker compose ps times out', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'slow'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'slow', 'docker-compose.yml'), 'services: {}');
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('slow');
+    expect(result.stacks[0].containers).toEqual([]);
+    expect(result.stacks[0].error).toContain('timed out');
+    expect(result.hasErrors).toBe(true);
   });
 
   test('returns error when spawn throws', async () => {
