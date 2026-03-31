@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Switch, Typography } from '@mui/material'
 import { useSettings, type MemoryDisplayMode, type DecimalSettings, type LightPalette } from '@/hooks/useSettings'
 import PageHeader from '@/components/PageHeader'
-import { ManagedHostsCard } from '@/components/settings/ManagedHostsCard'
+import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 
 export const Route = createFileRoute('/settings')({
   ssr: false,

@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Typography } from '@mui/material'
-import { ManagedHostsCard } from '@/components/settings/ManagedHostsCard'
+import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 
 export const Route = createFileRoute('/stacks/host/$hostName')({
   ssr: false,

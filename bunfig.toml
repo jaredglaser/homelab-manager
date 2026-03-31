@@ -5,4 +5,5 @@ coverageSkipTestFiles = true
 coveragePathIgnorePatterns = [
   "src/data/*/functions.tsx",
   "src/lib/server-functions/",
+  "src/components/settings/ManagedHostsCardConnected.tsx",
 ]
