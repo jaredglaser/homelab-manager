@@ -57,4 +57,21 @@ describe('ensureRepoInitialized', () => {
     resolveRefSpy.mockRestore();
     errorSpy.mockRestore();
   });
+
+  it('should complete initialization when resolveRef throws an unexpected error', async () => {
+    const resolveRefSpy = spyOn(git, 'resolveRef').mockRejectedValueOnce(
+      new Error('Disk I/O failure'),
+    );
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    await ensureRepoInitialized();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[GitInit] Unexpected error checking HEAD:',
+      'Disk I/O failure',
+    );
+
+    resolveRefSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
 });

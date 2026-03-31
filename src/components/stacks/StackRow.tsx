@@ -41,17 +41,17 @@ function ContainerStatusBadge({ statusEntry }: Readonly<{ statusEntry: StackStat
 
   const running = statusEntry.containers.filter((c) => c.status === 'running').length;
 
-  let colorClass: string;
-  if (total === 0 || running === 0) {
-    colorClass = 'text-red-500';
+  let color: string;
+  if (running === 0) {
+    color = 'var(--chart-deploy-failed)';
   } else if (running < total) {
-    colorClass = 'text-amber-500';
+    color = 'var(--chart-deploy-pending)';
   } else {
-    colorClass = 'text-green-500';
+    color = 'var(--chart-deploy-success)';
   }
 
   return (
-    <span className={`text-xs font-medium ${colorClass}`}>
+    <span className="text-xs font-medium" style={{ color }}>
       {running}/{total} running
     </span>
   );

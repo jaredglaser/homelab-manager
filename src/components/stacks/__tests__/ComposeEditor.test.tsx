@@ -20,7 +20,7 @@ mock.module('@/lib/stacks/stack-service', () => ({
  * Monaco Editor cannot render in Happy-DOM (CDN script loading is blocked).
  * We mock only @monaco-editor/react (a narrow, component-specific dependency)
  * to provide a simple textarea stand-in. This lets us test the toolbar,
- * save button, and dirty-state logic.
+ * save button, VariablesPanel integration, and dirty-state logic.
  *
  * monaco-setup uses Vite ?worker imports that Bun can't resolve — must be
  * mocked before ComposeEditor is imported.
