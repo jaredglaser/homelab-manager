@@ -122,7 +122,8 @@ export class DeployRepository {
   }
 
   async notifyStackChange(stack: string, host: string): Promise<void> {
-    await this.pool.query("SELECT pg_notify('stack_change', $1 || '/' || $2)", [host, stack]);
+    const payload = JSON.stringify({ type: 'deploy_changed', stack, host });
+    await this.pool.query("SELECT pg_notify('stack_change', $1)", [payload]);
   }
 }
 
