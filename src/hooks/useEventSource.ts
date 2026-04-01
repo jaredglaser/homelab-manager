@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+const BASE_BACKOFF_MS = 1_000;
+const MAX_BACKOFF_MS = 16_000;
 
 interface UseEventSourceOptions<T> {
   url: string;
@@ -17,13 +19,10 @@ interface UseEventSourceResult {
 /**
  * Manages an EventSource connection to receive server-sent JSON messages and expose connection state.
  *
- * Establishes and maintains an EventSource for the given URL, parses incoming messages as JSON and forwards them to `onData`, tracks connection status and errors, limits automatic reconnection attempts, and attempts to re-establish the connection when the document becomes visible again.
- *
- * @param url - The EventSource endpoint URL to connect to.
- * @param onData - Callback invoked with parsed JSON message payloads of type `T` for each `message` event.
- * @param onServiceError - Optional callback invoked when a `stats_error` event is received from the server.
- * @param debug - When true, emits debug logs to the console.
- * @returns An object with `isConnected` indicating whether the EventSource is currently connected and `error` containing a connection error if reconnection failed after multiple attempts.
+ * Establishes and maintains an EventSource for the given URL, parses incoming messages as JSON
+ * and forwards them to `onData`, tracks connection status and errors, and reconnects with
+ * exponential backoff (1s, 2s, 4s, 8s, 16s) up to MAX_RECONNECT_ATTEMPTS.
+ * Re-establishes the connection when the document becomes visible again.
  */
 export function useEventSource<T>({
   url,
@@ -37,10 +36,10 @@ export function useEventSource<T>({
   const onDataRef = useRef(onData);
   const onServiceErrorRef = useRef(onServiceError);
   const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageCountRef = useRef(0);
   const lastMessageTimeRef = useRef(0);
 
-  // Keep callback refs up to date
   onDataRef.current = onData;
   onServiceErrorRef.current = onServiceError;
 
@@ -95,22 +94,38 @@ export function useEventSource<T>({
       });
 
       eventSource.onerror = () => {
-        if (mounted) {
-          setIsConnected(false);
-          reconnectAttemptsRef.current++;
+        if (!mounted) return;
+        setIsConnected(false);
 
-          if (debug) {
-            console.warn(`[useEventSource] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
-          }
+        // Close current connection — we manage reconnection manually with backoff
+        eventSource.close();
+        eventSourceRef.current = null;
 
-          // Close EventSource after multiple failed reconnection attempts
-          // (without this, the browser's built-in auto-reconnect retries forever)
-          if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-            setError(new Error('Connection failed after multiple attempts'));
-            eventSource.close();
-            eventSourceRef.current = null;
-          }
+        reconnectAttemptsRef.current++;
+
+        if (debug) {
+          console.warn(`[useEventSource] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
         }
+
+        if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          setError(new Error('Connection failed after multiple attempts'));
+          return;
+        }
+
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+        const delay = Math.min(
+          BASE_BACKOFF_MS * 2 ** (reconnectAttemptsRef.current - 1),
+          MAX_BACKOFF_MS,
+        );
+
+        if (debug) {
+          console.log(`[useEventSource] Reconnecting in ${delay}ms`);
+        }
+
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          connect();
+        }, delay);
       };
     };
 
@@ -118,7 +133,7 @@ export function useEventSource<T>({
 
     const handleVisibilityChange = () => {
       if (document.visibilityState !== 'visible') return;
-      if (eventSourceRef.current === null || eventSourceRef.current.readyState === EventSource.CLOSED) {
+      if (eventSourceRef.current === null && reconnectTimerRef.current === null) {
         reconnectAttemptsRef.current = 0;
         connect();
       }
@@ -129,6 +144,10 @@ export function useEventSource<T>({
     return () => {
       mounted = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (eventSourceRef.current) {
         if (debug) console.log('[useEventSource] Closing connection');
         eventSourceRef.current.close();
