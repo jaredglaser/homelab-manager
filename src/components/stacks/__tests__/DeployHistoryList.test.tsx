@@ -202,6 +202,14 @@ describe('DeployHistoryList', () => {
     });
   });
 
+  it('expands log output on keyboard Enter key', () => {
+    render(<DeployHistoryList records={mockRecords} isLoading={false} />, { wrapper: createWrapper() });
+    const shaText = screen.getByText('a1b2c3d');
+    const rowButton = shaText.closest('[role="button"]');
+    fireEvent.keyDown(rowButton!, { key: 'Enter' });
+    expect(screen.getByText('Deploy output here')).toBeDefined();
+  });
+
   it('shows "Force Deploy" label when forceRecreate is true', () => {
     const forceRecord: StackDeployRecord[] = [
       {

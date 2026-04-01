@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import StackSettingsDialog from '../StackSettingsDialog';
 import type { StackSettingsDialogProps } from '../StackSettingsDialog';
 
@@ -65,5 +65,47 @@ describe('StackSettingsDialog', () => {
   it('does not render when open is false', () => {
     render(<StackSettingsDialog {...defaultProps} open={false} />);
     expect(screen.queryByText('Stack Settings')).toBeNull();
+  });
+
+  it('calls onSave with toggled autoDeploy when switch is clicked then saved', () => {
+    const onSave = mock(() => {});
+    render(<StackSettingsDialog {...defaultProps} currentAutoDeploy={false} onSave={onSave} />);
+
+    const switchEl = screen.getByRole('switch');
+    fireEvent.click(switchEl);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).toHaveBeenCalledWith('server1', true);
+  });
+
+  it('calls onSave with the newly selected host', async () => {
+    const onSave = mock(() => {});
+    render(<StackSettingsDialog {...defaultProps} onSave={onSave} />);
+
+    // Open the MUI Select dropdown
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+
+    // Click the server2 option in the listbox
+    const option = await screen.findByRole('option', { name: 'server2' });
+    fireEvent.click(option);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).toHaveBeenCalledWith('server2', false);
+  });
+
+  it('resets host and autoDeploy to new prop values when dialog is reopened', () => {
+    const onSave = mock(() => {});
+    const { rerender } = render(
+      <StackSettingsDialog {...defaultProps} open={false} currentHost="server1" currentAutoDeploy={false} onSave={onSave} />,
+    );
+
+    act(() => {
+      rerender(
+        <StackSettingsDialog {...defaultProps} open={true} currentHost="server2" currentAutoDeploy={true} onSave={onSave} />,
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).toHaveBeenCalledWith('server2', true);
   });
 });

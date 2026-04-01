@@ -15,10 +15,11 @@ const mockContextValue = {
 };
 
 mock.module('@tanstack/react-virtual', () => ({
-  useVirtualizer: ({ count, estimateSize }: any) => {
+  useVirtualizer: ({ count, estimateSize, getItemKey, getScrollElement }: any) => {
+    getScrollElement?.();
     const items = Array.from({ length: count }, (_, i) => ({
       index: i,
-      key: String(i),
+      key: getItemKey ? String(getItemKey(i)) : String(i),
       start: i * estimateSize(i),
     }));
     return {

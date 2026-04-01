@@ -112,6 +112,22 @@ describe('CreateStackDialog', () => {
     });
   });
 
+  it('calls onSubmit with the newly selected host', async () => {
+    const onSubmit = mock(() => {});
+    render(<CreateStackDialog {...defaultProps} onSubmit={onSubmit} />);
+
+    // Enter a valid stack name
+    fireEvent.change(screen.getByLabelText('Stack Name'), { target: { value: 'myapp' } });
+
+    // Open Select and choose server2
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+    const option = await screen.findByRole('option', { name: 'server2' });
+    fireEvent.click(option);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Stack' }));
+    expect(onSubmit).toHaveBeenCalledWith({ stackName: 'myapp', host: 'server2', autoDeploy: false });
+  });
+
   it('calls onClose when Cancel is clicked', () => {
     const onClose = mock(() => {});
     render(<CreateStackDialog {...defaultProps} onClose={onClose} />);
