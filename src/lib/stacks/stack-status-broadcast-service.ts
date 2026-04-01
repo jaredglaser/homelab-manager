@@ -1,7 +1,12 @@
 import type { PoolClient } from 'pg';
 import type { StackStatusRow } from '@/lib/database/repositories/stack-status-repository';
 
-type StackStatusCallback = (entries: StackStatusRow[]) => void;
+/** Discriminated union for events sent to SSE subscribers. */
+export type StackBroadcastEvent =
+  | { type: 'status'; entries: StackStatusRow[] }
+  | { type: 'deploy_changed'; stack: string; host: string };
+
+type StackBroadcastCallback = (event: StackBroadcastEvent) => void;
 
 /**
  * Server-side broadcast service for stack status changes.
@@ -14,12 +19,12 @@ type StackStatusCallback = (entries: StackStatusRow[]) => void;
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.
  */
 class StackStatusBroadcastService {
-  private subscribers = new Set<StackStatusCallback>();
+  private subscribers = new Set<StackBroadcastCallback>();
   private listenerClient: PoolClient | null = null;
   private stopped = true;
   private reconnecting = false;
 
-  subscribe(callback: StackStatusCallback): () => void {
+  subscribe(callback: StackBroadcastCallback): () => void {
     this.subscribers.add(callback);
 
     if (this.subscribers.size === 1) {
@@ -37,11 +42,11 @@ class StackStatusBroadcastService {
     };
   }
 
-  private async sendInit(callback: StackStatusCallback): Promise<void> {
+  private async sendInit(callback: StackBroadcastCallback): Promise<void> {
     try {
       const all = await this.loadAllStackStatus();
       if (this.subscribers.has(callback)) {
-        callback(all);
+        callback({ type: 'status', entries: all });
       }
     } catch (error) {
       console.error('[StackStatusBroadcastService] Failed to send init:', error);
@@ -112,27 +117,44 @@ class StackStatusBroadcastService {
 
   private async broadcastAll(payload?: string): Promise<void> {
     try {
-      let entries: StackStatusRow[];
-
       if (payload) {
         try {
-          const row = JSON.parse(payload);
-          entries = [{
-            stack: row.stack,
-            host: row.host,
-            containers: row.containers,
-            updated_at: new Date(row.updated_at),
+          const parsed = JSON.parse(payload);
+
+          if (parsed.type === 'deploy_changed') {
+            for (const cb of this.subscribers) {
+              try {
+                cb({ type: 'deploy_changed', stack: parsed.stack, host: parsed.host });
+              } catch (err) {
+                console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
+              }
+            }
+            return;
+          }
+
+          const entries: StackStatusRow[] = [{
+            stack: parsed.stack,
+            host: parsed.host,
+            containers: parsed.containers,
+            updated_at: new Date(parsed.updated_at),
           }];
+          for (const cb of this.subscribers) {
+            try {
+              cb({ type: 'status', entries });
+            } catch (err) {
+              console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
+            }
+          }
+          return;
         } catch {
-          entries = await this.loadAllStackStatus();
+          // Non-JSON payload — fall through to full reload
         }
-      } else {
-        entries = await this.loadAllStackStatus();
       }
 
+      const entries = await this.loadAllStackStatus();
       for (const cb of this.subscribers) {
         try {
-          cb(entries);
+          cb({ type: 'status', entries });
         } catch (err) {
           console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
         }

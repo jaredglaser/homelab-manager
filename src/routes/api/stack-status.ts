@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import type { StackStatusRow } from '@/lib/database/repositories/stack-status-repository';
+import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 export const Route = createFileRoute('/api/stack-status')({
   server: {
@@ -15,11 +15,16 @@ export const Route = createFileRoute('/api/stack-status')({
 
         const stream = new ReadableStream({
           start(controller) {
-            const sendData = (entries: StackStatusRow[]) => {
+            const sendEvent = (event: StackBroadcastEvent) => {
               if (closed) return;
               try {
-                const data = `data: ${JSON.stringify(entries)}\n\n`;
-                controller.enqueue(encoder.encode(data));
+                if (event.type === 'deploy_changed') {
+                  const payload = `data: ${JSON.stringify({ type: 'deploy_changed', stack: event.stack, host: event.host })}\n\n`;
+                  controller.enqueue(encoder.encode(payload));
+                } else {
+                  const payload = `data: ${JSON.stringify(event.entries)}\n\n`;
+                  controller.enqueue(encoder.encode(payload));
+                }
               } catch (err) {
                 if (!(err instanceof TypeError)) {
                   console.error('[stack-status SSE] Unexpected enqueue error:', err);
@@ -28,7 +33,7 @@ export const Route = createFileRoute('/api/stack-status')({
               }
             };
 
-            const unsubscribe = stackStatusBroadcastService.subscribe(sendData);
+            const unsubscribe = stackStatusBroadcastService.subscribe(sendEvent);
 
             request.signal.addEventListener('abort', () => {
               closed = true;
