@@ -37,9 +37,9 @@ export class MockEventSource {
     this.readyState = MockEventSource.CLOSED;
   }
 
-  fireEvent(type: string) {
+  fireEvent(type: string, data?: unknown) {
     const handlers = this.listeners.get(type) ?? [];
-    for (const handler of handlers) handler({});
+    for (const handler of handlers) handler(data ?? {});
   }
 
   static reset() {

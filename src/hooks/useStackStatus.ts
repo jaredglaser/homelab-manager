@@ -1,44 +1,60 @@
-import { useEffect, useState } from 'react'
-import { apiUrl } from '@/lib/utils/api-url'
-import type { StackStatusEntry } from '@/types/stacks'
+import { useCallback, useState } from 'react';
+import { apiUrl } from '@/lib/utils/api-url';
+import type { StackStatusEntry } from '@/types/stacks';
+import { useEventSource } from '@/hooks/useEventSource';
+
+type StackSSEMessage =
+  | StackStatusEntry[]
+  | { type: 'deploy_changed'; stack: string; host: string };
+
+function isDeployChanged(data: StackSSEMessage): data is { type: 'deploy_changed'; stack: string; host: string } {
+  return !Array.isArray(data) && 'type' in data && data.type === 'deploy_changed';
+}
+
+function shallowEqualContainers(
+  prev: StackStatusEntry | undefined,
+  next: StackStatusEntry,
+): boolean {
+  if (!prev) return false;
+  if (prev.containers.length !== next.containers.length) return false;
+  for (let i = 0; i < prev.containers.length; i++) {
+    const a = prev.containers[i];
+    const b = next.containers[i];
+    if (a.id !== b.id || a.status !== b.status || a.name !== b.name || a.image !== b.image) {
+      return false;
+    }
+  }
+  return true;
+}
 
 export function useStackStatus() {
-  const [statusMap, setStatusMap] = useState<Map<string, StackStatusEntry>>(new Map())
-  const [isConnected, setIsConnected] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [statusMap, setStatusMap] = useState<Map<string, StackStatusEntry>>(new Map());
+  const [deployVersion, setDeployVersion] = useState(0);
 
-  useEffect(() => {
-    const source = new EventSource(apiUrl('/api/stack-status'))
-
-    source.onopen = () => {
-      setIsConnected(true)
-      setError(null)
+  const handleData = useCallback((data: StackSSEMessage) => {
+    if (isDeployChanged(data)) {
+      setDeployVersion((v) => v + 1);
+      return;
     }
 
-    source.onmessage = (event) => {
-      try {
-        const entries: StackStatusEntry[] = JSON.parse(event.data)
-        setStatusMap((prev) => {
-          const next = new Map(prev)
-          for (const e of entries) {
-            next.set(`${e.stack}/${e.host}`, e)
-          }
-          return next
-        })
-      } catch {
-        // Skip malformed events
+    setStatusMap((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const e of data) {
+        const key = `${e.stack}/${e.host}`;
+        if (!shallowEqualContainers(prev.get(key), e)) {
+          next.set(key, e);
+          changed = true;
+        }
       }
-    }
+      return changed ? next : prev;
+    });
+  }, []);
 
-    source.onerror = () => {
-      setIsConnected(false)
-      setError('Connection lost')
-    }
+  const { isConnected, error } = useEventSource<StackSSEMessage>({
+    url: apiUrl('/api/stack-status'),
+    onData: handleData,
+  });
 
-    return () => {
-      source.close()
-    }
-  }, [])
-
-  return { statusMap, isConnected, error }
+  return { statusMap, isConnected, error: error?.message ?? null, deployVersion };
 }
