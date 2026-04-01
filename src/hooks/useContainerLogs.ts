@@ -3,6 +3,8 @@ import type { Terminal } from '@xterm/xterm';
 import { apiUrl } from '@/lib/utils/api-url';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+const BASE_BACKOFF_MS = 1_000;
+const MAX_BACKOFF_MS = 16_000;
 
 interface UseContainerLogsOptions {
   containerId: string;
@@ -24,7 +26,8 @@ interface UseContainerLogsResult {
  * 2. **Live** — new lines as they arrive, after a `backlog_done` event
  *
  * Clears the terminal on reconnection to prevent duplicate backlog lines.
- * Reconnects automatically up to MAX_RECONNECT_ATTEMPTS times on connection loss.
+ * Reconnects with exponential backoff (1s, 2s, 4s, 8s, 16s) up to
+ * MAX_RECONNECT_ATTEMPTS times on connection loss.
  */
 export function useContainerLogs({
   containerId,
@@ -36,6 +39,7 @@ export function useContainerLogs({
   const [error, setError] = useState<Error | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalRef = useRef(terminal);
   terminalRef.current = terminal;
   const hasConnectedRef = useRef(false);
@@ -45,73 +49,95 @@ export function useContainerLogs({
 
     let mounted = true;
 
-    const url = apiUrl(`/api/docker-logs/${encodeURIComponent(containerId)}?host=${encodeURIComponent(host)}`);
-    const eventSource = new EventSource(url);
-    eventSourceRef.current = eventSource;
-
-    eventSource.onopen = () => {
+    const connect = () => {
       if (!mounted) return;
-      setIsConnected(true);
-      setError(null);
-      reconnectAttemptsRef.current = 0;
 
-      // Clear terminal on reconnection to prevent duplicate backlog lines
-      if (hasConnectedRef.current && terminalRef.current) {
-        terminalRef.current.clear();
-      }
-      hasConnectedRef.current = true;
-    };
+      const url = apiUrl(`/api/docker-logs/${encodeURIComponent(containerId)}?host=${encodeURIComponent(host)}`);
+      const eventSource = new EventSource(url);
+      eventSourceRef.current = eventSource;
 
-    eventSource.onmessage = (event) => {
-      if (!mounted || !terminalRef.current) return;
-      try {
-        const data = JSON.parse(event.data) as
-          | { lines: { text: string; stream: string }[] }
-          | { text: string; stream: string };
-        const lines = 'lines' in data ? data.lines : [data];
-        for (const line of lines) {
-          terminalRef.current.writeln(line.text);
+      eventSource.onopen = () => {
+        if (!mounted) return;
+        setIsConnected(true);
+        setError(null);
+        reconnectAttemptsRef.current = 0;
+
+        if (hasConnectedRef.current && terminalRef.current) {
+          terminalRef.current.clear();
         }
-      } catch {
-        // Ignore malformed messages
-      }
-    };
+        hasConnectedRef.current = true;
+      };
 
-    // backlog_done is informational — listening prevents EventSource from treating it as an unknown event type
-    eventSource.addEventListener('backlog_done', () => {});
-
-    const handleLogError = (event: Event) => {
-      if (!mounted) return;
-      try {
-        const data = JSON.parse((event as MessageEvent).data) as { message?: string; error?: string };
-        const msg = data.message ?? data.error ?? 'Log stream error';
-        if (terminalRef.current) {
-          terminalRef.current.writeln(`\x1b[31m[Error] ${msg}\x1b[0m`);
+      eventSource.onmessage = (event) => {
+        if (!mounted || !terminalRef.current) return;
+        try {
+          const data = JSON.parse(event.data) as
+            | { lines: { text: string; stream: string }[] }
+            | { text: string; stream: string };
+          const lines = 'lines' in data ? data.lines : [data];
+          for (const line of lines) {
+            terminalRef.current.writeln(line.text);
+          }
+        } catch {
+          // Ignore malformed messages
         }
-      } catch {
-        // Ignore parse errors
-      }
-    };
+      };
 
-    eventSource.addEventListener('log_error', handleLogError);
+      eventSource.addEventListener('backlog_done', () => {});
 
-    eventSource.onerror = () => {
-      if (mounted) {
+      const handleLogError = (event: Event) => {
+        if (!mounted) return;
+        try {
+          const data = JSON.parse((event as MessageEvent).data) as { message?: string; error?: string };
+          const msg = data.message ?? data.error ?? 'Log stream error';
+          if (terminalRef.current) {
+            terminalRef.current.writeln(`\x1b[31m[Error] ${msg}\x1b[0m`);
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      };
+
+      eventSource.addEventListener('log_error', handleLogError);
+
+      eventSource.onerror = () => {
+        if (!mounted) return;
         setIsConnected(false);
+
+        eventSource.close();
+        eventSourceRef.current = null;
+
         reconnectAttemptsRef.current++;
 
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
           setError(new Error('Log connection failed after multiple attempts'));
-          eventSource.close();
-          eventSourceRef.current = null;
+          return;
         }
-      }
+
+        const delay = Math.min(
+          BASE_BACKOFF_MS * 2 ** (reconnectAttemptsRef.current - 1),
+          MAX_BACKOFF_MS,
+        );
+
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          connect();
+        }, delay);
+      };
     };
+
+    connect();
 
     return () => {
       mounted = false;
-      eventSource.close();
-      eventSourceRef.current = null;
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
     };
   }, [containerId, host, terminal, enabled]);
 
