@@ -39,7 +39,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
   const [hlmZfsUid, setHlmZfsUid] = useState('')
   const [hlmZfsGid, setHlmZfsGid] = useState('')
   const [dockerGid, setDockerGid] = useState('')
-  const [agentToken, setAgentToken] = useState('')
+  const [agentToken, setAgentToken] = useState(() => crypto.randomUUID())
   const [name, setName] = useState('')
   const [agentUrl, setAgentUrl] = useState('')
 
@@ -49,12 +49,6 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
   }, [zfs])
 
   const currentStepName = visibleSteps[activeStep]
-
-  useMemo(() => {
-    if (!agentToken) {
-      setAgentToken(crypto.randomUUID())
-    }
-  }, [agentToken])
 
   const composeYaml = useMemo(() => {
     try {

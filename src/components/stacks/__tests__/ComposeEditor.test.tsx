@@ -216,7 +216,7 @@ describe('ComposeEditor component', () => {
     await waitFor(() => expect(mockSaveStackComposeFile).toHaveBeenCalledTimes(1));
 
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stack-detail', 'test-host', 'test-stack'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stack-detail', 'test-stack'] });
   });
 
 });

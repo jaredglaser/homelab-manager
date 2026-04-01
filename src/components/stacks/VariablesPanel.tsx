@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Alert,
   Chip,
@@ -48,9 +48,9 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
       .finally(() => { ensurePending.current = false; });
   }, [variables, composeVariables, stackName, queryClient]);
 
-  function handleDeleted() {
+  const handleDeleted = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['stack-variables', stackName] });
-  }
+  }, [queryClient, stackName]);
 
   if (isError) {
     return (

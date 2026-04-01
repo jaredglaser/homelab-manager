@@ -65,7 +65,7 @@ export default function DeployHistoryList({
     );
   }
 
-  const hasStatusVariety = new Set(records.map((r) => r.status)).size > 1;
+  const hasStatusVariety = useMemo(() => new Set(records.map((r) => r.status)).size > 1, [records]);
   const virtualItems = virtualizer.getVirtualItems();
 
   return (

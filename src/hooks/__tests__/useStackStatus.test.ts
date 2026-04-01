@@ -27,7 +27,7 @@ describe('useStackStatus', () => {
     expect(result.current.deployVersion).toBe(0);
   });
 
-  it('parses SSE data into Map keyed by stack/host', () => {
+  it('parses SSE data into Map keyed by host/stack', () => {
     const { result } = renderHook(() => useStackStatus());
     const es = MockEventSource.instances[0];
 
@@ -42,8 +42,8 @@ describe('useStackStatus', () => {
     });
 
     expect(result.current.statusMap.size).toBe(2);
-    expect(result.current.statusMap.has('plex/server1')).toBe(true);
-    expect(result.current.statusMap.has('traefik/server1')).toBe(true);
+    expect(result.current.statusMap.has('server1/plex')).toBe(true);
+    expect(result.current.statusMap.has('server1/traefik')).toBe(true);
   });
 
   it('increments deployVersion on deploy_changed messages', () => {
@@ -100,10 +100,10 @@ describe('useStackStatus', () => {
     });
 
     expect(result.current.statusMap).not.toBe(firstMap);
-    expect(result.current.statusMap.get('plex/server1')?.containers[0].status).toBe('exited');
+    expect(result.current.statusMap.get('server1/plex')?.containers[0].status).toBe('exited');
   });
 
-  it('uses stack/host composite key for multiple hosts', () => {
+  it('uses host/stack composite key for multiple hosts', () => {
     const { result } = renderHook(() => useStackStatus());
     const es = MockEventSource.instances[0];
 
@@ -118,8 +118,8 @@ describe('useStackStatus', () => {
     });
 
     expect(result.current.statusMap.size).toBe(2);
-    expect(result.current.statusMap.has('plex/server1')).toBe(true);
-    expect(result.current.statusMap.has('plex/server2')).toBe(true);
+    expect(result.current.statusMap.has('server1/plex')).toBe(true);
+    expect(result.current.statusMap.has('server2/plex')).toBe(true);
   });
 
   it('cleans up EventSource on unmount', () => {

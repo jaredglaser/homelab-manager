@@ -41,7 +41,7 @@ export function useStackStatus() {
       let changed = false;
       const next = new Map(prev);
       for (const e of data) {
-        const key = `${e.stack}/${e.host}`;
+        const key = `${e.host}/${e.stack}`;
         if (!shallowEqualContainers(prev.get(key), e)) {
           next.set(key, e);
           changed = true;

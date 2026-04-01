@@ -17,7 +17,7 @@ interface ComposeEditorProps {
   variables: string[];
 }
 
-export default function ComposeEditor({ host, stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
+export default function ComposeEditor({ host: _host, stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
   const [monacoLoadFailed, setMonacoLoadFailed] = useState(false);
   const [editorContent, setEditorContent] = useState(content);
@@ -43,7 +43,7 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
   const saveMutation = useMutation({
     mutationFn: () => saveComposeFile({ data: { stackName, content: editorContent } }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['stack-detail', host, stackName] });
+      await queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
     },
   });
 
@@ -57,11 +57,13 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
   }, []);
 
   const [panelWidth, setPanelWidth] = useState(280);
+  const panelWidthRef = useRef(panelWidth);
+  panelWidthRef.current = panelWidth;
 
   const handleDragStart = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startWidth = panelWidth;
+    const startWidth = panelWidthRef.current;
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
 
@@ -77,7 +79,7 @@ export default function ComposeEditor({ host, stackName, content, variables: ini
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
     target.addEventListener('pointercancel', onUp);
-  }, [panelWidth]);
+  }, []);
 
   // Reads the current theme on each render. Theme toggles trigger re-renders
   // via the settings atom, so this stays in sync without a MutationObserver.
