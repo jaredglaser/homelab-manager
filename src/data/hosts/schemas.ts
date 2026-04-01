@@ -13,14 +13,14 @@ export const addHostSchema = z.object({
 
 export const registerExistingHostSchema = z.object({
   name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/, 'Must contain only letters, numbers, hyphens, and underscores'),
-  agentUrl: z.string().url(),
+  agentUrl: z.url(),
   socketProxyUrl: socketProxyUrlSchema,
   agentToken: z.string().min(1),
 });
 
 export const verifyHostSchema = z.object({
   name: z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/, 'Must contain only letters, numbers, hyphens, and underscores'),
-  agentUrl: z.string().url(),
+  agentUrl: z.url(),
   agentToken: z.string().min(1),
   capabilities: z.object({
     docker: z.boolean().optional().default(false),
