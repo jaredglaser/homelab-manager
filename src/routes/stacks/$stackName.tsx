@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -12,7 +12,7 @@ import {
   Typography,
 } from '@mui/material'
 import { Settings2 } from 'lucide-react'
-import { useStacksContext } from '@/components/stacks/stacks-context'
+import { useStackStatusContext } from '@/components/stacks/stacks-context'
 import {
   getStackDetail,
   getDeployHistory,
@@ -28,7 +28,7 @@ import ContainerList from '@/components/stacks/ContainerList'
 import StackActionBar from '@/components/stacks/StackActionBar'
 import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
-import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { parseVariables } from '@/lib/stacks/parse-variables'
 
 export const Route = createFileRoute('/stacks/$stackName')({
@@ -40,7 +40,7 @@ function StackEditorView() {
   const { stackName } = Route.useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { statusMap } = useStacksContext()
+  const { statusMap, deployVersion } = useStackStatusContext()
 
   const [panel, setPanel] = useState<'secrets' | 'deploys'>('secrets')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -54,7 +54,7 @@ function StackEditorView() {
   })
 
   const { data: history, isLoading: historyLoading } = useQuery({
-    queryKey: ['deploy-history', stackName],
+    queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName],
     queryFn: () => getDeployHistory({ data: { stackName, limit: 100 } }),
   })
 
@@ -64,6 +64,12 @@ function StackEditorView() {
     enabled: settingsDialogOpen,
   })
 
+  // Invalidate deploy history when a deploy completes
+  useEffect(() => {
+    if (deployVersion === 0) return;
+    queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] });
+  }, [deployVersion, stackName, queryClient]);
+
   const statusKey = detail ? `${detail.host}/${detail.name}` : ''
   const containers = statusMap.get(statusKey)?.containers ?? []
 
@@ -72,7 +78,7 @@ function StackEditorView() {
       triggerDeploy({ data: { stack: stackName, host: detail!.host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
     onSuccess: (_data, action) => {
       setDeployMessage({ type: 'success', text: `${action} triggered successfully` })
-      queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] })
+      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
     },
     onError: (err) => {
@@ -187,7 +193,7 @@ function StackEditorView() {
               host={detail.host}
               onRollbackComplete={() => {
                 setDeployMessage({ type: 'success', text: 'Rollback triggered successfully' })
-                queryClient.invalidateQueries({ queryKey: ['deploy-history', stackName] })
+                queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                 queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
               }}
               onRollbackError={(err) => {

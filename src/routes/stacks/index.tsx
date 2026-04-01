@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { Paper, Typography } from '@mui/material'
 import { Server, Layers } from 'lucide-react'
-import { useStacksContext } from '@/components/stacks/stacks-context'
+import { useStackListContext, useStackStatusContext } from '@/components/stacks/stacks-context'
 
 export const Route = createFileRoute('/stacks/')({
   ssr: false,
@@ -10,7 +10,8 @@ export const Route = createFileRoute('/stacks/')({
 })
 
 function StacksOverview() {
-  const { stacks, statusMap, isLoading } = useStacksContext()
+  const { stacks, isLoading } = useStackListContext()
+  const { statusMap } = useStackStatusContext()
 
   const hostSummaries = useMemo(() => {
     const byHost = new Map<string, { total: number; running: number }>();

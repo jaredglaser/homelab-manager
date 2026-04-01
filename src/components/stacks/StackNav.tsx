@@ -3,7 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Link } from '@tanstack/react-router';
 import { IconButton, Typography } from '@mui/material';
 import { Plus, Server } from 'lucide-react';
-import { useStacksContext } from '@/components/stacks/stacks-context';
+import { useStackListContext, useStackStatusContext } from '@/components/stacks/stacks-context';
 import { getIconUrl } from '@/lib/utils/icon-resolver';
 
 type NavItem =
@@ -18,7 +18,8 @@ interface StackNavProps {
 }
 
 export default function StackNav({ onCreateClick }: StackNavProps) {
-  const { stacks, statusMap } = useStacksContext();
+  const { stacks } = useStackListContext();
+  const { statusMap } = useStackStatusContext();
   const listRef = useRef<HTMLDivElement>(null);
 
   const navItems = useMemo(() => {

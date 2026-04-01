@@ -2,16 +2,22 @@ import { describe, it, expect, mock, beforeAll } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { ComponentType } from 'react';
 
-// Provide a mock for the StacksContext
-const mockContextValue = {
-  stacks: [
-    { name: 'app-web', host: 'server-1', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 2, icon: 'nginx' },
-    { name: 'app-db', host: 'server-1', syncStatus: 'pending', deployMode: 'manual', lastDeployAt: null, lastDeployStatus: null, containerCount: 1, icon: null },
-    { name: 'monitoring', host: 'server-2', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 3, icon: 'grafana' },
-  ],
-  statusMap: new Map(),
+// Provide mocks for the split contexts
+const mockStacks = [
+  { name: 'app-web', host: 'server-1', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 2, icon: 'nginx' },
+  { name: 'app-db', host: 'server-1', syncStatus: 'pending', deployMode: 'manual', lastDeployAt: null, lastDeployStatus: null, containerCount: 1, icon: null },
+  { name: 'monitoring', host: 'server-2', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 3, icon: 'grafana' },
+];
+
+const mockListContextValue = {
+  stacks: mockStacks,
   hosts: ['server-1', 'server-2'],
   isLoading: false,
+};
+
+const mockStatusContextValue = {
+  statusMap: new Map(),
+  deployVersion: 0,
 };
 
 mock.module('@tanstack/react-virtual', () => ({
@@ -35,7 +41,8 @@ mock.module('@/lib/utils/icon-resolver', () => ({
 }));
 
 mock.module('@/components/stacks/stacks-context', () => ({
-  useStacksContext: () => mockContextValue,
+  useStackListContext: () => mockListContextValue,
+  useStackStatusContext: () => mockStatusContextValue,
 }));
 
 mock.module('@tanstack/react-router', () => ({
