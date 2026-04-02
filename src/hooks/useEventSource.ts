@@ -95,6 +95,8 @@ export function useEventSource<T>({
 
       eventSource.onerror = () => {
         if (!mounted) return;
+        // Ignore errors from a replaced EventSource instance
+        if (eventSource !== eventSourceRef.current) return;
         setIsConnected(false);
 
         // Close current connection — we manage reconnection manually with backoff
@@ -108,6 +110,10 @@ export function useEventSource<T>({
         }
 
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          if (reconnectTimerRef.current !== null) {
+            clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = null;
+          }
           setError(new Error('Connection failed after multiple attempts'));
           return;
         }
@@ -119,7 +125,7 @@ export function useEventSource<T>({
         );
 
         if (debug) {
-          console.log(`[useEventSource] Reconnecting in ${delay}ms`);
+          console.info(`[useEventSource] Reconnecting in ${delay}ms`);
         }
 
         reconnectTimerRef.current = setTimeout(() => {

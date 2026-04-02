@@ -949,6 +949,13 @@ describe('parseContainerNames', () => {
     image: nginx`;
     expect(parseContainerNames(compose)).toEqual([]);
   });
+
+  test('returns literal value for container names with env vars', () => {
+    const compose = `services:
+  web:
+    container_name: \${APP_NAME}-web`;
+    expect(parseContainerNames(compose)).toEqual(['${APP_NAME}-web']);
+  });
 });
 
 describe('handleStackDeploy — force recreate', () => {

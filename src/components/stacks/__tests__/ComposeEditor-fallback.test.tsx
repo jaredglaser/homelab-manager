@@ -33,7 +33,7 @@ describe('ComposeEditor monaco load failure', () => {
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(
         <QueryClientProvider client={queryClient}>
-          <ComposeEditor host="test-host" stackName="test-stack" content="image: nginx" variables={[]} />
+          <ComposeEditor stackName="test-stack" content="image: nginx" variables={[]} />
         </QueryClientProvider>,
       );
 

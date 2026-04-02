@@ -191,11 +191,18 @@ describe('useContainerLogs', () => {
     expect(es.closed).toBe(true);
   });
 
-  it('sets error after max reconnect attempts with backoff', () => {
+  describe('with immediate timers', () => {
     const origSetTimeout = globalThis.setTimeout;
-    (globalThis as unknown as Record<string, unknown>).setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
 
-    try {
+    beforeEach(() => {
+      (globalThis as unknown as Record<string, unknown>).setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
+    });
+
+    afterEach(() => {
+      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
+    });
+
+    it('sets error after max reconnect attempts with backoff', () => {
       const { result } = renderHook(() =>
         useContainerLogs({
           containerId: 'abc123',
@@ -213,9 +220,7 @@ describe('useContainerLogs', () => {
       expect(result.current.error).not.toBeNull();
       expect(result.current.error?.message).toContain('failed after multiple attempts');
       expect(MockEventSource.instances[MockEventSource.instances.length - 1].closed).toBe(true);
-    } finally {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
-    }
+    });
   });
 
   it('handles log_error custom events', () => {

@@ -11,13 +11,12 @@ import VariablesPanel from '@/components/stacks/VariablesPanel';
 const MAX_PANEL_WIDTH = 600;
 
 interface ComposeEditorProps {
-  host: string;
   stackName: string;
   content: string;
   variables: string[];
 }
 
-export default function ComposeEditor({ host: _host, stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
+export default function ComposeEditor({ stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
   const [monacoLoadFailed, setMonacoLoadFailed] = useState(false);
   const [editorContent, setEditorContent] = useState(content);

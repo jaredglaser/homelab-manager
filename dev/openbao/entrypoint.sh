@@ -16,12 +16,12 @@ BAO_PID=$!
 echo "[openbao-init] Waiting for server..."
 SERVER_READY=false
 for _ in $(seq 1 30); do
-  if wget -q -O /dev/null http://127.0.0.1:8200/v1/sys/health 2>/dev/null; then
+  if wget -q -O /dev/null "$BAO_ADDR/v1/sys/health" 2>/dev/null; then
     SERVER_READY=true
     break
   fi
   # 501=not initialized, 503=sealed — both mean "server is up"
-  if wget -q -O /dev/null http://127.0.0.1:8200/v1/sys/seal-status 2>/dev/null; then
+  if wget -q -O /dev/null "$BAO_ADDR/v1/sys/seal-status" 2>/dev/null; then
     SERVER_READY=true
     break
   fi

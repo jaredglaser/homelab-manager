@@ -99,6 +99,9 @@ export function useContainerLogs({
         }
       };
 
+      // Intentionally empty — both backlog and live phases write to the terminal
+      // identically, so no state transition is needed. The listener must be registered
+      // to prevent the event from hitting the default onmessage handler.
       eventSource.addEventListener('backlog_done', () => {});
 
       const handleLogError = (event: Event) => {

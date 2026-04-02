@@ -57,9 +57,9 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
         agentImage: getAgentImage(),
         agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
         capabilities: { docker, zfs },
-        hlmZfsUid: zfs ? Number(hlmZfsUid) || undefined : undefined,
-        hlmZfsGid: zfs ? Number(hlmZfsGid) || undefined : undefined,
-        dockerGid: docker && zfs ? Number(dockerGid) || undefined : undefined,
+        hlmZfsUid: zfs ? hlmZfsUid === '' ? undefined : Number(hlmZfsUid) : undefined,
+        hlmZfsGid: zfs ? hlmZfsGid === '' ? undefined : Number(hlmZfsGid) : undefined,
+        dockerGid: docker && zfs ? dockerGid === '' ? undefined : Number(dockerGid) : undefined,
       })
     } catch {
       return '# Error generating compose file. Check ZFS UID/GID values.'
@@ -73,9 +73,9 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
         agentImage: getAgentImage(),
         agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
         capabilities: { docker, zfs },
-        hlmZfsUid: zfs ? Number(hlmZfsUid) || undefined : undefined,
-        hlmZfsGid: zfs ? Number(hlmZfsGid) || undefined : undefined,
-        dockerGid: docker && zfs ? Number(dockerGid) || undefined : undefined,
+        hlmZfsUid: zfs ? hlmZfsUid === '' ? undefined : Number(hlmZfsUid) : undefined,
+        hlmZfsGid: zfs ? hlmZfsGid === '' ? undefined : Number(hlmZfsGid) : undefined,
+        dockerGid: docker && zfs ? dockerGid === '' ? undefined : Number(dockerGid) : undefined,
       })
     } catch {
       return '# Error generating .env file. Check ZFS UID/GID values.'

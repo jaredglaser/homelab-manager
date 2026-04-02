@@ -160,7 +160,6 @@ function StackEditorView() {
 
           {/* Compose Editor */}
           <ComposeEditorLoader
-            host={detail.host}
             stackName={stackName}
             content={detail.composeContent}
             variables={composeVars}

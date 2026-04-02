@@ -39,6 +39,8 @@ export default function DeployHistoryList({
     return records.filter((r) => r.status === statusFilter);
   }, [records, statusFilter]);
 
+  const hasStatusVariety = useMemo(() => new Set(records.map((r) => r.status)).size > 1, [records]);
+
   const virtualizer = useWindowVirtualizer({
     count: filtered.length,
     estimateSize: () => 44,
@@ -65,7 +67,6 @@ export default function DeployHistoryList({
     );
   }
 
-  const hasStatusVariety = useMemo(() => new Set(records.map((r) => r.status)).size > 1, [records]);
   const virtualItems = virtualizer.getVirtualItems();
 
   return (

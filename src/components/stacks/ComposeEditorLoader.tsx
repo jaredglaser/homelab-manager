@@ -4,7 +4,6 @@ import { CircularProgress, Paper, Typography } from '@mui/material';
 const ComposeEditor = lazy(() => import('@/components/stacks/ComposeEditor'));
 
 interface ComposeEditorLoaderProps {
-  host: string;
   stackName: string;
   content: string;
   variables: string[];

@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockGetStackVariables = mock(() => Promise.resolve(['DB_URL', 'SECRET_KEY']));
@@ -276,7 +276,7 @@ describe('VariablesPanel', () => {
     // The catch callback silences the error — no throw, no error UI for this path
   });
 
-  it('closes delete dialog via Dialog onClose handler (sets deleteOpen to false)', async () => {
+  it('cancel button in delete dialog does not trigger deletion', async () => {
     mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['OLD_VAR']));
     await renderPanel('mystack', []);
     await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
@@ -285,33 +285,11 @@ describe('VariablesPanel', () => {
     fireEvent.click(screen.getByLabelText('Delete variable'));
     await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
 
-    // MUI Dialog's onClose prop maps to the user callback () => setDeleteOpen(false).
-    // In Happy-DOM, keyboard/backdrop events don't reach MUI's internal modal manager,
-    // so we invoke onClose via the React props on the MuiModal-root element directly.
-    const modalRoot = document.querySelector('.MuiModal-root') as HTMLElement;
-    const reactPropsKey = Object.keys(modalRoot).find((k) => k.startsWith('__reactProps$'))!;
-    const modalProps = (modalRoot as Record<string, any>)[reactPropsKey];
+    // Click Cancel — should not trigger delete mutation
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
 
-    await act(async () => {
-      modalProps.onClose({} as Event, 'escapeKeyDown');
-    });
-
-    // After onClose fires, setDeleteOpen(false) is called and Dialog's open prop becomes false.
-    // Verify via the React fiber tree — MUI Dialog stays in DOM during exit transition in Happy-DOM.
-    await waitFor(() => {
-      const fiberKey = Object.keys(modalRoot).find((k) => k.startsWith('__reactFiber$'))!;
-      let fiber = (modalRoot as Record<string, any>)[fiberKey];
-      let depth = 0;
-      while (fiber && depth < 10) {
-        if (fiber.memoizedProps?.open !== undefined) {
-          expect(fiber.memoizedProps.open).toBe(false);
-          return;
-        }
-        fiber = fiber.return;
-        depth++;
-      }
-      throw new Error('Could not find open prop in fiber tree');
-    });
+    // deleteVariable should not have been called
+    expect(mockDeleteVariable).not.toHaveBeenCalled();
   });
 
   it('save button is disabled when field has not been fetched yet', async () => {

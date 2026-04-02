@@ -106,20 +106,27 @@ describe('StackNav', () => {
     expect(stackLinks[2].textContent).toContain('monitoring');
   });
 
-  it('renders host links pointing to host settings route', () => {
+  it('renders host links pointing to host settings route with correct params', () => {
     render(<StackNav onCreateClick={() => {}} />);
     const hostLinks = screen.getAllByRole('link').filter((l) =>
       l.getAttribute('href')?.includes('/stacks/host/'),
     );
     expect(hostLinks).toHaveLength(2);
+    const hostParams = hostLinks.map((l) => JSON.parse(l.getAttribute('data-params')!));
+    expect(hostParams[0]).toEqual(expect.objectContaining({ hostName: 'server-1' }));
+    expect(hostParams[1]).toEqual(expect.objectContaining({ hostName: 'server-2' }));
   });
 
-  it('renders stack links pointing to stack editor route', () => {
+  it('renders stack links pointing to stack editor route with correct params', () => {
     render(<StackNav onCreateClick={() => {}} />);
     const stackLinks = screen.getAllByRole('link').filter((l) =>
       l.getAttribute('href')?.includes('/stacks/$stackName'),
     );
     expect(stackLinks).toHaveLength(3);
+    const stackParams = stackLinks.map((l) => JSON.parse(l.getAttribute('data-params')!));
+    expect(stackParams[0]).toEqual(expect.objectContaining({ stackName: 'app-db' }));
+    expect(stackParams[1]).toEqual(expect.objectContaining({ stackName: 'app-web' }));
+    expect(stackParams[2]).toEqual(expect.objectContaining({ stackName: 'monitoring' }));
   });
 
   it('renders icon images for stacks with icons', () => {
