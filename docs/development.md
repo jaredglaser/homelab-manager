@@ -4,7 +4,7 @@
 
 - [Bun](https://bun.sh) (package manager and runtime)
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
-- *(Optional)* A host running ZFS with SSH access for pool monitoring
+- *(Optional)* A host running ZFS for pool monitoring (via agent sidecar)
 - *(Optional)* A Proxmox VE cluster with an API token for monitoring
 
 ## Environment Setup
@@ -46,18 +46,15 @@ WORKER_ENABLED="true"
 WORKER_DOCKER_ENABLED="true"
 WORKER_COLLECTION_INTERVAL_MS="1000"
 
-# Docker host — "socket-proxy" is the service from docker-compose.agent.yml
-# The worker container resolves it via Docker's internal DNS
-DOCKER_HOST_1="socket-proxy"
-DOCKER_HOST_PORT_1="2375"
-DOCKER_HOST_NAME_1="dev-machine"
-
 # Web server
 WEB_PORT="3000"
 
 # Docker Stack Management / Git stacks repo
 GIT_REPOS_DIR="./data/repos"
 GIT_SERVER_TOKEN="dev-git-token"
+
+# Dev Agent (auto-seeded when DEV_AGENT_TOKEN is set)
+DEV_AGENT_TOKEN="dev-agent-token"
 
 # OpenBao (dev server with fixed root token)
 # Use localhost because the web server runs locally via `bun dev`,
@@ -66,7 +63,7 @@ GIT_SERVER_TOKEN="dev-git-token"
 OPENBAO_URL="http://localhost:8200"
 OPENBAO_TOKEN="dev-root-token"
 
-# Start OpenBao with the management profile
+# Start management profile services (agent, socket-proxy, OpenBao)
 COMPOSE_PROFILES="management"
 ```
 
@@ -236,7 +233,7 @@ bun run test:coverage:check # Coverage check without re-running tests
 
 ### Coverage Requirements
 
-- Minimum **96% function coverage**
+- Minimum **95% function coverage**
 - Minimum **99% line coverage**
 - Automatically enforced by `bun test` and CI
 

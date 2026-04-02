@@ -9,34 +9,43 @@ graph TD
     subgraph TanStack_Start["TanStack Start Server"]
         SSE["SSE Endpoints<br/>(server routes)"]
         PollSvc["StatsPollService<br/>(shared 1s poll)"]
+        StackBroadcast["StackStatusBroadcastService<br/>(LISTEN stack_change)"]
     end
 
     subgraph Database["TimescaleDB"]
         DockerTable["docker_stats hypertable"]
         ZFSTable["zfs_stats hypertable"]
         ProxmoxTable["proxmox_stats hypertable"]
+        StackStatusTable["stack_status"]
+        DeployHistory["deploy_history"]
+        ManagedHosts["managed_hosts"]
     end
 
     subgraph Worker["Background Worker"]
-        Collectors["Collectors<br/>(Docker, ZFS, Proxmox)"]
+        Collectors["Collectors<br/>(AgentStats, ZFS, Proxmox, StackStatus)"]
     end
 
-    subgraph Hosts["Homelab Hosts"]
-        DockerHost["Docker Host<br/>Container Stats"]
-        ZFSHost["ZFS Host<br/>zpool iostat"]
-        ProxmoxHost["Proxmox VE<br/>REST API"]
+    subgraph Hosts["Managed Docker Hosts"]
+        Agent1["Agent Sidecar<br/>(Docker + ZFS)"]
+        Agent2["Agent Sidecar<br/>(Docker + ZFS)"]
+        Updater["Agent-Updater<br/>(self-update)"]
     end
+
+    ProxmoxHost["Proxmox VE<br/>REST API"]
 
     Browser <-->|"SSE streaming"| SSE
     SSE -->|"Subscribe"| PollSvc
+    SSE -->|"Subscribe"| StackBroadcast
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| DockerTable
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| ZFSTable
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| ProxmoxTable
+    StackBroadcast -->|"LISTEN"| StackStatusTable
     Collectors -->|"INSERT"| DockerTable
     Collectors -->|"INSERT"| ZFSTable
     Collectors -->|"INSERT"| ProxmoxTable
-    Collectors --> DockerHost
-    Collectors --> ZFSHost
+    Collectors -->|"INSERT"| StackStatusTable
+    Collectors -->|"SSE"| Agent1
+    Collectors -->|"SSE"| Agent2
     Collectors --> ProxmoxHost
 ```
 
@@ -53,18 +62,17 @@ The application uses a two-stage pipeline: background collection and real-time s
 
 ```mermaid
 flowchart LR
-    CL["Client<br/>(Docker / SSH / REST)"]
-    RS["Raw Stream<br/>(JSON / text)"]
-    PA["Parser<br/>(structured data)"]
-    RC["Rate Calculator<br/>(deltas & metrics)"]
+    Agent["Agent Sidecar<br/>(pre-computed metrics)"]
+    SSE["SSE Stream<br/>(JSON events)"]
+    WK["Worker Collector"]
     DB["TimescaleDB<br/>INSERT + NOTIFY"]
 
-    CL --> RS --> PA --> RC --> DB
+    Agent --> SSE --> WK --> DB
 ```
 
-> **Note:** Docker and ZFS follow this full pipeline (streaming → parse → rate-calculate → insert). Proxmox is simpler: it polls the REST API, converts the response to flat rows via `overviewToRows()`, and inserts directly - no streaming parser or rate calculator needed.
+The worker connects to agent sidecars on each managed host via SSE. For Docker stats, the agent pre-computes metrics (CPU%, memory%, network/block I/O rates) before streaming — the worker receives ready-to-insert rows. For ZFS, the agent streams raw `zpool iostat` output which the worker parses and rate-calculates. Proxmox is a direct REST API poll (no agent).
 
-### Stage 2: Real-Time Streaming (Server → Browser)
+### Stage 2: Real-Time Streaming (Server -> Browser)
 
 ```mermaid
 flowchart LR
@@ -80,22 +88,23 @@ flowchart LR
 
 ### How It Works
 
-1. **Background worker** continuously collects stats from Docker/ZFS APIs every 1 second and Proxmox API every 10 seconds (configurable)
-2. **Docker collector** keeps stats streams open continuously, flushing every second and only reconnecting on container changes or errors
-3. **ZFS collector** streams `zpool iostat` continuously, flushing on each cycle boundary
-4. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows with entity type discriminator, and inserts into TimescaleDB
-5. Stats are **inserted** into TimescaleDB wide hypertables
-6. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to all subscribed SSE endpoints
-7. **SSE endpoints** subscribe to the poll service; multiple browser tabs share the same poll - only 1 DB query/sec per source
-8. The **`useTimeSeriesStream` hook** preloads history via REST, then merges SSE updates into a time-windowed buffer with stale detection
-9. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
+1. **Agent sidecars** run alongside each managed Docker host, streaming stats and container events
+2. **AgentStatsCollector** connects to each agent's `/stats/stream` endpoint and receives pre-computed Docker metrics (CPU%, memory, network/block I/O rates)
+3. **ZFSCollector** connects to each agent's `/zfs/stats/stream` endpoint, parses `zpool iostat` output, and calculates rates
+4. **StackStatusCollector** connects to each agent's `/stacks/events` endpoint and persists container status snapshots
+5. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows, and inserts into TimescaleDB
+6. Stats are **inserted** into TimescaleDB wide hypertables
+7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to all subscribed SSE endpoints
+8. **SSE endpoints** subscribe to the poll service; multiple browser tabs share the same poll - only 1 DB query/sec per source
+9. The **`useTimeSeriesStream` hook** preloads history via REST, then merges SSE updates into a time-windowed buffer with stale detection
+10. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
 
 ## Proxmox Data Model
 
-Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` discriminator column to distinguish cluster, node, qemu, lxc, and storage entities (similar to how ZFS uses `entity_type` for pool/vdev/disk). This keeps the architecture consistent: one table → one StatsPollService source → one SSE stream → one `useTimeSeriesStream` hook.
+Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` discriminator column to distinguish cluster, node, qemu, lxc, and storage entities (similar to how ZFS uses `entity_type` for pool/vdev/disk). This keeps the architecture consistent: one table -> one StatsPollService source -> one SSE stream -> one `useTimeSeriesStream` hook.
 
 - **Bidirectional conversion**: `overviewToRows()` converts the Proxmox API overview to flat DB rows; `buildProxmoxOverview()` reconstructs the overview from latest rows per entity
-- **Runtime-configurable interval**: The Proxmox poll interval (1s or 10s) can be changed via the settings UI; changes propagate via `SettingsListener` → `ProxmoxCollector.pollInterval` setter
+- **Runtime-configurable interval**: The Proxmox poll interval (1s or 10s) can be changed via the settings UI; changes propagate via `SettingsListener` -> `ProxmoxCollector.pollInterval` setter
 - **Entity ID convention**: nodes use `node` name, guests use `vmid`, storages use `${node}/${storage}` for cross-node uniqueness
 
 ## Docker Stack Management
@@ -105,32 +114,50 @@ GitOps-style Docker stack management. Users define stacks as docker-compose file
 ### High-Level Flow
 
 ```
-User's IDE ──git push──▶ homelab-manager git server ──post-receive──┐
-                                                                     ▼
-User's Browser ──UI edit──▶ homelab-manager commits ──────────────▶ Deploy Pipeline
-                                                                     │
-                                         ┌───────────────────────────┤
-                                         ▼                           ▼
+User's IDE --git push--> homelab-manager git server --post-receive--+
+                                                                     |
+User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pipeline
+                                                                     |
+                                         +---------------------------+
+                                         |                           |
                                     Agent (host-1)              Agent (host-2)
                                     via socket proxy            via socket proxy
 ```
 
 ### Components
 
-| Component | Location | Status |
-|-----------|----------|--------|
-| Agent container | `agent/` | Merged (PR #50) |
-| Deploy pipeline | `src/lib/deploy/` | Merged (PR #51) |
-| Git management | `src/lib/git/` | PR #52 |
-| OpenBao secrets | `src/lib/clients/openbao-client.ts` | PR #53 (planned) |
-| Host management + UI | `src/lib/services/`, `src/components/stacks/` | PR #54 (planned) |
+| Component | Location | Description |
+|-----------|----------|-------------|
+| Agent container | `agent/` | Sidecar for Docker/ZFS operations on managed hosts |
+| Agent-updater | `agent-updater/` | Sidecar for automatic agent container updates |
+| Deploy pipeline | `src/lib/deploy/` | Trigger-agnostic deploy orchestration |
+| Git management | `src/lib/git/` | In-app bare git repo with HTTP smart protocol |
+| OpenBao secrets | `src/lib/clients/openbao-client.ts` | KV v2 client for agent tokens and deploy variables |
+| Stack service | `src/lib/stacks/` | Stack CRUD, mapping, and status broadcast |
+| Host management | `src/data/hosts/` | Host CRUD handlers with agent token generation |
+| Stacks UI | `src/components/stacks/` | Full stack management interface |
+| Settings UI | `src/components/settings/` | Managed hosts card and add-host wizard |
+
+### Managed Hosts & Agent Architecture
+
+Hosts are registered via the Settings UI and stored in the `managed_hosts` database table with agent connection details and capabilities (docker, zfs).
+
+**Collector creation** (`src/worker/collector-factory.ts`):
+- `createCollectors()` — local Docker/Proxmox collectors from environment variables (monitoring-only)
+- `createCollectorsForManagedHosts()` — agent-based collectors for registered hosts (Docker + ZFS)
+- `createStackStatusCollectors()` — stack container status from agent `/stacks/events`
+
+**Token resolution**: Agent tokens are stored in OpenBao and resolved via a `getToken(hostname)` callback. Hosts with missing tokens are skipped with a logged warning.
+
+**URL remapping**: `resolveAgentUrl()` rewrites localhost agent URLs to Docker-internal hostnames via `WORKER_LOCALHOST_AGENT` env var, enabling the worker container to reach agents on the same Docker network.
 
 ### Agent Container (`agent/`)
 
-A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode.
+A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode. Capabilities are auto-detected at startup (Docker via `DOCKER_HOST` env var, ZFS via `zpool` binary presence).
 
 **Architecture:**
-- Bearer token authentication
+- Bearer token authentication (token from file or env var)
+- Optional TLS via `TLS_CERT_PATH` and `TLS_KEY_PATH`
 - Connects to Docker via `DOCKER_HOST` env var (socket proxy recommended)
 - Subprocess timeout (5 minutes) for `docker compose` operations
 
@@ -138,34 +165,74 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/health` | Docker version check + heartbeat |
-| GET | `/stats/stream` | SSE container stats streaming |
-| GET | `/logs/:containerId` | SSE container log streaming |
+| GET | `/health` | Docker version + ZFS capability check + heartbeat |
+| GET | `/auth/verify` | Token verification |
+| GET | `/stats/stream` | SSE container stats with pre-computed metrics |
+| GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
+| GET | `/stacks/events` | SSE Docker lifecycle events grouped by compose stack |
 | POST | `/stacks/deploy` | Run `docker compose up -d` |
 | POST | `/stacks/teardown` | Run `docker compose down` |
 | POST | `/stacks/restart` | Run `docker compose restart` |
 | GET | `/stacks/status` | List stacks in working directory |
+| GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
+| GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
 
 **Socket proxy setup:** Each Docker host needs a Docker socket proxy. We recommend [linuxserver/socket-proxy](https://github.com/linuxserver/docker-socket-proxy) with `CONTAINERS=1`, `IMAGES=1`, `NETWORKS=1`, `VOLUMES=1`, `POST=1` permissions, but any compatible proxy will work.
 
+### Agent-Updater Sidecar (`agent-updater/`)
+
+Separate Bun service that monitors and updates agent containers without manual Docker commands. Connects directly to the Docker socket proxy (bypasses the agent, which cannot replace its own container).
+
+**Update sequence:**
+1. Pull new agent image from registry
+2. Inspect existing container to capture environment and host config
+3. Stop and remove old container
+4. Create new container with same config but new image
+5. Start new container
+6. Verify health with exponential backoff (500ms, 1s, 2s delays)
+
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration layer. Accepts `DeployRequest` objects from either `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (future UI actions).
+Trigger-agnostic orchestration layer. Accepts `DeployRequest` objects from either `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions).
 
 **Pipeline stages:**
 
 ```
-DeployRequest → Validate → Resolve Secrets → Dispatch to Agent → Record Result
+DeployRequest -> Validate -> Resolve Secrets -> Dispatch to Agent -> Record Result
 ```
 
 - **Change detection:** Content hashing to skip no-op deploys
-- **Secret resolution:** Pluggable interface — no-op by default, OpenBao when configured
+- **Secret resolution:** Pluggable interface — no-op by default, OpenBao when configured. Resolves `${SECRET:path/key}` variable references in compose files
 - **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host
 - **Agent client:** HTTP wrapper for communicating with agents (deploy/teardown/restart)
 
 **Database tables:**
-- `managed_hosts` — registered Docker hosts with agent connection details
-- `deploy_history` — deploy records with status tracking (pending → running → success/failed)
+- `managed_hosts` — registered Docker hosts with agent connection details and capabilities
+- `deploy_history` — deploy records with status tracking (pending -> in_progress -> succeeded/failed/no_change)
+- `stack_status` — per-host container status snapshots from agent events
+
+### Stack Status Pipeline
+
+Real-time stack container status tracking from agent to browser:
+
+```mermaid
+flowchart LR
+    DE["Docker Events"]
+    AE["Agent /stacks/events"]
+    SC["StackStatusCollector"]
+    DB["stack_status table<br/>+ NOTIFY stack_change"]
+    BS["StackStatusBroadcastService<br/>(LISTEN)"]
+    SSE["/api/stack-status SSE"]
+    UI["useStackStatus hook"]
+
+    DE --> AE --> SC --> DB --> BS --> SSE --> UI
+```
+
+- **Agent** subscribes to Docker daemon events, groups containers by compose stack
+- **StackStatusCollector** (worker) persists snapshots to the `stack_status` table
+- **StackStatusBroadcastService** (server) listens to PostgreSQL `NOTIFY` on `stack_change` channel
+- **SSE endpoint** sends initial full snapshot on connect, then incremental updates
+- **Event types:** `{ type: 'status', entries: [...] }` and `{ type: 'deploy_changed', stack, host }`
 
 ### Git Management (`src/lib/git/`)
 
@@ -175,9 +242,9 @@ Server-side git repository using isomorphic-git for repo operations and git CLI 
 
 ```
 Server boots
-  → ensureRepoInitialized()
-    → initBareRepo (create /data/repos/stacks.git if needed)
-    → No commits? Seed manifest.yaml with "stacks: {}"
+  -> ensureRepoInitialized()
+    -> initBareRepo (create /data/repos/stacks.git if needed)
+    -> No commits? Seed manifest.yaml with "stacks: {}"
 ```
 
 **Git HTTP smart protocol** (`src/routes/api/git.$.ts`):
@@ -214,9 +281,12 @@ flowchart TD
     I --> J[Validate manifest]
     J --> K{Stack in manifest?}
     K -->|No| L[Log: not in manifest - skip]
-    K -->|Yes| M[Build DeployRequest]
-    M --> N["Log deploy request (TODO: dispatch to pipeline)"]
+    K -->|Yes| M[Build DeployRequest via GitTriggerBuilder]
+    M --> N[Dispatch to DeployPipeline]
+    N --> O[Record result in deploy_history]
 ```
+
+Pipeline errors do not block the git push — they are caught and logged.
 
 **Manifest format** (`manifest.yaml`):
 
@@ -224,10 +294,10 @@ flowchart TD
 stacks:
   plex:
     host: homeserver
-    auto_deploy: true
+    autoDeploy: true
   traefik:
     host: homeserver
-    auto_deploy: false
+    autoDeploy: false
 ```
 
 **In-app editor operations** (`src/lib/git/editor-operations.ts`):
@@ -246,26 +316,48 @@ stacks:
 | `git-http.ts` | Path parsing and request type classification |
 | `manifest.ts` | YAML manifest parsing and validation |
 | `post-receive.ts` | Change detection and deploy request builder |
-| `post-receive-handler.ts` | Post-receive orchestration (TODO: pipeline dispatch) |
+| `post-receive-handler.ts` | Post-receive orchestration with pipeline dispatch |
 | `init-repo.ts` | Startup initialization with seed manifest |
 | `editor-operations.ts` | In-app file save/commit and manifest updates |
-| `git-server-functions.ts` | File tree builder for UI (future) |
+| `git-server-functions.ts` | File tree builder for UI |
 
-### OpenBao Secrets (PR #53 — planned)
+### OpenBao Secrets
 
 Secret management via [OpenBao](https://openbao.org/) (open-source Vault fork).
 
-- KV v2 HTTP client for secret CRUD
+- KV v2 HTTP client for secret CRUD (`src/lib/clients/openbao-client.ts`)
 - Pluggable `SecretResolver` interface — auto-detects OpenBao when `OPENBAO_URL` is set, falls back to no-op
 - Deploy pipeline resolves `${SECRET:path/key}` variable references in compose files before dispatching to agents
+- Agent tokens stored and retrieved from OpenBao KV v2
 - OpenBao dev server in docker-compose for local development (management profile)
 
-### Host Management + UI (PR #54 — planned)
+### Stacks UI
 
-End-user host management and stacks UI.
+Full stack management interface at `/stacks` (top-level navigation).
 
-- **HostRepository** — CRUD for managed_hosts table with agent token generation
-- **AgentProvisioningService** — deploy agent containers to new hosts via socket proxy
-- **AgentHealthCheckService** — periodic health checks with timeout support
-- **AgentStatsCollector** — SSE-based stats collection from managed hosts, integrated into worker startup
-- **Stacks UI** — StacksTable, StackDetail, ComposeEditor (Monaco with monaco-yaml), DeployHistoryList, VariablesPanel, SyncStatusBadge
+| Component | Purpose |
+|-----------|---------|
+| `StackNav` | Sidebar navigation listing all stacks with status indicators |
+| `StackActionBar` | Deploy, teardown, restart action buttons |
+| `ComposeEditor` | Monaco YAML editor with Compose schema validation |
+| `ContainerList` | Running containers for a stack with status |
+| `DeployHistoryList` / `DeployHistoryRow` | Deploy history timeline with rollback |
+| `VariablesPanel` / `VariableRow` | Stack variables editor (OpenBao-backed) |
+| `CreateStackDialog` | Create new stack |
+| `DeleteStackDialog` | Stack deletion confirmation |
+| `RollbackDialog` | Rollback to previous deployment |
+| `StackSettingsDialog` | Stack settings editor |
+| `SyncStatusBadge` | Git sync status badge |
+
+**Real-time updates:** The `useStackStatus` hook subscribes to `/api/stack-status` SSE endpoint. Container status changes and deployment completions are broadcast to all connected browsers.
+
+### Host Management (Settings UI)
+
+Managed hosts are configured via the Settings page:
+
+| Component | Purpose |
+|-----------|---------|
+| `AddHostWizard` | Multi-step wizard for onboarding new hosts with token generation |
+| `ManagedHostsCard` | Host list with status, capabilities, and actions |
+| `HostDialogs` | Edit and delete confirmation dialogs |
+| `HostRow` | Individual host row with health indicator |

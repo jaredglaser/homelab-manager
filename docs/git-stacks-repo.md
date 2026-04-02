@@ -70,7 +70,7 @@ git commit -m "Add my-app stack"
 git push
 ```
 
-The push triggers the post-receive hook. If `autoDeploy: true`, the deploy pipeline sends the compose file to the agent on the specified host. If `autoDeploy: false`, the stack appears on the stacks page as "pending" and can be deployed manually from the UI.
+The push triggers the post-receive hook, which dispatches to the deploy pipeline. If `autoDeploy: true`, the pipeline resolves secrets and sends the compose file to the agent on the specified host. If `autoDeploy: false`, the stack appears on the stacks page as "pending" and can be deployed manually from the UI. Pipeline errors do not block the push — check server logs for deploy failures.
 
 ### Manifest Format
 
@@ -113,3 +113,6 @@ Ensure the web server is running and `GIT_SERVER_TOKEN` is set.
 
 **Push succeeds but stack doesn't appear**
 Check that the stack is listed in `manifest.yaml` and the `host` value matches a managed host name.
+
+**Push succeeds but stack doesn't deploy**
+Pipeline errors are caught and logged without blocking the push. Check the server logs for deploy failures (secret resolution, agent connectivity, etc.).

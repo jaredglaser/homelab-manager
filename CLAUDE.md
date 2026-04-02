@@ -61,7 +61,7 @@ cd agent && bun run typecheck  # Agent type checking
 - **State:** Jotai (settings atoms) + TanStack Query
 - **Streaming:** SSE via TanStack Router server routes
 - **Charts:** Apache ECharts
-- **Clients:** Dockerode (Docker), ssh2 (SSH), pg (PostgreSQL), native fetch (Proxmox)
+- **Clients:** Dockerode (Docker), pg (PostgreSQL), native fetch (Proxmox), OpenBao (secrets)
 - **Database:** TimescaleDB (PostgreSQL 16, wide hypertables, auto-compression after 7 days)
 - **Worker:** Standalone Bun process for continuous data collection
 - **Testing:** `bun:test` with Happy-DOM + Testing Library
@@ -76,7 +76,7 @@ Worker → Docker/ZFS/Proxmox APIs → INSERT wide rows → TimescaleDB
 Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast
 ```
 
-- Frontend reads from database, not direct API/SSH connections.
+- Frontend reads from database, not direct API connections.
 - All three sources (Docker, ZFS, Proxmox) use identical architecture: worker → TimescaleDB → StatsPollService → SSE → `useTimeSeriesStream`.
 - Frontend preloads history via REST server function, then merges SSE updates.
 
@@ -95,7 +95,7 @@ const { statsPollService } = await import('@/lib/database/subscription-service')
 
 - **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. MUI theme in `src/theme.ts` uses `cssVariables` mode. Custom backgrounds: `chartBg`, `level1-3`, `popup`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
 - **Settings**: Jotai atoms synced via SSE (`/api/settings`). `useSettings()` provides optimistic setters. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
-- **Multi-host**: Docker/ZFS use numbered env vars (`DOCKER_HOST_1`, `ZFS_HOST_1`, etc.). Host rows shown only when multiple hosts configured.
+- **Multi-host**: Docker monitoring uses numbered env vars (`DOCKER_HOST_1`, etc.) for direct connections. Managed hosts (agent-based) are stored in the `managed_hosts` database table and configured via the Settings UI. Host rows shown only when multiple hosts configured.
 - **Demo mode**: `VITE_DEMO_MODE=true` swaps server functions via Vite aliases and patches `EventSource`. Zero changes to routes/hooks/components. Mock entities defined in `src/lib/mock/entities.ts`.
 - **Worker**: Collectors extend `BaseCollector` (AsyncDisposable, exponential backoff). Entry point uses `AsyncDisposableStack` for cleanup.
 - **Entity IDs**: Docker=`host/container_id`, ZFS=`host/pool/vdev/disk` (hierarchy via indent: 0=pool, 2=vdev, 4+=disk), Proxmox=varies by type.
