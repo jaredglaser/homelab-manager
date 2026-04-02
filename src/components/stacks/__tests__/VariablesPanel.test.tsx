@@ -301,4 +301,89 @@ describe('VariablesPanel', () => {
     const saveBtn = screen.getByLabelText('Save value');
     expect((saveBtn as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it('shows inline error when fetchValue mutation fails', async () => {
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['API_TOKEN']));
+    mockGetVariableValue.mockImplementationOnce(() =>
+      Promise.reject(new Error('OpenBao connection refused')),
+    );
+
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('API_TOKEN')).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText('Reveal value'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to retrieve value from OpenBao.')).toBeDefined();
+    });
+  });
+
+  it('clears fetch error on retry', async () => {
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['API_TOKEN']));
+    mockGetVariableValue
+      .mockImplementationOnce(() => Promise.reject(new Error('Timeout')))
+      .mockImplementationOnce(() => Promise.resolve('recovered'));
+
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('API_TOKEN')).toBeDefined());
+
+    // First click fails
+    fireEvent.click(screen.getByLabelText('Reveal value'));
+    await waitFor(() => {
+      expect(screen.getByText('Failed to retrieve value from OpenBao.')).toBeDefined();
+    });
+
+    // Hide then reveal again — retry should clear the error
+    fireEvent.click(screen.getByLabelText('Hide value'));
+    fireEvent.click(screen.getByLabelText('Reveal value'));
+    await waitFor(() => {
+      expect(screen.queryByText('Failed to retrieve value from OpenBao.')).toBeNull();
+    });
+  });
+
+  it('shows inline error when save mutation fails', async () => {
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['API_KEY']));
+    mockGetVariableValue.mockImplementationOnce(() => Promise.resolve('original'));
+    mockSetVariableValue.mockImplementationOnce(() =>
+      Promise.reject(new Error('OpenBao write failed')),
+    );
+
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('API_KEY')).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText('Reveal value'));
+    await waitFor(() => expect(mockGetVariableValue).toHaveBeenCalledTimes(1));
+
+    const input = screen.getByDisplayValue('original');
+    fireEvent.change(input, { target: { value: 'changed' } });
+
+    const saveBtn = screen.getByLabelText('Save value');
+    await waitFor(() => expect((saveBtn as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to save value to OpenBao.')).toBeDefined();
+    });
+  });
+
+  it('shows error inside delete dialog when delete mutation fails', async () => {
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['OLD_VAR']));
+    mockDeleteVariable.mockImplementationOnce(() =>
+      Promise.reject(new Error('OpenBao delete failed')),
+    );
+
+    await renderPanel('mystack', []);
+    await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
+
+    fireEvent.click(screen.getByLabelText('Delete variable'));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to delete variable from OpenBao.')).toBeDefined();
+    });
+    // Dialog stays open so user can retry
+    expect(screen.getByRole('dialog')).toBeDefined();
+  });
 });

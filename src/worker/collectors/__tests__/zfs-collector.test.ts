@@ -70,6 +70,23 @@ function createMockZfsSSEStream(lines: string[]): ReadableStream<Uint8Array> {
   });
 }
 
+/**
+ * Build a ReadableStream that emits SSE-formatted ZFS line events with an explicit
+ * agent-provided timestamp, then closes.
+ */
+function createMockZfsSSEStreamWithTimestamp(lines: string[], timestamp: number): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const line of lines) {
+        const event = { line, timestamp };
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+      }
+      controller.close();
+    },
+  });
+}
+
 describe('ZFSCollector', () => {
   let mockDb: ReturnType<typeof createMockDb>;
   let abortController: AbortController;
@@ -368,6 +385,40 @@ describe('ZFSCollector', () => {
       await (collector as any).collect();
 
       expect(mockDb.insertedRows.length).toBe(0);
+    });
+
+    it('should use agent-provided timestamp for the written row time field', async () => {
+      const FIXED_TIMESTAMP = 1700000000000;
+
+      // A minimal single-cycle stream: header line triggers a new cycle, then the pool
+      // data line is written when the stream closes (final-cycle flush).
+      const lines = [
+        '              capacity     operations     bandwidth',
+        'tank        1.81T  2.19T     10     20   100K   200K',
+      ];
+
+      const fetchFn: FetchFn = mock(async () =>
+        new Response(createMockZfsSSEStreamWithTimestamp(lines, FIXED_TIMESTAMP), {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      );
+
+      const collector = new ZFSCollector(
+        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+      );
+      mockDb.patchRepository(collector);
+
+      await (collector as any).collect();
+
+      // Exactly one cycle should have been flushed via the final-cycle path
+      expect(mockDb.insertedRows.length).toBe(1);
+      const row = mockDb.insertedRows[0][0];
+
+      // The row's time must reflect the agent timestamp, not Date.now()
+      expect(row.time).toEqual(new Date(FIXED_TIMESTAMP));
+      // Confirm the entity is correct so we know this is the right row
+      expect(row.entity).toBe('192.168.1.50:9090/tank');
     });
 
     it('should handle partial SSE messages across chunks', async () => {

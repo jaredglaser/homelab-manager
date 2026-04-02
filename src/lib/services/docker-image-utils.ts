@@ -9,6 +9,9 @@ const IMAGE_PULL_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
  * parameter (defaults to IMAGE_PULL_TIMEOUT_MS, 5 minutes).
  */
 export async function pullImage(docker: Dockerode, image: string, timeoutMs: number = IMAGE_PULL_TIMEOUT_MS): Promise<void> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new RangeError(`timeoutMs must be a finite positive number, got: ${timeoutMs}`);
+  }
   const stream = await docker.pull(image);
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {

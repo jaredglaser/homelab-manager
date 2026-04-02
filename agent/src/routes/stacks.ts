@@ -194,7 +194,29 @@ export async function handleStackDeploy(
   // container_name values that might conflict — they could belong to a
   // different compose project so `docker compose down` won't touch them.
   if (parsed.forceRecreate) {
-    const namedContainers = parseContainerNames(parsed.composeContent);
+    // Resolve env-var interpolations in the compose file (e.g. ${APP_NAME}-web)
+    // so that `docker rm -f` targets the actual running container name rather
+    // than the literal placeholder string.
+    let resolvedContent = parsed.composeContent;
+    const tmpDir = process.env.TMPDIR ?? '/tmp';
+    const tmpFile = `${tmpDir}/compose-${Date.now()}.yml`;
+    try {
+      await Bun.write(tmpFile, parsed.composeContent);
+      const configResult = await spawnWithTimeout(spawn, {
+        cmd: ['docker', 'compose', '--file', tmpFile, 'config'],
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: composeEnv,
+      }, 15_000);
+      if (configResult.exitCode === 0 && configResult.stdout.trim()) {
+        resolvedContent = configResult.stdout;
+      }
+    } catch {
+      // Non-fatal — fall back to raw content
+    } finally {
+      try { unlinkSync(tmpFile); } catch { /* ignore */ }
+    }
+    const namedContainers = parseContainerNames(resolvedContent);
     for (const name of namedContainers) {
       try {
         await spawnWithTimeout(spawn, {

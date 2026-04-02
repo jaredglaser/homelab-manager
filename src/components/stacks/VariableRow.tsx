@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Alert,
   Button,
   Dialog,
   DialogActions,
@@ -28,6 +29,9 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
   const [originalValue, setOriginalValue] = useState('');
   const [valueFetched, setValueFetched] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const fetchValueMutation = useMutation({
     mutationFn: () => getVariableValue({ data: { stackName, variableName: varName } }),
@@ -36,6 +40,10 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
       setFieldValue(v);
       setOriginalValue(v);
       setValueFetched(true);
+      setFetchError(null);
+    },
+    onError: () => {
+      setFetchError('Failed to retrieve value from OpenBao.');
     },
   });
 
@@ -49,6 +57,10 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
     },
     onSuccess: (savedValue: string) => {
       setOriginalValue(savedValue);
+      setSaveError(null);
+    },
+    onError: () => {
+      setSaveError('Failed to save value to OpenBao.');
     },
   });
 
@@ -56,7 +68,11 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
     mutationFn: () => deleteVariable({ data: { stackName, variableName: varName } }),
     onSuccess: () => {
       setDeleteOpen(false);
+      setDeleteError(null);
       onDeleted();
+    },
+    onError: () => {
+      setDeleteError('Failed to delete variable from OpenBao.');
     },
   });
 
@@ -64,67 +80,80 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
     const nextVisible = !visible;
     setVisible(nextVisible);
     if (nextVisible && !valueFetched) {
+      setFetchError(null);
       fetchValueMutation.mutate();
     }
   }
 
   return (
     <>
-      <div className="flex items-center gap-2">
-        <code className="text-xs font-mono min-w-[100px] opacity-80 truncate">
-          {varName}
-        </code>
-        <TextField
-          size="small"
-          type={visible ? 'text' : 'password'}
-          value={valueFetched ? fieldValue : ''}
-          onChange={(e) => setFieldValue(e.target.value)}
-          disabled={!valueFetched || fetchValueMutation.isPending}
-          fullWidth
-          placeholder={fetchValueMutation.isPending ? 'Loading…' : 'Click eye to reveal'}
-          slotProps={{
-            input: {
-              className: '!text-xs',
-              endAdornment: (
-                <InputAdornment position="end">
-                  <IconButton
-                    size="small"
-                    onClick={handleToggleVisibility}
-                    aria-label={visible ? 'Hide value' : 'Reveal value'}
-                    disabled={fetchValueMutation.isPending}
-                  >
-                    {visible ? <EyeOff size={14} /> : <Eye size={14} />}
-                  </IconButton>
-                  <IconButton
-                    size="small"
-                    onClick={() => saveMutation.mutate()}
-                    aria-label="Save value"
-                    disabled={!isDirty || saveMutation.isPending}
-                  >
-                    <Save size={14} />
-                  </IconButton>
-                  <Tooltip
-                    title={isReferenced ? 'Variable still referenced in compose file' : ''}
-                    disableHoverListener={!isReferenced}
-                    disableFocusListener={!isReferenced}
-                    disableTouchListener={!isReferenced}
-                  >
-                    <span>
-                      <IconButton
-                        size="small"
-                        onClick={() => setDeleteOpen(true)}
-                        aria-label="Delete variable"
-                        disabled={isReferenced || deleteMutation.isPending}
-                      >
-                        <Trash2 size={14} />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </InputAdornment>
-              ),
-            },
-          }}
-        />
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
+          <code className="text-xs font-mono min-w-[100px] opacity-80 truncate">
+            {varName}
+          </code>
+          <TextField
+            size="small"
+            type={visible ? 'text' : 'password'}
+            value={valueFetched ? fieldValue : ''}
+            onChange={(e) => setFieldValue(e.target.value)}
+            disabled={!valueFetched || fetchValueMutation.isPending}
+            fullWidth
+            placeholder={fetchValueMutation.isPending ? 'Loading…' : 'Click eye to reveal'}
+            slotProps={{
+              input: {
+                className: '!text-xs',
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      onClick={handleToggleVisibility}
+                      aria-label={visible ? 'Hide value' : 'Reveal value'}
+                      disabled={fetchValueMutation.isPending}
+                    >
+                      {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={() => { setSaveError(null); saveMutation.mutate(); }}
+                      aria-label="Save value"
+                      disabled={!isDirty || saveMutation.isPending}
+                    >
+                      <Save size={14} />
+                    </IconButton>
+                    <Tooltip
+                      title={isReferenced ? 'Variable still referenced in compose file' : ''}
+                      disableHoverListener={!isReferenced}
+                      disableFocusListener={!isReferenced}
+                      disableTouchListener={!isReferenced}
+                    >
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={() => { setDeleteError(null); setDeleteOpen(true); }}
+                          aria-label="Delete variable"
+                          disabled={isReferenced || deleteMutation.isPending}
+                        >
+                          <Trash2 size={14} />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+        </div>
+        {fetchError && (
+          <Alert severity="error" className="!text-xs py-0">
+            {fetchError}
+          </Alert>
+        )}
+        {saveError && (
+          <Alert severity="error" className="!text-xs py-0">
+            {saveError}
+          </Alert>
+        )}
       </div>
 
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
@@ -133,6 +162,11 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
           <DialogContentText>
             Delete variable <strong>{varName}</strong> from OpenBao? This cannot be undone.
           </DialogContentText>
+          {deleteError && (
+            <Alert severity="error" className="!text-xs mt-2">
+              {deleteError}
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDeleteOpen(false)}>Cancel</Button>
