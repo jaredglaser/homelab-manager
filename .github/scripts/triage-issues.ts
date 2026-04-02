@@ -157,7 +157,8 @@ function renderSummary(all: Group[], selected: Group | null, maxIssues: number):
     return b.issues.length - a.issues.length;
   });
   for (const g of sortedGroups) {
-    const marker = selected && g.groupKey === selected.groupKey ? " ✓ selected" : "";
+    const marker =
+      selected && g.groupKey === selected.groupKey && g.groupType === selected.groupType ? " ✓ selected" : "";
     lines.push(`- **${g.label}**${marker}: ${g.issues.length} issues`);
   }
 
@@ -165,10 +166,46 @@ function renderSummary(all: Group[], selected: Group | null, maxIssues: number):
   return lines.join("\n");
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────────
+function sanitizeMessage(message: string): string {
+  // Truncate to 200 characters and strip characters outside the safe set
+  // to defend against prompt injection via SonarQube API responses.
+  return message.slice(0, 200).replace(/[^\w\s.,;:()'"-]/g, "");
+}
 
-const raw = readFileSync(INPUT_FILE, "utf-8");
-const issues: SonarIssue[] = JSON.parse(raw);
+function emitNoGroupOutput(outputFile: string | undefined): void {
+  if (outputFile) {
+    try {
+      writeFileSync(outputFile, "rule_key=\nissue_count=0\ngroup_label=\n", { flag: "a" });
+    } catch (err) {
+      console.error(`ERROR: Failed to write to GITHUB_OUTPUT: ${err}`);
+      process.exit(1);
+    }
+  }
+}
+
+// Main
+
+let raw: string;
+try {
+  raw = readFileSync(INPUT_FILE, "utf-8");
+} catch (err: unknown) {
+  if (err && typeof err === "object" && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
+    console.error(`ERROR: Input file '${INPUT_FILE}' not found. Did the fetch step succeed?`);
+  } else {
+    console.error(`ERROR: Failed to read '${INPUT_FILE}': ${err}`);
+  }
+  process.exit(1);
+}
+
+let issues: SonarIssue[];
+try {
+  issues = JSON.parse(raw) as SonarIssue[];
+} catch {
+  console.error(`ERROR: '${INPUT_FILE}' is not valid JSON. The SonarQube fetch step may have failed silently.`);
+  console.error(raw.slice(0, 500));
+  process.exit(1);
+}
+
 console.log(`Loaded ${issues.length} issues from ${INPUT_FILE}`);
 
 const groups = groupIssues(issues);
@@ -176,27 +213,45 @@ console.log(`Formed ${groups.length} groups`);
 
 const selected = selectBestGroup(groups, MAX_ISSUES);
 
+const outputFile = process.env.GITHUB_OUTPUT;
+
 if (!selected) {
   console.error("No suitable group found within the max_issues limit.");
   writeFileSync(SELECTED_FILE, "[]");
   writeFileSync(SUMMARY_FILE, renderSummary(groups, null, MAX_ISSUES));
-  process.exit(1);
+  emitNoGroupOutput(outputFile);
+  process.exit(0);
 }
 
 console.log(`Selected: ${selected.label} (${selected.issues.length} issues)`);
 
-writeFileSync(SELECTED_FILE, JSON.stringify(selected.issues, null, 2));
+// Sanitize message fields to defend against prompt injection
+const sanitizedIssues = selected.issues.map((issue) => ({
+  ...issue,
+  message: sanitizeMessage(issue.message),
+}));
+
+writeFileSync(SELECTED_FILE, JSON.stringify(sanitizedIssues, null, 2));
 writeFileSync(SUMMARY_FILE, renderSummary(groups, selected, MAX_ISSUES));
 
 // Emit the selected rule key and issue count for use as step outputs
-const ruleKey = selected.groupKey.replace(/[^a-zA-Z0-9-]/g, "-");
-const issueCount = selected.issues.length;
-const outputFile = process.env.GITHUB_OUTPUT;
+if (process.env.GITHUB_ACTIONS === "true" && !outputFile) {
+  console.error("ERROR: GITHUB_OUTPUT is not set. Cannot emit step outputs.");
+  process.exit(1);
+}
+
 if (outputFile) {
+  const ruleKey = selected.groupKey.replace(/[^a-zA-Z0-9-]/g, "-");
+  const issueCount = selected.issues.length;
   const groupLabel = selected.label.replace(/\r?\n/g, " ");
-  writeFileSync(outputFile, `rule_key=${ruleKey}\nissue_count=${issueCount}\ngroup_label=${groupLabel}\n`, {
-    flag: "a",
-  });
+  try {
+    writeFileSync(outputFile, `rule_key=${ruleKey}\nissue_count=${issueCount}\ngroup_label=${groupLabel}\n`, {
+      flag: "a",
+    });
+  } catch (err) {
+    console.error(`ERROR: Failed to write to GITHUB_OUTPUT: ${err}`);
+    process.exit(1);
+  }
 }
 
 console.log(`Wrote ${SELECTED_FILE} and ${SUMMARY_FILE}`);

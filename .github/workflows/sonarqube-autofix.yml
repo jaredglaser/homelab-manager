@@ -25,7 +25,7 @@ on:
       assignee:
         description: "GitHub username to assign the PR to (leave blank to skip)"
         required: false
-        default: "jaredbebis"
+        default: "jaredglaser"
         type: string
 
 permissions:
@@ -39,14 +39,12 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      # ── Checkout ────────────────────────────────────────────────────────────
       - name: Checkout repository
         id: checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ── Runtime setup ───────────────────────────────────────────────────────
       - name: Set up Bun
         id: setup-bun
         uses: oven-sh/setup-bun@v2
@@ -55,10 +53,9 @@ jobs:
 
       - name: Install Claude Code CLI
         id: install-claude
-        if: ${{ inputs.dry_run == false }}
+        if: ${{ inputs.dry_run != 'true' }}
         run: npm install -g @anthropic-ai/claude-code
 
-      # ── Step 1: Fetch issues ─────────────────────────────────────────────────
       - name: Fetch SonarQube issues
         id: fetch
         env:
@@ -69,7 +66,6 @@ jobs:
           OUTPUT_FILE: sonar-issues.json
         run: bash .github/scripts/fetch-sonar-issues.sh
 
-      # ── Step 2: Triage & group ───────────────────────────────────────────────
       - name: Triage and select issue group
         id: triage
         env:
@@ -79,9 +75,8 @@ jobs:
           SUMMARY_FILE: triage-summary.md
         run: bun run .github/scripts/triage-issues.ts
 
-      # ── Dry run: upload artifacts and stop ───────────────────────────────────
       - name: Upload dry-run artifacts
-        if: ${{ inputs.dry_run == true }}
+        if: ${{ inputs.dry_run == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: sonarqube-triage-dryrun
@@ -91,18 +86,17 @@ jobs:
             triage-summary.md
 
       - name: Dry run complete — no PR opened
-        if: ${{ inputs.dry_run == true }}
+        if: ${{ inputs.dry_run == 'true' }}
         run: |
           echo "### Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           cat triage-summary.md >> "$GITHUB_STEP_SUMMARY"
 
-      # ── Step 3: Build Claude Code prompt file ────────────────────────────────
       # Write prompt to a file so selected-issues.json is read at runtime
       # rather than shell-expanded into the command string (avoids injection).
       - name: Build Claude Code prompt file
         id: build-prompt
-        if: ${{ inputs.dry_run == false }}
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' }}
         run: |
           cat > claude-prompt.txt <<'PROMPT'
           You are fixing SonarQube issues in this repository. The file selected-issues.json
@@ -118,22 +112,20 @@ jobs:
           - Do NOT add new dependencies.
           PROMPT
 
-      # ── Step 4: Claude Code fixes ────────────────────────────────────────────
       - name: Run Claude Code to fix issues
         id: claude-fix
-        if: ${{ inputs.dry_run == false }}
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           claude -p "$(cat claude-prompt.txt)" \
-            --allowedTools "Edit,Read,Bash(bun run typecheck*),Bash(bun run lint*),Bash(grep*),Bash(find*),Bash(cat*),Bash(git diff*)" \
+            --allowedTools "Edit,Read,Bash(bun run typecheck*),Bash(bun run lint*),Bash(grep*),Bash(git diff*)" \
             --max-turns 30 \
             --output-format json
 
-      # ── Step 5: Commit & push branch ────────────────────────────────────────
       - name: Commit fixes
         id: commit
-        if: ${{ inputs.dry_run == false }}
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' }}
         env:
           RULE_KEY: ${{ steps.triage.outputs.rule_key }}
           ISSUE_COUNT: ${{ steps.triage.outputs.issue_count }}
@@ -145,8 +137,7 @@ jobs:
           BRANCH="auto/sonarqube-fix-${RULE_KEY}-${SHORT_HASH}"
 
           git checkout -b "$BRANCH"
-          git add -A
-          git rm --cached claude-prompt.txt sonar-issues.json selected-issues.json triage-summary.md 2>/dev/null || true
+          git add src/ agent/ migrations/ .github/
           if git diff --cached --quiet; then
             echo "No changes to commit — Claude Code made no edits."
             exit 0
@@ -159,10 +150,9 @@ jobs:
           git push origin "$BRANCH"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-      # ── Step 6: Open PR ──────────────────────────────────────────────────────
       - name: Create labels if missing
         id: labels
-        if: ${{ inputs.dry_run == false && steps.commit.outputs.branch != '' }}
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.commit.outputs.branch != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -171,7 +161,7 @@ jobs:
 
       - name: Open PR
         id: pr
-        if: ${{ inputs.dry_run == false && steps.commit.outputs.branch != '' }}
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.commit.outputs.branch != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RULE_KEY: ${{ steps.triage.outputs.rule_key }}
@@ -189,15 +179,15 @@ jobs:
             printf '> Please review all changes carefully before merging.\n'
           } > pr-body.md
 
-          ASSIGNEE_FLAG=""
+          ASSIGNEE_ARGS=()
           if [ -n "$ASSIGNEE" ]; then
-            ASSIGNEE_FLAG="--assignee $ASSIGNEE"
+            ASSIGNEE_ARGS=(--assignee "$ASSIGNEE")
           fi
 
           PR_URL=$(gh pr create \
             --title "fix: auto-resolve SonarQube ${RULE_KEY} findings" \
             --body-file pr-body.md \
-            $ASSIGNEE_FLAG \
+            "${ASSIGNEE_ARGS[@]}" \
             --label "automated,sonarqube" \
             --base main \
             --head "$BRANCH")
