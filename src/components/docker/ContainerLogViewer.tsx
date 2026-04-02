@@ -85,6 +85,26 @@ export default memo(function ContainerLogViewer({
     };
   }, []);
 
+  // Sync terminal theme when the color scheme changes (xterm uses a canvas renderer,
+  // so CSS variable changes don't apply automatically)
+  useEffect(() => {
+    if (!terminal) return;
+
+    const root = document.documentElement;
+    const applyTheme = () => {
+      const bg = getCssVar('--mui-palette-background-chartBg');
+      const fg = getCssVar('--chart-text-muted');
+      terminal.options.theme = {
+        ...(bg && { background: bg }),
+        ...(fg && { foreground: fg }),
+      };
+    };
+
+    const observer = new MutationObserver(applyTheme);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-color-scheme'] });
+    return () => observer.disconnect();
+  }, [terminal]);
+
   // Re-fit on container resize (debounced to avoid rapid reflows during Collapse animation)
   useEffect(() => {
     if (!containerRef.current || !fitAddonRef.current) return;

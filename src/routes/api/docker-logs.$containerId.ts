@@ -43,7 +43,41 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
           return new Response(msg, { status: agentResponse.status });
         }
 
-        return new Response(agentResponse.body, {
+        // Pipe through a local stream so we can send an initial SSE comment
+        // that forces Nitro to flush response headers immediately.
+        const agentBody = agentResponse.body;
+        const encoder = new TextEncoder();
+        let closed = false;
+
+        const stream = new ReadableStream({
+          async start(controller) {
+            controller.enqueue(encoder.encode(': ok\n\n'));
+
+            request.signal.addEventListener('abort', () => {
+              closed = true;
+              try { controller.close(); } catch { /* already closed */ }
+            });
+
+            const reader = agentBody.getReader();
+            try {
+              for (;;) {
+                const { done, value } = await reader.read();
+                if (done || closed) break;
+                controller.enqueue(value);
+              }
+            } catch {
+              // Agent stream errored or client disconnected
+            } finally {
+              reader.releaseLock();
+              if (!closed) {
+                closed = true;
+                try { controller.close(); } catch { /* already closed */ }
+              }
+            }
+          },
+        });
+
+        return new Response(stream, {
           headers: {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache',

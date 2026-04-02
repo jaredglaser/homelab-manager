@@ -44,10 +44,25 @@ export function useContainerLogs({
   terminalRef.current = terminal;
   const hasConnectedRef = useRef(false);
 
+  const writeBufferRef = useRef<string[]>([]);
+  const rafIdRef = useRef(0);
+
   useEffect(() => {
     if (!enabled || !terminal) return;
 
     let mounted = true;
+
+    /** Flush buffered lines to the terminal in a single write per frame. */
+    const scheduleFlush = () => {
+      if (rafIdRef.current !== 0) return;
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = 0;
+        const buf = writeBufferRef.current;
+        if (buf.length === 0 || !terminalRef.current) return;
+        terminalRef.current.write(buf.join('\n') + '\n');
+        buf.length = 0;
+      });
+    };
 
     const connect = () => {
       if (!mounted) return;
@@ -76,8 +91,9 @@ export function useContainerLogs({
             | { text: string; stream: string };
           const lines = 'lines' in data ? data.lines : [data];
           for (const line of lines) {
-            terminalRef.current.writeln(line.text);
+            writeBufferRef.current.push(line.text);
           }
+          scheduleFlush();
         } catch {
           // Ignore malformed messages
         }
@@ -130,6 +146,11 @@ export function useContainerLogs({
 
     return () => {
       mounted = false;
+      if (rafIdRef.current !== 0) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      writeBufferRef.current.length = 0;
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;

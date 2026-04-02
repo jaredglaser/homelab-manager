@@ -314,10 +314,11 @@ describe('handleLogStream', () => {
     await drainStream(response);
 
     // The second call should be the live stream with follow: true and since
+    // bumped by 1ms to avoid the inclusive duplicate from Docker's `since`
     const secondCall = mockContainer.logs.mock.calls[1]![0] as Record<string, unknown>;
     expect(secondCall.follow).toBe(true);
-    const expectedSince = new Date(timestamp).getTime() / 1000;
-    expect(secondCall.since).toBeCloseTo(expectedSince, 0);
+    const expectedSince = (new Date(timestamp).getTime() + 1) / 1000;
+    expect(secondCall.since).toBeCloseTo(expectedSince, 3);
   });
 
   test('two-phase: live lines stream after backlog_done', async () => {

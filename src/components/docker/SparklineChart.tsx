@@ -46,7 +46,6 @@ export default memo(function SparklineChart({
   const gradientRef = useRef<CanvasGradient | null>(null);
   const gradientCtxRef = useRef<CanvasRenderingContext2D | null>(null);
 
-
   const drawWidth = width - PADDING * 2;
   const drawHeight = height - PADDING * 2;
 
@@ -95,7 +94,7 @@ export default memo(function SparklineChart({
     }
   }, [data, color, height]);
 
-  // Canvas setup and animation loop
+  // Canvas setup and on-demand animation loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -123,6 +122,11 @@ export default memo(function SparklineChart({
     const pxBuf = pointsXRef.current;
     const pyBuf = pointsYRef.current;
 
+    // Throttle interval when idle (pulse done) — ~4fps keeps the time-axis
+    // sliding smoothly without burning GPU on 60fps draws per sparkline.
+    const IDLE_INTERVAL_MS = 250;
+    let lastDrawTime = 0;
+
     const render = (now: number) => {
       animFrameRef.current = requestAnimationFrame(render);
 
@@ -133,6 +137,11 @@ export default memo(function SparklineChart({
       pulseProgressRef.current = Math.min(1, pulseProgressRef.current + delta / 1200);
 
       const pulseProgress = pulseProgressRef.current;
+
+      // Throttle: full framerate during pulse, ~4fps when idle
+      if (pulseProgress >= 1 && now - lastDrawTime < IDLE_INTERVAL_MS) return;
+      lastDrawTime = now;
+
       const currentData = dataRef.current;
       const max = smoothMaxRef.current;
       const currentRightEdge = rightEdgeTimeRef.current;

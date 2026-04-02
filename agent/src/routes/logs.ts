@@ -113,10 +113,11 @@ export function handleLogStream(
         // Reset muxed remainder for the live phase
         muxedRemainder = Buffer.alloc(0);
 
-        // Use full millisecond precision to avoid duplicating logs from the
-        // same second. Docker's `since` accepts fractional Unix timestamps.
+        // Docker's `since` is inclusive and JS Date truncates to millisecond
+        // precision, so the last backlog line always matches again. Bump by
+        // 1 ms to make it effectively exclusive (< 1 ms gap is negligible).
         const sinceSeconds = lastTimestamp
-          ? new Date(lastTimestamp).getTime() / 1000
+          ? (new Date(lastTimestamp).getTime() + 1) / 1000
           : fallbackSinceSeconds;
 
         /** Live phase: follow new logs from the last backlog timestamp. */
@@ -144,7 +145,10 @@ export function handleLogStream(
           return;
         }
 
-        // Send periodic heartbeat to prevent proxies/browsers from killing idle connections
+        // Send periodic heartbeat to prevent idle socket timeouts from killing
+        // the connection. Must be shorter than any intermediary timeout (Bun
+        // fetch, Nitro, reverse proxies) — 5 s is safe for typical defaults.
+        controller.enqueue(encoder.encode(':\n\n'));
         const heartbeatInterval = setInterval(() => {
           if (closed) { clearInterval(heartbeatInterval); return; }
           try {
@@ -152,7 +156,7 @@ export function handleLogStream(
           } catch {
             clearInterval(heartbeatInterval);
           }
-        }, 15_000);
+        }, 5_000);
 
         liveStream.on('data', (chunk: Buffer) => {
           if (closed) return;

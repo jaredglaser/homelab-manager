@@ -117,29 +117,36 @@ describe('useContainerLogs', () => {
   });
 
   it('writes log lines to terminal on message', () => {
-    renderHook(() =>
-      useContainerLogs({
-        containerId: 'abc123',
-        host: 'server',
-        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
-      }),
-    );
+    // The hook batches writes via requestAnimationFrame — run callbacks synchronously
+    const origRAF = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 0; }) as typeof requestAnimationFrame;
 
-    act(() => {
-      MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].onmessage?.({
-        data: JSON.stringify({
-          lines: [
-            { text: 'hello world', stream: 'stdout' },
-            { text: 'error msg', stream: 'stderr' },
-          ],
+    try {
+      renderHook(() =>
+        useContainerLogs({
+          containerId: 'abc123',
+          host: 'server',
+          terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
         }),
-      });
-    });
+      );
 
-    expect(mockTerminal.writeln).toHaveBeenCalledTimes(2);
-    expect(mockTerminal.writeln).toHaveBeenCalledWith('hello world');
-    expect(mockTerminal.writeln).toHaveBeenCalledWith('error msg');
+      act(() => {
+        MockEventSource.instances[0].onopen?.();
+        MockEventSource.instances[0].onmessage?.({
+          data: JSON.stringify({
+            lines: [
+              { text: 'hello world', stream: 'stdout' },
+              { text: 'error msg', stream: 'stderr' },
+            ],
+          }),
+        });
+      });
+
+      expect(mockTerminal.write).toHaveBeenCalledTimes(1);
+      expect(mockTerminal.write).toHaveBeenCalledWith('hello world\nerror msg\n');
+    } finally {
+      globalThis.requestAnimationFrame = origRAF;
+    }
   });
 
   it('does not connect when enabled=false', () => {

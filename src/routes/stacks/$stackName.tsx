@@ -70,6 +70,8 @@ function StackEditorView() {
     queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] });
   }, [deployVersion, stackName, queryClient]);
 
+  const composeVars = useMemo(() => parseVariables(detail?.composeContent ?? ''), [detail?.composeContent])
+
   const statusKey = detail ? `${detail.host}/${detail.name}` : ''
   const containers = statusMap.get(statusKey)?.containers ?? []
 
@@ -129,8 +131,6 @@ function StackEditorView() {
       </Typography>
     )
   }
-
-  const composeVars = useMemo(() => parseVariables(detail?.composeContent ?? ''), [detail?.composeContent])
 
   return (
     <div className="flex flex-col h-full">
