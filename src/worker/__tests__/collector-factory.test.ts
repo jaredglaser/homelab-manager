@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { Pool } from 'pg';
 import { BaseCollector } from '../collectors/base-collector';
 import { StackStatusCollector } from '../collectors/stack-status-collector';
@@ -280,7 +280,7 @@ describe('createCollectorsForManagedHosts', () => {
     runSpy.mockRestore();
   });
 
-  const sampleManagedHost: ManagedHost = {
+  const sampleManagedHost: ManagedHostRow = {
     id: 1,
     name: 'homeserver',
     agent_url: 'http://192.168.1.10:9090',
@@ -335,7 +335,8 @@ describe('createCollectorsForManagedHosts', () => {
   });
 
   it('skips managed host and continues when getToken throws', async () => {
-    const host2: ManagedHost = { ...sampleManagedHost, id: 2, name: 'other-host', agent_url: 'http://192.168.1.11:9090' };
+    const host2: ManagedHostRow = { ...sampleManagedHost, id: 2, name: 'other-host', agent_url: 'http://192.168.1.11:9090' };
+
     const mockFindAll = mock(async () => [sampleManagedHost, host2]);
     let callCount = 0;
     const mockGetToken = mock(async (hostname: string) => {
@@ -455,7 +456,7 @@ describe('createStackStatusCollectors', () => {
   let db: ReturnType<typeof createMockDb>;
   let stackStatusRunSpy: ReturnType<typeof spyOn>;
 
-  const sampleHost: ManagedHost = {
+  const sampleHost: ManagedHostRow = {
     id: 1,
     name: 'homeserver',
     agent_url: 'http://192.168.1.10:9090',
@@ -544,7 +545,7 @@ describe('createStackStatusCollectors', () => {
   });
 
   it('creates collectors only for hosts with tokens when mixed', async () => {
-    const hostB: ManagedHost = { ...sampleHost, id: 2, name: 'remotehost', agent_url: 'http://192.168.1.11:9090' };
+    const hostB: ManagedHostRow = { ...sampleHost, id: 2, name: 'remotehost', agent_url: 'http://192.168.1.11:9090' };
 
     const { createStackStatusCollectors } = await import('../collector-factory');
     const controller = new AbortController();
@@ -572,7 +573,7 @@ describe('createStackStatusCollectors', () => {
   });
 
   it('skips hosts that do not advertise Docker support', async () => {
-    const noDockerHost: ManagedHost = { ...sampleHost, capabilities: { docker: false, zfs: true } };
+    const noDockerHost: ManagedHostRow = { ...sampleHost, capabilities: { docker: false, zfs: true } };
     const { createStackStatusCollectors } = await import('../collector-factory');
     const controller = new AbortController();
     await using stack = new AsyncDisposableStack();

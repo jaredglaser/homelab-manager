@@ -2,7 +2,7 @@ import type { DatabaseClient } from '@/lib/clients/database-client';
 import { loadDockerConfig } from '@/lib/config/docker-config';
 import { isProxmoxConfigured, loadProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
 import { DockerCollector } from './collectors/docker-collector';
@@ -99,7 +99,7 @@ export async function createCollectorsForManagedHosts(
   workerConfig: WorkerConfig,
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
-  findAllHosts: () => Promise<ManagedHost[]>,
+  findAllHosts: () => Promise<ManagedHostRow[]>,
   getToken: (hostname: string) => Promise<string | null>,
 ): Promise<CollectorFactoryResult> {
   const collectors: BaseCollector[] = [];
@@ -163,7 +163,7 @@ export async function createStackStatusCollectors(
   db: DatabaseClient,
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
-  findAllHosts: () => Promise<ManagedHost[]>,
+  findAllHosts: () => Promise<ManagedHostRow[]>,
   getToken: (hostname: string) => Promise<string | null>,
 ): Promise<{ runners: Promise<void>[] }> {
   const runners: Promise<void>[] = [];

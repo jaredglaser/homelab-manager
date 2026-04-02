@@ -3,7 +3,7 @@ import type { HostListItem } from '@/lib/hosts/host-utils';
 import { addHostSchema, removeHostSchema, updateAgentSchema, checkHostHealthSchema, registerExistingHostSchema, verifyHostSchema, updateHostSchema } from '@/data/hosts/schemas';
 import {
   handleListHosts, handleCheckHostHealth, handleRemoveHost,
-  handleRefreshHostStatus, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
+  handleUpdateAgent, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
 
@@ -28,8 +28,6 @@ async function loadDockerClient(socketProxyUrl: string) {
   }
   return new Dockerode({ host: parsed.hostname, port: Number(parsed.port) || 2375 });
 }
-
-// ----- createServerFn wrappers (thin wiring only) -----
 
 export const addHost = createServerFn()
   .inputValidator(addHostSchema)
@@ -116,8 +114,15 @@ export const updateAgent = createServerFn()
   .inputValidator(updateAgentSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
-    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    return handleRefreshHostStatus({ ...baseDeps, checkHealth: checkAgentHealth }, data);
+    const { AgentUpdateService } = await import('@/lib/services/agent-update-service');
+    const svc = new AgentUpdateService();
+    return handleUpdateAgent({
+      ...baseDeps,
+      updateAgent: async (agentUrl, hostId) => {
+        const { getAgentImage } = await import('@/lib/hosts/host-utils');
+        return svc.updateAgent(await loadDockerClient(agentUrl), hostId, getAgentImage(), agentUrl);
+      },
+    }, data);
   });
 
 export const checkHostHealth = createServerFn()

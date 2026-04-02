@@ -6,13 +6,11 @@ import { initBareRepo, commitFiles } from '../repo';
 import { processPostReceive } from '../post-receive-handler';
 import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
 
-// ---------------------------------------------------------------------------
 // Pre-load all infrastructure modules that processPostReceive dynamically
 // imports. Because dynamic `await import()` returns the same cached module
 // instance as a static import, spies attached here will intercept the calls
 // inside processPostReceive without using mock.module() (which would contaminate
 // other test files running in the same Bun worker).
-// ---------------------------------------------------------------------------
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import { ManagedHostsRepository } from '@/lib/database/repositories/managed-hosts-repository';
@@ -21,9 +19,7 @@ import { OpenBaoClient } from '@/lib/clients/openbao-client';
 import * as openbaoConfig from '@/lib/config/openbao-config';
 import type { ManagedHost } from '@/lib/deploy/types';
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 const MANIFEST_WITH_PLEX = 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n';
 
@@ -54,9 +50,6 @@ async function buildPlexChangeCommits(repoPath: string): Promise<{ sha1: string;
   return { sha1, sha2 };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 describe('processPostReceive (pipeline paths)', () => {
   let testDir: string;
@@ -218,7 +211,7 @@ describe('processPostReceive (pipeline paths)', () => {
 
     expect(errorSpy).toHaveBeenCalledWith(
       '[PostReceive] Failed to initialize deploy pipeline:',
-      'DB connection refused',
+      expect.objectContaining({ message: 'DB connection refused' }),
     );
   });
 
@@ -256,7 +249,7 @@ describe('processPostReceive (pipeline paths)', () => {
 
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('[PostReceive] Deploy pipeline failed for stack'),
-      'host lookup failed',
+      expect.objectContaining({ message: 'host lookup failed' }),
     );
   });
 

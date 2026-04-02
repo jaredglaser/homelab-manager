@@ -2,6 +2,7 @@ import { buildDeployRequests } from '@/lib/git/post-receive';
 import { readFileFromRepo } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
+import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 
 /**
  * Process a post-receive event after a git push.
@@ -16,6 +17,7 @@ export async function processPostReceive(
   repoPath: string,
   oldHead: string,
   newHead: string,
+  deployRepo?: DeployRepository,
 ): Promise<void> {
   const postReceiveRequests = await buildDeployRequests(repoPath, oldHead, newHead);
 
@@ -28,26 +30,38 @@ export async function processPostReceive(
   const manifest = parseManifest(manifestContent);
 
   // Build a map of stackName -> composeContent for changed stacks.
-  // Delete/teardown actions don't need a compose file (it was removed from the repo).
   const changedStacks = new Map<string, string>();
-  const teardownActions = new Set<string>();
   for (const req of postReceiveRequests) {
     console.info(
       `[PostReceive] Deploy request: ${req.action} ${req.stack} on ${req.host} (auto=${req.autoApproved})`,
     );
-    if (req.action === 'teardown') {
-      teardownActions.add(req.stack);
-      changedStacks.set(req.stack, '');
-      continue;
-    }
     try {
       const composeContent = await readFileFromRepo(repoPath, req.composePath, newHead);
       changedStacks.set(req.stack, composeContent);
     } catch (err) {
       console.error(
         `[PostReceive] Failed to read compose file for stack "${req.stack}" at ${newHead}:`,
-        err instanceof Error ? err.message : err,
+        err,
       );
+      if (deployRepo) {
+        try {
+          await deployRepo.insertDeploy({
+            stack: req.stack,
+            host: req.host,
+            commitSha: req.commitSha,
+            composeHash: '',
+            envHash: '',
+            status: 'failed',
+            trigger: 'git_push',
+            action: req.action,
+          });
+        } catch (dbErr) {
+          console.error(
+            `[PostReceive] Failed to insert failed deploy record for stack "${req.stack}":`,
+            dbErr,
+          );
+        }
+      }
     }
   }
 
@@ -136,7 +150,7 @@ export async function processPostReceive(
           } catch (err) {
             console.error(
               `[PostReceive] Deploy pipeline failed for stack "${request.stack}":`,
-              err instanceof Error ? err.message : err,
+              err,
             );
           }
         }
@@ -145,7 +159,7 @@ export async function processPostReceive(
   } catch (err) {
     console.error(
       '[PostReceive] Failed to initialize deploy pipeline:',
-      err instanceof Error ? err.message : err,
+      err,
     );
   }
 }

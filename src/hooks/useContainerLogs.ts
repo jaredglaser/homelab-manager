@@ -94,8 +94,8 @@ export function useContainerLogs({
             writeBufferRef.current.push(line.text);
           }
           scheduleFlush();
-        } catch {
-          // Ignore malformed messages
+        } catch (err) {
+          console.error('[useContainerLogs] Failed to parse message:', err, 'Raw data:', event.data?.slice(0, 200));
         }
       };
 
@@ -112,8 +112,8 @@ export function useContainerLogs({
           if (terminalRef.current) {
             terminalRef.current.writeln(`\x1b[31m[Error] ${msg}\x1b[0m`);
           }
-        } catch {
-          // Ignore parse errors
+        } catch (err) {
+          console.error('[useContainerLogs] Failed to parse log_error event:', err, 'Raw data:', (event as MessageEvent).data?.slice(0, 200));
         }
       };
 
@@ -129,7 +129,7 @@ export function useContainerLogs({
         reconnectAttemptsRef.current++;
 
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-          setError(new Error('Log connection failed after multiple attempts'));
+          setError(new Error('Log stream disconnected after multiple reconnect attempts. Check that the agent for this host is running and the container still exists.'));
           return;
         }
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { ZFSCollector } from '../zfs-collector';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { ZFSStatsRow } from '@/types/zfs';
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
@@ -33,7 +33,7 @@ const defaultConfig = {
   collection: { interval: 1000 },
 } as any;
 
-const sampleHost: ManagedHost = {
+const sampleHost: ManagedHostRow = {
   id: 1,
   name: 'test-zfs',
   agent_url: 'http://192.168.1.50:9090',

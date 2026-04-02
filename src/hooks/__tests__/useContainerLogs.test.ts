@@ -218,7 +218,7 @@ describe('useContainerLogs', () => {
       }
 
       expect(result.current.error).not.toBeNull();
-      expect(result.current.error?.message).toContain('failed after multiple attempts');
+      expect(result.current.error?.message).toContain('multiple reconnect attempts');
       expect(MockEventSource.instances[MockEventSource.instances.length - 1].closed).toBe(true);
     });
   });

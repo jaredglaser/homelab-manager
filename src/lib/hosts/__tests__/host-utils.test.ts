@@ -5,10 +5,10 @@ import {
   getAgentImage,
 } from '../host-utils';
 import type { HealthCheckOutcome } from '../host-utils';
-import type { ManagedHost } from '../../database/repositories/host-repository';
+import type { ManagedHostRow } from '../../database/repositories/host-repository';
 
 describe('toHostListItem', () => {
-  const baseRow: ManagedHost = {
+  const baseRow: ManagedHostRow = {
     id: 1,
     name: 'test-host',
     agent_url: 'http://192.168.1.10:9090',
@@ -67,7 +67,7 @@ describe('toHostListItem', () => {
   });
 
   test('defaults capabilities to empty object when undefined', () => {
-    const row = { ...baseRow, capabilities: undefined as unknown as ManagedHost['capabilities'] };
+    const row = { ...baseRow, capabilities: undefined as unknown as ManagedHostRow['capabilities'] };
     const item = toHostListItem(row);
     expect(item.capabilities).toEqual({});
   });

@@ -1,4 +1,4 @@
-import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
+import type { ManagedHostRow, HostStatus } from '@/lib/database/repositories/host-repository';
 import { toHostListItem, retryHealthCheck, getAgentImage } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
@@ -16,14 +16,14 @@ export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
 
 export interface HostRepo {
-  findById(id: number): Promise<ManagedHost | null>;
-  findAll(): Promise<ManagedHost[]>;
-  create(input: { name: string; agent_url: string; socket_proxy_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  findById(id: number): Promise<ManagedHostRow | null>;
+  findAll(): Promise<ManagedHostRow[]>;
+  create(input: { name: string; agent_url: string; socket_proxy_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHostRow>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
   updateAgentUrl?(id: number, agentUrl: string): Promise<void>;
-  update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
+  update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHostRow>;
 }
 
 export interface HostHandlerDeps {
@@ -83,8 +83,6 @@ export async function handleRefreshHostStatus(
   deps: HostHandlerDeps & { checkHealth: (url: string) => Promise<HealthCheckOutcome> },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
-
-
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
@@ -98,6 +96,35 @@ export async function handleRefreshHostStatus(
   return healthResult.healthy
     ? { hostId: host.id, healthy: true, version: healthResult.version, dockerVersion: healthResult.dockerVersion }
     : { hostId: host.id, healthy: false, error: healthResult.error };
+}
+
+export async function handleUpdateAgent(
+  deps: HostHandlerDeps & { updateAgent: (agentUrl: string, hostId: number) => Promise<{ healthy: boolean; version?: string; error?: string }> },
+  data: { hostId: number },
+): Promise<HostOperationResult> {
+  const host = await deps.repo.findById(data.hostId);
+  if (!host) throw new Error(`Host with id ${data.hostId} not found`);
+
+  let result: { healthy: boolean; version?: string; error?: string };
+  try {
+    result = await deps.updateAgent(host.agent_url, host.id);
+  } catch (err) {
+    try {
+      await deps.repo.updateStatus(host.id, 'unhealthy');
+    } catch (statusErr) {
+      console.error(`[updateAgent] Failed to update status for host ${host.id}:`, statusErr instanceof Error ? statusErr.message : statusErr);
+    }
+    return { hostId: host.id, healthy: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (result.healthy) {
+    await deps.repo.updateStatus(host.id, 'healthy');
+    if (result.version) await deps.repo.updateAgentVersion(host.id, result.version);
+    return { hostId: host.id, healthy: true, version: result.version };
+  }
+
+  await deps.repo.updateStatus(host.id, 'unhealthy');
+  return { hostId: host.id, healthy: false, error: result.error ?? 'Unknown error' };
 }
 
 export async function handleUpdateHost(

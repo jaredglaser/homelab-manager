@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { checkAgentVersion, AgentUpdateService } from '../agent-update-service';
 
+const AGENT_URL = 'http://192.168.1.10:9090';
+
 function createMockDockerode() {
   const pulledImages: string[] = [];
   const stoppedContainers: string[] = [];
@@ -121,33 +123,33 @@ describe('AgentUpdateService', () => {
     });
 
     it('pulls the new image via socket proxy', async () => {
-      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
+      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', AGENT_URL, mockFetchFn);
 
       expect(mockDocker.pulledImages).toContain('ghcr.io/org/homelab-manager-agent:latest');
     });
 
     it('stops and removes the old container', async () => {
-      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
+      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', AGENT_URL, mockFetchFn);
 
       expect(mockDocker.stoppedContainers).toHaveLength(1);
       expect(mockDocker.removedContainers).toHaveLength(1);
     });
 
     it('creates a new container with the same config', async () => {
-      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
+      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', AGENT_URL, mockFetchFn);
 
       expect(mockDocker.createdContainers).toHaveLength(1);
       expect(mockDocker.createdContainers[0].name).toBe('homelab-agent-1');
     });
 
     it('starts the new container', async () => {
-      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
+      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', AGENT_URL, mockFetchFn);
 
       expect(mockDocker.startedContainers).toHaveLength(1);
     });
 
     it('preserves env vars from the old container', async () => {
-      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
+      await service.updateAgent(mockDocker.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', AGENT_URL, mockFetchFn);
 
       const config = mockDocker.createdContainers[0].config;
       const env = config.Env as string[];
@@ -160,6 +162,7 @@ describe('AgentUpdateService', () => {
         mockDocker.docker,
         1,
         'ghcr.io/org/homelab-manager-agent:latest',
+        AGENT_URL,
         mockFetchFn
       );
 
@@ -181,7 +184,7 @@ describe('AgentUpdateService', () => {
         return container;
       };
 
-      await service.updateAgent(dockerStopped.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', mockFetchFn);
+      await service.updateAgent(dockerStopped.docker, 1, 'ghcr.io/org/homelab-manager-agent:latest', AGENT_URL, mockFetchFn);
 
       expect(dockerStopped.stoppedContainers).toHaveLength(0);
       expect(dockerStopped.removedContainers).toHaveLength(1);
@@ -189,42 +192,43 @@ describe('AgentUpdateService', () => {
       expect(dockerStopped.startedContainers).toHaveLength(1);
     });
 
-    it('throws when container has no port bindings', async () => {
-      const dockerNoBindings = createMockDockerode();
-      const originalGetContainer = dockerNoBindings.docker.getContainer;
-      dockerNoBindings.docker.getContainer = (_name: string) => {
+    it('returns a failed result (not throws) when container lifecycle fails after remove', async () => {
+      const consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const dockerLifecycleFail = createMockDockerode();
+      const originalGetContainer = dockerLifecycleFail.docker.getContainer;
+      dockerLifecycleFail.docker.getContainer = (_name: string) => {
         const container = originalGetContainer(_name);
-        const originalInspect = container.inspect;
-        container.inspect = async () => {
-          const data = await originalInspect();
-          data.HostConfig.PortBindings = {};
-          return data;
-        };
         return container;
       };
-
-      await expect(
-        service.updateAgent(dockerNoBindings.docker, 1, 'agent:latest', mockFetchFn)
-      ).rejects.toThrow('no port bindings');
-    });
-
-    it('throws when container env is missing DOCKER_HOST', async () => {
-      const dockerNoEnv = createMockDockerode();
-      const originalGetContainer = dockerNoEnv.docker.getContainer;
-      dockerNoEnv.docker.getContainer = (_name: string) => {
-        const container = originalGetContainer(_name);
-        const originalInspect = container.inspect;
-        container.inspect = async () => {
-          const data = await originalInspect();
-          data.Config.Env = ['AGENT_TOKEN=token'];
-          return data;
-        };
-        return container;
+      // Simulate createContainer failing after remove() has already been called
+      dockerLifecycleFail.docker.createContainer = async () => {
+        throw new Error('out of memory');
       };
 
-      await expect(
-        service.updateAgent(dockerNoEnv.docker, 1, 'agent:latest', mockFetchFn)
-      ).rejects.toThrow('missing DOCKER_HOST');
+      try {
+        const result = await service.updateAgent(
+          dockerLifecycleFail.docker,
+          1,
+          'ghcr.io/org/homelab-manager-agent:latest',
+          AGENT_URL,
+          mockFetchFn
+        );
+
+        expect(result.healthy).toBe(false);
+        expect(result.containerName).toBe('homelab-agent-1');
+        if (!result.healthy) {
+          expect(result.error).toContain('manual intervention required');
+        }
+
+        const lifecycleCalls = consoleErrorSpy.mock.calls.filter(
+          (args) => typeof args[0] === 'string' && args[0].includes('[AgentUpdateService]') && args[0].includes('lifecycle')
+        );
+        expect(lifecycleCalls).toHaveLength(1);
+        expect(lifecycleCalls[0][0]).toContain('homelab-agent-1');
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
     });
 
     it('logs each retry attempt and returns unhealthy when all health checks fail', async () => {
@@ -235,38 +239,25 @@ describe('AgentUpdateService', () => {
       ) as unknown as typeof fetch;
 
       try {
-        const result = await service.updateAgent(mockDocker.docker, 1, 'agent:latest', unhealthyFetch);
+        const result = await service.updateAgent(mockDocker.docker, 1, 'agent:latest', AGENT_URL, unhealthyFetch);
 
         expect(result.healthy).toBe(false);
         const retryCalls = consoleErrorSpy.mock.calls.filter(
-          (args) => typeof args[0] === 'string' && args[0].includes('[AgentUpdateService]')
+          (args) => typeof args[0] === 'string' && args[0].includes('Health check attempt')
         );
         expect(retryCalls).toHaveLength(3);
         expect(retryCalls[0][0]).toContain('Health check attempt 1/3 failed for homelab-agent-1');
         expect(retryCalls[1][0]).toContain('Health check attempt 2/3 failed for homelab-agent-1');
         expect(retryCalls[2][0]).toContain('Health check attempt 3/3 failed for homelab-agent-1');
+
+        const summaryCalls = consoleErrorSpy.mock.calls.filter(
+          (args) => typeof args[0] === 'string' && args[0].includes('is not healthy after all retry attempts')
+        );
+        expect(summaryCalls).toHaveLength(1);
+        expect(summaryCalls[0][0]).toContain('homelab-agent-1');
       } finally {
         consoleErrorSpy.mockRestore();
       }
-    });
-
-    it('throws when port binding key exists but has an empty array of host entries', async () => {
-      const dockerEmptyBindings = createMockDockerode();
-      const originalGetContainer = dockerEmptyBindings.docker.getContainer;
-      dockerEmptyBindings.docker.getContainer = (_name: string) => {
-        const container = originalGetContainer(_name);
-        const originalInspect = container.inspect;
-        container.inspect = async () => {
-          const data = await originalInspect();
-          data.HostConfig.PortBindings = { '9090/tcp': [] };
-          return data;
-        };
-        return container;
-      };
-
-      await expect(
-        service.updateAgent(dockerEmptyBindings.docker, 1, 'agent:latest', mockFetchFn)
-      ).rejects.toThrow('Container port binding has no host port entries');
     });
   });
 });

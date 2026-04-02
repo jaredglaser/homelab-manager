@@ -38,12 +38,15 @@ export class AgentUpdateService {
    * @param docker - Dockerode instance connected to the host's socket proxy
    * @param hostId - Numeric host ID (used to derive container name)
    * @param newImage - New agent image to pull and deploy
+   * @param agentUrl - The URL used to reach the agent (from managed_hosts.agent_url)
+   * @param fetchFn - Fetch implementation (injectable for testing)
    * @returns Health check result after update
    */
   async updateAgent(
     docker: Dockerode,
     hostId: number,
     newImage: string,
+    agentUrl: string,
     fetchFn: typeof fetch = globalThis.fetch
   ): Promise<AgentUpdateResult> {
     const containerName = `${CONTAINER_NAME_PREFIX}${hostId}`;
@@ -62,33 +65,41 @@ export class AgentUpdateService {
     // A blue-green approach (start new, verify, then remove old) would be safer
     // but requires different container names and port handling. The restart
     // policy and health check retries mitigate the risk for now.
-    // 3. Stop and remove the old container
-    if (inspectData.State.Running) {
-      await existingContainer.stop();
+    // 3. Stop the old container, remove it, create and start the replacement.
+    //    Any failure here leaves the host with no running agent — catch and
+    //    return a typed failure rather than propagating an unhandled rejection.
+    try {
+      if (inspectData.State.Running) {
+        await existingContainer.stop();
+      }
+      await existingContainer.remove();
+
+      // 4. Create the new container with the same config but new image
+      const newContainer = await docker.createContainer({
+        name: containerName,
+        Image: newImage,
+        Env: oldEnv,
+        ExposedPorts: inspectData.Config.ExposedPorts,
+        HostConfig: {
+          Binds: oldHostConfig.Binds,
+          PortBindings: oldHostConfig.PortBindings,
+          RestartPolicy: oldHostConfig.RestartPolicy,
+        },
+      });
+
+      // 5. Start the new container
+      await newContainer.start();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[AgentUpdateService] Container lifecycle operation failed for ${containerName}: ${message}`);
+      return {
+        healthy: false,
+        error: 'Agent container destroyed but replacement failed to start — manual intervention required',
+        containerName,
+      };
     }
-    await existingContainer.remove();
-
-    // 4. Create the new container with the same config but new image
-    const newContainer = await docker.createContainer({
-      name: containerName,
-      Image: newImage,
-      Env: oldEnv,
-      ExposedPorts: inspectData.Config.ExposedPorts,
-      HostConfig: {
-        Binds: oldHostConfig.Binds,
-        PortBindings: oldHostConfig.PortBindings,
-        RestartPolicy: oldHostConfig.RestartPolicy,
-      },
-    });
-
-    // 5. Start the new container
-    await newContainer.start();
 
     // 6. Verify health with exponential backoff retry (matches BaseCollector pattern)
-    const agentPort = this.extractAgentPort(oldHostConfig.PortBindings);
-    const dockerHost = this.extractHostFromEnv(oldEnv);
-    const agentUrl = `http://${dockerHost}:${agentPort}`;
-
     let healthResult: Awaited<ReturnType<typeof checkAgentHealth>> = {
       healthy: false,
       error: 'Health check not attempted',
@@ -103,35 +114,16 @@ export class AgentUpdateService {
       );
     }
 
+    if (!healthResult.healthy) {
+      console.error(
+        `[AgentUpdateService] Agent update failed — container ${containerName} is not healthy after all retry attempts: ${healthResult.error}`
+      );
+    }
+
     return {
       ...healthResult,
       containerName,
     };
   }
 
-  private extractAgentPort(portBindings: Record<string, { HostPort: string }[]>): number {
-    const keys = Object.keys(portBindings);
-    if (keys.length === 0) {
-      throw new Error('Container has no port bindings; cannot determine agent port for health check');
-    }
-    const binding = portBindings[keys[0]];
-    if (!binding || binding.length === 0) {
-      throw new Error('Container port binding has no host port entries');
-    }
-    const port = Number(binding[0].HostPort);
-    if (!Number.isFinite(port) || port <= 0) {
-      throw new Error(`Container port binding has invalid HostPort: ${binding[0].HostPort}`);
-    }
-    return port;
-  }
-
-  private extractHostFromEnv(env: string[]): string {
-    const dockerHostEntry = env.find((e) => e.startsWith('DOCKER_HOST='));
-    if (!dockerHostEntry) {
-      throw new Error('Container env is missing DOCKER_HOST; cannot determine agent host for health check');
-    }
-    const dockerHostUrl = dockerHostEntry.substring(dockerHostEntry.indexOf('=') + 1);
-    const parsed = new URL(dockerHostUrl.replace(/^tcp:\/\//, 'http://'));
-    return parsed.hostname;
-  }
 }

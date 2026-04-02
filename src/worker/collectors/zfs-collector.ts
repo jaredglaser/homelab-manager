@@ -1,6 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import { ZFSRateCalculator } from '@/lib/utils/zfs-rate-calculator';
 import { parseZFSIOStat } from '@/lib/parsers/zfs-iostat-parser';
 import type { ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
@@ -92,14 +92,14 @@ interface AgentZfsStatsEvent {
 export class ZFSCollector extends BaseCollector {
   readonly name: string;
   private readonly calculator = new ZFSRateCalculator();
-  private readonly host: ManagedHost;
+  private readonly host: ManagedHostRow;
   private readonly token: string;
   private readonly fetchFn: FetchFn;
 
   constructor(
     db: DatabaseClient,
     config: WorkerConfig,
-    host: ManagedHost,
+    host: ManagedHostRow,
     token: string,
     abortController?: AbortController,
     fetchFn?: FetchFn,

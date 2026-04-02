@@ -84,7 +84,7 @@ export function useEventSource<T>({
 
             onDataRef.current(data);
           } catch (err) {
-            console.error('[useEventSource] Failed to parse message:', err);
+            console.error('[useEventSource] Failed to parse message:', err, 'Raw data:', event.data?.slice(0, 200));
           }
         }
       };
