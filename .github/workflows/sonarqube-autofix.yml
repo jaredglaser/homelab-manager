@@ -1,0 +1,206 @@
+name: SonarQube Auto-Fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      severity_filter:
+        description: "Maximum severity to attempt fixing"
+        required: false
+        default: "MINOR"
+        type: choice
+        options:
+          - MINOR
+          - MAJOR
+          - CRITICAL
+      max_issues:
+        description: "Maximum issues to include in a single PR"
+        required: false
+        default: "10"
+        type: string
+      dry_run:
+        description: "Preview plan without running Claude Code or opening a PR"
+        required: false
+        default: false
+        type: boolean
+      assignee:
+        description: "GitHub username to assign the PR to (leave blank to skip)"
+        required: false
+        default: "jaredbebis"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  autofix:
+    name: Fetch → Triage → Fix → PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # ── Runtime setup ───────────────────────────────────────────────────────
+      - name: Set up Bun
+        id: setup-bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Claude Code CLI
+        id: install-claude
+        if: ${{ inputs.dry_run == false }}
+        run: npm install -g @anthropic-ai/claude-code
+
+      # ── Step 1: Fetch issues ─────────────────────────────────────────────────
+      - name: Fetch SonarQube issues
+        id: fetch
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SEVERITY_FILTER: ${{ inputs.severity_filter }}
+          OUTPUT_FILE: sonar-issues.json
+        run: bash .github/scripts/fetch-sonar-issues.sh
+
+      # ── Step 2: Triage & group ───────────────────────────────────────────────
+      - name: Triage and select issue group
+        id: triage
+        env:
+          MAX_ISSUES: ${{ inputs.max_issues }}
+          INPUT_FILE: sonar-issues.json
+          SELECTED_FILE: selected-issues.json
+          SUMMARY_FILE: triage-summary.md
+        run: bun run .github/scripts/triage-issues.ts
+
+      # ── Dry run: upload artifacts and stop ───────────────────────────────────
+      - name: Upload dry-run artifacts
+        if: ${{ inputs.dry_run == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarqube-triage-dryrun
+          path: |
+            sonar-issues.json
+            selected-issues.json
+            triage-summary.md
+
+      - name: Dry run complete — no PR opened
+        if: ${{ inputs.dry_run == true }}
+        run: |
+          echo "### Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat triage-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Step 3: Build Claude Code prompt file ────────────────────────────────
+      # Write prompt to a file so selected-issues.json is read at runtime
+      # rather than shell-expanded into the command string (avoids injection).
+      - name: Build Claude Code prompt file
+        id: build-prompt
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          cat > claude-prompt.txt <<'PROMPT'
+          You are fixing SonarQube issues in this repository. The file selected-issues.json
+          in the current directory contains the issues to fix (JSON array).
+
+          Instructions:
+          - Read selected-issues.json to understand what needs fixing.
+          - Fix ONLY the listed issues. Do not refactor unrelated code.
+          - Make minimal, targeted changes.
+          - If a fix would require a large structural change, skip it and note why in a comment.
+          - Run the project linter/formatter after making changes to ensure consistency.
+          - Do NOT modify tests unless a test is itself the subject of a finding.
+          - Do NOT add new dependencies.
+          PROMPT
+
+      # ── Step 4: Claude Code fixes ────────────────────────────────────────────
+      - name: Run Claude Code to fix issues
+        id: claude-fix
+        if: ${{ inputs.dry_run == false }}
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          claude -p "$(cat claude-prompt.txt)" \
+            --allowedTools "Edit,Read,Bash(bun run typecheck*),Bash(bun run lint*),Bash(grep*),Bash(find*),Bash(cat*),Bash(git diff*)" \
+            --max-turns 30 \
+            --output-format json
+
+      # ── Step 5: Commit & push branch ────────────────────────────────────────
+      - name: Commit fixes
+        id: commit
+        if: ${{ inputs.dry_run == false }}
+        env:
+          RULE_KEY: ${{ steps.triage.outputs.rule_key }}
+          ISSUE_COUNT: ${{ steps.triage.outputs.issue_count }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          SHORT_HASH=$(git rev-parse --short HEAD)
+          BRANCH="auto/sonarqube-fix-${RULE_KEY}-${SHORT_HASH}"
+
+          git checkout -b "$BRANCH"
+          git add -A
+          git rm --cached claude-prompt.txt sonar-issues.json selected-issues.json triage-summary.md 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No changes to commit — Claude Code made no edits."
+            exit 0
+          fi
+
+          git commit -m "fix: resolve SonarQube ${RULE_KEY} findings (${ISSUE_COUNT} issues)
+
+          Automated-by: claude-code"
+
+          git push origin "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      # ── Step 6: Open PR ──────────────────────────────────────────────────────
+      - name: Create labels if missing
+        id: labels
+        if: ${{ inputs.dry_run == false && steps.commit.outputs.branch != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "automated"  --color "0075ca" --description "Opened by automation" 2>/dev/null || true
+          gh label create "sonarqube"  --color "e4e669" --description "SonarQube finding"    2>/dev/null || true
+
+      - name: Open PR
+        id: pr
+        if: ${{ inputs.dry_run == false && steps.commit.outputs.branch != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RULE_KEY: ${{ steps.triage.outputs.rule_key }}
+          ISSUE_COUNT: ${{ steps.triage.outputs.issue_count }}
+          GROUP_LABEL: ${{ steps.triage.outputs.group_label }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          ASSIGNEE: ${{ inputs.assignee }}
+        run: |
+          {
+            printf '## Summary\n\n'
+            printf 'Automated fix for **%s** SonarQube findings in group: _%s_.\n\n' "$ISSUE_COUNT" "$GROUP_LABEL"
+            cat triage-summary.md
+            printf '\n---\n'
+            printf '> This PR was opened automatically by the [SonarQube Auto-Fix workflow](../../actions/workflows/sonarqube-autofix.yml).\n'
+            printf '> Please review all changes carefully before merging.\n'
+          } > pr-body.md
+
+          ASSIGNEE_FLAG=""
+          if [ -n "$ASSIGNEE" ]; then
+            ASSIGNEE_FLAG="--assignee $ASSIGNEE"
+          fi
+
+          PR_URL=$(gh pr create \
+            --title "fix: auto-resolve SonarQube ${RULE_KEY} findings" \
+            --body-file pr-body.md \
+            $ASSIGNEE_FLAG \
+            --label "automated,sonarqube" \
+            --base main \
+            --head "$BRANCH")
+
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "### PR opened: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
