@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from "fs";
 import { dirname } from "path";
 
-const MAX_ISSUES = Number(process.env.MAX_ISSUES ?? "10");
+const MAX_ISSUES = Math.min(Math.max(1, Number(process.env.MAX_ISSUES ?? "10") || 10), 50);
 const INPUT_FILE = process.env.INPUT_FILE ?? "sonar-issues.json";
 const SELECTED_FILE = process.env.SELECTED_FILE ?? "selected-issues.json";
 const SUMMARY_FILE = process.env.SUMMARY_FILE ?? "triage-summary.md";
@@ -144,7 +144,7 @@ function renderSummary(all: Group[], selected: Group | null, maxIssues: number):
     for (const [i, issue] of selected.issues.entries()) {
       const path = componentToPath(issue.component);
       lines.push(
-        `| ${i + 1} | \`${issue.rule}\` | ${issue.severity} | \`${path}\` | ${issue.line ?? "-"} | ${issue.message} |`
+        `| ${i + 1} | \`${issue.rule}\` | ${issue.severity} | \`${path}\` | ${issue.line ?? "-"} | ${sanitizeMessage(issue.message)} |`
       );
     }
   }
@@ -217,8 +217,13 @@ const outputFile = process.env.GITHUB_OUTPUT;
 
 if (!selected) {
   console.error("No suitable group found within the max_issues limit.");
-  writeFileSync(SELECTED_FILE, "[]");
-  writeFileSync(SUMMARY_FILE, renderSummary(groups, null, MAX_ISSUES));
+  try {
+    writeFileSync(SELECTED_FILE, "[]");
+    writeFileSync(SUMMARY_FILE, renderSummary(groups, null, MAX_ISSUES));
+  } catch (err) {
+    console.error(`ERROR: Failed to write output files: ${err}`);
+    process.exit(1);
+  }
   emitNoGroupOutput(outputFile);
   process.exit(0);
 }
@@ -231,8 +236,13 @@ const sanitizedIssues = selected.issues.map((issue) => ({
   message: sanitizeMessage(issue.message),
 }));
 
-writeFileSync(SELECTED_FILE, JSON.stringify(sanitizedIssues, null, 2));
-writeFileSync(SUMMARY_FILE, renderSummary(groups, selected, MAX_ISSUES));
+try {
+  writeFileSync(SELECTED_FILE, JSON.stringify(sanitizedIssues, null, 2));
+  writeFileSync(SUMMARY_FILE, renderSummary(groups, selected, MAX_ISSUES));
+} catch (err) {
+  console.error(`ERROR: Failed to write output files: ${err}`);
+  process.exit(1);
+}
 
 // Emit the selected rule key and issue count for use as step outputs
 if (process.env.GITHUB_ACTIONS === "true" && !outputFile) {

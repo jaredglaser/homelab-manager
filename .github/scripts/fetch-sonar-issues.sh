@@ -57,12 +57,23 @@ trap 'rm -rf "$PAGES_DIR"' EXIT
 AUTH_HEADER="Authorization: Bearer ${SONAR_TOKEN}"
 
 while true; do
-  HTTP_STATUS=$(curl --silent --fail-with-body \
+  set +e
+  curl --silent --show-error --fail-with-body \
     --write-out "%{http_code}" \
     --output "${PAGES_DIR}/curl_response.tmp" \
     -H "$AUTH_HEADER" \
     "${SONAR_HOST_URL}/api/issues/search?projectKeys=${SONAR_PROJECT_KEY}&statuses=OPEN,CONFIRMED,REOPENED&severities=${SEVERITIES}&types=CODE_SMELL,BUG&ps=${PAGE_SIZE}&p=${PAGE}" \
-    || true)
+    > "${PAGES_DIR}/curl_status.tmp" 2>"${PAGES_DIR}/curl_stderr.tmp"
+  CURL_EXIT=$?
+  set -e
+
+  HTTP_STATUS=$(cat "${PAGES_DIR}/curl_status.tmp" 2>/dev/null || echo "")
+
+  if [ -z "$HTTP_STATUS" ] || [ "$HTTP_STATUS" = "000" ]; then
+    echo "ERROR: curl failed at network level (exit ${CURL_EXIT})." >&2
+    cat "${PAGES_DIR}/curl_stderr.tmp" >&2
+    exit 1
+  fi
 
   if [ "${HTTP_STATUS}" -lt 200 ] || [ "${HTTP_STATUS}" -ge 300 ]; then
     echo "ERROR: SonarQube API returned HTTP ${HTTP_STATUS}." >&2
@@ -76,10 +87,21 @@ while true; do
   # Extract total on first page
   if [ "$TOTAL" -eq -1 ]; then
     TOTAL=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total', 0))")
+    if ! [[ "$TOTAL" =~ ^[0-9]+$ ]]; then
+      echo "ERROR: Could not parse 'total' from SonarQube response (got: '${TOTAL}')." >&2
+      exit 1
+    fi
     echo "  Total issues found: ${TOTAL}"
   fi
 
-  PAGE_COUNT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); issues=d.get('issues', []); print(len(issues)); import json; open('${PAGES_DIR}/page_${PAGE}.json','w').write(json.dumps(issues))")
+  PAGE_JSON=$(echo "$RESPONSE" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+issues = data.get('issues', [])
+print(json.dumps(issues))
+")
+  PAGE_COUNT=$(echo "$PAGE_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+  echo "$PAGE_JSON" > "${PAGES_DIR}/page_$(printf '%04d' $PAGE).json"
 
   FETCHED=$((FETCHED + PAGE_COUNT))
   echo "  Fetched so far: ${FETCHED}/${TOTAL}"

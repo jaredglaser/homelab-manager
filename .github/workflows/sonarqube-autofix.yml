@@ -28,15 +28,14 @@ on:
         default: "jaredglaser"
         type: string
 
-permissions:
-  contents: write
-  pull-requests: write
-
 jobs:
   autofix:
     name: Fetch → Triage → Fix → PR
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout repository
@@ -54,7 +53,7 @@ jobs:
       - name: Install Claude Code CLI
         id: install-claude
         if: ${{ inputs.dry_run != 'true' }}
-        run: npm install -g @anthropic-ai/claude-code
+        run: npm install -g @anthropic-ai/claude-code@1
 
       - name: Fetch SonarQube issues
         id: fetch
@@ -74,6 +73,17 @@ jobs:
           SELECTED_FILE: selected-issues.json
           SUMMARY_FILE: triage-summary.md
         run: bun run .github/scripts/triage-issues.ts
+
+      - name: Check for issues to fix
+        id: check-issues
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' }}
+        run: |
+          if [ "${{ steps.triage.outputs.issue_count }}" = "0" ]; then
+            echo "No issues selected for fixing. Exiting early."
+            echo "### No issues selected" >> "$GITHUB_STEP_SUMMARY"
+            echo "Triage found no group within the configured limits." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
 
       - name: Upload dry-run artifacts
         if: ${{ inputs.dry_run == 'true' }}
@@ -96,7 +106,7 @@ jobs:
       # rather than shell-expanded into the command string (avoids injection).
       - name: Build Claude Code prompt file
         id: build-prompt
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' }}
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.check-issues.outcome == 'success' }}
         run: |
           cat > claude-prompt.txt <<'PROMPT'
           You are fixing SonarQube issues in this repository. The file selected-issues.json
@@ -114,18 +124,25 @@ jobs:
 
       - name: Run Claude Code to fix issues
         id: claude-fix
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' }}
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.check-issues.outcome == 'success' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           claude -p "$(cat claude-prompt.txt)" \
-            --allowedTools "Edit,Read,Bash(bun run typecheck*),Bash(bun run lint*),Bash(grep*),Bash(git diff*)" \
+            --allowedTools "Edit,Bash(bun run typecheck*),Bash(bun run lint*),Bash(git diff*)" \
             --max-turns 30 \
             --output-format json
 
+      - name: Report Claude Code failure
+        if: ${{ steps.claude-fix.outcome == 'failure' }}
+        run: |
+          echo "### Claude Code failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "The claude-fix step exited with a non-zero status. No PR was opened." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
       - name: Commit fixes
         id: commit
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' }}
+        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.claude-fix.outcome == 'success' }}
         env:
           RULE_KEY: ${{ steps.triage.outputs.rule_key }}
           ISSUE_COUNT: ${{ steps.triage.outputs.issue_count }}
