@@ -43,34 +43,30 @@ describe('pullImage', () => {
 
   it('throws RangeError when timeoutMs is 0', async () => {
     const docker = createMockDocker();
-    await expect(pullImage(docker, 'test-image:latest', 0)).rejects.toThrow(RangeError);
-    await expect(pullImage(docker, 'test-image:latest', 0)).rejects.toThrow(
-      'timeoutMs must be a finite positive number, got: 0',
-    );
+    const err = await pullImage(docker, 'test-image:latest', 0).catch(e => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toContain('timeoutMs must be a finite positive number, got: 0');
   });
 
   it('throws RangeError when timeoutMs is negative', async () => {
     const docker = createMockDocker();
-    await expect(pullImage(docker, 'test-image:latest', -1)).rejects.toThrow(RangeError);
-    await expect(pullImage(docker, 'test-image:latest', -1)).rejects.toThrow(
-      'timeoutMs must be a finite positive number, got: -1',
-    );
+    const err = await pullImage(docker, 'test-image:latest', -1).catch(e => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toContain('timeoutMs must be a finite positive number, got: -1');
   });
 
   it('throws RangeError when timeoutMs is NaN', async () => {
     const docker = createMockDocker();
-    await expect(pullImage(docker, 'test-image:latest', NaN)).rejects.toThrow(RangeError);
-    await expect(pullImage(docker, 'test-image:latest', NaN)).rejects.toThrow(
-      'timeoutMs must be a finite positive number, got: NaN',
-    );
+    const err = await pullImage(docker, 'test-image:latest', NaN).catch(e => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toContain('timeoutMs must be a finite positive number, got: NaN');
   });
 
   it('throws RangeError when timeoutMs is Infinity', async () => {
     const docker = createMockDocker();
-    await expect(pullImage(docker, 'test-image:latest', Infinity)).rejects.toThrow(RangeError);
-    await expect(pullImage(docker, 'test-image:latest', Infinity)).rejects.toThrow(
-      'timeoutMs must be a finite positive number, got: Infinity',
-    );
+    const err = await pullImage(docker, 'test-image:latest', Infinity).catch(e => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toContain('timeoutMs must be a finite positive number, got: Infinity');
   });
 
   it('rejects with timeout error and destroys the stream when pull exceeds timeoutMs', async () => {
