@@ -74,7 +74,11 @@ async function parseDeployBody(
 ): Promise<{ stack: string; composeContent: string; envContent?: string; forceRecreate?: boolean } | Response> {
   let body: { stack?: string; composeContent?: string; envContent?: string; forceRecreate?: boolean };
   try {
-    body = await request.json();
+    const parsed = await request.json();
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+    }
+    body = parsed;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });

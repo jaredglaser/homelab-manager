@@ -42,10 +42,13 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
   const isDirty = valueFetched && fieldValue !== originalValue;
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      setVariableValue({ data: { stackName, variableName: varName, value: fieldValue } }),
-    onSuccess: () => {
-      setOriginalValue(fieldValue);
+    mutationFn: () => {
+      const valueToSave = fieldValue;
+      return setVariableValue({ data: { stackName, variableName: varName, value: valueToSave } })
+        .then(() => valueToSave);
+    },
+    onSuccess: (savedValue: string) => {
+      setOriginalValue(savedValue);
     },
   });
 

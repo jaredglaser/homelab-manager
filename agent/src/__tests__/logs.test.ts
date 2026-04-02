@@ -394,7 +394,7 @@ describe('handleLogStream', () => {
       const request = makeRequest();
       const response = handleLogStream(mockDocker as any, 'abc123', request);
 
-      await new Promise((r) => originalSetInterval(r, 20));
+      await new Promise((r) => setTimeout(r, 20));
 
       // Fire the heartbeat callback
       expect(heartbeatCb).not.toBeNull();
@@ -431,11 +431,11 @@ describe('handleLogStream', () => {
       const request = makeRequest(abortController);
       handleLogStream(mockDocker as any, 'abc123', request);
 
-      await new Promise((r) => originalSetInterval(r, 20));
+      await new Promise((r) => setTimeout(r, 20));
 
       // Close the stream, then fire heartbeat — it should clearInterval
       abortController.abort();
-      await new Promise((r) => originalSetInterval(r, 10));
+      await new Promise((r) => setTimeout(r, 10));
       heartbeatCb!();
       expect(clearedIds).toContain(fakeTimerId);
     } finally {

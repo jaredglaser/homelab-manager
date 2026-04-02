@@ -48,7 +48,7 @@ describe('StackActionBar', () => {
   it('shows spinner when deploying', () => {
     const { container } = render(<StackActionBar {...defaultProps} isDeploying={true} />);
     const spinner = container.querySelector('.MuiCircularProgress-root');
-    expect(spinner).toBeDefined();
+    expect(spinner).not.toBeNull();
   });
 
   it('calls onDeploy when Deploy is clicked', () => {

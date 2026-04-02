@@ -46,6 +46,19 @@ describe('handleStackDeploy', () => {
     expect(result.error).toStartWith('Invalid JSON:');
   });
 
+  test('rejects null JSON body', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(null),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Request body must be a JSON object');
+  });
+
   test('writes compose file and .env to stack directory', async () => {
     const mockSpawn = mock(() => ({
       exited: Promise.resolve(0),

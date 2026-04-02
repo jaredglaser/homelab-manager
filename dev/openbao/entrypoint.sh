@@ -14,16 +14,24 @@ BAO_PID=$!
 
 # Wait for server to accept connections
 echo "[openbao-init] Waiting for server..."
+SERVER_READY=false
 for _ in $(seq 1 30); do
   if wget -q -O /dev/null http://127.0.0.1:8200/v1/sys/health 2>/dev/null; then
+    SERVER_READY=true
     break
   fi
   # 501=not initialized, 503=sealed — both mean "server is up"
   if wget -q -O /dev/null http://127.0.0.1:8200/v1/sys/seal-status 2>/dev/null; then
+    SERVER_READY=true
     break
   fi
   sleep 0.5
 done
+
+if [ "$SERVER_READY" != "true" ]; then
+  echo "[openbao-init] ERROR: Server did not start within 15s"
+  exit 1
+fi
 
 if [ ! -f "$INIT_FILE" ]; then
   echo "[openbao-init] First start — initializing..."
@@ -38,6 +46,11 @@ if [ ! -f "$INIT_FILE" ]; then
   # between keys/values). If the format ever changes, replace with jq.
   UNSEAL_KEY=$(sed -n 's/.*"keys_base64":\["\([^"]*\)".*/\1/p' "$INIT_FILE")
   ROOT_TOKEN=$(sed -n 's/.*"root_token":"\([^"]*\)".*/\1/p' "$INIT_FILE")
+
+  if [ -z "$UNSEAL_KEY" ] || [ -z "$ROOT_TOKEN" ]; then
+    echo "[openbao-init] ERROR: Failed to extract UNSEAL_KEY or ROOT_TOKEN from $INIT_FILE"
+    exit 1
+  fi
 
   echo "[openbao-init] Unsealing..."
   wget -q -O /dev/null --post-data "{\"key\":\"$UNSEAL_KEY\"}" \
@@ -64,6 +77,11 @@ if [ ! -f "$INIT_FILE" ]; then
 else
   echo "[openbao-init] Existing data — unsealing..."
   UNSEAL_KEY=$(sed -n 's/.*"keys_base64":\["\([^"]*\)".*/\1/p' "$INIT_FILE")
+
+  if [ -z "$UNSEAL_KEY" ]; then
+    echo "[openbao-init] ERROR: Failed to extract UNSEAL_KEY from $INIT_FILE"
+    exit 1
+  fi
 
   wget -q -O /dev/null --post-data "{\"key\":\"$UNSEAL_KEY\"}" \
     --header="Content-Type: application/json" \
