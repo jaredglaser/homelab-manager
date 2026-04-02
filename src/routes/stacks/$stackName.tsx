@@ -234,13 +234,13 @@ function StackEditorView() {
         stackName={stackName}
         isLoading={deleteMutation.isPending}
       />
-      <Snackbar
-        open={deployMessage !== null}
-        autoHideDuration={5000}
-        onClose={() => setDeployMessage(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        {deployMessage ? (
+      {deployMessage && (
+        <Snackbar
+          open
+          autoHideDuration={5000}
+          onClose={() => setDeployMessage(null)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
           <Alert
             severity={deployMessage.type}
             onClose={() => setDeployMessage(null)}
@@ -249,8 +249,8 @@ function StackEditorView() {
           >
             {deployMessage.text}
           </Alert>
-        ) : undefined}
-      </Snackbar>
+        </Snackbar>
+      )}
     </div>
   )
 }
