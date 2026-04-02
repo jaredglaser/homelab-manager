@@ -14,10 +14,6 @@ mock.module('@/lib/stacks/stack-service', () => ({
   getManagedHostNames: mock(() => Promise.resolve([])),
 }));
 
-/** Mock monaco-setup to always reject — triggers the monacoLoadFailed branch */
-mock.module('@/lib/monaco-setup', () => {
-  throw new Error('Monaco load failed');
-});
 mock.module('@monaco-editor/react', () => ({
   default: () => <div data-testid="mock-editor" />,
 }));
@@ -27,20 +23,27 @@ describe('ComposeEditor monaco load failure', () => {
     const errorSpy = mock(() => {});
     const origError = console.error;
     console.error = errorSpy;
+    let unmount: (() => void) | undefined;
 
     try {
       const { default: ComposeEditor } = await import('../ComposeEditor');
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-      render(
+      ({ unmount } = render(
         <QueryClientProvider client={queryClient}>
-          <ComposeEditor stackName="test-stack" content="image: nginx" variables={[]} />
+          <ComposeEditor
+            stackName="test-stack"
+            content="image: nginx"
+            variables={[]}
+            _monacoLoader={() => Promise.reject(new Error('Monaco load failed'))}
+          />
         </QueryClientProvider>,
-      );
+      ));
 
       await waitFor(() =>
         expect(screen.getByText('Failed to load editor. Please refresh the page.')).toBeDefined(),
       );
     } finally {
+      unmount?.();
       console.error = origError;
     }
   });

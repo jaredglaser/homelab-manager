@@ -14,9 +14,10 @@ interface ComposeEditorProps {
   stackName: string;
   content: string;
   variables: string[];
+  _monacoLoader?: () => Promise<unknown>;
 }
 
-export default function ComposeEditor({ stackName, content, variables: initialVariables }: Readonly<ComposeEditorProps>) {
+export default function ComposeEditor({ stackName, content, variables: initialVariables, _monacoLoader }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
   const [monacoLoadFailed, setMonacoLoadFailed] = useState(false);
   const [editorContent, setEditorContent] = useState(content);
@@ -34,8 +35,9 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   // Vite's ?worker imports. Must complete before Editor mounts to avoid
   // "Could not create web worker(s)" warning.
   useEffect(() => {
-    import('@/lib/monaco-setup').then(() => { setMonacoReady(true); }).catch((err: unknown) => { console.error('Monaco bootstrap failed:', err); setMonacoLoadFailed(true); });
-  }, []);
+    const loader = _monacoLoader ?? (() => import('@/lib/monaco-setup'));
+    loader().then(() => { setMonacoReady(true); }).catch((err: unknown) => { console.error('Monaco bootstrap failed:', err); setMonacoLoadFailed(true); });
+  }, [_monacoLoader]);
 
   const isDirty = editorContent !== content;
 
