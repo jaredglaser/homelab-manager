@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "test": "cross-env-shell \"bun test --coverage 2>&1 | node scripts/check-coverage.js\"",
     "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage",
+    "test:coverage": "bun test --coverage --coverage-reporter=text --coverage-reporter=lcov",
     "test:coverage:check": "node scripts/check-coverage.js",
     "worker": "bun src/worker/collector.ts",
     "dev:local:up": "docker compose -f docker-compose.local.yml up -d --build",
