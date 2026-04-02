@@ -122,7 +122,7 @@ class StackStatusBroadcastService {
           const parsed = JSON.parse(payload);
 
           if (parsed.type === 'deploy_changed') {
-            if (!parsed.stack || !parsed.host) throw new Error('Invalid deploy_changed payload');
+            if (typeof parsed.stack !== 'string' || typeof parsed.host !== 'string') throw new Error('Invalid deploy_changed payload');
             for (const cb of this.subscribers) {
               try {
                 cb({ type: 'deploy_changed', stack: parsed.stack, host: parsed.host });
@@ -133,7 +133,13 @@ class StackStatusBroadcastService {
             return;
           }
 
-          if (Array.isArray(parsed) || !parsed.stack || !parsed.host || !parsed.containers || !parsed.updated_at) {
+          if (
+            Array.isArray(parsed) ||
+            typeof parsed.stack !== 'string' ||
+            typeof parsed.host !== 'string' ||
+            !Array.isArray(parsed.containers) ||
+            !parsed.updated_at
+          ) {
             throw new Error('Invalid status payload shape');
           }
           const updatedAt = new Date(parsed.updated_at);

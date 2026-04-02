@@ -223,7 +223,7 @@ describe('useContainerLogs', () => {
     });
   });
 
-  it('handles log_error custom events', () => {
+  it('handles error SSE events from the agent', () => {
     renderHook(() =>
       useContainerLogs({
         containerId: 'abc123',
@@ -234,7 +234,7 @@ describe('useContainerLogs', () => {
 
     act(() => {
       MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].dispatchEvent('log_error', {
+      MockEventSource.instances[0].dispatchEvent('error', {
         data: JSON.stringify({ message: 'Container not found' }),
       });
     });

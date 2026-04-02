@@ -50,37 +50,31 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
 
   const currentStepName = visibleSteps[activeStep]
 
+  const agentStackConfig = useMemo(() => ({
+    agentToken,
+    agentImage: getAgentImage(),
+    agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+    capabilities: { docker, zfs },
+    hlmZfsUid: zfs ? hlmZfsUid === '' ? undefined : Number(hlmZfsUid) : undefined,
+    hlmZfsGid: zfs ? hlmZfsGid === '' ? undefined : Number(hlmZfsGid) : undefined,
+    dockerGid: docker && zfs ? dockerGid === '' ? undefined : Number(dockerGid) : undefined,
+  }), [agentToken, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+
   const composeYaml = useMemo(() => {
     try {
-      return generateAgentStackCompose({
-        agentToken,
-        agentImage: getAgentImage(),
-        agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
-        capabilities: { docker, zfs },
-        hlmZfsUid: zfs ? hlmZfsUid === '' ? undefined : Number(hlmZfsUid) : undefined,
-        hlmZfsGid: zfs ? hlmZfsGid === '' ? undefined : Number(hlmZfsGid) : undefined,
-        dockerGid: docker && zfs ? dockerGid === '' ? undefined : Number(dockerGid) : undefined,
-      })
+      return generateAgentStackCompose(agentStackConfig)
     } catch {
       return '# Error generating compose file. Check ZFS UID/GID values.'
     }
-  }, [agentToken, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+  }, [agentStackConfig])
 
   const envFile = useMemo(() => {
     try {
-      return generateAgentStackEnv({
-        agentToken,
-        agentImage: getAgentImage(),
-        agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
-        capabilities: { docker, zfs },
-        hlmZfsUid: zfs ? hlmZfsUid === '' ? undefined : Number(hlmZfsUid) : undefined,
-        hlmZfsGid: zfs ? hlmZfsGid === '' ? undefined : Number(hlmZfsGid) : undefined,
-        dockerGid: docker && zfs ? dockerGid === '' ? undefined : Number(dockerGid) : undefined,
-      })
+      return generateAgentStackEnv(agentStackConfig)
     } catch {
       return '# Error generating .env file. Check ZFS UID/GID values.'
     }
-  }, [agentToken, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+  }, [agentStackConfig])
 
   function handleNext() {
     setActiveStep((prev) => Math.min(prev + 1, visibleSteps.length - 1))

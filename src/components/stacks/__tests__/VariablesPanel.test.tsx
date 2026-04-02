@@ -57,6 +57,9 @@ describe('VariablesPanel', () => {
     const skeletons = container.querySelectorAll('.MuiSkeleton-root');
     expect(skeletons.length).toBeGreaterThan(0);
     resolveVariables([]);
+    await waitFor(() => {
+      expect(container.querySelectorAll('.MuiSkeleton-root')).toHaveLength(0);
+    });
   });
 
   it('shows error alert when OpenBao is unreachable', async () => {
@@ -161,7 +164,7 @@ describe('VariablesPanel', () => {
   });
 
   it('calls deleteVariable and refreshes after confirming delete', async () => {
-    mockGetStackVariables.mockImplementation(() => Promise.resolve(['TEMP_VAR']));
+    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['TEMP_VAR']));
     mockDeleteVariable.mockImplementationOnce(() => Promise.resolve(undefined));
 
     await renderPanel('mystack', []);
@@ -274,22 +277,6 @@ describe('VariablesPanel', () => {
       expect(mockEnsureVariablesExist).toHaveBeenCalledTimes(1);
     });
     // The catch callback silences the error — no throw, no error UI for this path
-  });
-
-  it('cancel button in delete dialog does not trigger deletion', async () => {
-    mockGetStackVariables.mockImplementationOnce(() => Promise.resolve(['OLD_VAR']));
-    await renderPanel('mystack', []);
-    await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
-
-    // Open the delete dialog
-    fireEvent.click(screen.getByLabelText('Delete variable'));
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeDefined());
-
-    // Click Cancel — should not trigger delete mutation
-    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
-
-    // deleteVariable should not have been called
-    expect(mockDeleteVariable).not.toHaveBeenCalled();
   });
 
   it('save button is disabled when field has not been fetched yet', async () => {

@@ -117,7 +117,7 @@ export function useContainerLogs({
         }
       };
 
-      eventSource.addEventListener('log_error', handleLogError);
+      eventSource.addEventListener('error', handleLogError);
 
       eventSource.onerror = () => {
         if (!mounted) return;
@@ -149,6 +149,10 @@ export function useContainerLogs({
 
     return () => {
       mounted = false;
+      setIsConnected(false);
+      setError(null);
+      reconnectAttemptsRef.current = 0;
+      hasConnectedRef.current = false;
       if (rafIdRef.current !== 0) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = 0;

@@ -103,12 +103,6 @@ export function useEventSource<T>({
         eventSource.close();
         eventSourceRef.current = null;
 
-        reconnectAttemptsRef.current++;
-
-        if (debug) {
-          console.warn(`[useEventSource] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
-        }
-
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
           if (reconnectTimerRef.current !== null) {
             clearTimeout(reconnectTimerRef.current);
@@ -116,6 +110,12 @@ export function useEventSource<T>({
           }
           setError(new Error('Connection failed after multiple attempts'));
           return;
+        }
+
+        reconnectAttemptsRef.current++;
+
+        if (debug) {
+          console.warn(`[useEventSource] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
         }
 
         // Exponential backoff: 1s, 2s, 4s, 8s, 16s

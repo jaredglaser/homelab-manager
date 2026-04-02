@@ -39,7 +39,7 @@ describe('useEventSource', () => {
       // Exhaust reconnect attempts — error on the latest instance each time
       // since stale instances are correctly ignored after reconnection
       act(() => {
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i <= 5; i++) {
           const latest = MockEventSource.instances[MockEventSource.instances.length - 1];
           latest.onerror?.();
         }
@@ -60,7 +60,7 @@ describe('useEventSource', () => {
       );
 
       act(() => {
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i <= 5; i++) {
           const latest = MockEventSource.instances[MockEventSource.instances.length - 1];
           latest.onerror?.();
         }
@@ -74,6 +74,50 @@ describe('useEventSource', () => {
 
       expect(result.current.error).toBeNull();
       expect(result.current.isConnected).toBe(true);
+    });
+
+    it('tracks isConnected state on open and error', () => {
+      const { result } = renderHook(() =>
+        useEventSource({ url: '/api/test', onData: () => {} })
+      );
+
+      expect(result.current.isConnected).toBe(false);
+
+      const es = MockEventSource.instances[0];
+      act(() => { es.onopen?.(); });
+      expect(result.current.isConnected).toBe(true);
+
+      act(() => { es.onerror?.(); });
+      expect(result.current.isConnected).toBe(false);
+    });
+
+    it('does not reconnect when visibility changes to hidden', () => {
+      renderHook(() =>
+        useEventSource({ url: '/api/test', onData: () => {} })
+      );
+
+      act(() => {
+        for (let i = 0; i <= 5; i++) {
+          const latest = MockEventSource.instances[MockEventSource.instances.length - 1];
+          latest.onerror?.();
+        }
+      });
+
+      act(() => simulateVisibilityChange('hidden'));
+
+      // After exhausting attempts, no more reconnects should happen on hidden
+      const countAfterErrors = MockEventSource.instances.length;
+      act(() => simulateVisibilityChange('hidden'));
+      expect(MockEventSource.instances).toHaveLength(countAfterErrors);
+    });
+
+    it('closes EventSource on error and creates new connection on retry', () => {
+      renderHook(() => useEventSource({ url: '/api/test', onData: () => {} }));
+      const es1 = MockEventSource.instances[0];
+      act(() => { es1.onerror?.(); });
+      expect(MockEventSource.instances).toHaveLength(2);
+      expect(es1.closed).toBe(true);
+      expect(MockEventSource.instances[1].closed).toBe(false);
     });
   });
 
@@ -146,50 +190,6 @@ describe('useEventSource', () => {
     expect(onServiceError).toHaveBeenCalledTimes(1);
   });
 
-  it('tracks isConnected state on open and error', () => {
-    const origSetTimeout = globalThis.setTimeout;
-    (globalThis as unknown as Record<string, unknown>).setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
-    try {
-      const { result } = renderHook(() =>
-        useEventSource({ url: '/api/test', onData: () => {} })
-      );
-
-      expect(result.current.isConnected).toBe(false);
-
-      const es = MockEventSource.instances[0];
-      act(() => { es.onopen?.(); });
-      expect(result.current.isConnected).toBe(true);
-
-      act(() => { es.onerror?.(); });
-      expect(result.current.isConnected).toBe(false);
-    } finally {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
-    }
-  });
-
-  it('does not reconnect when visibility changes to hidden', () => {
-    const origSetTimeout = globalThis.setTimeout;
-    (globalThis as unknown as Record<string, unknown>).setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
-    try {
-      renderHook(() =>
-        useEventSource({ url: '/api/test', onData: () => {} })
-      );
-
-      const es = MockEventSource.instances[0];
-      act(() => { for (let i = 0; i < 5; i++) es.onerror?.(); });
-
-      act(() => simulateVisibilityChange('hidden'));
-
-      // After exhausting attempts, no more reconnects should happen on hidden
-      // (instances may be > 1 due to backoff retries with immediate setTimeout, but no new ones after hidden)
-      const countAfterErrors = MockEventSource.instances.length;
-      act(() => simulateVisibilityChange('hidden'));
-      expect(MockEventSource.instances).toHaveLength(countAfterErrors);
-    } finally {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
-    }
-  });
-
   it('processes multiple messages sequentially', () => {
     const received: unknown[] = [];
     const onData = mock((data: unknown) => { received.push(data); });
@@ -207,18 +207,4 @@ describe('useEventSource', () => {
     expect(received).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
   });
 
-  it('closes EventSource on error and creates new connection on retry', () => {
-    const origSetTimeout = globalThis.setTimeout;
-    (globalThis as unknown as Record<string, unknown>).setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
-    try {
-      renderHook(() => useEventSource({ url: '/api/test', onData: () => {} }));
-      const es1 = MockEventSource.instances[0];
-      act(() => { es1.onerror?.(); });
-      expect(MockEventSource.instances).toHaveLength(2);
-      expect(es1.closed).toBe(true);
-      expect(MockEventSource.instances[1].closed).toBe(false);
-    } finally {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
-    }
-  });
 });

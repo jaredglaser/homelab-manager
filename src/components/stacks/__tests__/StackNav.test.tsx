@@ -40,7 +40,12 @@ mock.module('@/lib/utils/icon-resolver', () => ({
   getIconUrl: (slug: string) => slug ? `https://icons.test/${slug}.png` : null,
 }));
 
+// Placeholder context objects so imports of StackListContext/StackStatusContext
+// from the mocked module remain defined (not undefined) for any code that uses them.
+const _placeholder = { _currentValue: undefined, _threadCount: 0, Provider: null, Consumer: null };
 mock.module('@/components/stacks/stacks-context', () => ({
+  StackListContext: _placeholder,
+  StackStatusContext: _placeholder,
   useStackListContext: () => mockListContextValue,
   useStackStatusContext: () => mockStatusContextValue,
 }));

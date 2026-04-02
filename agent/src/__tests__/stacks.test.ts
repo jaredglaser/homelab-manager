@@ -1117,6 +1117,7 @@ describe('handleStackDeploy — force recreate', () => {
   web:
     container_name: myapp-web
     image: nginx`,
+      forceRecreate: false,
     };
 
     const request = new Request('http://localhost/stacks/deploy', {

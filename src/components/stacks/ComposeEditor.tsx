@@ -9,6 +9,8 @@ import { parseVariables } from '@/lib/stacks/parse-variables';
 import VariablesPanel from '@/components/stacks/VariablesPanel';
 
 const MAX_PANEL_WIDTH = 600;
+const MIN_PANEL_WIDTH = 80;
+const MIN_EDITOR_WIDTH = 200;
 
 interface ComposeEditorProps {
   stackName: string;
@@ -35,8 +37,14 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   // Vite's ?worker imports. Must complete before Editor mounts to avoid
   // "Could not create web worker(s)" warning.
   useEffect(() => {
+    let isMounted = true;
     const loader = _monacoLoader ?? (() => import('@/lib/monaco-setup'));
-    loader().then(() => { setMonacoReady(true); }).catch((err: unknown) => { console.error('Monaco bootstrap failed:', err); setMonacoLoadFailed(true); });
+    setMonacoReady(false);
+    setMonacoLoadFailed(false);
+    loader()
+      .then(() => { if (isMounted) setMonacoReady(true); })
+      .catch((err: unknown) => { console.error('Monaco bootstrap failed:', err); if (isMounted) setMonacoLoadFailed(true); });
+    return () => { isMounted = false; };
   }, [_monacoLoader]);
 
   const isDirty = editorContent !== content;
@@ -70,7 +78,8 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
 
     const onMove = (ev: globalThis.PointerEvent) => {
       const delta = startX - ev.clientX;
-      setPanelWidth(Math.min(MAX_PANEL_WIDTH, Math.max(80, startWidth + delta)));
+      const containerWidth = target.parentElement?.clientWidth ?? (MAX_PANEL_WIDTH + MIN_EDITOR_WIDTH);
+      setPanelWidth(Math.min(containerWidth - MIN_EDITOR_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + delta)));
     };
     const onUp = () => {
       target.removeEventListener('pointermove', onMove);
@@ -158,9 +167,22 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
 
         {/* Drag handle */}
         <div
-          className="absolute inset-y-0 w-1 cursor-col-resize hover:bg-[var(--mui-palette-primary-main)]/30 active:bg-[var(--mui-palette-primary-main)]/50 transition-colors z-10"
-          style={{ right: panelWidth, touchAction: 'none' }}
+          className="absolute inset-y-0 w-1 cursor-col-resize hover:bg-[var(--mui-palette-primary-main)]/30 active:bg-[var(--mui-palette-primary-main)]/50 transition-colors z-10 touch-none"
+          style={{ right: panelWidth }}
+          tabIndex={0}
+          role="separator"
+          aria-orientation="vertical"
           onPointerDown={handleDragStart}
+          onKeyDown={(e) => {
+            const step = 20;
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              setPanelWidth(w => Math.min(MAX_PANEL_WIDTH, w + step));
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              setPanelWidth(w => Math.max(MIN_PANEL_WIDTH, w - step));
+            }
+          }}
         />
 
         {/* Variables side panel */}
