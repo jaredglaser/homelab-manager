@@ -1,30 +1,48 @@
-FROM oven/bun:1 AS base
+# Toolchain stage — downloads Docker CLI + Compose (cached independently)
+FROM oven/bun:1 AS toolchain
 
 # Pin versions for reproducible builds
 ARG DOCKER_CLI_VERSION=27.5.1
 ARG DOCKER_COMPOSE_VERSION=2.32.4
 
-# Install Docker CLI (static binary — no daemon) and Docker Compose v2 plugin
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates && \
     # Docker CLI static binary
+    # TODO: download.docker.com does not publish checksums for static binaries.
+    # Consider pinning by content-hash when upstream signatures become available.
     curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_CLI_VERSION}.tgz" | \
     tar xz --strip-components=1 -C /usr/local/bin docker/docker && \
-    # Docker Compose v2 plugin
+    docker --version && \
+    # Docker Compose v2 plugin (with SHA-256 integrity verification)
     mkdir -p /usr/local/lib/docker/cli-plugins && \
-    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" \
+    COMPOSE_ARCH="$(uname -m)" && \
+    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}" \
     -o /usr/local/lib/docker/cli-plugins/docker-compose && \
+    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}.sha256" \
+    -o /tmp/docker-compose.sha256 && \
+    sed -i "s|docker-compose-linux-${COMPOSE_ARCH}|/usr/local/lib/docker/cli-plugins/docker-compose|" /tmp/docker-compose.sha256 && \
+    grep -q '/usr/local/lib/docker/cli-plugins/docker-compose$' /tmp/docker-compose.sha256 || \
+      { echo "ERROR: sha256 file rewrite failed — expected absolute path in checksum file"; exit 1; } && \
+    sha256sum -c /tmp/docker-compose.sha256 && \
+    rm /tmp/docker-compose.sha256 && \
     chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \
     # Cleanup
     apt-get purge -y curl && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
+# Application stage
+FROM oven/bun:1 AS base
+
+COPY --from=toolchain /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=toolchain /usr/local/lib/docker /usr/local/lib/docker
+
 WORKDIR /app
 
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile --production
 
 COPY src ./src
 COPY tsconfig.json package.json ./
