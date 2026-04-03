@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import Tabs from '@mui/material/Tabs'
 import Tab from '@mui/material/Tab'
 import Alert from '@mui/material/Alert'
@@ -12,6 +11,7 @@ import {
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
 } from '@/lib/constants/preload-queries'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { useState } from 'react'
 
 interface IconProps {
   size?: number
@@ -74,11 +74,10 @@ function handlePrefetch(route: string) {
 
 function DemoBanner() {
   const [visible, setVisible] = useState(true)
-
   if (!visible) return null
-
   return (
-    <div className="mx-auto max-w-5xl pt-2 pointer-events-auto">
+    <div className="absolute left-1/2 transform -translate-x-1/2 pt-2 pointer-events-auto w-fit" style={{ top: '100%' }}>
+      <div className="mx-auto max-w-5xl">
       <Alert severity="info" onClose={() => setVisible(false)}>
         <strong>Demo mode</strong> &mdash; all data is generated in the browser.
         {' '}Self-host to connect to your own infrastructure.
@@ -91,6 +90,7 @@ function DemoBanner() {
           GitHub
         </MuiLink>
       </Alert>
+      </div>
     </div>
   )
 }

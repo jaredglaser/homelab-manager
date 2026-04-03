@@ -1,5 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useWindowVirtualizer } from '@tanstack/react-virtual';
+import { useMemo, useState } from 'react';
 import { Skeleton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import { HelpCircle } from 'lucide-react';
 import type { StackDeployRecord, DeployStatus } from '@/types/stacks';
@@ -25,14 +24,6 @@ export default function DeployHistoryList({
   onRollbackError,
 }: Readonly<DeployHistoryListProps>) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [scrollMargin, setScrollMargin] = useState(0);
-  const listRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (listRef.current) {
-      setScrollMargin(listRef.current.offsetTop);
-    }
-  }, []);
 
   const filtered = useMemo(() => {
     if (statusFilter === 'all') return records;
@@ -40,14 +31,6 @@ export default function DeployHistoryList({
   }, [records, statusFilter]);
 
   const hasStatusVariety = useMemo(() => new Set(records.map((r) => r.status)).size > 1, [records]);
-
-  const virtualizer = useWindowVirtualizer({
-    count: filtered.length,
-    estimateSize: () => 44,
-    overscan: 10,
-    scrollMargin,
-    getItemKey: (index) => filtered[index].id,
-  });
 
   if (isLoading) {
     return (
@@ -66,8 +49,6 @@ export default function DeployHistoryList({
       </Typography>
     );
   }
-
-  const virtualItems = virtualizer.getVirtualItems();
 
   return (
     <div>
@@ -119,40 +100,17 @@ export default function DeployHistoryList({
           No deploys match the selected filters.
         </Typography>
       ) : (
-        <div ref={listRef}>
-          <div
-            style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translate3d(0, ${(virtualItems[0]?.start ?? 0) - virtualizer.options.scrollMargin}px, 0)`,
-              }}
-            >
-              {virtualItems.map((virtualRow) => {
-                const record = filtered[virtualRow.index];
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                    className="pb-1"
-                  >
-                    <DeployHistoryRow
-                      record={record}
-                      stackName={stackName}
-                      host={host}
-                      onRollbackComplete={onRollbackComplete}
-                      onRollbackError={onRollbackError}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+        <div className="flex flex-col gap-1">
+          {filtered.map((record) => (
+            <DeployHistoryRow
+              key={record.id}
+              record={record}
+              stackName={stackName}
+              host={host}
+              onRollbackComplete={onRollbackComplete}
+              onRollbackError={onRollbackError}
+            />
+          ))}
         </div>
       )}
     </div>

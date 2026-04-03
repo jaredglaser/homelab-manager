@@ -79,7 +79,7 @@ function StacksLayout() {
   return (
     <StackListContext value={{ stacks: stacks ?? [], hosts: hosts ?? [], isLoading }}>
       <StackStatusContext value={{ statusMap, deployVersion }}>
-        <div className="flex w-full h-[calc(100vh-64px)]">
+        <div className="flex w-full flex-1 min-h-0">
           <StackNav onCreateClick={() => { setCreateError(null); setDialogOpen(true) }} />
           <div className="flex-1 min-h-0 flex flex-col p-6">
             <Outlet />

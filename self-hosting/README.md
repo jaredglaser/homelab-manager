@@ -14,10 +14,13 @@ A real-time monitoring dashboard for Docker containers, ZFS pools, and Proxmox V
 
 ## Quick Start
 
-**1. Download the compose file**
+**1. Download the compose files**
 
 ```bash
 curl -O https://raw.githubusercontent.com/jaredglaser/homelab-manager/main/self-hosting/docker-compose.yml
+curl -O https://raw.githubusercontent.com/jaredglaser/homelab-manager/main/self-hosting/openbao-entrypoint.sh
+curl -O https://raw.githubusercontent.com/jaredglaser/homelab-manager/main/self-hosting/openbao.hcl
+chmod +x openbao-entrypoint.sh
 ```
 
 **2. Create a `.env` file**
@@ -29,6 +32,9 @@ Copy the template below into a `.env` file in the same directory and fill in you
 POSTGRES_DB=homelab
 POSTGRES_USER=homelab
 POSTGRES_PASSWORD=changeme   # change this
+
+# OpenBao (secrets storage for managed host agent tokens)
+OPENBAO_TOKEN=changeme       # change this — use a long random string
 ```
 
 See [Configuration](#configuration) for all available options.
@@ -47,7 +53,7 @@ Open `http://<your-server-ip>:3000` (or whichever port you set via `WEB_PORT`).
 docker compose down
 ```
 
-Data is persisted in a Docker volume (`pgdata`) and survives restarts. To wipe everything:
+Data is persisted in Docker volumes (`pgdata`, `openbao-data`, `git-repos`) and survives restarts. To wipe everything:
 
 ```bash
 docker compose down -v
@@ -60,6 +66,7 @@ docker compose down -v
 | Service | Image | Description |
 |---------|-------|-------------|
 | `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (infinite retention, automatic compression after 7 days). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
+| `openbao` | `openbao/openbao` | Secrets storage for agent tokens used by managed Docker hosts. Auto-initializes and unseals on first start. |
 | `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - polls Docker, ZFS, and Proxmox hosts, writes stats to TimescaleDB |
 | `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Streams stats from TimescaleDB to connected clients via SSE. |
 
@@ -78,6 +85,7 @@ All configuration is done via environment variables in your `.env` file.
 | `POSTGRES_DB` | Database name |
 | `POSTGRES_USER` | Database user |
 | `POSTGRES_PASSWORD` | Database password |
+| `OPENBAO_TOKEN` | Root token for OpenBao secrets storage — use a long random string |
 
 ### Web Server
 
@@ -100,16 +108,16 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DOCKER_HOST_1` | - | Docker host IP or hostname |
-| `DOCKER_HOST_PORT_1` | `2375` | Docker API port (TCP, no TLS) |
+| `DOCKER_HOST_PORT_1` | `2375` | Socket proxy port |
 | `DOCKER_HOST_NAME_1` | - | Display name shown in the dashboard |
 
-> **Docker host setup:** Rather than exposing the raw Docker daemon socket over TCP, run a **Docker socket proxy** on each monitored host. [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy) binds to a TCP port and forwards only the API endpoints you allow — containers, stats, and similar read-only calls. Point `DOCKER_HOST_1` at the proxy's address and port. This is significantly safer than exposing the full daemon socket.
+> **Docker host setup:** Run a **Docker socket proxy** on each monitored host rather than exposing the raw Docker daemon socket over TCP. [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy) binds to a TCP port and forwards only the API calls you allow. Point `DOCKER_HOST_1` at the proxy's address and port.
 >
 > **Local deployment** (homelab-manager runs on the same host): Bind the socket proxy to `127.0.0.1:2375` and set `DOCKER_HOST_1` to `host.docker.internal` (or run the worker with `network_mode: host`) so the container can reach the host's localhost.
 >
 > **Remote deployment** (monitoring a separate host): Bind the socket proxy to `0.0.0.0:2375` (or the host's specific management IP) and set `DOCKER_HOST_1` to that host's IP/hostname. Restrict access via firewall rules or a dedicated management VLAN — only the homelab-manager worker should reach the proxy port.
 >
-> Example socket proxy compose service:
+> Example socket proxy compose service (monitoring only — read-only access):
 >
 > ```yaml
 > services:
@@ -120,8 +128,6 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 >       - 127.0.0.1:2375:2375  # Local: bind to localhost. Remote: change to 0.0.0.0:2375
 >     environment:
 >       - CONTAINERS=1
->       - POST=1              # Required for agent provisioning (create/start containers)
->       - IMAGES=1            # Required for agent provisioning (pull images)
 >       - EVENTS=1
 >       - INFO=1
 >       - PING=1
@@ -168,6 +174,57 @@ Monitor ZFS pools over SSH. Each host is numbered (`_1`, `_2`, `_3`).
 
 > **Proxmox API token:** Create one via **Datacenter > Permissions > API Tokens**. The token needs `PVEAuditor` role (read-only) on `/` for cluster overview data.
 
+### Docker Stack Management
+
+Stack management lets you deploy and manage Docker Compose stacks on your hosts via the dashboard. Agent tokens are stored in OpenBao — no `.env` file or token file is distributed to hosts.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DOCKER_MANAGEMENT_FEATURE_FLAG` | `false` | Set to `true` to enable the Stacks UI |
+| `GIT_SERVER_TOKEN` | - | Token for authenticating git pushes to the built-in git server |
+
+> **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. The agent's auth token is stored in OpenBao (the `openbao` service in this compose) and never written to disk outside of it.
+>
+> **Adding a host:** Deploy the agent on your Docker host, then register it in **Settings → Managed Hosts** by providing the agent's URL and token. The dashboard verifies connectivity before saving.
+>
+> **Agent setup:** The agent needs access to the Docker daemon on its host. Run a socket proxy alongside it with the permissions the agent requires:
+>
+> ```yaml
+> services:
+>   socket-proxy:
+>     image: lscr.io/linuxserver/socket-proxy:latest
+>     container_name: hlm-socket-proxy
+>     environment:
+>       - CONTAINERS=1
+>       - EVENTS=1
+>       - INFO=1
+>       - IMAGES=1
+>       - NETWORKS=1
+>       - VOLUMES=1
+>       - VERSION=1
+>       - ALLOW_START=1
+>       - ALLOW_STOP=1
+>       - ALLOW_RESTARTS=1
+>       - EXEC=1
+>     volumes:
+>       - /var/run/docker.sock:/var/run/docker.sock:ro
+>     restart: unless-stopped
+>     read_only: true
+>     tmpfs:
+>       - /run
+>
+>   agent:
+>     image: ghcr.io/jaredglaser/homelab-manager-agent:latest
+>     container_name: hlm-agent
+>     ports:
+>       - "9090:9090"   # Port the dashboard connects to
+>     environment:
+>       - DOCKER_HOST=tcp://socket-proxy:2375
+>       - AGENT_TOKEN=your-agent-token   # Must match what you enter in Settings
+>       - AGENT_PORT=9090
+>     restart: unless-stopped
+> ```
+
 ### Worker Behavior
 
 | Variable | Default | Description |
@@ -191,6 +248,9 @@ POSTGRES_DB=homelab
 POSTGRES_USER=homelab
 POSTGRES_PASSWORD=a-strong-password-here
 
+# OpenBao
+OPENBAO_TOKEN=a-long-random-string-here
+
 # Docker host (add _2, _3 for additional hosts)
 DOCKER_HOST_1=192.168.1.10
 DOCKER_HOST_PORT_1=2375
@@ -210,6 +270,10 @@ PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 # Worker
 WORKER_ZFS_ENABLED=true
+
+# Stack management (optional)
+# DOCKER_MANAGEMENT_FEATURE_FLAG=true
+# GIT_SERVER_TOKEN=a-random-token-for-git-auth
 ```
 
 ---
@@ -234,3 +298,8 @@ docker compose up -d
 
 **Port conflict on 3000**
 - Set `WEB_PORT` to any available port in your `.env`.
+
+**OpenBao fails to start**
+- Ensure `OPENBAO_TOKEN` is set in your `.env`.
+- Check logs: `docker compose logs openbao`
+- The `openbao-data` volume persists the init keys — do not delete it unless you intend to reinitialize.

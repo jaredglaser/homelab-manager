@@ -59,8 +59,6 @@ export function generateAgentStackEnv(config: AgentStackConfig): string {
   }
 
   const lines: string[] = [
-    `# Agent token — copy this value into the agent-token file in this directory`,
-    `# echo '${config.agentToken.replace(/\n/g, '')}' > agent-token`,
     `AGENT_IMAGE=${config.agentImage}`,
     `AGENT_UPDATER_IMAGE=${config.agentUpdaterImage}`,
     `HLM_AGENT_PORT=9090`,

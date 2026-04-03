@@ -16,7 +16,7 @@ import { getAgentImage } from '@/lib/hosts/host-utils'
 import { generateAgentStackCompose, generateAgentStackEnv } from '@/lib/templates/agent-stack-compose'
 import CopyButton from '@/components/settings/CopyButton'
 
-const WIZARD_STEPS = ['Capabilities', 'ZFS Setup', 'Compose File', 'Verify Connection'] as const
+const WIZARD_STEPS = ['Capabilities', 'ZFS Setup', 'Compose File', 'Configuration', 'Verify Connection'] as const
 
 const ZFS_SETUP_COMMANDS = `# Create the hlm-zfs user:
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin hlm-zfs
@@ -45,7 +45,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
 
   const visibleSteps = useMemo(() => {
     if (zfs) return [...WIZARD_STEPS]
-    return [WIZARD_STEPS[0], WIZARD_STEPS[2], WIZARD_STEPS[3]]
+    return [WIZARD_STEPS[0], WIZARD_STEPS[2], WIZARD_STEPS[3], WIZARD_STEPS[4]]
   }, [zfs])
 
   const currentStepName = visibleSteps[activeStep]
@@ -201,7 +201,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
         {currentStepName === 'Compose File' && (
           <div className="flex flex-col gap-3" data-testid="step-compose">
             <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
-              Create these files on the target host and run <code>docker compose up -d</code>:
+              Create this file on the target host:
             </Typography>
 
             <div>
@@ -213,15 +213,36 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 {composeYaml}
               </pre>
             </div>
+          </div>
+        )}
+
+        {currentStepName === 'Configuration' && (
+          <div className="flex flex-col gap-3" data-testid="step-env">
+            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+              Create these files alongside the compose file, then run <code>docker compose up -d</code>:
+            </Typography>
 
             <div>
               <div className="flex items-center justify-between mb-1">
                 <Typography variant="caption" className="font-semibold">.env</Typography>
                 <CopyButton text={envFile} label=".env" />
               </div>
-              <pre className="p-3 rounded text-xs overflow-x-auto max-h-[200px] bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
+              <pre className="p-3 rounded text-xs overflow-x-auto max-h-[300px] bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
                 {envFile}
               </pre>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <Typography variant="caption" className="font-semibold">agent-token</Typography>
+                <CopyButton text={agentToken} label="agent-token" />
+              </div>
+              <pre className="p-3 rounded text-xs overflow-x-auto bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
+                {agentToken}
+              </pre>
+              <Typography variant="caption" className="text-[var(--mui-palette-text-secondary)]">
+                Run <code>chmod 600 agent-token</code> after creating this file.
+              </Typography>
             </div>
           </div>
         )}

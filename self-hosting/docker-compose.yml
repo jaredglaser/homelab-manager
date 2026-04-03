@@ -6,6 +6,10 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: "false"
 
+x-openbao-env: &openbao-env
+  OPENBAO_URL: "http://openbao:8200"
+  OPENBAO_TOKEN: ${OPENBAO_TOKEN}
+
 x-docker-env: &docker-env
   DOCKER_HOST_1: ${DOCKER_HOST_1:-}
   DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1:-2375}
@@ -69,6 +73,31 @@ services:
     networks:
       - homelab-network
 
+  # OpenBao - secrets storage for managed host agent tokens
+  openbao:
+    image: openbao/openbao
+    container_name: homelab-openbao
+    command: server -config=/openbao/config/prod.hcl
+    environment:
+      BAO_ADDR: "http://127.0.0.1:8200"
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN}
+    volumes:
+      - openbao-data:/openbao/data
+      - ./openbao-entrypoint.sh:/openbao/entrypoint.sh:ro
+      - ./openbao.hcl:/openbao/config/prod.hcl:ro
+    entrypoint: ["/bin/sh", "/openbao/entrypoint.sh"]
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - homelab-network
+
   # Background worker - collects stats from Docker/ZFS hosts and writes to DB
   worker:
     image: ghcr.io/jaredglaser/homelab-manager-worker:latest
@@ -77,7 +106,7 @@ services:
     volumes:
       - /mnt/appdata/homelab-manager/keys:/keys:ro
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      <<: [*postgres-env, *openbao-env, *docker-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       WORKER_ENABLED: ${WORKER_ENABLED}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
@@ -92,21 +121,29 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      openbao:
+        condition: service_healthy
+        required: false
     deploy:
       resources:
         limits:
           memory: 256M
 
-  # Web server - serves the dashboard UI
+  # Web server - serves the dashboard UI and API
   web:
     image: ghcr.io/jaredglaser/homelab-manager-web:latest
     container_name: homelab-web
     ports:
       - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - git-repos:/data/repos
     environment:
-      <<: *postgres-env
+      <<: [*postgres-env, *openbao-env]
       NODE_ENV: production
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
+      GIT_REPOS_DIR: "/data/repos"
+      GIT_SERVER_TOKEN: ${GIT_SERVER_TOKEN}
+      DOCKER_MANAGEMENT_FEATURE_FLAG: ${DOCKER_MANAGEMENT_FEATURE_FLAG:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -115,6 +152,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      openbao:
+        condition: service_healthy
+        required: false
     deploy:
       resources:
         limits:
@@ -122,6 +162,8 @@ services:
 
 volumes:
   pgdata:
+  openbao-data:
+  git-repos:
 
 networks:
   homelab-network:

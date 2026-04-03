@@ -47,6 +47,7 @@ describe('AddHostWizard', () => {
       render(<AddHostWizard {...makeProps()} />)
       expect(screen.getByText('Capabilities')).toBeDefined()
       expect(screen.getByText('Compose File')).toBeDefined()
+      expect(screen.getByText('Configuration')).toBeDefined()
       expect(screen.getByText('Verify Connection')).toBeDefined()
       expect(screen.queryByText('ZFS Setup')).toBeNull()
     })
@@ -72,17 +73,27 @@ describe('AddHostWizard', () => {
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
     })
 
-    it('advances to Verify Connection from Compose File', () => {
+    it('advances to Configuration from Compose File', () => {
       render(<AddHostWizard {...makeProps()} />)
       // Capabilities → Compose
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      // Compose → Verify
+      // Compose → Configuration
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('step-env')).toBeDefined()
+    })
+
+    it('advances to Verify Connection from Configuration', () => {
+      render(<AddHostWizard {...makeProps()} />)
+      // Capabilities → Compose → Configuration → Verify
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-verify')).toBeDefined()
     })
 
     it('does not show Next button on Verify Connection step', () => {
       render(<AddHostWizard {...makeProps()} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.queryByRole('button', { name: 'Next' })).toBeNull()
@@ -138,7 +149,8 @@ describe('AddHostWizard', () => {
   describe('Verify Connection step', () => {
     function navigateToVerify() {
       render(<AddHostWizard {...makeProps()} />)
-      // Capabilities → Compose → Verify
+      // Capabilities → Compose → Configuration → Verify
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
     }
@@ -166,7 +178,8 @@ describe('AddHostWizard', () => {
     it('calls onSubmit with trimmed name, url, token, and capabilities when Verify Connection is clicked', () => {
       const onSubmit = mock(() => {})
       render(<AddHostWizard isAdding={false} addError={null} onSubmit={onSubmit} />)
-      // Navigate to Verify Connection
+      // Capabilities → Compose → Configuration → Verify
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: '  dev-machine  ' } })
@@ -183,7 +196,8 @@ describe('AddHostWizard', () => {
     it('does not call onSubmit when isAdding is true', () => {
       const onSubmit = mock(() => {})
       render(<AddHostWizard isAdding={true} addError={null} onSubmit={onSubmit} />)
-      // Navigate to Verify Connection
+      // Capabilities → Compose → Configuration → Verify
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       const btn = screen.getByRole('button', { name: 'Verify Connection' })
@@ -233,14 +247,22 @@ describe('AddHostWizard', () => {
   })
 
   describe('compose/env error fallbacks', () => {
-    it('shows compose content in the Compose File step', () => {
+    it('shows docker-compose.yml in the Compose File step', () => {
       render(<AddHostWizard {...makeProps()} />)
-      // Navigate to Compose File step
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       const composeStep = screen.getByTestId('step-compose')
       expect(composeStep).toBeDefined()
-      // Compose YAML and .env content is rendered inside pre elements
       const preElements = composeStep.querySelectorAll('pre')
+      expect(preElements.length).toBe(1)
+    })
+
+    it('shows .env and agent-token in the Configuration step', () => {
+      render(<AddHostWizard {...makeProps()} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      const envStep = screen.getByTestId('step-env')
+      expect(envStep).toBeDefined()
+      const preElements = envStep.querySelectorAll('pre')
       expect(preElements.length).toBe(2)
     })
   })

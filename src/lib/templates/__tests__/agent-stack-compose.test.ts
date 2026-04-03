@@ -218,9 +218,9 @@ describe('generateAgentStackEnv', () => {
     }
   });
 
-  it('includes agent token value in comment for reference', () => {
+  it('does not include agent token in env output', () => {
     const result = generateAgentStackEnv(dockerOnlyConfig);
-    expect(result).toContain('test-token-abc123');
+    expect(result).not.toContain('test-token-abc123');
   });
 
   it('includes ZFS UIDs only when zfs capability', () => {
@@ -284,14 +284,4 @@ describe('generateAgentStackEnv', () => {
     );
   });
 
-  it('strips newlines from agentToken in comment', () => {
-    const config: AgentStackConfig = {
-      agentToken: 'token\nwith\nnewlines',
-      agentImage: 'img',
-      agentUpdaterImage: 'upd',
-      capabilities: { docker: false, zfs: false },
-    };
-    const result = generateAgentStackEnv(config);
-    expect(result).toContain('tokenwithnewlines');
-  });
 });
