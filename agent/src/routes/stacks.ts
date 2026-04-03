@@ -204,6 +204,7 @@ export async function handleStackDeploy(
       await Bun.write(tmpFile, parsed.composeContent);
       const configResult = await spawnWithTimeout(spawn, {
         cmd: ['docker', 'compose', '--file', tmpFile, 'config'],
+        cwd: stackDir,
         stdout: 'pipe',
         stderr: 'pipe',
         env: composeEnv,
@@ -425,6 +426,7 @@ async function collectStackStatus(
 ): Promise<{ name: string; containers: unknown[]; error?: string }> {
   const composePath = join(stacksDir, stackName, 'docker-compose.yml');
 
+  const effectiveMs = timeoutMs ?? COMPOSE_TIMEOUT_MS;
   const result = await spawnWithTimeout(spawn, {
     cmd: ['docker', 'compose', '-f', composePath, 'ps', '--format', 'json'],
     cwd: join(stacksDir, stackName),
@@ -435,7 +437,7 @@ async function collectStackStatus(
 
   if (result.timedOut) {
     console.error(`docker compose ps timed out for ${stackName}`);
-    return { name: stackName, containers: [], error: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s` };
+    return { name: stackName, containers: [], error: `Process timed out after ${effectiveMs / 1000}s` };
   }
 
   if (result.exitCode !== 0) {

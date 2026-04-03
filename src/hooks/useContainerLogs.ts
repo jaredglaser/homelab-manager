@@ -126,12 +126,12 @@ export function useContainerLogs({
         eventSource.close();
         eventSourceRef.current = null;
 
-        reconnectAttemptsRef.current++;
-
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
           setError(new Error('Log stream disconnected after multiple reconnect attempts. Check that the agent for this host is running and the container still exists.'));
           return;
         }
+
+        reconnectAttemptsRef.current++;
 
         const delay = Math.min(
           BASE_BACKOFF_MS * 2 ** (reconnectAttemptsRef.current - 1),

@@ -116,12 +116,18 @@ describe('useContainerLogs', () => {
     expect(result.current.isConnected).toBe(true);
   });
 
-  it('writes log lines to terminal on message', () => {
-    // The hook batches writes via requestAnimationFrame — run callbacks synchronously
+  describe('with immediate RAF', () => {
     const origRAF = globalThis.requestAnimationFrame;
-    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 0; }) as typeof requestAnimationFrame;
 
-    try {
+    beforeEach(() => {
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 0; }) as typeof requestAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.requestAnimationFrame = origRAF;
+    });
+
+    it('writes log lines to terminal on message', () => {
       renderHook(() =>
         useContainerLogs({
           containerId: 'abc123',
@@ -144,9 +150,7 @@ describe('useContainerLogs', () => {
 
       expect(mockTerminal.write).toHaveBeenCalledTimes(1);
       expect(mockTerminal.write).toHaveBeenCalledWith('hello world\nerror msg\n');
-    } finally {
-      globalThis.requestAnimationFrame = origRAF;
-    }
+    });
   });
 
   it('does not connect when enabled=false', () => {
@@ -212,7 +216,7 @@ describe('useContainerLogs', () => {
       );
 
       // Each error closes and reconnects (setTimeout fires immediately)
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < 6; i++) {
         const es = MockEventSource.instances[MockEventSource.instances.length - 1];
         act(() => { es.onerror?.(); });
       }

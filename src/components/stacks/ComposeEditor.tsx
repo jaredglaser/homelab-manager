@@ -172,6 +172,9 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
           tabIndex={0}
           role="separator"
           aria-orientation="vertical"
+          aria-valuemin={MIN_PANEL_WIDTH}
+          aria-valuemax={MAX_PANEL_WIDTH}
+          aria-valuenow={panelWidth}
           onPointerDown={handleDragStart}
           onKeyDown={(e) => {
             const step = 20;

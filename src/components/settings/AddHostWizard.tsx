@@ -102,8 +102,9 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
   }
 
   const canProceedFromCapabilities = docker || zfs
-  const canProceedFromZfs = hlmZfsUid.trim().length > 0 && hlmZfsGid.trim().length > 0
-    && (!docker || dockerGid.trim().length > 0)
+  const isNonNegativeInt = (v: string) => /^\d+$/.test(v.trim())
+  const canProceedFromZfs = isNonNegativeInt(hlmZfsUid) && isNonNegativeInt(hlmZfsGid)
+    && (!docker || isNonNegativeInt(dockerGid))
   const canVerify = name.trim().length > 0 && agentUrl.trim().length > 0
 
   return (
@@ -171,7 +172,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 size="small"
                 type="number"
                 className="flex-1"
-                inputProps={{ 'aria-label': 'HLM_ZFS_UID' }}
+                inputProps={{ 'aria-label': 'HLM_ZFS_UID', min: 0 }}
               />
               <TextField
                 label="HLM_ZFS_GID"
@@ -180,7 +181,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 size="small"
                 type="number"
                 className="flex-1"
-                inputProps={{ 'aria-label': 'HLM_ZFS_GID' }}
+                inputProps={{ 'aria-label': 'HLM_ZFS_GID', min: 0 }}
               />
             </div>
             {docker && (
@@ -191,7 +192,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 size="small"
                 type="number"
                 helperText="GID of the docker group on the target host (run: getent group docker)"
-                inputProps={{ 'aria-label': 'DOCKER_GID' }}
+                inputProps={{ 'aria-label': 'DOCKER_GID', min: 0 }}
               />
             )}
           </div>
