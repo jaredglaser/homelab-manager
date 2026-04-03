@@ -6,7 +6,8 @@ FROM oven/bun:1 AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY agent/package.json agent/
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
 EXPOSE 3000
 
 # Source stage - includes source code (worker/cleanup in production)
