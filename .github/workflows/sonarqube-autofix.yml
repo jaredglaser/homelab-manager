@@ -40,19 +40,19 @@ jobs:
     steps:
       - name: Checkout repository
         id: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
 
       - name: Set up Bun
         id: setup-bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: latest
 
       - name: Install Claude Code CLI
         id: install-claude
-        if: ${{ inputs.dry_run != 'true' }}
+        if: ${{ !inputs.dry_run }}
         run: npm install -g @anthropic-ai/claude-code@1
 
       - name: Fetch SonarQube issues
@@ -76,18 +76,19 @@ jobs:
 
       - name: Check for issues to fix
         id: check-issues
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' }}
+        if: ${{ !inputs.dry_run && steps.triage.outcome == 'success' }}
         run: |
-          if [ "${{ steps.triage.outputs.issue_count }}" = "0" ]; then
-            echo "No issues selected for fixing. Exiting early."
+          if [ "${{ steps.triage.outputs.issue_count }}" != "0" ]; then
+            echo "has_issues=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_issues=false" >> "$GITHUB_OUTPUT"
             echo "### No issues selected" >> "$GITHUB_STEP_SUMMARY"
             echo "Triage found no group within the configured limits." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
           fi
 
       - name: Upload dry-run artifacts
-        if: ${{ inputs.dry_run == 'true' }}
-        uses: actions/upload-artifact@v4
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sonarqube-triage-dryrun
           path: |
@@ -96,7 +97,7 @@ jobs:
             triage-summary.md
 
       - name: Dry run complete — no PR opened
-        if: ${{ inputs.dry_run == 'true' }}
+        if: ${{ inputs.dry_run }}
         run: |
           echo "### Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -106,7 +107,7 @@ jobs:
       # rather than shell-expanded into the command string (avoids injection).
       - name: Build Claude Code prompt file
         id: build-prompt
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.check-issues.outcome == 'success' }}
+        if: ${{ !inputs.dry_run && steps.triage.outcome == 'success' && steps.check-issues.outputs.has_issues == 'true' }}
         run: |
           cat > claude-prompt.txt <<'PROMPT'
           You are fixing SonarQube issues in this repository. The file selected-issues.json
@@ -124,7 +125,7 @@ jobs:
 
       - name: Run Claude Code to fix issues
         id: claude-fix
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.check-issues.outcome == 'success' }}
+        if: ${{ !inputs.dry_run && steps.triage.outcome == 'success' && steps.check-issues.outputs.has_issues == 'true' }}
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
@@ -142,7 +143,7 @@ jobs:
 
       - name: Commit fixes
         id: commit
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.claude-fix.outcome == 'success' }}
+        if: ${{ !inputs.dry_run && steps.triage.outcome == 'success' && steps.claude-fix.outcome == 'success' }}
         env:
           RULE_KEY: ${{ steps.triage.outputs.rule_key }}
           ISSUE_COUNT: ${{ steps.triage.outputs.issue_count }}
@@ -169,7 +170,7 @@ jobs:
 
       - name: Create labels if missing
         id: labels
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.commit.outputs.branch != '' }}
+        if: ${{ !inputs.dry_run && steps.triage.outcome == 'success' && steps.commit.outputs.branch != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -178,7 +179,7 @@ jobs:
 
       - name: Open PR
         id: pr
-        if: ${{ inputs.dry_run != 'true' && steps.triage.outcome == 'success' && steps.commit.outputs.branch != '' }}
+        if: ${{ !inputs.dry_run && steps.triage.outcome == 'success' && steps.commit.outputs.branch != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RULE_KEY: ${{ steps.triage.outputs.rule_key }}

@@ -144,7 +144,7 @@ function renderSummary(all: Group[], selected: Group | null, maxIssues: number):
     for (const [i, issue] of selected.issues.entries()) {
       const path = componentToPath(issue.component);
       lines.push(
-        `| ${i + 1} | \`${issue.rule}\` | ${issue.severity} | \`${path}\` | ${issue.line ?? "-"} | ${sanitizeMessage(issue.message)} |`
+        `| ${i + 1} | \`${issue.rule}\` | ${issue.severity} | \`${path}\` | ${issue.line ?? "-"} | ${sanitizeString(issue.message)} |`
       );
     }
   }
@@ -166,10 +166,10 @@ function renderSummary(all: Group[], selected: Group | null, maxIssues: number):
   return lines.join("\n");
 }
 
-function sanitizeMessage(message: string): string {
+function sanitizeString(input: string): string {
   // Truncate to 200 characters and strip characters outside the safe set
   // to defend against prompt injection via SonarQube API responses.
-  return message.slice(0, 200).replace(/[^\w\s.,;:()'"-]/g, "");
+  return input.slice(0, 200).replace(/[^\w\s.,;:()'"-]/g, "");
 }
 
 function emitNoGroupOutput(outputFile: string | undefined): void {
@@ -230,10 +230,15 @@ if (!selected) {
 
 console.log(`Selected: ${selected.label} (${selected.issues.length} issues)`);
 
-// Sanitize message fields to defend against prompt injection
+// Sanitize all string fields to defend against prompt injection
 const sanitizedIssues = selected.issues.map((issue) => ({
-  ...issue,
-  message: sanitizeMessage(issue.message),
+  key: sanitizeString(issue.key),
+  rule: sanitizeString(issue.rule),
+  severity: sanitizeString(issue.severity),
+  type: sanitizeString(issue.type),
+  component: sanitizeString(issue.component),
+  ...(issue.line !== undefined ? { line: issue.line } : {}),
+  message: sanitizeString(issue.message),
 }));
 
 try {
