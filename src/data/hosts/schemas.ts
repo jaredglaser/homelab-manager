@@ -21,7 +21,6 @@ export const addHostSchema = z.object({
 export const registerExistingHostSchema = z.object({
   name: hostNameSchema,
   agentUrl: z.url(),
-  socketProxyUrl: socketProxyUrlSchema,
   agentToken: agentTokenSchema,
 });
 
@@ -43,8 +42,7 @@ export const updateHostSchema = z.object({
   hostId: z.number().int().positive(),
   name: hostNameSchema.optional(),
   agentUrl: z.string().url().optional(),
-  socketProxyUrl: socketProxyUrlSchema.optional(),
 }).refine(
-  (data) => data.name !== undefined || data.agentUrl !== undefined || data.socketProxyUrl !== undefined,
-  { message: 'At least one of name, agentUrl, or socketProxyUrl must be provided' },
+  (data) => data.name !== undefined || data.agentUrl !== undefined,
+  { message: 'At least one of name or agentUrl must be provided' },
 );

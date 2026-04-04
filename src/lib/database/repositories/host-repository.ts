@@ -97,6 +97,13 @@ export class HostRepository {
     );
   }
 
+  async updateAgentUrl(id: number, agentUrl: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE managed_hosts SET agent_url = $1, updated_at = NOW() WHERE id = $2',
+      [agentUrl, id]
+    );
+  }
+
   async update(id: number, fields: { name?: string; agent_url?: string; capabilities?: HostCapabilities }): Promise<ManagedHostRow> {
     const setClauses: string[] = [];
     const params: unknown[] = [];

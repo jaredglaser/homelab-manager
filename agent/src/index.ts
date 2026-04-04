@@ -7,6 +7,7 @@ import { handleStackDeploy, handleStackTeardown, handleStackRestart, handleStack
 import { handleStackEvents } from './routes/stack-events';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
+import { handleAgentUpdate } from './routes/agent-update';
 
 const portEnv = process.env.AGENT_PORT;
 let PORT = 9090;
@@ -18,6 +19,7 @@ if (portEnv !== undefined && portEnv !== '') {
   }
 }
 const STACKS_DIR = process.env.STACKS_DIR || '/opt/homelab-manager/stacks';
+const AGENT_CONTAINER_NAME = process.env.AGENT_CONTAINER_NAME ?? 'hlm-agent';
 const AGENT_TOKEN_FILE = process.env.AGENT_TOKEN_FILE;
 const AGENT_TOKEN_ENV = process.env.AGENT_TOKEN;
 const DOCKER_HOST = process.env.DOCKER_HOST;
@@ -101,6 +103,7 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
 
   if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);
   if (url.pathname === '/zfs/pools' && request.method === 'GET') return handleZfsPools(zfsCapabilities);
+  if (url.pathname === '/agent/update' && request.method === 'POST') return handleAgentUpdate(docker, AGENT_CONTAINER_NAME);
 
   return null;
 }

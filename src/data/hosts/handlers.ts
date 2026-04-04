@@ -1,5 +1,5 @@
 import type { ManagedHostRow, HostStatus } from '@/lib/database/repositories/host-repository';
-import { toHostListItem, retryHealthCheck, getAgentImage } from '@/lib/hosts/host-utils';
+import { toHostListItem, retryHealthCheck, getAgentImage, HEALTH_CHECK_DELAYS_MS } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
@@ -10,7 +10,7 @@ export interface AddHostResult {
 
 export type HostOperationResult =
   | { hostId: number; healthy: true; version?: string; dockerVersion?: string }
-  | { hostId: number; healthy: false; error: string };
+  | { hostId: number; healthy: false; error: string; suggestions?: string[] };
 
 export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
@@ -18,12 +18,12 @@ export type UpdateAgentResult = HostOperationResult;
 export interface HostRepo {
   findById(id: number): Promise<ManagedHostRow | null>;
   findAll(): Promise<ManagedHostRow[]>;
-  create(input: { name: string; agent_url: string; socket_proxy_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHostRow>;
+  create(input: { name: string; agent_url: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHostRow>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
-  updateAgentUrl?(id: number, agentUrl: string): Promise<void>;
-  update(id: number, fields: { name?: string; agent_url?: string; socket_proxy_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHostRow>;
+  updateAgentUrl(id: number, agentUrl: string): Promise<void>;
+  update(id: number, fields: { name?: string; agent_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHostRow>;
 }
 
 export interface HostHandlerDeps {
@@ -99,47 +99,136 @@ export async function handleRefreshHostStatus(
 }
 
 export async function handleUpdateAgent(
-  deps: HostHandlerDeps & { updateAgent: (agentUrl: string, hostId: number) => Promise<{ healthy: boolean; version?: string; error?: string }> },
+  deps: HostHandlerDeps & {
+    getToken: (hostname: string) => Promise<string>;
+    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+  },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  let result: { healthy: boolean; version?: string; error?: string };
+  // 1. Record current version before update
+  const preCheck = await deps.checkHealth(host.agent_url);
+  if (!preCheck.healthy) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent is unreachable before update',
+      suggestions: [
+        'Check that the agent container is running',
+        'Run `docker logs hlm-agent` to inspect agent startup errors',
+      ],
+    };
+  }
+  const currentVersion = preCheck.version;
+
+  // 2. Fetch token
+  let token: string;
   try {
-    result = await deps.updateAgent(host.agent_url, host.id);
+    token = await deps.getToken(host.name);
+  } catch {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Could not retrieve agent token',
+      suggestions: [
+        'Check that the OpenBao container is running',
+        'Verify that OPENBAO_TOKEN is set correctly in your environment',
+      ],
+    };
+  }
+
+  // 3. Trigger update on agent
+  let triggerResponse: Response;
+  try {
+    triggerResponse = await fetch(`${host.agent_url}/agent/update`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
   } catch (err) {
-    try {
-      await deps.repo.updateStatus(host.id, 'unhealthy');
-    } catch (statusErr) {
-      console.error(`[updateAgent] Failed to update status for host ${host.id}:`, statusErr instanceof Error ? statusErr.message : statusErr);
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: err instanceof Error ? err.message : String(err),
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Run `docker logs hlm-agent` to inspect agent errors',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  if (triggerResponse.status !== 202) {
+    const body = await triggerResponse.text().catch(() => '');
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: body || `Unexpected status ${triggerResponse.status} from agent update endpoint`,
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Run `docker logs hlm-agent` to inspect agent errors',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  // 4. Poll for version change
+  let lastResult: HealthCheckOutcome = { healthy: false, error: 'Health check not attempted' };
+  let newVersion: string | undefined;
+
+  for (const delay of HEALTH_CHECK_DELAYS_MS) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    lastResult = await deps.checkHealth(host.agent_url);
+    if (lastResult.healthy && lastResult.version !== currentVersion) {
+      newVersion = lastResult.version;
+      break;
     }
-    return { hostId: host.id, healthy: false, error: err instanceof Error ? err.message : String(err) };
   }
 
-  if (result.healthy) {
-    await deps.repo.updateStatus(host.id, 'healthy');
-    if (result.version) await deps.repo.updateAgentVersion(host.id, result.version);
-    return { hostId: host.id, healthy: true, version: result.version };
+  if (!newVersion) {
+    if (lastResult.healthy) {
+      return {
+        hostId: host.id,
+        healthy: false,
+        error: 'Agent appears to be on the latest version already',
+        suggestions: [
+          'Verify the image registry has a newer build',
+          'Check that the current version matches your expectations',
+        ],
+      };
+    }
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent did not restart after update',
+      suggestions: [
+        'Run `docker ps -a | grep hlm-agent` to check container state',
+        'Run `docker logs hlm-agent` for pull or start errors',
+        'Manually run `docker compose up -d` in the agent directory if needed',
+        'Check available disk space for the image pull',
+      ],
+    };
   }
 
-  await deps.repo.updateStatus(host.id, 'unhealthy');
-  return { hostId: host.id, healthy: false, error: result.error ?? 'Unknown error' };
+  // 5. Success
+  await deps.repo.updateStatus(host.id, 'healthy');
+  await deps.repo.updateAgentVersion(host.id, newVersion);
+  return { hostId: host.id, healthy: true, version: newVersion };
 }
 
 export async function handleUpdateHost(
   deps: HostHandlerDeps,
-  data: { hostId: number; name?: string; agentUrl?: string; socketProxyUrl?: string },
+  data: { hostId: number; name?: string; agentUrl?: string },
 ): Promise<HostListItem> {
 
 
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const fields: { name?: string; agent_url?: string; socket_proxy_url?: string } = {};
+  const fields: { name?: string; agent_url?: string } = {};
   if (data.name !== undefined) fields.name = data.name;
   if (data.agentUrl !== undefined) fields.agent_url = data.agentUrl;
-  if (data.socketProxyUrl !== undefined) fields.socket_proxy_url = data.socketProxyUrl;
 
   const updated = await deps.repo.update(data.hostId, fields);
   return toHostListItem(updated);
@@ -154,14 +243,13 @@ export async function handleRegisterExistingHost(
     storeToken: (hostname: string, token: string) => Promise<void>;
     checkHealth: (url: string) => Promise<HealthCheckOutcome>;
   },
-  data: { name: string; agentUrl: string; socketProxyUrl: string; agentToken: string },
+  data: { name: string; agentUrl: string; agentToken: string },
 ): Promise<AddHostResult> {
 
 
   const host = await deps.repo.create({
     name: data.name,
     agent_url: data.agentUrl,
-    socket_proxy_url: data.socketProxyUrl,
   });
 
   try {
@@ -173,7 +261,7 @@ export async function handleRegisterExistingHost(
     );
   }
 
-  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, [500, 1000, 2000]);
+  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, HEALTH_CHECK_DELAYS_MS.slice(0, 3));
   const status: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
   await deps.repo.updateStatus(host.id, status);
 
@@ -204,7 +292,7 @@ export async function handleVerifyHost(
 
 
   // 1. Health check the agent before creating any records
-  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, [500, 1000, 2000]);
+  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, HEALTH_CHECK_DELAYS_MS.slice(0, 3));
   if (!healthResult.healthy) {
     throw new Error(`Agent health check failed: ${healthResult.error}`);
   }
@@ -334,7 +422,6 @@ export async function handleAddHost(
   const host = await deps.repo.create({
     name: data.name,
     agent_url: '',
-    socket_proxy_url: data.socketProxyUrl,
   });
 
   let provisionResult;
@@ -352,7 +439,7 @@ export async function handleAddHost(
   }
 
   try {
-    await deps.repo.updateAgentUrl?.(host.id, provisionResult.agentUrl);
+    await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
     await deps.storeToken(data.name, plainToken);
   } catch (err) {
     await rollbackPostProvision(deps, host.id, data, err, `for ${data.name} after post-provision failure`);

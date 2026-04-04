@@ -18,6 +18,12 @@ async function loadDeps(): Promise<HostHandlerDeps> {
   return { repo: new HostRepository(dbClient.getPool()) };
 }
 
+async function loadBaoClient() {
+  const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
+  const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+  return new OpenBaoClient(loadOpenBaoConfig());
+}
+
 async function loadDockerClient(socketProxyUrl: string) {
   const Dockerode = (await import('dockerode')).default;
   let parsed: URL;
@@ -26,7 +32,8 @@ async function loadDockerClient(socketProxyUrl: string) {
   } catch {
     throw new Error(`Invalid socketProxyUrl "${socketProxyUrl}": must be a valid URL with tcp://, http://, or https:// scheme`);
   }
-  return new Dockerode({ host: parsed.hostname, port: Number(parsed.port) || 2375 });
+  const protocol = parsed.protocol === 'https:' ? 'https' : 'http';
+  return new Dockerode({ host: parsed.hostname, port: Number(parsed.port) || 2375, protocol });
 }
 
 export const addHost = createServerFn()
@@ -37,9 +44,7 @@ export const addHost = createServerFn()
     const { generateToken } = await import('@/lib/services/token-service');
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
+    const baoClient = await loadBaoClient();
     await baoClient.ensureSecretsEngine();
     const provService = new AgentProvisioningService();
     return handleAddHost({
@@ -59,10 +64,8 @@ export const registerExistingHost = createServerFn()
     const baseDeps = await loadDeps();
 
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
     const { initializeOpenBao } = await import('@/lib/services/openbao-init');
-    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
+    const baoClient = await loadBaoClient();
     await initializeOpenBao(baoClient);
     return handleRegisterExistingHost({
       ...baseDeps,
@@ -77,10 +80,8 @@ export const verifyHost = createServerFn()
     const baseDeps = await loadDeps();
 
     const { checkAgentHealth, verifyAgentToken } = await import('@/lib/services/agent-health-service');
-    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
     const { initializeOpenBao } = await import('@/lib/services/openbao-init');
-    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
+    const baoClient = await loadBaoClient();
     await initializeOpenBao(baoClient);
     return handleVerifyHost({
       ...baseDeps,
@@ -95,9 +96,7 @@ export const removeHost = createServerFn()
   .handler(async ({ data }): Promise<{ success: boolean }> => {
     const baseDeps = await loadDeps();
 
-    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-    const baoClient = new OpenBaoClient(loadOpenBaoConfig());
+    const baoClient = await loadBaoClient();
     return handleRemoveHost({
       ...baseDeps,
       deleteToken: (hostname) => baoClient.deleteHostSecret(hostname, 'agent_token'),
@@ -114,14 +113,16 @@ export const updateAgent = createServerFn()
   .inputValidator(updateAgentSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
-    const { AgentUpdateService } = await import('@/lib/services/agent-update-service');
-    const svc = new AgentUpdateService();
+    const baoClient = await loadBaoClient();
+    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     return handleUpdateAgent({
       ...baseDeps,
-      updateAgent: async (agentUrl, hostId) => {
-        const { getAgentImage } = await import('@/lib/hosts/host-utils');
-        return svc.updateAgent(await loadDockerClient(agentUrl), hostId, getAgentImage(), agentUrl);
+      getToken: async (hostname) => {
+        const token = await baoClient.getHostSecret(hostname, 'agent_token');
+        if (!token) throw new Error(`No agent token found for host ${hostname}`);
+        return token;
       },
+      checkHealth: checkAgentHealth,
     }, data);
   });
 
