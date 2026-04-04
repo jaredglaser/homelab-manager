@@ -35,7 +35,7 @@ bun icons:download            # Download dashboard icons from homarr-labs/dashbo
 # Agent (separate package in agent/)
 cd agent && bun dev            # Run agent with --watch
 cd agent && bun test           # Run agent tests
-cd agent && bun run test:coverage  # Agent tests with coverage enforcement (96%/99%)
+cd agent && bun run test:coverage  # Agent tests with coverage enforcement (95%/99%)
 cd agent && bun run typecheck  # Agent type checking
 ```
 
@@ -71,20 +71,20 @@ cd agent && bun run typecheck  # Agent type checking
 ### Data Flow
 
 ```text
-Worker → Docker/ZFS/Proxmox APIs → INSERT wide rows → TimescaleDB
-                                                            ↓
+Worker → Agent sidecars (Docker/ZFS SSE) + Proxmox REST API → INSERT wide rows → TimescaleDB
+                                                                                       ↓
 Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast
 ```
 
 - Frontend reads from database, not direct API connections.
-- All three sources (Docker, ZFS, Proxmox) use identical architecture: worker → TimescaleDB → StatsPollService → SSE → `useTimeSeriesStream`.
+- Docker and ZFS stats flow through agent sidecars (SSE streams). Proxmox uses direct REST API polling. All three share the same downstream path: worker → TimescaleDB → StatsPollService → SSE → `useTimeSeriesStream`.
 - Frontend preloads history via REST server function, then merges SSE updates.
 
 ### SSE Endpoints (`src/routes/api/`)
 
 Pattern: `createFileRoute` with `server.handlers.GET` → dynamic import server-init + poll service → `ReadableStream` + subscribe → cleanup on `request.signal` abort. Track `closed` flag to prevent enqueue-after-close.
 
-Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `settings`, `docker-logs.$containerId` (parameterized), `git.$` (git HTTP smart protocol).
+Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `stack-status`, `settings`, `docker-logs.$containerId` (parameterized), `git.$` (git HTTP smart protocol).
 
 ```typescript
 // ALWAYS dynamic import - static imports break the client bundle:

@@ -202,10 +202,11 @@ All services in Docker, with HMR for the web server:
 
 ```bash
 bun install
-bun dev:docker:up       # Start all services in Docker
-bun dev:docker:down     # Stop all Docker services
-bun dev:docker:rebuild  # Full rebuild of all containers
-bun dev:docker:wipe     # Remove all data (fresh database)
+bun run dev:docker:up       # Start all services in Docker
+bun run dev:docker:down     # Stop all Docker services
+bun run dev:docker:restart  # Recreate containers (picks up .env changes)
+bun run dev:docker:rebuild  # Full rebuild of all containers
+bun run dev:docker:wipe     # Remove all data (fresh database)
 ```
 
 ### Manual (No Docker)

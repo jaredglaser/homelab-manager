@@ -156,10 +156,10 @@ src/
 │   │   ├── stack-service.ts         # Stack CRUD and orchestration
 │   │   ├── stack-mappers.ts         # Map domain to/from storage models
 │   │   ├── parse-variables.ts       # Parse compose variable references
+│   │   ├── teardown-poller.ts       # Poll agent for teardown completion
 │   │   └── stack-status-broadcast-service.ts # PostgreSQL LISTEN + SSE broadcast for stack status
 │   ├── services/
 │   │   ├── agent-health-service.ts  # Agent health check with timeout
-│   │   ├── agent-update-service.ts  # Agent container update orchestration
 │   │   ├── agent-provisioning-service.ts # Deploy agent containers to hosts
 │   │   ├── agent-constants.ts       # Agent configuration constants
 │   │   ├── token-service.ts         # Agent token generation and validation
@@ -261,7 +261,8 @@ agent/                               # Agent sidecar container (separate Bun pac
 │   │   ├── logs.ts                 # SSE container log streaming (backlog + live)
 │   │   ├── stacks.ts               # Stack deploy/teardown/restart/status
 │   │   ├── stack-events.ts         # SSE Docker lifecycle events grouped by compose stack
-│   │   └── zfs.ts                  # ZFS pool status and SSE iostat streaming
+│   │   ├── zfs.ts                  # ZFS pool status and SSE iostat streaming
+│   │   └── agent-update.ts         # Agent self-update endpoint
 │   └── lib/
 │       └── zfs-capabilities.ts     # ZFS binary detection and capability checking
 ├── Dockerfile

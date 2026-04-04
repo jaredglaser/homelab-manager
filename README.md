@@ -49,7 +49,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 git clone https://github.com/jaredglaser/homelab-manager.git
 cd homelab-manager
 cp .env.example .env          # Edit with your host details
-docker compose up -d          # Start TimescaleDB, web, worker, agent, and OpenBao
+docker compose up -d          # Start TimescaleDB, web, worker, and OpenBao
 ```
 
 Open http://localhost:3000

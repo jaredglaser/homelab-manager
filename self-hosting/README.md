@@ -67,7 +67,7 @@ docker compose down -v
 |---------|-------|-------------|
 | `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (infinite retention, automatic compression after 7 days). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
 | `openbao` | `openbao/openbao` | Secrets storage for agent tokens used by managed Docker hosts. Auto-initializes and unseals on first start. |
-| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - polls Docker, ZFS, and Proxmox hosts, writes stats to TimescaleDB |
+| `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - connects to agent sidecars (Docker/ZFS) and polls Proxmox, writes stats to TimescaleDB |
 | `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Streams stats from TimescaleDB to connected clients via SSE. |
 
 > **Note:** Images are published to GitHub Container Registry ([web](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-web), [worker](https://github.com/jaredglaser/homelab-manager/pkgs/container/homelab-manager-worker)) on every push to `main`. The project is pre-release and not yet versioned - use `latest` for now and watch the changelog for breaking changes before pulling updates.
@@ -143,24 +143,9 @@ Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_
 
 ### ZFS Monitoring
 
-Monitor ZFS pools over SSH. Each host is numbered (`_1`, `_2`, `_3`).
+ZFS monitoring works through agent sidecars — the same agents used for Docker management. When you register a managed host with ZFS capability, the worker connects to the agent's `/zfs/stats/stream` SSE endpoint to receive real-time `zpool iostat` data. No SSH configuration is needed.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ZFS_HOST_1` | - | SSH host IP or hostname |
-| `ZFS_HOST_PORT_1` | `22` | SSH port |
-| `ZFS_HOST_NAME_1` | - | Display name shown in the dashboard |
-| `ZFS_HOST_USER_1` | - | SSH username |
-| `ZFS_HOST_KEY_PATH_1` | - | Path to SSH private key inside the container (see below) |
-| `ZFS_HOST_KEY_PASSPHRASE_1` | - | Passphrase for the private key (if encrypted) |
-| `ZFS_HOST_PASSWORD_1` | - | SSH password (alternative to key auth) |
-
-> **SSH key setup:** Place your private key on the host running homelab-manager at `/mnt/appdata/homelab-manager/keys/`. The compose file bind-mounts this directory into the worker container at `/keys` (read-only). Reference the key as `/keys/<filename>` in `ZFS_HOST_KEY_PATH_1`. Create the directory first: `mkdir -p /mnt/appdata/homelab-manager/keys && chmod 700 /mnt/appdata/homelab-manager/keys`.
->
-> **ZFS permissions:** The SSH user needs permission to run `zpool iostat`. A targeted sudoers rule is safer than adding the user to `wheel`:
-> ```
-> username ALL=(ALL) NOPASSWD: /usr/sbin/zpool iostat *
-> ```
+> **Setup:** Deploy the agent container on a host with ZFS pools, then register the host in **Settings → Managed Hosts** with the `zfs` capability enabled. The agent auto-detects ZFS by checking for the `zpool` binary at startup.
 
 ### Proxmox VE Monitoring
 
@@ -214,10 +199,8 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 | `WORKER_ENABLED` | `true` | Enable the background collector |
 | `WORKER_DOCKER_ENABLED` | `true` | Enable Docker stats collection |
 | `WORKER_ZFS_ENABLED` | `false` | Enable ZFS stats collection |
-| `WORKER_PROXMOX_ENABLED` | `true` | Enable Proxmox stats collection |
+| `WORKER_PROXMOX_ENABLED` | `false` | Enable Proxmox stats collection |
 | `WORKER_COLLECTION_INTERVAL_MS` | `1000` | Collection interval in milliseconds |
-| `WORKER_BATCH_SIZE` | `10` | Number of rows to batch per INSERT |
-| `WORKER_BATCH_TIMEOUT_MS` | `1000` | Max time before flushing a partial batch |
 | `POSTGRES_POOL_SIZE` | `10` | Database connection pool size |
 
 ---
@@ -233,17 +216,16 @@ POSTGRES_PASSWORD=a-strong-password-here
 # OpenBao
 OPENBAO_TOKEN=a-long-random-string-here
 
-# Docker host (add _2, _3 for additional hosts)
+# Web Server
+# WEB_PORT=3000
+
+# Docker host monitoring (add _2, _3 for additional hosts)
 DOCKER_HOST_1=192.168.1.10
 DOCKER_HOST_PORT_1=2375
 DOCKER_HOST_NAME_1=my-server
 
-# ZFS host (add _2, _3 for additional hosts)
-ZFS_HOST_1=192.168.1.10
-ZFS_HOST_PORT_1=22
-ZFS_HOST_NAME_1=my-server
-ZFS_HOST_USER_1=admin
-ZFS_HOST_KEY_PATH_1=/keys/zfs_id_ed25519
+# ZFS — no env vars needed; register hosts with ZFS capability
+# in Settings → Managed Hosts after deploying an agent sidecar
 
 # Proxmox VE
 PROXMOX_HOST=192.168.1.100
@@ -251,7 +233,11 @@ PROXMOX_TOKEN_ID=root@pam!monitoring
 PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 
 # Worker
-WORKER_ZFS_ENABLED=true
+# WORKER_ENABLED=true
+# WORKER_DOCKER_ENABLED=true
+# WORKER_ZFS_ENABLED=false
+WORKER_PROXMOX_ENABLED=true
+# WORKER_COLLECTION_INTERVAL_MS=1000
 
 # Stack management (optional)
 # DOCKER_MANAGEMENT_FEATURE_FLAG=true
@@ -277,6 +263,14 @@ docker compose up -d
 
 **Database connection errors**
 - The web and worker services wait for the database to be healthy before starting, but if the DB is slow to initialize on first run, restart the failed service: `docker compose restart worker web`
+
+**Proxmox page shows no data**
+- `WORKER_PROXMOX_ENABLED` defaults to `false`. Set it to `true` in your `.env` along with the `PROXMOX_*` connection vars, then restart the worker.
+
+**Managed hosts aren't reachable / Stacks page shows no hosts**
+- Verify the agent is running on the target host: `curl -H "Authorization: Bearer <token>" http://<agent-ip>:9090/health`
+- Check that the agent token was stored in OpenBao: `docker compose logs openbao`
+- If OpenBao was reinitialized (volume deleted), re-register all hosts via the wizard to re-store their tokens.
 
 **Port conflict on 3000**
 - Set `WEB_PORT` to any available port in your `.env`.
