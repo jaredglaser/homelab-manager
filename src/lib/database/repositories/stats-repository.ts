@@ -132,7 +132,7 @@ export class StatsRepository {
       `SELECT * FROM docker_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
-    return result.rows;
+    return result.rows.map(toDockerStatsRow);
   }
 
   async getZFSStatsSince(since: Date): Promise<ZFSStatsRow[]> {
@@ -259,11 +259,27 @@ export class StatsRepository {
   }
 
   async getZFSStatsHistory(seconds: number): Promise<ZFSStatsRow[]> {
+    const bucketSeconds = Math.max(1, Math.ceil(seconds / 300));
     const result = await this.pool.query(
-      `SELECT * FROM zfs_stats
+      `SELECT
+         time_bucket(make_interval(secs => $2), time) AS time,
+         host,
+         pool,
+         last(entity, time)         AS entity,
+         last(entity_type, time)    AS entity_type,
+         last(indent, time)         AS indent,
+         AVG(capacity_alloc)        AS capacity_alloc,
+         AVG(capacity_free)         AS capacity_free,
+         AVG(read_ops_per_sec)      AS read_ops_per_sec,
+         AVG(write_ops_per_sec)     AS write_ops_per_sec,
+         AVG(read_bytes_per_sec)    AS read_bytes_per_sec,
+         AVG(write_bytes_per_sec)   AS write_bytes_per_sec,
+         AVG(utilization_percent)   AS utilization_percent
+       FROM zfs_stats
        WHERE time > NOW() - make_interval(secs => $1)
+       GROUP BY time_bucket(make_interval(secs => $2), time), host, pool
        ORDER BY time ASC`,
-      [seconds]
+      [seconds, bucketSeconds]
     );
     return result.rows;
   }

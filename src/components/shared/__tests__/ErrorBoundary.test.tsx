@@ -50,7 +50,7 @@ describe('ErrorBoundary', () => {
   });
 
   it('shows "Unknown error" when error has no message', () => {
-    function ThrowNoMessage() {
+    function ThrowNoMessage(): React.ReactNode {
       // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw { message: undefined };
     }
@@ -70,7 +70,7 @@ describe('ErrorBoundary', () => {
     );
     expect(consoleErrorSpy).toHaveBeenCalled();
     const calls = consoleErrorSpy.mock.calls;
-    const boundaryCall = calls.find((c) => typeof c[0] === 'string' && (c[0] as string).includes('[ErrorBoundary:my-boundary]'));
+    const boundaryCall = calls.find((c: unknown[]) => typeof c[0] === 'string' && c[0].includes('[ErrorBoundary:my-boundary]'));
     expect(boundaryCall).toBeTruthy();
   });
 
@@ -82,7 +82,7 @@ describe('ErrorBoundary', () => {
     );
     expect(consoleErrorSpy).toHaveBeenCalled();
     const calls = consoleErrorSpy.mock.calls;
-    const boundaryCall = calls.find((c) => typeof c[0] === 'string' && (c[0] as string) === '[ErrorBoundary]');
+    const boundaryCall = calls.find((c: unknown[]) => typeof c[0] === 'string' && c[0] === '[ErrorBoundary]');
     expect(boundaryCall).toBeTruthy();
   });
 

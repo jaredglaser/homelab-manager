@@ -15,6 +15,9 @@ const VALID_SERVICES = ['git-upload-pack', 'git-receive-pack'] as const;
 /** 50 MB — git pack files for compose files and manifests should be well under this. */
 const MAX_GIT_BODY_SIZE = 50 * 1024 * 1024;
 
+/** 60 seconds — git operations on compose files should complete in milliseconds. */
+const GIT_PROCESS_TIMEOUT_MS = 60_000;
+
 /**
  * Handle GET /info/refs?service=<service>
  * Returns ref advertisement for the requested service.
@@ -132,11 +135,20 @@ function spawnGit(
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
 
+    const timeout = setTimeout(() => {
+      proc.kill('SIGKILL');
+      reject(new Error(`Git process timed out after ${GIT_PROCESS_TIMEOUT_MS}ms: ${args.join(' ')}`));
+    }, GIT_PROCESS_TIMEOUT_MS);
+
     proc.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
     proc.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
-    proc.on('error', reject);
+    proc.on('error', (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
     proc.on('close', (code) => {
+      clearTimeout(timeout);
       const stdout = Buffer.concat(stdoutChunks);
       const stderr = Buffer.concat(stderrChunks).toString();
       resolve({

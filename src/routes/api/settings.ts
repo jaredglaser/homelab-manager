@@ -14,6 +14,9 @@ export const Route = createFileRoute('/api/settings')({
 
         const stream = new ReadableStream({
           start(controller) {
+            // SSE heartbeat forces Nitro to flush response headers immediately
+            controller.enqueue(encoder.encode(': ok\n\n'));
+
             const sendData = (message: unknown) => {
               if (closed) return;
               try {

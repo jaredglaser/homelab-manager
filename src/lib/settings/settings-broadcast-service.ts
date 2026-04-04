@@ -17,6 +17,7 @@ class SettingsBroadcastService {
   private subscribers = new Set<SettingsCallback>();
   private listenerClient: PoolClient | null = null;
   private stopped = true;
+  private reconnecting = false;
 
   subscribe(callback: SettingsCallback): () => void {
     this.subscribers.add(callback);
@@ -71,7 +72,7 @@ class SettingsBroadcastService {
       const poolClient = await pool.connect();
 
       if (this.stopped) {
-        poolClient.release();
+        try { poolClient.release(); } catch { /* best-effort */ }
         return;
       }
 
@@ -80,6 +81,20 @@ class SettingsBroadcastService {
       this.listenerClient.on('notification', (msg) => {
         if (msg.channel === 'settings_change' && msg.payload) {
           this.handleChange(msg.payload);
+        }
+      });
+
+      this.listenerClient.on('error', (err) => {
+        console.error('[SettingsBroadcastService] Listener client error:', err);
+        this.cleanupListenerClient();
+        if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
+          this.reconnecting = true;
+          setTimeout(() => {
+            this.reconnecting = false;
+            if (!this.stopped && this.subscribers.size > 0) {
+              this.startListening();
+            }
+          }, 5_000);
         }
       });
 
@@ -113,13 +128,21 @@ class SettingsBroadcastService {
     }
   }
 
-  private stopListening(): void {
-    this.stopped = true;
+  private cleanupListenerClient(): void {
     if (this.listenerClient) {
       this.listenerClient.removeAllListeners();
-      this.listenerClient.release();
+      try {
+        this.listenerClient.release();
+      } catch {
+        // best-effort release
+      }
       this.listenerClient = null;
     }
+  }
+
+  private stopListening(): void {
+    this.stopped = true;
+    this.cleanupListenerClient();
   }
 
   async stop(): Promise<void> {
