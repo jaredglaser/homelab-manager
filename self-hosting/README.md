@@ -187,43 +187,25 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 >
 > **Adding a host:** Deploy the agent on your Docker host, then register it in **Settings → Managed Hosts** by providing the agent's URL and token. The dashboard verifies connectivity before saving.
 >
-> **Agent setup:** The agent needs access to the Docker daemon on its host. Run a socket proxy alongside it with the permissions the agent requires:
+> **Agent setup:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose file, a `.env`, and a token file (`agent-token`) for the agent host. The same token is stored in OpenBao by the dashboard when you complete the wizard — it is never embedded in the compose environment directly.
+>
+> The wizard-generated compose mounts the token from a local file rather than an env var:
 >
 > ```yaml
-> services:
->   socket-proxy:
->     image: lscr.io/linuxserver/socket-proxy:latest
->     container_name: hlm-socket-proxy
->     environment:
->       - CONTAINERS=1
->       - EVENTS=1
->       - INFO=1
->       - IMAGES=1
->       - NETWORKS=1
->       - VOLUMES=1
->       - VERSION=1
->       - ALLOW_START=1
->       - ALLOW_STOP=1
->       - ALLOW_RESTARTS=1
->       - EXEC=1
->     volumes:
->       - /var/run/docker.sock:/var/run/docker.sock:ro
->     restart: unless-stopped
->     read_only: true
->     tmpfs:
->       - /run
->
->   agent:
->     image: ghcr.io/jaredglaser/homelab-manager-agent:latest
->     container_name: hlm-agent
->     ports:
->       - "9090:9090"   # Port the dashboard connects to
->     environment:
->       - DOCKER_HOST=tcp://socket-proxy:2375
->       - AGENT_TOKEN=your-agent-token   # Must match what you enter in Settings
->       - AGENT_PORT=9090
->     restart: unless-stopped
+> agent:
+>   image: ghcr.io/jaredglaser/homelab-manager-agent:latest
+>   container_name: hlm-agent
+>   ports:
+>     - "9090:9090"
+>   environment:
+>     - AGENT_TOKEN_FILE=/run/secrets/agent_token
+>     - DOCKER_HOST=tcp://socket-proxy:2375
+>   volumes:
+>     - ./agent-token:/run/secrets/agent_token:ro   # created by the wizard
+>   restart: unless-stopped
 > ```
+>
+> Run `chmod 600 agent-token` after creating the token file. Once the agent is running, provide its URL in the wizard's Verify step — the dashboard verifies connectivity and stores the token in OpenBao.
 
 ### Worker Behavior
 
