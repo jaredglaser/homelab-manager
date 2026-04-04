@@ -180,7 +180,7 @@ export default memo(function DualSeriesChart({
     [series, yAxisMode, formatValue, general.use12HourTime, windowMs],
   );
   const chartRef = useRef<ReactECharts>(null);
-  const chrome = resolveChartChromeColors();
+  const chrome = useMemo(() => resolveChartChromeColors(), []);
 
   useEChartTimeScroll(chartRef, windowMs);
 
@@ -192,7 +192,7 @@ export default memo(function DualSeriesChart({
           {series.map((s) => {
             const color = resolveChartColors(s.colorVar).line;
             return (
-              <span key={s.name} className="flex items-center gap-1" style={{ color: chrome.textMuted, fontSize: 12 }}>
+              <span key={s.name} className="flex items-center gap-1 text-xs" style={{ color: chrome.textMuted }}>
                 <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
                 {s.name}
               </span>

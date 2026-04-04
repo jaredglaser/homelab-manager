@@ -1,7 +1,7 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { ChevronRight, History, Settings } from 'lucide-react';
 import type { DockerStatsFromDB } from '@/types/docker';
-import { FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
+import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 
 interface ContainerNameCellProps {
   container: DockerStatsFromDB;
@@ -10,9 +10,6 @@ interface ContainerNameCellProps {
   pingRef: React.RefObject<HTMLDivElement | null>;
   dotRef: React.RefObject<HTMLDivElement | null>;
   lastUpdated: Date | undefined;
-  iconUrl: string;
-  iconError: boolean;
-  onIconError: () => void;
   onOpenIconPicker: () => void;
   onOpenHistory?: (containerId: string, host: string) => void;
 }
@@ -24,12 +21,12 @@ export const ContainerNameCell = memo(function ContainerNameCell({
   pingRef,
   dotRef,
   lastUpdated,
-  iconUrl,
-  iconError,
-  onIconError,
   onOpenIconPicker,
   onOpenHistory,
 }: ContainerNameCellProps) {
+  const [iconError, setIconError] = useState(false);
+  const iconUrl = getIconUrl(container.icon, container.image);
+
   return (
     <div className="px-3 py-2">
       <div className="flex items-center gap-2">
@@ -60,7 +57,7 @@ export const ContainerNameCell = memo(function ContainerNameCell({
           src={iconError ? FALLBACK_ICON_URL : iconUrl}
           alt=""
           className="w-5 h-5 flex-shrink-0"
-          onError={onIconError}
+          onError={() => setIconError(true)}
         />
         <span className="truncate">{container.name}</span>
         <button
@@ -81,7 +78,10 @@ export const ContainerNameCell = memo(function ContainerNameCell({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onOpenHistory(container.id.split('/')[1], container.id.split('/')[0]);
+              const slash = container.id.indexOf('/');
+              if (slash !== -1) {
+                onOpenHistory(container.id.slice(slash + 1), container.id.slice(0, slash));
+              }
             }}
             className={`p-1 rounded-full transition-opacity hover:bg-black/10 dark:hover:bg-white/10 ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
             aria-label="View container history"

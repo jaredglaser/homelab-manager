@@ -36,14 +36,16 @@ export function usePulseIndicator(lastUpdatedMs: number): {
         dot.style.backgroundColor = 'var(--indicator-active)';
       }
 
+      let cancelled = false;
       const pulseTimer = setTimeout(() => {
-        if (ping) { ping.classList.remove('opacity-100', 'animate-ping'); ping.classList.add('opacity-0'); }
+        if (!cancelled && ping) { ping.classList.remove('opacity-100', 'animate-ping'); ping.classList.add('opacity-0'); }
       }, PULSE_DURATION_MS);
       const lateTimer = setTimeout(() => {
-        if (ping) ping.style.backgroundColor = 'var(--indicator-late)';
-        if (dot) dot.style.backgroundColor = 'var(--indicator-late)';
+        if (!cancelled && ping) ping.style.backgroundColor = 'var(--indicator-late)';
+        if (!cancelled && dot) dot.style.backgroundColor = 'var(--indicator-late)';
       }, LATE_THRESHOLD_MS);
       return () => {
+        cancelled = true;
         clearTimeout(pulseTimer);
         clearTimeout(lateTimer);
       };

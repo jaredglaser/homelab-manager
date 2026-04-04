@@ -12,13 +12,19 @@ export interface ChartDataPoint {
   networkTxBytesPerSec: number;
 }
 
+/** A single {timestamp, value} pair used for sparkline series. */
+export interface SparklinePoint {
+  timestamp: number;
+  value: number;
+}
+
 export interface SparklineData {
-  cpu: { timestamp: number; value: number }[];
-  memory: { timestamp: number; value: number }[];
-  blockRead: { timestamp: number; value: number }[];
-  blockWrite: { timestamp: number; value: number }[];
-  networkRx: { timestamp: number; value: number }[];
-  networkTx: { timestamp: number; value: number }[];
+  cpu: SparklinePoint[];
+  memory: SparklinePoint[];
+  blockRead: SparklinePoint[];
+  blockWrite: SparklinePoint[];
+  networkRx: SparklinePoint[];
+  networkTx: SparklinePoint[];
 }
 
 /** Transforms raw Docker stats rows into chart data points and sparkline arrays. */
@@ -26,13 +32,13 @@ export function buildContainerChartData(chartData: DockerStatsRow[]): {
   dataPoints: ChartDataPoint[];
   sparklineData: SparklineData;
 } {
-  const points: ChartDataPoint[] = new Array(chartData.length);
-  const cpu: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const memory: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const blockRead: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const blockWrite: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const networkRx: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const networkTx: { timestamp: number; value: number }[] = new Array(chartData.length);
+  const points: ChartDataPoint[] = [];
+  const cpu: SparklinePoint[] = [];
+  const memory: SparklinePoint[] = [];
+  const blockRead: SparklinePoint[] = [];
+  const blockWrite: SparklinePoint[] = [];
+  const networkRx: SparklinePoint[] = [];
+  const networkTx: SparklinePoint[] = [];
 
   for (let i = 0; i < chartData.length; i++) {
     const row = chartData[i];
@@ -44,13 +50,13 @@ export function buildContainerChartData(chartData: DockerStatsRow[]): {
     const netRx = row.network_rx_bytes_per_sec ?? 0;
     const netTx = row.network_tx_bytes_per_sec ?? 0;
 
-    points[i] = { timestamp, cpuPercent, memoryPercent, blockIoReadBytesPerSec: blockIoRead, blockIoWriteBytesPerSec: blockIoWrite, networkRxBytesPerSec: netRx, networkTxBytesPerSec: netTx };
-    cpu[i] = { timestamp, value: cpuPercent };
-    memory[i] = { timestamp, value: memoryPercent };
-    blockRead[i] = { timestamp, value: blockIoRead };
-    blockWrite[i] = { timestamp, value: blockIoWrite };
-    networkRx[i] = { timestamp, value: netRx };
-    networkTx[i] = { timestamp, value: netTx };
+    points.push({ timestamp, cpuPercent, memoryPercent, blockIoReadBytesPerSec: blockIoRead, blockIoWriteBytesPerSec: blockIoWrite, networkRxBytesPerSec: netRx, networkTxBytesPerSec: netTx });
+    cpu.push({ timestamp, value: cpuPercent });
+    memory.push({ timestamp, value: memoryPercent });
+    blockRead.push({ timestamp, value: blockIoRead });
+    blockWrite.push({ timestamp, value: blockIoWrite });
+    networkRx.push({ timestamp, value: netRx });
+    networkTx.push({ timestamp, value: netTx });
   }
 
   return { dataPoints: points, sparklineData: { cpu, memory, blockRead, blockWrite, networkRx, networkTx } };

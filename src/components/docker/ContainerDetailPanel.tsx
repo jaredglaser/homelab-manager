@@ -3,19 +3,10 @@ import { Divider } from '@mui/material';
 import { formatAsPercent, formatBitsSIUnits } from '@/formatters/metrics';
 import DualSeriesChart from '@/components/docker/DualSeriesChart';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
-
-interface ContainerChartDataPoint {
-  timestamp: number;
-  cpuPercent: number;
-  memoryPercent: number;
-  blockIoReadBytesPerSec: number;
-  blockIoWriteBytesPerSec: number;
-  networkRxBytesPerSec: number;
-  networkTxBytesPerSec: number;
-}
+import type { ChartDataPoint } from '@/hooks/useContainerChartData';
 
 interface ContainerDetailPanelProps {
-  dataPoints: ContainerChartDataPoint[];
+  dataPoints: ChartDataPoint[];
   containerId: string;
   host: string;
 }
