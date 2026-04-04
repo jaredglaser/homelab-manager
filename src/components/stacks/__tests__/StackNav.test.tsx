@@ -20,23 +20,12 @@ const mockStatusContextValue = {
   deployVersion: 0,
 };
 
-mock.module('@tanstack/react-virtual', () => ({
-  useVirtualizer: ({ count, estimateSize, getItemKey, getScrollElement }: any) => {
-    getScrollElement?.();
-    const items = Array.from({ length: count }, (_, i) => ({
-      index: i,
-      key: getItemKey ? String(getItemKey(i)) : String(i),
-      start: i * estimateSize(i),
-    }));
-    return {
-      getVirtualItems: () => items,
-      getTotalSize: () => count * 36,
-      measureElement: () => {},
-    };
-  },
-}));
-
 mock.module('@/lib/utils/icon-resolver', () => ({
+  AVAILABLE_ICONS: ['nginx', 'grafana', 'docker'] as string[],
+  FALLBACK_ICON_URL: 'https://icons.test/docker.svg',
+  extractImageBaseName: (image: string) => image.split(':')[0].split('/').pop() ?? image,
+  hasIcon: (slug: string) => ['nginx', 'grafana', 'docker'].includes(slug),
+  findIconContaining: (term: string) => ['nginx', 'grafana', 'docker'].find((s) => s.includes(term)) ?? null,
   getIconUrl: (slug: string) => slug ? `https://icons.test/${slug}.png` : null,
 }));
 

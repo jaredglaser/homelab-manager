@@ -200,9 +200,14 @@ describe('AddHostWizard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      // Populate required fields so the button is disabled only because isAdding=true, not empty fields
+      fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'dev-machine' } })
+      fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'https://192.168.1.10:9090' } })
       const btn = screen.getByRole('button', { name: 'Verify Connection' })
-      // Button is disabled while adding
+      // Button is disabled while adding even when fields are populated
       expect(btn.hasAttribute('disabled')).toBe(true)
+      fireEvent.click(btn)
+      expect(onSubmit).not.toHaveBeenCalled()
     })
   })
 

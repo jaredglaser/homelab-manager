@@ -23,7 +23,8 @@ sudo useradd --system --no-create-home --shell /usr/sbin/nologin hlm-zfs
 sudo groupadd -f zfs
 sudo usermod -aG zfs hlm-zfs
 
-# Get the UID/GID:
+# Get the UID/GID (copy the numeric uid= value for HLM_ZFS_UID,
+# and the numeric gid= of the zfs group for HLM_ZFS_GID):
 id hlm-zfs`
 
 interface AddHostWizardProps {
@@ -162,7 +163,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
               </div>
             </div>
             <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)] mt-2">
-              Enter the UID and GID from the output of <code>id hlm-zfs</code>:
+              From the output above: copy the number after <code>uid=</code> into HLM_ZFS_UID, and the number after <code>gid=</code> in the <code>(zfs)</code> supplementary group into HLM_ZFS_GID.
             </Typography>
             <div className="flex gap-2">
               <TextField
@@ -267,7 +268,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
               value={agentUrl}
               onChange={(e) => setAgentUrl(e.target.value)}
               size="small"
-              placeholder="http://192.168.1.10:9090"
+              placeholder="https://192.168.1.10:9090"
               disabled={isAdding}
               fullWidth
               inputProps={{ 'aria-label': 'Agent URL' }}

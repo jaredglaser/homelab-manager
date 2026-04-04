@@ -94,8 +94,6 @@ describe('processPostReceive', () => {
   });
 
   it('should exclude stacks whose compose file is missing from results', async () => {
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
-    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
 
     // Commit a manifest listing 'plex' with a non-compose file change (so stack is detected as changed)
     const sha1 = await commitFiles(repoPath, {
@@ -120,13 +118,9 @@ describe('processPostReceive', () => {
       expect.anything(),
     );
 
-    errorSpy.mockRestore();
-    infoSpy.mockRestore();
   });
 
   it('should insert a failed deploy record when compose file is missing and deployRepo is provided', async () => {
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
-    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
 
     const insertedDeploys: unknown[] = [];
     const deployRepo = {
@@ -157,13 +151,9 @@ describe('processPostReceive', () => {
     expect((insertedDeploys[0] as Record<string, unknown>).status).toBe('failed');
     expect((insertedDeploys[0] as Record<string, unknown>).trigger).toBe('git_push');
 
-    errorSpy.mockRestore();
-    infoSpy.mockRestore();
   });
 
   it('should log full error object (not just message) when compose read fails', async () => {
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
-    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
 
     const sha1 = await commitFiles(repoPath, {
       files: [
@@ -183,20 +173,16 @@ describe('processPostReceive', () => {
     await processPostReceive(repoPath, sha1, sha2);
 
     // The second argument to console.error should be the Error object itself, not a string
-    const calls = errorSpy.mock.calls;
-    const composeErrorCall = calls.find(call =>
+    const calls = errorSpy.mock.calls as unknown[][];
+    const composeErrorCall = calls.find((call: unknown[]) =>
       typeof call[0] === 'string' && call[0].includes('Failed to read compose file'),
     );
     expect(composeErrorCall).toBeDefined();
     expect(composeErrorCall![1]).toBeInstanceOf(Error);
 
-    errorSpy.mockRestore();
-    infoSpy.mockRestore();
   });
 
   it('should not throw when deployRepo.insertDeploy fails', async () => {
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
-    const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
 
     const deployRepo = {
       insertDeploy: mock(async () => { throw new Error('DB unavailable'); }),
@@ -225,7 +211,5 @@ describe('processPostReceive', () => {
       expect.anything(),
     );
 
-    errorSpy.mockRestore();
-    infoSpy.mockRestore();
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { useEventSource } from '../useEventSource';
 import { MockEventSource } from '@/lib/test/mock-event-source';
@@ -21,14 +21,14 @@ function simulateVisibilityChange(state: 'visible' | 'hidden') {
 
 describe('useEventSource', () => {
   describe('with immediate timers', () => {
-    const origSetTimeout = globalThis.setTimeout;
+    let setTimeoutSpy: ReturnType<typeof spyOn>;
 
     beforeEach(() => {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
+      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout);
     });
 
     afterEach(() => {
-      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
+      setTimeoutSpy.mockRestore();
     });
 
     it('reconnects when page becomes visible after connection errored out', () => {
@@ -118,6 +118,30 @@ describe('useEventSource', () => {
       expect(MockEventSource.instances).toHaveLength(2);
       expect(es1.closed).toBe(true);
       expect(MockEventSource.instances[1].closed).toBe(false);
+    });
+
+    it('resets retry budget and error state when url changes', () => {
+      const { result, rerender } = renderHook(
+        ({ url }) => useEventSource({ url, onData: () => {} }),
+        { initialProps: { url: '/api/first' } },
+      );
+
+      // Exhaust retry attempts on the first URL
+      act(() => {
+        for (let i = 0; i <= 5; i++) {
+          const latest = MockEventSource.instances[MockEventSource.instances.length - 1];
+          latest.onerror?.();
+        }
+      });
+      expect(result.current.error).not.toBeNull();
+
+      // Switch to a new URL — should reset error and create a fresh connection
+      act(() => { rerender({ url: '/api/second' }); });
+
+      expect(result.current.error).toBeNull();
+      const latest = MockEventSource.instances[MockEventSource.instances.length - 1];
+      expect(latest.url).toBe('/api/second');
+      expect(latest.closed).toBe(false);
     });
   });
 

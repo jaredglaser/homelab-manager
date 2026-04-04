@@ -106,14 +106,24 @@ export function useContainerLogs({
 
       const handleLogError = (event: Event) => {
         if (!mounted) return;
-        try {
-          const data = JSON.parse((event as MessageEvent).data) as { message?: string; error?: string };
-          const msg = data.message ?? data.error ?? 'Log stream error';
-          if (terminalRef.current) {
-            terminalRef.current.writeln(`\x1b[31m[Error] ${msg}\x1b[0m`);
+        // Named SSE 'error' events carry a data payload; native connection errors do not.
+        const rawData = (event as unknown as Record<string, unknown>).data;
+        if (typeof rawData === 'string' && rawData) {
+          try {
+            const data = JSON.parse(rawData) as { message?: string; error?: string };
+            const msg = data.message ?? data.error ?? 'Log stream error';
+            if (terminalRef.current) {
+              terminalRef.current.writeln(`\x1b[31m[Error] ${msg}\x1b[0m`);
+            }
+          } catch {
+            if (terminalRef.current) {
+              terminalRef.current.writeln('\x1b[31m[Error] Log stream error\x1b[0m');
+            }
           }
-        } catch (err) {
-          console.error('[useContainerLogs] Failed to parse log_error event:', err, 'Raw data:', (event as MessageEvent).data?.slice(0, 200));
+        } else {
+          if (terminalRef.current) {
+            terminalRef.current.writeln('\x1b[31m[Error] Connection lost\x1b[0m');
+          }
         }
       };
 

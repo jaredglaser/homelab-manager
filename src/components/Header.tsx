@@ -76,7 +76,7 @@ function DemoBanner() {
   const [visible, setVisible] = useState(true)
   if (!visible) return null
   return (
-    <div className="absolute left-1/2 transform -translate-x-1/2 pt-2 pointer-events-auto w-fit" style={{ top: '100%' }}>
+    <div className="absolute left-1/2 -translate-x-1/2 top-full pt-2 pointer-events-auto w-fit">
       <div className="mx-auto max-w-5xl">
       <Alert severity="info" onClose={() => setVisible(false)}>
         <strong>Demo mode</strong> &mdash; all data is generated in the browser.

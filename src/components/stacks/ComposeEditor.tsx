@@ -79,7 +79,8 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
     const onMove = (ev: globalThis.PointerEvent) => {
       const delta = startX - ev.clientX;
       const containerWidth = target.parentElement?.clientWidth ?? (MAX_PANEL_WIDTH + MIN_EDITOR_WIDTH);
-      setPanelWidth(Math.min(containerWidth - MIN_EDITOR_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + delta)));
+      const effectiveMinEditorWidth = Math.min(MIN_EDITOR_WIDTH, Math.max(0, containerWidth - MIN_PANEL_WIDTH));
+      setPanelWidth(Math.min(containerWidth - effectiveMinEditorWidth, Math.max(MIN_PANEL_WIDTH, startWidth + delta)));
     };
     const onUp = () => {
       target.removeEventListener('pointermove', onMove);

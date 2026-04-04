@@ -256,12 +256,12 @@ describe('ManagedHostsCard', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText('docker-compose.yml')).toBeDefined()
-      expect(screen.getByText('.env')).toBeDefined()
     })
 
     it('verify step shows Host Name and Agent URL fields', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      // Advance through capabilities -> compose -> verify
+      // Advance through capabilities -> compose -> configuration -> verify
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByLabelText('Host Name')).toBeDefined()
@@ -272,12 +272,14 @@ describe('ManagedHostsCard', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       const btn = screen.getByRole('button', { name: /Verify Connection/ })
       expect(btn.hasAttribute('disabled')).toBe(true)
     })
 
     it('Verify Connection button is enabled when fields are filled', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'server1' } })
@@ -289,6 +291,7 @@ describe('ManagedHostsCard', () => {
     it('calls onAdd with capabilities when Verify Connection is clicked', () => {
       const onAdd = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ onAdd })} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: '  server1  ' } })
@@ -306,9 +309,9 @@ describe('ManagedHostsCard', () => {
 
     it('Verify Connection button is disabled while isAdding', () => {
       render(<ManagedHostsCardView {...makeProps({ isAdding: true })} />)
-      // Navigate to verify step — need to click Next twice
-      // But buttons may be disabled while isAdding...
+      // Navigate to verify step — capabilities -> compose -> configuration -> verify
       // The Next button is not disabled by isAdding, only Back and Verify are
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       const btn = screen.getByRole('button', { name: /Verify Connection/ })

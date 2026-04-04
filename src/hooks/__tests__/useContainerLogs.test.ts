@@ -215,7 +215,9 @@ describe('useContainerLogs', () => {
         }),
       );
 
-      // Each error closes and reconnects (setTimeout fires immediately)
+      // 6 iterations = initial connection failure + MAX_RECONNECT_ATTEMPTS (5) retry failures.
+      // Each onerror closes the current EventSource and (via the immediate setTimeout mock)
+      // immediately opens a new one, so we always call onerror on the latest instance.
       for (let i = 0; i < 6; i++) {
         const es = MockEventSource.instances[MockEventSource.instances.length - 1];
         act(() => { es.onerror?.(); });

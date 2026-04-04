@@ -46,6 +46,11 @@ export function useEventSource<T>({
   useEffect(() => {
     let mounted = true;
 
+    // Reset retry budget and error state on each (re-)subscribe so a new URL
+    // starts fresh rather than inheriting exhausted retry state from a prior URL.
+    reconnectAttemptsRef.current = 0;
+    setError(null);
+
     const connect = () => {
       if (!mounted) return;
 
@@ -84,7 +89,7 @@ export function useEventSource<T>({
 
             onDataRef.current(data);
           } catch (err) {
-            console.error('[useEventSource] Failed to parse message:', err, 'Raw data:', event.data?.slice(0, 200));
+            console.error('[useEventSource] Failed to parse message:', err, `payload length=${event.data?.length ?? 0}`);
           }
         }
       };

@@ -130,7 +130,7 @@ function StackNavItem({ name, icon, containerCount }: { name: string; icon: stri
         <img src={iconUrl} alt="" className="w-4 h-4 rounded-sm" />
       ) : (
         <span className="w-4 h-4 rounded-sm bg-[var(--mui-palette-action-disabledBackground)] flex items-center justify-center text-[10px] font-bold opacity-50">
-          {name[0].toUpperCase()}
+          {(name.charAt(0) || '?').toUpperCase()}
         </span>
       )}
       <span className="truncate flex-1">{name}</span>
