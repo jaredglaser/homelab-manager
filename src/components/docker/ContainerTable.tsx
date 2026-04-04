@@ -15,7 +15,8 @@ import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functio
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import ContainerDetailPanel from '@/components/docker/ContainerDetailPanel';
-import { PULSE_DURATION_MS, LATE_THRESHOLD_MS } from '@/lib/constants/ui-timing';
+import { usePulseIndicator } from '@/hooks/usePulseIndicator';
+import { buildContainerChartData, type ChartDataPoint, type SparklineData } from '@/hooks/useContainerChartData';
 
 export const DOCKER_ENTITY_ICONS_QUERY_KEY = ['docker-entity-icons'] as const;
 
@@ -32,30 +33,11 @@ export interface DockerTableRow {
   container?: DockerStatsFromDB;
   chartData?: DockerStatsRow[];
   /** Pre-computed sparkline data for container rows */
-  sparklineData?: SparklineDataSet;
+  sparklineData?: SparklineData;
   /** Pre-computed chart data points for container detail panel */
   dataPoints?: ChartDataPoint[];
   /** Tree children: containers under a host */
   children?: DockerTableRow[];
-}
-
-interface SparklineDataSet {
-  cpu: { timestamp: number; value: number }[];
-  memory: { timestamp: number; value: number }[];
-  blockRead: { timestamp: number; value: number }[];
-  blockWrite: { timestamp: number; value: number }[];
-  networkRx: { timestamp: number; value: number }[];
-  networkTx: { timestamp: number; value: number }[];
-}
-
-interface ChartDataPoint {
-  timestamp: number;
-  cpuPercent: number;
-  memoryPercent: number;
-  blockIoReadBytesPerSec: number;
-  blockIoWriteBytesPerSec: number;
-  networkRxBytesPerSec: number;
-  networkTxBytesPerSec: number;
 }
 
 const METRIC_GROUPS: MetricGroup[] = [
@@ -174,7 +156,7 @@ export default function ContainerTable({
 
       const children: DockerTableRow[] = containers.map((c) => {
         const chartData = chartDataByServiceKey.get(c.data.serviceKeyEntity) ?? [];
-        const { sparklineData, dataPoints } = computeSparklineAndChartData(chartData);
+        const { sparklineData, dataPoints } = buildContainerChartData(chartData);
 
         return {
           type: 'container' as const,
@@ -470,47 +452,6 @@ export default function ContainerTable({
 }
 
 /**
- * Pre-compute sparkline and chart data from raw DockerStatsRow entries.
- * Done outside the component tree so it can be memoized at the data level.
- */
-function computeSparklineAndChartData(chartData: DockerStatsRow[]): {
-  sparklineData: SparklineDataSet;
-  dataPoints: ChartDataPoint[];
-} {
-  const cpu: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const memory: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const blockRead: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const blockWrite: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const networkRx: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const networkTx: { timestamp: number; value: number }[] = new Array(chartData.length);
-  const points: ChartDataPoint[] = new Array(chartData.length);
-
-  for (let i = 0; i < chartData.length; i++) {
-    const row = chartData[i];
-    const timestamp = new Date(row.time).getTime();
-    const cpuPercent = row.cpu_percent ?? 0;
-    const memoryPercent = row.memory_percent ?? 0;
-    const blockIoRead = row.block_io_read_bytes_per_sec ?? 0;
-    const blockIoWrite = row.block_io_write_bytes_per_sec ?? 0;
-    const netRx = row.network_rx_bytes_per_sec ?? 0;
-    const netTx = row.network_tx_bytes_per_sec ?? 0;
-
-    cpu[i] = { timestamp, value: cpuPercent };
-    memory[i] = { timestamp, value: memoryPercent };
-    blockRead[i] = { timestamp, value: blockIoRead };
-    blockWrite[i] = { timestamp, value: blockIoWrite };
-    networkRx[i] = { timestamp, value: netRx };
-    networkTx[i] = { timestamp, value: netTx };
-    points[i] = { timestamp, cpuPercent, memoryPercent, blockIoReadBytesPerSec: blockIoRead, blockIoWriteBytesPerSec: blockIoWrite, networkRxBytesPerSec: netRx, networkTxBytesPerSec: netTx };
-  }
-
-  return {
-    sparklineData: { cpu, memory, blockRead, blockWrite, networkRx, networkTx },
-    dataPoints: points,
-  };
-}
-
-/**
  * Nested DataTable for container rows within an expanded host.
  * Detail panel renders inline with MUI Collapse animation.
  */
@@ -630,51 +571,11 @@ function ContainerNameCell({
     setIconError(false);
   }, [iconUrl]);
 
-  // Pulse indicator refs
   const lastUpdated = row.chartData && row.chartData.length > 0
     ? new Date(row.chartData[row.chartData.length - 1].time)
     : undefined;
   const lastUpdatedMs = lastUpdated?.getTime() ?? 0;
-  const lastUpdatedMsRef = useRef(lastUpdatedMs);
-
-  const indicatorRef = useRef<HTMLDivElement>(null);
-  const pingRef = useRef<HTMLDivElement>(null);
-  const dotRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (lastUpdatedMs > 0 && lastUpdatedMs !== lastUpdatedMsRef.current) {
-      lastUpdatedMsRef.current = lastUpdatedMs;
-
-      const indicator = indicatorRef.current;
-      if (indicator) indicator.title = `Last updated: ${new Date(lastUpdatedMs).toLocaleTimeString()}`;
-
-      const ping = pingRef.current;
-      const dot = dotRef.current;
-      if (ping) { ping.classList.add('opacity-100', 'animate-ping'); ping.classList.remove('opacity-0'); }
-      if (ping && dot) {
-        ping.style.backgroundColor = 'var(--indicator-active)';
-        dot.style.backgroundColor = 'var(--indicator-active)';
-      }
-
-      const pulseTimer = setTimeout(() => {
-        if (ping) { ping.classList.remove('opacity-100', 'animate-ping'); ping.classList.add('opacity-0'); }
-      }, PULSE_DURATION_MS);
-      const age = Date.now() - lastUpdatedMs;
-      const lateDelay = Math.max(LATE_THRESHOLD_MS - age, 0);
-      if (lateDelay === 0) {
-        if (ping) ping.style.backgroundColor = 'var(--indicator-late)';
-        if (dot) dot.style.backgroundColor = 'var(--indicator-late)';
-      }
-      const lateTimer = lateDelay > 0 ? setTimeout(() => {
-        if (ping) ping.style.backgroundColor = 'var(--indicator-late)';
-        if (dot) dot.style.backgroundColor = 'var(--indicator-late)';
-      }, lateDelay) : undefined;
-      return () => {
-        clearTimeout(pulseTimer);
-        clearTimeout(lateTimer);
-      };
-    }
-  }, [lastUpdatedMs]);
+  const { indicatorRef, pingRef, dotRef } = usePulseIndicator(lastUpdatedMs);
 
   const handleIconSelect = async (iconSlug: string) => {
     try {
