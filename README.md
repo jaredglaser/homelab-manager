@@ -14,6 +14,9 @@
 > [!WARNING]
 > This project is a **work in progress**. Features are incomplete, APIs may change, and the codebase is under active development. See [Roadmap](#roadmap) for planned features.
 
+> [!WARNING]
+> **Stack management and agent functionality are currently unstable and under active development.** Expect breaking changes, incomplete features, and rough edges. Use at your own risk.
+
 ## Overview
 
 Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Docker hosts, Proxmox clusters, and Docker Compose stacks from a single interface. Agent sidecars on each managed host stream stats into TimescaleDB, and the frontend streams them in real time via Server-Sent Events.

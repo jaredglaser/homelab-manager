@@ -3,6 +3,9 @@
 A real-time monitoring dashboard for Docker containers, ZFS pools, and Proxmox VE clusters.
 
 > [!WARNING]
+> **Stack management and agent functionality are currently unstable and under active development.** Expect breaking changes, incomplete features, and rough edges. Use at your own risk.
+
+> [!WARNING]
 > **Do not expose this dashboard to the public internet.** There is no built-in authentication - anyone who can reach the port can view your infrastructure and change settings. The service is not hardened for untrusted networks. Keep it on your LAN, and ideally isolate it further with a dedicated lab VLAN or a firewall rule that restricts access to specific hosts.
 >
 > For remote access, use a VPN tunnel back to your home network rather than port-forwarding. [Tailscale](https://tailscale.com) and [WireGuard](https://www.wireguard.com) are both solid options: install the client on your phone or laptop, connect to your homelab's VPN, and access the dashboard at its local IP as if you were home.
