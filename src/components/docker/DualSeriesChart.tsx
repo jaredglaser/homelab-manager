@@ -1,10 +1,10 @@
 import { memo, useMemo, useRef } from 'react';
-import { Paper, Typography } from '@mui/material';
+import { Paper, Typography, useTheme } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useSettings } from '@/hooks/useSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
-import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
+import { resolveChartColors, resolveChartChromeColors, type ChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis, type YAxisMode } from '@/lib/charts/y-axis';
 
 interface DataPoint {
@@ -32,6 +32,7 @@ export function getChartOption(
   formatValue: (value: number) => string,
   use12HourTime: boolean,
   windowMs: number,
+  chrome: ChartChromeColors,
 ): EChartsOption {
   const now = Date.now();
 
@@ -47,7 +48,6 @@ export function getChartOption(
 
   const colors0 = resolveChartColors(series[0].colorVar);
   const colors1 = resolveChartColors(series[1].colorVar);
-  const chrome = resolveChartChromeColors();
 
   const timeFormatOpts: Intl.DateTimeFormatOptions = {
     hour: '2-digit',
@@ -183,10 +183,12 @@ export default memo(function DualSeriesChart({
   formatValue,
 }: DualSeriesChartProps) {
   const { general, docker } = useSettings();
+  const theme = useTheme();
   const windowMs = docker.chartWindowSeconds * 1000;
+  const chrome = useMemo(() => resolveChartChromeColors(), [theme.palette.mode]);
   const option = useMemo(
-    () => getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs),
-    [series, yAxisMode, formatValue, general.use12HourTime, windowMs],
+    () => getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome),
+    [series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome],
   );
   const chartRef = useRef<ReactECharts>(null);
 
