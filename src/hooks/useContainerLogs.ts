@@ -95,7 +95,7 @@ export function useContainerLogs({
           }
           scheduleFlush();
         } catch (err) {
-          console.error('[useContainerLogs] Failed to parse message:', err, 'Raw data:', event.data?.slice(0, 200));
+          console.error('[useContainerLogs] Failed to parse message:', err instanceof Error ? err.message : String(err), `payloadLength=${String(event.data ?? '').length}`);
         }
       };
 

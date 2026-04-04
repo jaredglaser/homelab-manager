@@ -142,7 +142,8 @@ export async function handleUpdateAgent(
   // 3. Trigger update on agent
   let triggerResponse: Response;
   try {
-    triggerResponse = await fetch(`${host.agent_url}/agent/update`, {
+    const agentBaseUrl = host.agent_url.replace(/\/+$/, '');
+    triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     });

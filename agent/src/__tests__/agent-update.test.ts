@@ -1,10 +1,9 @@
-import { describe, expect, test, mock, beforeAll, spyOn } from 'bun:test';
+import { describe, expect, test, mock, afterAll, spyOn } from 'bun:test';
 import type Dockerode from 'dockerode';
 import { handleAgentUpdate } from '../routes/agent-update';
 
-beforeAll(() => {
-  console.error = mock(() => {});
-});
+const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+afterAll(() => errorSpy.mockRestore());
 
 function createMockDocker() {
   const mockContainer = {
@@ -139,8 +138,6 @@ describe('handleAgentUpdate', () => {
     const mockDocker = createMockDocker();
     mockDocker._container.inspect = mock(() => Promise.reject(new Error('inspect failed')));
     mockDocker.getContainer = mock(() => mockDocker._container);
-
-    const errorSpy = spyOn(console, 'error');
 
     const res = await handleAgentUpdate(mockDocker as unknown as Dockerode, 'hlm-agent');
     expect(res.status).toBe(202);

@@ -7,12 +7,10 @@ describe('loadGitConfig', () => {
 
   beforeEach(() => {
     delete process.env.GIT_REPOS_DIR;
-    delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
   });
 
   afterEach(() => {
     delete process.env.GIT_REPOS_DIR;
-    delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
     Object.assign(process.env, originalEnv);
   });
 
@@ -41,22 +39,5 @@ describe('loadGitConfig', () => {
   it('should reject empty or whitespace-only values', () => {
     process.env.GIT_REPOS_DIR = '   ';
     expect(() => loadGitConfig()).toThrow();
-  });
-
-  it('should set enabled to true when DOCKER_MANAGEMENT_FEATURE_FLAG is true', () => {
-    process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
-    const config = loadGitConfig();
-    expect(config.enabled).toBe(true);
-  });
-
-  it('should set enabled to false when DOCKER_MANAGEMENT_FEATURE_FLAG is not set', () => {
-    const config = loadGitConfig();
-    expect(config.enabled).toBe(false);
-  });
-
-  it('should set enabled to false for non-true values of DOCKER_MANAGEMENT_FEATURE_FLAG', () => {
-    process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'false';
-    const config = loadGitConfig();
-    expect(config.enabled).toBe(false);
   });
 });

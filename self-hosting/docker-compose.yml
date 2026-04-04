@@ -96,7 +96,6 @@ services:
         condition: service_healthy
       openbao:
         condition: service_healthy
-        required: false
     deploy:
       resources:
         limits:
@@ -116,7 +115,7 @@ services:
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       GIT_REPOS_DIR: "/data/repos"
       GIT_SERVER_TOKEN: ${GIT_SERVER_TOKEN}
-      DOCKER_MANAGEMENT_FEATURE_FLAG: ${DOCKER_MANAGEMENT_FEATURE_FLAG:-false}
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -127,7 +126,6 @@ services:
         condition: service_healthy
       openbao:
         condition: service_healthy
-        required: false
     deploy:
       resources:
         limits:

@@ -77,7 +77,6 @@ function DemoBanner() {
   if (!visible) return null
   return (
     <div className="absolute left-1/2 -translate-x-1/2 top-full pt-2 pointer-events-auto w-fit">
-      <div className="mx-auto max-w-5xl">
       <Alert severity="info" onClose={() => setVisible(false)}>
         <strong>Demo mode</strong> &mdash; all data is generated in the browser.
         {' '}Self-host to connect to your own infrastructure.
@@ -90,7 +89,6 @@ function DemoBanner() {
           GitHub
         </MuiLink>
       </Alert>
-      </div>
     </div>
   )
 }

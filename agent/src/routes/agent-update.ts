@@ -38,22 +38,24 @@ export async function handleAgentUpdate(docker: Dockerode | null, containerName:
       const newContainer = await docker.createContainer({
         name: containerName,
         Image: image,
+        Cmd: inspectData.Config.Cmd ?? undefined,
+        Entrypoint: inspectData.Config.Entrypoint ?? undefined,
         Env: inspectData.Config.Env ?? [],
         ExposedPorts: inspectData.Config.ExposedPorts,
-        HostConfig: {
-          Binds: inspectData.HostConfig.Binds,
-          PortBindings: inspectData.HostConfig.PortBindings,
-          RestartPolicy: inspectData.HostConfig.RestartPolicy,
-          NetworkMode: inspectData.HostConfig.NetworkMode,
-        },
+        Labels: inspectData.Config.Labels ?? {},
+        HostConfig: inspectData.HostConfig,
       });
 
       await newContainer.start();
 
-      const networks = inspectData.NetworkSettings.Networks as Record<string, unknown>;
-      for (const networkName of Object.keys(networks)) {
-        if (networkName === inspectData.HostConfig.NetworkMode) continue;
-        await docker.getNetwork(networkName).connect({ Container: newContainer.id });
+      const networkMode = inspectData.HostConfig.NetworkMode ?? '';
+      const skipNetwork = networkMode === 'host' || networkMode === 'none' || networkMode.startsWith('container:');
+      if (!skipNetwork) {
+        const networks = inspectData.NetworkSettings.Networks as Record<string, unknown>;
+        for (const networkName of Object.keys(networks)) {
+          if (networkName === networkMode) continue;
+          await docker.getNetwork(networkName).connect({ Container: newContainer.id });
+        }
       }
     } catch (error) {
       console.error('Agent self-update failed:', error);

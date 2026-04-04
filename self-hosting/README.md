@@ -165,7 +165,6 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DOCKER_MANAGEMENT_FEATURE_FLAG` | `false` | Set to `true` to enable the Stacks UI |
 | `GIT_SERVER_TOKEN` | - | Token for authenticating git pushes to the built-in git server |
 
 > **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. The agent's auth token is stored in OpenBao (the `openbao` service in this compose) and never written to disk outside of it.
@@ -239,8 +238,7 @@ PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 WORKER_PROXMOX_ENABLED=true
 # WORKER_COLLECTION_INTERVAL_MS=1000
 
-# Stack management (optional)
-# DOCKER_MANAGEMENT_FEATURE_FLAG=true
+# Stack management
 # GIT_SERVER_TOKEN=a-random-token-for-git-auth
 ```
 
