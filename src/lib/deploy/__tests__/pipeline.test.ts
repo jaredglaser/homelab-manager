@@ -66,7 +66,7 @@ const testHost: ManagedHost = {
   id: 1,
   name: 'homeserver',
   agentUrl: 'http://agent:9090',
-  socketProxyUrl: 'tcp://proxy:2375',
+  capabilities: { docker: true },
   agentVersion: '0.1.0',
   status: 'healthy',
   createdAt: new Date(),
@@ -245,7 +245,7 @@ describe('DeployPipeline', () => {
       expect(resolver.resolve).toHaveBeenCalledWith('plex', ['API_TOKEN']);
       // Verify the resolved secret was passed to the agent deploy call
       const deployCall = (mockAgent.deploy as ReturnType<typeof mock>).mock.calls[0] as [any];
-      expect(deployCall[0].envContent).toContain('API_TOKEN=secret-value');
+      expect(deployCall[0].envContent).toContain("API_TOKEN='secret-value'");
     });
 
     it('sanitizes newlines in secret values when building env content', async () => {
@@ -267,7 +267,7 @@ describe('DeployPipeline', () => {
 
       await pipeline.execute(requestWithVars);
       const deployCall = (mockAgent.deploy as ReturnType<typeof mock>).mock.calls[0] as [any];
-      expect(deployCall[0].envContent).toBe('PEM_KEY=line1line2line3');
+      expect(deployCall[0].envContent).toBe("PEM_KEY='line1line2line3'");
     });
 
     it('deduplicates pending deploys for the same stack', async () => {
@@ -331,6 +331,61 @@ describe('DeployPipeline', () => {
       const result = await pipeline.execute(testRequest);
       expect(result.status).toBe('failed');
       expect(result.logs).toBe('string error');
+    });
+
+    it('continues and returns correct result when notifyStackChange rejects', async () => {
+      deployRepo = createMockDeployRepo({
+        notifyStackChange: mock().mockRejectedValue(new Error('pg notify failed')) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('succeeded');
+      expect(result.logs).toBe('deployed ok');
+    });
+
+    it('skips detectChanges and proceeds when trigger is manual_rollback', async () => {
+      const rollbackRequest: DeployRequest = {
+        ...testRequest,
+        trigger: 'manual_rollback',
+      };
+      // getLatestSuccessful would reveal a matching previous deploy, but detectChanges
+      // should never be called for manual_rollback triggers
+      const { computeHash } = await import('../change-detection');
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue({
+          id: 99,
+          stack: 'plex',
+          host: 'homeserver',
+          commitSha: 'prev',
+          composeHash: computeHash(testRequest.composeContent),
+          envHash: computeHash(testRequest.envContent),
+          status: 'succeeded' as const,
+          trigger: 'git_push' as const,
+          action: 'deploy' as const,
+          forceRecreate: false,
+          logs: null,
+          createdAt: new Date(),
+        }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+      });
+
+      const result = await pipeline.execute(rollbackRequest);
+      // Change detection is bypassed — deploy should proceed even though hashes match
+      expect(result.status).toBe('succeeded');
+      expect(deployRepo.getLatestSuccessful).not.toHaveBeenCalled();
     });
   });
 

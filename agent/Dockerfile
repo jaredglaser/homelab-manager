@@ -1,7 +1,8 @@
 # Toolchain stage — downloads Docker CLI + Compose (cached independently)
 FROM oven/bun:1 AS toolchain
 
-ARG DOCKER_CLI_VERSION=24.0.9
+# Pin versions for reproducible builds
+ARG DOCKER_CLI_VERSION=27.5.1
 ARG DOCKER_COMPOSE_VERSION=2.32.4
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]

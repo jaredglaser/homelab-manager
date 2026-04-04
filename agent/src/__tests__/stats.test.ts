@@ -1,6 +1,6 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { handleStatsStream, type StatsStreamOptions } from '../routes/stats';
+import { handleStatsStream, computeMetrics, type StatsStreamOptions, type ComputedStats } from '../routes/stats';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -31,13 +31,174 @@ async function readUntil(
   return text;
 }
 
-function makeStatsJson() {
-  return JSON.stringify({
-    cpu_stats: { cpu_usage: { total_usage: 1000 }, system_cpu_usage: 10000, online_cpus: 2 },
-    memory_stats: { usage: 256 * 1024 * 1024, limit: 1024 * 1024 * 1024 },
-    networks: { eth0: { rx_bytes: 1000, tx_bytes: 500 } },
-  });
+function makeStatsJson(overrides?: {
+  cpuTotal?: number;
+  preCpuTotal?: number;
+  systemCpu?: number;
+  preSystemCpu?: number;
+  onlineCpus?: number;
+  memUsage?: number;
+  memLimit?: number;
+  rxBytes?: number;
+  txBytes?: number;
+  blkioRead?: number;
+  blkioWrite?: number;
+  read?: string;
+  networks?: Record<string, unknown> | null;
+  blkioStats?: Record<string, unknown> | null;
+}) {
+  const o = overrides ?? {};
+  const base: Record<string, unknown> = {
+    read: o.read ?? '2026-03-29T12:00:00.000000000Z',
+    cpu_stats: {
+      cpu_usage: { total_usage: o.cpuTotal ?? 2000 },
+      system_cpu_usage: o.systemCpu ?? 20000,
+      online_cpus: o.onlineCpus ?? 2,
+    },
+    precpu_stats: {
+      cpu_usage: { total_usage: o.preCpuTotal ?? 1000 },
+      system_cpu_usage: o.preSystemCpu ?? 10000,
+    },
+    memory_stats: {
+      usage: o.memUsage ?? 256 * 1024 * 1024,
+      limit: o.memLimit ?? 1024 * 1024 * 1024,
+    },
+  };
+
+  // Allow explicit null to omit networks entirely
+  if (o.networks === null) {
+    // no networks key
+  } else {
+    base.networks = o.networks ?? { eth0: { rx_bytes: o.rxBytes ?? 1000, tx_bytes: o.txBytes ?? 500 } };
+  }
+
+  // Allow explicit null to omit blkio_stats entirely
+  if (o.blkioStats === null) {
+    // no blkio_stats key
+  } else {
+    base.blkio_stats = o.blkioStats ?? {
+      io_service_bytes_recursive: [
+        { op: 'Read', value: o.blkioRead ?? 4096 },
+        { op: 'Write', value: o.blkioWrite ?? 2048 },
+      ],
+    };
+  }
+
+  return JSON.stringify(base);
 }
+
+/** Parse a flat ComputedStats from SSE text. */
+function parseStatsEvent(text: string): ComputedStats {
+  const dataEvent = text.split('\n\n').filter(Boolean).find(e => e.includes('"containerId"'));
+  if (!dataEvent) throw new Error('No containerId event found in SSE text');
+  return JSON.parse(dataEvent.replace(/^data:\s*/, ''));
+}
+
+describe('computeMetrics (unit)', () => {
+  test('computes CPU percent from delta / system delta * online CPUs * 100', () => {
+    const stats = JSON.parse(makeStatsJson({ cpuTotal: 3000, preCpuTotal: 1000, systemCpu: 20000, preSystemCpu: 10000, onlineCpus: 4 }));
+    const prevFrames = new Map();
+    const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
+    // cpuDelta=2000, systemDelta=10000 → (2000/10000)*4*100 = 80
+    expect(result.cpuPercent).toBe(80);
+  });
+
+  test('returns 0 CPU when system delta is 0', () => {
+    const stats = JSON.parse(makeStatsJson({ systemCpu: 10000, preSystemCpu: 10000 }));
+    const prevFrames = new Map();
+    const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
+    expect(result.cpuPercent).toBe(0);
+  });
+
+  test('computes memory usage and percent', () => {
+    const stats = JSON.parse(makeStatsJson({ memUsage: 512 * 1024 * 1024, memLimit: 1024 * 1024 * 1024 }));
+    const prevFrames = new Map();
+    const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
+    expect(result.memoryUsage).toBe(512 * 1024 * 1024);
+    expect(result.memoryLimit).toBe(1024 * 1024 * 1024);
+    expect(result.memoryPercent).toBe(50);
+  });
+
+  test('returns 0 memory percent when limit is 0', () => {
+    const stats = JSON.parse(makeStatsJson({ memUsage: 100, memLimit: 0 }));
+    const prevFrames = new Map();
+    const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
+    expect(result.memoryPercent).toBe(0);
+  });
+
+  test('emits 0 rates on first frame', () => {
+    const stats = JSON.parse(makeStatsJson({ rxBytes: 5000, txBytes: 3000 }));
+    const prevFrames = new Map();
+    const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
+    expect(result.networkRxBytesPerSec).toBe(0);
+    expect(result.networkTxBytesPerSec).toBe(0);
+    expect(result.blockReadBytesPerSec).toBe(0);
+    expect(result.blockWriteBytesPerSec).toBe(0);
+  });
+
+  test('computes correct rates on second frame', () => {
+    const prevFrames = new Map();
+    const frame1 = JSON.parse(makeStatsJson({
+      rxBytes: 1000, txBytes: 500, blkioRead: 4096, blkioWrite: 2048,
+      read: '2026-03-29T12:00:00.000000000Z',
+    }));
+    computeMetrics('c1', 'test', 'img', frame1, prevFrames);
+
+    const frame2 = JSON.parse(makeStatsJson({
+      rxBytes: 3000, txBytes: 1500, blkioRead: 8192, blkioWrite: 4096,
+      read: '2026-03-29T12:00:02.000000000Z',
+    }));
+    const result = computeMetrics('c1', 'test', 'img', frame2, prevFrames);
+
+    // 2 second delta: (3000-1000)/2 = 1000, (1500-500)/2 = 500
+    expect(result.networkRxBytesPerSec).toBe(1000);
+    expect(result.networkTxBytesPerSec).toBe(500);
+    // (8192-4096)/2 = 2048, (4096-2048)/2 = 1024
+    expect(result.blockReadBytesPerSec).toBe(2048);
+    expect(result.blockWriteBytesPerSec).toBe(1024);
+  });
+
+  test('handles missing networks gracefully', () => {
+    const stats = JSON.parse(makeStatsJson({ networks: null }));
+    const prevFrames = new Map();
+    const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
+    expect(result.networkRxBytesPerSec).toBe(0);
+    expect(result.networkTxBytesPerSec).toBe(0);
+  });
+
+  test('handles missing blkio_stats gracefully', () => {
+    const stats = JSON.parse(makeStatsJson({ blkioStats: null }));
+    const prevFrames = new Map();
+    const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
+    expect(result.blockReadBytesPerSec).toBe(0);
+    expect(result.blockWriteBytesPerSec).toBe(0);
+  });
+
+  test('uses stats.read as timestamp', () => {
+    const ts = '2026-03-29T15:30:00.000000000Z';
+    const stats = JSON.parse(makeStatsJson({ read: ts }));
+    const prevFrames = new Map();
+    const result = computeMetrics('c1', 'test', 'img', stats, prevFrames);
+    expect(result.timestamp).toBe(ts);
+  });
+
+  test('per-container previous frames are independent', () => {
+    const prevFrames = new Map();
+    const frame1a = JSON.parse(makeStatsJson({ rxBytes: 1000, read: '2026-03-29T12:00:00.000000000Z' }));
+    const frame1b = JSON.parse(makeStatsJson({ rxBytes: 5000, read: '2026-03-29T12:00:00.000000000Z' }));
+    computeMetrics('c1', 'a', 'img', frame1a, prevFrames);
+    computeMetrics('c2', 'b', 'img', frame1b, prevFrames);
+
+    const frame2a = JSON.parse(makeStatsJson({ rxBytes: 3000, read: '2026-03-29T12:00:01.000000000Z' }));
+    const frame2b = JSON.parse(makeStatsJson({ rxBytes: 9000, read: '2026-03-29T12:00:01.000000000Z' }));
+    const resultA = computeMetrics('c1', 'a', 'img', frame2a, prevFrames);
+    const resultB = computeMetrics('c2', 'b', 'img', frame2b, prevFrames);
+
+    // c1: (3000-1000)/1 = 2000, c2: (9000-5000)/1 = 4000
+    expect(resultA.networkRxBytesPerSec).toBe(2000);
+    expect(resultB.networkRxBytesPerSec).toBe(4000);
+  });
+});
 
 describe('handleStatsStream', () => {
   test('returns SSE response with correct headers and 200 status', () => {
@@ -50,7 +211,7 @@ describe('handleStatsStream', () => {
     expect(response.headers.get('Connection')).toBe('keep-alive');
   });
 
-  test('streams raw Docker stats frames as SSE events', async () => {
+  test('streams flat computed stats as SSE events', async () => {
     const statsEmitter = new EventEmitter();
 
     const container = {
@@ -78,15 +239,22 @@ describe('handleStatsStream', () => {
     ac.abort();
 
     expect(text).toContain('data:');
-    const dataEvent = text.split('\n\n').filter(Boolean).find(e => e.includes('"containerId"'));
-    expect(dataEvent).toBeDefined();
-    const parsed = JSON.parse(dataEvent!.replace(/^data:\s*/, ''));
+    const parsed = parseStatsEvent(text);
 
     expect(parsed.containerId).toBe('abc123def456');
     expect(parsed.containerName).toBe('my-container');
     expect(parsed.image).toBe('nginx:latest');
-    expect(parsed.stats.cpu_stats).toBeDefined();
-    expect(parsed.stats.memory_stats).toBeDefined();
+    expect(typeof parsed.cpuPercent).toBe('number');
+    expect(typeof parsed.memoryUsage).toBe('number');
+    expect(typeof parsed.memoryLimit).toBe('number');
+    expect(typeof parsed.memoryPercent).toBe('number');
+    expect(typeof parsed.networkRxBytesPerSec).toBe('number');
+    expect(typeof parsed.networkTxBytesPerSec).toBe('number');
+    expect(typeof parsed.blockReadBytesPerSec).toBe('number');
+    expect(typeof parsed.blockWriteBytesPerSec).toBe('number');
+    expect(typeof parsed.timestamp).toBe('string');
+    // Should NOT have nested stats object
+    expect((parsed as any).stats).toBeUndefined();
   });
 
   test('closes stream and destroys Docker streams on abort', async () => {
@@ -265,9 +433,7 @@ describe('handleStatsStream', () => {
     const text = await readUntil(response, (s) => s.includes('"containerId"'));
     ac.abort();
 
-    const dataEvent = text.split('\n\n').filter(Boolean).find(e => e.includes('"containerId"'));
-    expect(dataEvent).toBeDefined();
-    const parsed = JSON.parse(dataEvent!.replace(/^data:\s*/, ''));
+    const parsed = parseStatsEvent(text);
     expect(parsed.containerName).toBe('noname123');
   });
 
@@ -371,7 +537,7 @@ describe('handleStatsStream — container refresh', () => {
     expect(text).toContain('"c2"');
   });
 
-  test('destroys streams for removed containers', async () => {
+  test('destroys streams for removed containers and cleans up previous frames', async () => {
     const container1 = { Id: 'rm1', Names: ['/removeme'], Image: 'x:latest' };
     const emitter1 = new EventEmitter();
     const destroySpy = mock(() => {});
@@ -393,8 +559,16 @@ describe('handleStatsStream — container refresh', () => {
     const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
     const response = handleStatsStream(mockDocker as any, request, fastOptions);
 
-    // Wait for initial + refresh
-    const text = await readUntil(response, (s) => s.includes('event: containers'), 2000);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Emit a stats frame so prevFrames has an entry for rm1
+    emitter1.emit('data', Buffer.from(makeStatsJson() + '\n'));
+
+    // Wait for refresh cycle to remove the container
+    const text = await readUntil(response, (s) => {
+      const containerEvents = s.match(/event: containers/g);
+      return (containerEvents?.length ?? 0) >= 2;
+    }, 2000);
     ac.abort();
 
     expect(destroySpy).toHaveBeenCalledTimes(1);

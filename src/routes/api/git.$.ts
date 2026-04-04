@@ -59,10 +59,6 @@ export const Route = createFileRoute('/api/git/$')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
-          return new Response('Not Found', { status: 404 });
-        }
-
         const authError = authenticateRequest(request);
         if (authError) return authError;
 
@@ -101,10 +97,6 @@ export const Route = createFileRoute('/api/git/$')({
       },
 
       POST: async ({ request }) => {
-        if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
-          return new Response('Not Found', { status: 404 });
-        }
-
         const authError = authenticateRequest(request);
         if (authError) return authError;
 
@@ -153,21 +145,13 @@ export const Route = createFileRoute('/api/git/$')({
           // Post-receive: diff and trigger deploys (non-blocking)
           const newHead = await getHeadOid(repoPath);
           if (oldHead && newHead && oldHead !== newHead) {
-            processPostReceive(repoPath, oldHead, newHead)
-              .then((requests) => {
-                if (requests.length > 0) {
-                  console.info(
-                    `[GitServer] Post-receive generated ${requests.length} deploy request(s)`,
-                  );
-                }
-              })
-              .catch((err) => {
-                console.error(
-                  `[GitServer] Post-receive failed for ${oldHead}..${newHead}:`,
-                  err instanceof Error ? err.message : err,
-                  err instanceof Error ? err.stack : '',
-                );
-              });
+            processPostReceive(repoPath, oldHead, newHead).catch((err) => {
+              console.error(
+                `[GitServer] Post-receive failed for ${oldHead}..${newHead}:`,
+                err instanceof Error ? err.message : err,
+                err instanceof Error ? err.stack : '',
+              );
+            });
           }
 
           return response;

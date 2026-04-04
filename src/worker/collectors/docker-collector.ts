@@ -15,7 +15,7 @@ export class DockerCollector extends BaseCollector {
   readonly name: string;
   private readonly calculator = new DockerRateCalculator();
   private readonly hostConfig: DockerHostConfig;
-  private knownContainers = new Map<string, { name: string; image: string; serviceKey: string }>();
+  private readonly knownContainers = new Map<string, { name: string; image: string; serviceKey: string }>();
 
   constructor(
     db: DatabaseClient,
@@ -60,14 +60,14 @@ export class DockerCollector extends BaseCollector {
       const known = this.knownContainers.get(containerInfo.Id);
 
       // Upsert name/image only when they actually changed
-      if (!known || known.name !== containerName || known.image !== containerInfo.Image) {
+      if (known?.name !== containerName || known.image !== containerInfo.Image) {
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', containerName);
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', containerInfo.Image);
         metadataUpdates++;
       }
 
       // Upsert service_key and attempt migration only when serviceKey changed
-      if (!known || known.serviceKey !== serviceKey) {
+      if (known?.serviceKey !== serviceKey) {
         await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', serviceKey);
         // When compose labels appear (or the service_key changes), migrate old name-only entries
         // so history and icons accumulated before adding labels are linked to the new key.

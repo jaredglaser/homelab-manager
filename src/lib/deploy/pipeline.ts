@@ -58,17 +58,23 @@ export class DeployPipeline {
       envHash = changeResult.envHash;
 
       if (!changeResult.changed && !request.forceRecreate) {
-        const deployId = await this.deployRepo.insertDeploy({
-          stack: request.stack,
-          host: request.host,
-          commitSha: request.commitSha,
-          composeHash,
-          envHash,
-          status: 'no_change',
-          trigger: request.trigger,
-          action: request.action,
-          forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
-        });
+        let deployId: number | undefined;
+        try {
+          deployId = await this.deployRepo.insertDeploy({
+            stack: request.stack,
+            host: request.host,
+            commitSha: request.commitSha,
+            composeHash,
+            envHash,
+            status: 'no_change',
+            trigger: request.trigger,
+            action: request.action,
+            forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
+          });
+        } catch (err) {
+          console.error(`Failed to insert no_change deploy record for stack "${request.stack}":`, err);
+          return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId: undefined };
+        }
         try {
           await this.deployRepo.notifyStackChange(request.stack, request.host);
         } catch (err) {
@@ -108,7 +114,18 @@ export class DeployPipeline {
     }
 
     // 6. Mark as in_progress
-    await this.deployRepo.updateStatus(deployId, 'in_progress');
+    try {
+      await this.deployRepo.updateStatus(deployId, 'in_progress');
+    } catch (err) {
+      const errorMsg = `Failed to mark deploy as in_progress: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(errorMsg, err);
+      try {
+        await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+      } catch (dbErr) {
+        console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
+      }
+      return { status: 'failed', logs: errorMsg, deployId };
+    }
 
     // 7. Dispatch to agent
     return this.dispatch(host, request, resolvedEnvContent, deployId);
@@ -124,7 +141,18 @@ export class DeployPipeline {
       return { status: 'failed', logs: `Deploy ${deployId} is not in pending state`, deployId };
     }
 
-    await this.deployRepo.updateStatus(deployId, 'in_progress');
+    try {
+      await this.deployRepo.updateStatus(deployId, 'in_progress');
+    } catch (err) {
+      const errorMsg = `Failed to mark deploy as in_progress: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(errorMsg, err);
+      try {
+        await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
+      } catch (dbErr) {
+        console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
+      }
+      return { status: 'failed', logs: errorMsg, deployId };
+    }
 
     let resolvedEnvContent: string;
     try {
@@ -204,7 +232,14 @@ export class DeployPipeline {
 
     // Record result outside try — a DB failure here must not be misattributed to the agent
     const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
-    await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
+    try {
+      await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
+    } catch (err) {
+      console.error(
+        `Failed to record deploy ${deployId} result (actual status: ${finalStatus}) for stack "${request.stack}":`,
+        err,
+      );
+    }
     try {
       await this.deployRepo.notifyStackChange(request.stack, host.name);
     } catch (err) {
@@ -230,7 +265,8 @@ function buildEnvContent(existingEnv: string, secrets: Record<string, string>): 
 
   for (const [key, value] of Object.entries(secrets)) {
     if (!existingKeys.has(key)) {
-      lines.push(`${key}=${value.replaceAll(/[\r\n]/g, '')}`);
+      const sanitized = value.replaceAll(/[\r\n]/g, '').replaceAll("'", "'\\''");
+      lines.push(`${key}='${sanitized}'`);
     }
   }
 

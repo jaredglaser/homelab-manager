@@ -6,6 +6,10 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: "false"
 
+x-openbao-env: &openbao-env
+  OPENBAO_URL: "http://openbao:8200"
+  OPENBAO_TOKEN: ${OPENBAO_TOKEN}
+
 x-docker-env: &docker-env
   DOCKER_HOST_1: ${DOCKER_HOST_1:-}
   DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1:-2375}
@@ -16,29 +20,6 @@ x-docker-env: &docker-env
   DOCKER_HOST_3: ${DOCKER_HOST_3:-}
   DOCKER_HOST_PORT_3: ${DOCKER_HOST_PORT_3:-2375}
   DOCKER_HOST_NAME_3: ${DOCKER_HOST_NAME_3:-}
-
-x-zfs-env: &zfs-env
-  ZFS_HOST_1: ${ZFS_HOST_1:-}
-  ZFS_HOST_PORT_1: ${ZFS_HOST_PORT_1:-22}
-  ZFS_HOST_NAME_1: ${ZFS_HOST_NAME_1:-}
-  ZFS_HOST_USER_1: ${ZFS_HOST_USER_1:-}
-  ZFS_HOST_PASSWORD_1: ${ZFS_HOST_PASSWORD_1:-}
-  ZFS_HOST_KEY_PATH_1: ${ZFS_HOST_KEY_PATH_1:-}
-  ZFS_HOST_KEY_PASSPHRASE_1: ${ZFS_HOST_KEY_PASSPHRASE_1:-}
-  ZFS_HOST_2: ${ZFS_HOST_2:-}
-  ZFS_HOST_PORT_2: ${ZFS_HOST_PORT_2:-22}
-  ZFS_HOST_NAME_2: ${ZFS_HOST_NAME_2:-}
-  ZFS_HOST_USER_2: ${ZFS_HOST_USER_2:-}
-  ZFS_HOST_PASSWORD_2: ${ZFS_HOST_PASSWORD_2:-}
-  ZFS_HOST_KEY_PATH_2: ${ZFS_HOST_KEY_PATH_2:-}
-  ZFS_HOST_KEY_PASSPHRASE_2: ${ZFS_HOST_KEY_PASSPHRASE_2:-}
-  ZFS_HOST_3: ${ZFS_HOST_3:-}
-  ZFS_HOST_PORT_3: ${ZFS_HOST_PORT_3:-22}
-  ZFS_HOST_NAME_3: ${ZFS_HOST_NAME_3:-}
-  ZFS_HOST_USER_3: ${ZFS_HOST_USER_3:-}
-  ZFS_HOST_PASSWORD_3: ${ZFS_HOST_PASSWORD_3:-}
-  ZFS_HOST_KEY_PATH_3: ${ZFS_HOST_KEY_PATH_3:-}
-  ZFS_HOST_KEY_PASSPHRASE_3: ${ZFS_HOST_KEY_PASSPHRASE_3:-}
 
 x-proxmox-env: &proxmox-env
   PROXMOX_HOST: ${PROXMOX_HOST:-}
@@ -69,21 +50,42 @@ services:
     networks:
       - homelab-network
 
+  # OpenBao - secrets storage for managed host agent tokens
+  openbao:
+    image: openbao/openbao
+    container_name: homelab-openbao
+    environment:
+      OPENBAO_TOKEN: ${OPENBAO_TOKEN}
+    volumes:
+      - openbao-data:/openbao/data
+      - ./openbao-entrypoint.sh:/openbao/entrypoint.sh:ro
+      - ./openbao.hcl:/openbao/config/prod.hcl:ro
+    entrypoint: ["/bin/sh", "/openbao/entrypoint.sh"]
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - homelab-network
+
   # Background worker - collects stats from Docker/ZFS hosts and writes to DB
   worker:
     image: ghcr.io/jaredglaser/homelab-manager-worker:latest
     container_name: homelab-worker
     command: bun src/worker/collector.ts
-    volumes:
-      - /mnt/appdata/homelab-manager/keys:/keys:ro
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      <<: [*postgres-env, *openbao-env, *docker-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
-      WORKER_ENABLED: ${WORKER_ENABLED}
-      WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
-      WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
-      WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
-      WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
+      WORKER_ENABLED: ${WORKER_ENABLED:-true}
+      WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED:-true}
+      WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED:-false}
+      WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED:-false}
+      WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS:-1000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -92,21 +94,28 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      openbao:
+        condition: service_healthy
     deploy:
       resources:
         limits:
           memory: 256M
 
-  # Web server - serves the dashboard UI
+  # Web server - serves the dashboard UI and API
   web:
     image: ghcr.io/jaredglaser/homelab-manager-web:latest
     container_name: homelab-web
     ports:
       - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - git-repos:/data/repos
     environment:
-      <<: *postgres-env
+      <<: [*postgres-env, *openbao-env]
       NODE_ENV: production
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
+      GIT_REPOS_DIR: "/data/repos"
+      GIT_SERVER_TOKEN: ${GIT_SERVER_TOKEN}
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -114,6 +123,8 @@ services:
       - homelab-network
     depends_on:
       postgres:
+        condition: service_healthy
+      openbao:
         condition: service_healthy
     deploy:
       resources:
@@ -122,6 +133,8 @@ services:
 
 volumes:
   pgdata:
+  openbao-data:
+  git-repos:
 
 networks:
   homelab-network:

@@ -1,6 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { DockerStatsRow } from '@/types/docker';
 import { BaseCollector } from './base-collector';
 
@@ -24,12 +24,13 @@ interface AgentStatsEvent {
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
-/** Extract the JSON payload from an SSE message, returning null if invalid */
+/** Extract the JSON payload from an SSE message, returning null if invalid.
+ *  Skips named events (e.g. "event: containers") — only default events carry stats data. */
 function extractDataLine(message: string): string | null {
   if (!message.trim()) return null;
-  const dataLine = message
-    .split('\n')
-    .find(line => line.startsWith('data: '));
+  const lines = message.split('\n');
+  if (lines.some(line => line.startsWith('event:'))) return null;
+  const dataLine = lines.find(line => line.startsWith('data: '));
   return dataLine ? dataLine.slice(6) : null;
 }
 
@@ -59,7 +60,7 @@ function toDockerStatsRow(event: AgentStatsEvent, hostName: string): DockerStats
 
 export class AgentStatsCollector extends BaseCollector {
   readonly name: string;
-  private readonly host: ManagedHost;
+  private readonly host: ManagedHostRow;
   private readonly token: string;
   private readonly fetchFn: FetchFn;
   private readonly knownContainers = new Set<string>();
@@ -67,7 +68,7 @@ export class AgentStatsCollector extends BaseCollector {
   constructor(
     db: DatabaseClient,
     config: WorkerConfig,
-    host: ManagedHost,
+    host: ManagedHostRow,
     token: string,
     abortController?: AbortController,
     fetchFn?: FetchFn,
@@ -116,7 +117,12 @@ export class AgentStatsCollector extends BaseCollector {
 
     const row = toDockerStatsRow(event, this.host.name);
     const t0 = performance.now();
-    await this.repository.insertDockerStats([row]);
+    try {
+      await this.repository.insertDockerStats([row]);
+    } catch (err) {
+      console.error(`[${this.name}] Failed to insert stat for ${event.containerName}:`, err);
+      return false;
+    }
     const writeMs = (performance.now() - t0).toFixed(1);
     this.dbDebugLog(`[${this.name}] Wrote stat for ${event.containerName} in ${writeMs}ms`);
     return true;

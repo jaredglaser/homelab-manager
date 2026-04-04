@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import git from 'isomorphic-git';
-import { mkdtempSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'node:path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { ensureRepoInitialized } from '../init-repo';
@@ -8,19 +8,15 @@ import { repoExists, readFileFromRepo } from '../repo';
 
 describe('ensureRepoInitialized', () => {
   let testDir: string;
-  const originalEnv = { ...process.env };
 
   beforeEach(() => {
     testDir = mkdtempSync(join(getTestTmpDir(), 'git-init-'));
     process.env.GIT_REPOS_DIR = testDir;
-    process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'true';
   });
 
   afterEach(() => {
     rmSync(testDir, { recursive: true, force: true });
     delete process.env.GIT_REPOS_DIR;
-    delete process.env.DOCKER_MANAGEMENT_FEATURE_FLAG;
-    Object.assign(process.env, originalEnv);
   });
 
   it('should initialize a bare repo if it does not exist', async () => {
@@ -43,27 +39,23 @@ describe('ensureRepoInitialized', () => {
     expect(await repoExists(repoPath)).toBe(true);
   });
 
-  it('should do nothing when feature flag is off', async () => {
-    process.env.DOCKER_MANAGEMENT_FEATURE_FLAG = 'false';
-    await ensureRepoInitialized();
-    const repoPath = join(testDir, 'stacks.git');
-    expect(existsSync(repoPath)).toBe(false);
-  });
-
   it('should complete initialization when resolveRef throws an unexpected error', async () => {
     const resolveRefSpy = spyOn(git, 'resolveRef').mockRejectedValueOnce(
       new Error('Disk I/O failure'),
     );
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    await ensureRepoInitialized();
+    try {
+      await ensureRepoInitialized();
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[GitInit] Unexpected error checking HEAD:',
-      'Disk I/O failure',
-    );
-
-    resolveRefSpy.mockRestore();
-    errorSpy.mockRestore();
+      expect(resolveRefSpy).toHaveBeenCalled();
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[GitInit] Unexpected error checking HEAD:',
+        'Disk I/O failure',
+      );
+    } finally {
+      resolveRefSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 });

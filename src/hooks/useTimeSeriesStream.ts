@@ -192,18 +192,18 @@ export function useTimeSeriesStream<TRow>({
 
     // Otherwise fetch from the server
     if (debug) console.log('[useTimeSeriesStream] Starting preload...');
-    let preloadTimeoutId: ReturnType<typeof setTimeout>;
+    let preloadTimeoutId: ReturnType<typeof setTimeout> | undefined;
     const preloadTimeout = new Promise<never>((_, reject) => {
       preloadTimeoutId = setTimeout(() => reject(new Error('Database unavailable')), PRELOAD_TIMEOUT_MS);
     });
     Promise.race([preloadFn(), preloadTimeout])
       .then((rows) => {
-        clearTimeout(preloadTimeoutId);
+        if (preloadTimeoutId !== undefined) clearTimeout(preloadTimeoutId);
         if (debug) console.log(`[useTimeSeriesStream] Preload complete: ${rows.length} rows`);
         seedRows(rows);
       })
       .catch((err) => {
-        clearTimeout(preloadTimeoutId);
+        if (preloadTimeoutId !== undefined) clearTimeout(preloadTimeoutId);
         console.error('[useTimeSeriesStream] Failed to preload:', err);
         setPreloadError(err instanceof Error ? err : new Error(String(err)));
       });

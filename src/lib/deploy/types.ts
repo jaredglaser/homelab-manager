@@ -54,11 +54,17 @@ import type { HostStatus } from '@/lib/database/repositories/host-repository';
 export type { HostStatus as ManagedHostStatus } from '@/lib/database/repositories/host-repository';
 type ManagedHostStatus = HostStatus;
 
+export interface HostCapabilities {
+  docker?: boolean;
+  zfs?: boolean;
+}
+
 export interface ManagedHost {
   id: number;
   name: string;
   agentUrl: string;
-  socketProxyUrl: string;
+  socketProxyUrl?: string;
+  capabilities: HostCapabilities;
   agentVersion: string | null;
   status: ManagedHostStatus;
   createdAt: Date;

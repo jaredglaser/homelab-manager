@@ -10,7 +10,9 @@
 | **Build** | [Vite](https://vite.dev) | Dev server and production bundler |
 | **UI** | [MUI Material UI](https://mui.com/material-ui/getting-started/) + [TailwindCSS](https://tailwindcss.com) | Component library and utility-first styling |
 | **Docker** | [Dockerode](https://github.com/apocas/dockerode) | Docker Engine API client |
-| **SSH** | [ssh2](https://github.com/mscdex/ssh2) | SSH client for remote command execution |
+| **Git** | [isomorphic-git](https://isomorphic-git.org/) | Server-side git operations for stack repository management |
+| **Secrets** | [OpenBao](https://openbao.org/) | KV v2 secrets engine for agent tokens and deploy variables |
+| **Code Editor** | [Monaco Editor](https://microsoft.github.io/monaco-editor/) + [monaco-yaml](https://github.com/remcohaszing/monaco-yaml) | In-app YAML editor for Docker Compose files with schema validation |
 | **Database** | [TimescaleDB](https://www.timescale.com/) | PostgreSQL with automatic compression and indefinite retention for time-series data |
 | **Validation** | [Zod](https://zod.dev) | Schema validation |
 | **Charts** | [Apache ECharts](https://echarts.apache.org/) | Interactive charts - sparklines, dual-series, and historical metric charts |

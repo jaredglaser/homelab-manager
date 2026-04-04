@@ -17,17 +17,15 @@ import {
   handleTriggerDeploy,
   computeSyncStatus,
 } from '@/lib/stacks/stack-mappers';
+import { teardownAndAwaitWithDeps } from '@/lib/stacks/teardown-poller';
 
 const COMPOSE_FILENAME = 'docker-compose.yml';
 const MANIFEST_FILENAME = 'manifest.yaml';
 const SYSTEM_AUTHOR = { name: 'homelab-manager', email: 'homelab-manager@localhost' };
-const TEARDOWN_POLL_INTERVAL_MS = 1_000;
-const TEARDOWN_POLL_TIMEOUT_MS = 120_000;
-const TERMINAL_DEPLOY_STATUSES = new Set(['succeeded', 'failed', 'no_change']);
 
-function getRepoPath(): string | null {
+function getRepoPath(): string {
   const config = loadGitConfig();
-  return config.enabled ? config.repoPath : null;
+  return config.repoPath;
 }
 
 /** Trigger teardown and poll until it reaches a terminal status. */
@@ -36,26 +34,16 @@ async function teardownAndAwait(
   host: string,
   deployRepo: { getById: (id: number) => Promise<{ status: string; logs?: string | null } | null> },
 ): Promise<void> {
-  const { deployId } = await triggerStackDeploy({ stack: stackName, host, action: 'teardown' });
-  const start = Date.now();
-  let record = await deployRepo.getById(deployId);
-  while (record && !TERMINAL_DEPLOY_STATUSES.has(record.status)) {
-    if (Date.now() - start > TEARDOWN_POLL_TIMEOUT_MS) {
-      throw new Error(`Teardown timed out after ${TEARDOWN_POLL_TIMEOUT_MS / 1_000}s. Stack not deleted.`);
-    }
-    await new Promise((r) => setTimeout(r, TEARDOWN_POLL_INTERVAL_MS));
-    record = await deployRepo.getById(deployId);
-  }
-  if (record && record.status === 'failed') {
-    throw new Error(`Teardown failed: ${record.logs ?? 'unknown error'}. Stack not deleted.`);
-  }
+  return teardownAndAwaitWithDeps(stackName, host, {
+    deployRepo,
+    triggerDeploy: (params) => triggerStackDeploy(params),
+  });
 }
 
-// ----- Service functions (wiring layer) -----
+
 
 export async function getStackSummaries(): Promise<StackSummary[]> {
   const repoPath = getRepoPath();
-  if (!repoPath) return [];
 
   let manifestContent: string;
   try {
@@ -92,6 +80,9 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
       return summary;
     });
   } catch (error) {
+    if (error instanceof TypeError || error instanceof RangeError) {
+      throw error;
+    }
     console.error('[StackService] Failed to enrich stack summaries:', error);
     // Return manifest stacks with 'unknown' sync status when DB/git fails
     return entries.map(([name, entry]) => manifestEntryToSummary(name, entry));
@@ -103,8 +94,6 @@ export async function getStackDetailByName(
 ): Promise<StackDetail | null> {
   try {
     const repoPath = getRepoPath();
-    if (!repoPath) return null;
-
     const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
     const manifest = parseManifest(manifestContent);
     const entry = manifest.stacks[stackName];
@@ -113,7 +102,11 @@ export async function getStackDetailByName(
     let composeContent = '';
     try {
       composeContent = await readFileFromRepo(repoPath, `${stackName}/${COMPOSE_FILENAME}`);
-    } catch {
+    } catch (err) {
+      if (!(err instanceof FileNotFoundError)) {
+        console.error(`[StackService] Unexpected error reading compose file for "${stackName}":`, err);
+        throw err;
+      }
       // Stack is in manifest but compose file doesn't exist yet
     }
 
@@ -132,7 +125,6 @@ export async function triggerStackDeploy(params: {
   forceRecreate?: boolean;
 }): Promise<{ deployId: number }> {
   const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
 
   const { default: git } = await import('isomorphic-git');
   const fs = await import('node:fs');
@@ -211,29 +203,24 @@ export async function getStackDeployHistory(
   stackName: string,
   limit: number,
 ): Promise<StackDeployRecord[]> {
-  try {
-    const repoPath = getRepoPath();
-    if (!repoPath) return [];
+  const repoPath = getRepoPath();
+  if (!repoPath) return [];
 
-    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-    const manifest = parseManifest(manifestContent);
-    const entry = manifest.stacks[stackName];
-    if (!entry) return [];
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifest = parseManifest(manifestContent);
+  const entry = manifest.stacks[stackName];
+  if (!entry) return [];
 
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
 
-    const dbConfig = loadDatabaseConfig();
-    const dbClient = await databaseConnectionManager.getClient(dbConfig);
-    const repo = new DeployRepository(dbClient.getPool());
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const repo = new DeployRepository(dbClient.getPool());
 
-    const records = await repo.getDeployHistory(stackName, entry.host, limit);
-    return records.map(toStackDeployRecord);
-  } catch (error) {
-    console.error(`[StackService] Failed to load deploy history for "${stackName}":`, error);
-    return [];
-  }
+  const records = await repo.getDeployHistory(stackName, entry.host, limit);
+  return records.map(toStackDeployRecord);
 }
 
 export async function saveStackComposeFile(
@@ -241,7 +228,6 @@ export async function saveStackComposeFile(
   content: string,
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
 
   return saveAndCommitFile(repoPath, {
     filePath: `${stackName}/${COMPOSE_FILENAME}`,
@@ -257,7 +243,6 @@ export async function createStackInRepo(
   autoDeploy: boolean,
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
 
   if (!SAFE_PATH_SEGMENT_PATTERN.test(stackName)) {
     throw new Error(`Invalid stack name "${stackName}" — must contain only letters, numbers, hyphens, and underscores`);
@@ -319,7 +304,6 @@ export async function deleteStackFromRepo(
   teardown: boolean,
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
-  if (!repoPath) throw new Error('Git management is not enabled');
 
   // Read manifest to get host for this stack
   const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
@@ -390,45 +374,36 @@ export async function deleteStackFromRepo(
 }
 
 export async function getManagedHostNames(): Promise<string[]> {
-  try {
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
 
-    const dbConfig = loadDatabaseConfig();
-    const dbClient = await databaseConnectionManager.getClient(dbConfig);
-    const hostsRepo = new ManagedHostsRepository(dbClient.getPool());
-    const hosts = await hostsRepo.getAll();
-    return hosts.map((h) => h.name);
-  } catch (error) {
-    console.error('[StackService] Failed to list managed hosts:', error);
-    return [];
-  }
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const hostsRepo = new ManagedHostsRepository(dbClient.getPool());
+  const hosts = await hostsRepo.getAll();
+  return hosts.map((h) => h.name);
 }
 
 export async function updateStackIconSlug(
   stackName: string,
   iconSlug: string,
 ): Promise<void> {
-  try {
-    const repoPath = getRepoPath();
-    if (!repoPath) return;
+  const repoPath = getRepoPath();
+  if (!repoPath) return;
 
-    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-    const manifest = parseManifest(manifestContent);
-    const entry = manifest.stacks[stackName];
-    if (!entry) return;
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifest = parseManifest(manifestContent);
+  const entry = manifest.stacks[stackName];
+  if (!entry) return;
 
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
 
-    const dbConfig = loadDatabaseConfig();
-    const dbClient = await databaseConnectionManager.getClient(dbConfig);
-    const repo = new StatsRepository(dbClient.getPool());
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const repo = new StatsRepository(dbClient.getPool());
 
-    await repo.upsertEntityMetadata('docker', `${entry.host}/${stackName}`, 'icon', iconSlug);
-  } catch (error) {
-    console.error(`[StackService] Failed to update icon for "${stackName}":`, error);
-  }
+  await repo.upsertEntityMetadata('docker', `${entry.host}/${stackName}`, 'icon', iconSlug);
 }

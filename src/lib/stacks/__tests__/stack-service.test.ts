@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import {
   extractVariableNames,
   toStackDeployRecord,
@@ -8,6 +8,9 @@ import {
 } from '@/lib/stacks/stack-mappers';
 import type { DeployDeps } from '@/lib/stacks/stack-mappers';
 import type { DeployRecord } from '@/lib/deploy/types';
+import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
+import { teardownAndAwaitWithDeps } from '@/lib/stacks/teardown-poller';
+import type { TeardownDeps } from '@/lib/stacks/teardown-poller';
 
 describe('extractVariableNames', () => {
   test('extracts simple variable references', () => {
@@ -193,5 +196,138 @@ describe('handleTriggerDeploy', () => {
     const call = (deps.buildRequest as ReturnType<typeof mock>).mock.calls[0] as [{ composeContent: string; commitSha: string }];
     expect(call[0].composeContent).toBe('custom compose');
     expect(call[0].commitSha).toBe('def456');
+  });
+});
+
+describe('SAFE_PATH_SEGMENT_PATTERN (createStackInRepo validation)', () => {
+  test('accepts valid stack names with letters and numbers', () => {
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('mystack')).toBe(true);
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('stack123')).toBe(true);
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('MyStack')).toBe(true);
+  });
+
+  test('accepts stack names with hyphens and underscores', () => {
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('my-stack')).toBe(true);
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('my_stack')).toBe(true);
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('my-stack_v2')).toBe(true);
+  });
+
+  test('rejects path traversal: ../evil', () => {
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('../evil')).toBe(false);
+  });
+
+  test('rejects names with forward slashes: foo/bar', () => {
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('foo/bar')).toBe(false);
+  });
+
+  test('rejects names with spaces: foo bar', () => {
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('foo bar')).toBe(false);
+  });
+
+  test('rejects empty string', () => {
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('')).toBe(false);
+  });
+
+  test('rejects names with dots', () => {
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('stack.v2')).toBe(false);
+  });
+
+  test('rejects names with special characters', () => {
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('stack$name')).toBe(false);
+    expect(SAFE_PATH_SEGMENT_PATTERN.test('stack@host')).toBe(false);
+  });
+});
+
+
+
+type PollRecord = { status: string; logs?: string | null };
+
+function makeDeps(
+  getByIdImpl: () => Promise<PollRecord | null>,
+  overrides?: Partial<TeardownDeps>
+): TeardownDeps {
+  return {
+    deployRepo: { getById: mock(getByIdImpl) },
+    triggerDeploy: mock(() => Promise.resolve({ deployId: 99 })),
+    ...overrides,
+  };
+}
+
+describe('teardownAndAwaitWithDeps', () => {
+  let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler) => {
+        if (typeof fn === 'function') fn();
+        return 0;
+      }) as unknown as typeof setTimeout
+    );
+  });
+
+  afterEach(() => {
+    setTimeoutSpy.mockRestore();
+  });
+
+  test('success path: resolves when getById eventually returns succeeded', async () => {
+    let calls = 0;
+    const deps = makeDeps(() => {
+      calls++;
+      return Promise.resolve(calls === 1 ? { status: 'pending' } : { status: 'succeeded' });
+    });
+
+    await teardownAndAwaitWithDeps('mystack', 'myhost', deps);
+    expect(deps.triggerDeploy).toHaveBeenCalledWith({ stack: 'mystack', host: 'myhost', action: 'teardown' });
+    expect(calls).toBe(2);
+  });
+
+  test('success path: resolves immediately when first record is succeeded', async () => {
+    const deps = makeDeps(() => Promise.resolve({ status: 'succeeded' }));
+    await teardownAndAwaitWithDeps('mystack', 'myhost', deps);
+    expect(deps.triggerDeploy).toHaveBeenCalledTimes(1);
+  });
+
+  test('success path: resolves when status is no_change', async () => {
+    const deps = makeDeps(() => Promise.resolve({ status: 'no_change' }));
+    await teardownAndAwaitWithDeps('mystack', 'myhost', deps);
+  });
+
+  test('success path: resolves when getById returns null (no record)', async () => {
+    const deps = makeDeps(() => Promise.resolve(null));
+    await teardownAndAwaitWithDeps('mystack', 'myhost', deps);
+  });
+
+  test("failed status: throws with the record's log content", async () => {
+    const deps = makeDeps(() => Promise.resolve({ status: 'failed', logs: 'Container crashed' }));
+    await expect(teardownAndAwaitWithDeps('mystack', 'myhost', deps)).rejects.toThrow(
+      /Teardown failed: Container crashed/
+    );
+  });
+
+  test('failed status without logs: uses unknown error fallback message', async () => {
+    const deps = makeDeps(() => Promise.resolve({ status: 'failed', logs: null }));
+    await expect(teardownAndAwaitWithDeps('mystack', 'myhost', deps)).rejects.toThrow(
+      /Teardown failed: unknown error/
+    );
+  });
+
+  test('timeout: throws when elapsed time exceeds TEARDOWN_POLL_TIMEOUT_MS', async () => {
+    let callCount = 0;
+    const originalDateNow = Date.now;
+    Date.now = () => {
+      callCount++;
+      // First call sets `start`; subsequent comparisons return past the 120s limit
+      return callCount === 1 ? 0 : 200_000;
+    };
+
+    const deps = makeDeps(() => Promise.resolve({ status: 'pending' }));
+
+    try {
+      await expect(teardownAndAwaitWithDeps('mystack', 'myhost', deps)).rejects.toThrow(
+        /Teardown timed out after 120s/
+      );
+    } finally {
+      Date.now = originalDateNow;
+    }
   });
 });

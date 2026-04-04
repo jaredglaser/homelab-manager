@@ -38,7 +38,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-col min-h-screen">
         <Header />
         <QueryClientProvider client={queryClient}>
-          <div className="flex-1 flex flex-col [view-transition-name:page-content]">
+          <div className="flex-1 flex flex-col">
             {children}
           </div>
         </QueryClientProvider>

@@ -1,13 +1,11 @@
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
-import { sshConnectionManager } from '@/lib/clients/ssh-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 import { runMigrations } from '@/lib/database/migrate';
 import { SettingsRepository } from '@/lib/database/repositories/settings-repository';
-import { isDockerManagementEnabled } from '@/lib/config/feature-flags';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
@@ -65,6 +63,10 @@ async function main() {
     console.info('[Worker] Running database migrations...');
     await runMigrations(db);
 
+    // Auto-seed localhost agent in dev mode (gated by DEV_AGENT_TOKEN env var)
+    const { seedDevAgent } = await import('./dev-seed');
+    await seedDevAgent(db);
+
     // Override collection interval from database if configured
     const settingsRepo = new SettingsRepository(db.getPool());
     const resolvedInterval = await resolveCollectionInterval(settingsRepo, workerConfig.collection.interval);
@@ -101,29 +103,32 @@ async function main() {
 
       const { collectors, runners } = createCollectors(db, workerConfig, shutdownController, stack, proxmoxPollIntervalMs);
 
-      // Also start AgentStatsCollectors for managed hosts (if feature flag is on)
+      // Also start AgentStatsCollectors for managed hosts
       const hostRepo = new HostRepository(db.getPool());
-      let getToken: ((hostname: string) => Promise<string | null>) | undefined;
+      let getToken: ((hostname: string) => Promise<string | null>) = () => {
+        throw new Error('OpenBao client is not available — initialization failed at startup');
+      };
 
-      if (isDockerManagementEnabled()) {
-        try {
-          const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+      try {
+        const { loadOpenBaoConfig, isOpenBaoConfigured } = await import('@/lib/config/openbao-config');
+        if (isOpenBaoConfigured()) {
           const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
           const baoConfig = loadOpenBaoConfig();
           const baoClient = new OpenBaoClient(baoConfig);
           await baoClient.ensureSecretsEngine();
           console.info('[Worker] OpenBao client initialized for managed host tokens');
           getToken = (hostname: string) => baoClient.getHostSecret(hostname, 'agent_token');
-        } catch (err) {
-          console.error('[Worker] Failed to initialize OpenBao client — managed host collectors will be skipped:', err instanceof Error ? err.message : err);
+        } else {
+          console.info('[Worker] OpenBao not configured, skipping token resolution');
         }
+      } catch (err) {
+        console.error('[Worker] OpenBao initialization failed (non-fatal, deploys will lack token resolution):', err instanceof Error ? err.message : err);
       }
 
       const { collectors: managedCollectors, runners: managedRunners } = await createCollectorsForManagedHosts(
         db, workerConfig, shutdownController, stack,
-        isDockerManagementEnabled,
         () => hostRepo.findAll(),
-        getToken ?? (() => { throw new Error('OpenBao client is not available — initialization failed at startup'); }),
+        getToken,
       );
       collectors.push(...managedCollectors);
       runners.push(...managedRunners);
@@ -159,7 +164,6 @@ async function main() {
     await Promise.all([
       databaseConnectionManager.closeAll(),
       dockerConnectionManager.closeAll(),
-      sshConnectionManager.closeAll(),
     ]);
 
     console.info('[Worker] Shutdown complete');

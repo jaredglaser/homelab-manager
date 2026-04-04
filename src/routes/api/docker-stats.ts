@@ -14,6 +14,9 @@ export const Route = createFileRoute('/api/docker-stats')({
 
         const stream = new ReadableStream({
           start(controller) {
+            // SSE heartbeat forces Nitro to flush response headers immediately
+            controller.enqueue(encoder.encode(': ok\n\n'));
+
             const sendData = (rows: unknown[]) => {
               if (closed) return;
               try {

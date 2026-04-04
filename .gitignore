@@ -1,6 +1,7 @@
 .tmp
 node_modules
 .DS_Store
+coverage
 dist
 dist-ssr
 *.local
@@ -37,3 +38,5 @@ ov.conf
 /data/
 /.worktrees/
 .paul
+.superpowers
+agent-token

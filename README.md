@@ -14,9 +14,12 @@
 > [!WARNING]
 > This project is a **work in progress**. Features are incomplete, APIs may change, and the codebase is under active development. See [Roadmap](#roadmap) for planned features.
 
+> [!WARNING]
+> **Stack management and agent functionality are currently unstable and under active development.** Expect breaking changes, incomplete features, and rough edges. Use at your own risk.
+
 ## Overview
 
-Homelab Manager is a **one-stop-shop dashboard** for monitoring Docker hosts, Proxmox clusters, and other homelab services from a single interface. A background worker continuously collects stats into TimescaleDB, and the frontend streams them in real time via Server-Sent Events.
+Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Docker hosts, Proxmox clusters, and Docker Compose stacks from a single interface. Agent sidecars on each managed host stream stats into TimescaleDB, and the frontend streams them in real time via Server-Sent Events.
 
 ## Documentation
 
@@ -31,8 +34,11 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring Docker hosts, Pr
 ## Features
 
 - **Docker Dashboard** - Real-time CPU, memory, block I/O, and network metrics for all containers with inline sparkline charts
-- **ZFS Dashboard** - Hierarchical view of pools, vdevs, and disks with capacity, IOPS, and bandwidth metrics via SSH
+- **ZFS Dashboard** - Hierarchical view of pools, vdevs, and disks with capacity, IOPS, and bandwidth metrics via agent sidecar
 - **Proxmox Dashboard** - Cluster overview with per-node CPU, memory, and disk metrics via REST API polling
+- **Stack Management** - GitOps-style Docker Compose stack management with in-app editor (Monaco + YAML validation), deploy, teardown, rollback, and deploy history
+- **Host Management** - Add and configure managed Docker hosts via a setup wizard; agent sidecars handle stats streaming, log access, and deployments
+- **Secrets Management** - OpenBao integration for secure storage of agent tokens and deployment variables
 - **TimescaleDB Persistence** - 1-second collection interval with automatic compression and indefinite retention
 - **Live-Updating UI** - SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
 - **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated SSE channel
@@ -46,7 +52,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring Docker hosts, Pr
 git clone https://github.com/jaredglaser/homelab-manager.git
 cd homelab-manager
 cp .env.example .env          # Edit with your host details
-docker compose up -d          # Start TimescaleDB + web + worker
+docker compose up -d          # Start TimescaleDB, web, worker, and OpenBao
 ```
 
 Open http://localhost:3000
@@ -60,10 +66,13 @@ For development setup, see the [Development Guide](docs/development.md).
 - [x] Database-backed streaming via shared server-side polling
 - [x] Historical data UI with time-bucketed charts
 - [x] Proxmox API integration
-- [ ] Authentication (OIDC with Pocket ID support)
+- [x] Stack management with GitOps deploy pipeline
+- [x] Host management UI with agent sidecar provisioning
+- [x] OpenBao secrets integration
+- [x] Agent-updater sidecar for automatic container updates
 - [x] Pre-built Docker image on a container registry
 - [x] Live demo deployed to GitHub Pages
-- [ ] Extensible service architecture (plugin-like system for SSH/HTTP services)
+- [ ] Authentication (OIDC with Pocket ID support)
 - [ ] Return to TanStack Start streaming server functions (pending upstream abort signal fix)
 
 ## AI Disclosure

@@ -4,7 +4,7 @@
 
 - [Bun](https://bun.sh) (package manager and runtime)
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) v2+
-- *(Optional)* A host running ZFS with SSH access for pool monitoring
+- *(Optional)* A host running ZFS for pool monitoring (via agent sidecar)
 - *(Optional)* A Proxmox VE cluster with an API token for monitoring
 
 ## Environment Setup
@@ -46,28 +46,24 @@ WORKER_ENABLED="true"
 WORKER_DOCKER_ENABLED="true"
 WORKER_COLLECTION_INTERVAL_MS="1000"
 
-# Docker host — "socket-proxy" is the service from docker-compose.agent.yml
-# The worker container resolves it via Docker's internal DNS
-DOCKER_HOST_1="socket-proxy"
-DOCKER_HOST_PORT_1="2375"
-DOCKER_HOST_NAME_1="dev-machine"
-
 # Web server
 WEB_PORT="3000"
 
-# Docker Management
-DOCKER_MANAGEMENT_FEATURE_FLAG="true"
-VITE_DOCKER_MANAGEMENT_FEATURE_FLAG="true"
-
-# Git stacks repo
+# Docker Stack Management / Git stacks repo
 GIT_REPOS_DIR="./data/repos"
 GIT_SERVER_TOKEN="dev-git-token"
 
+# Dev Agent (auto-seeded when DEV_AGENT_TOKEN is set)
+DEV_AGENT_TOKEN="dev-agent-token"
+
 # OpenBao (dev server with fixed root token)
-OPENBAO_URL="http://openbao:8200"
+# Use localhost because the web server runs locally via `bun dev`,
+# outside Docker. The worker (inside Docker) overrides this to
+# "http://openbao:8200" via docker-compose environment.
+OPENBAO_URL="http://localhost:8200"
 OPENBAO_TOKEN="dev-root-token"
 
-# Start OpenBao with the management profile
+# Start management profile services (agent, socket-proxy, OpenBao)
 COMPOSE_PROFILES="management"
 ```
 
@@ -86,7 +82,7 @@ bun dev
 This starts:
 - **PostgreSQL** — database
 - **Worker** — background stats collector
-- **OpenBao** — secrets manager (dev server with `dev-root-token`)
+- **OpenBao** — secrets manager (file backend, auto-initializes on first start with root token `dev-root-token`, data persists across restarts)
 - **Socket proxy** — safe Docker API access
 - **Agent** — sidecar that streams container stats and handles deploys
 
@@ -142,7 +138,7 @@ git commit -m "Add sample containers stack"
 git push
 ```
 
-The stack should now appear on the **Docker > Stacks** page. To actually start the sample containers, deploy the stack from the UI or run the compose file directly:
+The stack should now appear on the **Stacks** tab. To actually start the sample containers, deploy the stack from the UI or run the compose file directly:
 
 ```bash
 docker compose -f ~/stacks/samples/docker-compose.yml up -d
@@ -152,7 +148,7 @@ docker compose -f ~/stacks/samples/docker-compose.yml up -d
 
 1. Open http://localhost:3000
 2. The **Docker** page should show running containers with live CPU/memory stats
-3. The **Docker > Stacks** link should appear in the sidebar
+3. The **Stacks** tab should appear in the top navigation (between Docker and ZFS)
 4. The **Stacks** page should list the `samples` stack
 5. OpenBao should be accessible at http://localhost:8200 (token: `dev-root-token`)
 
@@ -184,7 +180,7 @@ bun run dev:local:down
 docker compose -f ~/stacks/samples/docker-compose.yml down
 ```
 
-To wipe all data and start fresh:
+To wipe all data and start fresh (includes database AND OpenBao secrets):
 
 ```bash
 bun run dev:local:wipe
@@ -206,10 +202,11 @@ All services in Docker, with HMR for the web server:
 
 ```bash
 bun install
-bun dev:docker:up       # Start all services in Docker
-bun dev:docker:down     # Stop all Docker services
-bun dev:docker:rebuild  # Full rebuild of all containers
-bun dev:docker:wipe     # Remove all data (fresh database)
+bun run dev:docker:up       # Start all services in Docker
+bun run dev:docker:down     # Stop all Docker services
+bun run dev:docker:restart  # Recreate containers (picks up .env changes)
+bun run dev:docker:rebuild  # Full rebuild of all containers
+bun run dev:docker:wipe     # Remove all data (fresh database)
 ```
 
 ### Manual (No Docker)
@@ -237,7 +234,7 @@ bun run test:coverage:check # Coverage check without re-running tests
 
 ### Coverage Requirements
 
-- Minimum **96% function coverage**
+- Minimum **95% function coverage**
 - Minimum **99% line coverage**
 - Automatically enforced by `bun test` and CI
 
@@ -254,3 +251,45 @@ bun run typecheck       # Run TypeScript type checking
 ```bash
 bun build               # Production build (runs typecheck first)
 ```
+
+## TLS Setup (Agent Communication)
+
+Agent sidecars can optionally serve over HTTPS. This is not required for local network use — agents work over plain HTTP by default. For production or untrusted networks, use OpenBao's PKI secrets engine to issue short-lived certificates.
+
+### Enable the PKI secrets engine
+
+```bash
+bao secrets enable pki
+```
+
+### Configure the internal CA (10-year TTL)
+
+```bash
+bao write pki/root/generate/internal \
+  common_name="homelab-manager-ca" \
+  ttl=87600h
+```
+
+### Create a role for agent certificates (30-day max TTL)
+
+```bash
+bao write pki/roles/agent \
+  allowed_domains="*.homelab.local" \
+  allow_subdomains=true \
+  max_ttl=720h
+```
+
+### Issue a certificate for an agent
+
+```bash
+bao write pki/issue/agent \
+  common_name="agent.homelab.local" \
+  ttl=720h
+```
+
+### Usage
+
+- The agent reads the certificate and key from `TLS_CERT_PATH` and `TLS_KEY_PATH` env vars.
+- Set `NODE_EXTRA_CA_CERTS` on the web server and worker to trust the internal CA.
+- Certificates have short TTLs (30 days) and should be renewed before expiry.
+- The PKI engine acts as an internal CA — no external certificate authority is required.

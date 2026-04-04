@@ -31,10 +31,6 @@ html {
   --chart-tooltip-text: #1e293b; /* slate-800 */
   --indicator-active: #22c55e; /* green-500 */
   --indicator-late: #f59e0b; /* amber-500 */
-  --chart-deploy-success: #22c55e; /* green-500 */
-  --chart-deploy-failed: #ef4444; /* red-500 */
-  --chart-deploy-pending: #f59e0b; /* amber-500 */
-  --chart-deploy-in-progress: #3b82f6; /* blue-500 */
 }
 
 /* Chart colors - dark mode */
@@ -57,10 +53,6 @@ html {
   --chart-tooltip-text: #f1f5f9; /* slate-100 */
   --indicator-active: #4ade80; /* green-400 */
   --indicator-late: #fbbf24; /* amber-400 */
-  --chart-deploy-success: #4ade80; /* green-400 */
-  --chart-deploy-failed: #f87171; /* red-400 */
-  --chart-deploy-pending: #fbbf24; /* amber-400 */
-  --chart-deploy-in-progress: #60a5fa; /* blue-400 */
 }
 
 
@@ -87,67 +79,16 @@ html {
   }
 }
 
-/* Suppress default crossfade on root (header, toasts, etc. stay put) */
+/* View transitions: slide animations disabled to prevent white flash.
+   The browser's view-transition overlay has a white background; extracting
+   elements via view-transition-name creates visible white holes in the root
+   snapshot. Keeping defaultViewTransition enabled in router.tsx so TanStack
+   Router still batches DOM updates — just no visible animation.
+   TODO: Re-enable slide animations once the overlay background issue is resolved.
+   See: https://github.com/TanStack/router/issues/2082 */
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
-}
-
-/* Only the page content area transitions */
-::view-transition-old(page-content) {
-  animation: none;
-}
-::view-transition-new(page-content) {
-  animation: none;
-}
-
-/* Forward: slide left */
-:active-view-transition-type(slide-forward) {
-  &::view-transition-old(page-content) {
-    animation: slide-out-left 200ms ease-in forwards;
-  }
-  &::view-transition-new(page-content) {
-    animation: slide-in-from-right 200ms ease-out forwards;
-  }
-}
-
-/* Backward: slide right */
-:active-view-transition-type(slide-back) {
-  &::view-transition-old(page-content) {
-    animation: slide-out-right 200ms ease-in forwards;
-  }
-  &::view-transition-new(page-content) {
-    animation: slide-in-from-left 200ms ease-out forwards;
-  }
-}
-
-/* Fallback fade for non-nav routes */
-:active-view-transition-type(fade) {
-  &::view-transition-old(page-content) {
-    animation: vt-fade-out 150ms ease-in forwards;
-  }
-  &::view-transition-new(page-content) {
-    animation: vt-fade-in 200ms ease-out forwards;
-  }
-}
-
-@keyframes slide-out-left {
-  to { transform: translateX(-100%); }
-}
-@keyframes slide-in-from-right {
-  from { transform: translateX(100%); }
-}
-@keyframes slide-out-right {
-  to { transform: translateX(100%); }
-}
-@keyframes slide-in-from-left {
-  from { transform: translateX(-100%); }
-}
-@keyframes vt-fade-out {
-  to { opacity: 0; }
-}
-@keyframes vt-fade-in {
-  from { opacity: 0; }
 }
 
 /* Sparkline loading shimmer — sweeps left to right */
@@ -161,12 +102,8 @@ html {
   animation: sparkline-shimmer 1.5s ease-in-out infinite;
 }
 
-/* Respect reduced motion preference for view transitions */
+/* Respect reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(page-content),
-  ::view-transition-new(page-content) {
-    animation: none;
-  }
   .sparkline-shimmer {
     animation: none;
     opacity: 0.3;

@@ -153,6 +153,9 @@ export class MockEventSource {
     const history = generateContainerLogHistory(containerName, new Date());
     this._dispatchEvent('message', new MessageEvent('message', { data: JSON.stringify(history) }));
 
+    // Signal backlog complete — matches the real agent's SSE protocol
+    this._dispatchEvent('backlog_done', new MessageEvent('backlog_done', { data: '{}' }));
+
     // Emit new log batches every 3 seconds
     this._intervalId = setInterval(() => {
       if (this.readyState !== MockEventSource.OPEN) return;

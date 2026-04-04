@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { AgentStatsCollector } from '../agent-stats-collector';
-import type { ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { DockerStatsRow } from '@/types/docker';
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
@@ -39,11 +39,11 @@ const defaultConfig = {
   collection: { interval: 1000 },
 } as any;
 
-const sampleHost: ManagedHost = {
+const sampleHost: ManagedHostRow = {
   id: 1,
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
-  socket_proxy_url: 'tcp://192.168.1.10:2375',
+  capabilities: { docker: true },
   agent_version: '0.1.0',
   status: 'healthy',
   created_at: new Date('2026-01-01T00:00:00Z'),
@@ -239,6 +239,40 @@ describe('AgentStatsCollector', () => {
     mockDb.patchRepository(collector);
 
     await expect((collector as any).collect()).rejects.toThrow('Agent returned 401');
+  });
+
+  it('continues streaming when insertDockerStats fails', async () => {
+    let insertCallCount = 0;
+    const events = [sampleAgentEvent, { ...sampleAgentEvent, containerId: 'def456', containerName: 'sonarr' }];
+    const fetchFn: FetchFn = mock(async () =>
+      new Response(createMockSSEStream(events), {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+    );
+    const repo = (collector as any).repository;
+    repo.upsertEntityMetadata = async () => {};
+    repo.insertDockerStats = async () => {
+      insertCallCount++;
+      if (insertCallCount === 1) throw new Error('DB write failed');
+    };
+
+    const origError = console.error;
+    const errorMessages: string[] = [];
+    console.error = (...args: unknown[]) => { errorMessages.push(String(args[0])); };
+    try {
+      await (collector as any).collect();
+    } finally {
+      console.error = origError;
+    }
+
+    // Both events were attempted; stream continued despite first failure
+    expect(insertCallCount).toBe(2);
+    expect(errorMessages.some(m => m.includes('Failed to insert stat for plex'))).toBe(true);
   });
 
   it('retries entity metadata upsert on failure', async () => {
@@ -471,6 +505,39 @@ describe('AgentStatsCollector — reconnection', () => {
     await (collector as any).collect();
 
     // Only the valid event should be inserted
+    expect(mockDb.insertedRows).toHaveLength(1);
+    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
+  });
+
+  it('skips named SSE events like containers', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Named "containers" event — should be skipped
+        controller.enqueue(encoder.encode(`event: containers\ndata: {"ids":["abc123"]}\n\n`));
+        // Named "container-error" event — should be skipped
+        controller.enqueue(encoder.encode(`event: container-error\ndata: {"containerId":"abc123","error":"stream died"}\n\n`));
+        // Valid stats event (no event: prefix)
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
+        controller.close();
+      },
+    });
+
+    const fetchFn: FetchFn = mock(async () =>
+      new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    // Only the valid stats event should be inserted
     expect(mockDb.insertedRows).toHaveLength(1);
     expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
   });

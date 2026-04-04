@@ -4,7 +4,7 @@ homelab-manager stores Docker Compose stack definitions in an in-app bare git re
 
 ## How It Works
 
-- The repo is initialized automatically at startup when `DOCKER_MANAGEMENT_FEATURE_FLAG=true`
+- The repo is initialized automatically at startup
 - Location: `$GIT_REPOS_DIR/stacks.git` (default `/data/repos/stacks.git`)
 - Contains a `manifest.yaml` (lists stacks and deploy settings) and per-stack `<stack-name>/docker-compose.yml` files
 - Pushes to the repo trigger the deploy pipeline (post-receive hook diffs commits, identifies changed stacks, builds deploy requests)
@@ -70,7 +70,7 @@ git commit -m "Add my-app stack"
 git push
 ```
 
-The push triggers the post-receive hook. If `autoDeploy: true`, the deploy pipeline sends the compose file to the agent on the specified host. If `autoDeploy: false`, the stack appears on the stacks page as "pending" and can be deployed manually from the UI.
+The push triggers the post-receive hook, which dispatches to the deploy pipeline. If `autoDeploy: true`, the pipeline resolves secrets and sends the compose file to the agent on the specified host. If `autoDeploy: false`, the stack appears on the stacks page as "pending" and can be deployed manually from the UI. Pipeline errors do not block the push — check server logs for deploy failures.
 
 ### Manifest Format
 
@@ -88,7 +88,7 @@ stacks:
 | `GIT_REPOS_DIR` | `/data/repos` | Directory for bare git repos (inside the container) |
 | `GIT_SERVER_TOKEN` | — | Bearer token for git HTTP authentication (required) |
 
-Both must be set in your `.env` when `DOCKER_MANAGEMENT_FEATURE_FLAG=true`.
+Both must be set in your `.env`.
 
 ## Local Development
 
@@ -109,7 +109,10 @@ Set `GIT_SERVER_TOKEN` in your `.env` and restart the web server.
 Check that you're passing the token. With curl: `curl -H "Authorization: Bearer dev-git-token" http://localhost:3000/api/git/stacks/info/refs?service=git-upload-pack`
 
 **Clone hangs or times out**
-The git HTTP endpoint requires `DOCKER_MANAGEMENT_FEATURE_FLAG=true`. Without it, the route returns 404.
+Ensure the web server is running and `GIT_SERVER_TOKEN` is set.
 
 **Push succeeds but stack doesn't appear**
 Check that the stack is listed in `manifest.yaml` and the `host` value matches a managed host name.
+
+**Push succeeds but stack doesn't deploy**
+Pipeline errors are caught and logged without blocking the push. Check the server logs for deploy failures (secret resolution, agent connectivity, etc.).

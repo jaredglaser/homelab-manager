@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 import { pullImage } from '../docker-image-utils';
 
 function createMockDocker(error?: Error) {
@@ -39,5 +39,61 @@ describe('pullImage', () => {
       modem: { followProgress: () => {} },
     } as any;
     await expect(pullImage(docker, 'bad-image:latest')).rejects.toThrow('connection refused');
+  });
+
+  it('throws RangeError when timeoutMs is 0', async () => {
+    const docker = createMockDocker();
+    const err = await pullImage(docker, 'test-image:latest', 0).catch(e => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toContain('timeoutMs must be a finite positive number, got: 0');
+  });
+
+  it('throws RangeError when timeoutMs is negative', async () => {
+    const docker = createMockDocker();
+    const err = await pullImage(docker, 'test-image:latest', -1).catch(e => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toContain('timeoutMs must be a finite positive number, got: -1');
+  });
+
+  it('throws RangeError when timeoutMs is NaN', async () => {
+    const docker = createMockDocker();
+    const err = await pullImage(docker, 'test-image:latest', NaN).catch(e => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toContain('timeoutMs must be a finite positive number, got: NaN');
+  });
+
+  it('throws RangeError when timeoutMs is Infinity', async () => {
+    const docker = createMockDocker();
+    const err = await pullImage(docker, 'test-image:latest', Infinity).catch(e => e);
+    expect(err).toBeInstanceOf(RangeError);
+    expect(err.message).toContain('timeoutMs must be a finite positive number, got: Infinity');
+  });
+
+  it('rejects with timeout error and destroys the stream when pull exceeds timeoutMs', async () => {
+    const destroy = mock(() => {});
+    const stream = { destroy };
+    const docker = {
+      pull: async () => stream,
+      modem: {
+        // Never call the callback — simulates a stalled pull
+        followProgress: () => {},
+      },
+    } as any;
+
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: (...args: unknown[]) => void) => {
+        fn();
+        return 0;
+      }) as unknown as typeof setTimeout,
+    );
+
+    try {
+      await expect(pullImage(docker, 'slow-image:latest', 10)).rejects.toThrow(
+        'Image pull timed out after 0.01s: slow-image:latest',
+      );
+      expect(destroy).toHaveBeenCalledTimes(1);
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
   });
 });

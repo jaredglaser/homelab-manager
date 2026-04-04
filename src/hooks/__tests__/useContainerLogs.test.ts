@@ -116,30 +116,41 @@ describe('useContainerLogs', () => {
     expect(result.current.isConnected).toBe(true);
   });
 
-  it('writes log lines to terminal on message', () => {
-    renderHook(() =>
-      useContainerLogs({
-        containerId: 'abc123',
-        host: 'server',
-        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
-      }),
-    );
+  describe('with immediate RAF', () => {
+    const origRAF = globalThis.requestAnimationFrame;
 
-    act(() => {
-      MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].onmessage?.({
-        data: JSON.stringify({
-          lines: [
-            { text: 'hello world', stream: 'stdout' },
-            { text: 'error msg', stream: 'stderr' },
-          ],
-        }),
-      });
+    beforeEach(() => {
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 0; }) as typeof requestAnimationFrame;
     });
 
-    expect(mockTerminal.writeln).toHaveBeenCalledTimes(2);
-    expect(mockTerminal.writeln).toHaveBeenCalledWith('hello world');
-    expect(mockTerminal.writeln).toHaveBeenCalledWith('error msg');
+    afterEach(() => {
+      globalThis.requestAnimationFrame = origRAF;
+    });
+
+    it('writes log lines to terminal on message', () => {
+      renderHook(() =>
+        useContainerLogs({
+          containerId: 'abc123',
+          host: 'server',
+          terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+        }),
+      );
+
+      act(() => {
+        MockEventSource.instances[0].onopen?.();
+        MockEventSource.instances[0].onmessage?.({
+          data: JSON.stringify({
+            lines: [
+              { text: 'hello world', stream: 'stdout' },
+              { text: 'error msg', stream: 'stderr' },
+            ],
+          }),
+        });
+      });
+
+      expect(mockTerminal.write).toHaveBeenCalledTimes(1);
+      expect(mockTerminal.write).toHaveBeenCalledWith('hello world\nerror msg\n');
+    });
   });
 
   it('does not connect when enabled=false', () => {
@@ -184,28 +195,41 @@ describe('useContainerLogs', () => {
     expect(es.closed).toBe(true);
   });
 
-  it('sets error after max reconnect attempts', () => {
-    const { result } = renderHook(() =>
-      useContainerLogs({
-        containerId: 'abc123',
-        host: 'server',
-        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
-      }),
-    );
+  describe('with immediate timers', () => {
+    const origSetTimeout = globalThis.setTimeout;
 
-    // Trigger 5 errors
-    act(() => {
-      for (let i = 0; i < 5; i++) {
-        MockEventSource.instances[0].onerror?.();
-      }
+    beforeEach(() => {
+      (globalThis as unknown as Record<string, unknown>).setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
     });
 
-    expect(result.current.error).not.toBeNull();
-    expect(result.current.error?.message).toContain('failed after multiple attempts');
-    expect(MockEventSource.instances[0].closed).toBe(true);
+    afterEach(() => {
+      (globalThis as unknown as Record<string, unknown>).setTimeout = origSetTimeout;
+    });
+
+    it('sets error after max reconnect attempts with backoff', () => {
+      const { result } = renderHook(() =>
+        useContainerLogs({
+          containerId: 'abc123',
+          host: 'server',
+          terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+        }),
+      );
+
+      // 6 iterations = initial connection failure + MAX_RECONNECT_ATTEMPTS (5) retry failures.
+      // Each onerror closes the current EventSource and (via the immediate setTimeout mock)
+      // immediately opens a new one, so we always call onerror on the latest instance.
+      for (let i = 0; i < 6; i++) {
+        const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+        act(() => { es.onerror?.(); });
+      }
+
+      expect(result.current.error).not.toBeNull();
+      expect(result.current.error?.message).toContain('multiple reconnect attempts');
+      expect(MockEventSource.instances[MockEventSource.instances.length - 1].closed).toBe(true);
+    });
   });
 
-  it('handles log_error custom events', () => {
+  it('handles error SSE events from the agent', () => {
     renderHook(() =>
       useContainerLogs({
         containerId: 'abc123',
@@ -216,7 +240,7 @@ describe('useContainerLogs', () => {
 
     act(() => {
       MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].dispatchEvent('log_error', {
+      MockEventSource.instances[0].dispatchEvent('error', {
         data: JSON.stringify({ message: 'Container not found' }),
       });
     });

@@ -1,6 +1,22 @@
 import type { AgentStackResponse, AgentHealthCheckResponse } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse } from '@/lib/deploy/types';
 
+export interface ZfsPool {
+  name: string;
+  size: number;
+  allocated: number;
+  free: number;
+  fragmentation: number | null;
+  capacity: number;
+  dedup: number;
+  health: string;
+}
+
+export interface ZfsStatsEvent {
+  line: string;
+  timestamp: number;
+}
+
 export class AgentClientError extends Error {
   constructor(
     message: string,
@@ -30,6 +46,10 @@ export interface AgentHealthResponse {
  * Thin HTTP client for communicating with the homelab-manager agent.
  * All requests include the bearer token and a timeout via AbortSignal.
  * Adapts the raw agent JSON into the internal AgentDeployResponse / AgentHealthResponse shapes.
+ *
+ * HTTPS is supported natively — use https:// in the agent URL.
+ * For self-signed certs (e.g., from OpenBao PKI), set NODE_EXTRA_CA_CERTS
+ * env var to the CA certificate path.
  */
 export class AgentClient {
   private readonly agentUrl: string;
@@ -66,6 +86,66 @@ export class AgentClient {
       ? raw.agentVersion ?? raw.docker.version
       : raw.agentVersion;
     return { status: raw.status, version };
+  }
+
+  async getZfsPools(): Promise<ZfsPool[]> {
+    const result = await this.getJson<{ pools: ZfsPool[] }>('/zfs/pools');
+    return result.pools;
+  }
+
+  async *streamZfsStats(signal: AbortSignal): AsyncGenerator<ZfsStatsEvent> {
+    const url = `${this.agentUrl}/zfs/stats/stream`;
+    let response: Response;
+    try {
+      response = await this.fetchFn(url, {
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${this.agentToken}` },
+        signal,
+      });
+    } catch (err) {
+      throw new AgentClientError(
+        `Agent request failed: ${err instanceof Error ? err.message : String(err)}`,
+        undefined,
+        url,
+      );
+    }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new AgentClientError(`Agent returned ${response.status}: ${body}`, response.status, url);
+    }
+
+    if (!response.body) {
+      throw new AgentClientError('No response body for SSE stream', undefined, url);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            try {
+              yield JSON.parse(data) as ZfsStatsEvent;
+            } catch {
+              // Skip malformed events
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {

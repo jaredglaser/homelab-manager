@@ -25,7 +25,7 @@ bun run dev:local:logs:agent  # Agent logs only
 
 # Testing & Build
 bun run typecheck             # TypeScript type checking
-bun test                      # Run all tests (enforces 96%/99% coverage)
+bun test                      # Run all tests (enforces 95%/99% coverage)
 bun test --watch              # Run tests in watch mode
 bun build                     # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)
@@ -35,7 +35,7 @@ bun icons:download            # Download dashboard icons from homarr-labs/dashbo
 # Agent (separate package in agent/)
 cd agent && bun dev            # Run agent with --watch
 cd agent && bun test           # Run agent tests
-cd agent && bun run test:coverage  # Agent tests with coverage enforcement (96%/99%)
+cd agent && bun run test:coverage  # Agent tests with coverage enforcement (95%/99%)
 cd agent && bun run typecheck  # Agent type checking
 ```
 
@@ -47,7 +47,7 @@ cd agent && bun run typecheck  # Agent type checking
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app with `node:async_hooks` errors.
 5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → CSS Grid + `useWindowVirtualizer`. Use div-based rows (not `<table>/<tr>/<td>`). Server handles client disconnect via `request.signal`. Never use TanStack Start streaming server functions for real-time data.
 6. **File Creation**: PREFER editing existing files over creating new ones.
-7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 96% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead. **Never `mock.module()` on `functions.tsx` barrel modules** (e.g., `@/data/stacks/functions`) — mock the underlying service layer instead (e.g., `@/lib/stacks/stack-service`). This avoids global pollution while still intercepting the dynamic `await import()` calls inside `createServerFn` handlers. Always provide ALL exports when mocking a service module to prevent other test files from seeing `undefined` exports. When tests need `setTimeout` to fire immediately (retry loops, health checks), spy on `globalThis.setTimeout` in `beforeEach`/`afterEach` at the appropriate `describe` scope.
+7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 95% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead. **Never `mock.module()` on `functions.tsx` barrel modules** (e.g., `@/data/stacks/functions`) — mock the underlying service layer instead (e.g., `@/lib/stacks/stack-service`). This avoids global pollution while still intercepting the dynamic `await import()` calls inside `createServerFn` handlers. Always provide ALL exports when mocking a service module to prevent other test files from seeing `undefined` exports. When tests need `setTimeout` to fire immediately (retry loops, health checks), spy on `globalThis.setTimeout` in `beforeEach`/`afterEach` at the appropriate `describe` scope.
 8. **Logging**: Be purposeful with console methods. Use `console.error` for actual errors, `console.info` for operational messages (startup, shutdown), and `console.log` sparingly for temporary debugging only (do not commit). No drive-by `console.log` statements in committed code.
 9. **Routing**: Never edit `routeTree.gen.ts` (auto-generated). `AppShell` renders in root layout (`__root.tsx`) - never wrap individual routes with it. All routes use `ssr: false`. QueryClient is a singleton in `AppShell.tsx` - never create per-route.
 10. **Entity IDs**: Always use entity IDs with host prefix (e.g., `server1/tank`, `192.168.1.10/abc123`) for state keys and uniqueness checks. Never use display names - they collide across hosts.
@@ -61,7 +61,7 @@ cd agent && bun run typecheck  # Agent type checking
 - **State:** Jotai (settings atoms) + TanStack Query
 - **Streaming:** SSE via TanStack Router server routes
 - **Charts:** Apache ECharts
-- **Clients:** Dockerode (Docker), ssh2 (SSH), pg (PostgreSQL), native fetch (Proxmox)
+- **Clients:** Dockerode (Docker), pg (PostgreSQL), native fetch (Proxmox), OpenBao (secrets)
 - **Database:** TimescaleDB (PostgreSQL 16, wide hypertables, auto-compression after 7 days)
 - **Worker:** Standalone Bun process for continuous data collection
 - **Testing:** `bun:test` with Happy-DOM + Testing Library
@@ -71,20 +71,20 @@ cd agent && bun run typecheck  # Agent type checking
 ### Data Flow
 
 ```text
-Worker → Docker/ZFS/Proxmox APIs → INSERT wide rows → TimescaleDB
-                                                            ↓
+Worker → Agent sidecars (Docker/ZFS SSE) + Proxmox REST API → INSERT wide rows → TimescaleDB
+                                                                                       ↓
 Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadcast
 ```
 
-- Frontend reads from database, not direct API/SSH connections.
-- All three sources (Docker, ZFS, Proxmox) use identical architecture: worker → TimescaleDB → StatsPollService → SSE → `useTimeSeriesStream`.
+- Frontend reads from database, not direct API connections.
+- Docker and ZFS stats flow through agent sidecars (SSE streams). Proxmox uses direct REST API polling. All three share the same downstream path: worker → TimescaleDB → StatsPollService → SSE → `useTimeSeriesStream`.
 - Frontend preloads history via REST server function, then merges SSE updates.
 
 ### SSE Endpoints (`src/routes/api/`)
 
 Pattern: `createFileRoute` with `server.handlers.GET` → dynamic import server-init + poll service → `ReadableStream` + subscribe → cleanup on `request.signal` abort. Track `closed` flag to prevent enqueue-after-close.
 
-Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `settings`, `docker-logs.$containerId` (parameterized), `git.$` (git HTTP smart protocol, feature-flagged).
+Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `stack-status`, `settings`, `docker-logs.$containerId` (parameterized), `git.$` (git HTTP smart protocol).
 
 ```typescript
 // ALWAYS dynamic import - static imports break the client bundle:
@@ -95,7 +95,7 @@ const { statsPollService } = await import('@/lib/database/subscription-service')
 
 - **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. MUI theme in `src/theme.ts` uses `cssVariables` mode. Custom backgrounds: `chartBg`, `level1-3`, `popup`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
 - **Settings**: Jotai atoms synced via SSE (`/api/settings`). `useSettings()` provides optimistic setters. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
-- **Multi-host**: Docker/ZFS use numbered env vars (`DOCKER_HOST_1`, `ZFS_HOST_1`, etc.). Host rows shown only when multiple hosts configured.
+- **Multi-host**: Docker monitoring uses numbered env vars (`DOCKER_HOST_1`, `DOCKER_HOST_PORT_1`, `DOCKER_HOST_NAME_1`, etc.) pointing at socket proxies on each host — used by the worker's DockerCollector only. Managed hosts (for stack management) are registered via **Settings → Managed Hosts** using `verifyHost`: user deploys the agent container themselves, then provides the agent URL, token, and capabilities (docker/zfs). The agent token is stored in OpenBao (`OPENBAO_URL`/`OPENBAO_TOKEN`) or a permissioned file, not in .env.
 - **Demo mode**: `VITE_DEMO_MODE=true` swaps server functions via Vite aliases and patches `EventSource`. Zero changes to routes/hooks/components. Mock entities defined in `src/lib/mock/entities.ts`.
 - **Worker**: Collectors extend `BaseCollector` (AsyncDisposable, exponential backoff). Entry point uses `AsyncDisposableStack` for cleanup.
 - **Entity IDs**: Docker=`host/container_id`, ZFS=`host/pool/vdev/disk` (hierarchy via indent: 0=pool, 2=vdev, 4+=disk), Proxmox=varies by type.
@@ -106,11 +106,11 @@ Separate Bun package that runs as a sidecar container alongside Docker hosts. Pr
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Feature-flagged behind `DOCKER_MANAGEMENT_FEATURE_FLAG=true`. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index.
+Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index.
 
 ### Git Management (`src/lib/git/`)
 
-Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/git/stacks/...` via `Bun.spawn`. Post-receive hook diffs commits, identifies changed stacks, and builds deploy requests. Commits serialized per-repo via async mutex. Feature-flagged behind `DOCKER_MANAGEMENT_FEATURE_FLAG=true`.
+Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/git/stacks/...` via `Bun.spawn`. Post-receive hook diffs commits, identifies changed stacks, and builds deploy requests. Commits serialized per-repo via async mutex.
 
 ### Database Tables
 

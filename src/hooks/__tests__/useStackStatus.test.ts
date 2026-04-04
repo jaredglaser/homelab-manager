@@ -1,162 +1,132 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { renderHook, act } from '@testing-library/react'
-import { MockEventSource } from '@/lib/test/mock-event-source'
-import { useStackStatus } from '../useStackStatus'
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { renderHook, act } from '@testing-library/react';
+import { MockEventSource } from '@/lib/test/mock-event-source';
+import { useStackStatus } from '../useStackStatus';
 
-const originalEventSource = globalThis.EventSource
+const originalEventSource = globalThis.EventSource;
 
 beforeEach(() => {
-  MockEventSource.reset()
-  ;(globalThis as unknown as Record<string, unknown>).EventSource = MockEventSource
-})
+  MockEventSource.reset();
+  (globalThis as unknown as Record<string, unknown>).EventSource = MockEventSource;
+});
 
 afterEach(() => {
-  ;(globalThis as unknown as Record<string, unknown>).EventSource = originalEventSource
-})
+  (globalThis as unknown as Record<string, unknown>).EventSource = originalEventSource;
+});
 
 describe('useStackStatus', () => {
   it('subscribes to /api/stack-status EventSource', () => {
-    renderHook(() => useStackStatus())
+    renderHook(() => useStackStatus());
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(MockEventSource.instances[0].url).toBe('/api/stack-status');
+  });
 
-    expect(MockEventSource.instances).toHaveLength(1)
-    expect(MockEventSource.instances[0].url).toBe('/api/stack-status')
-  })
+  it('starts with empty statusMap and deployVersion 0', () => {
+    const { result } = renderHook(() => useStackStatus());
+    expect(result.current.statusMap.size).toBe(0);
+    expect(result.current.deployVersion).toBe(0);
+  });
 
-  it('starts with empty statusMap and not connected', () => {
-    const { result } = renderHook(() => useStackStatus())
-
-    expect(result.current.statusMap.size).toBe(0)
-    expect(result.current.isConnected).toBe(false)
-    expect(result.current.error).toBeNull()
-  })
-
-  it('sets isConnected and clears error on open', () => {
-    const { result } = renderHook(() => useStackStatus())
+  it('parses SSE data into Map keyed by host/stack', () => {
+    const { result } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
 
     act(() => {
-      MockEventSource.instances[0].onopen?.()
-    })
-
-    expect(result.current.isConnected).toBe(true)
-    expect(result.current.error).toBeNull()
-  })
-
-  it('parses SSE data into Map keyed by stack/host', () => {
-    const { result } = renderHook(() => useStackStatus())
-    const es = MockEventSource.instances[0]
-
-    act(() => {
-      es.onopen?.()
+      es.onopen?.();
       es.onmessage?.({
         data: JSON.stringify([
-          {
-            stack: 'plex',
-            host: 'server1',
-            containers: [{ id: 'abc', name: 'plex', status: 'running', image: 'plexinc/pms-docker' }],
-            updated_at: '2026-03-21T00:00:00Z',
-          },
-          {
-            stack: 'traefik',
-            host: 'server1',
-            containers: [],
-            updated_at: '2026-03-21T00:00:00Z',
-          },
+          { stack: 'plex', host: 'server1', containers: [{ id: 'abc', name: 'plex', status: 'running', image: 'plexinc/pms-docker' }], updated_at: '2026-03-21T00:00:00Z' },
+          { stack: 'traefik', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' },
         ]),
-      })
-    })
+      });
+    });
 
-    expect(result.current.statusMap.size).toBe(2)
-    expect(result.current.statusMap.has('plex/server1')).toBe(true)
-    expect(result.current.statusMap.has('traefik/server1')).toBe(true)
-    expect(result.current.statusMap.get('plex/server1')?.containers).toHaveLength(1)
-  })
+    expect(result.current.statusMap.size).toBe(2);
+    expect(result.current.statusMap.has('server1/plex')).toBe(true);
+    expect(result.current.statusMap.has('server1/traefik')).toBe(true);
+  });
 
-  it('updates statusMap when new events arrive', () => {
-    const { result } = renderHook(() => useStackStatus())
-    const es = MockEventSource.instances[0]
+  it('increments deployVersion on deploy_changed messages', () => {
+    const { result } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
 
     act(() => {
-      es.onopen?.()
+      es.onopen?.();
       es.onmessage?.({
-        data: JSON.stringify([
-          { stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' },
-        ]),
-      })
-    })
+        data: JSON.stringify({ type: 'deploy_changed', stack: 'plex', host: 'server1' }),
+      });
+    });
 
-    expect(result.current.statusMap.size).toBe(1)
+    expect(result.current.deployVersion).toBe(1);
+  });
+
+  it('does not create a new Map when container data is unchanged', () => {
+    const { result } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
+
+    const entry = [{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'running', image: 'img' }], updated_at: '2026-03-21T00:00:00Z' }];
+
+    act(() => {
+      es.onopen?.();
+      es.onmessage?.({ data: JSON.stringify(entry) });
+    });
+
+    const firstMap = result.current.statusMap;
+
+    act(() => {
+      es.onmessage?.({ data: JSON.stringify(entry) });
+    });
+
+    expect(result.current.statusMap).toBe(firstMap);
+  });
+
+  it('creates a new Map when container data changes', () => {
+    const { result } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.onopen?.();
+      es.onmessage?.({
+        data: JSON.stringify([{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'running', image: 'img' }], updated_at: '2026-03-21T00:00:00Z' }]),
+      });
+    });
+
+    const firstMap = result.current.statusMap;
 
     act(() => {
       es.onmessage?.({
-        data: JSON.stringify([
-          { stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:01Z' },
-          { stack: 'traefik', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:01Z' },
-        ]),
-      })
-    })
+        data: JSON.stringify([{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'exited', image: 'img' }], updated_at: '2026-03-21T00:00:01Z' }]),
+      });
+    });
 
-    expect(result.current.statusMap.size).toBe(2)
-    expect(result.current.statusMap.has('traefik/server1')).toBe(true)
-  })
+    expect(result.current.statusMap).not.toBe(firstMap);
+    expect(result.current.statusMap.get('server1/plex')?.containers[0].status).toBe('exited');
+  });
 
-  it('handles connection errors by setting isConnected=false and error', () => {
-    const { result } = renderHook(() => useStackStatus())
-    const es = MockEventSource.instances[0]
+  it('uses host/stack composite key for multiple hosts', () => {
+    const { result } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
 
     act(() => {
-      es.onopen?.()
-    })
-    expect(result.current.isConnected).toBe(true)
-
-    act(() => {
-      es.onerror?.()
-    })
-
-    expect(result.current.isConnected).toBe(false)
-    expect(result.current.error).toBe('Connection lost')
-  })
-
-  it('cleans up EventSource on unmount', () => {
-    const { unmount } = renderHook(() => useStackStatus())
-    const es = MockEventSource.instances[0]
-
-    expect(es.closed).toBe(false)
-
-    unmount()
-
-    expect(es.closed).toBe(true)
-  })
-
-  it('skips malformed SSE events without throwing', () => {
-    const { result } = renderHook(() => useStackStatus())
-    const es = MockEventSource.instances[0]
-
-    act(() => {
-      es.onopen?.()
-      es.onmessage?.({ data: 'not valid json {{{' })
-    })
-
-    // Should remain unchanged — no crash
-    expect(result.current.statusMap.size).toBe(0)
-    expect(result.current.isConnected).toBe(true)
-  })
-
-  it('uses stack/host composite key correctly for multiple hosts', () => {
-    const { result } = renderHook(() => useStackStatus())
-    const es = MockEventSource.instances[0]
-
-    act(() => {
-      es.onopen?.()
+      es.onopen?.();
       es.onmessage?.({
         data: JSON.stringify([
           { stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' },
           { stack: 'plex', host: 'server2', containers: [], updated_at: '2026-03-21T00:00:00Z' },
         ]),
-      })
-    })
+      });
+    });
 
-    expect(result.current.statusMap.size).toBe(2)
-    expect(result.current.statusMap.has('plex/server1')).toBe(true)
-    expect(result.current.statusMap.has('plex/server2')).toBe(true)
-  })
-})
+    expect(result.current.statusMap.size).toBe(2);
+    expect(result.current.statusMap.has('server1/plex')).toBe(true);
+    expect(result.current.statusMap.has('server2/plex')).toBe(true);
+  });
+
+  it('cleans up EventSource on unmount', () => {
+    const { unmount } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
+    expect(es.closed).toBe(false);
+    unmount();
+    expect(es.closed).toBe(true);
+  });
+});

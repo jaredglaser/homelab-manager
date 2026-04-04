@@ -6,6 +6,17 @@ const MAX_COMPOSE_SIZE_BYTES = 1_048_576; // 1 MB
 const MAX_ENV_SIZE_BYTES = 65_536; // 64 KB
 const COMPOSE_TIMEOUT_MS = 300_000; // 5 minutes
 
+/** Extract explicit `container_name` values from a compose YAML string. */
+export function parseContainerNames(composeContent: string): string[] {
+  const regex = /^\s*container_name:\s*["']?([^\s"'#]+)["']?/gm;
+  const names: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(composeContent)) !== null) {
+    names.push(match[1]);
+  }
+  return names;
+}
+
 /**
  * Validate a stack name and produce an HTTP 400 response when it is missing or invalid.
  *
@@ -60,10 +71,14 @@ async function spawnWithTimeout(
  */
 async function parseDeployBody(
   request: Request
-): Promise<{ stack: string; composeContent: string; envContent?: string } | Response> {
-  let body: { stack?: string; composeContent?: string; envContent?: string };
+): Promise<{ stack: string; composeContent: string; envContent?: string; forceRecreate?: boolean } | Response> {
+  let body: { stack?: string; composeContent?: string; envContent?: string; forceRecreate?: boolean };
   try {
-    body = await request.json();
+    const parsed = await request.json();
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+    }
+    body = parsed;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
@@ -71,6 +86,18 @@ async function parseDeployBody(
 
   if (!body.stack || !body.composeContent) {
     return Response.json({ error: 'Missing required fields: stack, composeContent' }, { status: 400 });
+  }
+
+  if (typeof body.stack !== 'string' || typeof body.composeContent !== 'string') {
+    return Response.json({ error: 'Fields stack and composeContent must be strings' }, { status: 400 });
+  }
+
+  if (body.envContent !== undefined && typeof body.envContent !== 'string') {
+    return Response.json({ error: 'Field envContent must be a string' }, { status: 400 });
+  }
+
+  if (body.forceRecreate !== undefined && typeof body.forceRecreate !== 'boolean') {
+    return Response.json({ error: 'forceRecreate must be a boolean' }, { status: 400 });
   }
 
   if (Buffer.byteLength(body.composeContent) > MAX_COMPOSE_SIZE_BYTES) {
@@ -83,7 +110,7 @@ async function parseDeployBody(
   const nameError = validateStackName(body.stack);
   if (nameError) return nameError;
 
-  return { stack: body.stack, composeContent: body.composeContent, envContent: body.envContent };
+  return { stack: body.stack, composeContent: body.composeContent, envContent: body.envContent, forceRecreate: body.forceRecreate };
 }
 
 /**
@@ -160,14 +187,63 @@ export async function handleStackDeploy(
     return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
   }
 
+  const composePath = join(stackDir, 'docker-compose.yml');
+  const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack };
+
+  // When force recreate is enabled, remove any containers with explicit
+  // container_name values that might conflict — they could belong to a
+  // different compose project so `docker compose down` won't touch them.
+  if (parsed.forceRecreate) {
+    // Resolve env-var interpolations in the compose file (e.g. ${APP_NAME}-web)
+    // so that `docker rm -f` targets the actual running container name rather
+    // than the literal placeholder string.
+    let resolvedContent = parsed.composeContent;
+    const tmpDir = process.env.TMPDIR ?? '/tmp';
+    const tmpFile = `${tmpDir}/compose-${Date.now()}.yml`;
+    try {
+      await Bun.write(tmpFile, parsed.composeContent);
+      const configResult = await spawnWithTimeout(spawn, {
+        cmd: ['docker', 'compose', '--file', tmpFile, 'config'],
+        cwd: stackDir,
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: composeEnv,
+      }, 15_000);
+      if (configResult.exitCode === 0 && configResult.stdout.trim()) {
+        resolvedContent = configResult.stdout;
+      }
+    } catch {
+      // Non-fatal — fall back to raw content
+    } finally {
+      try { unlinkSync(tmpFile); } catch { /* ignore */ }
+    }
+    const namedContainers = parseContainerNames(resolvedContent);
+    for (const name of namedContainers) {
+      try {
+        await spawnWithTimeout(spawn, {
+          cmd: ['docker', 'rm', '-f', name],
+          cwd: stackDir,
+          stdout: 'pipe',
+          stderr: 'pipe',
+          env: composeEnv,
+        }, 10_000);
+      } catch {
+        // Non-fatal — container may not exist
+      }
+    }
+  }
+
+  const cmd = ['docker', 'compose', '-f', composePath, 'up', '-d', '--remove-orphans'];
+  if (parsed.forceRecreate) cmd.push('--force-recreate');
+
   let result: SpawnResult;
   try {
     result = await spawnWithTimeout(spawn, {
-      cmd: ['docker', 'compose', '-f', join(stackDir, 'docker-compose.yml'), 'up', '-d', '--remove-orphans'],
+      cmd,
       cwd: stackDir,
       stdout: 'pipe',
       stderr: 'pipe',
-      env: { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack },
+      env: composeEnv,
     }, timeoutMs);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -346,20 +422,22 @@ async function collectStackStatus(
   stacksDir: string,
   stackName: string,
   spawn: SpawnFn,
+  timeoutMs?: number,
 ): Promise<{ name: string; containers: unknown[]; error?: string }> {
   const composePath = join(stacksDir, stackName, 'docker-compose.yml');
 
+  const effectiveMs = timeoutMs ?? COMPOSE_TIMEOUT_MS;
   const result = await spawnWithTimeout(spawn, {
     cmd: ['docker', 'compose', '-f', composePath, 'ps', '--format', 'json'],
     cwd: join(stacksDir, stackName),
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, COMPOSE_PROJECT_NAME: stackName },
-  });
+  }, timeoutMs);
 
   if (result.timedOut) {
     console.error(`docker compose ps timed out for ${stackName}`);
-    return { name: stackName, containers: [], error: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s` };
+    return { name: stackName, containers: [], error: `Process timed out after ${effectiveMs / 1000}s` };
   }
 
   if (result.exitCode !== 0) {
@@ -383,7 +461,8 @@ async function collectStackStatus(
  */
 export async function handleStackStatus(
   stacksDir: string,
-  spawn: SpawnFn = Bun.spawn
+  spawn: SpawnFn = Bun.spawn,
+  timeoutMs?: number,
 ): Promise<Response> {
   if (!existsSync(stacksDir)) {
     return Response.json({ stacks: [] });
@@ -405,7 +484,7 @@ export async function handleStackStatus(
   const results = await Promise.allSettled(
     stackDirs.map(async (entry) => {
       try {
-        return await collectStackStatus(stacksDir, entry.name, spawn);
+        return await collectStackStatus(stacksDir, entry.name, spawn, timeoutMs);
       } catch (spawnError) {
         console.error(`Failed to get status for stack ${entry.name}:`, spawnError);
         const error = spawnError instanceof Error ? spawnError.message : String(spawnError);

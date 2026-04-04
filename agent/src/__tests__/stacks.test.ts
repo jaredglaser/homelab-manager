@@ -4,6 +4,7 @@ import {
   handleStackTeardown,
   handleStackRestart,
   handleStackStatus,
+  parseContainerNames,
 } from '../routes/stacks';
 import { mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -43,6 +44,19 @@ describe('handleStackDeploy', () => {
     expect(response.status).toBe(400);
     const result = await response.json();
     expect(result.error).toStartWith('Invalid JSON:');
+  });
+
+  test('rejects null JSON body', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(null),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Request body must be a JSON object');
   });
 
   test('writes compose file and .env to stack directory', async () => {
@@ -124,6 +138,47 @@ describe('handleStackDeploy', () => {
 
     const response = await handleStackDeploy(request, TEST_STACKS_DIR, mockSpawn as any);
     expect(response.status).toBe(500);
+  });
+});
+
+describe('handleStackDeploy — type validation', () => {
+  test('returns 400 when stack is not a string', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 123, composeContent: 'services: {}' }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toContain('must be strings');
+  });
+
+  test('returns 400 when envContent is not a string', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex', composeContent: 'services: {}', envContent: 42 }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toContain('envContent must be a string');
+  });
+
+  test('returns 400 when forceRecreate is not a boolean', async () => {
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'plex', composeContent: 'services: {}', forceRecreate: 'yes' }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toContain('forceRecreate must be a boolean');
   });
 });
 
@@ -747,6 +802,28 @@ describe('handleStackStatus', () => {
     expect(result.hasErrors).toBeUndefined();
   });
 
+  test('returns error when docker compose ps times out', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'slow'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'slow', 'docker-compose.yml'), 'services: {}');
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const response = await handleStackStatus(TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('slow');
+    expect(result.stacks[0].containers).toEqual([]);
+    expect(result.stacks[0].error).toContain('timed out');
+    expect(result.hasErrors).toBe(true);
+  });
+
   test('returns error when spawn throws', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'crash'), { recursive: true });
     await Bun.write(join(TEST_STACKS_DIR, 'crash', 'docker-compose.yml'), 'services: {}');
@@ -837,5 +914,228 @@ describe('handleStackStatus', () => {
     // If concurrent, both spawns start nearly simultaneously and total time ≈ 50ms
     // If sequential, total time ≈ 100ms
     expect(elapsed).toBeLessThan(90);
+  });
+});
+
+describe('parseContainerNames', () => {
+  test('extracts container_name values', () => {
+    const compose = `services:
+  web:
+    container_name: my-web
+    image: nginx
+  db:
+    container_name: my-db
+    image: postgres`;
+    expect(parseContainerNames(compose)).toEqual(['my-web', 'my-db']);
+  });
+
+  test('handles quoted container names', () => {
+    const compose = `services:
+  app:
+    container_name: "my-app"`;
+    expect(parseContainerNames(compose)).toEqual(['my-app']);
+  });
+
+  test('handles single-quoted container names', () => {
+    const compose = `services:
+  app:
+    container_name: 'my-app'`;
+    expect(parseContainerNames(compose)).toEqual(['my-app']);
+  });
+
+  test('returns empty array when no container_name is present', () => {
+    const compose = `services:
+  app:
+    image: nginx`;
+    expect(parseContainerNames(compose)).toEqual([]);
+  });
+
+  test('returns the literal string for container names with unresolved env var syntax', () => {
+    // parseContainerNames does simple regex extraction — it does not interpolate
+    // env vars. Resolution happens upstream in handleStackDeploy via
+    // `docker compose config` before this function is called during force-recreate.
+    const compose = `services:
+  web:
+    container_name: \${APP_NAME}-web`;
+    expect(parseContainerNames(compose)).toEqual(['${APP_NAME}-web']);
+  });
+});
+
+describe('handleStackDeploy — force recreate', () => {
+  test('runs docker rm -f for each container_name then docker compose up --force-recreate', async () => {
+    const spawnCalls: { cmd: string[] }[] = [];
+    const trackingSpawn = mock((opts: any) => {
+      spawnCalls.push({ cmd: opts.cmd });
+      return {
+        exited: Promise.resolve(0),
+        stdout: emptyStream(),
+        stderr: emptyStream(),
+      };
+    });
+
+    const body = {
+      stack: 'myapp',
+      composeContent: `services:
+  web:
+    container_name: myapp-web
+    image: nginx
+  db:
+    container_name: myapp-db
+    image: postgres`,
+      forceRecreate: true,
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, trackingSpawn as any);
+    expect(response.status).toBe(200);
+
+    // Should have called docker rm -f for each container_name
+    const rmCalls = spawnCalls.filter(c => c.cmd.includes('rm'));
+    expect(rmCalls).toHaveLength(2);
+    expect(rmCalls[0].cmd).toEqual(['docker', 'rm', '-f', 'myapp-web']);
+    expect(rmCalls[1].cmd).toEqual(['docker', 'rm', '-f', 'myapp-db']);
+
+    // Final compose up should include --force-recreate
+    const upCall = spawnCalls.find(c => c.cmd.includes('up'));
+    expect(upCall).toBeDefined();
+    expect(upCall!.cmd).toContain('--force-recreate');
+  });
+
+  test('uses resolved container names from docker compose config when force recreating', async () => {
+    const spawnCalls: { cmd: string[] }[] = [];
+    const trackingSpawn = mock((opts: any) => {
+      spawnCalls.push({ cmd: opts.cmd });
+      // Return resolved YAML from `docker compose config`
+      if (opts.cmd.includes('config')) {
+        const resolvedYaml = `services:
+  web:
+    container_name: myapp-web
+    image: nginx`;
+        return {
+          exited: Promise.resolve(0),
+          stdout: new ReadableStream({
+            start(c) { c.enqueue(new TextEncoder().encode(resolvedYaml)); c.close(); },
+          }),
+          stderr: emptyStream(),
+        };
+      }
+      return {
+        exited: Promise.resolve(0),
+        stdout: emptyStream(),
+        stderr: emptyStream(),
+      };
+    });
+
+    const body = {
+      stack: 'myapp',
+      composeContent: `services:
+  web:
+    container_name: \${APP_NAME}-web
+    image: nginx`,
+      forceRecreate: true,
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, trackingSpawn as any);
+    expect(response.status).toBe(200);
+
+    // docker rm -f should target the resolved name, not the literal placeholder
+    const rmCalls = spawnCalls.filter(c => c.cmd.includes('rm'));
+    expect(rmCalls).toHaveLength(1);
+    expect(rmCalls[0].cmd).toEqual(['docker', 'rm', '-f', 'myapp-web']);
+  });
+
+  test('falls back to raw compose content when docker compose config fails', async () => {
+    const spawnCalls: { cmd: string[] }[] = [];
+    const trackingSpawn = mock((opts: any) => {
+      spawnCalls.push({ cmd: opts.cmd });
+      // Simulate docker compose config failure
+      if (opts.cmd.includes('config')) {
+        return {
+          exited: Promise.resolve(1),
+          stdout: emptyStream(),
+          stderr: new ReadableStream({
+            start(c) { c.enqueue(new TextEncoder().encode('error: config failed')); c.close(); },
+          }),
+        };
+      }
+      return {
+        exited: Promise.resolve(0),
+        stdout: emptyStream(),
+        stderr: emptyStream(),
+      };
+    });
+
+    const body = {
+      stack: 'myapp',
+      composeContent: `services:
+  web:
+    container_name: myapp-web
+    image: nginx`,
+      forceRecreate: true,
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, trackingSpawn as any);
+    expect(response.status).toBe(200);
+
+    // Falls back to raw content — literal name is still used
+    const rmCalls = spawnCalls.filter(c => c.cmd.includes('rm'));
+    expect(rmCalls).toHaveLength(1);
+    expect(rmCalls[0].cmd).toEqual(['docker', 'rm', '-f', 'myapp-web']);
+  });
+
+  test('does not run docker rm or --force-recreate when forceRecreate is false', async () => {
+    const spawnCalls: { cmd: string[] }[] = [];
+    const trackingSpawn = mock((opts: any) => {
+      spawnCalls.push({ cmd: opts.cmd });
+      return {
+        exited: Promise.resolve(0),
+        stdout: emptyStream(),
+        stderr: emptyStream(),
+      };
+    });
+
+    const body = {
+      stack: 'myapp',
+      composeContent: `services:
+  web:
+    container_name: myapp-web
+    image: nginx`,
+      forceRecreate: false,
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, trackingSpawn as any);
+    expect(response.status).toBe(200);
+
+    // No rm calls
+    const rmCalls = spawnCalls.filter(c => c.cmd.includes('rm'));
+    expect(rmCalls).toHaveLength(0);
+
+    // No --force-recreate
+    const upCall = spawnCalls.find(c => c.cmd.includes('up'));
+    expect(upCall).toBeDefined();
+    expect(upCall!.cmd).not.toContain('--force-recreate');
   });
 });

@@ -3,6 +3,8 @@ import type { Terminal } from '@xterm/xterm';
 import { apiUrl } from '@/lib/utils/api-url';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+const BASE_BACKOFF_MS = 1_000;
+const MAX_BACKOFF_MS = 16_000;
 
 interface UseContainerLogsOptions {
   containerId: string;
@@ -19,8 +21,13 @@ interface UseContainerLogsResult {
 /**
  * Streams container logs from the SSE endpoint and writes them to an xterm.js Terminal.
  *
- * Raw ANSI escape codes are preserved - xterm.js handles rendering them natively.
- * Reconnects automatically up to MAX_RECONNECT_ATTEMPTS times on connection loss.
+ * The agent streams logs in two phases:
+ * 1. **Backlog** — last 200 lines, written to the terminal immediately
+ * 2. **Live** — new lines as they arrive, after a `backlog_done` event
+ *
+ * Clears the terminal on reconnection to prevent duplicate backlog lines.
+ * Reconnects with exponential backoff (1s, 2s, 4s, 8s, 16s) up to
+ * MAX_RECONNECT_ATTEMPTS times on connection loss.
  */
 export function useContainerLogs({
   containerId,
@@ -32,70 +39,143 @@ export function useContainerLogs({
   const [error, setError] = useState<Error | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalRef = useRef(terminal);
   terminalRef.current = terminal;
+  const hasConnectedRef = useRef(false);
+
+  const writeBufferRef = useRef<string[]>([]);
+  const rafIdRef = useRef(0);
 
   useEffect(() => {
     if (!enabled || !terminal) return;
 
     let mounted = true;
 
-    const url = apiUrl(`/api/docker-logs/${encodeURIComponent(containerId)}?host=${encodeURIComponent(host)}`);
-    const eventSource = new EventSource(url);
-    eventSourceRef.current = eventSource;
+    /** Flush buffered lines to the terminal in a single write per frame. */
+    const scheduleFlush = () => {
+      if (rafIdRef.current !== 0) return;
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = 0;
+        const buf = writeBufferRef.current;
+        if (buf.length === 0 || !terminalRef.current) return;
+        terminalRef.current.write(buf.join('\n') + '\n');
+        buf.length = 0;
+      });
+    };
 
-    eventSource.onopen = () => {
-      if (mounted) {
+    const connect = () => {
+      if (!mounted) return;
+
+      const url = apiUrl(`/api/docker-logs/${encodeURIComponent(containerId)}?host=${encodeURIComponent(host)}`);
+      const eventSource = new EventSource(url);
+      eventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        if (!mounted) return;
         setIsConnected(true);
         setError(null);
         reconnectAttemptsRef.current = 0;
-      }
-    };
 
-    eventSource.onmessage = (event) => {
-      if (!mounted || !terminalRef.current) return;
-      try {
-        const data = JSON.parse(event.data) as {
-          lines: { text: string; stream: string }[];
-        };
-        for (const line of data.lines) {
-          terminalRef.current.writeln(line.text);
+        if (hasConnectedRef.current && terminalRef.current) {
+          terminalRef.current.clear();
         }
-      } catch {
-        // Ignore malformed messages
-      }
-    };
+        hasConnectedRef.current = true;
+      };
 
-    eventSource.addEventListener('log_error', (event) => {
-      if (!mounted) return;
-      try {
-        const data = JSON.parse((event as MessageEvent).data) as { message?: string };
-        const msg = data.message ?? 'Log stream error';
-        if (terminalRef.current) {
-          terminalRef.current.writeln(`\x1b[31m[Error] ${msg}\x1b[0m`);
+      eventSource.onmessage = (event) => {
+        if (!mounted || !terminalRef.current) return;
+        try {
+          const data = JSON.parse(event.data) as
+            | { lines: { text: string; stream: string }[] }
+            | { text: string; stream: string };
+          const lines = 'lines' in data ? data.lines : [data];
+          for (const line of lines) {
+            writeBufferRef.current.push(line.text);
+          }
+          scheduleFlush();
+        } catch (err) {
+          console.error('[useContainerLogs] Failed to parse message:', err instanceof Error ? err.message : String(err), `payloadLength=${String(event.data ?? '').length}`);
         }
-      } catch {
-        // Ignore parse errors
-      }
-    });
+      };
 
-    eventSource.onerror = () => {
-      if (mounted) {
+      // Intentionally empty — both backlog and live phases write to the terminal
+      // identically, so no state transition is needed. The listener must be registered
+      // to prevent the event from hitting the default onmessage handler.
+      eventSource.addEventListener('backlog_done', () => {});
+
+      const handleLogError = (event: Event) => {
+        if (!mounted) return;
+        // Named SSE 'error' events carry a data payload; native connection errors do not.
+        const rawData = (event as unknown as Record<string, unknown>).data;
+        if (typeof rawData === 'string' && rawData) {
+          try {
+            const data = JSON.parse(rawData) as { message?: string; error?: string };
+            const msg = data.message ?? data.error ?? 'Log stream error';
+            if (terminalRef.current) {
+              terminalRef.current.writeln(`\x1b[31m[Error] ${msg}\x1b[0m`);
+            }
+          } catch {
+            if (terminalRef.current) {
+              terminalRef.current.writeln('\x1b[31m[Error] Log stream error\x1b[0m');
+            }
+          }
+        } else {
+          if (terminalRef.current) {
+            terminalRef.current.writeln('\x1b[31m[Error] Connection lost\x1b[0m');
+          }
+        }
+      };
+
+      eventSource.addEventListener('error', handleLogError);
+
+      eventSource.onerror = () => {
+        if (!mounted) return;
         setIsConnected(false);
-        reconnectAttemptsRef.current++;
+
+        eventSource.close();
+        eventSourceRef.current = null;
 
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-          setError(new Error('Log connection failed after multiple attempts'));
-          eventSource.close();
-          eventSourceRef.current = null;
+          setError(new Error('Log stream disconnected after multiple reconnect attempts. Check that the agent for this host is running and the container still exists.'));
+          return;
         }
-      }
+
+        reconnectAttemptsRef.current++;
+
+        const delay = Math.min(
+          BASE_BACKOFF_MS * 2 ** (reconnectAttemptsRef.current - 1),
+          MAX_BACKOFF_MS,
+        );
+
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          connect();
+        }, delay);
+      };
     };
+
+    connect();
 
     return () => {
       mounted = false;
-      eventSource.close();
-      eventSourceRef.current = null;
+      setIsConnected(false);
+      setError(null);
+      reconnectAttemptsRef.current = 0;
+      hasConnectedRef.current = false;
+      if (rafIdRef.current !== 0) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = 0;
+      }
+      writeBufferRef.current.length = 0;
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
     };
   }, [containerId, host, terminal, enabled]);
 

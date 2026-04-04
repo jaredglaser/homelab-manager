@@ -267,12 +267,12 @@ describe('DeployRepository', () => {
   });
 
   describe('notifyStackChange', () => {
-    it('sends a pg_notify for the given stack and host', async () => {
-      mock.pushResult([{}]);
+    it('sends JSON NOTIFY with type discriminator', async () => {
       await repo.notifyStackChange('plex', 'homeserver');
 
+      expect(mock.queries).toHaveLength(1);
       expect(mock.queries[0].sql).toContain("pg_notify('stack_change'");
-      expect(mock.queries[0].params).toEqual(['homeserver', 'plex']);
+      expect(mock.queries[0].params).toEqual([JSON.stringify({ type: 'deploy_changed', stack: 'plex', host: 'homeserver' })]);
     });
   });
 });

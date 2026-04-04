@@ -63,10 +63,9 @@ function createWrapper() {
   };
 }
 
-async function renderComposeEditor(props?: Partial<{ host: string; stackName: string; content: string; variables: string[] }>) {
+async function renderComposeEditor(props?: Partial<{ stackName: string; content: string; variables: string[] }>) {
   const { default: ComposeEditor } = await import('../ComposeEditor');
   const defaultProps = {
-    host: 'test-host',
     stackName: 'test-stack',
     content: 'image: nginx:latest',
     variables: [],
@@ -146,30 +145,14 @@ describe('ComposeEditor component', () => {
 
   it('renders the Save & Commit button', async () => {
     await renderComposeEditor();
-    const saveButton = screen.getByRole('button', { name: /save/i });
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
     expect(saveButton).toBeDefined();
   });
 
   it('save button is disabled when content is not dirty', async () => {
     await renderComposeEditor({ content: 'image: nginx' });
-    const saveButton = screen.getByRole('button', { name: /save/i });
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
     expect((saveButton as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('renders VariablesPanel with initial variables', async () => {
-    await renderComposeEditor({ variables: ['DATABASE_URL', 'SECRET_KEY'] });
-    expect(screen.getByText(/DATABASE_URL/)).toBeDefined();
-    expect(screen.getByText(/SECRET_KEY/)).toBeDefined();
-  });
-
-  it('renders VariablesPanel empty state when no variables', async () => {
-    await renderComposeEditor({ variables: [] });
-    expect(screen.getByText('No variables detected.')).toBeDefined();
-  });
-
-  it('renders variable count badge when variables exist', async () => {
-    await renderComposeEditor({ variables: ['A', 'B', 'C'] });
-    expect(screen.getByText('3')).toBeDefined();
   });
 
   it('does not show "Unsaved changes" when content matches', async () => {
@@ -181,19 +164,6 @@ describe('ComposeEditor component', () => {
     await renderComposeEditor({ content: 'image: redis:7' });
     const editor = screen.getByTestId('mock-editor');
     expect((editor as HTMLTextAreaElement).value).toBe('image: redis:7');
-  });
-
-  it('detects variables and updates VariablesPanel on editor change', async () => {
-    const { act } = await import('@testing-library/react');
-    await renderComposeEditor({ content: 'image: nginx', variables: [] });
-    expect(screen.getByText('No variables detected.')).toBeDefined();
-    expect(mockEditorOnChange).toBeDefined();
-
-    await act(async () => { mockEditorOnChange?.('image: ${MY_IMAGE}'); });
-    // The variable count badge appears when variables are detected
-    expect(screen.getByText('1')).toBeDefined();
-    // Variable name appears in the panel (also in textarea, so use getAllBy)
-    expect(screen.getAllByText(/MY_IMAGE/).length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows "Unsaved changes" when editor content differs from original', async () => {
@@ -208,7 +178,7 @@ describe('ComposeEditor component', () => {
   it('enables save button when content is dirty', async () => {
     const { act } = await import('@testing-library/react');
     await renderComposeEditor({ content: 'image: nginx' });
-    const saveButton = screen.getByRole('button', { name: /save/i });
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
     expect((saveButton as HTMLButtonElement).disabled).toBe(true);
 
     act(() => { mockEditorOnChange?.('image: redis'); });
@@ -233,19 +203,19 @@ describe('ComposeEditor component', () => {
     const { default: ComposeEditor } = await import('../ComposeEditor');
     render(
       <QueryClientProvider client={queryClient}>
-        <ComposeEditor host="test-host" stackName="test-stack" content="image: nginx" variables={[]} />
+        <ComposeEditor stackName="test-stack" content="image: nginx" variables={[]} />
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
 
     act(() => { mockEditorOnChange?.('image: redis'); });
-    const saveButton = screen.getByRole('button', { name: /save/i });
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
 
     await act(async () => { fireEvent.click(saveButton); });
     await waitFor(() => expect(mockSaveStackComposeFile).toHaveBeenCalledTimes(1));
 
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stack-detail', 'test-host', 'test-stack'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stack-detail', 'test-stack'] });
   });
 
 });

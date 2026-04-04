@@ -6,10 +6,6 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: "false"
 
-x-docker-env: &docker-env
-  DOCKER_HOST_1: ${DOCKER_HOST_1}
-  DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1}
-
 x-zfs-env: &zfs-env
   ZFS_HOST_1: ${ZFS_HOST_1:-}
   ZFS_HOST_PORT_1: ${ZFS_HOST_PORT_1:-22}
@@ -56,6 +52,9 @@ x-shared-dev: &shared-dev
   depends_on:
     postgres:
       condition: service_healthy
+    openbao:
+      condition: service_healthy
+      required: false
 
 services:
   # PostgreSQL database
@@ -69,7 +68,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "${POSTGRES_PORT}:5432"
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
     volumes:
       - pgdata-dev:/var/lib/postgresql/data
     healthcheck:
@@ -88,16 +87,18 @@ services:
     mem_limit: 512m
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *docker-env, *zfs-env, *proxmox-env]
+      <<: [*postgres-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
       WORKER_ENABLED: ${WORKER_ENABLED}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
       WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
-      DOCKER_MANAGEMENT_FEATURE_FLAG: ${DOCKER_MANAGEMENT_FEATURE_FLAG:-}
-      OPENBAO_URL: ${OPENBAO_URL:-}
+      OPENBAO_URL: "http://openbao:8200"
       OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
+      DEV_AGENT_TOKEN: ${DEV_AGENT_TOKEN:-}
+      DEV_HOST_NAME: ${DEV_HOST_NAME:-}
+      WORKER_LOCALHOST_AGENT: "hlm-agent"
 
   # Web server (development with HMR)
   web:
@@ -118,21 +119,88 @@ services:
         condition: service_healthy
         required: false
 
-  # OpenBao dev server (secrets management, optional)
+  # Socket proxy for secure Docker socket access (management profile)
+  socket-proxy:
+    image: lscr.io/linuxserver/socket-proxy:latest
+    container_name: hlm-socket-proxy
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      IMAGES: 1
+      NETWORKS: 1
+      VOLUMES: 1
+      VERSION: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      ALLOW_RESTARTS: 1
+      EXEC: 1
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:2375/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - agent-internal
+    profiles:
+      - management
+
+  # Agent sidecar for Docker management (management profile)
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: hlm-agent
+    restart: unless-stopped
+    environment:
+      DOCKER_HOST: "tcp://socket-proxy:2375"
+      AGENT_TOKEN: ${DEV_AGENT_TOKEN:?Set DEV_AGENT_TOKEN in .env}
+      AGENT_PORT: "9090"
+      STACKS_DIR: "/opt/homelab-manager/stacks"
+    volumes:
+      - agent-stacks:/opt/homelab-manager/stacks
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - agent-internal
+      - homelab-network
+    depends_on:
+      socket-proxy:
+        condition: service_healthy
+    labels:
+      - hlm.managed=true
+      - hlm.role=agent
+    profiles:
+      - management
+
+  # OpenBao with persistent file storage.
+  # Uses file backend so secrets survive container restarts.
+  # Auto-initializes and unseals on first start via the entrypoint script.
   openbao:
     image: openbao/openbao
     container_name: homelab-openbao
-    command: server -dev
+    command: server -config=/openbao/config/local.hcl
     environment:
-      BAO_DEV_ROOT_TOKEN_ID: "dev-root-token"
+      BAO_ADDR: "http://127.0.0.1:8200"
     ports:
-      - "8200:8200"
+      - "127.0.0.1:8200:8200"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - openbao-data:/openbao/data
+      - ./dev/openbao/local.hcl:/openbao/config/local.hcl:ro
+      - ./dev/openbao/entrypoint.sh:/openbao/entrypoint.sh:ro
+    entrypoint: ["/bin/sh", "/openbao/entrypoint.sh"]
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
       interval: 5s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 10s
     networks:
       - homelab-network
     profiles:
@@ -141,7 +209,12 @@ services:
 volumes:
   node_modules:
   pgdata-dev:
+  openbao-data:
+  agent-stacks:
 
 networks:
   homelab-network:
     driver: bridge
+  agent-internal:
+    driver: bridge
+    internal: true

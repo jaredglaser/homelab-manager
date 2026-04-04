@@ -14,6 +14,8 @@ export const Route = createFileRoute('/api/zfs-stats')({
 
         const stream = new ReadableStream({
           start(controller) {
+            controller.enqueue(encoder.encode(': ok\n\n'));
+
             const sendData = (rows: unknown[]) => {
               if (closed) return;
               try {
