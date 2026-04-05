@@ -240,7 +240,7 @@ export function DataTable<TRow>({
       {toolbar}
 
       {/* Scrollable container — header + body scroll horizontally together */}
-      <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0">
+      <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0" style={{ scrollbarGutter: 'stable' }}>
         {/* Sticky header — inside scroll container so it tracks horizontal scroll */}
         <div
           className="grid border-b border-neutral-200 dark:border-neutral-700 bg-[var(--mui-palette-background-default)] sticky top-0 z-10"
