@@ -299,6 +299,7 @@ export function DataTable<TRow>({
                   left: 0,
                   width: '100%',
                   transform: `translateY(${virtualRow.start}px)`,
+                  contain: 'layout style',
                 }}
               >
                 <DataTableRow
@@ -310,7 +311,7 @@ export function DataTable<TRow>({
                   const panel = renderDetailPanel(row.original);
                   if (panel == null) return null;
                   return (
-                    <Collapse in={isExpanded} unmountOnExit>
+                    <Collapse in={isExpanded} unmountOnExit timeout={150}>
                       <div className="border-t border-neutral-200 dark:border-neutral-700">
                         {panel}
                       </div>
