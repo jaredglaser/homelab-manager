@@ -61,6 +61,8 @@ export interface DataTableProps<TRow> {
   /** Metric groups for responsive column toggling */
   metricGroups?: MetricGroup[];
 
+  /** Max height for the scroll container (px). Rows beyond this scroll. */
+  maxHeight?: number;
   /** Custom class name for each row based on its data */
   rowClassName?: (row: TRow) => string;
   /** Toolbar actions rendered above the table */
@@ -111,6 +113,7 @@ export function DataTable<TRow>({
   enableColumnResizing = true,
   enableColumnVisibility = true,
   metricGroups,
+  maxHeight,
   rowClassName,
   toolbarActions,
 }: Readonly<DataTableProps<TRow>>) {
@@ -246,7 +249,7 @@ export function DataTable<TRow>({
       {toolbar}
 
       {/* Scrollable container — header + body scroll horizontally together */}
-      <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0" style={{ scrollbarGutter: 'stable' }}>
+      <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0" style={{ scrollbarGutter: 'stable', maxHeight: maxHeight ?? undefined }}>
         {/* Sticky header — inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div

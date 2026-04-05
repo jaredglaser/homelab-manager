@@ -562,33 +562,21 @@ const ContainerSubTable = memo(function ContainerSubTable({
     [containerExpanded, toggleContainerExpanded],
   );
 
-  // Count expanded containers to add space for their detail panels
-  const expandedCount = useMemo(() => {
-    let count = 0;
-    for (const c of containers) {
-      if (isContainerExpanded(c.id)) count++;
-    }
-    return count;
-  }, [containers, isContainerExpanded]);
-
-  const DETAIL_PANEL_HEIGHT = 500;
-  const rowsHeight = Math.min(containers.length, MAX_VISIBLE_CONTAINERS) * CONTAINER_ROW_HEIGHT;
-  const maxHeight = rowsHeight + expandedCount * DETAIL_PANEL_HEIGHT;
+  const scrollMaxHeight = Math.min(containers.length, MAX_VISIBLE_CONTAINERS) * CONTAINER_ROW_HEIGHT;
 
   return (
-    <div style={{ maxHeight }}>
-      <DataTable
-        data={containers}
-        columns={columns}
-        getRowId={(row) => row.id}
-        renderDetailPanel={renderDetailPanel}
-        expandedState={containerExpanded}
-        onExpandedChange={handleContainerExpandedChange}
-        rowClassName={rowClassName}
-        enableSorting={false}
-        showHeader={false}
-      />
-    </div>
+    <DataTable
+      data={containers}
+      columns={columns}
+      getRowId={(row) => row.id}
+      renderDetailPanel={renderDetailPanel}
+      expandedState={containerExpanded}
+      onExpandedChange={handleContainerExpandedChange}
+      rowClassName={rowClassName}
+      enableSorting={false}
+      showHeader={false}
+      maxHeight={scrollMaxHeight}
+    />
   );
 });
 
