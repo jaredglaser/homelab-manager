@@ -306,12 +306,13 @@ export function DataTable<TRow>({
                   row={row}
                   gridTemplate={gridTemplate}
                   rowClassName={rowClassName}
+                  hasDetailPanel={hasDetailPanel}
                 />
                 {hasDetailPanel && (() => {
                   const panel = renderDetailPanel(row.original);
                   if (panel == null) return null;
                   return (
-                    <Collapse in={isExpanded} unmountOnExit timeout={150}>
+                    <Collapse in={isExpanded} unmountOnExit timeout={300}>
                       <div className="border-t border-neutral-200 dark:border-neutral-700">
                         {panel}
                       </div>
@@ -331,15 +332,21 @@ interface DataTableRowProps<TRow> {
   row: Row<TRow>;
   gridTemplate: string;
   rowClassName?: (row: TRow) => string;
+  hasDetailPanel?: boolean;
 }
 
-function DataTableRow<TRow>({ row, gridTemplate, rowClassName }: Readonly<DataTableRowProps<TRow>>) {
+function DataTableRow<TRow>({ row, gridTemplate, rowClassName, hasDetailPanel }: Readonly<DataTableRowProps<TRow>>) {
   const customClass = rowClassName?.(row.original) ?? '';
+  const canExpand = row.getCanExpand() || hasDetailPanel;
 
   return (
     <div
-      className={`grid border-t border-neutral-200 dark:border-neutral-700 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] transition-[background-color,box-shadow] duration-150 ${customClass}`}
+      role={canExpand ? 'button' : undefined}
+      tabIndex={canExpand ? 0 : undefined}
+      className={`grid border-t border-neutral-200 dark:border-neutral-700 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
       style={{ gridTemplateColumns: gridTemplate }}
+      onClick={canExpand ? row.getToggleExpandedHandler() : undefined}
+      onKeyDown={canExpand ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.toggleExpanded(); } } : undefined}
     >
       {row.getVisibleCells().map((cell) => (
         <div key={cell.id} className="px-3 py-2">
