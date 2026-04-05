@@ -310,7 +310,7 @@ export function DataTable<TRow>({
                   const panel = renderDetailPanel(row.original);
                   if (panel == null) return null;
                   return (
-                    <Collapse in={isExpanded} unmountOnExit>
+                    <Collapse in={isExpanded} unmountOnExit timeout={{ enter: 300, exit: 0 }}>
                       <div className="border-t border-neutral-200 dark:border-neutral-700">
                         {panel}
                       </div>
