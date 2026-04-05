@@ -45,6 +45,8 @@ export interface DataTableProps<TRow> {
   /** Number of rows to render beyond the visible area (default: 10) */
   overscan?: number;
 
+  /** Enable row virtualization (default: true). Disable for small row counts where normal flow is preferred. */
+  enableVirtualization?: boolean;
   /** Enable column sorting (default: true) */
   enableSorting?: boolean;
   /** Enable column filtering (default: false) */
@@ -100,6 +102,7 @@ export function DataTable<TRow>({
   onExpandedChange,
   estimateRowHeight,
   overscan = DEFAULT_OVERSCAN,
+  enableVirtualization = true,
   enableSorting = true,
   enableFiltering = false,
   enableColumnResizing = true,
@@ -276,53 +279,84 @@ export function DataTable<TRow>({
             )),
           )}
         </div>
-        <div
-          style={{
-            height: totalSize,
-            width: '100%',
-            position: 'relative',
-          }}
-        >
-          {virtualItems.map((virtualRow) => {
-            const row = rows[virtualRow.index];
-            const isExpanded = row.getIsExpanded();
-            const hasDetailPanel = renderDetailPanel != null;
+        {enableVirtualization ? (
+          <div
+            style={{
+              height: totalSize,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {virtualItems.map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              const isExpanded = row.getIsExpanded();
+              const hasDetailPanel = renderDetailPanel != null;
 
-            return (
-              <div
-                key={virtualRow.key}
-                data-index={virtualRow.index}
-                ref={virtualizer.measureElement}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  transform: `translateY(${virtualRow.start}px)`,
-                  contain: 'layout style',
-                }}
-              >
-                <DataTableRow
-                  row={row}
-                  gridTemplate={gridTemplate}
-                  rowClassName={rowClassName}
-                  hasDetailPanel={hasDetailPanel}
-                />
-                {hasDetailPanel && (() => {
-                  const panel = renderDetailPanel(row.original);
-                  if (panel == null) return null;
-                  return (
-                    <Collapse in={isExpanded} unmountOnExit timeout={300}>
-                      <div className="border-t border-neutral-200 dark:border-neutral-700">
-                        {panel}
-                      </div>
-                    </Collapse>
-                  );
-                })()}
-              </div>
-            );
-          })}
-        </div>
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                    contain: 'layout style',
+                  }}
+                >
+                  <DataTableRow
+                    row={row}
+                    gridTemplate={gridTemplate}
+                    rowClassName={rowClassName}
+                    hasDetailPanel={hasDetailPanel}
+                  />
+                  {hasDetailPanel && (() => {
+                    const panel = renderDetailPanel(row.original);
+                    if (panel == null) return null;
+                    return (
+                      <Collapse in={isExpanded} unmountOnExit timeout={300}>
+                        <div className="border-t border-neutral-200 dark:border-neutral-700">
+                          {panel}
+                        </div>
+                      </Collapse>
+                    );
+                  })()}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div>
+            {rows.map((row) => {
+              const isExpanded = row.getIsExpanded();
+              const hasDetailPanel = renderDetailPanel != null;
+
+              return (
+                <div key={row.id}>
+                  <DataTableRow
+                    row={row}
+                    gridTemplate={gridTemplate}
+                    rowClassName={rowClassName}
+                    hasDetailPanel={hasDetailPanel}
+                  />
+                  {hasDetailPanel && (() => {
+                    const panel = renderDetailPanel(row.original);
+                    if (panel == null) return null;
+                    return (
+                      <Collapse in={isExpanded} unmountOnExit timeout={300}>
+                        <div className="border-t border-neutral-200 dark:border-neutral-700">
+                          {panel}
+                        </div>
+                      </Collapse>
+                    );
+                  })()}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
