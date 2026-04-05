@@ -47,7 +47,8 @@ export const MetricCell = memo(function MetricCell({
   const unitWidth = useAbbreviatedUnits ? 'w-[2.5rem]' : 'w-[3.5rem]';
 
   // Render sparkline: prefer data+color props (memo-friendly), fall back to ReactNode
-  const dataSparkline = sparklineData && sparklineColor
+  // Check length to avoid creating sparklines for host/aggregate rows with empty arrays
+  const dataSparkline = sparklineData?.length && sparklineColor
     ? <SparklineCell data={sparklineData} color={sparklineColor} />
     : null;
   const sparklineElement = showSparklines

@@ -59,9 +59,9 @@ export default memo(function SparklineCanvas({
     areaStartColorRef.current = colors.areaStart;
     areaEndColorRef.current = colors.areaEnd;
 
-    // Rebuild cached gradient when colors change
+    // Rebuild cached gradient when colors change — skip if CSS vars unresolved
     const ctx = gradientCtxRef.current;
-    if (ctx) {
+    if (ctx && areaStartColorRef.current && areaEndColorRef.current) {
       const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
       gradient.addColorStop(0, areaStartColorRef.current);
       gradient.addColorStop(1, areaEndColorRef.current);
@@ -110,11 +110,13 @@ export default memo(function SparklineCanvas({
     canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    // Build initial gradient
-    const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
-    gradient.addColorStop(0, areaStartColorRef.current);
-    gradient.addColorStop(1, areaEndColorRef.current);
-    gradientRef.current = gradient;
+    // Build initial gradient — guard against empty color refs (CSS vars may not yet be resolved)
+    if (areaStartColorRef.current && areaEndColorRef.current) {
+      const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
+      gradient.addColorStop(0, areaStartColorRef.current);
+      gradient.addColorStop(1, areaEndColorRef.current);
+      gradientRef.current = gradient;
+    }
 
     let lastFrameTime = performance.now();
 
