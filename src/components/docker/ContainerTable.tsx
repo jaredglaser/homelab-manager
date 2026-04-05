@@ -463,7 +463,6 @@ export default function ContainerTable({
         metricGroups={METRIC_GROUPS}
         rowClassName={rowClassName}
         enableSorting={false}
-        enableVirtualization={false}
       />
     </Box>
   );
