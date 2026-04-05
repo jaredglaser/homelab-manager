@@ -53,7 +53,7 @@ export const SETTINGS_KEYS = {
 } as const;
 
 /** DB key for persisting per-tab active metric group index. */
-export const ACTIVE_METRIC_GROUP_KEY = 'active_metric_group';
+export const ACTIVE_METRIC_GROUP_KEY = SETTINGS_KEYS.general.activeMetricGroup;
 
 /** localStorage key for persisting demo mode settings. */
 export const DEMO_SETTINGS_STORAGE_KEY = 'homelab-demo-settings';

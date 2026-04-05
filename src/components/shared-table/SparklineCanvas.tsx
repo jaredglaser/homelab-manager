@@ -178,8 +178,10 @@ export default memo(function SparklineCanvas({
       ctx.lineTo(pxBuf[count - 1], bottom);
       ctx.lineTo(pxBuf[0], bottom);
       ctx.closePath();
-      ctx.fillStyle = gradientRef.current!;
-      ctx.fill();
+      if (gradientRef.current) {
+        ctx.fillStyle = gradientRef.current;
+        ctx.fill();
+      }
 
       // Draw line
       ctx.beginPath();

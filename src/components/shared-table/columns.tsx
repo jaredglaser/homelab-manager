@@ -6,9 +6,8 @@ import { MetricCell, MetricHeaderCell } from '@/components/shared-table';
 /**
  * Creates a metric column that renders MetricCell with an optional sparkline.
  *
- * NOTE: showSparklines and useAbbreviatedUnits are currently hardcoded —
- * useSettings() cannot be called inside a column factory. These will be
- * properly wired when integrating with real tables.
+ * Callers pass showSparklines and useAbbreviatedUnits from their settings
+ * context, since useSettings() cannot be called inside a column factory.
  */
 export function metricColumn<TRow>(opts: {
   id: string;
@@ -127,13 +126,14 @@ export function statusColumn<TRow>(opts: {
  */
 export function progressColumn<TRow>(opts: {
   id: string;
+  header?: string;
   getValue: (row: TRow) => number;
   getLabel: (row: TRow) => string;
   size?: number;
 }): ColumnDef<TRow, unknown> {
   return {
     id: opts.id,
-    header: opts.id,
+    header: opts.header ?? opts.id.charAt(0).toUpperCase() + opts.id.slice(1),
     cell: ({ row }: CellContext<TRow, unknown>) => {
       const value = opts.getValue(row.original);
       const label = opts.getLabel(row.original);

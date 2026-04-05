@@ -24,7 +24,7 @@ const metricGroups: MetricGroup[] = [
   { label: 'Usage', columnIds: ['usage'] },
 ];
 
-function buildColumns(): ColumnDef<ProxmoxStorage, unknown>[] {
+function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<ProxmoxStorage, unknown>[] {
   return [
     nameColumn<ProxmoxStorage>({
       getLabel: (row) => row.storage,
@@ -40,6 +40,8 @@ function buildColumns(): ColumnDef<ProxmoxStorage, unknown>[] {
     metricColumn<ProxmoxStorage>({
       id: 'used',
       header: 'Used',
+      showSparklines,
+      useAbbreviatedUnits,
       getValue: (row) => {
         if (row.total <= 0) return { value: EMPTY_METRIC, unit: '' };
         return formatBytesParts(row.used, false, false);
@@ -48,6 +50,8 @@ function buildColumns(): ColumnDef<ProxmoxStorage, unknown>[] {
     metricColumn<ProxmoxStorage>({
       id: 'available',
       header: 'Available',
+      showSparklines,
+      useAbbreviatedUnits,
       getValue: (row) => {
         if (row.total <= 0) return { value: EMPTY_METRIC, unit: '' };
         return formatBytesParts(row.avail, false, false);
@@ -64,13 +68,13 @@ function buildColumns(): ColumnDef<ProxmoxStorage, unknown>[] {
   ];
 }
 
-export function StorageSection({ storages, expanded, onToggle }: Readonly<StorageSectionProps>) {
+export function StorageSection({ storages, expanded, onToggle, showSparklines, useAbbreviatedUnits }: Readonly<StorageSectionProps>) {
   const sorted = useMemo(
     () => [...storages].sort((a, b) => a.storage.localeCompare(b.storage)),
     [storages],
   );
 
-  const columns = useMemo(() => buildColumns(), []);
+  const columns = useMemo(() => buildColumns(showSparklines, useAbbreviatedUnits), [showSparklines, useAbbreviatedUnits]);
 
   return (
     <>

@@ -1,4 +1,4 @@
-import { useRef, useMemo, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -17,7 +17,6 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { Collapse } from '@mui/material';
 import { ArrowUp, ArrowDown } from 'lucide-react';
-import { useState } from 'react';
 import { DataTableToolbar } from '@/components/shared-table/DataTableToolbar';
 
 export interface MetricGroup {
@@ -69,6 +68,7 @@ export interface DataTableProps<TRow> {
 
 const DEFAULT_ROW_HEIGHT = 41;
 const DEFAULT_OVERSCAN = 20;
+/** Tables below this threshold use `contentVisibility: 'auto'` instead of virtualization, letting the browser natively skip layout/paint for off-screen rows. This also preserves Collapse animations on nested detail panels, which break under virtualization due to absolute positioning. */
 const VIRTUALIZATION_THRESHOLD = 150;
 
 /**

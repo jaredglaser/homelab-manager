@@ -25,7 +25,7 @@ const metricGroups: MetricGroup[] = [
   { label: 'Network', columnIds: ['netin', 'netout'] },
 ];
 
-function buildColumns(): ColumnDef<GuestRow, unknown>[] {
+function buildColumns(showSparklines: boolean, useAbbreviatedUnits: boolean): ColumnDef<GuestRow, unknown>[] {
   return [
     nameColumn<GuestRow>({
       getLabel: (row) => row.name,
@@ -42,6 +42,8 @@ function buildColumns(): ColumnDef<GuestRow, unknown>[] {
       id: 'cpu',
       header: 'CPU',
       hasDecimals: true,
+      showSparklines,
+      useAbbreviatedUnits,
       getValue: (row) => {
         if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
         return formatAsPercentParts(row.cpu, true);
@@ -51,6 +53,8 @@ function buildColumns(): ColumnDef<GuestRow, unknown>[] {
       id: 'memory',
       header: 'Memory',
       hasDecimals: true,
+      showSparklines,
+      useAbbreviatedUnits,
       getValue: (row) => {
         if (row.status === 'running') {
           const fraction = row.maxmem > 0 ? row.mem / row.maxmem : 0;
@@ -62,6 +66,8 @@ function buildColumns(): ColumnDef<GuestRow, unknown>[] {
     metricColumn<GuestRow>({
       id: 'netin',
       header: 'Net In',
+      showSparklines,
+      useAbbreviatedUnits,
       getValue: (row) => {
         if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
         return formatBytesParts(row.netin, false, false);
@@ -70,6 +76,8 @@ function buildColumns(): ColumnDef<GuestRow, unknown>[] {
     metricColumn<GuestRow>({
       id: 'netout',
       header: 'Net Out',
+      showSparklines,
+      useAbbreviatedUnits,
       getValue: (row) => {
         if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
         return formatBytesParts(row.netout, false, false);
@@ -78,13 +86,13 @@ function buildColumns(): ColumnDef<GuestRow, unknown>[] {
   ];
 }
 
-export function GuestSection({ label, guests, expanded, onToggle }: Readonly<GuestSectionProps>) {
+export function GuestSection({ label, guests, expanded, onToggle, showSparklines, useAbbreviatedUnits }: Readonly<GuestSectionProps>) {
   const sorted = useMemo(
     () => [...guests].sort((a, b) => a.vmid - b.vmid),
     [guests],
   );
 
-  const columns = useMemo(() => buildColumns(), []);
+  const columns = useMemo(() => buildColumns(showSparklines, useAbbreviatedUnits), [showSparklines, useAbbreviatedUnits]);
 
   return (
     <>

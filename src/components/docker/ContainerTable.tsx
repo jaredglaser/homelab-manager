@@ -624,8 +624,12 @@ function ContainerNameCell({
   const iconUrl = getIconUrl(container.icon, container.image);
 
   const handleIconSelect = async (iconSlug: string) => {
-    await updateContainerIcon({ data: { serviceKeyEntity: container.serviceKeyEntity, iconSlug } });
-    await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
+    try {
+      await updateContainerIcon({ data: { serviceKeyEntity: container.serviceKeyEntity, iconSlug } });
+      await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
+    } catch (err) {
+      console.error('Failed to update container icon:', err);
+    }
   };
 
   // Pulse indicator refs
