@@ -8,7 +8,7 @@ interface PageHeaderProps {
 
 export default function PageHeader({ title, children }: PageHeaderProps) {
   return (
-    <div className="mb-6">
+    <div className="py-4 px-4 flex-shrink-0">
       <Typography variant="h4">{title}</Typography>
       {children}
     </div>

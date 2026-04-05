@@ -13,10 +13,10 @@ function SettingsContent() {
   const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setChartWindowSeconds, setShowSparklines, setUseAbbreviatedUnits, setLightPalette, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
 
   return (
-    <div className="w-full p-6">
+    <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
       <PageHeader title="Settings" />
 
-      <div className="flex flex-col gap-4 max-w-2xl">
+      <div className="flex flex-col gap-4 max-w-2xl px-4 pb-6">
         <Card variant="outlined" className="p-4">
           <Typography variant="h6" className="mb-4">General</Typography>
           <div className="flex flex-col gap-6">

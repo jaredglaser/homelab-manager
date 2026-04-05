@@ -131,10 +131,10 @@ function ProxmoxPageContent() {
   const { proxmox, setProxmoxUpdateInterval } = useSettings()
 
   return (
-    <div className="w-full p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex items-center justify-between flex-shrink-0">
         <PageHeader title="Proxmox Dashboard" />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 pr-4">
           <UpdateIndicator expectedInterval={proxmox.updateInterval} />
           <IntervalToggle interval={proxmox.updateInterval} onIntervalChange={setProxmoxUpdateInterval} />
         </div>
