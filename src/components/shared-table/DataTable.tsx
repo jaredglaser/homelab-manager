@@ -45,8 +45,6 @@ export interface DataTableProps<TRow> {
   /** Number of rows to render beyond the visible area (default: 10) */
   overscan?: number;
 
-  /** Enable row virtualization (default: true). Disable for small row counts where normal flow is preferred. */
-  enableVirtualization?: boolean;
   /** Show column headers (default: true). Set false for nested tables that share parent headers. */
   showHeader?: boolean;
   /** Enable column sorting (default: true) */
@@ -71,6 +69,7 @@ export interface DataTableProps<TRow> {
 
 const DEFAULT_ROW_HEIGHT = 41;
 const DEFAULT_OVERSCAN = 20;
+const VIRTUALIZATION_THRESHOLD = 150;
 
 /**
  * Build a CSS grid-template-columns string from visible TanStack Table columns.
@@ -106,7 +105,6 @@ export function DataTable<TRow>({
   onExpandedChange,
   estimateRowHeight,
   overscan = DEFAULT_OVERSCAN,
-  enableVirtualization = true,
   showHeader = true,
   enableSorting = true,
   enableFiltering = false,
@@ -206,6 +204,7 @@ export function DataTable<TRow>({
   });
 
   const { rows } = table.getRowModel();
+  const isVirtualized = rows.length > VIRTUALIZATION_THRESHOLD;
   const visibleColumns = table.getVisibleLeafColumns();
   const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns), [visibleColumns]);
 
@@ -287,7 +286,7 @@ export function DataTable<TRow>({
             )}
           </div>
         )}
-        {enableVirtualization ? (
+        {isVirtualized ? (
           <div
             style={{
               height: totalSize,
@@ -342,7 +341,7 @@ export function DataTable<TRow>({
               const hasDetailPanel = renderDetailPanel != null;
 
               return (
-                <div key={row.id}>
+                <div key={row.id} style={{ contentVisibility: 'auto', containIntrinsicSize: `auto ${DEFAULT_ROW_HEIGHT}px` }}>
                   <DataTableRow
                     row={row}
                     gridTemplate={gridTemplate}

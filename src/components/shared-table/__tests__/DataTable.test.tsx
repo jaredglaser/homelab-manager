@@ -266,4 +266,36 @@ describe('DataTable', () => {
     const headerCell = nameHeader.closest('[role="button"]');
     expect(headerCell).toBeNull();
   });
+
+  it('uses normal flow when row count is at or below virtualization threshold', () => {
+    const { container } = render(<DataTable {...defaultProps()} />);
+
+    // 3 rows is well below threshold — should NOT have absolute-positioned wrappers
+    const absoluteRows = container.querySelectorAll('[style*="position: absolute"]');
+    expect(absoluteRows.length).toBe(0);
+
+    // Should have content-visibility on row wrappers
+    const cvRows = container.querySelectorAll('[style*="content-visibility: auto"]');
+    expect(cvRows.length).toBe(3);
+  });
+
+  it('uses virtualized rendering when row count exceeds threshold', () => {
+    const manyRows: TestRow[] = Array.from({ length: 200 }, (_, i) => ({
+      id: String(i),
+      name: `Row ${i}`,
+      value: i,
+    }));
+
+    const { container } = render(
+      <DataTable {...defaultProps({ data: manyRows })} />,
+    );
+
+    // Should have absolute-positioned wrappers (virtualized)
+    const absoluteRows = container.querySelectorAll('[style*="position: absolute"]');
+    expect(absoluteRows.length).toBeGreaterThan(0);
+
+    // Should NOT have content-visibility rows
+    const cvRows = container.querySelectorAll('[style*="content-visibility: auto"]');
+    expect(cvRows.length).toBe(0);
+  });
 });
