@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { DataTable, type DataTableProps } from '../DataTable';
 import type { ColumnDef } from '@tanstack/react-table';
 
@@ -297,5 +297,168 @@ describe('DataTable', () => {
     // Should NOT have content-visibility rows
     const cvRows = container.querySelectorAll('[style*="content-visibility: auto"]');
     expect(cvRows.length).toBe(0);
+  });
+
+  it('sorts when Enter or Space is pressed on a sortable header', () => {
+    render(<DataTable {...defaultProps()} />);
+
+    const nameHeader = screen.getByText('Name');
+    const headerCell = nameHeader.closest('[role="button"]')!;
+
+    // Press Enter to sort ascending
+    fireEvent.keyDown(headerCell, { key: 'Enter' });
+    let cells = screen.getAllByText(/Alpha|Beta|Charlie/);
+    expect(cells.map((el) => el.textContent)).toEqual(['Alpha', 'Beta', 'Charlie']);
+
+    // Press Space to sort descending
+    fireEvent.keyDown(headerCell, { key: ' ' });
+    cells = screen.getAllByText(/Alpha|Beta|Charlie/);
+    expect(cells.map((el) => el.textContent)).toEqual(['Charlie', 'Beta', 'Alpha']);
+  });
+
+  it('toggles expansion using internal state when no controlled expansion is provided', () => {
+    const renderDetail = (row: TestRow) => (
+      <div data-testid={`detail-${row.id}`}>Detail for {row.name}</div>
+    );
+
+    render(
+      <DataTable
+        {...defaultProps({
+          renderDetailPanel: renderDetail,
+        })}
+      />,
+    );
+
+    // Initially no detail panels
+    expect(screen.queryByTestId('detail-1')).toBeNull();
+
+    // Click the first row to expand
+    const firstRow = screen.getByText('Alpha').closest('[role="button"]')!;
+    fireEvent.click(firstRow);
+
+    expect(screen.getByTestId('detail-1')).toBeTruthy();
+    expect(screen.getByText('Detail for Alpha')).toBeTruthy();
+  });
+
+  it('calls onExpandedChange when controlled expansion is provided', () => {
+    const renderDetail = (row: TestRow) => (
+      <div data-testid={`detail-${row.id}`}>Detail for {row.name}</div>
+    );
+    const onExpandedChange = mock(() => {});
+
+    render(
+      <DataTable
+        {...defaultProps({
+          renderDetailPanel: renderDetail,
+          expandedState: {},
+          onExpandedChange,
+        })}
+      />,
+    );
+
+    // Click the first row to trigger expansion
+    const firstRow = screen.getByText('Alpha').closest('[role="button"]')!;
+    fireEvent.click(firstRow);
+
+    expect(onExpandedChange).toHaveBeenCalled();
+  });
+
+  it('hides non-active metric group columns on mobile', () => {
+    // Mock ResizeObserver to report a narrow width
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let resizeCallback: ResizeObserverCallback | null = null;
+
+    globalThis.ResizeObserver = class MockResizeObserver {
+      constructor(cb: ResizeObserverCallback) {
+        resizeCallback = cb;
+      }
+      observe() {
+        // Immediately fire with a narrow width (below 1024 MOBILE_BREAKPOINT)
+        if (resizeCallback) {
+          resizeCallback(
+            [{ contentRect: { width: 800 } } as unknown as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          );
+        }
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+
+    const columnsWithGroups: typeof columns = [
+      { id: 'name', accessorKey: 'name', header: 'Name', size: 200, meta: { minWidth: 100 } },
+      { id: 'cpu', accessorFn: () => 1, header: 'CPU', size: 100, meta: { minWidth: 60 } },
+      { id: 'memory', accessorFn: () => 2, header: 'Memory', size: 100, meta: { minWidth: 60 } },
+    ];
+
+    const metricGroups = [
+      { label: 'CPU', columnIds: ['cpu'] },
+      { label: 'Memory', columnIds: ['memory'] },
+    ];
+
+    render(
+      <DataTable
+        data={testData}
+        columns={columnsWithGroups}
+        getRowId={(row) => row.id}
+        metricGroups={metricGroups}
+      />,
+    );
+
+    // Active group is index 0 (CPU) by default, so Memory column should be hidden
+    // The toolbar renders toggle buttons for each group, so "CPU" appears twice (toolbar + header).
+    // Use getAllByText to confirm the CPU header column is present.
+    expect(screen.getAllByText('CPU').length).toBeGreaterThanOrEqual(2); // toolbar button + header cell
+    expect(screen.getByText('Name')).toBeTruthy();
+    // Memory column header should not be rendered (column hidden).
+    // The toolbar Memory toggle button still exists, so check that only 1 "Memory" element is found.
+    const memoryElements = screen.getAllByText('Memory');
+    expect(memoryElements.length).toBe(1); // toolbar button only, no header cell
+
+    globalThis.ResizeObserver = originalResizeObserver;
+  });
+
+  it('renders detail panel in virtualized mode', async () => {
+    const manyRows: TestRow[] = Array.from({ length: 200 }, (_, i) => ({
+      id: String(i),
+      name: `Row ${i}`,
+      value: i,
+    }));
+
+    const renderDetail = (row: TestRow) => (
+      <div data-testid={`detail-${row.id}`}>Detail for {row.name}</div>
+    );
+
+    await act(async () => {
+      render(
+        <DataTable
+          {...defaultProps({
+            data: manyRows,
+            renderDetailPanel: renderDetail,
+            expandedState: { '0': true },
+            onExpandedChange: () => {},
+          })}
+        />,
+      );
+    });
+
+    // First row should have its detail panel rendered since it's expanded and visible
+    expect(screen.getByTestId('detail-0')).toBeTruthy();
+    expect(screen.getByText('Detail for Row 0')).toBeTruthy();
+  });
+
+  it('hides header when showHeader is false', () => {
+    render(<DataTable {...defaultProps({ showHeader: false })} />);
+
+    // Data rows should still render
+    expect(screen.getByText('Alpha')).toBeTruthy();
+
+    // No header cells with role="button" for sortable columns
+    const headerButtons = screen.queryAllByRole('button');
+    // The only buttons should be row buttons (if any), not header buttons
+    // With showHeader=false, the Name/Value headers should not appear as sortable header cells
+    // Verify no grid header row is present by checking that column headers are absent from role="button" elements
+    const headerTexts = headerButtons.map((el) => el.textContent);
+    expect(headerTexts.some((t) => t?.includes('Name') || t?.includes('Value'))).toBe(false);
   });
 });
