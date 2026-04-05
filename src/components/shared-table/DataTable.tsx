@@ -1,4 +1,4 @@
-import { useRef, useMemo, useCallback, type ReactNode } from 'react';
+import { useRef, useMemo, useCallback, useEffect, type ReactNode } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -17,6 +17,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Collapse } from '@mui/material';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 import { useState } from 'react';
+import { DataTableToolbar } from '@/components/shared-table/DataTableToolbar';
 
 export interface MetricGroup {
   label: string;
@@ -80,11 +81,15 @@ function buildGridTemplate<TRow>(columns: ReturnType<ReturnType<typeof useReactT
     .join(' ');
 }
 
+/** Width threshold (px) below which the table is considered mobile. */
+const MOBILE_BREAKPOINT = 1024;
+
 /**
  * Generic data table component with TanStack Table v8 column management,
  * contained virtualization via useVirtualizer, CSS Grid layout, sticky header,
  * expansion support (tree data and detail panels), and MUI Collapse animation.
  */
+
 export function DataTable<TRow>({
   data,
   columns,
@@ -99,16 +104,59 @@ export function DataTable<TRow>({
   enableFiltering = false,
   enableColumnResizing = true,
   enableColumnVisibility = true,
-  metricGroups: _metricGroups,
+  metricGroups,
   rowClassName,
   toolbarActions,
 }: Readonly<DataTableProps<TRow>>) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const [isMobile, setIsMobile] = useState(false);
+  const [activeMetricGroupIndex, setActiveMetricGroupIndex] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [internalExpanded, setInternalExpanded] = useState<ExpandedState>({});
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) {
+        setIsMobile(entry.contentRect.width < MOBILE_BREAKPOINT);
+      }
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  /**
+   * Derive column visibility from the active metric group on mobile.
+   * The "name" column is always visible. All metric columns outside
+   * the active group are hidden when on mobile with metric groups defined.
+   */
+  const effectiveColumnVisibility = useMemo<VisibilityState>(() => {
+    if (!isMobile || !metricGroups || metricGroups.length === 0) {
+      return columnVisibility;
+    }
+
+    const activeGroup = metricGroups[activeMetricGroupIndex] ?? metricGroups[0];
+    const activeIds = new Set(activeGroup.columnIds);
+
+    const hiddenColumns: VisibilityState = {};
+    for (const group of metricGroups) {
+      for (const colId of group.columnIds) {
+        if (!activeIds.has(colId)) {
+          hiddenColumns[colId] = false;
+        }
+      }
+    }
+
+    return { ...columnVisibility, ...hiddenColumns };
+  }, [isMobile, metricGroups, activeMetricGroupIndex, columnVisibility]);
 
   const expanded = controlledExpanded ?? internalExpanded;
   const setExpanded = useCallback(
@@ -131,7 +179,7 @@ export function DataTable<TRow>({
     state: {
       sorting,
       columnSizing,
-      columnVisibility,
+      columnVisibility: effectiveColumnVisibility,
       expanded,
     },
     onSortingChange: setSorting,
@@ -165,10 +213,21 @@ export function DataTable<TRow>({
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
 
+  const toolbar = (
+    <DataTableToolbar
+      metricGroups={metricGroups}
+      activeGroupIndex={activeMetricGroupIndex}
+      onGroupChange={setActiveMetricGroupIndex}
+      isMobile={isMobile}
+    >
+      {toolbarActions}
+    </DataTableToolbar>
+  );
+
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col flex-1 min-h-0">
-        {toolbarActions && <div className="flex-shrink-0">{toolbarActions}</div>}
+      <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
+        {toolbar}
         <div className="flex items-center justify-center flex-1 text-neutral-500 dark:text-neutral-400 py-12">
           No data
         </div>
@@ -177,8 +236,8 @@ export function DataTable<TRow>({
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {toolbarActions && <div className="flex-shrink-0">{toolbarActions}</div>}
+    <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
+      {toolbar}
 
       {/* Scrollable container — header + body scroll horizontally together */}
       <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0">

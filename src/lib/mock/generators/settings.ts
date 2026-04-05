@@ -14,6 +14,7 @@ export function generateDefaultSettings(): Record<string, string> {
     [SETTINGS_KEYS.general.showSparklines]: 'true',
     [SETTINGS_KEYS.general.useAbbreviatedUnits]: 'true',
     [SETTINGS_KEYS.general.lightPalette]: '',
+    [SETTINGS_KEYS.general.activeMetricGroup]: '{}',
 
     [SETTINGS_KEYS.docker.memoryDisplayMode]: 'percent',
     [SETTINGS_KEYS.docker.chartWindowSeconds]: '60',
