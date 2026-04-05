@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import { Box, Chip, CircularProgress, Typography } from '@mui/material';
@@ -198,56 +198,33 @@ export default function ContainerTable({
     });
   }, [hierarchy, chartDataByServiceKey]);
 
-  // Map settings expansion state to TanStack Table ExpandedState
+  // Host-level expansion state (container expansion handled by nested DataTable)
   const expandedState = useMemo<ExpandedState>(() => {
     const state: Record<string, boolean> = {};
-
     for (const hostRow of tableData) {
       if (hostRow.type === 'host' && hostRow.hostName) {
         state[hostRow.id] = isHostExpanded(hostRow.hostName, hostRow.totalHosts ?? 1);
       }
-      if (hostRow.children) {
-        for (const child of hostRow.children) {
-          if (child.type === 'container') {
-            state[child.id] = isContainerExpanded(child.id);
-          }
-        }
-      }
     }
-
     return state;
-  }, [tableData, isHostExpanded, isContainerExpanded]);
+  }, [tableData, isHostExpanded]);
 
   const handleExpandedChange = useCallback(
     (newExpanded: ExpandedState) => {
       if (typeof newExpanded === 'boolean') return;
-
-      // Diff against current state to find what changed
       const currentExpanded = expandedState as Record<string, boolean>;
       for (const [id, value] of Object.entries(newExpanded)) {
-        const wasExpanded = currentExpanded[id] ?? false;
-        if (value !== wasExpanded) {
-          if (id.startsWith('host:')) {
-            const hostName = id.slice(5);
-            toggleHostExpanded(hostName);
-          } else {
-            toggleContainerExpanded(id);
-          }
+        if (value !== (currentExpanded[id] ?? false) && id.startsWith('host:')) {
+          toggleHostExpanded(id.slice(5));
         }
       }
-
-      // Check for keys removed (collapsed)
       for (const id of Object.keys(currentExpanded)) {
-        if (currentExpanded[id] && !(id in newExpanded)) {
-          if (id.startsWith('host:')) {
-            toggleHostExpanded(id.slice(5));
-          } else {
-            toggleContainerExpanded(id);
-          }
+        if (currentExpanded[id] && !(id in newExpanded) && id.startsWith('host:')) {
+          toggleHostExpanded(id.slice(5));
         }
       }
     },
-    [expandedState, toggleHostExpanded, toggleContainerExpanded],
+    [expandedState, toggleHostExpanded],
   );
 
   // Build columns with current settings
@@ -404,7 +381,8 @@ export default function ContainerTable({
     [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onOpenHistory],
   );
 
-  const renderDetailPanel = useCallback(
+  /** Render container detail panel (charts + logs) for the nested DataTable */
+  const renderContainerDetail = useCallback(
     (row: DockerTableRow) => {
       if (row.type !== 'container' || !row.container || !row.dataPoints) return null;
       const [host, containerId] = row.container.id.split('/');
@@ -430,6 +408,24 @@ export default function ContainerTable({
     }
     return '';
   }, []);
+
+  /** Host detail panel: a nested DataTable of container rows with its own virtualized scroll */
+  const renderDetailPanel = useCallback(
+    (row: DockerTableRow) => {
+      if (row.type !== 'host' || !row.children?.length) return null;
+      return (
+        <ContainerSubTable
+          containers={row.children}
+          columns={columns}
+          renderDetailPanel={renderContainerDetail}
+          rowClassName={rowClassName}
+          isContainerExpanded={isContainerExpanded}
+          toggleContainerExpanded={toggleContainerExpanded}
+        />
+      );
+    },
+    [columns, renderContainerDetail, rowClassName, isContainerExpanded, toggleContainerExpanded],
+  );
 
   // Loading / error states
   if (error && !hasData) {
@@ -461,7 +457,6 @@ export default function ContainerTable({
         data={tableData}
         columns={columns}
         getRowId={(row) => row.id}
-        getSubRows={(row) => row.children}
         renderDetailPanel={renderDetailPanel}
         expandedState={expandedState}
         onExpandedChange={handleExpandedChange}
@@ -517,6 +512,73 @@ function computeSparklineAndChartData(chartData: DockerStatsRow[]): {
 /**
  * Name cell for host rows - shows host name, container count, expand chevron
  */
+/** Max visible container rows before the nested table scrolls */
+const MAX_VISIBLE_CONTAINERS = 10;
+const CONTAINER_ROW_HEIGHT = 41;
+
+/**
+ * Nested DataTable for container rows within an expanded host.
+ * Has its own virtualized scroll capped at MAX_VISIBLE_CONTAINERS height.
+ */
+const ContainerSubTable = memo(function ContainerSubTable({
+  containers,
+  columns,
+  renderDetailPanel,
+  rowClassName,
+  isContainerExpanded,
+  toggleContainerExpanded,
+}: Readonly<{
+  containers: DockerTableRow[];
+  columns: ColumnDef<DockerTableRow, unknown>[];
+  renderDetailPanel: (row: DockerTableRow) => ReactNode;
+  rowClassName: (row: DockerTableRow) => string;
+  isContainerExpanded: (id: string) => boolean;
+  toggleContainerExpanded: (id: string) => void;
+}>) {
+  const containerExpanded = useMemo<ExpandedState>(() => {
+    const state: Record<string, boolean> = {};
+    for (const c of containers) {
+      state[c.id] = isContainerExpanded(c.id);
+    }
+    return state;
+  }, [containers, isContainerExpanded]);
+
+  const handleContainerExpandedChange = useCallback(
+    (newExpanded: ExpandedState) => {
+      if (typeof newExpanded === 'boolean') return;
+      const current = containerExpanded as Record<string, boolean>;
+      for (const [id, value] of Object.entries(newExpanded)) {
+        if (value !== (current[id] ?? false)) {
+          toggleContainerExpanded(id);
+        }
+      }
+      for (const id of Object.keys(current)) {
+        if (current[id] && !(id in newExpanded)) {
+          toggleContainerExpanded(id);
+        }
+      }
+    },
+    [containerExpanded, toggleContainerExpanded],
+  );
+
+  const maxHeight = Math.min(containers.length, MAX_VISIBLE_CONTAINERS) * CONTAINER_ROW_HEIGHT;
+
+  return (
+    <div style={{ maxHeight, overflow: 'hidden' }}>
+      <DataTable
+        data={containers}
+        columns={columns}
+        getRowId={(row) => row.id}
+        renderDetailPanel={renderDetailPanel}
+        expandedState={containerExpanded}
+        onExpandedChange={handleContainerExpandedChange}
+        rowClassName={rowClassName}
+        enableSorting={false}
+      />
+    </div>
+  );
+});
+
 const HostNameCell = memo(function HostNameCell({
   row,
   expanded,
