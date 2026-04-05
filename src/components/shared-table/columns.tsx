@@ -18,6 +18,10 @@ export function metricColumn<TRow>(opts: {
   sparklineColor?: string;
   getIsStale?: (row: TRow) => boolean;
   hasDecimals?: boolean;
+  /** Whether sparklines are visible (default: derived from sparklineColor presence) */
+  showSparklines?: boolean;
+  /** Whether to abbreviate unit labels (default: false) */
+  useAbbreviatedUnits?: boolean;
   size?: number;
   minBreakpoint?: 'sm' | 'md' | 'lg' | 'xl';
 }): ColumnDef<TRow, unknown> {
@@ -30,8 +34,8 @@ export function metricColumn<TRow>(opts: {
         <MetricCell
           value={value}
           unit={unit}
-          showSparklines={!!opts.sparklineColor}
-          useAbbreviatedUnits={false}
+          showSparklines={opts.showSparklines ?? !!opts.sparklineColor}
+          useAbbreviatedUnits={opts.useAbbreviatedUnits ?? false}
           sparklineData={opts.getSparklineData?.(row.original)}
           sparklineColor={opts.sparklineColor}
           hasDecimals={opts.hasDecimals}

@@ -308,13 +308,17 @@ export function DataTable<TRow>({
                   gridTemplate={gridTemplate}
                   rowClassName={rowClassName}
                 />
-                {hasDetailPanel && (
-                  <Collapse in={isExpanded} unmountOnExit>
-                    <div className="border-t border-neutral-200 dark:border-neutral-700">
-                      {renderDetailPanel(row.original)}
-                    </div>
-                  </Collapse>
-                )}
+                {hasDetailPanel && (() => {
+                  const panel = renderDetailPanel(row.original);
+                  if (panel == null) return null;
+                  return (
+                    <Collapse in={isExpanded} unmountOnExit>
+                      <div className="border-t border-neutral-200 dark:border-neutral-700">
+                        {panel}
+                      </div>
+                    </Collapse>
+                  );
+                })()}
               </div>
             );
           })}
