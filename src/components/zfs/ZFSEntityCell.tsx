@@ -8,12 +8,11 @@ interface ZFSEntityCellProps {
   indent: number;
   isExpanded?: boolean;
   canExpand?: boolean;
-  onToggle?: () => void;
   badge?: { label: string; tooltip?: string };
 }
 
 /**
- * Name cell for ZFS table rows. Renders indent padding, an optional expand
+ * Name cell for ZFS table rows. Renders an optional expand
  * chevron, the entity name (bold for hosts/pools), and an optional chip badge.
  */
 const ZFSEntityCell = memo(function ZFSEntityCell({
@@ -22,7 +21,6 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
   indent,
   isExpanded,
   canExpand,
-  onToggle,
   badge,
 }: Readonly<ZFSEntityCellProps>) {
   const isBold = entityType === 'host' || entityType === 'pool';
@@ -33,20 +31,7 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
 
   return (
     <div
-      role={canExpand ? 'button' : undefined}
-      tabIndex={canExpand ? 0 : undefined}
-      onClick={canExpand ? onToggle : undefined}
-      onKeyDown={
-        canExpand
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onToggle?.();
-              }
-            }
-          : undefined
-      }
-      className={`flex items-center gap-2 min-w-0 ${canExpand ? 'cursor-pointer' : 'cursor-default'}`}
+      className="flex items-center gap-2 min-w-0"
       style={indent > 0 ? { paddingLeft: indent * 16 } : undefined}
     >
       {canExpand && (

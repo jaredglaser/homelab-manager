@@ -42,7 +42,7 @@ const METRIC_GROUPS: MetricGroup[] = [
 ];
 
 /** Cell renderer for ZFS entity names — extracted to satisfy component-definition rules */
-function ZFSNameCell({ row }: Readonly<{ row: { original: ZFSTableRow; getIsExpanded: () => boolean; getToggleExpandedHandler: () => () => void } }>) {
+function ZFSNameCell({ row }: Readonly<{ row: { original: ZFSTableRow; getIsExpanded: () => boolean } }>) {
   const data = row.original;
   return (
     <ZFSEntityCell
@@ -51,7 +51,6 @@ function ZFSNameCell({ row }: Readonly<{ row: { original: ZFSTableRow; getIsExpa
       indent={0}
       isExpanded={row.getIsExpanded()}
       canExpand={data.canExpand}
-      onToggle={row.getToggleExpandedHandler()}
       badge={data.badge}
     />
   );

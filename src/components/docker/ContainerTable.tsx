@@ -245,7 +245,6 @@ export default function ContainerTable({
               <HostNameCell
                 row={data}
                 expanded={row.getIsExpanded()}
-                toggleExpanded={() => row.toggleExpanded()}
               />
             );
           }
@@ -253,7 +252,6 @@ export default function ContainerTable({
             <ContainerNameCell
               row={data}
               expanded={row.getIsExpanded()}
-              toggleExpanded={() => row.toggleExpanded()}
               onOpenHistory={onOpenHistory}
             />
           );
@@ -572,11 +570,9 @@ const ContainerSubTable = memo(function ContainerSubTable({
 const HostNameCell = memo(function HostNameCell({
   row,
   expanded,
-  toggleExpanded,
 }: Readonly<{
   row: DockerTableRow;
   expanded: boolean;
-  toggleExpanded: () => void;
 }>) {
   const totalHosts = row.totalHosts ?? 1;
   const hasContainers = (row.children?.length ?? 0) > 0;
@@ -584,13 +580,7 @@ const HostNameCell = memo(function HostNameCell({
   const a = row.aggregated;
 
   return (
-    <div
-      role={canToggle ? 'button' : undefined}
-      tabIndex={canToggle ? 0 : undefined}
-      onClick={canToggle ? toggleExpanded : undefined}
-      onKeyDown={canToggle ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(); } } : undefined}
-      className={`flex items-center gap-2 ${canToggle ? 'cursor-pointer' : 'cursor-default'}`}
-    >
+    <div className="flex items-center gap-2">
       {canToggle && (
         <ChevronRight
           size={18}
@@ -619,12 +609,10 @@ const HostNameCell = memo(function HostNameCell({
 function ContainerNameCell({
   row,
   expanded,
-  toggleExpanded,
   onOpenHistory,
 }: Readonly<{
   row: DockerTableRow;
   expanded: boolean;
-  toggleExpanded: () => void;
   onOpenHistory?: (containerId: string, host: string) => void;
 }>) {
   const container = row.container;
@@ -682,13 +670,7 @@ function ContainerNameCell({
 
   return (
     <>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={toggleExpanded}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpanded(); } }}
-        className="group flex items-center gap-2 cursor-pointer"
-      >
+      <div className="group flex items-center gap-2">
         <ChevronRight
           size={16}
           className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
