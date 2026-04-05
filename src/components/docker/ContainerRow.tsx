@@ -5,8 +5,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import type { DecimalSettings, MemoryDisplayMode } from '@/hooks/useSettings';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
-import { MetricValue } from '@/components/shared-table';
-import ContainerChartsCard from '@/components/docker/ContainerChartsCard';
+import { MetricCell } from '@/components/shared-table';
+import ContainerDetailPanel from '@/components/docker/ContainerDetailPanel';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import { updateContainerIcon } from '@/data/docker/functions';
@@ -260,7 +260,7 @@ export default memo(function ContainerRow({
           </div>
         </div>
         <div>
-          <MetricValue
+          <MetricCell
             value={metricParts.cpu.value}
             unit={metricParts.cpu.unit}
             hasDecimals={decimals.cpu}
@@ -272,7 +272,7 @@ export default memo(function ContainerRow({
           />
         </div>
         <div>
-          <MetricValue
+          <MetricCell
             value={metricParts.memory.value}
             unit={metricParts.memory.unit}
             hasDecimals={decimals.memory}
@@ -284,7 +284,7 @@ export default memo(function ContainerRow({
           />
         </div>
         <div>
-          <MetricValue
+          <MetricCell
             value={metricParts.blockRead.value}
             unit={metricParts.blockRead.unit}
             hasDecimals={decimals.diskSpeed}
@@ -296,7 +296,7 @@ export default memo(function ContainerRow({
           />
         </div>
         <div>
-          <MetricValue
+          <MetricCell
             value={metricParts.blockWrite.value}
             unit={metricParts.blockWrite.unit}
             hasDecimals={decimals.diskSpeed}
@@ -308,7 +308,7 @@ export default memo(function ContainerRow({
           />
         </div>
         <div>
-          <MetricValue
+          <MetricCell
             value={metricParts.networkRx.value}
             unit={metricParts.networkRx.unit}
             hasDecimals={decimals.networkSpeed}
@@ -320,7 +320,7 @@ export default memo(function ContainerRow({
           />
         </div>
         <div>
-          <MetricValue
+          <MetricCell
             value={metricParts.networkTx.value}
             unit={metricParts.networkTx.unit}
             hasDecimals={decimals.networkSpeed}
@@ -334,7 +334,7 @@ export default memo(function ContainerRow({
       </div>
 
       <Collapse in={expanded} unmountOnExit onEntered={handleExpanded}>
-        <ContainerChartsCard
+        <ContainerDetailPanel
           dataPoints={dataPoints}
           containerId={container.id.split('/')[1]}
           host={container.id.split('/')[0]}

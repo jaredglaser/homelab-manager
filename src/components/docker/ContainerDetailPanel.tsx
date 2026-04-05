@@ -14,7 +14,7 @@ interface ContainerChartDataPoint {
   networkTxBytesPerSec: number;
 }
 
-interface ContainerChartsCardProps {
+interface ContainerDetailPanelProps {
   dataPoints: ContainerChartDataPoint[];
   containerId: string;
   host: string;
@@ -31,11 +31,11 @@ interface SeriesConfig {
 
 type DualSeries = [SeriesConfig, SeriesConfig];
 
-export default memo(function ContainerChartsCard({
+export default memo(function ContainerDetailPanel({
   dataPoints,
   containerId,
   host,
-}: ContainerChartsCardProps) {
+}: ContainerDetailPanelProps) {
   const cpuMemSeries = useMemo<DualSeries>(
     () => [
       {

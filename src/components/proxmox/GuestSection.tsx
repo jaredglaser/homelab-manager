@@ -2,7 +2,7 @@ import { Chip, Collapse } from '@mui/material'
 import { ChevronRight } from 'lucide-react'
 import type { GuestRow } from '@/types/proxmox'
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
-import { MetricValue, MetricHeader, EMPTY_METRIC } from '@/components/shared-table'
+import { MetricCell, MetricHeaderCell, EMPTY_METRIC } from '@/components/shared-table'
 import { GUEST_GRID, BORDER, ROW_HOVER } from '@/components/proxmox/constants'
 
 interface GuestSectionProps {
@@ -40,10 +40,10 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
             <div className="px-3 py-2 font-semibold text-sm">VMID</div>
             <div className="px-3 py-2 font-semibold text-sm">Name</div>
             <div className="px-3 py-2 font-semibold text-sm">Status</div>
-            <div className="py-2"><MetricHeader>CPU</MetricHeader></div>
-            <div className="py-2"><MetricHeader>Memory</MetricHeader></div>
-            <div className="py-2"><MetricHeader>Net In</MetricHeader></div>
-            <div className="py-2"><MetricHeader>Net Out</MetricHeader></div>
+            <div className="py-2"><MetricHeaderCell>CPU</MetricHeaderCell></div>
+            <div className="py-2"><MetricHeaderCell>Memory</MetricHeaderCell></div>
+            <div className="py-2"><MetricHeaderCell>Net In</MetricHeaderCell></div>
+            <div className="py-2"><MetricHeaderCell>Net Out</MetricHeaderCell></div>
           </div>
 
           {/* Data rows */}
@@ -70,21 +70,21 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
                 </div>
                 <div>
                   {vm.status === 'running' ? (
-                    <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+                    <MetricCell value={cpuParts.value} unit={cpuParts.unit} hasDecimals showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
                 <div>
-                  <MetricValue value={memParts.value} unit={memParts.unit} hasDecimals={vm.status === 'running'} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                </div>
-                <div>
-                  {vm.status === 'running' ? (
-                    <MetricValue value={netInParts.value} unit={netInParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+                  <MetricCell value={memParts.value} unit={memParts.unit} hasDecimals={vm.status === 'running'} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
                 </div>
                 <div>
                   {vm.status === 'running' ? (
-                    <MetricValue value={netOutParts.value} unit={netOutParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+                    <MetricCell value={netInParts.value} unit={netInParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+                </div>
+                <div>
+                  {vm.status === 'running' ? (
+                    <MetricCell value={netOutParts.value} unit={netOutParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
               </div>
             )

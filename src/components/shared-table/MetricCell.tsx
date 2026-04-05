@@ -1,11 +1,11 @@
 import { memo, type ReactNode } from 'react';
-import MetricSparkline from '@/components/docker/MetricSparkline';
+import SparklineCell from '@/components/shared-table/SparklineCell';
 import { abbreviateUnit } from '@/lib/utils/abbreviate-unit';
 
 /** Display placeholder for metrics with no value */
 export const EMPTY_METRIC = '--';
 
-interface MetricValueProps {
+interface MetricCellProps {
   /** The numeric value to display */
   value: string;
   /** The unit (e.g., "%", "MiB/s", "Kbps") */
@@ -16,7 +16,7 @@ interface MetricValueProps {
   useAbbreviatedUnits: boolean;
   /** Pre-rendered sparkline element (e.g., LinearProgress). Prefer sparklineData+sparklineColor for memo. */
   sparkline?: ReactNode;
-  /** Time-series data for auto-rendered MetricSparkline */
+  /** Time-series data for auto-rendered SparklineCell */
   sparklineData?: { timestamp: number; value: number }[];
   /** CSS variable for sparkline color (e.g., "--chart-cpu") */
   sparklineColor?: string;
@@ -26,7 +26,7 @@ interface MetricValueProps {
   isStale?: boolean;
 }
 
-export const MetricValue = memo(function MetricValue({
+export const MetricCell = memo(function MetricCell({
   value,
   unit,
   showSparklines,
@@ -36,7 +36,7 @@ export const MetricValue = memo(function MetricValue({
   sparklineColor,
   hasDecimals = false,
   isStale = false,
-}: Readonly<MetricValueProps>) {
+}: Readonly<MetricCellProps>) {
 
   // Reserve minimum space to prevent layout shift on typical values,
   // but allow growth for larger numbers (e.g., 5+ digit ops/s)
@@ -48,14 +48,14 @@ export const MetricValue = memo(function MetricValue({
 
   // Render sparkline: prefer data+color props (memo-friendly), fall back to ReactNode
   const dataSparkline = sparklineData && sparklineColor
-    ? <MetricSparkline data={sparklineData} color={sparklineColor} />
+    ? <SparklineCell data={sparklineData} color={sparklineColor} />
     : null;
   const sparklineElement = showSparklines
     ? sparkline ?? dataSparkline
     : null;
 
   // Reserve space for sparkline when enabled (even if not passed) to keep columns aligned
-  // SparklineChart dimensions: width=60px, height=24px, hidden on smaller screens via lg:block
+  // SparklineCanvas dimensions: width=60px, height=24px, hidden on smaller screens via lg:block
   const sparklinePlaceholder = showSparklines && !sparklineElement ? (
     <div className="hidden min-[1428px]:block flex-shrink-0" style={{ width: 60, height: 24 }} />
   ) : null;

@@ -2,7 +2,7 @@ import { Chip, Collapse, LinearProgress } from '@mui/material'
 import { ChevronRight } from 'lucide-react'
 import type { ProxmoxStorage } from '@/types/proxmox'
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
-import { MetricValue, MetricHeader, EMPTY_METRIC } from '@/components/shared-table'
+import { MetricCell, MetricHeaderCell, EMPTY_METRIC } from '@/components/shared-table'
 import { STORAGE_GRID, BORDER, ROW_HOVER } from '@/components/proxmox/constants'
 
 interface StorageSectionProps {
@@ -39,9 +39,9 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
             <div className="px-3 py-2 font-semibold text-sm">Name</div>
             <div className="px-3 py-2 font-semibold text-sm">Type</div>
             <div className="px-3 py-2 font-semibold text-sm">Status</div>
-            <div className="py-2"><MetricHeader>Used</MetricHeader></div>
-            <div className="py-2"><MetricHeader>Available</MetricHeader></div>
-            <div className="py-2"><MetricHeader>Usage</MetricHeader></div>
+            <div className="py-2"><MetricHeaderCell>Used</MetricHeaderCell></div>
+            <div className="py-2"><MetricHeaderCell>Available</MetricHeaderCell></div>
+            <div className="py-2"><MetricHeaderCell>Usage</MetricHeaderCell></div>
           </div>
 
           {/* Data rows */}
@@ -64,17 +64,17 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
                 </div>
                 <div>
                   {s.total > 0 ? (
-                    <MetricValue value={usedParts.value} unit={usedParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+                    <MetricCell value={usedParts.value} unit={usedParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
                 <div>
                   {s.total > 0 ? (
-                    <MetricValue value={availParts.value} unit={availParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+                    <MetricCell value={availParts.value} unit={availParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
                 <div>
                   {s.total > 0 ? (
-                    <MetricValue
+                    <MetricCell
                       value={usageParts.value}
                       unit={usageParts.unit}
                       hasDecimals
@@ -95,7 +95,7 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
                         />
                       }
                     />
-                  ) : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
                 </div>
               </div>
             )

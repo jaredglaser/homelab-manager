@@ -8,7 +8,7 @@ import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import type { DockerStatsRow, DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
 import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
-import { MetricValue, MetricHeader } from '../shared-table';
+import { MetricCell, MetricHeaderCell } from '@/components/shared-table';
 import ContainerRow from './ContainerRow';
 import { getDockerEntityIcons } from '@/data/docker/functions';
 
@@ -210,12 +210,12 @@ export default function ContainerTable({
         {/* Column headers */}
         <div className={`${DOCKER_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
           <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Host / Container</div>
-          <div className="py-2"><MetricHeader>CPU</MetricHeader></div>
-          <div className="py-2"><MetricHeader>{memLabel}</MetricHeader></div>
-          <div className="py-2"><MetricHeader>Disk Read</MetricHeader></div>
-          <div className="py-2"><MetricHeader>Disk Write</MetricHeader></div>
-          <div className="py-2"><MetricHeader>Net RX</MetricHeader></div>
-          <div className="py-2"><MetricHeader>Net TX</MetricHeader></div>
+          <div className="py-2"><MetricHeaderCell>CPU</MetricHeaderCell></div>
+          <div className="py-2"><MetricHeaderCell>{memLabel}</MetricHeaderCell></div>
+          <div className="py-2"><MetricHeaderCell>Disk Read</MetricHeaderCell></div>
+          <div className="py-2"><MetricHeaderCell>Disk Write</MetricHeaderCell></div>
+          <div className="py-2"><MetricHeaderCell>Net RX</MetricHeaderCell></div>
+          <div className="py-2"><MetricHeaderCell>Net TX</MetricHeaderCell></div>
         </div>
 
         {/* Virtualized body */}
@@ -363,22 +363,22 @@ const HostRow = memo(function HostRow({
         )}
       </div>
       <div>
-        <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div>
-        <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
     </div>
   );

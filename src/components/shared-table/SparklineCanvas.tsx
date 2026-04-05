@@ -7,7 +7,7 @@ interface TimeSeriesPoint {
   value: number;
 }
 
-interface SparklineChartProps {
+interface SparklineCanvasProps {
   data: TimeSeriesPoint[];
   color: string;
   height?: number;
@@ -20,13 +20,13 @@ const TIME_WINDOW_MS = 30000; // 30 seconds
 const MAX_DECAY = 0.97;
 const MAX_POINTS = 128; // Pre-allocated buffer ceiling (well above the ~35 points we expect)
 
-export default memo(function SparklineChart({
+export default memo(function SparklineCanvas({
   data,
   color,
   height = 24,
   width = 60,
   className,
-}: SparklineChartProps) {
+}: SparklineCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef(0);
   const smoothMaxRef = useRef(0);

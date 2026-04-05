@@ -47,7 +47,7 @@ mock.module('@/hooks/useContainerLogs', () => ({
   useContainerLogs: () => ({ isConnected: true, error: null }),
 }));
 
-const { default: ContainerChartsCard } = await import('../ContainerChartsCard');
+const { default: ContainerDetailPanel } = await import('../ContainerDetailPanel');
 
 const sampleDataPoints = [
   {
@@ -70,10 +70,10 @@ const sampleDataPoints = [
   },
 ];
 
-describe('ContainerChartsCard', () => {
+describe('ContainerDetailPanel', () => {
   it('renders two chart sections', () => {
     render(
-      <ContainerChartsCard
+      <ContainerDetailPanel
         dataPoints={sampleDataPoints}
         containerId="abc123"
         host="server"
@@ -85,7 +85,7 @@ describe('ContainerChartsCard', () => {
 
   it('renders the log viewer', () => {
     render(
-      <ContainerChartsCard
+      <ContainerDetailPanel
         dataPoints={sampleDataPoints}
         containerId="abc123"
         host="server"
@@ -96,7 +96,7 @@ describe('ContainerChartsCard', () => {
 
   it('renders two echarts instances', () => {
     render(
-      <ContainerChartsCard
+      <ContainerDetailPanel
         dataPoints={sampleDataPoints}
         containerId="abc123"
         host="server"
@@ -108,7 +108,7 @@ describe('ContainerChartsCard', () => {
 
   it('renders with empty data points', () => {
     render(
-      <ContainerChartsCard
+      <ContainerDetailPanel
         dataPoints={[]}
         containerId="abc123"
         host="server"

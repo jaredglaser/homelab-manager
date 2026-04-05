@@ -6,7 +6,7 @@ import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import type { PoolStats, VdevStats, ZFSHostHierarchy, ZFSHostStats, ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
-import { MetricValue, MetricHeader, EMPTY_METRIC } from '@/components/shared-table';
+import { MetricCell, MetricHeaderCell, EMPTY_METRIC } from '@/components/shared-table';
 import { useSettings } from '@/hooks/useSettings';
 
 type ZFSFlatRow =
@@ -134,12 +134,12 @@ export default function ZFSPoolsTable({
           <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">
             {hostHierarchy.size > 1 ? 'Host / Pool / Device' : 'Pool / Device'}
           </div>
-          <div className="px-3 py-2"><MetricHeader>Capacity</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Read Ops/s</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Write Ops/s</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Read</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Write</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Utilization</MetricHeader></div>
+          <div className="px-3 py-2"><MetricHeaderCell>Capacity</MetricHeaderCell></div>
+          <div className="px-3 py-2"><MetricHeaderCell>Read Ops/s</MetricHeaderCell></div>
+          <div className="px-3 py-2"><MetricHeaderCell>Write Ops/s</MetricHeaderCell></div>
+          <div className="px-3 py-2"><MetricHeaderCell>Read</MetricHeaderCell></div>
+          <div className="px-3 py-2"><MetricHeaderCell>Write</MetricHeaderCell></div>
+          <div className="px-3 py-2"><MetricHeaderCell>Utilization</MetricHeaderCell></div>
         </div>
 
         {/* Virtualized body */}
@@ -219,23 +219,23 @@ function ZFSMetrics({ data, showCapacity = true, showSparklines, useAbbreviatedU
     <>
       <div className="px-3 py-2">
         {capacityParts
-          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-          : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+          ? <MetricCell value={capacityParts.value} unit={capacityParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+          : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={readOpsParts.value} unit={readOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={writeOpsParts.value} unit={writeOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={utilParts.value} unit={utilParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={utilParts.value} unit={utilParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
     </>
   );
@@ -256,23 +256,23 @@ function HostAggregateMetrics({ host, showSparklines, useAbbreviatedUnits, diskS
     <>
       <div className="px-3 py-2">
         {capacityParts
-          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-          : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
+          ? <MetricCell value={capacityParts.value} unit={capacityParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+          : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={readOpsParts.value} unit={readOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={writeOpsParts.value} unit={writeOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
       <div className="px-3 py-2">
-        <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
+        <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
       </div>
     </>
   );

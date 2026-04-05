@@ -1,2 +1,2 @@
-export { MetricValue, EMPTY_METRIC } from './MetricValue';
-export { MetricHeader } from './MetricHeader';
+export { MetricCell, EMPTY_METRIC } from './MetricCell';
+export { MetricHeaderCell } from './MetricHeaderCell';
