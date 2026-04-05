@@ -1,25 +1,93 @@
-import { Chip, Collapse } from '@mui/material'
-import { ChevronRight } from 'lucide-react'
-import type { GuestRow } from '@/types/proxmox'
-import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics'
-import { MetricCell, MetricHeaderCell, EMPTY_METRIC } from '@/components/shared-table'
-import { GUEST_GRID, BORDER, ROW_HOVER } from '@/components/proxmox/constants'
+import { useMemo } from 'react';
+import { Collapse } from '@mui/material';
+import { ChevronRight } from 'lucide-react';
+import type { ColumnDef } from '@tanstack/react-table';
+import type { GuestRow } from '@/types/proxmox';
+import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
+import { EMPTY_METRIC } from '@/components/shared-table';
+import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
+import { nameColumn, statusColumn, metricColumn } from '@/components/shared-table/columns';
+import { GuestCell } from '@/components/proxmox/GuestCell';
 
 interface GuestSectionProps {
-  label: string
-  guests: GuestRow[]
-  expanded: boolean
-  onToggle: () => void
-  showSparklines: boolean
-  useAbbreviatedUnits: boolean
+  label: string;
+  guests: GuestRow[];
+  expanded: boolean;
+  onToggle: () => void;
+  showSparklines: boolean;
+  useAbbreviatedUnits: boolean;
 }
 
-export function GuestSection({ label, guests, expanded, onToggle, showSparklines, useAbbreviatedUnits }: Readonly<GuestSectionProps>) {
-  const sorted = [...guests].sort((a, b) => a.vmid - b.vmid)
+const BORDER = 'border-t border-neutral-200 dark:border-neutral-700';
+
+const metricGroups: MetricGroup[] = [
+  { label: 'CPU / Memory', columnIds: ['cpu', 'memory'] },
+  { label: 'Network', columnIds: ['netin', 'netout'] },
+];
+
+function buildColumns(): ColumnDef<GuestRow, unknown>[] {
+  return [
+    nameColumn<GuestRow>({
+      getLabel: (row) => row.name,
+      cell: ({ row }) => (
+        <GuestCell vmid={row.original.vmid} name={row.original.name} />
+      ),
+    }),
+    statusColumn<GuestRow>({
+      id: 'status',
+      getValue: (row) => row.status,
+      getColor: (row) => (row.status === 'running' ? 'success' : 'default'),
+    }),
+    metricColumn<GuestRow>({
+      id: 'cpu',
+      header: 'CPU',
+      hasDecimals: true,
+      getValue: (row) => {
+        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        return formatAsPercentParts(row.cpu, true);
+      },
+    }),
+    metricColumn<GuestRow>({
+      id: 'memory',
+      header: 'Memory',
+      hasDecimals: true,
+      getValue: (row) => {
+        if (row.status === 'running') {
+          const fraction = row.maxmem > 0 ? row.mem / row.maxmem : 0;
+          return formatAsPercentParts(fraction, true);
+        }
+        return formatBytesParts(row.maxmem, false, false);
+      },
+    }),
+    metricColumn<GuestRow>({
+      id: 'netin',
+      header: 'Net In',
+      getValue: (row) => {
+        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        return formatBytesParts(row.netin, false, false);
+      },
+    }),
+    metricColumn<GuestRow>({
+      id: 'netout',
+      header: 'Net Out',
+      getValue: (row) => {
+        if (row.status !== 'running') return { value: EMPTY_METRIC, unit: '' };
+        return formatBytesParts(row.netout, false, false);
+      },
+    }),
+  ];
+}
+
+export function GuestSection({ label, guests, expanded, onToggle }: Readonly<GuestSectionProps>) {
+  const sorted = useMemo(
+    () => [...guests].sort((a, b) => a.vmid - b.vmid),
+    [guests],
+  );
+
+  const columns = useMemo(() => buildColumns(), []);
 
   return (
     <>
-      {/* Section header row */}
       <div
         onClick={onToggle}
         className={`flex items-center gap-2 pl-10 pr-4 py-2 cursor-pointer ${BORDER} bg-[var(--mui-palette-background-level1)]`}
@@ -35,62 +103,17 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
 
       <Collapse in={expanded} unmountOnExit>
         <div className="bg-[var(--mui-palette-action-hover)] border-b border-[var(--mui-palette-divider)]">
-          {/* Column headers */}
-          <div className={`${GUEST_GRID} ${BORDER}`}>
-            <div className="px-3 py-2 font-semibold text-sm">VMID</div>
-            <div className="px-3 py-2 font-semibold text-sm">Name</div>
-            <div className="px-3 py-2 font-semibold text-sm">Status</div>
-            <div className="py-2"><MetricHeaderCell>CPU</MetricHeaderCell></div>
-            <div className="py-2"><MetricHeaderCell>Memory</MetricHeaderCell></div>
-            <div className="py-2"><MetricHeaderCell>Net In</MetricHeaderCell></div>
-            <div className="py-2"><MetricHeaderCell>Net Out</MetricHeaderCell></div>
-          </div>
-
-          {/* Data rows */}
-          {sorted.map((vm) => {
-            const cpuParts = formatAsPercentParts(vm.cpu, true)
-            const memFraction = vm.maxmem > 0 ? vm.mem / vm.maxmem : 0
-            const memParts = vm.status === 'running'
-              ? formatAsPercentParts(memFraction, true)
-              : formatBytesParts(vm.maxmem, false, false)
-            const netInParts = formatBytesParts(vm.netin, false, false)
-            const netOutParts = formatBytesParts(vm.netout, false, false)
-
-            return (
-              <div key={vm.vmid} className={`${GUEST_GRID} items-center ${BORDER} ${ROW_HOVER}`}>
-                <div className="px-3 py-2 font-mono text-sm">{vm.vmid}</div>
-                <div className="px-3 py-2 font-medium truncate">{vm.name}</div>
-                <div className="px-3 py-2">
-                  <Chip
-                    size="small"
-                    variant="filled"
-                    color={vm.status === 'running' ? 'success' : 'default'}
-                    label={vm.status}
-                  />
-                </div>
-                <div>
-                  {vm.status === 'running' ? (
-                    <MetricCell value={cpuParts.value} unit={cpuParts.unit} hasDecimals showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
-                </div>
-                <div>
-                  <MetricCell value={memParts.value} unit={memParts.unit} hasDecimals={vm.status === 'running'} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                </div>
-                <div>
-                  {vm.status === 'running' ? (
-                    <MetricCell value={netInParts.value} unit={netInParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
-                </div>
-                <div>
-                  {vm.status === 'running' ? (
-                    <MetricCell value={netOutParts.value} unit={netOutParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-                  ) : <MetricCell value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
-                </div>
-              </div>
-            )
-          })}
+          <DataTable
+            data={sorted}
+            columns={columns}
+            getRowId={(row) => String(row.vmid)}
+            metricGroups={metricGroups}
+            enableSorting={false}
+            enableColumnResizing={false}
+            enableColumnVisibility={false}
+          />
         </div>
       </Collapse>
     </>
-  )
+  );
 }

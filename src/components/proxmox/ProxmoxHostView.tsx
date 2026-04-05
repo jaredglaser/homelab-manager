@@ -4,7 +4,6 @@ import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
 import { useSettings } from '@/hooks/useSettings'
 import { EMPTY_METRIC } from '@/components/shared-table'
-import { BORDER } from '@/components/proxmox/constants'
 import { formatUptime } from '@/components/proxmox/utils'
 import { GuestSection } from '@/components/proxmox/GuestSection'
 import { StorageSection } from '@/components/proxmox/StorageSection'
@@ -95,7 +94,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               onClick={() => toggleProxmoxHostExpanded(node.node)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
-                nodeIdx > 0 ? BORDER : ''
+                nodeIdx > 0 ? 'border-t border-neutral-200 dark:border-neutral-700' : ''
               } ${hostExpanded ? 'bg-[var(--mui-palette-action-hover)]' : 'bg-[var(--mui-palette-background-level2)]'}`}
             >
               <ChevronRight
