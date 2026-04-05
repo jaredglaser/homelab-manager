@@ -1,4 +1,4 @@
-import { memo, useRef } from 'react';
+import { memo, useRef, useEffect } from 'react';
 import SparklineCanvas from '@/components/shared-table/SparklineCanvas';
 import { resolveChartColors } from '@/lib/charts/css-vars';
 
@@ -31,6 +31,12 @@ export default memo(function SparklineCell({ data, color }: SparklineCellProps) 
   const maxTsRef = useRef(0);
   // 'pending' = first mount, 'waiting' = skipped stale data, 'seeded' = ready
   const stateRef = useRef<'pending' | 'waiting' | 'seeded'>('pending');
+  const mountIdRef = useRef(Math.random().toString(36).slice(2, 6));
+
+  useEffect(() => {
+    console.info(`[SparklineCell ${mountIdRef.current}] MOUNT ${color}`);
+    return () => console.info(`[SparklineCell ${mountIdRef.current}] UNMOUNT ${color}`);
+  }, [color]);
 
   // Render-time ref mutation — intentional and safe.
   //
@@ -45,15 +51,18 @@ export default memo(function SparklineCell({ data, color }: SparklineCellProps) 
   // based filtering or adding non-deterministic logic) without revisiting this pattern.
   if (data.length > 0) {
     const latest = data.at(-1)!.timestamp;
+    const prevState = stateRef.current;
 
     if (stateRef.current !== 'seeded') {
       if (Date.now() - latest > STALE_THRESHOLD_MS) {
         stateRef.current = 'waiting';
+        console.info(`[SparklineCell ${mountIdRef.current}] ${color} ${prevState}→waiting (data age: ${Date.now() - latest}ms, threshold: ${STALE_THRESHOLD_MS}ms)`);
       } else {
         stateRef.current = 'seeded';
         const cutoff = latest - SPARKLINE_WINDOW_MS;
         accRef.current = data.filter((d) => d.timestamp >= cutoff);
         maxTsRef.current = latest;
+        console.info(`[SparklineCell ${mountIdRef.current}] ${color} ${prevState}→seeded (${accRef.current.length} points)`);
       }
     } else if (latest > maxTsRef.current) {
       const newPoints = data.filter((d) => d.timestamp > maxTsRef.current);

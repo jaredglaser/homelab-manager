@@ -401,7 +401,7 @@ export default function ContainerTable({
         getIsStale: (row) => row.isStale,
       }),
     ],
-    [docker.decimals, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onOpenHistory],
+    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onOpenHistory],
   );
 
   const renderDetailPanel = useCallback(
