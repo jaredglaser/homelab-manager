@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo, type ReactNode } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
@@ -48,7 +48,7 @@ function ZFSNameCell({ row }: Readonly<{ row: { original: ZFSTableRow; getIsExpa
     <ZFSEntityCell
       name={data.name}
       entityType={data.type}
-      indent={data.indent}
+      indent={0}
       isExpanded={row.getIsExpanded()}
       canExpand={data.canExpand}
       onToggle={row.getToggleExpandedHandler()}
@@ -88,7 +88,7 @@ export default function ZFSPoolsTable({
     return buildZFSHostHierarchy(rows);
   }, [latestByEntity]);
 
-  /** Convert the ZFS hierarchy Maps into a tree array for DataTable */
+  /** Convert the ZFS hierarchy Maps into a flat host array for DataTable */
   const tableData = useMemo<ZFSTableRow[]>(() => {
     const totalHosts = hostHierarchy.size;
     const sortedHosts = Array.from(hostHierarchy.values()).sort((a, b) =>
@@ -98,59 +98,34 @@ export default function ZFSPoolsTable({
     return sortedHosts.map((host) => buildHostRow(host, totalHosts));
   }, [hostHierarchy]);
 
-  /** Map settings expansion state to TanStack Table ExpandedState */
+  /** Host-level expansion state only */
   const expandedState = useMemo<ExpandedState>(() => {
     const state: Record<string, boolean> = {};
-
-    function walk(rows: ZFSTableRow[]) {
-      for (const row of rows) {
-        if (row.type === 'host' && row.totalHosts != null) {
-          state[row.id] = isZfsHostExpanded(row.name, row.totalHosts);
-        } else if (row.type === 'pool' && row.totalPools != null) {
-          state[row.id] = isPoolExpanded(row.id, row.totalPools);
-        } else if (row.type === 'vdev') {
-          state[row.id] = isVdevExpanded(row.id);
-        }
-        if (row.children) walk(row.children);
+    for (const hostRow of tableData) {
+      if (hostRow.type === 'host' && hostRow.totalHosts != null) {
+        state[hostRow.id] = isZfsHostExpanded(hostRow.name, hostRow.totalHosts);
       }
     }
-
-    walk(tableData);
     return state;
-  }, [tableData, isZfsHostExpanded, isPoolExpanded, isVdevExpanded]);
+  }, [tableData, isZfsHostExpanded]);
 
   const handleExpandedChange = useCallback(
     (newExpanded: ExpandedState) => {
       if (typeof newExpanded === 'boolean') return;
-
       const currentExpanded = expandedState as Record<string, boolean>;
-
       for (const [id, value] of Object.entries(newExpanded)) {
-        const wasExpanded = currentExpanded[id] ?? false;
-        if (value !== wasExpanded) {
-          dispatchToggle(id);
+        if (value !== (currentExpanded[id] ?? false) && id.startsWith('host:')) {
+          toggleZfsHostExpanded(id.slice(5));
         }
       }
-
       for (const id of Object.keys(currentExpanded)) {
-        if (currentExpanded[id] && !(id in newExpanded)) {
-          dispatchToggle(id);
+        if (currentExpanded[id] && !(id in newExpanded) && id.startsWith('host:')) {
+          toggleZfsHostExpanded(id.slice(5));
         }
       }
     },
-    [expandedState, toggleZfsHostExpanded, togglePoolExpanded, toggleVdevExpanded],
+    [expandedState, toggleZfsHostExpanded],
   );
-
-  function dispatchToggle(id: string) {
-    if (id.startsWith('host:')) {
-      toggleZfsHostExpanded(id.slice(5));
-    } else if (id.startsWith('vdev:')) {
-      toggleVdevExpanded(id);
-    } else {
-      // Pool IDs are the host-prefixed entity id (e.g. "myhost/tank")
-      togglePoolExpanded(id);
-    }
-  }
 
   const columns = useMemo<ColumnDef<ZFSTableRow, unknown>[]>(
     () => [
@@ -241,6 +216,24 @@ export default function ZFSPoolsTable({
     return '';
   }, []);
 
+  /** Host detail panel: a nested DataTable of pool rows */
+  const renderDetailPanel = useCallback(
+    (row: ZFSTableRow) => {
+      if (row.type !== 'host' || !row.children?.length) return null;
+      return (
+        <PoolSubTable
+          pools={row.children}
+          columns={columns}
+          isPoolExpanded={isPoolExpanded}
+          togglePoolExpanded={togglePoolExpanded}
+          isVdevExpanded={isVdevExpanded}
+          toggleVdevExpanded={toggleVdevExpanded}
+        />
+      );
+    },
+    [columns, isPoolExpanded, togglePoolExpanded, isVdevExpanded, toggleVdevExpanded],
+  );
+
   if (error && !hasData) {
     return (
       <Box className="w-full">
@@ -270,7 +263,7 @@ export default function ZFSPoolsTable({
         data={tableData}
         columns={columns}
         getRowId={(row) => row.id}
-        getSubRows={(row) => row.children}
+        renderDetailPanel={renderDetailPanel}
         expandedState={expandedState}
         onExpandedChange={handleExpandedChange}
         metricGroups={METRIC_GROUPS}
@@ -280,6 +273,176 @@ export default function ZFSPoolsTable({
     </Box>
   );
 }
+
+/**
+ * Nested DataTable for pool rows within an expanded host.
+ * Each pool with expandable children renders a VdevDiskSubTable via renderDetailPanel.
+ */
+const PoolSubTable = memo(function PoolSubTable({
+  pools,
+  columns,
+  isPoolExpanded,
+  togglePoolExpanded,
+  isVdevExpanded,
+  toggleVdevExpanded,
+}: Readonly<{
+  pools: ZFSTableRow[];
+  columns: ColumnDef<ZFSTableRow, unknown>[];
+  isPoolExpanded: (id: string, totalPools: number) => boolean;
+  togglePoolExpanded: (id: string) => void;
+  isVdevExpanded: (id: string) => boolean;
+  toggleVdevExpanded: (id: string) => void;
+}>) {
+  const poolExpanded = useMemo<ExpandedState>(() => {
+    const state: Record<string, boolean> = {};
+    for (const pool of pools) {
+      if (pool.canExpand && pool.totalPools != null) {
+        state[pool.id] = isPoolExpanded(pool.id, pool.totalPools);
+      }
+    }
+    return state;
+  }, [pools, isPoolExpanded]);
+
+  const handlePoolExpandedChange = useCallback(
+    (newExpanded: ExpandedState) => {
+      if (typeof newExpanded === 'boolean') return;
+      const current = poolExpanded as Record<string, boolean>;
+      for (const [id, value] of Object.entries(newExpanded)) {
+        if (value !== (current[id] ?? false)) {
+          togglePoolExpanded(id);
+        }
+      }
+      for (const id of Object.keys(current)) {
+        if (current[id] && !(id in newExpanded)) {
+          togglePoolExpanded(id);
+        }
+      }
+    },
+    [poolExpanded, togglePoolExpanded],
+  );
+
+  /** Pool detail panel: a nested DataTable of vdev/disk rows */
+  const renderPoolDetail = useCallback(
+    (row: ZFSTableRow): ReactNode => {
+      if (!row.canExpand || !row.children?.length) return null;
+      return (
+        <VdevDiskSubTable
+          vdevsAndDisks={row.children}
+          columns={columns}
+          isVdevExpanded={isVdevExpanded}
+          toggleVdevExpanded={toggleVdevExpanded}
+        />
+      );
+    },
+    [columns, isVdevExpanded, toggleVdevExpanded],
+  );
+
+  return (
+    <DataTable
+      data={pools}
+      columns={columns}
+      getRowId={(row) => row.id}
+      renderDetailPanel={renderPoolDetail}
+      expandedState={poolExpanded}
+      onExpandedChange={handlePoolExpandedChange}
+      enableSorting={false}
+      showHeader={false}
+    />
+  );
+});
+
+/**
+ * Nested DataTable for vdev and disk rows within an expanded pool.
+ * Vdevs with disk children render a DiskSubTable via renderDetailPanel.
+ */
+const VdevDiskSubTable = memo(function VdevDiskSubTable({
+  vdevsAndDisks,
+  columns,
+  isVdevExpanded,
+  toggleVdevExpanded,
+}: Readonly<{
+  vdevsAndDisks: ZFSTableRow[];
+  columns: ColumnDef<ZFSTableRow, unknown>[];
+  isVdevExpanded: (id: string) => boolean;
+  toggleVdevExpanded: (id: string) => void;
+}>) {
+  const vdevExpanded = useMemo<ExpandedState>(() => {
+    const state: Record<string, boolean> = {};
+    for (const row of vdevsAndDisks) {
+      if (row.type === 'vdev' && row.canExpand) {
+        state[row.id] = isVdevExpanded(row.id);
+      }
+    }
+    return state;
+  }, [vdevsAndDisks, isVdevExpanded]);
+
+  const handleVdevExpandedChange = useCallback(
+    (newExpanded: ExpandedState) => {
+      if (typeof newExpanded === 'boolean') return;
+      const current = vdevExpanded as Record<string, boolean>;
+      for (const [id, value] of Object.entries(newExpanded)) {
+        if (value !== (current[id] ?? false)) {
+          toggleVdevExpanded(id);
+        }
+      }
+      for (const id of Object.keys(current)) {
+        if (current[id] && !(id in newExpanded)) {
+          toggleVdevExpanded(id);
+        }
+      }
+    },
+    [vdevExpanded, toggleVdevExpanded],
+  );
+
+  /** Vdev detail panel: a nested DataTable of disk rows */
+  const renderVdevDetail = useCallback(
+    (row: ZFSTableRow): ReactNode => {
+      if (row.type !== 'vdev' || !row.canExpand || !row.children?.length) return null;
+      return (
+        <DiskSubTable
+          disks={row.children}
+          columns={columns}
+        />
+      );
+    },
+    [columns],
+  );
+
+  return (
+    <DataTable
+      data={vdevsAndDisks}
+      columns={columns}
+      getRowId={(row) => row.id}
+      renderDetailPanel={renderVdevDetail}
+      expandedState={vdevExpanded}
+      onExpandedChange={handleVdevExpandedChange}
+      enableSorting={false}
+      showHeader={false}
+    />
+  );
+});
+
+/**
+ * Leaf-level DataTable for disk rows within an expanded vdev.
+ * No expansion — just renders disk rows.
+ */
+const DiskSubTable = memo(function DiskSubTable({
+  disks,
+  columns,
+}: Readonly<{
+  disks: ZFSTableRow[];
+  columns: ColumnDef<ZFSTableRow, unknown>[];
+}>) {
+  return (
+    <DataTable
+      data={disks}
+      columns={columns}
+      getRowId={(row) => row.id}
+      enableSorting={false}
+      showHeader={false}
+    />
+  );
+});
 
 /**
  * Build a host-level tree row with pool children from the ZFS hierarchy.
@@ -348,11 +511,11 @@ function buildPoolRow(pool: PoolStats, totalPools: number): ZFSTableRow {
       const vdevDisks = Array.from(vdevs[0].disks.values()).sort((a, b) =>
         a.data.name.localeCompare(b.data.name),
       );
-      children = vdevDisks.map((disk) => buildDiskRow(disk.data.id, disk.data.name, disk.data, 1));
+      children = vdevDisks.map((disk) => buildDiskRow(disk.data.id, disk.data.name, disk.data, 0));
     } else {
       const vdevChildren = vdevs.map((vdev) => buildVdevRow(vdev));
       const diskChildren = individualDisks.map((disk) =>
-        buildDiskRow(disk.data.id, disk.data.name, disk.data, 1),
+        buildDiskRow(disk.data.id, disk.data.name, disk.data, 0),
       );
       children = [...vdevChildren, ...diskChildren];
     }
@@ -387,14 +550,14 @@ function buildVdevRow(vdev: VdevStats): ZFSTableRow {
 
   const hasDisks = sortedDisks.length > 0;
   const children = hasDisks
-    ? sortedDisks.map((disk) => buildDiskRow(disk.data.id, disk.data.name, disk.data, 2))
+    ? sortedDisks.map((disk) => buildDiskRow(disk.data.id, disk.data.name, disk.data, 0))
     : undefined;
 
   return {
     type: 'vdev',
     id: `vdev:${vdev.data.id}`,
     name: vdev.data.name,
-    indent: 1,
+    indent: 0,
     capacityAlloc: vdev.data.capacity.alloc > 0 ? vdev.data.capacity.alloc : undefined,
     capacityFree: vdev.data.capacity.alloc > 0 ? vdev.data.capacity.free : undefined,
     readOpsPerSec: vdev.data.rates.readOpsPerSec,
