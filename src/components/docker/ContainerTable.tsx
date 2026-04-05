@@ -586,6 +586,7 @@ const ContainerSubTable = memo(function ContainerSubTable({
         onExpandedChange={handleContainerExpandedChange}
         rowClassName={rowClassName}
         enableSorting={false}
+        showHeader={false}
       />
     </div>
   );

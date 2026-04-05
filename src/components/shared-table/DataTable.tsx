@@ -47,6 +47,8 @@ export interface DataTableProps<TRow> {
 
   /** Enable row virtualization (default: true). Disable for small row counts where normal flow is preferred. */
   enableVirtualization?: boolean;
+  /** Show column headers (default: true). Set false for nested tables that share parent headers. */
+  showHeader?: boolean;
   /** Enable column sorting (default: true) */
   enableSorting?: boolean;
   /** Enable column filtering (default: false) */
@@ -103,6 +105,7 @@ export function DataTable<TRow>({
   estimateRowHeight,
   overscan = DEFAULT_OVERSCAN,
   enableVirtualization = true,
+  showHeader = true,
   enableSorting = true,
   enableFiltering = false,
   enableColumnResizing = true,
@@ -245,40 +248,42 @@ export function DataTable<TRow>({
       {/* Scrollable container — header + body scroll horizontally together */}
       <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0" style={{ scrollbarGutter: 'stable' }}>
         {/* Sticky header — inside scroll container so it tracks horizontal scroll */}
-        <div
-          className="grid border-b border-neutral-200 dark:border-neutral-700 bg-[var(--mui-palette-background-default)] sticky top-0 z-10"
-          style={{ gridTemplateColumns: gridTemplate }}
-        >
-          {table.getHeaderGroups().map((headerGroup) =>
-            headerGroup.headers.map((header) => (
-              <div
-                key={header.id}
-                className={`px-3 py-2 font-semibold text-sm whitespace-nowrap select-none ${
-                  header.column.getCanSort() ? 'cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800' : ''
-                }`}
-                onClick={header.column.getToggleSortingHandler()}
-                role={header.column.getCanSort() ? 'button' : undefined}
-                tabIndex={header.column.getCanSort() ? 0 : undefined}
-                onKeyDown={
-                  header.column.getCanSort()
-                    ? (e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          header.column.toggleSorting();
+        {showHeader && (
+          <div
+            className="grid border-b border-neutral-200 dark:border-neutral-700 bg-[var(--mui-palette-background-default)] sticky top-0 z-10"
+            style={{ gridTemplateColumns: gridTemplate }}
+          >
+            {table.getHeaderGroups().map((headerGroup) =>
+              headerGroup.headers.map((header) => (
+                <div
+                  key={header.id}
+                  className={`px-3 py-2 font-semibold text-sm whitespace-nowrap select-none ${
+                    header.column.getCanSort() ? 'cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800' : ''
+                  }`}
+                  onClick={header.column.getToggleSortingHandler()}
+                  role={header.column.getCanSort() ? 'button' : undefined}
+                  tabIndex={header.column.getCanSort() ? 0 : undefined}
+                  onKeyDown={
+                    header.column.getCanSort()
+                      ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            header.column.toggleSorting();
+                          }
                         }
-                      }
-                    : undefined
-                }
-              >
-                {header.isPlaceholder
-                ? null
-                : flexRender(header.column.columnDef.header, header.getContext())}
-              {header.column.getIsSorted() === 'asc' && <ArrowUp size={14} className="inline-block ml-1 align-text-bottom" />}
-              {header.column.getIsSorted() === 'desc' && <ArrowDown size={14} className="inline-block ml-1 align-text-bottom" />}
-              </div>
-            )),
-          )}
-        </div>
+                      : undefined
+                  }
+                >
+                  {header.isPlaceholder
+                  ? null
+                  : flexRender(header.column.columnDef.header, header.getContext())}
+                {header.column.getIsSorted() === 'asc' && <ArrowUp size={14} className="inline-block ml-1 align-text-bottom" />}
+                {header.column.getIsSorted() === 'desc' && <ArrowDown size={14} className="inline-block ml-1 align-text-bottom" />}
+                </div>
+              )),
+            )}
+          </div>
+        )}
         {enableVirtualization ? (
           <div
             style={{
