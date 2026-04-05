@@ -4,18 +4,14 @@ import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-tabl
 import type { ColumnDef } from '@tanstack/react-table';
 import { metricColumn, nameColumn, statusColumn, progressColumn } from '../columns';
 
-// ---------------------------------------------------------------------------
-// Minimal mock for useSettings used inside MetricHeaderCell
-// ---------------------------------------------------------------------------
+/** Minimal mock for useSettings used inside MetricHeaderCell */
 mock.module('@/hooks/useSettings', () => ({
   useSettings: () => ({
     general: { useAbbreviatedUnits: false, showSparklines: false },
   }),
 }));
 
-// ---------------------------------------------------------------------------
-// Test row type
-// ---------------------------------------------------------------------------
+/** Test row type */
 interface TestRow {
   id: string;
   name: string;
@@ -34,9 +30,7 @@ const sampleRow: TestRow = {
   pct: 75,
 };
 
-// ---------------------------------------------------------------------------
-// Helper: render a single cell in isolation using a minimal single-row table
-// ---------------------------------------------------------------------------
+/** Render a single cell in isolation using a minimal single-row table */
 function CellRenderer<TRow>({
   column,
   row,
@@ -69,9 +63,6 @@ function HeaderRenderer<TRow>({ column }: { column: ColumnDef<TRow, unknown> }) 
   return <>{flexRender(header.column.columnDef.header, header.getContext())}</>;
 }
 
-// ---------------------------------------------------------------------------
-// metricColumn
-// ---------------------------------------------------------------------------
 describe('metricColumn', () => {
   it('returns a ColumnDef with the correct id', () => {
     const col = metricColumn<TestRow>({
@@ -142,9 +133,6 @@ describe('metricColumn', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// nameColumn
-// ---------------------------------------------------------------------------
 describe('nameColumn', () => {
   it('returns a ColumnDef with id "name"', () => {
     const col = nameColumn<TestRow>({ getLabel: (r) => r.name });
@@ -211,9 +199,6 @@ describe('nameColumn', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// statusColumn
-// ---------------------------------------------------------------------------
 describe('statusColumn', () => {
   it('returns a ColumnDef with the correct id', () => {
     const col = statusColumn<TestRow>({
@@ -259,9 +244,6 @@ describe('statusColumn', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// progressColumn
-// ---------------------------------------------------------------------------
 describe('progressColumn', () => {
   it('returns a ColumnDef with the correct id', () => {
     const col = progressColumn<TestRow>({

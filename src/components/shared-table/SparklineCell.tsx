@@ -79,8 +79,7 @@ export default memo(function SparklineCell({ data, color }: SparklineCellProps) 
     return <SparklineCanvas data={points} color={color} className="hidden min-[1428px]:block" />;
   }
 
-  // --- Option A: "none" — empty space, sparkline fades in via SparklineCanvas's own rendering ---
-  // --- Option B: "pulse-line" — thin colored line at midpoint with gentle pulse animation ---
+  // "none" renders empty space; "pulse-line" shows a shimmer at midpoint
   if (LOADING_STYLE === 'none') {
     return null;
   }
