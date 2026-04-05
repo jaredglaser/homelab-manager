@@ -562,8 +562,6 @@ const ContainerSubTable = memo(function ContainerSubTable({
     [containerExpanded, toggleContainerExpanded],
   );
 
-  const scrollMaxHeight = Math.min(containers.length, MAX_VISIBLE_CONTAINERS) * CONTAINER_ROW_HEIGHT;
-
   return (
     <DataTable
       data={containers}
@@ -575,7 +573,7 @@ const ContainerSubTable = memo(function ContainerSubTable({
       rowClassName={rowClassName}
       enableSorting={false}
       showHeader={false}
-      maxHeight={scrollMaxHeight}
+      enableVirtualization={false}
     />
   );
 });
