@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { Box, Chip, CircularProgress, Collapse, Typography } from '@mui/material';
+import { Box, Chip, CircularProgress, Typography } from '@mui/material';
 import { ChevronRight, History, Server, Settings, WifiOff } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
@@ -510,17 +510,8 @@ function computeSparklineAndChartData(chartData: DockerStatsRow[]): {
 }
 
 /**
- * Name cell for host rows - shows host name, container count, expand chevron
- */
-/** Max visible container rows before the nested table scrolls */
-const MAX_VISIBLE_CONTAINERS = 10;
-const CONTAINER_ROW_HEIGHT = 41;
-
-/**
  * Nested DataTable for container rows within an expanded host.
- * Container rows are virtualized inside a capped scroll area.
- * The detail panel (charts+logs) renders BELOW the table in normal flow
- * so it expands naturally without being clipped by the scroll cap.
+ * Detail panel renders inline with MUI Collapse animation.
  */
 const ContainerSubTable = memo(function ContainerSubTable({
   containers,
@@ -563,38 +554,18 @@ const ContainerSubTable = memo(function ContainerSubTable({
     [containerExpanded, toggleContainerExpanded],
   );
 
-  // Find the currently expanded container (if any) for the detail panel below
-  const expandedContainer = useMemo(
-    () => containers.find((c) => isContainerExpanded(c.id)),
-    [containers, isContainerExpanded],
-  );
-  const detailPanel = expandedContainer ? renderDetailPanel(expandedContainer) : null;
-
-  const scrollMaxHeight = Math.min(containers.length, MAX_VISIBLE_CONTAINERS) * CONTAINER_ROW_HEIGHT;
-
   return (
-    <div>
-      {/* Virtualized container rows with capped scroll height */}
-      <DataTable
-        data={containers}
-        columns={columns}
-        getRowId={(row) => row.id}
-        expandedState={containerExpanded}
-        onExpandedChange={handleContainerExpandedChange}
-        rowClassName={rowClassName}
-        enableSorting={false}
-        showHeader={false}
-        maxHeight={scrollMaxHeight}
-      />
-      {/* Detail panel renders outside the virtualized scroll area */}
-      {detailPanel && (
-        <Collapse in unmountOnExit timeout={300}>
-          <div className="border-t border-neutral-200 dark:border-neutral-700">
-            {detailPanel}
-          </div>
-        </Collapse>
-      )}
-    </div>
+    <DataTable
+      data={containers}
+      columns={columns}
+      getRowId={(row) => row.id}
+      renderDetailPanel={renderDetailPanel}
+      expandedState={containerExpanded}
+      onExpandedChange={handleContainerExpandedChange}
+      rowClassName={rowClassName}
+      enableSorting={false}
+      showHeader={false}
+    />
   );
 });
 
