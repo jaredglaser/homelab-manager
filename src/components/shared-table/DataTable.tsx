@@ -15,6 +15,7 @@ import {
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
+import { Collapse } from '@mui/material';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 import { useState } from 'react';
 import { DataTableToolbar } from '@/components/shared-table/DataTableToolbar';
@@ -63,7 +64,7 @@ export interface DataTableProps<TRow> {
 }
 
 const DEFAULT_ROW_HEIGHT = 41;
-const DEFAULT_OVERSCAN = 10;
+const DEFAULT_OVERSCAN = 20;
 
 /**
  * Build a CSS grid-template-columns string from visible TanStack Table columns.
@@ -200,25 +201,11 @@ export function DataTable<TRow>({
   const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns), [visibleColumns]);
 
   const defaultEstimateSize = useCallback(() => DEFAULT_ROW_HEIGHT, []);
-  const userEstimate = estimateRowHeight ?? defaultEstimateSize;
-
-  /** Estimate that accounts for expanded detail panels */
-  const estimateSize = useCallback(
-    (index: number) => {
-      const row = rows[index];
-      const base = userEstimate(index);
-      if (row?.getIsExpanded() && renderDetailPanel) {
-        return base + 500; // approximate detail panel height
-      }
-      return base;
-    },
-    [rows, userEstimate, renderDetailPanel],
-  );
 
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize,
+    estimateSize: estimateRowHeight ?? defaultEstimateSize,
     overscan,
     getItemKey: (index) => rows[index].id,
   });
@@ -305,6 +292,7 @@ export function DataTable<TRow>({
               <div
                 key={virtualRow.key}
                 data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -318,13 +306,15 @@ export function DataTable<TRow>({
                   gridTemplate={gridTemplate}
                   rowClassName={rowClassName}
                 />
-                {hasDetailPanel && isExpanded && (() => {
+                {hasDetailPanel && (() => {
                   const panel = renderDetailPanel(row.original);
                   if (panel == null) return null;
                   return (
-                    <div className="border-t border-neutral-200 dark:border-neutral-700">
-                      {panel}
-                    </div>
+                    <Collapse in={isExpanded} unmountOnExit>
+                      <div className="border-t border-neutral-200 dark:border-neutral-700">
+                        {panel}
+                      </div>
+                    </Collapse>
                   );
                 })()}
               </div>
