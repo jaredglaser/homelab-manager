@@ -76,7 +76,7 @@ export function StorageSection({ storages, expanded, onToggle }: Readonly<Storag
     <>
       <div
         onClick={onToggle}
-        className={`flex items-center gap-2 pl-10 pr-4 py-2 cursor-pointer ${BORDER} bg-[var(--mui-palette-background-level1)]`}
+        className={`flex items-center gap-2 px-4 py-2 cursor-pointer ${BORDER} bg-[var(--mui-palette-background-level1)]`}
       >
         <ChevronRight
           size={16}
