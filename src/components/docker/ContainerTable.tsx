@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { Box, Chip, CircularProgress, Typography } from '@mui/material';
+import { Box, Chip, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ChevronRight, History, Server, Settings, WifiOff } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
@@ -670,7 +670,7 @@ function ContainerNameCell({
 
   return (
     <>
-      <div className="group flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <ChevronRight
           size={16}
           className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
@@ -701,33 +701,33 @@ function ContainerNameCell({
           onError={() => setIconError(true)}
         />
         <span className="truncate">{container.name}</span>
-        <button
-          type="button"
+        <IconButton
+          size="small"
           onClick={(e) => {
             e.stopPropagation();
             setIconPickerOpen(true);
           }}
-          className={`p-1 rounded-full transition-opacity hover:bg-black/10 dark:hover:bg-white/10 ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+          className={`!p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
           aria-label="Change container icon"
           tabIndex={expanded ? 0 : -1}
           aria-hidden={!expanded}
         >
           <Settings size={14} />
-        </button>
+        </IconButton>
         {onOpenHistory && (
-          <button
-            type="button"
+          <IconButton
+            size="small"
             onClick={(e) => {
               e.stopPropagation();
               onOpenHistory(container.id.split('/')[1], container.id.split('/')[0]);
             }}
-            className={`p-1 rounded-full transition-opacity hover:bg-black/10 dark:hover:bg-white/10 ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+            className={`!p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
             aria-label="View container history"
             tabIndex={expanded ? 0 : -1}
             aria-hidden={!expanded}
           >
             <History size={14} />
-          </button>
+          </IconButton>
         )}
       </div>
 
