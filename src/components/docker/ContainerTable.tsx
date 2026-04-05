@@ -368,7 +368,7 @@ export default function ContainerTable({
         hasDecimals: docker.decimals.networkSpeed,
         showSparklines: general.showSparklines,
         useAbbreviatedUnits: general.useAbbreviatedUnits,
-        sparklineColor: '--chart-network-rx',
+        sparklineColor: '--chart-read',
         getValue: (row) => {
           if (row.type === 'host' && row.aggregated) {
             return formatBitsSIUnitsParts(row.aggregated.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
@@ -387,7 +387,7 @@ export default function ContainerTable({
         hasDecimals: docker.decimals.networkSpeed,
         showSparklines: general.showSparklines,
         useAbbreviatedUnits: general.useAbbreviatedUnits,
-        sparklineColor: '--chart-network-tx',
+        sparklineColor: '--chart-write',
         getValue: (row) => {
           if (row.type === 'host' && row.aggregated) {
             return formatBitsSIUnitsParts(row.aggregated.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
