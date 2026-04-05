@@ -75,8 +75,7 @@ function buildGridTemplate<TRow>(columns: ReturnType<ReturnType<typeof useReactT
       const meta = col.columnDef.meta as { flex?: string; minWidth?: number } | undefined;
       if (meta?.flex) return meta.flex;
       const minW = meta?.minWidth ?? 80;
-      const size = col.getSize();
-      return `minmax(${minW}px, ${size}px)`;
+      return `minmax(${minW}px, 1fr)`;
     })
     .join(' ');
 }
