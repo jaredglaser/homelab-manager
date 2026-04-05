@@ -248,7 +248,7 @@ export function DataTable<TRow>({
       {toolbar}
 
       {/* Scrollable container — header + body scroll horizontally together */}
-      <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0" style={{ scrollbarGutter: 'stable', maxHeight: maxHeight ?? undefined }}>
+      <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0" style={{ scrollbarGutter: isVirtualized || maxHeight ? 'stable' : undefined, maxHeight: maxHeight ?? undefined }}>
         {/* Sticky header — inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div
