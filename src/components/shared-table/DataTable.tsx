@@ -266,13 +266,11 @@ export function DataTable<TRow>({
                     : undefined
                 }
               >
-                <div className="flex items-center gap-1">
-                  {header.isPlaceholder
-                    ? null
-                    : flexRender(header.column.columnDef.header, header.getContext())}
-                  {header.column.getIsSorted() === 'asc' && <ArrowUp size={14} />}
-                  {header.column.getIsSorted() === 'desc' && <ArrowDown size={14} />}
-                </div>
+                {header.isPlaceholder
+                ? null
+                : flexRender(header.column.columnDef.header, header.getContext())}
+              {header.column.getIsSorted() === 'asc' && <ArrowUp size={14} className="inline-block ml-1 align-text-bottom" />}
+              {header.column.getIsSorted() === 'desc' && <ArrowDown size={14} className="inline-block ml-1 align-text-bottom" />}
               </div>
             )),
           )}
