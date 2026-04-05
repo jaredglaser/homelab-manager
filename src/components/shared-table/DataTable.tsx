@@ -299,7 +299,6 @@ export function DataTable<TRow>({
                   left: 0,
                   width: '100%',
                   transform: `translateY(${virtualRow.start}px)`,
-                  transition: 'transform 300ms ease-out',
                   contain: 'layout style',
                 }}
               >
