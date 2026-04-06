@@ -182,7 +182,6 @@ export default memo(function DualSeriesChart({
     [series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome],
   );
   const chartRef = useRef<ReactECharts>(null);
-  const chrome = resolveChartChromeColors();
 
   useEChartTimeScroll(chartRef, windowMs);
 
