@@ -20,6 +20,14 @@ const BYTE_UNITS: ByteUnit[] = [
   { threshold: 1024 * 1024 * 1024, divisor: 1024 * 1024 * 1024 },
 ];
 
+/** SI bit units (1000-based) for network throughput displayed as bps/Kbps/Mbps/Gbps */
+const BIT_UNITS: ByteUnit[] = [
+  { threshold: 1, divisor: 1 },
+  { threshold: 1000, divisor: 1000 },
+  { threshold: 1000 * 1000, divisor: 1000 * 1000 },
+  { threshold: 1000 * 1000 * 1000, divisor: 1000 * 1000 * 1000 },
+];
+
 /**
  * Find a "nice" interval that gives approximately TARGET_TICKS ticks.
  */
@@ -37,7 +45,7 @@ export function findNiceInterval(range: number): number {
   return magnitude * 10;
 }
 
-export type YAxisMode = 'linear' | 'percent' | 'bytes';
+export type YAxisMode = 'linear' | 'percent' | 'bytes' | 'bits';
 
 /**
  * Calculate clean y-axis max and interval values.
@@ -60,6 +68,24 @@ export function calculateCleanYAxis(
     const interval = findNiceInterval(effectiveMax);
     const max = Math.min(Math.ceil(effectiveMax / interval) * interval, 100);
     return { max, interval };
+  }
+
+  if (mode === 'bits') {
+    // maxValue is in bits; use SI (1000-based) unit boundaries for clean bps/Kbps/Mbps/Gbps ticks.
+    let unit = BIT_UNITS[0];
+    for (let i = BIT_UNITS.length - 1; i >= 0; i--) {
+      if (maxValue >= BIT_UNITS[i].threshold) {
+        unit = BIT_UNITS[i];
+        break;
+      }
+    }
+    const valueInUnit = maxValue / unit.divisor;
+    const intervalInUnit = findNiceInterval(valueInUnit);
+    const cleanMax = Math.ceil(valueInUnit / intervalInUnit) * intervalInUnit * unit.divisor;
+    return {
+      max: cleanMax,
+      interval: intervalInUnit * unit.divisor,
+    };
   }
 
   if (mode === 'bytes') {

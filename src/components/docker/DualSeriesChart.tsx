@@ -59,9 +59,9 @@ export function getChartOption(
   return {
     animation: false,
     grid: {
-      top: 10,
+      top: 6,
       right: 15,
-      bottom: 45,
+      bottom: 20,
       left: 50,
     },
     tooltip: {
@@ -86,16 +86,7 @@ export function getChartOption(
         return `${time}<br/>${lines.join('<br/>')}`;
       },
     },
-    legend: {
-      show: true,
-      bottom: 0,
-      textStyle: {
-        color: chrome.textMuted,
-        fontSize: 11,
-      },
-      itemWidth: 12,
-      itemHeight: 8,
-    },
+    legend: { show: false },
     xAxis: {
       type: 'time',
       min: now - windowMs,
@@ -106,7 +97,7 @@ export function getChartOption(
       axisLabel: {
         show: true,
         color: chrome.textMuted,
-        fontSize: 9,
+        fontSize: 12,
         formatter: (value: number) => {
           const d = new Date(value);
           return `${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
@@ -123,7 +114,7 @@ export function getChartOption(
       axisTick: { show: false },
       axisLabel: {
         color: chrome.textMuted,
-        fontSize: 9,
+        fontSize: 12,
         formatter: (value: number) => formatValue(value),
       },
       splitLine: {
@@ -189,24 +180,34 @@ export default memo(function DualSeriesChart({
     [series, yAxisMode, formatValue, general.use12HourTime, windowMs],
   );
   const chartRef = useRef<ReactECharts>(null);
+  const chrome = resolveChartChromeColors();
 
   useEChartTimeScroll(chartRef, windowMs);
 
   return (
-    <Paper elevation={0} className="rounded-sm p-3 !bg-[var(--mui-palette-background-chartBg)]">
-      <Typography variant="body2" className="mb-1 font-medium">
-        {title}
-      </Typography>
-      <div className="h-40">
+    <Paper elevation={0} className="flex-1 min-h-0 flex flex-col rounded-sm p-2 !bg-[var(--mui-palette-background-chartBg)]">
+      <div className="flex items-center justify-between mb-0.5 shrink-0">
+        <Typography variant="body2" className="font-medium">{title}</Typography>
+        <div className="flex gap-3">
+          {series.map((s) => {
+            const color = resolveChartColors(s.colorVar).line;
+            return (
+              <span key={s.name} className="flex items-center gap-1 text-xs" style={{ color: chrome.textMuted }}>
+                <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                {s.name}
+              </span>
+            );
+          })}
+        </div>
+      </div>
         <ReactECharts
           ref={chartRef}
           option={option}
-          className="!h-full !w-full"
           opts={{ renderer: 'canvas' }}
           notMerge={false}
           lazyUpdate={true}
+          style={{ height: '100%', minHeight: 0 }}
         />
-      </div>
     </Paper>
   );
 });
