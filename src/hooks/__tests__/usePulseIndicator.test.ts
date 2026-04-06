@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 
 const { renderHook, act } = await import('@testing-library/react');
 const { usePulseIndicator } = await import('../usePulseIndicator');
@@ -50,10 +50,12 @@ describe('usePulseIndicator', () => {
   });
 
   describe('timer behavior', () => {
-    let timerCallbacks: Map<ReturnType<typeof setTimeout>, { fn: () => void; delay: number }>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let timerCallbacks: Map<any, { fn: () => void; delay: number }>;
     let originalSetTimeout: typeof globalThis.setTimeout;
     let originalClearTimeout: typeof globalThis.clearTimeout;
-    let clearedTimers: Set<ReturnType<typeof setTimeout>>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let clearedTimers: Set<any>;
     let timerIdCounter: number;
 
     beforeEach(() => {
@@ -64,16 +66,16 @@ describe('usePulseIndicator', () => {
       originalClearTimeout = globalThis.clearTimeout;
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      globalThis.setTimeout = mock((fn: () => void, delay: number): any => {
+      (globalThis as any).setTimeout = (fn: () => void, delay: number) => {
         const id = ++timerIdCounter;
         timerCallbacks.set(id, { fn, delay });
         return id;
-      });
+      };
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      globalThis.clearTimeout = mock((id: any) => {
+      (globalThis as any).clearTimeout = (id: any) => {
         clearedTimers.add(id);
-      });
+      };
     });
 
     afterEach(() => {
