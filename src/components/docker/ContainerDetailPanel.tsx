@@ -62,8 +62,8 @@ export default memo(function ContainerDetailPanel({
   return (
     <div className="bg-[var(--mui-palette-action-hover)] pb-4 border-b border-[var(--mui-palette-divider)]">
       <Divider />
-      <div className="grid lg:grid-cols-2 lg:h-100 lg:overflow-hidden gap-4 px-4 pt-4">
-        <div className="flex flex-col gap-3 min-h-0 h-[400px] lg:h-auto">
+      <div className="grid lg:grid-cols-2 gap-4 px-4 pt-4">
+        <div className="flex flex-col gap-3">
           <DualSeriesChart
             title="CPU & Memory"
             series={cpuMemSeries}
@@ -77,7 +77,7 @@ export default memo(function ContainerDetailPanel({
             formatValue={formatNetwork}
           />
         </div>
-        <div className="h-64 lg:h-full">
+        <div className="h-[300px] lg:h-full">
           <ContainerLogViewer containerId={containerId} host={host} />
         </div>
       </div>

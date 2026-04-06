@@ -185,8 +185,8 @@ export default memo(function DualSeriesChart({
   useEChartTimeScroll(chartRef, windowMs);
 
   return (
-    <Paper elevation={0} className="flex-1 min-h-0 flex flex-col rounded-sm p-2 !bg-[var(--mui-palette-background-chartBg)]">
-      <div className="flex items-center justify-between mb-0.5 shrink-0">
+    <Paper elevation={0} className="rounded-sm p-2 !bg-[var(--mui-palette-background-chartBg)]">
+      <div className="flex items-center justify-between mb-0.5">
         <Typography variant="body2" className="font-medium">{title}</Typography>
         <div className="flex gap-3">
           {series.map((s) => {
@@ -200,14 +200,16 @@ export default memo(function DualSeriesChart({
           })}
         </div>
       </div>
+      <div className="h-40">
         <ReactECharts
           ref={chartRef}
           option={option}
           opts={{ renderer: 'canvas' }}
           notMerge={false}
           lazyUpdate={true}
-          style={{ height: '100%', minHeight: 0 }}
+          className="!h-full !w-full"
         />
+      </div>
     </Paper>
   );
 });
