@@ -12,7 +12,7 @@ interface ContainerDetailPanelProps {
 }
 
 const formatPercent = (v: number) => formatAsPercent(v / 100);
-const formatNetwork = (v: number) => formatBitsSIUnits(v * 8, true);
+const formatNetwork = (v: number) => formatBitsSIUnits(v, true);
 
 interface SeriesConfig {
   name: string;
@@ -47,12 +47,12 @@ export default memo(function ContainerDetailPanel({
     () => [
       {
         name: 'RX',
-        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
+        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec * 8 })),
         colorVar: '--chart-read',
       },
       {
         name: 'TX',
-        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
+        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec * 8 })),
         colorVar: '--chart-write',
       },
     ],

@@ -147,47 +147,44 @@ describe('calculateCleanYAxis', () => {
     });
 
     it('should produce axis values that are clean SI bit multiples', () => {
-      // 125_000 bytes/s = 1_000_000 bps = 1 Mbps exactly
-      const result = calculateCleanYAxis(125_000, 'bits');
-      // interval in bytes/s should be a multiple of 125 (1000 bits / 8)
-      expect((result.interval * 8) % 1000).toBe(0);
-      expect((result.max * 8) % 1000).toBe(0);
+      // 1_000_000 bps = 1 Mbps exactly
+      const result = calculateCleanYAxis(1_000_000, 'bits');
+      expect(result.interval % 1000).toBe(0);
+      expect(result.max % 1000).toBe(0);
     });
 
     it('should use bps-scale for low throughput', () => {
-      // 50 bytes/s = 400 bps — stays in bps range
-      const result = calculateCleanYAxis(50, 'bits');
-      expect(result.max).toBeGreaterThanOrEqual(50);
-      // interval in bits should be < 1000 (still in bps, not Kbps)
-      expect(result.interval * 8).toBeLessThan(1000);
+      // 400 bps — stays in bps range
+      const result = calculateCleanYAxis(400, 'bits');
+      expect(result.max).toBeGreaterThanOrEqual(400);
+      expect(result.interval).toBeLessThan(1000);
     });
 
     it('should use Kbps-scale for Kbps-range throughput', () => {
-      // 25_000 bytes/s = 200_000 bps = 200 Kbps
-      const result = calculateCleanYAxis(25_000, 'bits');
-      expect(result.max).toBeGreaterThanOrEqual(25_000);
-      // interval should be a clean multiple of 125 bytes (= 1 Kbps)
-      expect((result.interval * 8) % 1000).toBe(0);
-      expect(result.interval * 8).toBeGreaterThanOrEqual(1000);
-      expect(result.interval * 8).toBeLessThan(1_000_000);
+      // 200_000 bps = 200 Kbps
+      const result = calculateCleanYAxis(200_000, 'bits');
+      expect(result.max).toBeGreaterThanOrEqual(200_000);
+      expect(result.interval % 1000).toBe(0);
+      expect(result.interval).toBeGreaterThanOrEqual(1000);
+      expect(result.interval).toBeLessThan(1_000_000);
     });
 
     it('should use Mbps-scale for Mbps-range throughput', () => {
-      // 12_500_000 bytes/s = 100 Mbps
-      const result = calculateCleanYAxis(12_500_000, 'bits');
-      expect(result.max).toBeGreaterThanOrEqual(12_500_000);
-      expect((result.interval * 8) % 1_000_000).toBe(0);
+      // 100_000_000 bps = 100 Mbps
+      const result = calculateCleanYAxis(100_000_000, 'bits');
+      expect(result.max).toBeGreaterThanOrEqual(100_000_000);
+      expect(result.interval % 1_000_000).toBe(0);
     });
 
     it('should use Gbps-scale for Gbps-range throughput', () => {
-      // 1_250_000_000 bytes/s = 10 Gbps
-      const result = calculateCleanYAxis(1_250_000_000, 'bits');
-      expect(result.max).toBeGreaterThanOrEqual(1_250_000_000);
-      expect((result.interval * 8) % 1_000_000_000).toBe(0);
+      // 10_000_000_000 bps = 10 Gbps
+      const result = calculateCleanYAxis(10_000_000_000, 'bits');
+      expect(result.max).toBeGreaterThanOrEqual(10_000_000_000);
+      expect(result.interval % 1_000_000_000).toBe(0);
     });
 
     it('max should be divisible by interval', () => {
-      const result = calculateCleanYAxis(3_750_000, 'bits');
+      const result = calculateCleanYAxis(30_000_000, 'bits');
       expect(result.max % result.interval).toBe(0);
     });
   });

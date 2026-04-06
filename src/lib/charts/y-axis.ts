@@ -71,21 +71,20 @@ export function calculateCleanYAxis(
   }
 
   if (mode === 'bits') {
-    // maxValue is bytes/s; compute clean ticks in bit-space (SI) then convert back
-    const maxBits = maxValue * 8;
+    // maxValue is in bits; use SI (1000-based) unit boundaries for clean bps/Kbps/Mbps/Gbps ticks.
     let unit = BIT_UNITS[0];
     for (let i = BIT_UNITS.length - 1; i >= 0; i--) {
-      if (maxBits >= BIT_UNITS[i].threshold) {
+      if (maxValue >= BIT_UNITS[i].threshold) {
         unit = BIT_UNITS[i];
         break;
       }
     }
-    const valueInUnit = maxBits / unit.divisor;
+    const valueInUnit = maxValue / unit.divisor;
     const intervalInUnit = findNiceInterval(valueInUnit);
-    const cleanMaxBits = Math.ceil(valueInUnit / intervalInUnit) * intervalInUnit * unit.divisor;
+    const cleanMax = Math.ceil(valueInUnit / intervalInUnit) * intervalInUnit * unit.divisor;
     return {
-      max: cleanMaxBits / 8,
-      interval: (intervalInUnit * unit.divisor) / 8,
+      max: cleanMax,
+      interval: intervalInUnit * unit.divisor,
     };
   }
 
