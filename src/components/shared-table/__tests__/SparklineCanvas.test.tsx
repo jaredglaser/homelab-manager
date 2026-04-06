@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach, type Mock } from 'bun:test';
-import { render, cleanup, act } from '@testing-library/react';
+import { render, cleanup, act, type RenderResult } from '@testing-library/react';
 import SparklineCanvas from '../SparklineCanvas';
 
 interface TimeSeriesPoint {
@@ -229,5 +229,34 @@ describe('SparklineCanvas', () => {
     const { container } = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
     const wrapper = container.firstElementChild as HTMLElement;
     expect(wrapper.className).toContain('flex-shrink-0');
+  });
+
+  it('rebuilds gradient when color prop changes after mount', () => {
+    // Register a second color CSS variable set
+    setCssColorVars('--chart-memory', '#00ff00', 'rgba(0,255,0,0.3)', 'rgba(0,255,0,0)');
+
+    let result: RenderResult;
+
+    // Mount with initial color — canvas setup effect stores gradientCtxRef.current
+    act(() => {
+      result = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
+    });
+
+    // Flush the queued RAF so the canvas setup effect has run and set gradientCtxRef.current
+    flushOneFrame();
+
+    const callsAfterMount = (mockCtx.createLinearGradient as Mock<typeof mockCtx.createLinearGradient>).mock.calls.length;
+    expect(callsAfterMount).toBeGreaterThan(0);
+
+    // Re-render with a different color — the color/height effect runs again and
+    // now gradientCtxRef.current is set, so lines 62-65 execute
+    act(() => {
+      result!.rerender(<SparklineCanvas data={[]} color="--chart-memory" />);
+    });
+
+    const callsAfterRerender = (mockCtx.createLinearGradient as Mock<typeof mockCtx.createLinearGradient>).mock.calls.length;
+    expect(callsAfterRerender).toBeGreaterThan(callsAfterMount);
+
+    clearCssColorVars('--chart-memory');
   });
 });

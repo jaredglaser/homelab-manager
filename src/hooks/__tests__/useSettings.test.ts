@@ -694,6 +694,189 @@ if (isCI) {
         });
     });
 
+    describe('stack expansion', () => {
+        it('should default to not expanded when no saved state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isStackExpanded('server1/my-stack')).toBe(false);
+        });
+
+        it('should toggle stack expanded state on', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/my-stack');
+            });
+
+            expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
+        });
+
+        it('should toggle stack expanded state off', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/my-stack');
+            });
+
+            expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/my-stack');
+            });
+
+            expect(result.current.isStackExpanded('server1/my-stack')).toBe(false);
+        });
+
+        it('should persist stack expansion to database', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/my-stack');
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: SETTINGS_KEYS.stacks.expandedStacks, value: '["server1/my-stack"]' },
+            });
+        });
+
+        it('should not affect other stacks when toggling one', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/stack-a');
+            });
+
+            expect(result.current.isStackExpanded('server1/stack-a')).toBe(true);
+            expect(result.current.isStackExpanded('server1/stack-b')).toBe(false);
+        });
+    });
+
+    describe('activeMetricGroup', () => {
+        it('should default to empty object when no saved state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.activeMetricGroup).toEqual({});
+        });
+
+        it('should parse activeMetricGroup from raw atom value', () => {
+            const { wrapper } = createWrapper({
+                [SETTINGS_KEYS.general.activeMetricGroup]: '{"docker":1,"zfs":2}',
+            });
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.activeMetricGroup).toEqual({ docker: 1, zfs: 2 });
+        });
+
+        it('should return empty object for invalid JSON in activeMetricGroup', () => {
+            const { wrapper } = createWrapper({
+                [SETTINGS_KEYS.general.activeMetricGroup]: 'not-valid-json',
+            });
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.activeMetricGroup).toEqual({});
+        });
+
+        it('should return empty object when activeMetricGroup value is an array', () => {
+            const { wrapper } = createWrapper({
+                [SETTINGS_KEYS.general.activeMetricGroup]: '[1,2,3]',
+            });
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.activeMetricGroup).toEqual({});
+        });
+    });
+
+    describe('setActiveMetricGroup', () => {
+        it('should update the metric group index for a tab', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setActiveMetricGroup('docker', 2);
+            });
+
+            expect(result.current.activeMetricGroup).toEqual({ docker: 2 });
+        });
+
+        it('should persist the active metric group to database', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setActiveMetricGroup('zfs', 1);
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: {
+                    key: SETTINGS_KEYS.general.activeMetricGroup,
+                    value: '{"zfs":1}',
+                },
+            });
+        });
+
+        it('should merge with existing tab values when updating a tab', () => {
+            const { wrapper } = createWrapper({
+                [SETTINGS_KEYS.general.activeMetricGroup]: '{"docker":0}',
+            });
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setActiveMetricGroup('zfs', 3);
+            });
+
+            expect(result.current.activeMetricGroup).toEqual({ docker: 0, zfs: 3 });
+        });
+
+        it('should overwrite an existing tab value', () => {
+            const { wrapper } = createWrapper({
+                [SETTINGS_KEYS.general.activeMetricGroup]: '{"docker":0}',
+            });
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setActiveMetricGroup('docker', 2);
+            });
+
+            expect(result.current.activeMetricGroup).toEqual({ docker: 2 });
+        });
+
+        it('should handle missing previous value gracefully', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setActiveMetricGroup('proxmox', 1);
+            });
+
+            expect(result.current.activeMetricGroup).toEqual({ proxmox: 1 });
+        });
+
+        it('should handle invalid previous JSON value gracefully', () => {
+            const { wrapper } = createWrapper({
+                [SETTINGS_KEYS.general.activeMetricGroup]: 'bad-json',
+            });
+
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.setActiveMetricGroup('docker', 1);
+            });
+
+            expect(result.current.activeMetricGroup).toEqual({ docker: 1 });
+        });
+    });
+
     describe('rollback on persist failure', () => {
         it('should roll back a simple setting on failure', async () => {
             mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));

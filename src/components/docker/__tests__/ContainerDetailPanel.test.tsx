@@ -1,6 +1,22 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 
+// Stub DualSeriesChart to call formatValue so the formatter props are actually exercised
+mock.module('@/components/docker/DualSeriesChart', () => ({
+  default: ({
+    title,
+    formatValue,
+  }: {
+    title?: string;
+    formatValue?: (v: number) => string;
+  }) => (
+    <div data-testid="dual-series-chart">
+      {title && <span>{title}</span>}
+      {formatValue && <span data-testid="format-value-output">{formatValue(1000)}</span>}
+    </div>
+  ),
+}));
+
 // Mock echarts-for-react
 mock.module('echarts-for-react', () => ({
   default: ({ option }: { option: unknown }) => (
@@ -79,8 +95,8 @@ describe('ContainerDetailPanel', () => {
         host="server"
       />,
     );
-    expect(screen.getByText('CPU & Memory')).toBeTruthy();
-    expect(screen.getByText('Network I/O')).toBeTruthy();
+    screen.getByText('CPU & Memory');
+    screen.getByText('Network I/O');
   });
 
   it('renders the log viewer', () => {
@@ -91,10 +107,10 @@ describe('ContainerDetailPanel', () => {
         host="server"
       />,
     );
-    expect(screen.getByText('Logs')).toBeTruthy();
+    screen.getByText('Logs');
   });
 
-  it('renders two echarts instances', () => {
+  it('renders two chart instances', () => {
     render(
       <ContainerDetailPanel
         dataPoints={sampleDataPoints}
@@ -102,8 +118,23 @@ describe('ContainerDetailPanel', () => {
         host="server"
       />,
     );
-    const charts = screen.getAllByTestId('echarts-mock');
+    const charts = screen.getAllByTestId('dual-series-chart');
     expect(charts).toHaveLength(2);
+  });
+
+  it('formats CPU/memory values as percentages and network as bit rate', () => {
+    render(
+      <ContainerDetailPanel
+        dataPoints={sampleDataPoints}
+        containerId="abc123"
+        host="server"
+      />,
+    );
+    // The mock calls formatValue(1000) for each chart.
+    // formatPercent(1000) = formatAsPercent(1000/100) = "1000.00%"
+    // formatNetwork(1000) = formatBitsSIUnits(8000, true) = "8.00 Kbps"
+    screen.getByText('1000.00%');
+    screen.getByText('8.00 Kbps');
   });
 
   it('renders with empty data points', () => {
@@ -114,7 +145,7 @@ describe('ContainerDetailPanel', () => {
         host="server"
       />,
     );
-    expect(screen.getByText('CPU & Memory')).toBeTruthy();
-    expect(screen.getByText('Logs')).toBeTruthy();
+    screen.getByText('CPU & Memory');
+    screen.getByText('Logs');
   });
 });

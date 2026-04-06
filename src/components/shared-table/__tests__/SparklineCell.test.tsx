@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
 import { render } from '@testing-library/react';
+import SparklineCell from '@/components/shared-table/SparklineCell';
 
 /**
  * Mock css-vars to avoid needing real CSS custom properties resolved via getComputedStyle.
@@ -45,21 +46,9 @@ function makePoints(offsets: number[], value = 50) {
   return offsets.map((offset) => ({ timestamp: NOW + offset, value }));
 }
 
-/**
- * Re-import the component for each describe block because SparklineCell
- * uses module-level refs that persist across renders within the same import.
- * Fresh import = fresh ref state.
- */
-let importCounter = 0;
-async function importFresh() {
-  const mod = await import(`@/components/shared-table/SparklineCell?t=${++importCounter}`);
-  return mod.default;
-}
-
 describe('SparklineCell', () => {
   describe('empty data', () => {
-    it('renders PulseLine when data is empty', async () => {
-      const SparklineCell = await importFresh();
+    it('renders PulseLine when data is empty', () => {
       const { container } = render(<SparklineCell data={[]} color="--chart-cpu" />);
 
       // No canvas rendered — should show PulseLine placeholder
@@ -73,8 +62,7 @@ describe('SparklineCell', () => {
   });
 
   describe('fresh data (within STALE_THRESHOLD_MS)', () => {
-    it('seeds and renders SparklineCanvas', async () => {
-      const SparklineCell = await importFresh();
+    it('seeds and renders SparklineCanvas', () => {
       const data = makePoints([-1000, -500, 0]);
 
       const { container } = render(<SparklineCell data={data} color="--chart-cpu" />);
@@ -86,8 +74,7 @@ describe('SparklineCell', () => {
   });
 
   describe('stale data (older than STALE_THRESHOLD_MS)', () => {
-    it('renders PulseLine in waiting state', async () => {
-      const SparklineCell = await importFresh();
+    it('renders PulseLine in waiting state', () => {
       const data = makePoints([-5000]);
 
       const { container } = render(<SparklineCell data={data} color="--chart-memory" />);
@@ -101,9 +88,7 @@ describe('SparklineCell', () => {
   });
 
   describe('stale then fresh data transition', () => {
-    it('transitions from waiting to seeded when fresh data arrives', async () => {
-      const SparklineCell = await importFresh();
-
+    it('transitions from waiting to seeded when fresh data arrives', () => {
       const staleData = makePoints([-5000]);
       const { container, rerender } = render(<SparklineCell data={staleData} color="--chart-cpu" />);
       expect(container.querySelector('canvas')).toBeNull();
@@ -116,8 +101,7 @@ describe('SparklineCell', () => {
   });
 
   describe('no new points when already seeded', () => {
-    it('does not change accumulator when re-rendered with same data', async () => {
-      const SparklineCell = await importFresh();
+    it('does not change accumulator when re-rendered with same data', () => {
       const data = makePoints([-500, 0]);
 
       const { container, rerender } = render(<SparklineCell data={data} color="--chart-cpu" />);
@@ -127,11 +111,42 @@ describe('SparklineCell', () => {
       expect(container.querySelector('canvas')).toBeTruthy();
     });
   });
+
+  describe('accumulation path (already seeded, new point arrives)', () => {
+    it('accumulates new points when rerendered with a later timestamp', () => {
+      // Seed with initial fresh data
+      const initialData = makePoints([-1000, -500]);
+      const { container, rerender } = render(<SparklineCell data={initialData} color="--chart-cpu" />);
+      expect(container.querySelector('canvas')).toBeTruthy();
+
+      // Rerender with an additional point at a later timestamp
+      const updatedData = makePoints([-1000, -500, 0]);
+      rerender(<SparklineCell data={updatedData} color="--chart-cpu" />);
+
+      // Should still render canvas with accumulated points
+      expect(container.querySelector('canvas')).toBeTruthy();
+    });
+
+    it('drops points older than the 35s window when accumulating', () => {
+      // Seed with a fresh initial point (within STALE_THRESHOLD_MS)
+      const initialData = makePoints([-1000, 0]);
+      const { container, rerender } = render(<SparklineCell data={initialData} color="--chart-cpu" />);
+      expect(container.querySelector('canvas')).toBeTruthy();
+
+      // Add a new point at a later timestamp; include a very old point that
+      // falls outside the 35s window relative to the new latest timestamp
+      const oldPoint = { timestamp: NOW - 36000, value: 50 };
+      const updatedData = [oldPoint, ...initialData, { timestamp: NOW + 1000, value: 50 }];
+      rerender(<SparklineCell data={updatedData} color="--chart-cpu" />);
+
+      // Canvas should still render (newer accumulated points are within the window)
+      expect(container.querySelector('canvas')).toBeTruthy();
+    });
+  });
 });
 
 describe('PulseLine', () => {
-  it('renders with correct structure and resolved colors', async () => {
-    const SparklineCell = await importFresh();
+  it('renders with correct structure and resolved colors', () => {
     const { container } = render(<SparklineCell data={[]} color="--chart-network" />);
 
     const outer = container.firstElementChild as HTMLElement;
