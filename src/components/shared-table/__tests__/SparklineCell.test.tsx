@@ -1,30 +1,29 @@
-import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { render } from '@testing-library/react';
 import SparklineCell from '@/components/shared-table/SparklineCell';
 
-/**
- * Mock css-vars to avoid needing real CSS custom properties resolved via getComputedStyle.
- * This is a leaf dependency (not broadly imported) so mock.module is acceptable here.
- */
-mock.module('@/lib/charts/css-vars', () => ({
-  resolveChartColors: (color: string) => ({
-    line: `rgb(${color === '--chart-network' ? '100, 200, 50' : '255, 0, 0'})`,
-    areaStart: 'rgba(255,0,0,0.3)',
-    areaEnd: 'rgba(255,0,0,0)',
-  }),
-}));
-
-mock.module('@/lib/charts/y-axis', () => ({
-  calculateCleanYAxis: () => ({ min: 0, max: 100, interval: 25 }),
-}));
+// Set CSS custom properties so resolveChartColors reads real values via getComputedStyle.
+// Using CSS vars instead of mock.module avoids cross-file mock leakage in bun 1.3.x workers.
+function setCssVar(name: string, value: string) {
+  document.documentElement.style.setProperty(name, value);
+}
+function clearCssVar(name: string) {
+  document.documentElement.style.removeProperty(name);
+}
 
 /** Suppress console.info from mount/unmount/state logging */
 const originalInfo = console.info;
 beforeEach(() => {
   console.info = () => {};
+  setCssVar('--chart-cpu', 'rgb(255, 0, 0)');
+  setCssVar('--chart-memory', 'rgb(0, 255, 0)');
+  setCssVar('--chart-network', 'rgb(100, 200, 50)');
 });
 afterEach(() => {
   console.info = originalInfo;
+  clearCssVar('--chart-cpu');
+  clearCssVar('--chart-memory');
+  clearCssVar('--chart-network');
 });
 
 const NOW = 1_700_000_000_000;

@@ -29,6 +29,12 @@ mock.module('@/lib/stacks/stack-service', () => ({
 let mockEditorOnChange: ((v: string | undefined) => void) | undefined;
 /** Stored onMount callback from the most recent mock editor render */
 let mockEditorOnMount: ((editorInstance: unknown) => void) | undefined;
+// Stub VariablesPanel so the real module is not loaded into the bun module cache here.
+// Without this, bun 1.3.x loads VariablesPanel + VariableRow as static dependencies of
+// ComposeEditor before VariablesPanel.test.tsx can instrument them, dropping their coverage.
+mock.module('@/components/stacks/VariablesPanel', () => ({
+  default: () => null,
+}));
 mock.module('@/lib/monaco-setup', () => ({}));
 mock.module('@monaco-editor/react', () => ({
   default: ({
