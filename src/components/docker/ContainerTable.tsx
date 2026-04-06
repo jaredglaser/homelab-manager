@@ -249,6 +249,7 @@ export default function ContainerTable({
               />
             );
           }
+          if (!data.container) return null;
           return (
             <ContainerNameCell
               row={data}
@@ -617,14 +618,13 @@ function ContainerNameCell({
   expanded: boolean;
   onOpenHistory?: (containerId: string, host: string) => void;
 }>) {
-  const container = row.container;
+  const container = row.container!; // parent guarantees this is present
 
-  // All hooks must be called unconditionally before any early return
   const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
-  const iconUrl = getIconUrl(container?.icon ?? '', container?.image ?? '');
+  const iconUrl = getIconUrl(container.icon, container.image);
 
   useEffect(() => {
     setIconError(false);
@@ -675,8 +675,6 @@ function ContainerNameCell({
       };
     }
   }, [lastUpdatedMs]);
-
-  if (!container) return null;
 
   const handleIconSelect = async (iconSlug: string) => {
     try {

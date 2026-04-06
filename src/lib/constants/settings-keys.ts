@@ -10,7 +10,6 @@ export const SETTINGS_KEYS = {
     showSparklines: 'general/showSparklines',
     useAbbreviatedUnits: 'general/useAbbreviatedUnits',
     lightPalette: 'general/lightPalette',
-    activeMetricGroup: 'active_metric_group',
   },
   docker: {
     memoryDisplayMode: 'docker/memoryDisplayMode',
@@ -51,9 +50,6 @@ export const SETTINGS_KEYS = {
     sseDebugLogging: 'developer/sseDebugLogging',
   },
 } as const;
-
-/** DB key for persisting per-tab active metric group index. */
-export const ACTIVE_METRIC_GROUP_KEY = SETTINGS_KEYS.general.activeMetricGroup;
 
 /** localStorage key for persisting demo mode settings. */
 export const DEMO_SETTINGS_STORAGE_KEY = 'homelab-demo-settings';

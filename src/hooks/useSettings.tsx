@@ -49,8 +49,6 @@ interface SettingsValue extends Settings {
   setDbFlushDebugLogging: (value: boolean) => void;
   setSseDebugLogging: (value: boolean) => void;
   setLightPalette: (palette: LightPalette) => void;
-  activeMetricGroup: Record<string, number>;
-  setActiveMetricGroup: (tab: string, index: number) => void;
 }
 
 function toggleInSet(raw: string | undefined, item: string): string {
@@ -65,7 +63,6 @@ function toggleInSet(raw: string | undefined, item: string): string {
 
 export function useSettings(): SettingsValue {
   const settings = useAtomValue(settingsAtom);
-  const rawSettings = useAtomValue(rawSettingsAtom);
   const setRaw = useSetAtom(rawSettingsAtom);
   const { showToast } = useToast();
 
@@ -80,7 +77,8 @@ export function useSettings(): SettingsValue {
         return { ...raw, [key]: newValue };
       });
 
-      updateSetting({ data: { key, value: newValue! } }).catch(() => {
+      updateSetting({ data: { key, value: newValue! } }).catch((err: unknown) => {
+        console.error(`Failed to persist setting "${key}":`, err);
         setRaw(current => {
           if (previousValue === undefined) {
             const next = { ...current };
@@ -242,33 +240,6 @@ export function useSettings(): SettingsValue {
     optimisticSet(SETTINGS_KEYS.general.lightPalette, () => palette);
   }, [optimisticSet]);
 
-  const activeMetricGroup = useMemo<Record<string, number>>(() => {
-    try {
-      const parsed = JSON.parse(rawSettings[SETTINGS_KEYS.general.activeMetricGroup] ?? '{}') as unknown;
-      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, number>;
-      }
-    } catch {
-      // Invalid JSON - return empty object
-    }
-    return {};
-  }, [rawSettings]);
-
-  const setActiveMetricGroup = useCallback((tab: string, index: number) => {
-    optimisticSet(SETTINGS_KEYS.general.activeMetricGroup, (prev) => {
-      let current: Record<string, number> = {};
-      try {
-        const parsed = JSON.parse(prev ?? '{}') as unknown;
-        if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          current = parsed as Record<string, number>;
-        }
-      } catch {
-        // Invalid JSON - start with empty object
-      }
-      return JSON.stringify({ ...current, [tab]: index });
-    });
-  }, [optimisticSet]);
-
   // All callbacks depend on either `optimisticSet` (stable) or fields within `settings`.
   // When `settings` changes, useMemo re-evaluates and picks up the new callback closures.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,7 +275,5 @@ export function useSettings(): SettingsValue {
     setDbFlushDebugLogging,
     setSseDebugLogging,
     setLightPalette,
-    activeMetricGroup,
-    setActiveMetricGroup,
-  }), [settings, activeMetricGroup, setActiveMetricGroup]);
+  }), [settings]);
 }
