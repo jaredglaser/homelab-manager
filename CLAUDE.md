@@ -26,7 +26,6 @@ bun run dev:local:logs:agent  # Agent logs only
 # Testing & Build
 bun run typecheck             # TypeScript type checking
 bun test                      # Run all tests (enforces 95%/99% coverage)
-CI=true bun test              # Run tests matching CI behavior (skips React 19/Happy-DOM incompatible tests)
 bun test --watch              # Run tests in watch mode
 bun build                     # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)
@@ -130,7 +129,6 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 6. **Layout shift in metric columns**: Dynamic number formatting (KB→MB, varying decimals) causes width instability. Use minimum widths with `ch` units in MetricValue.
 7. **Fix root causes, not symptoms**: Investigate actual bugs rather than adding caching/memoization workarounds. Past band-aid fixes were frequently reverted.
 8. **Icon attribution**: Dashboard icons from `homarr-labs/dashboard-icons` (NOT the old `walkxcode` name).
-9. **Hook tests in CI**: Some skip due to React 19 + Happy-DOM issues (guarded by `process.env.CI`).
 
 ## CI/CD
 
