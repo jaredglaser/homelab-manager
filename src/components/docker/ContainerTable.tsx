@@ -4,6 +4,7 @@ import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import { Box, Chip, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ChevronRight, History, Server, Settings, WifiOff } from 'lucide-react';
 import { useSettings } from '@/hooks/useSettings';
+import { useToast } from '@/hooks/toastAtom';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
 import { metricColumn, nameColumn } from '@/components/shared-table/columns';
@@ -384,6 +385,7 @@ export default function ContainerTable({
     (row: DockerTableRow) => {
       if (row.type !== 'container' || !row.container || !row.dataPoints) return null;
       const [host, containerId] = row.container.id.split('/');
+      if (!host || !containerId) return null;
       return (
         <ContainerDetailPanel
           dataPoints={row.dataPoints}
@@ -616,25 +618,17 @@ function ContainerNameCell({
   onOpenHistory?: (containerId: string, host: string) => void;
 }>) {
   const container = row.container;
-  if (!container) return null;
 
+  // All hooks must be called unconditionally before any early return
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
-  const iconUrl = getIconUrl(container.icon, container.image);
+  const iconUrl = getIconUrl(container?.icon ?? '', container?.image ?? '');
 
   useEffect(() => {
     setIconError(false);
   }, [iconUrl]);
-
-  const handleIconSelect = async (iconSlug: string) => {
-    try {
-      await updateContainerIcon({ data: { serviceKeyEntity: container.serviceKeyEntity, iconSlug } });
-      await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
-    } catch (err) {
-      console.error('Failed to update container icon:', err);
-    }
-  };
 
   // Pulse indicator refs
   const lastUpdated = row.chartData && row.chartData.length > 0
@@ -681,6 +675,18 @@ function ContainerNameCell({
       };
     }
   }, [lastUpdatedMs]);
+
+  if (!container) return null;
+
+  const handleIconSelect = async (iconSlug: string) => {
+    try {
+      await updateContainerIcon({ data: { serviceKeyEntity: container.serviceKeyEntity, iconSlug } });
+      await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
+    } catch (err) {
+      console.error('Failed to update container icon:', err);
+      showToast('Failed to update icon. Please try again.');
+    }
+  };
 
   return (
     <>
@@ -733,7 +739,8 @@ function ContainerNameCell({
             size="small"
             onClick={(e) => {
               e.stopPropagation();
-              onOpenHistory(container.id.split('/')[1], container.id.split('/')[0]);
+              const [host, containerId] = container.id.split('/');
+              if (host && containerId) onOpenHistory(containerId, host);
             }}
             className={`!p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
             aria-label="View container history"
