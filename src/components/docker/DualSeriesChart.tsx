@@ -1,5 +1,5 @@
-import { memo, useMemo, useRef } from 'react';
-import { Paper, Typography, useTheme } from '@mui/material';
+import { memo, useRef } from 'react';
+import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useSettings } from '@/hooks/useSettings';
@@ -174,13 +174,9 @@ export default memo(function DualSeriesChart({
   formatValue,
 }: DualSeriesChartProps) {
   const { general, docker } = useSettings();
-  const theme = useTheme();
   const windowMs = docker.chartWindowSeconds * 1000;
-  const chrome = useMemo(() => resolveChartChromeColors(), [theme.palette.mode]);
-  const option = useMemo(
-    () => getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome),
-    [series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome],
-  );
+  const chrome = resolveChartChromeColors();
+  const option = getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome);
   const chartRef = useRef<ReactECharts>(null);
 
   useEChartTimeScroll(chartRef, windowMs);
