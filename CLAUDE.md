@@ -26,6 +26,7 @@ bun run dev:local:logs:agent  # Agent logs only
 # Testing & Build
 bun run typecheck             # TypeScript type checking
 bun test                      # Run all tests (enforces 95%/99% coverage)
+CI=true bun test              # Run tests matching CI behavior (skips React 19/Happy-DOM incompatible tests)
 bun test --watch              # Run tests in watch mode
 bun build                     # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)

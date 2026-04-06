@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 
 // Stub DualSeriesChart to call formatValue so the formatter props are actually exercised
 mock.module('@/components/docker/DualSeriesChart', () => ({
@@ -86,50 +87,37 @@ const sampleDataPoints = [
   },
 ];
 
+function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPanel>> = {}) {
+  return render(
+    <ContainerDetailPanel
+      dataPoints={sampleDataPoints}
+      containerId="abc123"
+      host="server"
+      {...overrides}
+    />,
+  );
+}
+
 describe('ContainerDetailPanel', () => {
   it('renders two chart sections', () => {
-    render(
-      <ContainerDetailPanel
-        dataPoints={sampleDataPoints}
-        containerId="abc123"
-        host="server"
-      />,
-    );
+    renderPanel();
     screen.getByText('CPU & Memory');
     screen.getByText('Network I/O');
   });
 
   it('renders the log viewer', () => {
-    render(
-      <ContainerDetailPanel
-        dataPoints={sampleDataPoints}
-        containerId="abc123"
-        host="server"
-      />,
-    );
+    renderPanel();
     screen.getByText('Logs');
   });
 
   it('renders two chart instances', () => {
-    render(
-      <ContainerDetailPanel
-        dataPoints={sampleDataPoints}
-        containerId="abc123"
-        host="server"
-      />,
-    );
+    renderPanel();
     const charts = screen.getAllByTestId('dual-series-chart');
     expect(charts).toHaveLength(2);
   });
 
   it('formats CPU/memory values as percentages and network as bit rate', () => {
-    render(
-      <ContainerDetailPanel
-        dataPoints={sampleDataPoints}
-        containerId="abc123"
-        host="server"
-      />,
-    );
+    renderPanel();
     // The mock calls formatValue(1000) for each chart.
     // formatPercent(1000) = formatAsPercent(1000/100) = "1000.00%"
     // formatNetwork(1000) = formatBitsSIUnits(8000, true) = "8.00 Kbps"
@@ -138,13 +126,7 @@ describe('ContainerDetailPanel', () => {
   });
 
   it('renders with empty data points', () => {
-    render(
-      <ContainerDetailPanel
-        dataPoints={[]}
-        containerId="abc123"
-        host="server"
-      />,
-    );
+    renderPanel({ dataPoints: [] });
     screen.getByText('CPU & Memory');
     screen.getByText('Logs');
   });

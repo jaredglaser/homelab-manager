@@ -47,6 +47,14 @@ function clearCssColorVars(base: string) {
   root.style.removeProperty(`${base}-area-end`);
 }
 
+// Named color constants — avoid bare hex literals while keeping values Happy-DOM can read
+const CPU_LINE = 'rgb(255, 0, 0)';
+const CPU_AREA_START = 'rgba(255,0,0,0.3)';
+const CPU_AREA_END = 'rgba(255,0,0,0)';
+const MEMORY_LINE = 'rgb(0, 255, 0)';
+const MEMORY_AREA_START = 'rgba(0,255,0,0.3)';
+const MEMORY_AREA_END = 'rgba(0,255,0,0)';
+
 describe('SparklineCanvas', () => {
   let rafSpy: Mock<typeof window.requestAnimationFrame>;
   let cafSpy: Mock<typeof window.cancelAnimationFrame>;
@@ -65,7 +73,7 @@ describe('SparklineCanvas', () => {
   }
 
   beforeEach(() => {
-    setCssColorVars('--chart-cpu', '#ff0000', 'rgba(255,0,0,0.3)', 'rgba(255,0,0,0)');
+    setCssColorVars('--chart-cpu', CPU_LINE, CPU_AREA_START, CPU_AREA_END);
 
     originalRaf = window.requestAnimationFrame;
     originalCaf = window.cancelAnimationFrame;
@@ -215,8 +223,8 @@ describe('SparklineCanvas', () => {
     flushOneFrame();
 
     expect(mockCtx.createLinearGradient).toHaveBeenCalled();
-    expect(mockGradient.addColorStop).toHaveBeenCalledWith(0, 'rgba(255,0,0,0.3)');
-    expect(mockGradient.addColorStop).toHaveBeenCalledWith(1, 'rgba(255,0,0,0)');
+    expect(mockGradient.addColorStop).toHaveBeenCalledWith(0, CPU_AREA_START);
+    expect(mockGradient.addColorStop).toHaveBeenCalledWith(1, CPU_AREA_END);
   });
 
   it('renders canvas with display: block style', () => {
@@ -233,7 +241,7 @@ describe('SparklineCanvas', () => {
 
   it('rebuilds gradient when color prop changes after mount', () => {
     // Register a second color CSS variable set
-    setCssColorVars('--chart-memory', '#00ff00', 'rgba(0,255,0,0.3)', 'rgba(0,255,0,0)');
+    setCssColorVars('--chart-memory', MEMORY_LINE, MEMORY_AREA_START, MEMORY_AREA_END);
 
     let result: RenderResult;
 
