@@ -265,7 +265,13 @@ function buildEnvContent(existingEnv: string, secrets: Record<string, string>): 
     const eqIdx = line.indexOf('=');
     const key = line.slice(0, eqIdx).trim();
     const rawValue = line.slice(eqIdx + 1);
-    const sanitized = rawValue.replaceAll(/[\r\n\0]/g, '').replaceAll("'", "'\\''");
+    // Strip a single pair of matching outer quotes to avoid double-quoting
+    const unquoted =
+      (rawValue.startsWith("'") && rawValue.endsWith("'")) ||
+      (rawValue.startsWith('"') && rawValue.endsWith('"'))
+        ? rawValue.slice(1, -1)
+        : rawValue;
+    const sanitized = unquoted.replaceAll(/[\r\n\0]/g, '').replaceAll("'", "'\\''");
     return `${key}='${sanitized}'`;
   });
 

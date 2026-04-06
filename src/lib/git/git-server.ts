@@ -147,6 +147,7 @@ function spawnGit(
 
     proc.on('error', (err) => {
       clearTimeout(timeout);
+      console.error('[git-server] spawnGit process error:', err, { args });
       reject(err);
     });
     proc.on('close', (code) => {

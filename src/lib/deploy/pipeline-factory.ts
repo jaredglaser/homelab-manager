@@ -49,7 +49,11 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     agentClientFactory: (url, token) => new AgentClient({ agentUrl: url, agentToken: token }),
     secretResolver: {
       async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
-        if (variables.length === 0 || !baoClient) return {};
+        if (variables.length === 0) return {};
+        if (!baoClient) {
+          console.info(`[deploy] OpenBao not configured — skipping secrets for stack "${stack}": ${variables.join(', ')}`);
+          return {};
+        }
         const entries = await Promise.all(
           variables.map(async (v) => {
             const val = await baoClient!.getSecret(stack, v);

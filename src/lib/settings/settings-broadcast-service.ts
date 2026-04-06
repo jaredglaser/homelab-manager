@@ -60,7 +60,8 @@ class SettingsBroadcastService {
     }
   }
 
-  private async startListening(): Promise<void> {
+  /** Attempt to establish the LISTEN connection. Returns true on success. */
+  private async startListening(): Promise<boolean> {
     this.stopped = false;
 
     try {
@@ -74,7 +75,7 @@ class SettingsBroadcastService {
 
       if (this.stopped) {
         try { poolClient.release(); } catch { /* best-effort */ }
-        return;
+        return false;
       }
 
       this.listenerClient = poolClient;
@@ -87,23 +88,37 @@ class SettingsBroadcastService {
 
       this.listenerClient.on('error', (err) => {
         console.error('[SettingsBroadcastService] Listener client error:', err);
-        this.cleanupListenerClient();
+        void this.cleanupListenerClient();
         if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
           this.reconnecting = true;
-          this.reconnectTimer = setTimeout(() => {
-            this.reconnectTimer = null;
-            this.reconnecting = false;
-            if (!this.stopped && this.subscribers.size > 0) {
-              this.startListening();
-            }
-          }, 5_000);
+          this.scheduleReconnect();
         }
       });
 
       await this.listenerClient.query('LISTEN settings_change');
+      return true;
     } catch (error) {
       console.error('[SettingsBroadcastService] Failed to start listener:', error);
+      return false;
     }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer !== null) return;
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectTimer = null;
+      if (!this.stopped && this.subscribers.size > 0) {
+        const ok = await this.startListening();
+        if (ok) {
+          this.reconnecting = false;
+        } else {
+          // Still reconnecting — retry again after the same backoff
+          this.scheduleReconnect();
+        }
+      } else {
+        this.reconnecting = false;
+      }
+    }, 5_000);
   }
 
   private async handleChange(key: string): Promise<void> {
@@ -130,15 +145,18 @@ class SettingsBroadcastService {
     }
   }
 
-  private cleanupListenerClient(): void {
-    if (this.listenerClient) {
-      this.listenerClient.removeAllListeners();
-      try {
-        this.listenerClient.release();
-      } catch {
-        // best-effort release
-      }
-      this.listenerClient = null;
+  private async cleanupListenerClient(): Promise<void> {
+    if (!this.listenerClient) return;
+    const client = this.listenerClient;
+    this.listenerClient = null;
+    client.removeAllListeners();
+    try {
+      await client.query('UNLISTEN *');
+      client.release();
+    } catch {
+      // UNLISTEN failed (connection broken) — release with error flag so the
+      // pool discards this connection rather than returning it for reuse.
+      try { client.release(true); } catch { /* best-effort */ }
     }
   }
 
@@ -149,7 +167,7 @@ class SettingsBroadcastService {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    this.cleanupListenerClient();
+    void this.cleanupListenerClient();
   }
 
   async stop(): Promise<void> {

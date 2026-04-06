@@ -44,6 +44,9 @@ export function createStatsSseHandler(source: StatsSource) {
           unsubscribe = statsPollService.subscribe(source, sendData, sendError);
         } catch (err) {
           sendError();
+          closed = true;
+          try { controller.close(); } catch { /* already closed */ }
+          return;
         }
 
         request.signal.addEventListener('abort', () => {

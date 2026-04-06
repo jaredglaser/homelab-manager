@@ -2,7 +2,8 @@ import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
-  fallback?: ReactNode;
+  /** Static fallback node, or a render-prop that receives the reset callback */
+  fallback?: ReactNode | ((reset: () => void) => ReactNode);
   /** Optional label for identifying which boundary caught the error */
   name?: string;
   /** Called when the boundary resets — use for external state cleanup */
@@ -35,7 +36,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   render(): ReactNode {
     if (this.state.hasError) {
-      if (this.props.fallback) return this.props.fallback;
+      if (this.props.fallback) {
+        const { fallback } = this.props;
+        return typeof fallback === 'function'
+          ? fallback(() => this.resetErrorBoundary())
+          : fallback;
+      }
       return (
         <div className="flex items-center justify-center p-4 text-[var(--mui-palette-text-secondary)]">
           <div className="text-center">
