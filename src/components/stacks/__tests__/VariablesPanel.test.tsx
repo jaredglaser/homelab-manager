@@ -47,9 +47,7 @@ describe('VariablesPanel', () => {
     // it sees setTimeout._isMockFunction===true but then bun throws "Fake timers
     // are not active" when it tries to advance them. Manually clear both markers.
     jest.useRealTimers();
-    // @ts-expect-error — bun fake timer legacy marker checked by @testing-library/dom
     delete (setTimeout as unknown as Record<string, unknown>)._isMockFunction;
-    // @ts-expect-error — sinon/vitest clock marker also checked by @testing-library/dom
     delete (setTimeout as unknown as Record<string, unknown>).clock;
     mockListSecrets.mockClear();
     mockGetSecret.mockClear();
