@@ -22,7 +22,6 @@ export function metricColumn<TRow>(opts: {
   /** Whether to abbreviate unit labels (default: false) */
   useAbbreviatedUnits?: boolean;
   size?: number;
-  minBreakpoint?: 'sm' | 'md' | 'lg' | 'xl';
 }): ColumnDef<TRow, unknown> {
   return {
     id: opts.id,
@@ -43,7 +42,7 @@ export function metricColumn<TRow>(opts: {
       );
     },
     size: opts.size,
-    meta: opts.minBreakpoint ? { minBreakpoint: opts.minBreakpoint } : undefined,
+    meta: undefined,
   };
 }
 

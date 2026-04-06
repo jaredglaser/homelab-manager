@@ -21,11 +21,15 @@ import { DataTableToolbar } from '@/components/shared-table/DataTableToolbar';
 
 export interface MetricGroup {
   label: string;
-  columnIds: string[];
+  columnIds: [string, ...string[]];
   icon?: ReactNode;
 }
 
-export interface DataTableProps<TRow> {
+type ExpansionControl =
+  | { expandedState?: never; onExpandedChange?: never }
+  | { expandedState: ExpandedState; onExpandedChange: (e: ExpandedState) => void };
+
+export type DataTableProps<TRow> = {
   data: TRow[];
   columns: ColumnDef<TRow, unknown>[];
   getRowId: (row: TRow) => string;
@@ -34,10 +38,6 @@ export interface DataTableProps<TRow> {
   getSubRows?: (row: TRow) => TRow[] | undefined;
   /** Render a detail panel below an expanded row */
   renderDetailPanel?: (row: TRow) => ReactNode;
-  /** Controlled expansion state */
-  expandedState?: ExpandedState;
-  /** Callback when expansion state changes */
-  onExpandedChange?: (expanded: ExpandedState) => void;
 
   /** Estimated height of each row in pixels (default: 41) */
   estimateRowHeight?: (index: number) => number;
@@ -64,11 +64,14 @@ export interface DataTableProps<TRow> {
   rowClassName?: (row: TRow) => string;
   /** Toolbar actions rendered above the table */
   toolbarActions?: ReactNode;
-}
+} & ExpansionControl;
 
 const DEFAULT_ROW_HEIGHT = 41;
 const DEFAULT_OVERSCAN = 20;
-/** Tables below this threshold use `contentVisibility: 'auto'` instead of virtualization, letting the browser natively skip layout/paint for off-screen rows. This also preserves Collapse animations on nested detail panels, which break under virtualization due to absolute positioning. */
+/** Tables below this threshold use `contentVisibility: 'auto'` instead of virtualization,
+ * letting the browser natively skip layout/paint for off-screen rows. This also preserves
+ * Collapse animations on nested detail panels — virtualized rows use instant show/hide
+ * to avoid layout conflicts with `contain: layout style`. */
 const VIRTUALIZATION_THRESHOLD = 150;
 
 /**
@@ -215,7 +218,7 @@ export function DataTable<TRow>({
     getScrollElement: () => scrollRef.current,
     estimateSize: estimateRowHeight ?? defaultEstimateSize,
     overscan,
-    getItemKey: (index) => rows[index].id,
+    getItemKey: (index) => rows[index]?.id ?? String(index),
   });
 
   const virtualItems = virtualizer.getVirtualItems();
@@ -321,13 +324,11 @@ export function DataTable<TRow>({
                   />
                   {hasDetailPanel && (() => {
                     const panel = renderDetailPanel(row.original);
-                    if (panel == null) return null;
+                    if (panel == null || !isExpanded) return null;
                     return (
-                      <Collapse in={isExpanded} unmountOnExit timeout={300}>
-                        <div className="border-t border-neutral-200 dark:border-neutral-700">
-                          {panel}
-                        </div>
-                      </Collapse>
+                      <div className="border-t border-neutral-200 dark:border-neutral-700">
+                        {panel}
+                      </div>
                     );
                   })()}
                 </div>

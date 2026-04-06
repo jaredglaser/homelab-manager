@@ -33,13 +33,13 @@ const testData: TestRow[] = [
   { id: '3', name: 'Charlie', value: 20 },
 ];
 
-function defaultProps(overrides?: Partial<DataTableProps<TestRow>>): DataTableProps<TestRow> {
+function defaultProps(overrides?: Partial<DataTableProps<TestRow>>) {
   return {
     data: testData,
     columns,
     getRowId: (row) => row.id,
     ...overrides,
-  };
+  } as DataTableProps<TestRow>;
 }
 
 /**
@@ -392,8 +392,8 @@ describe('DataTable', () => {
     ];
 
     const metricGroups = [
-      { label: 'CPU', columnIds: ['cpu'] },
-      { label: 'Memory', columnIds: ['memory'] },
+      { label: 'CPU', columnIds: ['cpu'] as [string, ...string[]] },
+      { label: 'Memory', columnIds: ['memory'] as [string, ...string[]] },
     ];
 
     try {
@@ -447,6 +447,38 @@ describe('DataTable', () => {
     // First row should have its detail panel rendered since it's expanded and visible
     expect(screen.getByTestId('detail-0')).toBeTruthy();
     expect(screen.getByText('Detail for Row 0')).toBeTruthy();
+  });
+
+  it('uses meta.flex value in grid template for flex columns', () => {
+    const flexColumns: ColumnDef<TestRow, unknown>[] = [
+      {
+        id: 'name',
+        header: 'Name',
+        cell: ({ row }) => row.original.name,
+        meta: { flex: 'minmax(200px, 1fr)' },
+      },
+      {
+        id: 'value',
+        header: 'Value',
+        cell: ({ row }) => String(row.original.value),
+        meta: { minWidth: 100 },
+      },
+    ];
+
+    render(
+      <DataTable
+        data={testData}
+        columns={flexColumns}
+        getRowId={(row) => row.id}
+      />,
+    );
+
+    // Find the header grid element
+    const headers = document.querySelectorAll('[style*="grid-template-columns"]');
+    expect(headers.length).toBeGreaterThan(0);
+    const style = (headers[0] as HTMLElement).style.gridTemplateColumns;
+    expect(style).toContain('minmax(200px, 1fr)');
+    expect(style).toContain('minmax(100px, 1fr)');
   });
 
   it('hides header when showHeader is false', () => {

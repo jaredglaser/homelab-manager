@@ -109,16 +109,14 @@ describe('metricColumn', () => {
     expect(container.querySelector('.opacity-50')).toBeTruthy();
   });
 
-  it('sets meta.minBreakpoint when provided', () => {
+  it('sets meta to undefined (minBreakpoint was removed)', () => {
     const col = metricColumn<TestRow>({
       id: 'speed',
       header: 'Speed',
       getValue: (r) => ({ value: String(r.value), unit: r.unit }),
-      minBreakpoint: 'lg',
     });
 
-    const meta = col.meta as { minBreakpoint?: string } | undefined;
-    expect(meta?.minBreakpoint).toBe('lg');
+    expect(col.meta).toBeUndefined();
   });
 
   it('sets size when provided', () => {
@@ -321,5 +319,55 @@ describe('progressColumn', () => {
       size: 150,
     });
     expect(col.size).toBe(150);
+  });
+
+  it('renders success color at exactly 70 (not > 70)', () => {
+    const col = progressColumn<TestRow>({
+      id: 'usage',
+      getValue: () => 70,
+      getLabel: () => '70%',
+    });
+
+    const { container } = render(<CellRenderer column={col} row={sampleRow} />);
+    const bar = container.querySelector('.MuiLinearProgress-root');
+    expect(bar?.className).toContain('colorSuccess');
+    expect(bar?.className).not.toContain('colorWarning');
+  });
+
+  it('renders warning color at 71 (first value > 70)', () => {
+    const col = progressColumn<TestRow>({
+      id: 'usage',
+      getValue: () => 71,
+      getLabel: () => '71%',
+    });
+
+    const { container } = render(<CellRenderer column={col} row={sampleRow} />);
+    const bar = container.querySelector('.MuiLinearProgress-root');
+    expect(bar?.className).toContain('colorWarning');
+  });
+
+  it('renders warning color at exactly 90 (not > 90)', () => {
+    const col = progressColumn<TestRow>({
+      id: 'usage',
+      getValue: () => 90,
+      getLabel: () => '90%',
+    });
+
+    const { container } = render(<CellRenderer column={col} row={sampleRow} />);
+    const bar = container.querySelector('.MuiLinearProgress-root');
+    expect(bar?.className).toContain('colorWarning');
+    expect(bar?.className).not.toContain('colorError');
+  });
+
+  it('renders error color at 91 (first value > 90)', () => {
+    const col = progressColumn<TestRow>({
+      id: 'usage',
+      getValue: () => 91,
+      getLabel: () => '91%',
+    });
+
+    const { container } = render(<CellRenderer column={col} row={sampleRow} />);
+    const bar = container.querySelector('.MuiLinearProgress-root');
+    expect(bar?.className).toContain('colorError');
   });
 });
