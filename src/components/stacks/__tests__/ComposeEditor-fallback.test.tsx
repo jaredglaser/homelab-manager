@@ -14,10 +14,6 @@ mock.module('@/lib/stacks/stack-service', () => ({
   getManagedHostNames: mock(() => Promise.resolve([])),
 }));
 
-// Stub VariablesPanel to prevent it loading into the module cache here (bun 1.3.x coverage fix)
-mock.module('@/components/stacks/VariablesPanel', () => ({
-  default: () => null,
-}));
 mock.module('@monaco-editor/react', () => ({
   default: () => <div data-testid="mock-editor" />,
 }));

@@ -1,18 +1,9 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
-// Skip in CI due to some kind of compat issue... TODO: Figure out root cause and re-enable tests in CI
-const isCI = process.env.CI === 'true';
-
-if (isCI) {
-    describe('useSettings', () => {
-        it.skip('skipped in CI due to React 19 + Happy-DOM compatibility issue', () => {});
-    });
-} else {
-    // Only import testing libraries when not in CI
-    const { renderHook, act, waitFor } = await import('@testing-library/react');
-    const { createElement } = await import('react');
-    type ReactNode = import('react').ReactNode;
+const { renderHook, act, waitFor } = await import('@testing-library/react');
+const { createElement } = await import('react');
+type ReactNode = import('react').ReactNode;
 
     // Mock the settings functions
     const mockUpdateSetting = mock(() => Promise.resolve());
@@ -855,4 +846,3 @@ if (isCI) {
             expect(toasts.length).toBe(0);
         });
     });
-}
