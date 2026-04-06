@@ -50,8 +50,9 @@ function makePoints(offsets: number[], value = 50) {
  * uses module-level refs that persist across renders within the same import.
  * Fresh import = fresh ref state.
  */
+let importCounter = 0;
 async function importFresh() {
-  const mod = await import('@/components/shared-table/SparklineCell');
+  const mod = await import(`@/components/shared-table/SparklineCell?t=${++importCounter}`);
   return mod.default;
 }
 

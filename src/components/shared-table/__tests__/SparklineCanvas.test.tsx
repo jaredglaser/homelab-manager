@@ -51,6 +51,9 @@ describe('SparklineCanvas', () => {
   let rafSpy: Mock<typeof window.requestAnimationFrame>;
   let cafSpy: Mock<typeof window.cancelAnimationFrame>;
   let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
+  let originalRaf: typeof window.requestAnimationFrame;
+  let originalCaf: typeof window.cancelAnimationFrame;
+  let originalDPR: number;
   let mockCtx: ReturnType<typeof makeMockContext>;
   let mockGradient: ReturnType<typeof makeMockGradient>;
   let rafCallbacks: FrameRequestCallback[];
@@ -63,6 +66,10 @@ describe('SparklineCanvas', () => {
 
   beforeEach(() => {
     setCssColorVars('--chart-cpu', '#ff0000', 'rgba(255,0,0,0.3)', 'rgba(255,0,0,0)');
+
+    originalRaf = window.requestAnimationFrame;
+    originalCaf = window.cancelAnimationFrame;
+    originalDPR = window.devicePixelRatio;
 
     rafCallbacks = [];
     let nextId = 1;
@@ -91,6 +98,9 @@ describe('SparklineCanvas', () => {
   afterEach(() => {
     cleanup();
     HTMLCanvasElement.prototype.getContext = originalGetContext;
+    window.requestAnimationFrame = originalRaf;
+    window.cancelAnimationFrame = originalCaf;
+    Object.defineProperty(window, 'devicePixelRatio', { value: originalDPR, configurable: true });
     clearCssColorVars('--chart-cpu');
   });
 
@@ -201,6 +211,8 @@ describe('SparklineCanvas', () => {
     const data: TimeSeriesPoint[] = [{ timestamp: now, value: 50 }];
 
     render(<SparklineCanvas data={data} color="--chart-cpu" />);
+
+    flushOneFrame();
 
     expect(mockCtx.createLinearGradient).toHaveBeenCalled();
     expect(mockGradient.addColorStop).toHaveBeenCalledWith(0, 'rgba(255,0,0,0.3)');

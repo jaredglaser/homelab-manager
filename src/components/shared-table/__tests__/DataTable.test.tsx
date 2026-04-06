@@ -396,26 +396,28 @@ describe('DataTable', () => {
       { label: 'Memory', columnIds: ['memory'] },
     ];
 
-    render(
-      <DataTable
-        data={testData}
-        columns={columnsWithGroups}
-        getRowId={(row) => row.id}
-        metricGroups={metricGroups}
-      />,
-    );
+    try {
+      render(
+        <DataTable
+          data={testData}
+          columns={columnsWithGroups}
+          getRowId={(row) => row.id}
+          metricGroups={metricGroups}
+        />,
+      );
 
-    // Active group is index 0 (CPU) by default, so Memory column should be hidden
-    // The toolbar renders toggle buttons for each group, so "CPU" appears twice (toolbar + header).
-    // Use getAllByText to confirm the CPU header column is present.
-    expect(screen.getAllByText('CPU').length).toBeGreaterThanOrEqual(2); // toolbar button + header cell
-    expect(screen.getByText('Name')).toBeTruthy();
-    // Memory column header should not be rendered (column hidden).
-    // The toolbar Memory toggle button still exists, so check that only 1 "Memory" element is found.
-    const memoryElements = screen.getAllByText('Memory');
-    expect(memoryElements.length).toBe(1); // toolbar button only, no header cell
-
-    globalThis.ResizeObserver = originalResizeObserver;
+      // Active group is index 0 (CPU) by default, so Memory column should be hidden
+      // The toolbar renders toggle buttons for each group, so "CPU" appears twice (toolbar + header).
+      // Use getAllByText to confirm the CPU header column is present.
+      expect(screen.getAllByText('CPU').length).toBeGreaterThanOrEqual(2); // toolbar button + header cell
+      expect(screen.getByText('Name')).toBeTruthy();
+      // Memory column header should not be rendered (column hidden).
+      // The toolbar Memory toggle button still exists, so check that only 1 "Memory" element is found.
+      const memoryElements = screen.getAllByText('Memory');
+      expect(memoryElements.length).toBe(1); // toolbar button only, no header cell
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
   });
 
   it('renders detail panel in virtualized mode', async () => {

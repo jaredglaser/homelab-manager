@@ -78,9 +78,11 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
 
   return (
     <>
-      <div
+      <button
+        type="button"
         onClick={onToggle}
-        className={`flex items-center gap-2 px-4 py-2 cursor-pointer ${BORDER} bg-[var(--mui-palette-background-level1)]`}
+        aria-expanded={expanded}
+        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-[var(--mui-palette-background-level1)]`}
       >
         <ChevronRight
           size={16}
@@ -89,7 +91,7 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
         <span className="font-semibold text-sm">
           Storage ({storages.length})
         </span>
-      </div>
+      </button>
 
       <Collapse in={expanded} unmountOnExit>
         <div className="bg-[var(--mui-palette-action-hover)] border-b border-[var(--mui-palette-divider)]">

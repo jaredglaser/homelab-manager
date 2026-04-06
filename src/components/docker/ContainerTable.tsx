@@ -623,6 +623,10 @@ function ContainerNameCell({
   const [iconError, setIconError] = useState(false);
   const iconUrl = getIconUrl(container.icon, container.image);
 
+  useEffect(() => {
+    setIconError(false);
+  }, [iconUrl]);
+
   const handleIconSelect = async (iconSlug: string) => {
     try {
       await updateContainerIcon({ data: { serviceKeyEntity: container.serviceKeyEntity, iconSlug } });
@@ -661,10 +665,16 @@ function ContainerNameCell({
       const pulseTimer = setTimeout(() => {
         if (ping) { ping.classList.remove('opacity-100', 'animate-ping'); ping.classList.add('opacity-0'); }
       }, PULSE_DURATION_MS);
-      const lateTimer = setTimeout(() => {
+      const age = Date.now() - lastUpdatedMs;
+      const lateDelay = Math.max(LATE_THRESHOLD_MS - age, 0);
+      if (lateDelay === 0) {
         if (ping) ping.style.backgroundColor = 'var(--indicator-late)';
         if (dot) dot.style.backgroundColor = 'var(--indicator-late)';
-      }, LATE_THRESHOLD_MS);
+      }
+      const lateTimer = lateDelay > 0 ? setTimeout(() => {
+        if (ping) ping.style.backgroundColor = 'var(--indicator-late)';
+        if (dot) dot.style.backgroundColor = 'var(--indicator-late)';
+      }, lateDelay) : undefined;
       return () => {
         clearTimeout(pulseTimer);
         clearTimeout(lateTimer);

@@ -387,7 +387,7 @@ function DataTableRow<TRow>({ row, gridTemplate, rowClassName, hasDetailPanel }:
       className={`group grid border-t border-neutral-200 dark:border-neutral-700 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
       style={{ gridTemplateColumns: gridTemplate }}
       onClick={canExpand ? () => row.toggleExpanded() : undefined}
-      onKeyDown={canExpand ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.toggleExpanded(); } } : undefined}
+      onKeyDown={canExpand ? (e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.toggleExpanded(); } } : undefined}
     >
       {row.getVisibleCells().map((cell) => (
         <div key={cell.id} className="px-3 py-2">

@@ -49,17 +49,14 @@ export default memo(function SparklineCanvas({
   const drawWidth = width - PADDING * 2;
   const drawHeight = height - PADDING * 2;
 
-  // Update refs when data or color changes
+  // Resolve colors and rebuild gradient when color or height changes
   useEffect(() => {
-    dataRef.current = data;
-
     const colors = resolveChartColors(color);
-    const lineColor = colors.line;
-    lineColorRef.current = lineColor;
+    lineColorRef.current = colors.line;
     areaStartColorRef.current = colors.areaStart;
     areaEndColorRef.current = colors.areaEnd;
 
-    // Rebuild cached gradient when colors change — skip if CSS vars unresolved
+    // Rebuild cached gradient — skip if CSS vars unresolved
     const ctx = gradientCtxRef.current;
     if (ctx && areaStartColorRef.current && areaEndColorRef.current) {
       const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
@@ -67,6 +64,11 @@ export default memo(function SparklineCanvas({
       gradient.addColorStop(1, areaEndColorRef.current);
       gradientRef.current = gradient;
     }
+  }, [color, height]);
+
+  // Update data refs when data changes
+  useEffect(() => {
+    dataRef.current = data;
 
     if (data.length > 0) {
       const latestTimestamp = data[data.length - 1].timestamp;
@@ -92,7 +94,7 @@ export default memo(function SparklineCanvas({
           ? niceMax
           : Math.max(niceMax, smoothMaxRef.current * MAX_DECAY);
     }
-  }, [data, color, height]);
+  }, [data]);
 
   // Canvas setup and on-demand animation loop
   useEffect(() => {
