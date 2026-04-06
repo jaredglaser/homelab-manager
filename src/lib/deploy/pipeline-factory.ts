@@ -38,6 +38,9 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     baoClient = new OpenBaoClient(loadOpenBaoConfig());
   }
 
+  // DeployRepository and ManagedHostsRepository are lightweight pool wrappers.
+  // The pool itself is cached by databaseConnectionManager, so per-call allocation
+  // is negligible — no singleton needed here.
   const deployRepo = new DeployRepository(pool);
 
   const pipeline = new DeployPipeline({

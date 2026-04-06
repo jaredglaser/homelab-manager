@@ -5,6 +5,8 @@ interface ErrorBoundaryProps {
   fallback?: ReactNode;
   /** Optional label for identifying which boundary caught the error */
   name?: string;
+  /** Called when the boundary resets — use for external state cleanup */
+  onReset?: () => void;
 }
 
 interface ErrorBoundaryState {
@@ -26,6 +28,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     console.error(`[ErrorBoundary${this.props.name ? `:${this.props.name}` : ''}]`, error, errorInfo);
   }
 
+  resetErrorBoundary(): void {
+    this.props.onReset?.();
+    this.setState({ hasError: false, error: null });
+  }
+
   render(): ReactNode {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
@@ -34,6 +41,12 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <div className="text-center">
             <p className="text-sm font-medium mb-1">Something went wrong</p>
             <p className="text-xs opacity-70">{this.state.error?.message || 'Unknown error'}</p>
+            <button
+              className="mt-2 text-xs underline opacity-70 hover:opacity-100"
+              onClick={() => this.resetErrorBoundary()}
+            >
+              Try again
+            </button>
           </div>
         </div>
       );

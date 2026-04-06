@@ -39,7 +39,12 @@ export function createStatsSseHandler(source: StatsSource) {
           }
         };
 
-        const unsubscribe = statsPollService.subscribe(source, sendData, sendError);
+        let unsubscribe: () => void = () => {};
+        try {
+          unsubscribe = statsPollService.subscribe(source, sendData, sendError);
+        } catch (err) {
+          sendError();
+        }
 
         request.signal.addEventListener('abort', () => {
           closed = true;

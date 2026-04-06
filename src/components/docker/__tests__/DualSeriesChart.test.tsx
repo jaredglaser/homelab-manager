@@ -122,10 +122,10 @@ describe('DualSeriesChart', () => {
 describe('getChartOption', () => {
   const formatValue = (v: number) => `${v}%`;
   const chrome = {
-    tooltipBg: '#fff',
-    tooltipText: '#000',
-    border: '#ccc',
-    textMuted: '#999',
+    tooltipBg: 'var(--tooltip-bg)',
+    tooltipText: 'var(--tooltip-text)',
+    border: 'var(--border)',
+    textMuted: 'var(--text-muted)',
   };
 
   it('tooltip formatter returns formatted lines for both series', () => {

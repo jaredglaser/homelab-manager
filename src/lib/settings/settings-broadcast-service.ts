@@ -18,6 +18,7 @@ class SettingsBroadcastService {
   private listenerClient: PoolClient | null = null;
   private stopped = true;
   private reconnecting = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   subscribe(callback: SettingsCallback): () => void {
     this.subscribers.add(callback);
@@ -89,7 +90,8 @@ class SettingsBroadcastService {
         this.cleanupListenerClient();
         if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
           this.reconnecting = true;
-          setTimeout(() => {
+          this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
             this.reconnecting = false;
             if (!this.stopped && this.subscribers.size > 0) {
               this.startListening();
@@ -142,6 +144,11 @@ class SettingsBroadcastService {
 
   private stopListening(): void {
     this.stopped = true;
+    this.reconnecting = false;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.cleanupListenerClient();
   }
 

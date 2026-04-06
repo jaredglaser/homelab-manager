@@ -137,7 +137,9 @@ function spawnGit(
 
     const timeout = setTimeout(() => {
       proc.kill('SIGKILL');
-      reject(new Error(`Git process timed out after ${GIT_PROCESS_TIMEOUT_MS}ms: ${args.join(' ')}`));
+      const timeoutErr = new Error(`Git process timed out after ${GIT_PROCESS_TIMEOUT_MS}ms: ${args.join(' ')}`);
+      console.error('[git-server] spawnGit timeout:', timeoutErr.message);
+      reject(timeoutErr);
     }, GIT_PROCESS_TIMEOUT_MS);
 
     proc.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));

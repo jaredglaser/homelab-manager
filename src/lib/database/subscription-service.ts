@@ -112,7 +112,7 @@ class StatsPollService {
           }
         }
       } catch (err) {
-        console.error(`[StatsPollService] Poll failed for source "${source}":`, err instanceof Error ? err.message : err);
+        console.error(`[StatsPollService] Poll failed for source "${source}":`, err);
         // Track consecutive failures
         const failures = (this.consecutiveFailures.get(source) ?? 0) + 1;
         this.consecutiveFailures.set(source, failures);

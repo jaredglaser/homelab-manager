@@ -256,7 +256,19 @@ export class DeployPipeline {
  * are NOT overridden by secrets (explicit env takes precedence).
  */
 function buildEnvContent(existingEnv: string, secrets: Record<string, string>): string {
-  const lines = existingEnv ? existingEnv.split('\n').filter(l => l.trim()) : [];
+  const rawLines = existingEnv ? existingEnv.split('\n').filter(l => l.trim()) : [];
+
+  // Sanitize each existing env line to strip embedded control characters.
+  // Comment lines and lines without '=' are passed through untouched.
+  const lines = rawLines.map(line => {
+    if (line.startsWith('#') || !line.includes('=')) return line;
+    const eqIdx = line.indexOf('=');
+    const key = line.slice(0, eqIdx).trim();
+    const rawValue = line.slice(eqIdx + 1);
+    const sanitized = rawValue.replaceAll(/[\r\n\0]/g, '').replaceAll("'", "'\\''");
+    return `${key}='${sanitized}'`;
+  });
+
   const existingKeys = new Set(
     lines
       .filter(l => l.includes('=') && !l.startsWith('#'))

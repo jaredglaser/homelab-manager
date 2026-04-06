@@ -277,11 +277,11 @@ export class StatsRepository {
          AVG(utilization_percent)   AS utilization_percent
        FROM zfs_stats
        WHERE time > NOW() - make_interval(secs => $1)
-       GROUP BY time_bucket(make_interval(secs => $2), time), host, pool
+       GROUP BY time_bucket(make_interval(secs => $2), time), host, pool, entity
        ORDER BY time ASC`,
       [seconds, bucketSeconds]
     );
-    return result.rows;
+    return result.rows.map(toZFSStatsRow);
   }
 
   async insertProxmoxStats(rows: ProxmoxStatsRow[]): Promise<void> {
@@ -638,6 +638,26 @@ function toDockerStatsRow(row: Record<string, unknown>): DockerStatsRow {
     network_tx_bytes_per_sec: n(row.network_tx_bytes_per_sec),
     block_io_read_bytes_per_sec: n(row.block_io_read_bytes_per_sec),
     block_io_write_bytes_per_sec: n(row.block_io_write_bytes_per_sec),
+  };
+}
+
+/** Convert a raw pg row to ZFSStatsRow, coercing BIGINT strings to numbers. */
+function toZFSStatsRow(row: Record<string, unknown>): ZFSStatsRow {
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    time: row.time as string | Date,
+    host: row.host as string,
+    pool: row.pool as string,
+    entity: row.entity as string,
+    entity_type: row.entity_type as string,
+    indent: Number(row.indent),
+    capacity_alloc: n(row.capacity_alloc),
+    capacity_free: n(row.capacity_free),
+    read_ops_per_sec: n(row.read_ops_per_sec),
+    write_ops_per_sec: n(row.write_ops_per_sec),
+    read_bytes_per_sec: n(row.read_bytes_per_sec),
+    write_bytes_per_sec: n(row.write_bytes_per_sec),
+    utilization_percent: n(row.utilization_percent),
   };
 }
 
