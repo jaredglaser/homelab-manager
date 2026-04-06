@@ -7,7 +7,7 @@ interface TimeSeriesPoint {
   value: number;
 }
 
-interface SparklineChartProps {
+interface SparklineCanvasProps {
   data: TimeSeriesPoint[];
   color: string;
   height?: number;
@@ -20,13 +20,13 @@ const TIME_WINDOW_MS = 30000; // 30 seconds
 const MAX_DECAY = 0.97;
 const MAX_POINTS = 128; // Pre-allocated buffer ceiling (well above the ~35 points we expect)
 
-export default memo(function SparklineChart({
+export default memo(function SparklineCanvas({
   data,
   color,
   height = 24,
   width = 60,
   className,
-}: SparklineChartProps) {
+}: SparklineCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animFrameRef = useRef(0);
   const smoothMaxRef = useRef(0);
@@ -49,24 +49,26 @@ export default memo(function SparklineChart({
   const drawWidth = width - PADDING * 2;
   const drawHeight = height - PADDING * 2;
 
-  // Update refs when data or color changes
+  // Resolve colors and rebuild gradient when color or height changes
   useEffect(() => {
-    dataRef.current = data;
-
     const colors = resolveChartColors(color);
-    const lineColor = colors.line;
-    lineColorRef.current = lineColor;
+    lineColorRef.current = colors.line;
     areaStartColorRef.current = colors.areaStart;
     areaEndColorRef.current = colors.areaEnd;
 
-    // Rebuild cached gradient when colors change
+    // Rebuild cached gradient — skip if CSS vars unresolved
     const ctx = gradientCtxRef.current;
-    if (ctx) {
+    if (ctx && areaStartColorRef.current && areaEndColorRef.current) {
       const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
       gradient.addColorStop(0, areaStartColorRef.current);
       gradient.addColorStop(1, areaEndColorRef.current);
       gradientRef.current = gradient;
     }
+  }, [color, height]);
+
+  // Update data refs when data changes
+  useEffect(() => {
+    dataRef.current = data;
 
     if (data.length > 0) {
       const latestTimestamp = data[data.length - 1].timestamp;
@@ -92,7 +94,7 @@ export default memo(function SparklineChart({
           ? niceMax
           : Math.max(niceMax, smoothMaxRef.current * MAX_DECAY);
     }
-  }, [data, color, height]);
+  }, [data]);
 
   // Canvas setup and on-demand animation loop
   useEffect(() => {
@@ -110,11 +112,13 @@ export default memo(function SparklineChart({
     canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    // Build initial gradient
-    const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
-    gradient.addColorStop(0, areaStartColorRef.current);
-    gradient.addColorStop(1, areaEndColorRef.current);
-    gradientRef.current = gradient;
+    // Build initial gradient — guard against empty color refs (CSS vars may not yet be resolved)
+    if (areaStartColorRef.current && areaEndColorRef.current) {
+      const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
+      gradient.addColorStop(0, areaStartColorRef.current);
+      gradient.addColorStop(1, areaEndColorRef.current);
+      gradientRef.current = gradient;
+    }
 
     let lastFrameTime = performance.now();
 
@@ -176,8 +180,10 @@ export default memo(function SparklineChart({
       ctx.lineTo(pxBuf[count - 1], bottom);
       ctx.lineTo(pxBuf[0], bottom);
       ctx.closePath();
-      ctx.fillStyle = gradientRef.current!;
-      ctx.fill();
+      if (gradientRef.current) {
+        ctx.fillStyle = gradientRef.current;
+        ctx.fill();
+      }
 
       // Draw line
       ctx.beginPath();

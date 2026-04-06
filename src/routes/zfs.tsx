@@ -38,7 +38,7 @@ function ZFSPageContent() {
   })
 
   return (
-    <div className="w-full p-6">
+    <div className="flex flex-col flex-1 min-h-0">
       <PageHeader title="ZFS Pools Dashboard" />
       <ZFSPoolsTable
         latestByEntity={stream.latestByEntity}

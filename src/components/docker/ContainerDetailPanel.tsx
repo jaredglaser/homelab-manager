@@ -3,25 +3,16 @@ import { Divider } from '@mui/material';
 import { formatAsPercent, formatBitsSIUnits } from '@/formatters/metrics';
 import DualSeriesChart from '@/components/docker/DualSeriesChart';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
+import type { ChartDataPoint } from '@/hooks/useContainerChartData';
 
-interface ContainerChartDataPoint {
-  timestamp: number;
-  cpuPercent: number;
-  memoryPercent: number;
-  blockIoReadBytesPerSec: number;
-  blockIoWriteBytesPerSec: number;
-  networkRxBytesPerSec: number;
-  networkTxBytesPerSec: number;
-}
-
-interface ContainerChartsCardProps {
-  dataPoints: ContainerChartDataPoint[];
+interface ContainerDetailPanelProps {
+  dataPoints: ChartDataPoint[];
   containerId: string;
   host: string;
 }
 
 const formatPercent = (v: number) => formatAsPercent(v / 100);
-const formatNetwork = (v: number) => formatBitsSIUnits(v * 8, true);
+const formatNetwork = (v: number) => formatBitsSIUnits(v, true);
 
 interface SeriesConfig {
   name: string;
@@ -31,11 +22,11 @@ interface SeriesConfig {
 
 type DualSeries = [SeriesConfig, SeriesConfig];
 
-export default memo(function ContainerChartsCard({
+export default memo(function ContainerDetailPanel({
   dataPoints,
   containerId,
   host,
-}: ContainerChartsCardProps) {
+}: ContainerDetailPanelProps) {
   const cpuMemSeries = useMemo<DualSeries>(
     () => [
       {
@@ -56,12 +47,12 @@ export default memo(function ContainerChartsCard({
     () => [
       {
         name: 'RX',
-        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec })),
+        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkRxBytesPerSec * 8 })),
         colorVar: '--chart-read',
       },
       {
         name: 'TX',
-        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec })),
+        dataPoints: dataPoints.map((d) => ({ timestamp: d.timestamp, value: d.networkTxBytesPerSec * 8 })),
         colorVar: '--chart-write',
       },
     ],
@@ -71,8 +62,8 @@ export default memo(function ContainerChartsCard({
   return (
     <div className="bg-[var(--mui-palette-action-hover)] pb-4 border-b border-[var(--mui-palette-divider)]">
       <Divider />
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 px-4 pt-4">
-        <div className="flex flex-col gap-3">
+      <div className="grid lg:grid-cols-2 lg:h-100 lg:overflow-hidden gap-4 px-4 pt-4">
+        <div className="flex flex-col gap-3 min-h-0 h-[400px] lg:h-auto">
           <DualSeriesChart
             title="CPU & Memory"
             series={cpuMemSeries}
@@ -82,11 +73,13 @@ export default memo(function ContainerChartsCard({
           <DualSeriesChart
             title="Network I/O"
             series={networkSeries}
-            yAxisMode="bytes"
+            yAxisMode="bits"
             formatValue={formatNetwork}
           />
         </div>
-        <ContainerLogViewer containerId={containerId} host={host} />
+        <div className="h-64 lg:h-full">
+          <ContainerLogViewer containerId={containerId} host={host} />
+        </div>
       </div>
     </div>
   );

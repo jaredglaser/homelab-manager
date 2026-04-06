@@ -1,5 +1,5 @@
 import { memo, useRef } from 'react';
-import SparklineChart from '@/components/docker/SparklineChart';
+import SparklineCanvas from '@/components/shared-table/SparklineCanvas';
 import { resolveChartColors } from '@/lib/charts/css-vars';
 
 const SPARKLINE_WINDOW_MS = 35000;
@@ -8,7 +8,7 @@ const STALE_THRESHOLD_MS = 1500;
 // Toggle between 'none' (empty space) and 'pulse-line' (thin colored line)
 const LOADING_STYLE = 'pulse-line' as 'none' | 'pulse-line';
 
-interface MetricSparklineProps {
+interface SparklineCellProps {
   /** Time-series data points sorted by timestamp */
   data: { timestamp: number; value: number }[];
   /** CSS variable for chart color (e.g., "--chart-cpu") */
@@ -26,12 +26,11 @@ interface MetricSparklineProps {
  * Accumulation runs during render (not in an effect) to avoid scheduling a
  * second React commit after the parent's data update.
  */
-export default memo(function MetricSparkline({ data, color }: MetricSparklineProps) {
+export default memo(function SparklineCell({ data, color }: SparklineCellProps) {
   const accRef = useRef<{ timestamp: number; value: number }[]>([]);
   const maxTsRef = useRef(0);
   // 'pending' = first mount, 'waiting' = skipped stale data, 'seeded' = ready
   const stateRef = useRef<'pending' | 'waiting' | 'seeded'>('pending');
-
   // Render-time ref mutation — intentional and safe.
   //
   // These refs (stateRef, accRef, maxTsRef) are mutated during render instead of
@@ -67,11 +66,10 @@ export default memo(function MetricSparkline({ data, color }: MetricSparklinePro
   const points = accRef.current;
 
   if (points.length > 0) {
-    return <SparklineChart data={points} color={color} className="hidden min-[1428px]:block" />;
+    return <SparklineCanvas data={points} color={color} className="hidden min-[1428px]:block" />;
   }
 
-  // --- Option A: "none" — empty space, sparkline fades in via SparklineChart's own rendering ---
-  // --- Option B: "pulse-line" — thin colored line at midpoint with gentle pulse animation ---
+  // "none" renders empty space; "pulse-line" shows a shimmer at midpoint
   if (LOADING_STYLE === 'none') {
     return null;
   }

@@ -42,7 +42,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 - **TimescaleDB Persistence** - 1-second collection interval with automatic compression and indefinite retention
 - **Live-Updating UI** - SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
 - **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated SSE channel
-- **Virtualized Tables** - CSS Grid + page-scroll virtualization for large datasets
+- **Virtualized Tables** - Shared DataTable with CSS Grid + conditional contained virtualization for large datasets
 - **Stale Detection** - Per-entity amber highlighting when a host or container stops reporting
 
 ## Quick Start

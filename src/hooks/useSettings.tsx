@@ -77,7 +77,8 @@ export function useSettings(): SettingsValue {
         return { ...raw, [key]: newValue };
       });
 
-      updateSetting({ data: { key, value: newValue! } }).catch(() => {
+      updateSetting({ data: { key, value: newValue! } }).catch((err: unknown) => {
+        console.error(`Failed to persist setting "${key}":`, err);
         setRaw(current => {
           if (previousValue === undefined) {
             const next = { ...current };

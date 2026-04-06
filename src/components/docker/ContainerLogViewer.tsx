@@ -141,7 +141,7 @@ export default memo(function ContainerLogViewer({
   return (
     <Paper
       elevation={0}
-      className="relative rounded-sm !bg-[var(--mui-palette-background-chartBg)] h-full min-h-[340px] flex flex-col overflow-hidden"
+      className="relative rounded-sm !bg-[var(--mui-palette-background-chartBg)] h-full min-h-0 flex flex-col overflow-hidden"
     >
       <Typography variant="body2" className="p-3 pb-0 font-medium">
         Logs
