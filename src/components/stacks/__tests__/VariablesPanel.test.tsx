@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, jest } from 'bun:test';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -41,6 +41,14 @@ async function renderPanel(
 
 describe('VariablesPanel', () => {
   beforeEach(() => {
+    // Restore real timers in case a prior test file left fake timers installed.
+    // In bun 1.3.x, fake timer state can leak across files in the same worker,
+    // causing @testing-library/dom's jestFakeTimersAreEnabled() check to mismatch:
+    // it sees setTimeout._isMockFunction===true but then bun throws "Fake timers
+    // are not active" when it tries to advance them. Manually clear both markers.
+    jest.useRealTimers();
+    delete (setTimeout as unknown as Record<string, unknown>)._isMockFunction;
+    delete (setTimeout as unknown as Record<string, unknown>).clock;
     mockListSecrets.mockClear();
     mockGetSecret.mockClear();
     mockSetSecret.mockClear();

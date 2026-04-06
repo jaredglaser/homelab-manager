@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, jest } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, afterAll, jest } from 'bun:test';
 import type Dockerode from 'dockerode';
 import { DockerRateCalculator } from '../rate-calculator';
 
@@ -115,6 +115,13 @@ function createMockStats(overrides: Partial<Dockerode.ContainerStats> = {}): Doc
 function calculate(containerId: string, containerName: string, stats: Dockerode.ContainerStats) {
   return calculator.calculate(containerId, { containerId, containerName, stats });
 }
+
+// Ensure fake timers are always restored after this file, even if a describe-level
+// afterEach misses a test. Prevents timer state from leaking to subsequent test files
+// in the same bun 1.3.x worker (bun 1.3.6 doesn't fully isolate timer state per file).
+afterAll(() => {
+  jest.useRealTimers();
+});
 
 describe('DockerRateCalculator.calculate', () => {
   beforeEach(() => {

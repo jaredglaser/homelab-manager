@@ -1,30 +1,68 @@
-import { memo, useMemo, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { useSettings, type DecimalSettings, type MemoryDisplayMode } from '@/hooks/useSettings';
-import { Box, Chip, CircularProgress, Collapse, Paper, Typography } from '@mui/material';
-import { ChevronRight, Server, WifiOff } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
+import { Box, Chip, CircularProgress, IconButton, Typography } from '@mui/material';
+import { ChevronRight, History, Server, Settings, WifiOff } from 'lucide-react';
+import { useSettings } from '@/hooks/useSettings';
+import { useToast } from '@/hooks/toastAtom';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
-import type { DockerStatsRow, DockerStatsFromDB, DockerHierarchy, HostStats } from '@/types/docker';
-import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
+import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
+import { metricColumn, nameColumn } from '@/components/shared-table/columns';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
-import { MetricValue, MetricHeader } from '../shared-table';
-import ContainerRow from './ContainerRow';
-import { getDockerEntityIcons } from '@/data/docker/functions';
+import type { DockerStatsRow, DockerStatsFromDB, DockerHierarchy, HostAggregatedStats } from '@/types/docker';
+import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
+import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions';
+import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
+import IconPickerDialog from '@/components/docker/IconPickerDialog';
+import ContainerDetailPanel from '@/components/docker/ContainerDetailPanel';
+import { PULSE_DURATION_MS, LATE_THRESHOLD_MS } from '@/lib/constants/ui-timing';
 
 export const DOCKER_ENTITY_ICONS_QUERY_KEY = ['docker-entity-icons'] as const;
 
-interface HostGroup {
-  host: HostStats;
-  totalHosts: number;
-  containers: { container: DockerStatsFromDB; chartData: DockerStatsRow[] }[];
+/** Flattened row model for the DataTable tree structure */
+export interface DockerTableRow {
+  type: 'host' | 'container';
+  id: string;
+  isStale: boolean;
+  /** Host fields */
+  hostName?: string;
+  aggregated?: HostAggregatedStats;
+  totalHosts?: number;
+  /** Container fields */
+  container?: DockerStatsFromDB;
+  chartData?: DockerStatsRow[];
+  /** Pre-computed sparkline data for container rows */
+  sparklineData?: SparklineDataSet;
+  /** Pre-computed chart data points for container detail panel */
+  dataPoints?: ChartDataPoint[];
+  /** Tree children: containers under a host */
+  children?: DockerTableRow[];
 }
 
-const ROW_HEIGHT_ESTIMATE = 41;
-const EXPANDED_ROW_HEIGHT_ESTIMATE = 550;
-const OVERSCAN = 10;
+interface SparklineDataSet {
+  cpu: { timestamp: number; value: number }[];
+  memory: { timestamp: number; value: number }[];
+  blockRead: { timestamp: number; value: number }[];
+  blockWrite: { timestamp: number; value: number }[];
+  networkRx: { timestamp: number; value: number }[];
+  networkTx: { timestamp: number; value: number }[];
+}
 
-export const DOCKER_GRID = 'grid grid-cols-[minmax(300px,20%)_repeat(6,minmax(0,1fr))] min-w-[600px]';
+interface ChartDataPoint {
+  timestamp: number;
+  cpuPercent: number;
+  memoryPercent: number;
+  blockIoReadBytesPerSec: number;
+  blockIoWriteBytesPerSec: number;
+  networkRxBytesPerSec: number;
+  networkTxBytesPerSec: number;
+}
+
+const METRIC_GROUPS: MetricGroup[] = [
+  { label: 'CPU/Mem', columnIds: ['cpu', 'memory'] },
+  { label: 'Disk', columnIds: ['diskRead', 'diskWrite'] },
+  { label: 'Network', columnIds: ['netRx', 'netTx'] },
+];
 
 interface ContainerTableProps {
   latestByEntity: Map<string, DockerStatsRow>;
@@ -37,17 +75,9 @@ interface ContainerTableProps {
 }
 
 /**
- * Render a virtualized, expandable table of Docker hosts and their containers showing CPU, memory, disk and network metrics.
- *
- * Builds a host/container hierarchy from the latest per-entity stats, associates time-series chart data for each entity, and fetches entity icon metadata to augment rows. Hosts can be expanded to reveal their containers; rows are virtualized for large lists and sized according to expansion state.
- *
- * @param latestByEntity - Map of the most recent DockerStatsRow keyed by `host/container_id` used to derive the host/container hierarchy and metadata.
- * @param rows - Time-series DockerStatsRow entries used as chart data for individual entities.
- * @param hasData - True when any historical or latest data is available; controls loading/error fallbacks.
- * @param isConnected - True when the Docker stats source is currently connected; controls loading UI when no data exists.
- * @param error - Optional connection error to display when no data is available.
- * @param isStale - True when displayed data is known to be stale; used to show a stale-data alert.
- * @returns The rendered ContainerTable React element.
+ * Render a virtualized, expandable table of Docker hosts and their containers
+ * showing CPU, memory, disk and network metrics. Uses the shared DataTable
+ * component with tree data (hosts -> containers) and detail panels.
  */
 export default function ContainerTable({
   latestByEntity,
@@ -103,8 +133,7 @@ export default function ContainerTable({
     return buildDockerHierarchy([...byServiceKey.values()]);
   }, [latestByEntity, entityIcons]);
 
-  // Build per-service chart data index, keyed by serviceKeyEntity so rows from
-  // all incarnations of the same service (different container IDs) are merged.
+  // Build per-service chart data index, keyed by serviceKeyEntity
   const prevChartDataRef = useRef<Map<string, DockerStatsRow[]>>(new Map());
 
   const chartDataByServiceKey = useMemo(() => {
@@ -134,49 +163,270 @@ export default function ContainerTable({
     return map;
   }, [rows, entityIcons]);
 
-  // Build host groups: each host with all its containers (always included for Collapse animation)
-  // Sort hosts and containers for stable rendering order (Map iteration is insertion-order)
-  const hostGroups = useMemo<HostGroup[]>(() => {
+  // Build tree data for DataTable
+  const tableData = useMemo<DockerTableRow[]>(() => {
     const totalHosts = hierarchy.size;
     const hosts = Array.from(hierarchy.values()).sort((a, b) => a.hostName.localeCompare(b.hostName));
-    const groups: HostGroup[] = [];
-    for (const host of hosts) {
-      const containers: HostGroup['containers'] = Array.from(host.containers.values())
-        .sort((a, b) => a.data.name.localeCompare(b.data.name))
-        .map((container) => ({
-          container: container.data,
-          chartData: chartDataByServiceKey.get(container.data.serviceKeyEntity) ?? [],
-        }));
-      groups.push({ host, totalHosts, containers });
-    }
-    return groups;
+
+    return hosts.map((host) => {
+      const containers = Array.from(host.containers.values())
+        .sort((a, b) => a.data.name.localeCompare(b.data.name));
+
+      const children: DockerTableRow[] = containers.map((c) => {
+        const chartData = chartDataByServiceKey.get(c.data.serviceKeyEntity) ?? [];
+        const { sparklineData, dataPoints } = computeSparklineAndChartData(chartData);
+
+        return {
+          type: 'container' as const,
+          id: c.data.id,
+          isStale: c.data.stale,
+          container: c.data,
+          chartData,
+          sparklineData,
+          dataPoints,
+        };
+      });
+
+      return {
+        type: 'host' as const,
+        id: `host:${host.hostName}`,
+        isStale: host.isStale,
+        hostName: host.hostName,
+        aggregated: host.aggregated,
+        totalHosts,
+        children,
+      };
+    });
   }, [hierarchy, chartDataByServiceKey]);
 
-  // Pre-compute estimated heights per host group so estimateSize is O(1)
-  const groupHeights = useMemo(() => {
-    return hostGroups.map((group) => {
-      const expanded = isHostExpanded(group.host.hostName, group.totalHosts);
-      if (!expanded) return ROW_HEIGHT_ESTIMATE;
-      let height = ROW_HEIGHT_ESTIMATE;
-      for (const c of group.containers) {
-        height += isContainerExpanded(c.container.id) ? EXPANDED_ROW_HEIGHT_ESTIMATE : ROW_HEIGHT_ESTIMATE;
+  // Host-level expansion state (container expansion handled by nested DataTable)
+  const expandedState = useMemo<ExpandedState>(() => {
+    const state: Record<string, boolean> = {};
+    for (const hostRow of tableData) {
+      if (hostRow.type === 'host' && hostRow.hostName) {
+        state[hostRow.id] = isHostExpanded(hostRow.hostName, hostRow.totalHosts ?? 1);
       }
-      return height;
-    });
-  }, [hostGroups, isHostExpanded, isContainerExpanded]);
+    }
+    return state;
+  }, [tableData, isHostExpanded]);
 
-  const listRef = useRef<HTMLDivElement>(null);
+  const handleExpandedChange = useCallback(
+    (newExpanded: ExpandedState) => {
+      if (typeof newExpanded === 'boolean') return;
+      const currentExpanded = expandedState as Record<string, boolean>;
+      for (const [id, value] of Object.entries(newExpanded)) {
+        if (value !== (currentExpanded[id] ?? false) && id.startsWith('host:')) {
+          toggleHostExpanded(id.slice(5));
+        }
+      }
+      for (const id of Object.keys(currentExpanded)) {
+        if (currentExpanded[id] && !(id in newExpanded) && id.startsWith('host:')) {
+          toggleHostExpanded(id.slice(5));
+        }
+      }
+    },
+    [expandedState, toggleHostExpanded],
+  );
 
-  const virtualizer = useWindowVirtualizer({
-    count: hostGroups.length,
-    estimateSize: (index: number) => groupHeights[index],
-    overscan: OVERSCAN,
-    scrollMargin: listRef.current?.offsetTop ?? 0,
-    getItemKey: (index: number) => `host-${hostGroups[index].host.hostName}`,
-  });
-
-  const items = virtualizer.getVirtualItems();
+  // Build columns with current settings
   const memLabel = docker.memoryDisplayMode === 'percentage' ? 'RAM %' : 'RAM';
+
+  const columns = useMemo<ColumnDef<DockerTableRow, unknown>[]>(
+    () => [
+      nameColumn<DockerTableRow>({
+        getLabel: (row) => {
+          if (row.type === 'host') return row.hostName ?? '';
+          return row.container?.name ?? '';
+        },
+        size: 300,
+        cell: ({ row }) => {
+          const data = row.original;
+          if (data.type === 'host') {
+            return (
+              <HostNameCell
+                row={data}
+                expanded={row.getIsExpanded()}
+              />
+            );
+          }
+          if (!data.container) return null;
+          return (
+            <ContainerNameCell
+              row={data}
+              expanded={row.getIsExpanded()}
+              onOpenHistory={onOpenHistory}
+            />
+          );
+        },
+      }),
+      metricColumn<DockerTableRow>({
+        id: 'cpu',
+        header: 'CPU',
+        hasDecimals: docker.decimals.cpu,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        sparklineColor: '--chart-cpu',
+        getValue: (row) => {
+          if (row.type === 'host' && row.aggregated) {
+            return formatAsPercentParts(row.aggregated.cpuPercent / 100, docker.decimals.cpu);
+          }
+          if (row.container) {
+            return formatAsPercentParts(row.container.rates.cpuPercent / 100, docker.decimals.cpu);
+          }
+          return { value: '--', unit: '' };
+        },
+        getSparklineData: (row) => row.sparklineData?.cpu ?? [],
+        getIsStale: (row) => row.isStale,
+      }),
+      metricColumn<DockerTableRow>({
+        id: 'memory',
+        header: memLabel,
+        hasDecimals: docker.decimals.memory,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        sparklineColor: '--chart-memory',
+        getValue: (row) => {
+          if (row.type === 'host' && row.aggregated) {
+            return docker.memoryDisplayMode === 'bytes'
+              ? formatBytesParts(row.aggregated.memoryUsage, false, docker.decimals.memory)
+              : formatAsPercentParts(row.aggregated.memoryPercent / 100, docker.decimals.memory);
+          }
+          if (row.container) {
+            return docker.memoryDisplayMode === 'bytes'
+              ? formatBytesParts(row.container.memory_stats.usage, false, docker.decimals.memory)
+              : formatAsPercentParts(row.container.rates.memoryPercent / 100, docker.decimals.memory);
+          }
+          return { value: '--', unit: '' };
+        },
+        getSparklineData: (row) => row.sparklineData?.memory ?? [],
+        getIsStale: (row) => row.isStale,
+      }),
+      metricColumn<DockerTableRow>({
+        id: 'diskRead',
+        header: 'Disk Read',
+        hasDecimals: docker.decimals.diskSpeed,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        sparklineColor: '--chart-read',
+        getValue: (row) => {
+          if (row.type === 'host' && row.aggregated) {
+            return formatBytesParts(row.aggregated.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
+          }
+          if (row.container) {
+            return formatBytesParts(row.container.rates.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
+          }
+          return { value: '--', unit: '' };
+        },
+        getSparklineData: (row) => row.sparklineData?.blockRead ?? [],
+        getIsStale: (row) => row.isStale,
+      }),
+      metricColumn<DockerTableRow>({
+        id: 'diskWrite',
+        header: 'Disk Write',
+        hasDecimals: docker.decimals.diskSpeed,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        sparklineColor: '--chart-write',
+        getValue: (row) => {
+          if (row.type === 'host' && row.aggregated) {
+            return formatBytesParts(row.aggregated.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
+          }
+          if (row.container) {
+            return formatBytesParts(row.container.rates.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
+          }
+          return { value: '--', unit: '' };
+        },
+        getSparklineData: (row) => row.sparklineData?.blockWrite ?? [],
+        getIsStale: (row) => row.isStale,
+      }),
+      metricColumn<DockerTableRow>({
+        id: 'netRx',
+        header: 'Net RX',
+        hasDecimals: docker.decimals.networkSpeed,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        sparklineColor: '--chart-read',
+        getValue: (row) => {
+          if (row.type === 'host' && row.aggregated) {
+            return formatBitsSIUnitsParts(row.aggregated.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
+          }
+          if (row.container) {
+            return formatBitsSIUnitsParts(row.container.rates.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
+          }
+          return { value: '--', unit: '' };
+        },
+        getSparklineData: (row) => row.sparklineData?.networkRx ?? [],
+        getIsStale: (row) => row.isStale,
+      }),
+      metricColumn<DockerTableRow>({
+        id: 'netTx',
+        header: 'Net TX',
+        hasDecimals: docker.decimals.networkSpeed,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        sparklineColor: '--chart-write',
+        getValue: (row) => {
+          if (row.type === 'host' && row.aggregated) {
+            return formatBitsSIUnitsParts(row.aggregated.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
+          }
+          if (row.container) {
+            return formatBitsSIUnitsParts(row.container.rates.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
+          }
+          return { value: '--', unit: '' };
+        },
+        getSparklineData: (row) => row.sparklineData?.networkTx ?? [],
+        getIsStale: (row) => row.isStale,
+      }),
+    ],
+    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onOpenHistory],
+  );
+
+  /** Render container detail panel (charts + logs) for the nested DataTable */
+  const renderContainerDetail = useCallback(
+    (row: DockerTableRow) => {
+      if (row.type !== 'container' || !row.container || !row.dataPoints) return null;
+      const [host, containerId] = row.container.id.split('/');
+      if (!host || !containerId) return null;
+      return (
+        <ContainerDetailPanel
+          dataPoints={row.dataPoints}
+          containerId={containerId}
+          host={host}
+        />
+      );
+    },
+    [],
+  );
+
+  const rowClassName = useCallback((row: DockerTableRow) => {
+    if (row.type === 'host') {
+      return row.isStale
+        ? '!bg-amber-500/10'
+        : '!bg-[var(--mui-palette-background-level1)]';
+    }
+    if (row.isStale) {
+      return '!bg-amber-500/10 !opacity-70';
+    }
+    return '';
+  }, []);
+
+  /** Host detail panel: a nested DataTable of container rows with its own virtualized scroll */
+  const renderDetailPanel = useCallback(
+    (row: DockerTableRow) => {
+      if (row.type !== 'host' || !row.children?.length) return null;
+      return (
+        <ContainerSubTable
+          containers={row.children}
+          columns={columns}
+          renderDetailPanel={renderContainerDetail}
+          rowClassName={rowClassName}
+          isContainerExpanded={isContainerExpanded}
+          toggleContainerExpanded={toggleContainerExpanded}
+        />
+      );
+    },
+    [columns, renderContainerDetail, rowClassName, isContainerExpanded, toggleContainerExpanded],
+  );
 
   // Loading / error states
   if (error && !hasData) {
@@ -202,184 +452,313 @@ export default function ContainerTable({
   }
 
   return (
-    <Box className="w-full">
+    <Box className="flex flex-col flex-1 min-h-0 w-full">
       <StaleDataAlert isStale={isStale} />
-      <Paper variant="outlined" className="rounded-sm overflow-x-auto">
-        {/* Shared min-w container ensures header and virtualizer body resolve to the same width */}
-        <div className="min-w-[600px]">
-        {/* Column headers */}
-        <div className={`${DOCKER_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
-          <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">Host / Container</div>
-          <div className="py-2"><MetricHeader>CPU</MetricHeader></div>
-          <div className="py-2"><MetricHeader>{memLabel}</MetricHeader></div>
-          <div className="py-2"><MetricHeader>Disk Read</MetricHeader></div>
-          <div className="py-2"><MetricHeader>Disk Write</MetricHeader></div>
-          <div className="py-2"><MetricHeader>Net RX</MetricHeader></div>
-          <div className="py-2"><MetricHeader>Net TX</MetricHeader></div>
-        </div>
-
-        {/* Virtualized body */}
-        <div ref={listRef}>
-          <div
-            style={{
-              height: virtualizer.getTotalSize(),
-              width: '100%',
-              position: 'relative',
-              willChange: 'transform',
-              contain: 'layout style',
-            }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translate3d(0, ${(items[0]?.start ?? 0) - virtualizer.options.scrollMargin}px, 0)`,
-              }}
-            >
-              {items.map((virtualRow) => {
-                const group = hostGroups[virtualRow.index];
-                const expanded = isHostExpanded(group.host.hostName, group.totalHosts);
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                  >
-                    <HostRow
-                      host={group.host}
-                      totalHosts={group.totalHosts}
-                      expanded={expanded}
-                      toggleHostExpanded={toggleHostExpanded}
-                      decimals={docker.decimals}
-                      memoryDisplayMode={docker.memoryDisplayMode}
-                      showSparklines={general.showSparklines}
-                      useAbbreviatedUnits={general.useAbbreviatedUnits}
-                    />
-                    <Collapse in={expanded} unmountOnExit>
-                      {group.containers.map((c) => (
-                        <ContainerRow
-                          key={c.container.id}
-                          container={c.container}
-                          chartData={c.chartData}
-                          expanded={isContainerExpanded(c.container.id)}
-                          toggleContainerExpanded={toggleContainerExpanded}
-                          decimals={docker.decimals}
-                          memoryDisplayMode={docker.memoryDisplayMode}
-                          showSparklines={general.showSparklines}
-                          useAbbreviatedUnits={general.useAbbreviatedUnits}
-                          onOpenHistory={onOpenHistory}
-                        />
-                      ))}
-                    </Collapse>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-        </div>
-      </Paper>
+      <DataTable
+        data={tableData}
+        columns={columns}
+        getRowId={(row) => row.id}
+        renderDetailPanel={renderDetailPanel}
+        expandedState={expandedState}
+        onExpandedChange={handleExpandedChange}
+        metricGroups={METRIC_GROUPS}
+        rowClassName={rowClassName}
+        enableSorting={false}
+      />
     </Box>
   );
 }
 
-// ─── Host Row ────────────────────────────────────────────────────────────────
+/**
+ * Pre-compute sparkline and chart data from raw DockerStatsRow entries.
+ * Done outside the component tree so it can be memoized at the data level.
+ */
+function computeSparklineAndChartData(chartData: DockerStatsRow[]): {
+  sparklineData: SparklineDataSet;
+  dataPoints: ChartDataPoint[];
+} {
+  const cpu: { timestamp: number; value: number }[] = new Array(chartData.length);
+  const memory: { timestamp: number; value: number }[] = new Array(chartData.length);
+  const blockRead: { timestamp: number; value: number }[] = new Array(chartData.length);
+  const blockWrite: { timestamp: number; value: number }[] = new Array(chartData.length);
+  const networkRx: { timestamp: number; value: number }[] = new Array(chartData.length);
+  const networkTx: { timestamp: number; value: number }[] = new Array(chartData.length);
+  const points: ChartDataPoint[] = new Array(chartData.length);
 
-interface HostRowProps {
-  host: HostStats;
-  totalHosts: number;
-  expanded: boolean;
-  toggleHostExpanded: (hostName: string) => void;
-  decimals: DecimalSettings;
-  memoryDisplayMode: MemoryDisplayMode;
-  showSparklines: boolean;
-  useAbbreviatedUnits: boolean;
+  for (let i = 0; i < chartData.length; i++) {
+    const row = chartData[i];
+    const timestamp = new Date(row.time).getTime();
+    const cpuPercent = row.cpu_percent ?? 0;
+    const memoryPercent = row.memory_percent ?? 0;
+    const blockIoRead = row.block_io_read_bytes_per_sec ?? 0;
+    const blockIoWrite = row.block_io_write_bytes_per_sec ?? 0;
+    const netRx = row.network_rx_bytes_per_sec ?? 0;
+    const netTx = row.network_tx_bytes_per_sec ?? 0;
+
+    cpu[i] = { timestamp, value: cpuPercent };
+    memory[i] = { timestamp, value: memoryPercent };
+    blockRead[i] = { timestamp, value: blockIoRead };
+    blockWrite[i] = { timestamp, value: blockIoWrite };
+    networkRx[i] = { timestamp, value: netRx };
+    networkTx[i] = { timestamp, value: netTx };
+    points[i] = { timestamp, cpuPercent, memoryPercent, blockIoReadBytesPerSec: blockIoRead, blockIoWriteBytesPerSec: blockIoWrite, networkRxBytesPerSec: netRx, networkTxBytesPerSec: netTx };
+  }
+
+  return {
+    sparklineData: { cpu, memory, blockRead, blockWrite, networkRx, networkTx },
+    dataPoints: points,
+  };
 }
 
-const HostRow = memo(function HostRow({
-  host,
-  totalHosts,
-  expanded,
-  toggleHostExpanded,
-  decimals,
-  memoryDisplayMode,
-  showSparklines,
-  useAbbreviatedUnits,
-}: Readonly<HostRowProps>) {
-  const hasContainers = host.containers.size > 0;
-
-  const handleClick = () => {
-    if (hasContainers && totalHosts > 1) {
-      toggleHostExpanded(host.hostName);
+/**
+ * Nested DataTable for container rows within an expanded host.
+ * Detail panel renders inline with MUI Collapse animation.
+ */
+const ContainerSubTable = memo(function ContainerSubTable({
+  containers,
+  columns,
+  renderDetailPanel,
+  rowClassName,
+  isContainerExpanded,
+  toggleContainerExpanded,
+}: Readonly<{
+  containers: DockerTableRow[];
+  columns: ColumnDef<DockerTableRow, unknown>[];
+  renderDetailPanel: (row: DockerTableRow) => ReactNode;
+  rowClassName: (row: DockerTableRow) => string;
+  isContainerExpanded: (id: string) => boolean;
+  toggleContainerExpanded: (id: string) => void;
+}>) {
+  const containerExpanded = useMemo<ExpandedState>(() => {
+    const state: Record<string, boolean> = {};
+    for (const c of containers) {
+      state[c.id] = isContainerExpanded(c.id);
     }
-  };
+    return state;
+  }, [containers, isContainerExpanded]);
 
-  const a = host.aggregated;
-  const networkRxBps = a.networkRxBytesPerSec * 8;
-  const networkTxBps = a.networkTxBytesPerSec * 8;
-
-  const cpuParts = formatAsPercentParts(a.cpuPercent / 100, decimals.cpu);
-  const memoryParts = memoryDisplayMode === 'bytes'
-    ? formatBytesParts(a.memoryUsage, false, decimals.memory)
-    : formatAsPercentParts(a.memoryPercent / 100, decimals.memory);
-  const blockReadParts = formatBytesParts(a.blockIoReadBytesPerSec, true, decimals.diskSpeed);
-  const blockWriteParts = formatBytesParts(a.blockIoWriteBytesPerSec, true, decimals.diskSpeed);
-  const networkRxParts = formatBitsSIUnitsParts(networkRxBps, true, decimals.networkSpeed);
-  const networkTxParts = formatBitsSIUnitsParts(networkTxBps, true, decimals.networkSpeed);
-
-  const hostBgClass = host.isStale
-    ? 'bg-amber-500/10'
-    : expanded
-      ? 'bg-[var(--mui-palette-action-hover)]'
-      : 'bg-[var(--mui-palette-background-level1)]';
+  const handleContainerExpandedChange = useCallback(
+    (newExpanded: ExpandedState) => {
+      if (typeof newExpanded === 'boolean') return;
+      const current = containerExpanded as Record<string, boolean>;
+      for (const [id, value] of Object.entries(newExpanded)) {
+        if (value !== (current[id] ?? false)) {
+          toggleContainerExpanded(id);
+        }
+      }
+      for (const id of Object.keys(current)) {
+        if (current[id] && !(id in newExpanded)) {
+          toggleContainerExpanded(id);
+        }
+      }
+    },
+    [containerExpanded, toggleContainerExpanded],
+  );
 
   return (
-    <div
-      role={hasContainers && totalHosts > 1 ? 'button' : undefined}
-      tabIndex={hasContainers && totalHosts > 1 ? 0 : undefined}
-      onClick={handleClick}
-      onKeyDown={hasContainers && totalHosts > 1 ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } } : undefined}
-      className={`${DOCKER_GRID} items-center border-t border-neutral-200 dark:border-neutral-700 transition-colors duration-150 ${
-        hasContainers && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
-      } ${hostBgClass}`}
-    >
-      <div className="px-3 py-2 flex items-center gap-2">
-        {hasContainers && totalHosts > 1 && (
-          <ChevronRight
-            size={18}
-            className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-          />
-        )}
-        <Server size={18} />
-        {host.isStale && (
-          <WifiOff size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
-        )}
-        <span className="font-bold">{host.hostName}</span>
+    <DataTable
+      data={containers}
+      columns={columns}
+      getRowId={(row) => row.id}
+      renderDetailPanel={renderDetailPanel}
+      expandedState={containerExpanded}
+      onExpandedChange={handleContainerExpandedChange}
+      rowClassName={rowClassName}
+      enableSorting={false}
+      showHeader={false}
+    />
+  );
+});
+
+const HostNameCell = memo(function HostNameCell({
+  row,
+  expanded,
+}: Readonly<{
+  row: DockerTableRow;
+  expanded: boolean;
+}>) {
+  const totalHosts = row.totalHosts ?? 1;
+  const hasContainers = (row.children?.length ?? 0) > 0;
+  const canToggle = hasContainers && totalHosts > 1;
+  const a = row.aggregated;
+
+  return (
+    <div className="flex items-center gap-2">
+      {canToggle && (
+        <ChevronRight
+          size={18}
+          className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+        />
+      )}
+      <Server size={18} />
+      {row.isStale && (
+        <WifiOff size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
+      )}
+      <span className="font-bold">{row.hostName}</span>
+      {a && (
         <Chip size="small" variant="filled" label={`${a.containerCount} container${a.containerCount !== 1 ? 's' : ''}`} />
-        {a.staleContainerCount > 0 && !host.isStale && (
-          <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
-        )}
-      </div>
-      <div>
-        <MetricValue value={cpuParts.value} unit={cpuParts.unit} hasDecimals={decimals.cpu} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div>
-        <MetricValue value={memoryParts.value} unit={memoryParts.unit} hasDecimals={decimals.memory} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div>
-        <MetricValue value={blockReadParts.value} unit={blockReadParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div>
-        <MetricValue value={blockWriteParts.value} unit={blockWriteParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div>
-        <MetricValue value={networkRxParts.value} unit={networkRxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div>
-        <MetricValue value={networkTxParts.value} unit={networkTxParts.unit} hasDecimals={decimals.networkSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
+      )}
+      {a && a.staleContainerCount > 0 && !row.isStale && (
+        <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
+      )}
     </div>
   );
 });
+
+/**
+ * Name cell for container rows - shows icon, pulse indicator, name,
+ * settings and history buttons. Uses hooks for pulse animation and icon picker.
+ */
+function ContainerNameCell({
+  row,
+  expanded,
+  onOpenHistory,
+}: Readonly<{
+  row: DockerTableRow;
+  expanded: boolean;
+  onOpenHistory?: (containerId: string, host: string) => void;
+}>) {
+  const container = row.container!; // parent guarantees this is present
+
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [iconError, setIconError] = useState(false);
+  const iconUrl = getIconUrl(container.icon, container.image);
+
+  useEffect(() => {
+    setIconError(false);
+  }, [iconUrl]);
+
+  // Pulse indicator refs
+  const lastUpdated = row.chartData && row.chartData.length > 0
+    ? new Date(row.chartData[row.chartData.length - 1].time)
+    : undefined;
+  const lastUpdatedMs = lastUpdated?.getTime() ?? 0;
+  const lastUpdatedMsRef = useRef(lastUpdatedMs);
+
+  const indicatorRef = useRef<HTMLDivElement>(null);
+  const pingRef = useRef<HTMLDivElement>(null);
+  const dotRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (lastUpdatedMs > 0 && lastUpdatedMs !== lastUpdatedMsRef.current) {
+      lastUpdatedMsRef.current = lastUpdatedMs;
+
+      const indicator = indicatorRef.current;
+      if (indicator) indicator.title = `Last updated: ${new Date(lastUpdatedMs).toLocaleTimeString()}`;
+
+      const ping = pingRef.current;
+      const dot = dotRef.current;
+      if (ping) { ping.classList.add('opacity-100', 'animate-ping'); ping.classList.remove('opacity-0'); }
+      if (ping && dot) {
+        ping.style.backgroundColor = 'var(--indicator-active)';
+        dot.style.backgroundColor = 'var(--indicator-active)';
+      }
+
+      const pulseTimer = setTimeout(() => {
+        if (ping) { ping.classList.remove('opacity-100', 'animate-ping'); ping.classList.add('opacity-0'); }
+      }, PULSE_DURATION_MS);
+      const age = Date.now() - lastUpdatedMs;
+      const lateDelay = Math.max(LATE_THRESHOLD_MS - age, 0);
+      if (lateDelay === 0) {
+        if (ping) ping.style.backgroundColor = 'var(--indicator-late)';
+        if (dot) dot.style.backgroundColor = 'var(--indicator-late)';
+      }
+      const lateTimer = lateDelay > 0 ? setTimeout(() => {
+        if (ping) ping.style.backgroundColor = 'var(--indicator-late)';
+        if (dot) dot.style.backgroundColor = 'var(--indicator-late)';
+      }, lateDelay) : undefined;
+      return () => {
+        clearTimeout(pulseTimer);
+        clearTimeout(lateTimer);
+      };
+    }
+  }, [lastUpdatedMs]);
+
+  const handleIconSelect = async (iconSlug: string) => {
+    try {
+      await updateContainerIcon({ data: { serviceKeyEntity: container.serviceKeyEntity, iconSlug } });
+      await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
+    } catch (err) {
+      console.error('Failed to update container icon:', err);
+      showToast('Failed to update icon. Please try again.');
+    }
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <ChevronRight
+          size={16}
+          className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+        />
+
+        {/* Pulse indicator */}
+        <div
+          ref={indicatorRef}
+          className="relative w-2 h-2 flex-shrink-0"
+          title={lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'No data yet'}
+        >
+          <div
+            ref={pingRef}
+            className="absolute inset-0 rounded-full transition-opacity duration-200 opacity-0"
+            style={{ backgroundColor: 'var(--indicator-active)' }}
+          />
+          <div
+            ref={dotRef}
+            className="absolute inset-0 rounded-full transition-colors duration-300"
+            style={{ backgroundColor: 'var(--indicator-active)' }}
+          />
+        </div>
+
+        <img
+          src={iconError ? FALLBACK_ICON_URL : iconUrl}
+          alt=""
+          className="w-5 h-5 flex-shrink-0"
+          onError={() => setIconError(true)}
+        />
+        <span className="truncate">{container.name}</span>
+        <IconButton
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            setIconPickerOpen(true);
+          }}
+          className={`!p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+          aria-label="Change container icon"
+          tabIndex={expanded ? 0 : -1}
+          aria-hidden={!expanded}
+        >
+          <Settings size={14} />
+        </IconButton>
+        {onOpenHistory && (
+          <IconButton
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              const [host, containerId] = container.id.split('/');
+              if (host && containerId) onOpenHistory(containerId, host);
+            }}
+            className={`!p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+            aria-label="View container history"
+            tabIndex={expanded ? 0 : -1}
+            aria-hidden={!expanded}
+          >
+            <History size={14} />
+          </IconButton>
+        )}
+      </div>
+
+      {iconPickerOpen && (
+        <IconPickerDialog
+          open={iconPickerOpen}
+          onClose={() => setIconPickerOpen(false)}
+          onSelect={handleIconSelect}
+          currentIcon={container.icon}
+          containerName={container.name}
+        />
+      )}
+    </>
+  );
+}

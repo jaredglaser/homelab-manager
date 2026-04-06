@@ -10,7 +10,7 @@ src/
 │   ├── ThemeProvider.tsx            # MUI Material theme wrapper
 │   ├── Toasts.tsx                   # Toast notification display
 │   ├── docker/
-│   │   ├── ContainerTable.tsx       # Docker table (CSS Grid + useWindowVirtualizer, includes HostRow)
+│   │   ├── ContainerTable.tsx       # Docker table (wraps shared DataTable, includes HostRow)
 │   │   ├── ContainerRow.tsx         # Container row with icon, metrics, and sparklines
 │   │   ├── ContainerChartsCard.tsx  # Expanded container detail (dual-series charts + log viewer)
 │   │   ├── ContainerHistoryPage.tsx # Historical data page for a container
@@ -49,7 +49,7 @@ src/
 │   │   ├── ManagedHostsCard.tsx     # Host management card (presentation)
 │   │   └── ManagedHostsCardConnected.tsx # Host management card (connected)
 │   ├── zfs/
-│   │   ├── ZFSPoolsTable.tsx        # ZFS table (CSS Grid + useWindowVirtualizer)
+│   │   ├── ZFSPoolsTable.tsx        # ZFS table (wraps shared DataTable)
 │   │   ├── ZFSPoolSpeedCharts.tsx   # Pool-level speed charts
 │   │   └── ZFSPoolSpeedChart.tsx    # Individual pool speed chart
 │   ├── proxmox/

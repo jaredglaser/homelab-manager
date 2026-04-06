@@ -1,18 +1,9 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
-// Skip in CI due to some kind of compat issue... TODO: Figure out root cause and re-enable tests in CI
-const isCI = process.env.CI === 'true';
-
-if (isCI) {
-    describe('useSettings', () => {
-        it.skip('skipped in CI due to React 19 + Happy-DOM compatibility issue', () => {});
-    });
-} else {
-    // Only import testing libraries when not in CI
-    const { renderHook, act, waitFor } = await import('@testing-library/react');
-    const { createElement } = await import('react');
-    type ReactNode = import('react').ReactNode;
+const { renderHook, act, waitFor } = await import('@testing-library/react');
+const { createElement } = await import('react');
+type ReactNode = import('react').ReactNode;
 
     // Mock the settings functions
     const mockUpdateSetting = mock(() => Promise.resolve());
@@ -694,6 +685,68 @@ if (isCI) {
         });
     });
 
+    describe('stack expansion', () => {
+        it('should default to not expanded when no saved state', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            expect(result.current.isStackExpanded('server1/my-stack')).toBe(false);
+        });
+
+        it('should toggle stack expanded state on', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/my-stack');
+            });
+
+            expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
+        });
+
+        it('should toggle stack expanded state off', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/my-stack');
+            });
+
+            expect(result.current.isStackExpanded('server1/my-stack')).toBe(true);
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/my-stack');
+            });
+
+            expect(result.current.isStackExpanded('server1/my-stack')).toBe(false);
+        });
+
+        it('should persist stack expansion to database', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/my-stack');
+            });
+
+            expect(mockUpdateSetting).toHaveBeenCalledWith({
+                data: { key: SETTINGS_KEYS.stacks.expandedStacks, value: '["server1/my-stack"]' },
+            });
+        });
+
+        it('should not affect other stacks when toggling one', () => {
+            const { wrapper } = createWrapper();
+            const { result } = renderHook(() => useSettings(), { wrapper });
+
+            act(() => {
+                result.current.toggleStackExpanded('server1/stack-a');
+            });
+
+            expect(result.current.isStackExpanded('server1/stack-a')).toBe(true);
+            expect(result.current.isStackExpanded('server1/stack-b')).toBe(false);
+        });
+    });
+
     describe('rollback on persist failure', () => {
         it('should roll back a simple setting on failure', async () => {
             mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
@@ -793,4 +846,3 @@ if (isCI) {
             expect(toasts.length).toBe(0);
         });
     });
-}

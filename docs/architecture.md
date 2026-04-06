@@ -97,7 +97,7 @@ flowchart LR
 7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to all subscribed SSE endpoints
 8. **SSE endpoints** subscribe to the poll service; multiple browser tabs share the same poll - only 1 DB query/sec per source
 9. The **`useTimeSeriesStream` hook** preloads history via REST, then merges SSE updates into a time-windowed buffer with stale detection
-10. **Virtualized tables** render with CSS Grid + `useWindowVirtualizer` for efficient page-scroll rendering, with per-entity stale indicators
+10. **Virtualized tables** render via the shared `DataTable` component (CSS Grid + conditional `useVirtualizer`). Tables under 150 rows use `contentVisibility: 'auto'` so the browser natively skips layout/paint for off-screen rows while preserving Collapse animations on nested detail panels (which break under virtualization); larger tables enable contained virtualization. Per-entity stale indicators highlight hosts that stop reporting
 
 ## Proxmox Data Model
 

@@ -1,22 +1,60 @@
-import { useMemo, useRef } from 'react';
-import { useWindowVirtualizer } from '@tanstack/react-virtual';
-import { Box, Chip, CircularProgress, Collapse, Paper, Tooltip, Typography } from '@mui/material';
-import { ChevronRight, Server } from 'lucide-react';
+import { memo, useCallback, useMemo, type ReactNode } from 'react';
+import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
+import { Box, CircularProgress, Typography } from '@mui/material';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
-import type { PoolStats, VdevStats, ZFSHostHierarchy, ZFSHostStats, ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
+import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
+import { metricColumn, nameColumn } from '@/components/shared-table/columns';
+import { EMPTY_METRIC } from '@/components/shared-table';
+import type { ZFSStatsRow, ZFSHostHierarchy, ZFSHostStats, PoolStats, VdevStats } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
-import { MetricValue, MetricHeader, EMPTY_METRIC } from '@/components/shared-table';
 import { useSettings } from '@/hooks/useSettings';
+import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 
-type ZFSFlatRow =
-  | { type: 'host'; host: ZFSHostStats; totalHosts: number }
-  | { type: 'pool'; pool: PoolStats; totalPools: number; expandable: boolean; badge?: { label: string; tooltip?: string }; isSingleVdevMultiDisk: boolean };
+/** Flattened row model for the DataTable tree structure */
+export interface ZFSTableRow {
+  type: 'host' | 'pool' | 'vdev' | 'disk';
+  id: string;
+  name: string;
+  indent: number;
+  /** Metric data */
+  capacityAlloc?: number;
+  capacityFree?: number;
+  readOpsPerSec?: number;
+  writeOpsPerSec?: number;
+  readBytesPerSec?: number;
+  writeBytesPerSec?: number;
+  utilizationPercent?: number;
+  /** Display helpers */
+  badge?: { label: string; tooltip?: string };
+  canExpand: boolean;
+  /** Counts needed for auto-expand logic */
+  totalHosts?: number;
+  totalPools?: number;
+  /** Tree children */
+  children?: ZFSTableRow[];
+}
 
-const ROW_HEIGHT_ESTIMATE = 41;
-const OVERSCAN = 10;
+const METRIC_GROUPS: MetricGroup[] = [
+  { label: 'Capacity', columnIds: ['capacity'] },
+  { label: 'Ops', columnIds: ['readOps', 'writeOps'] },
+  { label: 'Throughput', columnIds: ['readBytes', 'writeBytes', 'utilization'] },
+];
 
-const ZFS_GRID = 'grid grid-cols-[30%_14%_11%_11%_11%_11%_12%] min-w-[800px]';
+/** Cell renderer for ZFS entity names — extracted to satisfy component-definition rules */
+function ZFSNameCell({ row }: Readonly<{ row: { original: ZFSTableRow; getIsExpanded: () => boolean } }>) {
+  const data = row.original;
+  return (
+    <ZFSEntityCell
+      name={data.name}
+      entityType={data.type}
+      indent={0}
+      isExpanded={row.getIsExpanded()}
+      canExpand={data.canExpand}
+      badge={data.badge}
+    />
+  );
+}
 
 interface ZFSPoolsTableProps {
   latestByEntity: Map<string, ZFSStatsRow>;
@@ -33,75 +71,167 @@ export default function ZFSPoolsTable({
   error,
   isStale,
 }: Readonly<ZFSPoolsTableProps>) {
-  const { isZfsHostExpanded, toggleZfsHostExpanded, zfs, general } = useSettings();
+  const {
+    isZfsHostExpanded,
+    toggleZfsHostExpanded,
+    isPoolExpanded,
+    togglePoolExpanded,
+    isVdevExpanded,
+    toggleVdevExpanded,
+    zfs,
+    general,
+  } = useSettings();
 
-  // Build multi-host hierarchy from latest rows
   const hostHierarchy = useMemo<ZFSHostHierarchy>(() => {
     const rows = Array.from(latestByEntity.values());
     return buildZFSHostHierarchy(rows);
   }, [latestByEntity]);
 
-  // Flatten to host + pool rows only; children render inside PoolRow via Collapse
-  const flatRows = useMemo<ZFSFlatRow[]>(() => {
-    const rows: ZFSFlatRow[] = [];
+  /** Convert the ZFS hierarchy Maps into a flat host array for DataTable */
+  const tableData = useMemo<ZFSTableRow[]>(() => {
     const totalHosts = hostHierarchy.size;
+    const sortedHosts = Array.from(hostHierarchy.values()).sort((a, b) =>
+      a.hostName.localeCompare(b.hostName),
+    );
 
-    const sortedHosts = Array.from(hostHierarchy.values()).sort((a, b) => a.hostName.localeCompare(b.hostName));
-    for (const hostStats of sortedHosts) {
-      if (totalHosts > 1) {
-        rows.push({ type: 'host', host: hostStats, totalHosts });
+    return sortedHosts.map((host) => buildHostRow(host, totalHosts));
+  }, [hostHierarchy]);
 
-        if (!isZfsHostExpanded(hostStats.hostName, totalHosts)) {
-          continue;
-        }
-      }
-
-      const poolHierarchy = hostStats.pools;
-      const totalPools = poolHierarchy.size;
-      const sortedPools = Array.from(poolHierarchy.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
-
-      for (const pool of sortedPools) {
-        const vdevs = Array.from(pool.vdevs.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
-        const disks = Array.from(pool.individualDisks.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
-        const singleVdev = vdevs.length === 1 && disks.length === 0;
-        const isSingleDiskPool =
-          (singleVdev && vdevs[0].disks.size <= 1) ||
-          (vdevs.length === 0 && disks.length === 1);
-        const isSingleVdevMultiDisk = singleVdev && vdevs[0].disks.size > 1;
-
-        let badge: { label: string; tooltip?: string } | undefined;
-        if (isSingleDiskPool) {
-          const tooltipName = singleVdev
-            ? Array.from(vdevs[0].disks.values())[0]?.data.name ?? vdevs[0].data.name
-            : disks[0]?.data.name;
-          badge = { label: 'single disk', tooltip: tooltipName };
-        } else if (singleVdev) {
-          badge = { label: vdevs[0].data.name };
-        }
-
-        const expandable = !isSingleDiskPool;
-        rows.push({ type: 'pool', pool, totalPools, expandable, badge, isSingleVdevMultiDisk });
+  /** Host-level expansion state only */
+  const expandedState = useMemo<ExpandedState>(() => {
+    const state: Record<string, boolean> = {};
+    for (const hostRow of tableData) {
+      if (hostRow.type === 'host' && hostRow.totalHosts != null) {
+        state[hostRow.id] = isZfsHostExpanded(hostRow.name, hostRow.totalHosts);
       }
     }
+    return state;
+  }, [tableData, isZfsHostExpanded]);
 
-    return rows;
-  }, [hostHierarchy, isZfsHostExpanded]);
-
-  const listRef = useRef<HTMLDivElement>(null);
-
-  const virtualizer = useWindowVirtualizer({
-    count: flatRows.length,
-    estimateSize: () => ROW_HEIGHT_ESTIMATE,
-    overscan: OVERSCAN,
-    scrollMargin: listRef.current?.offsetTop ?? 0,
-    getItemKey: (index: number) => {
-      const row = flatRows[index];
-      if (row.type === 'host') return `host-${row.host.hostName}`;
-      return `pool-${row.pool.data.id}`;
+  const handleExpandedChange = useCallback(
+    (newExpanded: ExpandedState) => {
+      if (typeof newExpanded === 'boolean') return;
+      const currentExpanded = expandedState as Record<string, boolean>;
+      for (const [id, value] of Object.entries(newExpanded)) {
+        if (value !== (currentExpanded[id] ?? false) && id.startsWith('host:')) {
+          toggleZfsHostExpanded(id.slice(5));
+        }
+      }
+      for (const id of Object.keys(currentExpanded)) {
+        if (currentExpanded[id] && !(id in newExpanded) && id.startsWith('host:')) {
+          toggleZfsHostExpanded(id.slice(5));
+        }
+      }
     },
-  });
+    [expandedState, toggleZfsHostExpanded],
+  );
 
-  const items = virtualizer.getVirtualItems();
+  const columns = useMemo<ColumnDef<ZFSTableRow, unknown>[]>(
+    () => [
+      nameColumn<ZFSTableRow>({
+        getLabel: (row) => row.name,
+        size: 300,
+        cell: ZFSNameCell,
+      }),
+      metricColumn<ZFSTableRow>({
+        id: 'capacity',
+        header: 'Capacity',
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        getValue: (row) => {
+          const alloc = row.capacityAlloc ?? 0;
+          const free = row.capacityFree ?? 0;
+          const total = alloc + free;
+          if (total <= 0) return { value: EMPTY_METRIC, unit: '' };
+          return formatBytesParts(total, false);
+        },
+      }),
+      metricColumn<ZFSTableRow>({
+        id: 'readOps',
+        header: 'Read Ops/s',
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        getValue: (row) => {
+          const v = row.readOpsPerSec;
+          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          return { value: v.toFixed(0), unit: 'ops/s' };
+        },
+      }),
+      metricColumn<ZFSTableRow>({
+        id: 'writeOps',
+        header: 'Write Ops/s',
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        getValue: (row) => {
+          const v = row.writeOpsPerSec;
+          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          return { value: v.toFixed(0), unit: 'ops/s' };
+        },
+      }),
+      metricColumn<ZFSTableRow>({
+        id: 'readBytes',
+        header: 'Read',
+        hasDecimals: zfs.decimals.diskSpeed,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        getValue: (row) => {
+          const v = row.readBytesPerSec;
+          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          return formatBytesParts(v, true, zfs.decimals.diskSpeed);
+        },
+      }),
+      metricColumn<ZFSTableRow>({
+        id: 'writeBytes',
+        header: 'Write',
+        hasDecimals: zfs.decimals.diskSpeed,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        getValue: (row) => {
+          const v = row.writeBytesPerSec;
+          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          return formatBytesParts(v, true, zfs.decimals.diskSpeed);
+        },
+      }),
+      metricColumn<ZFSTableRow>({
+        id: 'utilization',
+        header: 'Utilization',
+        hasDecimals: zfs.decimals.diskSpeed,
+        showSparklines: general.showSparklines,
+        useAbbreviatedUnits: general.useAbbreviatedUnits,
+        getValue: (row) => {
+          const v = row.utilizationPercent;
+          if (v == null) return { value: EMPTY_METRIC, unit: '' };
+          return formatAsPercentParts(v / 100, zfs.decimals.diskSpeed);
+        },
+      }),
+    ],
+    [zfs.decimals.diskSpeed, general.showSparklines, general.useAbbreviatedUnits],
+  );
+
+  const rowClassName = useCallback((row: ZFSTableRow) => {
+    if (row.type === 'host') {
+      return '!bg-[var(--mui-palette-background-level1)]';
+    }
+    return '';
+  }, []);
+
+  /** Host detail panel: a nested DataTable of pool rows */
+  const renderDetailPanel = useCallback(
+    (row: ZFSTableRow) => {
+      if (row.type !== 'host' || !row.children?.length) return null;
+      return (
+        <PoolSubTable
+          pools={row.children}
+          columns={columns}
+          isPoolExpanded={isPoolExpanded}
+          togglePoolExpanded={togglePoolExpanded}
+          isVdevExpanded={isVdevExpanded}
+          toggleVdevExpanded={toggleVdevExpanded}
+        />
+      );
+    },
+    [columns, isPoolExpanded, togglePoolExpanded, isVdevExpanded, toggleVdevExpanded],
+  );
 
   if (error && !hasData) {
     return (
@@ -126,358 +256,338 @@ export default function ZFSPoolsTable({
   }
 
   return (
-    <Box className="w-full">
+    <Box className="flex flex-col flex-1 min-h-0 w-full">
       <StaleDataAlert isStale={isStale} />
-      <Paper variant="outlined" className="rounded-sm overflow-x-auto">
-        {/* Column headers */}
-        <div className={`${ZFS_GRID} border-b border-neutral-200 dark:border-neutral-700`}>
-          <div className="px-3 py-2 font-semibold text-sm whitespace-nowrap">
-            {hostHierarchy.size > 1 ? 'Host / Pool / Device' : 'Pool / Device'}
-          </div>
-          <div className="px-3 py-2"><MetricHeader>Capacity</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Read Ops/s</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Write Ops/s</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Read</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Write</MetricHeader></div>
-          <div className="px-3 py-2"><MetricHeader>Utilization</MetricHeader></div>
-        </div>
-
-        {/* Virtualized body */}
-        <div ref={listRef}>
-          <div
-            style={{
-              height: virtualizer.getTotalSize(),
-              width: '100%',
-              position: 'relative',
-              willChange: 'transform',
-              contain: 'layout style',
-            }}
-          >
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                transform: `translate3d(0, ${(items[0]?.start ?? 0) - virtualizer.options.scrollMargin}px, 0)`,
-              }}
-            >
-              {items.map((virtualRow) => {
-                const row = flatRows[virtualRow.index];
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    ref={virtualizer.measureElement}
-                  >
-                    {row.type === 'host' ? (
-                      <HostRow
-                        host={row.host}
-                        totalHosts={row.totalHosts}
-                        isZfsHostExpanded={isZfsHostExpanded}
-                        toggleZfsHostExpanded={toggleZfsHostExpanded}
-                        showSparklines={general.showSparklines}
-                        useAbbreviatedUnits={general.useAbbreviatedUnits}
-                        diskSpeedDecimals={zfs.decimals.diskSpeed}
-                      />
-                    ) : (
-                      <PoolRow
-                        pool={row.pool}
-                        totalPools={row.totalPools}
-                        expandable={row.expandable}
-                        badge={row.badge}
-                        isSingleVdevMultiDisk={row.isSingleVdevMultiDisk}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </Paper>
+      <DataTable
+        data={tableData}
+        columns={columns}
+        getRowId={(row) => row.id}
+        renderDetailPanel={renderDetailPanel}
+        expandedState={expandedState}
+        onExpandedChange={handleExpandedChange}
+        metricGroups={METRIC_GROUPS}
+        rowClassName={rowClassName}
+        enableSorting={false}
+      />
     </Box>
   );
 }
 
-// ─── Metric Cells ───────────────────────────────────────────────────────────────
-
-function ZFSMetrics({ data, showCapacity = true, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: Readonly<{ data: ZFSIOStatWithRates; showCapacity?: boolean; showSparklines: boolean; useAbbreviatedUnits: boolean; diskSpeedDecimals: boolean }>) {
-  const decimals = { diskSpeed: diskSpeedDecimals };
-
-  const totalBytes = data.capacity.alloc + data.capacity.free;
-  const capacityParts = showCapacity && totalBytes > 0
-    ? formatBytesParts(totalBytes, false)
-    : null;
-  const readOpsParts = { value: data.rates.readOpsPerSec.toFixed(0), unit: 'ops/s' };
-  const writeOpsParts = { value: data.rates.writeOpsPerSec.toFixed(0), unit: 'ops/s' };
-  const readParts = formatBytesParts(data.rates.readBytesPerSec, true, decimals.diskSpeed);
-  const writeParts = formatBytesParts(data.rates.writeBytesPerSec, true, decimals.diskSpeed);
-  const utilParts = formatAsPercentParts(data.rates.utilizationPercent / 100, decimals.diskSpeed);
-
-  return (
-    <>
-      <div className="px-3 py-2">
-        {capacityParts
-          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-          : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={utilParts.value} unit={utilParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-    </>
-  );
-}
-
-function HostAggregateMetrics({ host, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: Readonly<{ host: ZFSHostStats; showSparklines: boolean; useAbbreviatedUnits: boolean; diskSpeedDecimals: boolean }>) {
-  const decimals = { diskSpeed: diskSpeedDecimals };
-  const a = host.aggregated;
-
-  const totalBytes = a.capacityAlloc + a.capacityFree;
-  const capacityParts = totalBytes > 0 ? formatBytesParts(totalBytes, false) : null;
-  const readOpsParts = { value: a.readOpsPerSec.toFixed(0), unit: 'ops/s' };
-  const writeOpsParts = { value: a.writeOpsPerSec.toFixed(0), unit: 'ops/s' };
-  const readParts = formatBytesParts(a.readBytesPerSec, true, decimals.diskSpeed);
-  const writeParts = formatBytesParts(a.writeBytesPerSec, true, decimals.diskSpeed);
-
-  return (
-    <>
-      <div className="px-3 py-2">
-        {capacityParts
-          ? <MetricValue value={capacityParts.value} unit={capacityParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-          : <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />}
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={readOpsParts.value} unit={readOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={writeOpsParts.value} unit={writeOpsParts.unit} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={readParts.value} unit={readParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={writeParts.value} unit={writeParts.unit} hasDecimals={decimals.diskSpeed} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-      <div className="px-3 py-2">
-        <MetricValue value={EMPTY_METRIC} unit="" showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} />
-      </div>
-    </>
-  );
-}
-
-// ─── Host Row ───────────────────────────────────────────────────────────────────
-
-function HostRow({
-  host,
-  totalHosts,
-  isZfsHostExpanded,
-  toggleZfsHostExpanded,
-  showSparklines,
-  useAbbreviatedUnits,
-  diskSpeedDecimals,
+/**
+ * Nested DataTable for pool rows within an expanded host.
+ * Each pool with expandable children renders a VdevDiskSubTable via renderDetailPanel.
+ */
+const PoolSubTable = memo(function PoolSubTable({
+  pools,
+  columns,
+  isPoolExpanded,
+  togglePoolExpanded,
+  isVdevExpanded,
+  toggleVdevExpanded,
 }: Readonly<{
-  host: ZFSHostStats;
-  totalHosts: number;
-  isZfsHostExpanded: (hostName: string, totalHosts: number) => boolean;
-  toggleZfsHostExpanded: (hostName: string) => void;
-  showSparklines: boolean;
-  useAbbreviatedUnits: boolean;
-  diskSpeedDecimals: boolean;
+  pools: ZFSTableRow[];
+  columns: ColumnDef<ZFSTableRow, unknown>[];
+  isPoolExpanded: (id: string, totalPools: number) => boolean;
+  togglePoolExpanded: (id: string) => void;
+  isVdevExpanded: (id: string) => boolean;
+  toggleVdevExpanded: (id: string) => void;
 }>) {
-  const expanded = isZfsHostExpanded(host.hostName, totalHosts);
-  const hasPools = host.pools.size > 0;
-
-  const handleClick = () => {
-    if (hasPools && totalHosts > 1) {
-      toggleZfsHostExpanded(host.hostName);
+  const poolExpanded = useMemo<ExpandedState>(() => {
+    const state: Record<string, boolean> = {};
+    for (const pool of pools) {
+      if (pool.canExpand && pool.totalPools != null) {
+        state[pool.id] = isPoolExpanded(pool.id, pool.totalPools);
+      }
     }
-  };
+    return state;
+  }, [pools, isPoolExpanded]);
+
+  const handlePoolExpandedChange = useCallback(
+    (newExpanded: ExpandedState) => {
+      if (typeof newExpanded === 'boolean') return;
+      const current = poolExpanded as Record<string, boolean>;
+      for (const [id, value] of Object.entries(newExpanded)) {
+        if (value !== (current[id] ?? false)) {
+          togglePoolExpanded(id);
+        }
+      }
+      for (const id of Object.keys(current)) {
+        if (current[id] && !(id in newExpanded)) {
+          togglePoolExpanded(id);
+        }
+      }
+    },
+    [poolExpanded, togglePoolExpanded],
+  );
+
+  /** Pool detail panel: a nested DataTable of vdev/disk rows */
+  const renderPoolDetail = useCallback(
+    (row: ZFSTableRow): ReactNode => {
+      if (!row.canExpand || !row.children?.length) return null;
+      return (
+        <VdevDiskSubTable
+          vdevsAndDisks={row.children}
+          columns={columns}
+          isVdevExpanded={isVdevExpanded}
+          toggleVdevExpanded={toggleVdevExpanded}
+        />
+      );
+    },
+    [columns, isVdevExpanded, toggleVdevExpanded],
+  );
 
   return (
-    <div
-      onClick={handleClick}
-      className={`${ZFS_GRID} items-center bg-[var(--mui-palette-background-level1)] border-t border-neutral-200 dark:border-neutral-700 ${
-        hasPools && totalHosts > 1 ? 'cursor-pointer' : 'cursor-default'
-      }`}
-    >
-      <div className="px-3 py-2 flex items-center gap-2">
-        {hasPools && totalHosts > 1 && (
-          <ChevronRight
-            size={18}
-            className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-          />
-        )}
-        <Server size={18} />
-        <span className="font-bold">{host.hostName}</span>
-        <Chip size="small" variant="filled" label={`${host.aggregated.poolCount} pool${host.aggregated.poolCount !== 1 ? 's' : ''}`} />
-      </div>
-      <HostAggregateMetrics host={host} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
-    </div>
+    <DataTable
+      data={pools}
+      columns={columns}
+      getRowId={(row) => row.id}
+      renderDetailPanel={renderPoolDetail}
+      expandedState={poolExpanded}
+      onExpandedChange={handlePoolExpandedChange}
+      enableSorting={false}
+      showHeader={false}
+    />
   );
-}
+});
 
-// ─── Pool Row ───────────────────────────────────────────────────────────────────
-
-function PoolRow({
-  pool,
-  totalPools,
-  expandable,
-  badge,
-  isSingleVdevMultiDisk,
-}: {
-  pool: PoolStats;
-  totalPools: number;
-  expandable: boolean;
-  badge?: { label: string; tooltip?: string };
-  isSingleVdevMultiDisk: boolean;
-}) {
-  const { isPoolExpanded, togglePoolExpanded, zfs, general } = useSettings();
-  const expanded = isPoolExpanded(pool.data.id, totalPools);
-  const canToggle = expandable && totalPools > 1;
-  const displayProps = { showSparklines: general.showSparklines, useAbbreviatedUnits: general.useAbbreviatedUnits, diskSpeedDecimals: zfs.decimals.diskSpeed };
-
-  const handleClick = () => {
-    if (canToggle) {
-      togglePoolExpanded(pool.data.id);
+/**
+ * Nested DataTable for vdev and disk rows within an expanded pool.
+ * Vdevs with disk children render a DiskSubTable via renderDetailPanel.
+ */
+const VdevDiskSubTable = memo(function VdevDiskSubTable({
+  vdevsAndDisks,
+  columns,
+  isVdevExpanded,
+  toggleVdevExpanded,
+}: Readonly<{
+  vdevsAndDisks: ZFSTableRow[];
+  columns: ColumnDef<ZFSTableRow, unknown>[];
+  isVdevExpanded: (id: string) => boolean;
+  toggleVdevExpanded: (id: string) => void;
+}>) {
+  const vdevExpanded = useMemo<ExpandedState>(() => {
+    const state: Record<string, boolean> = {};
+    for (const row of vdevsAndDisks) {
+      if (row.type === 'vdev' && row.canExpand) {
+        state[row.id] = isVdevExpanded(row.id);
+      }
     }
-  };
+    return state;
+  }, [vdevsAndDisks, isVdevExpanded]);
 
-  const chipEl = badge ? (
-    <Chip size="small" variant="filled" label={badge.label} />
-  ) : null;
+  const handleVdevExpandedChange = useCallback(
+    (newExpanded: ExpandedState) => {
+      if (typeof newExpanded === 'boolean') return;
+      const current = vdevExpanded as Record<string, boolean>;
+      for (const [id, value] of Object.entries(newExpanded)) {
+        if (value !== (current[id] ?? false)) {
+          toggleVdevExpanded(id);
+        }
+      }
+      for (const id of Object.keys(current)) {
+        if (current[id] && !(id in newExpanded)) {
+          toggleVdevExpanded(id);
+        }
+      }
+    },
+    [vdevExpanded, toggleVdevExpanded],
+  );
 
-  const vdevs = Array.from(pool.vdevs.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
-  const individualDisks = Array.from(pool.individualDisks.values()).sort((a, b) => a.data.name.localeCompare(b.data.name));
+  /** Vdev detail panel: a nested DataTable of disk rows */
+  const renderVdevDetail = useCallback(
+    (row: ZFSTableRow): ReactNode => {
+      if (row.type !== 'vdev' || !row.canExpand || !row.children?.length) return null;
+      return (
+        <DiskSubTable
+          disks={row.children}
+          columns={columns}
+        />
+      );
+    },
+    [columns],
+  );
 
   return (
-    <>
-      <div
-        onClick={canToggle ? handleClick : undefined}
-        onKeyDown={canToggle ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } } : undefined}
-        role={canToggle ? 'button' : undefined}
-        tabIndex={canToggle ? 0 : undefined}
-        aria-expanded={canToggle ? expanded : undefined}
-        className={`${ZFS_GRID} items-center transition-colors duration-150 ${
-          canToggle ? 'cursor-pointer' : 'cursor-default'
-        } ${expanded ? 'bg-[var(--mui-palette-action-hover)]' : ''}`}
-      >
-        <div className="px-3 py-2 flex items-center gap-2 overflow-hidden">
-          {canToggle && (
-            <ChevronRight
-              size={18}
-              className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-            />
-          )}
-          <span className="font-bold truncate">{pool.data.name}</span>
-          {badge?.tooltip ? (
-            <Tooltip title={badge.tooltip} arrow placement="bottom-end">
-              {chipEl!}
-            </Tooltip>
-          ) : chipEl}
-        </div>
-        <ZFSMetrics data={pool.data} {...displayProps} />
-      </div>
-
-      {expandable && (
-        <Collapse in={expanded} unmountOnExit>
-          <div className="bg-[var(--mui-palette-action-hover)] border-b border-[var(--mui-palette-divider)]">
-            {isSingleVdevMultiDisk ? (
-              vdevs[0]?.disks && Array.from(vdevs[0].disks.values()).map((disk) => (
-                <DiskRow key={disk.data.id} disk={disk.data} indent={1} {...displayProps} />
-              ))
-            ) : (
-              <>
-                {vdevs.map((vdev) => (
-                  <VdevRow key={vdev.data.id} vdev={vdev} {...displayProps} />
-                ))}
-                {individualDisks.map((disk) => (
-                  <DiskRow key={disk.data.id} disk={disk.data} indent={1} {...displayProps} />
-                ))}
-              </>
-            )}
-          </div>
-        </Collapse>
-      )}
-    </>
+    <DataTable
+      data={vdevsAndDisks}
+      columns={columns}
+      getRowId={(row) => row.id}
+      renderDetailPanel={renderVdevDetail}
+      expandedState={vdevExpanded}
+      onExpandedChange={handleVdevExpandedChange}
+      enableSorting={false}
+      showHeader={false}
+    />
   );
+});
+
+/**
+ * Leaf-level DataTable for disk rows within an expanded vdev.
+ * No expansion — just renders disk rows.
+ */
+const DiskSubTable = memo(function DiskSubTable({
+  disks,
+  columns,
+}: Readonly<{
+  disks: ZFSTableRow[];
+  columns: ColumnDef<ZFSTableRow, unknown>[];
+}>) {
+  return (
+    <DataTable
+      data={disks}
+      columns={columns}
+      getRowId={(row) => row.id}
+      enableSorting={false}
+      showHeader={false}
+    />
+  );
+});
+
+/**
+ * Build a host-level tree row with pool children from the ZFS hierarchy.
+ */
+function buildHostRow(host: ZFSHostStats, totalHosts: number): ZFSTableRow {
+  const a = host.aggregated;
+  const totalPools = host.pools.size;
+  const sortedPools = Array.from(host.pools.values()).sort((a, b) =>
+    a.data.name.localeCompare(b.data.name),
+  );
+
+  const children = sortedPools.map((pool) => buildPoolRow(pool, totalPools));
+
+  return {
+    type: 'host',
+    id: `host:${host.hostName}`,
+    name: host.hostName,
+    indent: 0,
+    capacityAlloc: a.capacityAlloc,
+    capacityFree: a.capacityFree,
+    readOpsPerSec: a.readOpsPerSec,
+    writeOpsPerSec: a.writeOpsPerSec,
+    readBytesPerSec: a.readBytesPerSec,
+    writeBytesPerSec: a.writeBytesPerSec,
+    badge: { label: `${a.poolCount} pool${a.poolCount === 1 ? '' : 's'}` },
+    canExpand: totalHosts > 1 && totalPools > 0,
+    totalHosts,
+    children,
+  };
 }
 
-// ─── Vdev Row ───────────────────────────────────────────────────────────────────
+/**
+ * Build a pool-level tree row with vdev/disk children.
+ * Preserves the original table's badge and vdev-skip logic.
+ */
+function buildPoolRow(pool: PoolStats, totalPools: number): ZFSTableRow {
+  const vdevs = Array.from(pool.vdevs.values()).sort((a, b) =>
+    a.data.name.localeCompare(b.data.name),
+  );
+  const individualDisks = Array.from(pool.individualDisks.values()).sort((a, b) =>
+    a.data.name.localeCompare(b.data.name),
+  );
 
-interface DisplayProps {
-  showSparklines: boolean;
-  useAbbreviatedUnits: boolean;
-  diskSpeedDecimals: boolean;
-}
+  const singleVdev = vdevs.length === 1 && individualDisks.length === 0;
+  const isSingleDiskPool =
+    (singleVdev && vdevs[0].disks.size <= 1) ||
+    (vdevs.length === 0 && individualDisks.length === 1);
+  const isSingleVdevMultiDisk = singleVdev && vdevs[0].disks.size > 1;
 
-function VdevRow({ vdev, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: { vdev: VdevStats } & DisplayProps) {
-  const { isVdevExpanded, toggleVdevExpanded } = useSettings();
-  const hasDisks = vdev.disks.size > 0;
-  const expanded = isVdevExpanded(vdev.data.id);
+  let badge: { label: string; tooltip?: string } | undefined;
+  if (isSingleDiskPool) {
+    const tooltipName = singleVdev
+      ? Array.from(vdevs[0].disks.values())[0]?.data.name ?? vdevs[0].data.name
+      : individualDisks[0]?.data.name;
+    badge = { label: 'single disk', tooltip: tooltipName };
+  } else if (singleVdev) {
+    badge = { label: vdevs[0].data.name };
+  }
 
-  const handleClick = () => {
-    if (hasDisks) {
-      toggleVdevExpanded(vdev.data.id);
+  const expandable = !isSingleDiskPool;
+  let children: ZFSTableRow[] | undefined;
+
+  if (expandable) {
+    if (isSingleVdevMultiDisk) {
+      // Skip the vdev level, show disks directly under pool
+      const vdevDisks = Array.from(vdevs[0].disks.values()).sort((a, b) =>
+        a.data.name.localeCompare(b.data.name),
+      );
+      children = vdevDisks.map((disk) => buildDiskRow(disk.data.id, disk.data.name, disk.data, 0));
+    } else {
+      const vdevChildren = vdevs.map((vdev) => buildVdevRow(vdev));
+      const diskChildren = individualDisks.map((disk) =>
+        buildDiskRow(disk.data.id, disk.data.name, disk.data, 0),
+      );
+      children = [...vdevChildren, ...diskChildren];
     }
+  }
+
+  return {
+    type: 'pool',
+    id: pool.data.id,
+    name: pool.data.name,
+    indent: 0,
+    capacityAlloc: pool.data.capacity.alloc,
+    capacityFree: pool.data.capacity.free,
+    readOpsPerSec: pool.data.rates.readOpsPerSec,
+    writeOpsPerSec: pool.data.rates.writeOpsPerSec,
+    readBytesPerSec: pool.data.rates.readBytesPerSec,
+    writeBytesPerSec: pool.data.rates.writeBytesPerSec,
+    utilizationPercent: pool.data.rates.utilizationPercent,
+    badge,
+    canExpand: expandable,
+    totalPools,
+    children,
   };
-
-  return (
-    <>
-      <div
-        onClick={hasDisks ? handleClick : undefined}
-        onKeyDown={hasDisks ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } } : undefined}
-        role={hasDisks ? 'button' : undefined}
-        tabIndex={hasDisks ? 0 : undefined}
-        aria-expanded={hasDisks ? expanded : undefined}
-        className={`${ZFS_GRID} items-center ${hasDisks ? 'cursor-pointer' : 'cursor-default'}`}
-      >
-        <div className="py-2 pr-3 flex items-center gap-2 overflow-hidden" style={{ paddingLeft: '2rem' }}>
-          {hasDisks && (
-            <ChevronRight
-              size={16}
-              className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-            />
-          )}
-          <span className="text-sm truncate">{vdev.data.name}</span>
-        </div>
-        <ZFSMetrics data={vdev.data} showCapacity={vdev.data.capacity.alloc > 0} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
-      </div>
-
-      {hasDisks && (
-        <Collapse in={expanded} unmountOnExit>
-          {Array.from(vdev.disks.values()).map((disk) => (
-            <DiskRow key={disk.data.id} disk={disk.data} indent={2} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
-          ))}
-        </Collapse>
-      )}
-    </>
-  );
 }
 
-// ─── Disk Row ───────────────────────────────────────────────────────────────────
-
-function DiskRow({ disk, indent, showSparklines, useAbbreviatedUnits, diskSpeedDecimals }: { disk: ZFSIOStatWithRates; indent: number } & DisplayProps) {
-  return (
-    <div
-      className={`${ZFS_GRID} items-center`}
-    >
-      <div className="py-2 pr-3 overflow-hidden" style={{ paddingLeft: `${indent * 2}rem` }}>
-        <span className="text-sm truncate">{disk.name}</span>
-      </div>
-      <ZFSMetrics data={disk} showCapacity={false} showSparklines={showSparklines} useAbbreviatedUnits={useAbbreviatedUnits} diskSpeedDecimals={diskSpeedDecimals} />
-    </div>
+/**
+ * Build a vdev-level tree row with disk children.
+ */
+function buildVdevRow(vdev: VdevStats): ZFSTableRow {
+  const sortedDisks = Array.from(vdev.disks.values()).sort((a, b) =>
+    a.data.name.localeCompare(b.data.name),
   );
+
+  const hasDisks = sortedDisks.length > 0;
+  const children = hasDisks
+    ? sortedDisks.map((disk) => buildDiskRow(disk.data.id, disk.data.name, disk.data, 0))
+    : undefined;
+
+  return {
+    type: 'vdev',
+    id: `vdev:${vdev.data.id}`,
+    name: vdev.data.name,
+    indent: 0,
+    capacityAlloc: vdev.data.capacity.alloc > 0 ? vdev.data.capacity.alloc : undefined,
+    capacityFree: vdev.data.capacity.alloc > 0 ? vdev.data.capacity.free : undefined,
+    readOpsPerSec: vdev.data.rates.readOpsPerSec,
+    writeOpsPerSec: vdev.data.rates.writeOpsPerSec,
+    readBytesPerSec: vdev.data.rates.readBytesPerSec,
+    writeBytesPerSec: vdev.data.rates.writeBytesPerSec,
+    utilizationPercent: vdev.data.rates.utilizationPercent,
+    canExpand: hasDisks,
+    children,
+  };
+}
+
+/**
+ * Build a disk leaf row (no children).
+ */
+function buildDiskRow(
+  id: string,
+  name: string,
+  data: { rates: { readOpsPerSec: number; writeOpsPerSec: number; readBytesPerSec: number; writeBytesPerSec: number; utilizationPercent: number } },
+  indent: number,
+): ZFSTableRow {
+  return {
+    type: 'disk',
+    id: `disk:${id}`,
+    name,
+    indent,
+    readOpsPerSec: data.rates.readOpsPerSec,
+    writeOpsPerSec: data.rates.writeOpsPerSec,
+    readBytesPerSec: data.rates.readBytesPerSec,
+    writeBytesPerSec: data.rates.writeBytesPerSec,
+    utilizationPercent: data.rates.utilizationPercent,
+    canExpand: false,
+  };
 }

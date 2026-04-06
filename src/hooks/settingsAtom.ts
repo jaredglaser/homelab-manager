@@ -123,8 +123,8 @@ export function parseExpandedSet(raw: string | undefined): Set<string> {
     if (Array.isArray(parsed)) {
       return new Set(parsed.filter((h): h is string => typeof h === 'string'));
     }
-  } catch {
-    // Invalid JSON - return empty set
+  } catch (err) {
+    console.error('Failed to parse expanded set from settings:', err);
   }
   return new Set();
 }

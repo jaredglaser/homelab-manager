@@ -1,5 +1,22 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
+import type { ComponentProps } from 'react';
+
+// Stub DualSeriesChart to call formatValue so the formatter props are actually exercised
+mock.module('@/components/docker/DualSeriesChart', () => ({
+  default: ({
+    title,
+    formatValue,
+  }: {
+    title?: string;
+    formatValue?: (v: number) => string;
+  }) => (
+    <div data-testid="dual-series-chart">
+      {title && <span>{title}</span>}
+      {formatValue && <span data-testid="format-value-output">{formatValue(1000)}</span>}
+    </div>
+  ),
+}));
 
 // Mock echarts-for-react
 mock.module('echarts-for-react', () => ({
@@ -47,7 +64,7 @@ mock.module('@/hooks/useContainerLogs', () => ({
   useContainerLogs: () => ({ isConnected: true, error: null }),
 }));
 
-const { default: ContainerChartsCard } = await import('../ContainerChartsCard');
+const { default: ContainerDetailPanel } = await import('../ContainerDetailPanel');
 
 const sampleDataPoints = [
   {
@@ -70,51 +87,47 @@ const sampleDataPoints = [
   },
 ];
 
-describe('ContainerChartsCard', () => {
+function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPanel>> = {}) {
+  return render(
+    <ContainerDetailPanel
+      dataPoints={sampleDataPoints}
+      containerId="abc123"
+      host="server"
+      {...overrides}
+    />,
+  );
+}
+
+describe('ContainerDetailPanel', () => {
   it('renders two chart sections', () => {
-    render(
-      <ContainerChartsCard
-        dataPoints={sampleDataPoints}
-        containerId="abc123"
-        host="server"
-      />,
-    );
-    expect(screen.getByText('CPU & Memory')).toBeTruthy();
-    expect(screen.getByText('Network I/O')).toBeTruthy();
+    renderPanel();
+    screen.getByText('CPU & Memory');
+    screen.getByText('Network I/O');
   });
 
   it('renders the log viewer', () => {
-    render(
-      <ContainerChartsCard
-        dataPoints={sampleDataPoints}
-        containerId="abc123"
-        host="server"
-      />,
-    );
-    expect(screen.getByText('Logs')).toBeTruthy();
+    renderPanel();
+    screen.getByText('Logs');
   });
 
-  it('renders two echarts instances', () => {
-    render(
-      <ContainerChartsCard
-        dataPoints={sampleDataPoints}
-        containerId="abc123"
-        host="server"
-      />,
-    );
-    const charts = screen.getAllByTestId('echarts-mock');
+  it('renders two chart instances', () => {
+    renderPanel();
+    const charts = screen.getAllByTestId('dual-series-chart');
     expect(charts).toHaveLength(2);
   });
 
+  it('formats CPU/memory values as percentages and network as bit rate', () => {
+    renderPanel();
+    // The mock calls formatValue(1000) for each chart.
+    // formatPercent(1000) = formatAsPercent(1000/100) = "1000.00%"
+    // formatNetwork(1000) = formatBitsSIUnits(8000, true) = "8.00 Kbps"
+    screen.getByText('1000.00%');
+    screen.getByText('8.00 Kbps');
+  });
+
   it('renders with empty data points', () => {
-    render(
-      <ContainerChartsCard
-        dataPoints={[]}
-        containerId="abc123"
-        host="server"
-      />,
-    );
-    expect(screen.getByText('CPU & Memory')).toBeTruthy();
-    expect(screen.getByText('Logs')).toBeTruthy();
+    renderPanel({ dataPoints: [] });
+    screen.getByText('CPU & Memory');
+    screen.getByText('Logs');
   });
 });
