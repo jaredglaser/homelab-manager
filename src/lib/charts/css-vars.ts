@@ -1,9 +1,5 @@
-/**
- * Read a CSS custom property from the document root.
- * Returns '' during SSR (no document).
- */
+/** Read a CSS custom property from the document root. */
 export function getCssVar(name: string): string {
-  if (typeof document === 'undefined') return '';
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
