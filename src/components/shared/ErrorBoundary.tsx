@@ -48,6 +48,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <p className="text-sm font-medium mb-1">Something went wrong</p>
             <p className="text-xs opacity-70">{this.state.error?.message || 'Unknown error'}</p>
             <button
+              type="button"
               className="mt-2 text-xs underline opacity-70 hover:opacity-100"
               onClick={() => this.resetErrorBoundary()}
             >

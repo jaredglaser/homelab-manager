@@ -19,6 +19,13 @@ class SettingsBroadcastService {
   private stopped = true;
   private reconnecting = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * In-flight startListening() promise. Serializes concurrent callers
+   * (e.g., a subscribe() and a reconnect timer firing simultaneously)
+   * so we never end up with two pending pool.connect() calls leaking
+   * a listenerClient.
+   */
+  private startInFlight: Promise<boolean> | null = null;
 
   subscribe(callback: SettingsCallback): () => void {
     this.subscribers.add(callback);
@@ -61,8 +68,17 @@ class SettingsBroadcastService {
   }
 
   /** Attempt to establish the LISTEN connection. Returns true on success. */
-  private async startListening(): Promise<boolean> {
+  private startListening(): Promise<boolean> {
+    if (this.startInFlight) return this.startInFlight;
+    this.startInFlight = this.doStartListening().finally(() => {
+      this.startInFlight = null;
+    });
+    return this.startInFlight;
+  }
+
+  private async doStartListening(): Promise<boolean> {
     this.stopped = false;
+    let poolClient: PoolClient | null = null;
 
     try {
       const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -71,7 +87,7 @@ class SettingsBroadcastService {
       const config = loadDatabaseConfig();
       const client = await databaseConnectionManager.getClient(config);
       const pool = client.getPool();
-      const poolClient = await pool.connect();
+      poolClient = await pool.connect();
 
       if (this.stopped) {
         try { poolClient.release(); } catch { /* best-effort */ }
@@ -99,7 +115,48 @@ class SettingsBroadcastService {
       return true;
     } catch (error) {
       console.error('[SettingsBroadcastService] Failed to start listener:', error);
+      // If we acquired a poolClient before failing (e.g. LISTEN query threw),
+      // make sure it's cleaned up so we don't leak a tracked listenerClient.
+      if (poolClient && this.listenerClient === poolClient) {
+        await this.cleanupListenerClient();
+      } else if (poolClient) {
+        try { poolClient.release(true); } catch { /* best-effort */ }
+      }
+      // Schedule a retry so the service recovers from initial connect failures
+      // (matching the runtime error handler's behavior).
+      if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
+        this.reconnecting = true;
+        this.scheduleReconnect();
+      }
       return false;
+    }
+  }
+
+  /** Re-send full settings state to every active subscriber. */
+  private async resyncAllSubscribers(): Promise<void> {
+    if (this.subscribers.size === 0) return;
+    try {
+      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+      const { SettingsRepository } = await import(
+        '@/lib/database/repositories/settings-repository'
+      );
+
+      const config = loadDatabaseConfig();
+      const client = await databaseConnectionManager.getClient(config);
+      const repo = new SettingsRepository(client.getPool());
+      const all = await repo.getAll();
+      const message: SettingsSSEMessage = { type: 'init', settings: Object.fromEntries(all) };
+
+      for (const cb of this.subscribers) {
+        try {
+          cb(message);
+        } catch (err) {
+          console.error('[SettingsBroadcastService] Subscriber callback failed during resync:', err);
+        }
+      }
+    } catch (error) {
+      console.error('[SettingsBroadcastService] Failed to resync subscribers:', error);
     }
   }
 
@@ -111,8 +168,14 @@ class SettingsBroadcastService {
         const ok = await this.startListening();
         if (ok) {
           this.reconnecting = false;
+          // Settings may have changed during the disconnect window — push the
+          // current state to all subscribers so their cached view is fresh.
+          await this.resyncAllSubscribers();
         } else {
-          // Still reconnecting — retry again after the same backoff
+          // Still reconnecting — retry again after the same backoff.
+          // Note: startListening() may have already scheduled a retry via its
+          // own catch block; scheduleReconnect() is idempotent thanks to the
+          // reconnectTimer guard, so calling it again is safe.
           this.scheduleReconnect();
         }
       } else {

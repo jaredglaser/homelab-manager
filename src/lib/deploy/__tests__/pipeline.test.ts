@@ -270,6 +270,37 @@ describe('DeployPipeline', () => {
       expect(deployCall[0].envContent).toBe("PEM_KEY='line1line2line3'");
     });
 
+    it('strips outer quotes from existing env values even when followed by CR', async () => {
+      // FOO="bar"\r — windows line ending or stray CR after a quoted value.
+      // The quote check must ignore trailing CR/LF so the outer quotes get stripped,
+      // otherwise we'd end up with FOO='"bar"' (double-quoted) in the rendered env.
+      // Compose must reference a variable so the pipeline routes through buildEnvContent.
+      const composeWithVars = 'services:\n  app:\n    environment:\n      - TOKEN=${API_TOKEN}';
+      const requestWithEnv = {
+        ...testRequest,
+        composeContent: composeWithVars,
+        envContent: 'FOO="bar"\r\nBAZ=qux',
+      };
+      const resolver: SecretResolver = {
+        resolve: mock().mockResolvedValue({ API_TOKEN: 'tok' }),
+      };
+      const mockAgent = createMockAgentClient(true);
+      const capturedFactory = mock().mockReturnValue(mockAgent);
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory: capturedFactory,
+        secretResolver: resolver,
+        tokenResolver: () => 'test-token',
+      });
+
+      await pipeline.execute(requestWithEnv);
+      const deployCall = (mockAgent.deploy as ReturnType<typeof mock>).mock.calls[0] as [any];
+      expect(deployCall[0].envContent).toContain("FOO='bar'");
+      expect(deployCall[0].envContent).not.toContain('FOO=\'"bar"\'');
+      expect(deployCall[0].envContent).toContain("BAZ='qux'");
+    });
+
     it('deduplicates pending deploys for the same stack', async () => {
       const result = await pipeline.execute(testRequest);
       expect(result.status).toBe('succeeded');

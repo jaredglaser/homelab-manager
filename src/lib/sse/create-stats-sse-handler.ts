@@ -20,13 +20,28 @@ export function createStatsSseHandler(source: StatsSource) {
         // SSE heartbeat forces Nitro to flush response headers immediately
         controller.enqueue(encoder.encode(': ok\n\n'));
 
+        let unsubscribe: () => void = () => {};
+
+        // Tear down polling + close the stream once the consumer is gone
+        // (either via request abort, or because controller.enqueue threw).
+        const teardown = () => {
+          if (closed) return;
+          closed = true;
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            // Already closed
+          }
+        };
+
         const sendData = (rows: unknown[]) => {
           if (closed) return;
           try {
             const message = `data: ${JSON.stringify(rows)}\n\n`;
             controller.enqueue(encoder.encode(message));
           } catch {
-            closed = true;
+            teardown();
           }
         };
 
@@ -35,29 +50,20 @@ export function createStatsSseHandler(source: StatsSource) {
           try {
             controller.enqueue(encoder.encode(`event: stats_error\ndata: {}\n\n`));
           } catch {
-            closed = true;
+            teardown();
           }
         };
 
-        let unsubscribe: () => void = () => {};
         try {
           unsubscribe = statsPollService.subscribe(source, sendData, sendError);
-        } catch (err) {
+        } catch {
           sendError();
           closed = true;
           try { controller.close(); } catch { /* already closed */ }
           return;
         }
 
-        request.signal.addEventListener('abort', () => {
-          closed = true;
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            // Already closed
-          }
-        });
+        request.signal.addEventListener('abort', teardown);
       },
     });
 

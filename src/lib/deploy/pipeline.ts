@@ -265,12 +265,13 @@ function buildEnvContent(existingEnv: string, secrets: Record<string, string>): 
     const eqIdx = line.indexOf('=');
     const key = line.slice(0, eqIdx).trim();
     const rawValue = line.slice(eqIdx + 1);
-    // Strip a single pair of matching outer quotes to avoid double-quoting
-    const unquoted =
-      (rawValue.startsWith("'") && rawValue.endsWith("'")) ||
-      (rawValue.startsWith('"') && rawValue.endsWith('"'))
-        ? rawValue.slice(1, -1)
-        : rawValue;
+    // Strip trailing CR/LF before checking quotes so values like FOO="bar"\r
+    // still get their outer quotes stripped (intentional trailing spaces preserved).
+    const valueForQuoteCheck = rawValue.replace(/[\r\n]+$/, '');
+    const hasMatchingQuotes =
+      (valueForQuoteCheck.startsWith("'") && valueForQuoteCheck.endsWith("'")) ||
+      (valueForQuoteCheck.startsWith('"') && valueForQuoteCheck.endsWith('"'));
+    const unquoted = hasMatchingQuotes ? valueForQuoteCheck.slice(1, -1) : valueForQuoteCheck;
     const sanitized = unquoted.replaceAll(/[\r\n\0]/g, '').replaceAll("'", "'\\''");
     return `${key}='${sanitized}'`;
   });
