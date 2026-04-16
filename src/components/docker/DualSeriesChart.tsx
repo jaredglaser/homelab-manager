@@ -1,10 +1,10 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useRef } from 'react';
 import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useSettings } from '@/hooks/useSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
-import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
+import { resolveChartColors, resolveChartChromeColors, type ChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis, type YAxisMode } from '@/lib/charts/y-axis';
 
 interface DataPoint {
@@ -32,6 +32,7 @@ export function getChartOption(
   formatValue: (value: number) => string,
   use12HourTime: boolean,
   windowMs: number,
+  chrome: ChartChromeColors,
 ): EChartsOption {
   const now = Date.now();
 
@@ -47,7 +48,6 @@ export function getChartOption(
 
   const colors0 = resolveChartColors(series[0].colorVar);
   const colors1 = resolveChartColors(series[1].colorVar);
-  const chrome = resolveChartChromeColors();
 
   const timeFormatOpts: Intl.DateTimeFormatOptions = {
     hour: '2-digit',
@@ -175,17 +175,14 @@ export default memo(function DualSeriesChart({
 }: DualSeriesChartProps) {
   const { general, docker } = useSettings();
   const windowMs = docker.chartWindowSeconds * 1000;
-  const option = useMemo(
-    () => getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs),
-    [series, yAxisMode, formatValue, general.use12HourTime, windowMs],
-  );
-  const chartRef = useRef<ReactECharts>(null);
   const chrome = resolveChartChromeColors();
+  const option = getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome);
+  const chartRef = useRef<ReactECharts>(null);
 
   useEChartTimeScroll(chartRef, windowMs);
 
   return (
-    <Paper elevation={0} className="flex-1 min-h-0 flex flex-col rounded-sm p-2 !bg-[var(--mui-palette-background-chartBg)]">
+    <Paper elevation={0} className="h-full flex flex-col rounded-sm p-2 !bg-[var(--mui-palette-background-chartBg)]">
       <div className="flex items-center justify-between mb-0.5 shrink-0">
         <Typography variant="body2" className="font-medium">{title}</Typography>
         <div className="flex gap-3">
@@ -200,14 +197,16 @@ export default memo(function DualSeriesChart({
           })}
         </div>
       </div>
+      <div className="flex-1 min-h-0">
         <ReactECharts
           ref={chartRef}
           option={option}
           opts={{ renderer: 'canvas' }}
           notMerge={false}
           lazyUpdate={true}
-          style={{ height: '100%', minHeight: 0 }}
+          className="!h-full !w-full"
         />
+      </div>
     </Paper>
   );
 });

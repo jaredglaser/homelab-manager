@@ -528,16 +528,16 @@ const HostNameCell = memo(function HostNameCell({
       {canToggle && (
         <ChevronRight
           size={18}
-          className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
       )}
-      <Server size={18} />
+      <Server size={18} className="flex-shrink-0" />
       {row.isStale && (
         <WifiOff size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
       )}
       <span className="font-bold">{row.hostName}</span>
       {a && (
-        <Chip size="small" variant="filled" label={`${a.containerCount} container${a.containerCount !== 1 ? 's' : ''}`} />
+        <Chip size="small" variant="filled" label={`${a.containerCount} container${a.containerCount === 1 ? '' : 's'}`} />
       )}
       {a && a.staleContainerCount > 0 && !row.isStale && (
         <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
@@ -571,9 +571,8 @@ function ContainerNameCell({
     setIconError(false);
   }, [iconUrl]);
 
-  const lastUpdated = row.chartData && row.chartData.length > 0
-    ? new Date(row.chartData[row.chartData.length - 1].time)
-    : undefined;
+  const lastChartRow = row.chartData?.at(-1);
+  const lastUpdated = lastChartRow ? new Date(lastChartRow.time) : undefined;
   const lastUpdatedMs = lastUpdated?.getTime() ?? 0;
   const { indicatorRef, pingRef, dotRef } = usePulseIndicator(lastUpdatedMs);
 
@@ -592,7 +591,7 @@ function ContainerNameCell({
       <div className="flex items-center gap-2">
         <ChevronRight
           size={16}
-          className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
 
         {/* Pulse indicator */}

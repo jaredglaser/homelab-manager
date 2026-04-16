@@ -1,6 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
 import { lazy } from 'react'
 import AppShell from '@/components/AppShell'
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 
 import '../App.css'
 import '@fontsource/inter/index.css'
@@ -52,7 +53,9 @@ export const Route = createRootRoute({
 function RootLayout() {
   return (
     <AppShell>
-      <Outlet />
+      <ErrorBoundary name="root">
+        <Outlet />
+      </ErrorBoundary>
     </AppShell>
   )
 }

@@ -129,49 +129,10 @@ export async function triggerStackDeploy(params: {
   const { default: git } = await import('isomorphic-git');
   const fs = await import('node:fs');
   const { UITriggerBuilder } = await import('@/lib/deploy/builders/ui-trigger-builder');
-  const { DeployPipeline } = await import('@/lib/deploy/pipeline');
-  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
-  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
-  const { AgentClient } = await import('@/lib/clients/agent-client');
-  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-  const { loadOpenBaoConfig, isOpenBaoConfigured } = await import('@/lib/config/openbao-config');
-
-  const dbConfig = loadDatabaseConfig();
-  const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  const pool = dbClient.getPool();
-
-  let baoClient: InstanceType<typeof OpenBaoClient> | null = null;
-  if (isOpenBaoConfigured()) {
-    baoClient = new OpenBaoClient(loadOpenBaoConfig());
-  }
+  const { createDeployPipeline } = await import('@/lib/deploy/pipeline-factory');
 
   const builder = new UITriggerBuilder();
-  const pipeline = new DeployPipeline({
-    deployRepo: new DeployRepository(pool),
-    hostsRepo: new ManagedHostsRepository(pool),
-    agentClientFactory: (url, token) => new AgentClient({ agentUrl: url, agentToken: token }),
-    secretResolver: {
-      async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
-        if (variables.length === 0 || !baoClient) return {};
-        const entries = await Promise.all(
-          variables.map(async (v) => [v, await baoClient!.getSecret(stack, v)] as const),
-        );
-        const secrets: Record<string, string> = {};
-        for (const [v, val] of entries) {
-          if (val !== null) secrets[v] = val;
-        }
-        return secrets;
-      },
-    },
-    tokenResolver: async (host) => {
-      if (!baoClient) throw new Error('OpenBao not configured — cannot resolve agent token');
-      const token = await baoClient.getHostSecret(host.name, 'agent_token');
-      if (!token) throw new Error(`No agent token found in OpenBao for host "${host.name}"`);
-      return token;
-    },
-  });
+  const { pipeline } = await createDeployPipeline();
 
   if (params.commitSha) {
     // Rollback: read compose from the historical commit and use buildRollback

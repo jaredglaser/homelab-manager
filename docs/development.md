@@ -9,21 +9,18 @@
 
 ## Environment Setup
 
-A `.env` file is required in the project root. To protect it from being lost during `git clean` or worktree operations, store the real file outside the repo and symlink it:
+A `.env` file is required. To protect it from being lost during `git clean` or worktree operations, store the real file outside the repo at `~/.config/homelab-manager/.env` and link it into the project root:
 
 ```bash
 mkdir -p ~/.config/homelab-manager
 cp .env.example ~/.config/homelab-manager/.env
-ln -s ~/.config/homelab-manager/.env .env
+ln ~/.config/homelab-manager/.env .env   # hardlink (same filesystem only)
+# or: ln -s ~/.config/homelab-manager/.env .env
 ```
 
-If the symlink ever gets deleted (e.g., by `git clean`), recreate it:
+The `dev:local:*` scripts also pass `--env-file ~/.config/homelab-manager/.env` to compose so interpolation works even if the repo-side link is missing. Host-side `bun dev` still reads `.env` from the project root, so keep the link in place.
 
-```bash
-ln -s ~/.config/homelab-manager/.env .env
-```
-
-Edit `~/.config/homelab-manager/.env` (or equivalently `.env` — they're the same file) with your values.
+Edit `~/.config/homelab-manager/.env` with your values.
 
 ## Full Development Setup
 
@@ -130,7 +127,7 @@ Update the manifest and push:
 cat > manifest.yaml << 'EOF'
 stacks:
   samples:
-    host: dev-machine
+    host: localhost
     autoDeploy: false
 EOF
 git add -A
@@ -195,19 +192,6 @@ Stack compose files are stored in an in-app bare git repo served at `http://loca
 ---
 
 ## Alternative Setup Options
-
-### Full Docker Development
-
-All services in Docker, with HMR for the web server:
-
-```bash
-bun install
-bun run dev:docker:up       # Start all services in Docker
-bun run dev:docker:down     # Stop all Docker services
-bun run dev:docker:restart  # Recreate containers (picks up .env changes)
-bun run dev:docker:rebuild  # Full rebuild of all containers
-bun run dev:docker:wipe     # Remove all data (fresh database)
-```
 
 ### Manual (No Docker)
 

@@ -1,9 +1,9 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
-import { hostname } from 'node:os';
 
 const DEV_AGENT_URL = 'http://localhost:9090';
 const DEV_HEALTH_CHECK_URL = 'http://hlm-agent:9090';
+const DEV_DEFAULT_HOST_NAME = 'localhost';
 const HEALTH_CHECK_ATTEMPTS = 5;
 const HEALTH_CHECK_DELAY_MS = 2000;
 const OPENBAO_RETRY_ATTEMPTS = 10;
@@ -11,10 +11,10 @@ const OPENBAO_RETRY_DELAY_MS = 2000;
 
 /**
  * Resolve the dev host name from DEV_HOST_NAME env var,
- * falling back to the OS hostname.
+ * falling back to "localhost" so a natural manifest entry works out of the box.
  */
 function getDevHostName(): string {
-  return process.env.DEV_HOST_NAME || hostname();
+  return process.env.DEV_HOST_NAME || DEV_DEFAULT_HOST_NAME;
 }
 
 /**

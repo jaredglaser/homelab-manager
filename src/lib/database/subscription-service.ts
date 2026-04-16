@@ -2,7 +2,7 @@ import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { StatsRepository } from '@/lib/database/repositories/stats-repository';
 
-type StatsSource = 'docker' | 'zfs' | 'proxmox';
+export type StatsSource = 'docker' | 'zfs' | 'proxmox';
 type StatsCallback = (rows: unknown[]) => void;
 type StatsErrorCallback = () => void;
 
@@ -111,8 +111,9 @@ class StatsPollService {
             cb(rows); // send all rows including 200ms overlap - frontend Map deduplicates
           }
         }
-      } catch {
-        // Query failed or timed out - track consecutive failures
+      } catch (err) {
+        console.error(`[StatsPollService] Poll failed for source "${source}":`, err);
+        // Track consecutive failures
         const failures = (this.consecutiveFailures.get(source) ?? 0) + 1;
         this.consecutiveFailures.set(source, failures);
 

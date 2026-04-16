@@ -81,55 +81,8 @@ export async function processPostReceive(
   // Wrap in try/catch so pipeline failures never propagate — the post-receive
   // hook must always complete so the git push is not blocked.
   try {
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
-    const { ManagedHostsRepository } = await import(
-      '@/lib/database/repositories/managed-hosts-repository'
-    );
-    const { AgentClient } = await import('@/lib/clients/agent-client');
-    const { DeployPipeline } = await import('@/lib/deploy/pipeline');
-    const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-    const { loadOpenBaoConfig, isOpenBaoConfigured } = await import(
-      '@/lib/config/openbao-config'
-    );
-
-    const dbConfig = loadDatabaseConfig();
-    const dbClient = await databaseConnectionManager.getClient(dbConfig);
-    const pool = dbClient.getPool();
-
-    let baoClient: InstanceType<typeof OpenBaoClient> | null = null;
-    if (isOpenBaoConfigured()) {
-      baoClient = new OpenBaoClient(loadOpenBaoConfig());
-    }
-
-    const pipeline = new DeployPipeline({
-      deployRepo: new DeployRepository(pool),
-      hostsRepo: new ManagedHostsRepository(pool),
-      agentClientFactory: (url, token) => new AgentClient({ agentUrl: url, agentToken: token }),
-      secretResolver: {
-        async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
-          if (variables.length === 0 || !baoClient) return {};
-          const entries = await Promise.all(
-            variables.map(async (v) => {
-              const val = await baoClient.getSecret(stack, v);
-              return [v, val] as const;
-            }),
-          );
-          const secrets: Record<string, string> = {};
-          for (const [key, val] of entries) {
-            if (val !== null) secrets[key] = val;
-          }
-          return secrets;
-        },
-      },
-      tokenResolver: async (host) => {
-        if (!baoClient) throw new Error('OpenBao not configured — cannot resolve agent token');
-        const token = await baoClient.getHostSecret(host.name, 'agent_token');
-        if (!token) throw new Error(`No agent token found in OpenBao for host "${host.name}"`);
-        return token;
-      },
-    });
+    const { createDeployPipeline } = await import('@/lib/deploy/pipeline-factory');
+    const { pipeline } = await createDeployPipeline();
 
     // Group deploys by host — sequential within each host, parallel across hosts
     const byHost = new Map<string, typeof deployRequests>();

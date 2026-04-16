@@ -18,7 +18,7 @@ export function initServer(): void {
   initialized = true;
 
   const shutdown = async () => {
-    console.log('[Server] Shutdown signal received, cleaning up...');
+    console.info('[Server] Shutdown signal received, cleaning up...');
 
     try {
       await statsPollService.stop();
@@ -26,7 +26,7 @@ export function initServer(): void {
       await stackStatusBroadcastService.stop();
       await databaseConnectionManager.closeAll();
 
-      console.log('[Server] Cleanup complete');
+      console.info('[Server] Cleanup complete');
       process.exit(0);
     } catch (err) {
       console.error('[Server] Error during cleanup:', err);
@@ -37,7 +37,7 @@ export function initServer(): void {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  console.log('[Server] Shutdown handlers registered');
+  console.info('[Server] Shutdown handlers registered');
 }
 
 // Auto-initialize when this module is imported on the server

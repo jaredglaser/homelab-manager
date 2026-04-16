@@ -268,13 +268,22 @@ describe('StatsRepository', () => {
   });
 
   describe('getZFSStatsHistory', () => {
-    it('should query with seconds parameter', async () => {
+    it('should use 1s bucket for short windows (≤ 300s)', async () => {
       await repo.getZFSStatsHistory(120);
 
       expect(mockPool.queries).toHaveLength(1);
       expect(mockPool.queries[0].sql).toContain('zfs_stats');
-      expect(mockPool.queries[0].sql).toContain('make_interval');
-      expect(mockPool.queries[0].params).toEqual([120]);
+      expect(mockPool.queries[0].sql).toContain('time_bucket');
+      expect(mockPool.queries[0].params).toEqual([120, 1]);
+    });
+
+    it('should use larger bucket for long windows to cap at ~300 data points', async () => {
+      await repo.getZFSStatsHistory(1800);
+
+      // bucketSeconds = Math.max(1, Math.ceil(1800 / 300)) = 6
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('time_bucket');
+      expect(mockPool.queries[0].params).toEqual([1800, 6]);
     });
   });
 
