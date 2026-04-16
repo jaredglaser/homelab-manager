@@ -1,555 +1,364 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import type Dockerode from 'dockerode';
-import { DockerRateCalculator } from '../rate-calculator';
+import {
+  DockerRateCalculator,
+  computeCpuPercent,
+  computeMemoryPercent,
+  sumNetworkBytes,
+  computeNetworkRates,
+  findBlkioBytes,
+  computeBlockIoRates,
+} from '../rate-calculator';
 
-let calculator: DockerRateCalculator;
-let now: number;
+// Narrow fixture builders — each returns a partial Dockerode.ContainerStats with only
+// the fields the helper under test actually reads. Casting to ContainerStats keeps the
+// helper signatures simple while letting tests stay focused on what matters.
 
-// Helper to create mock Docker stats
-function createMockStats(overrides: Partial<Dockerode.ContainerStats> = {}): Dockerode.ContainerStats {
+function withCpu(total_usage: number, system_cpu_usage: number, online_cpus = 4): Dockerode.ContainerStats {
   return {
-    read: new Date().toISOString(),
-    preread: new Date(Date.now() - 1000).toISOString(),
-    pids_stats: { current: 10 },
+    cpu_stats: {
+      cpu_usage: { total_usage },
+      system_cpu_usage,
+      online_cpus,
+    },
+  } as unknown as Dockerode.ContainerStats;
+}
+
+function withMemory(usage: number | undefined, limit: number | undefined): Dockerode.ContainerStats {
+  return {
+    memory_stats: { usage, limit },
+  } as unknown as Dockerode.ContainerStats;
+}
+
+function withNetworks(
+  ifaces: Record<string, { rx_bytes?: number; tx_bytes?: number }> | undefined,
+): Dockerode.ContainerStats {
+  return { networks: ifaces } as unknown as Dockerode.ContainerStats;
+}
+
+function withBlkio(
+  entries: Array<{ op: string; value: number }> | undefined,
+): Dockerode.ContainerStats {
+  if (entries === undefined) return { blkio_stats: {} } as unknown as Dockerode.ContainerStats;
+  return {
+    blkio_stats: { io_service_bytes_recursive: entries },
+  } as unknown as Dockerode.ContainerStats;
+}
+
+describe('computeCpuPercent', () => {
+  it('returns (cpuDelta / systemDelta) * cpuCount * 100', () => {
+    // 200M / 1B * 4 * 100 = 80%
+    const prev = withCpu(1_000_000_000, 10_000_000_000, 4);
+    const curr = withCpu(1_200_000_000, 11_000_000_000, 4);
+    expect(computeCpuPercent(prev, curr)).toBeCloseTo(80, 1);
+  });
+
+  it('returns 0 when systemDelta is zero', () => {
+    const prev = withCpu(1_000_000_000, 10_000_000_000);
+    const curr = withCpu(1_200_000_000, 10_000_000_000);
+    expect(computeCpuPercent(prev, curr)).toBe(0);
+  });
+
+  it('returns 0 when systemDelta is negative', () => {
+    const prev = withCpu(1_000_000_000, 10_000_000_000);
+    const curr = withCpu(1_200_000_000, 9_000_000_000);
+    expect(computeCpuPercent(prev, curr)).toBe(0);
+  });
+
+  it('returns 0 when cpuDelta is negative (counter reset)', () => {
+    const prev = withCpu(1_200_000_000, 10_000_000_000);
+    const curr = withCpu(1_000_000_000, 11_000_000_000);
+    expect(computeCpuPercent(prev, curr)).toBe(0);
+  });
+
+  it('treats falsy online_cpus as 1', () => {
+    // 200M / 1B * 1 * 100 = 20%
+    const prev = withCpu(1_000_000_000, 10_000_000_000, 0);
+    const curr = withCpu(1_200_000_000, 11_000_000_000, 0);
+    expect(computeCpuPercent(prev, curr)).toBeCloseTo(20, 1);
+  });
+});
+
+describe('computeMemoryPercent', () => {
+  it('returns usage / limit * 100', () => {
+    expect(computeMemoryPercent(withMemory(512, 1024))).toBeCloseTo(50, 1);
+  });
+
+  it('treats missing usage as 0', () => {
+    expect(computeMemoryPercent(withMemory(undefined, 1024))).toBe(0);
+  });
+
+  it('treats missing limit as 1 to avoid division by zero', () => {
+    expect(computeMemoryPercent(withMemory(50, undefined))).toBe(5000);
+  });
+
+  it('handles missing memory_stats entirely', () => {
+    expect(computeMemoryPercent({} as Dockerode.ContainerStats)).toBe(0);
+  });
+});
+
+describe('sumNetworkBytes', () => {
+  it('sums rx/tx across all interfaces', () => {
+    const stats = withNetworks({
+      eth0: { rx_bytes: 100, tx_bytes: 50 },
+      eth1: { rx_bytes: 30, tx_bytes: 15 },
+    });
+    expect(sumNetworkBytes(stats)).toEqual({ rx: 130, tx: 65 });
+  });
+
+  it('returns zeros when networks is undefined', () => {
+    expect(sumNetworkBytes(withNetworks(undefined))).toEqual({ rx: 0, tx: 0 });
+  });
+
+  it('treats missing rx_bytes/tx_bytes as 0', () => {
+    const stats = withNetworks({ eth0: {} });
+    expect(sumNetworkBytes(stats)).toEqual({ rx: 0, tx: 0 });
+  });
+});
+
+describe('computeNetworkRates', () => {
+  it('returns delta / timeDeltaSec for both directions', () => {
+    const prev = withNetworks({ eth0: { rx_bytes: 100, tx_bytes: 50 } });
+    const curr = withNetworks({ eth0: { rx_bytes: 300, tx_bytes: 150 } });
+    expect(computeNetworkRates(prev, curr, 2)).toEqual({
+      networkRxBytesPerSec: 100,
+      networkTxBytesPerSec: 50,
+    });
+  });
+
+  it('returns zeros when curr.networks is missing', () => {
+    const prev = withNetworks({ eth0: { rx_bytes: 100, tx_bytes: 50 } });
+    const curr = withNetworks(undefined);
+    expect(computeNetworkRates(prev, curr, 1)).toEqual({
+      networkRxBytesPerSec: 0,
+      networkTxBytesPerSec: 0,
+    });
+  });
+
+  it('returns zeros when prev.networks is missing', () => {
+    const prev = withNetworks(undefined);
+    const curr = withNetworks({ eth0: { rx_bytes: 100, tx_bytes: 50 } });
+    expect(computeNetworkRates(prev, curr, 1)).toEqual({
+      networkRxBytesPerSec: 0,
+      networkTxBytesPerSec: 0,
+    });
+  });
+
+  it('clamps negative deltas (counter reset) to 0 per direction', () => {
+    const prev = withNetworks({ eth0: { rx_bytes: 100, tx_bytes: 50 } });
+    const curr = withNetworks({ eth0: { rx_bytes: 10, tx_bytes: 200 } });
+    expect(computeNetworkRates(prev, curr, 1)).toEqual({
+      networkRxBytesPerSec: 0, // clamped
+      networkTxBytesPerSec: 150,
+    });
+  });
+
+  it('sums across multiple interfaces', () => {
+    const prev = withNetworks({
+      eth0: { rx_bytes: 100, tx_bytes: 50 },
+      eth1: { rx_bytes: 200, tx_bytes: 100 },
+    });
+    const curr = withNetworks({
+      eth0: { rx_bytes: 200, tx_bytes: 100 },
+      eth1: { rx_bytes: 400, tx_bytes: 200 },
+    });
+    expect(computeNetworkRates(prev, curr, 1)).toEqual({
+      networkRxBytesPerSec: 300, // (200-100) + (400-200)
+      networkTxBytesPerSec: 150, // (100-50) + (200-100)
+    });
+  });
+});
+
+describe('findBlkioBytes', () => {
+  it('finds lowercase op', () => {
+    const stats = withBlkio([
+      { op: 'read', value: 1000 },
+      { op: 'write', value: 500 },
+    ]);
+    expect(findBlkioBytes(stats, 'read')).toBe(1000);
+    expect(findBlkioBytes(stats, 'write')).toBe(500);
+  });
+
+  it('finds capitalized op (older Docker versions)', () => {
+    const stats = withBlkio([
+      { op: 'Read', value: 1000 },
+      { op: 'Write', value: 500 },
+    ]);
+    expect(findBlkioBytes(stats, 'read')).toBe(1000);
+    expect(findBlkioBytes(stats, 'write')).toBe(500);
+  });
+
+  it('returns 0 when op not found', () => {
+    expect(findBlkioBytes(withBlkio([{ op: 'read', value: 1000 }]), 'write')).toBe(0);
+  });
+
+  it('returns 0 when blkio_stats is missing the recursive array', () => {
+    expect(findBlkioBytes(withBlkio(undefined), 'read')).toBe(0);
+  });
+});
+
+describe('computeBlockIoRates', () => {
+  it('returns delta / timeDeltaSec for read and write', () => {
+    const prev = withBlkio([
+      { op: 'read', value: 1000 },
+      { op: 'write', value: 500 },
+    ]);
+    const curr = withBlkio([
+      { op: 'read', value: 3000 },
+      { op: 'write', value: 1500 },
+    ]);
+    expect(computeBlockIoRates(prev, curr, 2)).toEqual({
+      blockIoReadBytesPerSec: 1000,
+      blockIoWriteBytesPerSec: 500,
+    });
+  });
+
+  it('returns zeros when curr blkio data is missing', () => {
+    const prev = withBlkio([{ op: 'read', value: 1000 }]);
+    const curr = withBlkio(undefined);
+    expect(computeBlockIoRates(prev, curr, 1)).toEqual({
+      blockIoReadBytesPerSec: 0,
+      blockIoWriteBytesPerSec: 0,
+    });
+  });
+
+  it('returns zeros when prev blkio data is missing', () => {
+    const prev = withBlkio(undefined);
+    const curr = withBlkio([{ op: 'read', value: 1000 }]);
+    expect(computeBlockIoRates(prev, curr, 1)).toEqual({
+      blockIoReadBytesPerSec: 0,
+      blockIoWriteBytesPerSec: 0,
+    });
+  });
+
+  it('clamps negative deltas to 0 per direction', () => {
+    const prev = withBlkio([
+      { op: 'read', value: 1000 },
+      { op: 'write', value: 500 },
+    ]);
+    const curr = withBlkio([
+      { op: 'read', value: 100 }, // counter reset
+      { op: 'write', value: 1500 },
+    ]);
+    expect(computeBlockIoRates(prev, curr, 1)).toEqual({
+      blockIoReadBytesPerSec: 0,
+      blockIoWriteBytesPerSec: 1000,
+    });
+  });
+});
+
+// Orchestration tests for DockerRateCalculator.calculate / clear / remove.
+// The math is covered by the per-helper tests above; these only verify that
+// calculate wires the pieces together: cache lifecycle, time-delta gating,
+// injected clock, and result shape.
+
+function mockStats(overrides: Partial<{ rx: number; tx: number; cpu: number; sysCpu: number; memUsage: number }> = {}): Dockerode.ContainerStats {
+  const { rx = 100, tx = 50, cpu = 1_000_000_000, sysCpu = 10_000_000_000, memUsage = 512 } = overrides;
+  return {
+    cpu_stats: {
+      cpu_usage: { total_usage: cpu },
+      system_cpu_usage: sysCpu,
+      online_cpus: 4,
+    },
+    memory_stats: { usage: memUsage, limit: 1024 },
+    networks: { eth0: { rx_bytes: rx, tx_bytes: tx } },
     blkio_stats: {
       io_service_bytes_recursive: [
-        { major: 8, minor: 0, op: 'read', value: 1024 * 1024 * 10 }, // 10 MB read
-        { major: 8, minor: 0, op: 'write', value: 1024 * 1024 * 5 }, // 5 MB write
+        { op: 'read', value: 0 },
+        { op: 'write', value: 0 },
       ],
-      io_serviced_recursive: [],
-      io_queue_recursive: [],
-      io_service_time_recursive: [],
-      io_wait_time_recursive: [],
-      io_merged_recursive: [],
-      io_time_recursive: [],
-      sectors_recursive: [],
     },
-    num_procs: 0,
-    storage_stats: {},
-    cpu_stats: {
-      cpu_usage: {
-        total_usage: 1000000000, // 1 billion nanoseconds
-        percpu_usage: [250000000, 250000000, 250000000, 250000000],
-        usage_in_kernelmode: 100000000,
-        usage_in_usermode: 900000000,
-      },
-      system_cpu_usage: 10000000000, // 10 billion nanoseconds
-      online_cpus: 4,
-      throttling_data: {
-        periods: 0,
-        throttled_periods: 0,
-        throttled_time: 0,
-      },
-    },
-    precpu_stats: {
-      cpu_usage: {
-        total_usage: 800000000, // 800 million nanoseconds (200M delta)
-        percpu_usage: [200000000, 200000000, 200000000, 200000000],
-        usage_in_kernelmode: 80000000,
-        usage_in_usermode: 720000000,
-      },
-      system_cpu_usage: 9000000000, // 9 billion nanoseconds (1B delta)
-      online_cpus: 4,
-      throttling_data: {
-        periods: 0,
-        throttled_periods: 0,
-        throttled_time: 0,
-      },
-    },
-    memory_stats: {
-      usage: 1024 * 1024 * 512, // 512 MB
-      max_usage: 1024 * 1024 * 600,
-      stats: {
-        active_anon: 0,
-        active_file: 0,
-        cache: 0,
-        dirty: 0,
-        hierarchical_memory_limit: 0,
-        hierarchical_memsw_limit: 0,
-        inactive_anon: 0,
-        inactive_file: 0,
-        mapped_file: 0,
-        pgfault: 0,
-        pgmajfault: 0,
-        pgpgin: 0,
-        pgpgout: 0,
-        rss: 0,
-        rss_huge: 0,
-        total_active_anon: 0,
-        total_active_file: 0,
-        total_cache: 0,
-        total_dirty: 0,
-        total_inactive_anon: 0,
-        total_inactive_file: 0,
-        total_mapped_file: 0,
-        total_pgfault: 0,
-        total_pgmajfault: 0,
-        total_pgpgin: 0,
-        total_pgpgout: 0,
-        total_rss: 0,
-        total_rss_huge: 0,
-        total_unevictable: 0,
-        total_writeback: 0,
-        unevictable: 0,
-        writeback: 0,
-      },
-      limit: 1024 * 1024 * 1024, // 1 GB limit
-    },
-    name: '/test-container',
-    id: 'abc123',
-    networks: {
-      eth0: {
-        rx_bytes: 1024 * 1024 * 100, // 100 MB received
-        rx_packets: 1000,
-        rx_errors: 0,
-        rx_dropped: 0,
-        tx_bytes: 1024 * 1024 * 50, // 50 MB transmitted
-        tx_packets: 500,
-        tx_errors: 0,
-        tx_dropped: 0,
-      },
-    },
-    ...overrides,
-  } as Dockerode.ContainerStats;
+  } as unknown as Dockerode.ContainerStats;
 }
 
-function calculate(containerId: string, containerName: string, stats: Dockerode.ContainerStats) {
-  return calculator.calculate(containerId, { containerId, containerName, stats });
-}
+describe('DockerRateCalculator', () => {
+  let calculator: DockerRateCalculator;
+  let now: number;
 
-describe('DockerRateCalculator.calculate', () => {
   beforeEach(() => {
     now = 1_000_000;
     calculator = new DockerRateCalculator(() => now);
   });
 
-  it('should calculate memory percentage on first call', () => {
-    const stats = createMockStats();
-    const result = calculate('container1', 'test-container', stats);
+  describe('calculate', () => {
+    it('returns the current stats with id, name, and rates appended', () => {
+      const stats = mockStats();
+      const result = calculator.calculate('c1', { containerId: 'c1', containerName: 'web', stats });
 
-    expect(result.id).toBe('container1');
-    expect(result.name).toBe('test-container');
-    expect(result.rates.memoryPercent).toBeCloseTo(50, 1); // 512 MB / 1024 MB = 50%
-  });
-
-  it('should return zero rates on first call (no previous data)', () => {
-    const stats = createMockStats();
-    const result = calculate('container1', 'test-container', stats);
-
-    expect(result.rates.cpuPercent).toBe(0);
-    expect(result.rates.networkRxBytesPerSec).toBe(0);
-    expect(result.rates.networkTxBytesPerSec).toBe(0);
-    expect(result.rates.blockIoReadBytesPerSec).toBe(0);
-    expect(result.rates.blockIoWriteBytesPerSec).toBe(0);
-  });
-
-  it('should calculate CPU percentage correctly', () => {
-    const stats1 = createMockStats();
-
-    // First call - no rates yet
-    calculate('container1', 'test-container', stats1);
-
-    // Advance time by 1 second
-    now += 1000;
-
-    // Second call with updated stats
-    const stats2 = createMockStats({
-      cpu_stats: {
-        cpu_usage: {
-          total_usage: 1200000000, // 1.2 billion (200M delta from first call)
-          percpu_usage: [300000000, 300000000, 300000000, 300000000],
-          usage_in_kernelmode: 120000000,
-          usage_in_usermode: 1080000000,
-        },
-        system_cpu_usage: 11000000000, // 11 billion (1B delta)
-        online_cpus: 4,
-        throttling_data: { periods: 0, throttled_periods: 0, throttled_time: 0 },
-      },
+      expect(result.id).toBe('c1');
+      expect(result.name).toBe('web');
+      expect(result.rates).toBeDefined();
+      // Original stats fields are preserved on the result
+      expect(result.cpu_stats).toBe(stats.cpu_stats);
     });
 
-    const result = calculate('container1', 'test-container', stats2);
-
-    // CPU calculation: (cpuDelta / systemDelta) * cpuCount * 100
-    // (1200000000 - 1000000000) / (11000000000 - 10000000000) * 4 * 100
-    // = 200000000 / 1000000000 * 4 * 100 = 0.2 * 4 * 100 = 80%
-    expect(result.rates.cpuPercent).toBeCloseTo(80, 1);
-  });
-
-  it('should calculate network rates correctly', () => {
-    const stats1 = createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 100, // 100 MB
-          rx_packets: 1000,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 50, // 50 MB
-          tx_packets: 500,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
+    it('always returns memoryPercent (no delta required)', () => {
+      const stats = mockStats({ memUsage: 256 });
+      const result = calculator.calculate('c1', { containerId: 'c1', containerName: 'web', stats });
+      expect(result.rates.memoryPercent).toBeCloseTo(25, 1);
     });
 
-    calculate('container1', 'test-container', stats1);
-
-    // Advance time by 1 second
-    now += 1000;
-
-    // Second call - 10 MB more received, 5 MB more transmitted
-    const stats2 = createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 110, // 110 MB (10 MB delta)
-          rx_packets: 1100,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 55, // 55 MB (5 MB delta)
-          tx_packets: 550,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
+    it('returns zero rate fields on first call (no previous data)', () => {
+      const result = calculator.calculate('c1', { containerId: 'c1', containerName: 'web', stats: mockStats() });
+      expect(result.rates.cpuPercent).toBe(0);
+      expect(result.rates.networkRxBytesPerSec).toBe(0);
+      expect(result.rates.networkTxBytesPerSec).toBe(0);
+      expect(result.rates.blockIoReadBytesPerSec).toBe(0);
+      expect(result.rates.blockIoWriteBytesPerSec).toBe(0);
     });
 
-    const result = calculate('container1', 'test-container', stats2);
-
-    // Rate = delta / time (in seconds)
-    // RX: 10 MB / 1s = 10 * 1024 * 1024 bytes/sec = 10485760 bytes/sec
-    // TX: 5 MB / 1s = 5 * 1024 * 1024 bytes/sec = 5242880 bytes/sec
-    expect(result.rates.networkRxBytesPerSec).toBeCloseTo(10 * 1024 * 1024, 0);
-    expect(result.rates.networkTxBytesPerSec).toBeCloseTo(5 * 1024 * 1024, 0);
-  });
-
-  it('should calculate block IO rates correctly', () => {
-    const stats1 = createMockStats({
-      blkio_stats: {
-        io_service_bytes_recursive: [
-          { major: 8, minor: 0, op: 'read', value: 1024 * 1024 * 100 }, // 100 MB
-          { major: 8, minor: 0, op: 'write', value: 1024 * 1024 * 50 }, // 50 MB
-        ],
-        io_serviced_recursive: [],
-        io_queue_recursive: [],
-        io_service_time_recursive: [],
-        io_wait_time_recursive: [],
-        io_merged_recursive: [],
-        io_time_recursive: [],
-        sectors_recursive: [],
-      },
+    it('uses the injected clock for the cache timestamp', () => {
+      calculator.calculate('c1', { containerId: 'c1', containerName: 'web', stats: mockStats({ rx: 100 }) });
+      now += 2000;
+      const result = calculator.calculate('c1', { containerId: 'c1', containerName: 'web', stats: mockStats({ rx: 300 }) });
+      // 200 byte delta over 2s = 100 B/s
+      expect(result.rates.networkRxBytesPerSec).toBe(100);
     });
 
-    calculate('container1', 'test-container', stats1);
-
-    // Advance time by 2 seconds
-    now += 2000;
-
-    // Second call - 20 MB more read, 10 MB more written
-    const stats2 = createMockStats({
-      blkio_stats: {
-        io_service_bytes_recursive: [
-          { major: 8, minor: 0, op: 'read', value: 1024 * 1024 * 120 }, // 120 MB
-          { major: 8, minor: 0, op: 'write', value: 1024 * 1024 * 60 }, // 60 MB
-        ],
-        io_serviced_recursive: [],
-        io_queue_recursive: [],
-        io_service_time_recursive: [],
-        io_wait_time_recursive: [],
-        io_merged_recursive: [],
-        io_time_recursive: [],
-        sectors_recursive: [],
-      },
+    it('returns zero rates when two calls share the same timestamp (timeDeltaSec === 0)', () => {
+      calculator.calculate('c1', { containerId: 'c1', containerName: 'web', stats: mockStats({ rx: 100 }) });
+      // No clock advance
+      const result = calculator.calculate('c1', { containerId: 'c1', containerName: 'web', stats: mockStats({ rx: 300 }) });
+      expect(result.rates.networkRxBytesPerSec).toBe(0);
     });
 
-    const result = calculate('container1', 'test-container', stats2);
-
-    // Rate = delta / time
-    // Read: 20 MB / 2s = 10 MB/s = 10 * 1024 * 1024 bytes/sec = 10485760 bytes/sec
-    // Write: 10 MB / 2s = 5 MB/s = 5 * 1024 * 1024 bytes/sec = 5242880 bytes/sec
-    expect(result.rates.blockIoReadBytesPerSec).toBeCloseTo(10 * 1024 * 1024, 0);
-    expect(result.rates.blockIoWriteBytesPerSec).toBeCloseTo(5 * 1024 * 1024, 0);
-  });
-
-  it('should handle multiple network interfaces', () => {
-    const stats1 = createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 50,
-          rx_packets: 500,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 25,
-          tx_packets: 250,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-        eth1: {
-          rx_bytes: 1024 * 1024 * 30,
-          rx_packets: 300,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 15,
-          tx_packets: 150,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
+    it('tracks multiple containers independently', () => {
+      calculator.calculate('c1', { containerId: 'c1', containerName: 'a', stats: mockStats({ rx: 100 }) });
+      calculator.calculate('c2', { containerId: 'c2', containerName: 'b', stats: mockStats({ rx: 200 }) });
+      now += 1000;
+      const r1 = calculator.calculate('c1', { containerId: 'c1', containerName: 'a', stats: mockStats({ rx: 200 }) });
+      const r2 = calculator.calculate('c2', { containerId: 'c2', containerName: 'b', stats: mockStats({ rx: 500 }) });
+      expect(r1.rates.networkRxBytesPerSec).toBe(100);
+      expect(r2.rates.networkRxBytesPerSec).toBe(300);
     });
+  });
 
-    calculate('container1', 'test-container', stats1);
-    now += 1000;
+  describe('clear', () => {
+    it('drops all cached previous-stats entries', () => {
+      calculator.calculate('c1', { containerId: 'c1', containerName: 'a', stats: mockStats({ rx: 100 }) });
+      calculator.calculate('c2', { containerId: 'c2', containerName: 'b', stats: mockStats({ rx: 100 }) });
+      calculator.clear();
+      now += 1000;
 
-    const stats2 = createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 60, // +10 MB
-          rx_packets: 600,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 30, // +5 MB
-          tx_packets: 300,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-        eth1: {
-          rx_bytes: 1024 * 1024 * 40, // +10 MB
-          rx_packets: 400,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 20, // +5 MB
-          tx_packets: 200,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
+      // Without cached previous data, second calls behave like first calls
+      const r1 = calculator.calculate('c1', { containerId: 'c1', containerName: 'a', stats: mockStats({ rx: 200 }) });
+      const r2 = calculator.calculate('c2', { containerId: 'c2', containerName: 'b', stats: mockStats({ rx: 200 }) });
+      expect(r1.rates.networkRxBytesPerSec).toBe(0);
+      expect(r2.rates.networkRxBytesPerSec).toBe(0);
     });
-
-    const result = calculate('container1', 'test-container', stats2);
-
-    // Should sum both interfaces
-    // RX: (10 + 10) MB/s = 20 MB/s
-    // TX: (5 + 5) MB/s = 10 MB/s
-    expect(result.rates.networkRxBytesPerSec).toBeCloseTo(20 * 1024 * 1024, 0);
-    expect(result.rates.networkTxBytesPerSec).toBeCloseTo(10 * 1024 * 1024, 0);
   });
 
-  it('should handle negative deltas (container restart)', () => {
-    const stats1 = createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 100,
-          rx_packets: 1000,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 50,
-          tx_packets: 500,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
+  describe('remove', () => {
+    it('drops only the named container from the cache', () => {
+      calculator.calculate('c1', { containerId: 'c1', containerName: 'a', stats: mockStats({ rx: 100 }) });
+      calculator.calculate('c2', { containerId: 'c2', containerName: 'b', stats: mockStats({ rx: 100 }) });
+      calculator.remove('c1');
+      now += 1000;
+
+      const r1 = calculator.calculate('c1', { containerId: 'c1', containerName: 'a', stats: mockStats({ rx: 200 }) });
+      const r2 = calculator.calculate('c2', { containerId: 'c2', containerName: 'b', stats: mockStats({ rx: 200 }) });
+      expect(r1.rates.networkRxBytesPerSec).toBe(0); // cleared
+      expect(r2.rates.networkRxBytesPerSec).toBe(100); // still cached
     });
-
-    calculate('container1', 'test-container', stats1);
-    now += 1000;
-
-    // Container restarted - counters reset
-    const stats2 = createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 10, // Lower than before (restart)
-          rx_packets: 100,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 5,
-          tx_packets: 50,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
-    });
-
-    const result = calculate('container1', 'test-container', stats2);
-
-    // Should not show negative rates
-    expect(result.rates.networkRxBytesPerSec).toBe(0);
-    expect(result.rates.networkTxBytesPerSec).toBe(0);
-  });
-
-  it('should handle missing network data', () => {
-    const stats1 = createMockStats({ networks: undefined });
-    const result1 = calculate('container1', 'test-container', stats1);
-
-    expect(result1.rates.networkRxBytesPerSec).toBe(0);
-    expect(result1.rates.networkTxBytesPerSec).toBe(0);
-  });
-
-  it('should track stats for multiple containers independently', () => {
-    const container1Stats1 = createMockStats();
-    const container2Stats1 = createMockStats();
-
-    calculate('container1', 'test1', container1Stats1);
-    calculate('container2', 'test2', container2Stats1);
-
-    now += 1000;
-
-    const container1Stats2 = createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 110, // +10 MB
-          rx_packets: 1100,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 55,
-          tx_packets: 550,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
-    });
-
-    const container2Stats2 = createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 120, // +20 MB
-          rx_packets: 1200,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 60,
-          tx_packets: 600,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
-    });
-
-    const result1 = calculate('container1', 'test1', container1Stats2);
-    const result2 = calculate('container2', 'test2', container2Stats2);
-
-    // Container 1: 10 MB/s
-    expect(result1.rates.networkRxBytesPerSec).toBeCloseTo(10 * 1024 * 1024, 0);
-    // Container 2: 20 MB/s
-    expect(result2.rates.networkRxBytesPerSec).toBeCloseTo(20 * 1024 * 1024, 0);
-  });
-
-  it('should prevent division by zero for very fast calls', () => {
-    const stats1 = createMockStats();
-    calculate('container1', 'test-container', stats1);
-
-    // Don't advance time - immediate second call
-    const stats2 = createMockStats();
-    const result = calculate('container1', 'test-container', stats2);
-
-    // Should return safe zero values instead of Infinity or NaN
-    expect(result.rates.cpuPercent).toBe(0);
-    expect(result.rates.networkRxBytesPerSec).toBe(0);
-  });
-
-  it('should handle case-insensitive block IO op names', () => {
-    const stats1 = createMockStats({
-      blkio_stats: {
-        io_service_bytes_recursive: [
-          { major: 8, minor: 0, op: 'Read', value: 1024 * 1024 * 100 }, // Capital R
-          { major: 8, minor: 0, op: 'Write', value: 1024 * 1024 * 50 }, // Capital W
-        ],
-        io_serviced_recursive: [],
-        io_queue_recursive: [],
-        io_service_time_recursive: [],
-        io_wait_time_recursive: [],
-        io_merged_recursive: [],
-        io_time_recursive: [],
-        sectors_recursive: [],
-      },
-    });
-
-    calculate('container1', 'test-container', stats1);
-    now += 1000;
-
-    const stats2 = createMockStats({
-      blkio_stats: {
-        io_service_bytes_recursive: [
-          { major: 8, minor: 0, op: 'Read', value: 1024 * 1024 * 110 },
-          { major: 8, minor: 0, op: 'Write', value: 1024 * 1024 * 55 },
-        ],
-        io_serviced_recursive: [],
-        io_queue_recursive: [],
-        io_service_time_recursive: [],
-        io_wait_time_recursive: [],
-        io_merged_recursive: [],
-        io_time_recursive: [],
-        sectors_recursive: [],
-      },
-    });
-
-    const result = calculate('container1', 'test-container', stats2);
-
-    expect(result.rates.blockIoReadBytesPerSec).toBeCloseTo(10 * 1024 * 1024, 0);
-    expect(result.rates.blockIoWriteBytesPerSec).toBeCloseTo(5 * 1024 * 1024, 0);
-  });
-});
-
-describe('DockerRateCalculator.clear', () => {
-  beforeEach(() => {
-    now = 1_000_000;
-    calculator = new DockerRateCalculator(() => now);
-  });
-
-  it('should clear all cached data', () => {
-    const stats = createMockStats();
-
-    // Add some containers to cache
-    calculate('container1', 'test1', stats);
-    calculate('container2', 'test2', stats);
-
-    // Clear cache
-    calculator.clear();
-
-    now += 1000;
-
-    // Next calls should act as first calls (no previous data)
-    const result1 = calculate('container1', 'test1', createMockStats());
-    const result2 = calculate('container2', 'test2', createMockStats());
-
-    expect(result1.rates.cpuPercent).toBe(0);
-    expect(result2.rates.cpuPercent).toBe(0);
-  });
-});
-
-describe('DockerRateCalculator.remove', () => {
-  beforeEach(() => {
-    now = 1_000_000;
-    calculator = new DockerRateCalculator(() => now);
-  });
-
-  it('should remove specific container from cache', () => {
-    const stats = createMockStats();
-
-    calculate('container1', 'test1', stats);
-    calculate('container2', 'test2', stats);
-
-    // Remove only container1
-    calculator.remove('container1');
-
-    now += 1000;
-
-    const result1 = calculate('container1', 'test1', createMockStats());
-    const result2 = calculate('container2', 'test2', createMockStats({
-      networks: {
-        eth0: {
-          rx_bytes: 1024 * 1024 * 110,
-          rx_packets: 1100,
-          rx_errors: 0,
-          rx_dropped: 0,
-          tx_bytes: 1024 * 1024 * 55,
-          tx_packets: 550,
-          tx_errors: 0,
-          tx_dropped: 0,
-        },
-      },
-    }));
-
-    // Container1 should have no previous data
-    expect(result1.rates.cpuPercent).toBe(0);
-
-    // Container2 should still have previous data and calculate rates
-    expect(result2.rates.networkRxBytesPerSec).toBeGreaterThan(0);
   });
 });

@@ -68,7 +68,8 @@ export class DockerRateCalculator implements RateCalculator<DockerRateInput, Con
 }
 
 // Matches Docker CLI logic.
-function computeCpuPercent(prev: Dockerode.ContainerStats, curr: Dockerode.ContainerStats): number {
+/** @internal Exported for testing */
+export function computeCpuPercent(prev: Dockerode.ContainerStats, curr: Dockerode.ContainerStats): number {
   const cpuDelta = curr.cpu_stats.cpu_usage.total_usage - prev.cpu_stats.cpu_usage.total_usage;
   const systemDelta = curr.cpu_stats.system_cpu_usage - prev.cpu_stats.system_cpu_usage;
   if (systemDelta <= 0 || cpuDelta < 0) return 0;
@@ -76,13 +77,15 @@ function computeCpuPercent(prev: Dockerode.ContainerStats, curr: Dockerode.Conta
   return (cpuDelta / systemDelta) * cpuCount * 100;
 }
 
-function computeMemoryPercent(curr: Dockerode.ContainerStats): number {
+/** @internal Exported for testing */
+export function computeMemoryPercent(curr: Dockerode.ContainerStats): number {
   const usage = curr.memory_stats?.usage || 0;
   const limit = curr.memory_stats?.limit || 1;
   return (usage / limit) * 100;
 }
 
-function sumNetworkBytes(stats: Dockerode.ContainerStats): { rx: number; tx: number } {
+/** @internal Exported for testing */
+export function sumNetworkBytes(stats: Dockerode.ContainerStats): { rx: number; tx: number } {
   let rx = 0;
   let tx = 0;
   if (!stats.networks) return { rx, tx };
@@ -93,7 +96,8 @@ function sumNetworkBytes(stats: Dockerode.ContainerStats): { rx: number; tx: num
   return { rx, tx };
 }
 
-function computeNetworkRates(
+/** @internal Exported for testing */
+export function computeNetworkRates(
   prev: Dockerode.ContainerStats,
   curr: Dockerode.ContainerStats,
   timeDeltaSec: number,
@@ -111,7 +115,8 @@ function computeNetworkRates(
   };
 }
 
-function findBlkioBytes(stats: Dockerode.ContainerStats, op: 'read' | 'write'): number {
+/** @internal Exported for testing */
+export function findBlkioBytes(stats: Dockerode.ContainerStats, op: 'read' | 'write'): number {
   const entries = stats.blkio_stats?.io_service_bytes_recursive;
   if (!entries) return 0;
   const lower = op;
@@ -119,7 +124,8 @@ function findBlkioBytes(stats: Dockerode.ContainerStats, op: 'read' | 'write'): 
   return entries.find((stat) => stat.op === lower || stat.op === upper)?.value || 0;
 }
 
-function computeBlockIoRates(
+/** @internal Exported for testing */
+export function computeBlockIoRates(
   prev: Dockerode.ContainerStats,
   curr: Dockerode.ContainerStats,
   timeDeltaSec: number,
