@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, afterAll, jest } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import type Dockerode from 'dockerode';
 import { DockerRateCalculator } from '../rate-calculator';
 
 let calculator: DockerRateCalculator;
+let now: number;
 
 // Helper to create mock Docker stats
 function createMockStats(overrides: Partial<Dockerode.ContainerStats> = {}): Dockerode.ContainerStats {
@@ -116,21 +117,10 @@ function calculate(containerId: string, containerName: string, stats: Dockerode.
   return calculator.calculate(containerId, { containerId, containerName, stats });
 }
 
-// Ensure fake timers are always restored after this file, even if a describe-level
-// afterEach misses a test. Prevents timer state from leaking to subsequent test files
-// in the same bun 1.3.x worker (bun 1.3.6 doesn't fully isolate timer state per file).
-afterAll(() => {
-  jest.useRealTimers();
-});
-
 describe('DockerRateCalculator.calculate', () => {
   beforeEach(() => {
-    calculator = new DockerRateCalculator();
-    jest.useFakeTimers();
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
+    now = 1_000_000;
+    calculator = new DockerRateCalculator(() => now);
   });
 
   it('should calculate memory percentage on first call', () => {
@@ -160,7 +150,7 @@ describe('DockerRateCalculator.calculate', () => {
     calculate('container1', 'test-container', stats1);
 
     // Advance time by 1 second
-    jest.advanceTimersByTime(1000);
+    now += 1000;
 
     // Second call with updated stats
     const stats2 = createMockStats({
@@ -204,7 +194,7 @@ describe('DockerRateCalculator.calculate', () => {
     calculate('container1', 'test-container', stats1);
 
     // Advance time by 1 second
-    jest.advanceTimersByTime(1000);
+    now += 1000;
 
     // Second call - 10 MB more received, 5 MB more transmitted
     const stats2 = createMockStats({
@@ -251,7 +241,7 @@ describe('DockerRateCalculator.calculate', () => {
     calculate('container1', 'test-container', stats1);
 
     // Advance time by 2 seconds
-    jest.advanceTimersByTime(2000);
+    now += 2000;
 
     // Second call - 20 MB more read, 10 MB more written
     const stats2 = createMockStats({
@@ -306,7 +296,7 @@ describe('DockerRateCalculator.calculate', () => {
     });
 
     calculate('container1', 'test-container', stats1);
-    jest.advanceTimersByTime(1000);
+    now += 1000;
 
     const stats2 = createMockStats({
       networks: {
@@ -359,7 +349,7 @@ describe('DockerRateCalculator.calculate', () => {
     });
 
     calculate('container1', 'test-container', stats1);
-    jest.advanceTimersByTime(1000);
+    now += 1000;
 
     // Container restarted - counters reset
     const stats2 = createMockStats({
@@ -399,7 +389,7 @@ describe('DockerRateCalculator.calculate', () => {
     calculate('container1', 'test1', container1Stats1);
     calculate('container2', 'test2', container2Stats1);
 
-    jest.advanceTimersByTime(1000);
+    now += 1000;
 
     const container1Stats2 = createMockStats({
       networks: {
@@ -471,7 +461,7 @@ describe('DockerRateCalculator.calculate', () => {
     });
 
     calculate('container1', 'test-container', stats1);
-    jest.advanceTimersByTime(1000);
+    now += 1000;
 
     const stats2 = createMockStats({
       blkio_stats: {
@@ -498,12 +488,8 @@ describe('DockerRateCalculator.calculate', () => {
 
 describe('DockerRateCalculator.clear', () => {
   beforeEach(() => {
-    calculator = new DockerRateCalculator();
-    jest.useFakeTimers();
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
+    now = 1_000_000;
+    calculator = new DockerRateCalculator(() => now);
   });
 
   it('should clear all cached data', () => {
@@ -516,7 +502,7 @@ describe('DockerRateCalculator.clear', () => {
     // Clear cache
     calculator.clear();
 
-    jest.advanceTimersByTime(1000);
+    now += 1000;
 
     // Next calls should act as first calls (no previous data)
     const result1 = calculate('container1', 'test1', createMockStats());
@@ -529,12 +515,8 @@ describe('DockerRateCalculator.clear', () => {
 
 describe('DockerRateCalculator.remove', () => {
   beforeEach(() => {
-    calculator = new DockerRateCalculator();
-    jest.useFakeTimers();
-  });
-
-  afterEach(() => {
-    jest.useRealTimers();
+    now = 1_000_000;
+    calculator = new DockerRateCalculator(() => now);
   });
 
   it('should remove specific container from cache', () => {
@@ -546,7 +528,7 @@ describe('DockerRateCalculator.remove', () => {
     // Remove only container1
     calculator.remove('container1');
 
-    jest.advanceTimersByTime(1000);
+    now += 1000;
 
     const result1 = calculate('container1', 'test1', createMockStats());
     const result2 = calculate('container2', 'test2', createMockStats({

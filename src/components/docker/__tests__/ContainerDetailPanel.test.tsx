@@ -2,7 +2,9 @@ import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 
-// Stub DualSeriesChart to call formatValue so the formatter props are actually exercised
+// Stub DualSeriesChart to call formatValue so the formatter props are actually exercised.
+// `getChartOption` is also stubbed because bun 1.3.x leaks mock.module across test files —
+// without it, DualSeriesChart's own test file sees `getChartOption` as undefined.
 mock.module('@/components/docker/DualSeriesChart', () => ({
   default: ({
     title,
@@ -16,6 +18,7 @@ mock.module('@/components/docker/DualSeriesChart', () => ({
       {formatValue && <span data-testid="format-value-output">{formatValue(1000)}</span>}
     </div>
   ),
+  getChartOption: () => ({}),
 }));
 
 // Mock echarts-for-react
@@ -120,9 +123,10 @@ describe('ContainerDetailPanel', () => {
     renderPanel();
     // The mock calls formatValue(1000) for each chart.
     // formatPercent(1000) = formatAsPercent(1000/100) = "1000.00%"
-    // formatNetwork(1000) = formatBitsSIUnits(8000, true) = "8.00 Kbps"
+    // formatNetwork(1000) = formatBitsSIUnits(1000, true) = "1.00 Kbps"
+    // (the bytes→bits *8 happens in ContainerDetailPanel's data mapping, not the formatter)
     screen.getByText('1000.00%');
-    screen.getByText('8.00 Kbps');
+    screen.getByText('1.00 Kbps');
   });
 
   it('renders with empty data points', () => {

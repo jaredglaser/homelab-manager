@@ -26,116 +26,29 @@ interface DockerRateInput {
 }
 
 export class DockerRateCalculator implements RateCalculator<DockerRateInput, ContainerStatsWithRates> {
-  private cache = new Map<string, PreviousStatsEntry>();
+  private readonly cache = new Map<string, PreviousStatsEntry>();
+
+  constructor(private readonly now: () => number = Date.now) {}
 
   calculate(id: string, current: DockerRateInput): ContainerStatsWithRates {
-    const now = Date.now();
+    const now = this.now();
     const previous = this.cache.get(id);
     const currentStats = current.stats;
+    const timeDeltaSec = previous ? (now - previous.timestamp) / 1000 : 0;
+    const hasDelta = previous !== undefined && timeDeltaSec > 0;
 
-    let rates = {
-      cpuPercent: 0,
-      memoryPercent: 0,
-      networkRxBytesPerSec: 0,
-      networkTxBytesPerSec: 0,
-      blockIoReadBytesPerSec: 0,
-      blockIoWriteBytesPerSec: 0,
+    const rates = {
+      cpuPercent: hasDelta ? computeCpuPercent(previous.stats, currentStats) : 0,
+      memoryPercent: computeMemoryPercent(currentStats),
+      ...(hasDelta
+        ? computeNetworkRates(previous.stats, currentStats, timeDeltaSec)
+        : { networkRxBytesPerSec: 0, networkTxBytesPerSec: 0 }),
+      ...(hasDelta
+        ? computeBlockIoRates(previous.stats, currentStats, timeDeltaSec)
+        : { blockIoReadBytesPerSec: 0, blockIoWriteBytesPerSec: 0 }),
     };
 
-    if (previous) {
-      const timeDeltaMs = now - previous.timestamp;
-      const timeDeltaSec = timeDeltaMs / 1000;
-
-      if (timeDeltaSec > 0) {
-        // CPU calculation (matching Docker CLI logic)
-        const cpuDelta =
-          currentStats.cpu_stats.cpu_usage.total_usage -
-          previous.stats.cpu_stats.cpu_usage.total_usage;
-        const systemDelta =
-          currentStats.cpu_stats.system_cpu_usage -
-          previous.stats.cpu_stats.system_cpu_usage;
-
-        if (systemDelta > 0 && cpuDelta >= 0) {
-          const cpuCount = currentStats.cpu_stats.online_cpus || 1;
-          rates.cpuPercent = (cpuDelta / systemDelta) * cpuCount * 100;
-        }
-
-        // Network calculation
-        if (currentStats.networks && previous.stats.networks) {
-          let currentRxBytes = 0;
-          let currentTxBytes = 0;
-          let prevRxBytes = 0;
-          let prevTxBytes = 0;
-
-          for (const stats of Object.values(currentStats.networks)) {
-            currentRxBytes += stats.rx_bytes || 0;
-            currentTxBytes += stats.tx_bytes || 0;
-          }
-
-          for (const stats of Object.values(previous.stats.networks)) {
-            prevRxBytes += stats.rx_bytes || 0;
-            prevTxBytes += stats.tx_bytes || 0;
-          }
-
-          const rxDelta = currentRxBytes - prevRxBytes;
-          const txDelta = currentTxBytes - prevTxBytes;
-
-          if (rxDelta >= 0) {
-            rates.networkRxBytesPerSec = rxDelta / timeDeltaSec;
-          }
-          if (txDelta >= 0) {
-            rates.networkTxBytesPerSec = txDelta / timeDeltaSec;
-          }
-        }
-
-        // Block IO calculation
-        if (
-          currentStats.blkio_stats?.io_service_bytes_recursive &&
-          previous.stats.blkio_stats?.io_service_bytes_recursive
-        ) {
-          const currentRead =
-            currentStats.blkio_stats.io_service_bytes_recursive.find(
-              stat => stat.op === 'read' || stat.op === 'Read'
-            )?.value || 0;
-
-          const currentWrite =
-            currentStats.blkio_stats.io_service_bytes_recursive.find(
-              stat => stat.op === 'write' || stat.op === 'Write'
-            )?.value || 0;
-
-          const prevRead =
-            previous.stats.blkio_stats.io_service_bytes_recursive.find(
-              stat => stat.op === 'read' || stat.op === 'Read'
-            )?.value || 0;
-
-          const prevWrite =
-            previous.stats.blkio_stats.io_service_bytes_recursive.find(
-              stat => stat.op === 'write' || stat.op === 'Write'
-            )?.value || 0;
-
-          const readDelta = currentRead - prevRead;
-          const writeDelta = currentWrite - prevWrite;
-
-          if (readDelta >= 0) {
-            rates.blockIoReadBytesPerSec = readDelta / timeDeltaSec;
-          }
-          if (writeDelta >= 0) {
-            rates.blockIoWriteBytesPerSec = writeDelta / timeDeltaSec;
-          }
-        }
-      }
-    }
-
-    // Memory percentage (doesn't require delta, always available)
-    const memoryUsage = currentStats.memory_stats?.usage || 0;
-    const memoryLimit = currentStats.memory_stats?.limit || 1;
-    rates.memoryPercent = (memoryUsage / memoryLimit) * 100;
-
-    // Update cache with current stats
-    this.cache.set(id, {
-      stats: currentStats,
-      timestamp: now,
-    });
+    this.cache.set(id, { stats: currentStats, timestamp: now });
 
     return {
       ...currentStats,
@@ -152,4 +65,72 @@ export class DockerRateCalculator implements RateCalculator<DockerRateInput, Con
   remove(id: string): void {
     this.cache.delete(id);
   }
+}
+
+// Matches Docker CLI logic.
+function computeCpuPercent(prev: Dockerode.ContainerStats, curr: Dockerode.ContainerStats): number {
+  const cpuDelta = curr.cpu_stats.cpu_usage.total_usage - prev.cpu_stats.cpu_usage.total_usage;
+  const systemDelta = curr.cpu_stats.system_cpu_usage - prev.cpu_stats.system_cpu_usage;
+  if (systemDelta <= 0 || cpuDelta < 0) return 0;
+  const cpuCount = curr.cpu_stats.online_cpus || 1;
+  return (cpuDelta / systemDelta) * cpuCount * 100;
+}
+
+function computeMemoryPercent(curr: Dockerode.ContainerStats): number {
+  const usage = curr.memory_stats?.usage || 0;
+  const limit = curr.memory_stats?.limit || 1;
+  return (usage / limit) * 100;
+}
+
+function sumNetworkBytes(stats: Dockerode.ContainerStats): { rx: number; tx: number } {
+  let rx = 0;
+  let tx = 0;
+  if (!stats.networks) return { rx, tx };
+  for (const iface of Object.values(stats.networks)) {
+    rx += iface.rx_bytes || 0;
+    tx += iface.tx_bytes || 0;
+  }
+  return { rx, tx };
+}
+
+function computeNetworkRates(
+  prev: Dockerode.ContainerStats,
+  curr: Dockerode.ContainerStats,
+  timeDeltaSec: number,
+): { networkRxBytesPerSec: number; networkTxBytesPerSec: number } {
+  if (!curr.networks || !prev.networks) {
+    return { networkRxBytesPerSec: 0, networkTxBytesPerSec: 0 };
+  }
+  const currentBytes = sumNetworkBytes(curr);
+  const prevBytes = sumNetworkBytes(prev);
+  const rxDelta = currentBytes.rx - prevBytes.rx;
+  const txDelta = currentBytes.tx - prevBytes.tx;
+  return {
+    networkRxBytesPerSec: rxDelta >= 0 ? rxDelta / timeDeltaSec : 0,
+    networkTxBytesPerSec: txDelta >= 0 ? txDelta / timeDeltaSec : 0,
+  };
+}
+
+function findBlkioBytes(stats: Dockerode.ContainerStats, op: 'read' | 'write'): number {
+  const entries = stats.blkio_stats?.io_service_bytes_recursive;
+  if (!entries) return 0;
+  const lower = op;
+  const upper = op === 'read' ? 'Read' : 'Write';
+  return entries.find((stat) => stat.op === lower || stat.op === upper)?.value || 0;
+}
+
+function computeBlockIoRates(
+  prev: Dockerode.ContainerStats,
+  curr: Dockerode.ContainerStats,
+  timeDeltaSec: number,
+): { blockIoReadBytesPerSec: number; blockIoWriteBytesPerSec: number } {
+  if (!curr.blkio_stats?.io_service_bytes_recursive || !prev.blkio_stats?.io_service_bytes_recursive) {
+    return { blockIoReadBytesPerSec: 0, blockIoWriteBytesPerSec: 0 };
+  }
+  const readDelta = findBlkioBytes(curr, 'read') - findBlkioBytes(prev, 'read');
+  const writeDelta = findBlkioBytes(curr, 'write') - findBlkioBytes(prev, 'write');
+  return {
+    blockIoReadBytesPerSec: readDelta >= 0 ? readDelta / timeDeltaSec : 0,
+    blockIoWriteBytesPerSec: writeDelta >= 0 ? writeDelta / timeDeltaSec : 0,
+  };
 }
