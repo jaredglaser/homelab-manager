@@ -57,7 +57,7 @@ EOF
 cat > manifest.yaml << 'EOF'
 stacks:
   my-app:
-    host: dev-machine
+    host: localhost
     autoDeploy: false
 EOF
 ```
