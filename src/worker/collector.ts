@@ -12,7 +12,6 @@ import {
   createCollectors,
   createCollectorsForManagedHosts,
   createContainerInventoryCollectors,
-  createStackStatusCollectors,
 } from './collector-factory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
@@ -135,13 +134,6 @@ async function main() {
       );
       collectors.push(...managedCollectors);
       runners.push(...managedRunners);
-
-      const { runners: stackStatusRunners } = await createStackStatusCollectors(
-        db, shutdownController, stack,
-        () => hostRepo.findAll(),
-        getToken,
-      );
-      runners.push(...stackStatusRunners);
 
       const { runners: inventoryRunners } = await createContainerInventoryCollectors(
         db, shutdownController, stack,

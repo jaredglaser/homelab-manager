@@ -1,7 +1,12 @@
 import type { AgentContainerEvent, ContainerState, InventoryContainer } from '@/types/docker-inventory';
 import type { DockerContainerEventRepository } from '@/lib/database/repositories/docker-container-event-repository';
-import type { ManagedHostInfo } from './stack-status-collector';
 import { computeServiceKey } from '@/lib/utils/docker-hierarchy-builder';
+
+/** Minimal host descriptor shared by agent-based collectors. */
+export interface ManagedHostInfo {
+  name: string;
+  agentUrl: string;
+}
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 

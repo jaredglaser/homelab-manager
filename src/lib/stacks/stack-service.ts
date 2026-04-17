@@ -278,7 +278,6 @@ export async function deleteStackFromRepo(
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
-  const { StackStatusRepository } = await import('@/lib/database/repositories/stack-status-repository');
 
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
@@ -322,14 +321,6 @@ export async function deleteStackFromRepo(
     message: `Remove stack: ${stackName}`,
     author: SYSTEM_AUTHOR,
   });
-
-  // Delete stack_status row (best-effort — don't block the delete on this)
-  try {
-    const statusRepo = new StackStatusRepository(pool);
-    await statusRepo.deleteByStackHost(stackName, host);
-  } catch (err) {
-    console.error(`[StackService] Failed to delete stack_status row for "${stackName}" on "${host}":`, err);
-  }
 
   return { commitSha };
 }

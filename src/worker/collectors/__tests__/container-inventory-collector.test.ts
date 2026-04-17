@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { ContainerInventoryCollector } from '../container-inventory-collector';
 import type { DockerContainerEventRepository, NewContainerEvent } from '@/lib/database/repositories/docker-container-event-repository';
-import type { ManagedHostInfo } from '../stack-status-collector';
+import type { ManagedHostInfo } from '../container-inventory-collector';
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
