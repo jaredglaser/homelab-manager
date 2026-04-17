@@ -62,6 +62,8 @@ export type DataTableProps<TRow> = {
   maxHeight?: number;
   /** Custom class name for each row based on its data */
   rowClassName?: (row: TRow) => string;
+  /** Custom HTML attributes for each row based on its data (e.g. data-* attributes) */
+  rowAttributes?: (row: TRow) => Record<string, string>;
   /** Toolbar actions rendered above the table */
   toolbarActions?: ReactNode;
 } & ExpansionControl;
@@ -116,6 +118,7 @@ export function DataTable<TRow>({
   metricGroups,
   maxHeight,
   rowClassName,
+  rowAttributes,
   toolbarActions,
 }: Readonly<DataTableProps<TRow>>) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -320,6 +323,7 @@ export function DataTable<TRow>({
                     row={row}
                     gridTemplate={gridTemplate}
                     rowClassName={rowClassName}
+                    rowAttributes={rowAttributes}
                     hasDetailPanel={hasDetailPanel}
                   />
                   {hasDetailPanel && (() => {
@@ -347,6 +351,7 @@ export function DataTable<TRow>({
                     row={row}
                     gridTemplate={gridTemplate}
                     rowClassName={rowClassName}
+                    rowAttributes={rowAttributes}
                     hasDetailPanel={hasDetailPanel}
                   />
                   {hasDetailPanel && (() => {
@@ -374,11 +379,13 @@ interface DataTableRowProps<TRow> {
   row: Row<TRow>;
   gridTemplate: string;
   rowClassName?: (row: TRow) => string;
+  rowAttributes?: (row: TRow) => Record<string, string>;
   hasDetailPanel?: boolean;
 }
 
-function DataTableRow<TRow>({ row, gridTemplate, rowClassName, hasDetailPanel }: Readonly<DataTableRowProps<TRow>>) {
+function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, hasDetailPanel }: Readonly<DataTableRowProps<TRow>>) {
   const customClass = rowClassName?.(row.original) ?? '';
+  const extraAttributes = rowAttributes?.(row.original) ?? {};
   const canExpand = row.getCanExpand() || hasDetailPanel;
 
   return (
@@ -389,6 +396,7 @@ function DataTableRow<TRow>({ row, gridTemplate, rowClassName, hasDetailPanel }:
       style={{ gridTemplateColumns: gridTemplate }}
       onClick={canExpand ? () => row.toggleExpanded() : undefined}
       onKeyDown={canExpand ? (e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.toggleExpanded(); } } : undefined}
+      {...extraAttributes}
     >
       {row.getVisibleCells().map((cell) => (
         <div key={cell.id} className="px-3 py-2">

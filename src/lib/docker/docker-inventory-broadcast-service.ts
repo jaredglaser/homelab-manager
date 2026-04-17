@@ -4,6 +4,13 @@ import type { DockerContainerEventRow } from '@/lib/database/repositories/docker
 
 type InventoryBroadcastCallback = (event: DockerInventoryBroadcastEvent) => void;
 
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_CAP_MS = 32_000;
+
+function backoffDelay(failures: number): number {
+  return Math.min(BACKOFF_BASE_MS * 2 ** failures, BACKOFF_CAP_MS);
+}
+
 export function rowToInventory(row: DockerContainerEventRow): DockerContainerInventory {
   return {
     host: row.host,
@@ -21,10 +28,32 @@ export function rowToInventory(row: DockerContainerEventRow): DockerContainerInv
   };
 }
 
+/**
+ * Convert a raw NOTIFY payload to DockerContainerInventory.
+ * Validates required fields and throws a descriptive error if they are missing.
+ */
 export function notifyPayloadToInventory(payload: Record<string, unknown>): DockerContainerInventory {
+  const host = payload.host;
+  const containerId = payload.container_id;
+  const eventType = payload.event_type;
+  const at = payload.at;
+
+  if (typeof host !== 'string' || !host) {
+    throw new Error(`[DockerInventoryBroadcastService] NOTIFY payload missing required field 'host': ${JSON.stringify(payload)}`);
+  }
+  if (typeof containerId !== 'string' || !containerId) {
+    throw new Error(`[DockerInventoryBroadcastService] NOTIFY payload missing required field 'container_id': ${JSON.stringify(payload)}`);
+  }
+  if (typeof eventType !== 'string' || !eventType) {
+    throw new Error(`[DockerInventoryBroadcastService] NOTIFY payload missing required field 'event_type': ${JSON.stringify(payload)}`);
+  }
+  if (typeof at !== 'string' || !at) {
+    throw new Error(`[DockerInventoryBroadcastService] NOTIFY payload missing required field 'at': ${JSON.stringify(payload)}`);
+  }
+
   return {
-    host: payload.host as string,
-    containerId: payload.container_id as string,
+    host,
+    containerId,
     name: (payload.name as string | null) ?? '',
     image: (payload.image as string | null) ?? '',
     state: (payload.state as DockerContainerInventory['state'] | null) ?? 'unknown',
@@ -34,7 +63,7 @@ export function notifyPayloadToInventory(payload: Record<string, unknown>): Dock
     finishedAt: payload.finished_at ? new Date(payload.finished_at as string) : null,
     exitCode: (payload.exit_code as number | null) ?? null,
     labels: {},
-    updatedAt: new Date(payload.at as string),
+    updatedAt: new Date(at),
   };
 }
 
@@ -80,6 +109,9 @@ export class DockerInventoryBroadcastService {
   private listenerClient: PoolClient | null = null;
   private stopped = true;
   private reconnecting = false;
+  private reconnectFailures = 0;
+  /** Timer reference so stop() can cancel a pending reconnect. */
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly getPoolClient: () => Promise<PoolClient>;
   private readonly loadSnapshot: () => Promise<DockerContainerInventory[]>;
 
@@ -92,10 +124,12 @@ export class DockerInventoryBroadcastService {
     this.subscribers.add(callback);
 
     if (this.subscribers.size === 1) {
-      this.startListening();
+      // Await startListening before sendInit to ensure LISTEN is registered first.
+      // This prevents an upsert arriving before the init on the client.
+      void this.startListening().then(() => this.sendInit(callback));
+    } else {
+      void this.sendInit(callback);
     }
-
-    this.sendInit(callback);
 
     return () => {
       this.subscribers.delete(callback);
@@ -141,20 +175,38 @@ export class DockerInventoryBroadcastService {
           this.cleanupListenerClient();
           if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
             this.reconnecting = true;
-            setTimeout(() => {
+            const delay = backoffDelay(this.reconnectFailures);
+            if (this.reconnectFailures === 0) {
+              console.error(`[DockerInventoryBroadcastService] DB connection lost, reconnecting (delay ${delay}ms)`);
+            } else if (this.reconnectFailures % 10 === 0) {
+              console.warn(`[DockerInventoryBroadcastService] Still reconnecting after ${this.reconnectFailures} attempts (delay ${delay}ms)`);
+            } else {
+              console.debug(`[DockerInventoryBroadcastService] Reconnect attempt ${this.reconnectFailures + 1} (delay ${delay}ms)`);
+            }
+            this.reconnectFailures++;
+            this.reconnectTimer = setTimeout(() => {
+              this.reconnectTimer = null;
               this.reconnecting = false;
               if (!this.stopped && this.subscribers.size > 0) {
-                this.startListening();
+                void this.startListening();
               }
-            }, 5_000);
+            }, delay);
           }
         });
 
         await this.listenerClient.query('LISTEN docker_container_change');
+        this.reconnectFailures = 0; // Reset backoff on successful connect
         return;
       } catch (error) {
-        console.error('[DockerInventoryBroadcastService] Failed to start listener, retrying in 5s:', error);
-        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        const delay = backoffDelay(this.reconnectFailures);
+        console.error(`[DockerInventoryBroadcastService] Failed to start listener, retrying in ${delay}ms:`, error);
+        this.reconnectFailures++;
+        await new Promise<void>((resolve) => {
+          this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            resolve();
+          }, delay);
+        });
       }
     }
   }
@@ -213,6 +265,10 @@ export class DockerInventoryBroadcastService {
 
   private stopListening(): void {
     this.stopped = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.cleanupListenerClient();
   }
 

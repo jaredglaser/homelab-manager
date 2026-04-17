@@ -595,6 +595,151 @@ describe('subscribe — error handling (data handler catch path)', () => {
   });
 });
 
+describe('subscribe — pause and unpause events (Fix 2)', () => {
+  test('pause event produces an upsert', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app1', 'running')];
+    const pausedContainer = makeContainer('c1', 'app1', 'paused');
+    const docker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: pausedContainer.Id,
+          Name: pausedContainer.Names[0],
+          State: { Status: pausedContainer.State },
+          Config: { Image: pausedContainer.Image, Labels: pausedContainer.Labels },
+        })),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    await new Promise((r) => setTimeout(r, 20));
+
+    eventsEmitter.emit('data', Buffer.from(JSON.stringify({
+      Type: 'container',
+      Action: 'pause',
+      Actor: { ID: 'c1' },
+    }) + '\n'));
+
+    await new Promise((r) => setTimeout(r, 30));
+    unsub();
+
+    const upserts = received.filter((e) => e.op === 'upsert');
+    expect(upserts.length).toBeGreaterThanOrEqual(1);
+    const last = upserts.at(-1) as Extract<BroadcasterEvent, { op: 'upsert' }>;
+    expect(last.container.State).toBe('paused');
+  });
+
+  test('unpause event produces an upsert', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app1', 'paused')];
+    const runningContainer = makeContainer('c1', 'app1', 'running');
+    const docker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: runningContainer.Id,
+          Name: runningContainer.Names[0],
+          State: { Status: runningContainer.State },
+          Config: { Image: runningContainer.Image, Labels: runningContainer.Labels },
+        })),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    await new Promise((r) => setTimeout(r, 20));
+
+    eventsEmitter.emit('data', Buffer.from(JSON.stringify({
+      Type: 'container',
+      Action: 'unpause',
+      Actor: { ID: 'c1' },
+    }) + '\n'));
+
+    await new Promise((r) => setTimeout(r, 30));
+    unsub();
+
+    const upserts = received.filter((e) => e.op === 'upsert');
+    expect(upserts.length).toBeGreaterThanOrEqual(1);
+    const last = upserts.at(-1) as Extract<BroadcasterEvent, { op: 'upsert' }>;
+    expect(last.container.State).toBe('running');
+  });
+});
+
+describe('subscribe — reconnect fresh init (Fix 3)', () => {
+  test('after reconnect, subscribers receive a fresh init reflecting updated container state', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    let capturedReconnectCallback: (() => void) | null = null;
+
+    // Initial state: one running container
+    const eventsEmitter = new EventEmitter();
+    const initialContainers = [makeContainer('c1', 'app1', 'running')];
+
+    // After reconnect, Docker state has changed: c1 is gone, c2 appeared
+    const reconnectContainers = [makeContainer('c2', 'app2', 'running')];
+
+    let listCallCount = 0;
+    let getEventsCallCount = 0;
+    const reconnectEventsEmitter = new EventEmitter();
+
+    const docker = {
+      listContainers: mock(() => {
+        listCallCount++;
+        return Promise.resolve(listCallCount === 1 ? initialContainers : reconnectContainers);
+      }),
+      // First call returns eventsEmitter (with error registered); second returns reconnectEventsEmitter
+      getEvents: mock(() => {
+        getEventsCallCount++;
+        return Promise.resolve(getEventsCallCount === 1 ? eventsEmitter : reconnectEventsEmitter);
+      }),
+    };
+
+    try {
+      const received: BroadcasterEvent[] = [];
+      const unsub = await subscribe(docker as any, (e) => received.push(e));
+      await new Promise((r) => originalSetTimeout(r, 20));
+
+      // Intercept setTimeout to capture the reconnect callback (fires immediately)
+      (globalThis as any).setTimeout = (cb: () => void) => {
+        capturedReconnectCallback = cb;
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      };
+
+      // Simulate stream error to trigger scheduleReconnect
+      eventsEmitter.emit('error', new Error('disconnected'));
+      await new Promise((r) => originalSetTimeout(r, 10));
+
+      // Verify we captured the reconnect callback
+      expect(capturedReconnectCallback).not.toBeNull();
+
+      // Restore real setTimeout before firing the callback (it awaits async operations)
+      globalThis.setTimeout = originalSetTimeout;
+
+      // Fire the reconnect — triggers startEventsSubscription(docker, true)
+      // which calls listContainers (reconnect path) and broadcasts fresh init
+      await (capturedReconnectCallback as unknown as () => Promise<void>)();
+      await new Promise((r) => originalSetTimeout(r, 20));
+
+      unsub();
+
+      // Should have received initial init + reconnect init
+      const initEvents = received.filter((e) => e.op === 'init');
+      expect(initEvents.length).toBeGreaterThanOrEqual(2);
+
+      // The reconnect init should reflect the new container state
+      const reconnectInit = initEvents[initEvents.length - 1] as Extract<BroadcasterEvent, { op: 'init' }>;
+      const ids = reconnectInit.containers.map((c) => c.Id);
+      expect(ids).toContain('c2');
+      expect(ids).not.toContain('c1');
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
+});
+
 describe('_resetBroadcasterForTesting — with active reconnect timer', () => {
   test('clears pending reconnect timer during reset', async () => {
     const originalSetTimeout = globalThis.setTimeout;

@@ -125,6 +125,7 @@ function makeInventory(
 const defaultProps = {
   inventory: new Map<string, DockerContainerInventory>(),
   isInventoryConnected: true,
+  inventoryError: null,
   latestByEntity: new Map<string, DockerStatsRow>(),
   rows: [] as DockerStatsRow[],
   hasData: true,
@@ -145,6 +146,17 @@ describe('ContainerTable', () => {
       />,
     );
     expect(screen.getByText(/Connection refused/)).toBeDefined();
+  });
+
+  it('renders inventory error when inventoryError set and inventory empty', () => {
+    render(
+      <ContainerTable
+        {...defaultProps}
+        inventoryError={new Error('Inventory stream failed')}
+        inventory={new Map()}
+      />,
+    );
+    expect(screen.getByText(/Inventory stream failed/)).toBeDefined();
   });
 
   it('renders spinner when not connected and no data', () => {
@@ -276,10 +288,8 @@ describe('ContainerTable', () => {
 
   // ── Fix 4: Row styling and history button ───────────────────────────────────
 
-  it('running-but-stale row receives amber stale class', () => {
-    // We test via rowClassName indirectly by verifying the component renders.
-    // rowClassName is passed to DataTable — we verify the logic by rendering
-    // an inventory where the running container has no stats (isStale=true).
+  it('running-but-stale row receives stale variant', () => {
+    // rowAttributes is passed to DataTable — we verify via data-row-variant attribute.
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'stale-app', 'running')],
     ]);
@@ -291,21 +301,19 @@ describe('ContainerTable', () => {
         latestByEntity={new Map()}
       />,
     );
-    // DataTable applies rowClassName — look for amber tint class in rendered HTML
-    const amberRows = container.querySelectorAll('[class*="bg-amber"]');
-    expect(amberRows.length).toBeGreaterThan(0);
+    const staleRows = container.querySelectorAll('[data-row-variant="stale"]');
+    expect(staleRows.length).toBeGreaterThan(0);
   });
 
-  it('stopped container row receives opacity class', () => {
+  it('stopped container row receives stopped variant', () => {
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'stopped-app', 'exited')],
     ]);
     const { container } = render(
       <ContainerTable {...defaultProps} inventory={inventory} />,
     );
-    // Stopped/paused rows get !opacity-60
-    const dimmedRows = container.querySelectorAll('[class*="opacity-60"]');
-    expect(dimmedRows.length).toBeGreaterThan(0);
+    const stoppedRows = container.querySelectorAll('[data-row-variant="stopped"]');
+    expect(stoppedRows.length).toBeGreaterThan(0);
   });
 
   it('history button fires onOpenHistory with correct args when clicked', () => {

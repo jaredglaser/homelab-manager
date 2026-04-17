@@ -144,7 +144,9 @@ describe('ProxmoxStatusSummary', () => {
     expect(screen.getByText('nodes')).toBeDefined();
     expect(screen.getByText('VMs')).toBeDefined();
     expect(screen.getByText('LXCs')).toBeDefined();
-    expect(screen.getByText('3')).toBeDefined();
+    // Multiple counts are rendered — use getAllByText for unambiguous assertions
+    const threes = screen.getAllByText('3');
+    expect(threes.length).toBeGreaterThan(0);
     expect(screen.getByText('1')).toBeDefined();
     expect(screen.getByText('8')).toBeDefined();
   });

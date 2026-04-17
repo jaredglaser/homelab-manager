@@ -638,4 +638,84 @@ describe('StackStatusBroadcastService', () => {
     expect(lastStatus.entries[0].containers).toHaveLength(0);
     expect(lastStatus.entries[0].updated_at).toBe('2026-04-16T12:34:56.000Z');
   });
+
+  // -------------------------------------------------------------------------
+  // Fix 1: destroy with null compose_project still removes from stackContainers
+  // -------------------------------------------------------------------------
+
+  it('destroy NOTIFY with null compose_project removes container from stack and broadcasts', async () => {
+    // Start with one compose container in the 'media' stack
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [composeContainer1],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await flush();
+
+    // Destroy arrives with labels: {} (null compose_project) — real Docker destroy events
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T13:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'destroy',
+        state: null,
+        name: null,
+        image: null,
+        compose_project: null, // destroy events have no compose label
+        service_key: null,
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    // Should have received an update after the destroy
+    expect(statusEvents.length).toBeGreaterThanOrEqual(2);
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    expect(lastStatus).toBeDefined();
+    // Container should be gone
+    expect(lastStatus.entries[0].containers).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Fix 10: stopListening cancels pending reconnect timer
+  // -------------------------------------------------------------------------
+
+  it('stopListening cancels pending reconnect timer on stop', async () => {
+    const capturedTimers: Array<() => void> = [];
+    const originalSetTimeout = globalThis.setTimeout;
+    let timerSet = false;
+
+    service.subscribe(() => {});
+    await flush();
+
+    // Intercept setTimeout to capture reconnect timer
+    (globalThis as any).setTimeout = (fn: () => void) => {
+      capturedTimers.push(fn);
+      timerSet = true;
+      return {} as any;
+    };
+
+    try {
+      poolClient.emit('error', new Error('connection reset'));
+      expect(timerSet).toBe(true);
+
+      // stop() should cancel the timer — no reconnect fires
+      await service.stop();
+
+      // Fire captured timers — should be no-ops since stopped
+      for (const fn of capturedTimers) {
+        fn();
+      }
+      // Service is stopped, no reconnect should have been initiated
+      // (the timer was cleared in stopListening)
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
 });

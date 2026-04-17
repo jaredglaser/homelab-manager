@@ -53,7 +53,6 @@ export default function ZFSStatusSummary({ latestByEntity }: Readonly<ZFSStatusS
 
   const segments: Segment[] = [];
 
-  // pools always shows
   segments.push({ label: 'pools', count: counts.pools });
 
   if (counts.disks > 0) segments.push({ label: 'disks', count: counts.disks });

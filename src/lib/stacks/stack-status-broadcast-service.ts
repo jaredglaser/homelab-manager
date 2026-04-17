@@ -16,6 +16,13 @@ export interface StackStatusBroadcastServiceDeps {
   loadSnapshot?: () => Promise<DockerContainerInventory[]>;
 }
 
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_CAP_MS = 32_000;
+
+function backoffDelay(failures: number): number {
+  return Math.min(BACKOFF_BASE_MS * 2 ** failures, BACKOFF_CAP_MS);
+}
+
 function toStackContainer(inv: DockerContainerInventory): StackContainer {
   return {
     id: inv.containerId,
@@ -93,6 +100,8 @@ function inventoryToStackEntries(containers: DockerContainerInventory[]): StackS
  * Listens on two PostgreSQL NOTIFY channels:
  *   - 'docker_container_change' — triggers stack snapshot re-derivation for the affected stack.
  *   - 'deploy_change' — forwards deploy lifecycle events as-is.
+ * Two channels: docker_container_change for live state, deploy_change for deploy-lifecycle
+ * (fired by the deploy pipeline writing directly — not derived from container events).
  *
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.
  */
@@ -101,6 +110,9 @@ export class StackStatusBroadcastService {
   private listenerClient: PoolClient | null = null;
   private stopped = true;
   private reconnecting = false;
+  private reconnectFailures = 0;
+  /** Timer reference so stop() can cancel a pending reconnect. */
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** In-memory map from 'host/stack' → per-container inventory for that stack. */
   private readonly stackContainers = new Map<string, Map<string, DockerContainerInventory>>();
@@ -117,10 +129,12 @@ export class StackStatusBroadcastService {
     this.subscribers.add(callback);
 
     if (this.subscribers.size === 1) {
-      this.startListening();
+      // Await startListening before sendInit to ensure LISTEN is registered first.
+      // This prevents an upsert arriving before the init on the client.
+      void this.startListening().then(() => this.sendInit(callback));
+    } else {
+      void this.sendInit(callback);
     }
-
-    this.sendInit(callback);
 
     return () => {
       this.subscribers.delete(callback);
@@ -208,15 +222,26 @@ export class StackStatusBroadcastService {
           this.cleanupListenerClient();
           if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
             this.reconnecting = true;
-            setTimeout(() => {
+            const delay = backoffDelay(this.reconnectFailures);
+            if (this.reconnectFailures === 0) {
+              console.error(`[StackStatusBroadcastService] DB connection lost, reconnecting (delay ${delay}ms)`);
+            } else if (this.reconnectFailures % 10 === 0) {
+              console.warn(`[StackStatusBroadcastService] Still reconnecting after ${this.reconnectFailures} attempts (delay ${delay}ms)`);
+            } else {
+              console.debug(`[StackStatusBroadcastService] Reconnect attempt ${this.reconnectFailures + 1} (delay ${delay}ms)`);
+            }
+            this.reconnectFailures++;
+            this.reconnectTimer = setTimeout(() => {
+              this.reconnectTimer = null;
               this.reconnecting = false;
               if (!this.stopped && this.subscribers.size > 0) {
-                this.startListening();
+                void this.startListening();
               }
-            }, 5_000);
+            }, delay);
           }
         });
 
+        // LISTEN registered before snapshot reload so NOTIFYs arriving during the reload are not dropped
         await this.listenerClient.query('LISTEN docker_container_change');
         await this.listenerClient.query('LISTEN deploy_change');
 
@@ -228,14 +253,41 @@ export class StackStatusBroadcastService {
           } catch (err) {
             console.error('[StackStatusBroadcastService] Failed to reload snapshot on reconnect:', err);
           }
+          // Reset backoff on successful reconnect
+          this.reconnectFailures = 0;
         }
 
         isFirstConnect = false;
         return;
       } catch (error) {
-        console.error('[StackStatusBroadcastService] Failed to start listener, retrying in 5s:', error);
+        const delay = backoffDelay(this.reconnectFailures);
+        console.error(`[StackStatusBroadcastService] Failed to start listener, retrying in ${delay}ms:`, error);
         isFirstConnect = false;
-        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        this.reconnectFailures++;
+        await new Promise<void>((resolve) => {
+          this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            resolve();
+          }, delay);
+        });
+      }
+    }
+  }
+
+  private broadcastStack(host: string, composeProject: string, eventAt: string): void {
+    const sk = stackKey(host, composeProject);
+    const byContainer = this.stackContainers.get(sk);
+    const stackGroup = byContainer ? Array.from(byContainer.values()) : [];
+    const entry: StackStatusEntry = stackGroup.length > 0
+      ? toStackEntry(host, composeProject, stackGroup)
+      : { host, stack: composeProject, containers: [], updated_at: eventAt };
+
+    const entries: StackStatusEntry[] = [entry];
+    for (const cb of this.subscribers) {
+      try {
+        cb({ type: 'status', entries });
+      } catch (err) {
+        console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
       }
     }
   }
@@ -254,10 +306,33 @@ export class StackStatusBroadcastService {
     try {
       const eventType = parsed.event_type as string;
       const host = parsed.host as string;
+      const containerId = parsed.container_id as string;
+      const eventAt = new Date(parsed.at as string).toISOString();
+
+      // Handle destroy BEFORE the null-compose guard — destroy events have labels: {}
+      // which produces compose_project: null. We must scan stackContainers to find the entry.
+      if (eventType === 'destroy') {
+        for (const [sk, byContainer] of this.stackContainers) {
+          const entityKey = `${host}/${containerId}`;
+          if (byContainer.has(entityKey)) {
+            byContainer.delete(entityKey);
+            const [stackHost, ...stackParts] = sk.split('/');
+            const stackName = stackParts.join('/');
+            if (byContainer.size === 0) {
+              this.stackContainers.delete(sk);
+            }
+            this.broadcastStack(stackHost, stackName, eventAt);
+            return;
+          }
+        }
+        // Non-compose container destroyed — nothing to broadcast
+        return;
+      }
+
       const composeProject = (parsed.compose_project as string | null) ?? null;
 
       if (composeProject === null) {
-        // Non-compose container — not part of any stack, ignore
+        // Non-compose container upsert — not part of any stack, ignore
         return;
       }
 
@@ -271,33 +346,9 @@ export class StackStatusBroadcastService {
           this.stackContainers.set(sk, byContainer);
         }
         byContainer.set(`${inv.host}/${inv.containerId}`, inv);
-      } else if (eventType === 'destroy') {
-        const containerId = parsed.container_id as string;
-        const byContainer = this.stackContainers.get(sk);
-        if (byContainer) {
-          byContainer.delete(`${host}/${containerId}`);
-          if (byContainer.size === 0) {
-            this.stackContainers.delete(sk);
-          }
-        }
       }
 
-      // Broadcast updated snapshot for this specific stack
-      const byContainer = this.stackContainers.get(sk);
-      const stackGroup = byContainer ? Array.from(byContainer.values()) : [];
-      const eventAt = new Date(parsed.at as string).toISOString();
-      const entry: StackStatusEntry = stackGroup.length > 0
-        ? toStackEntry(host, composeProject, stackGroup)
-        : { host, stack: composeProject, containers: [], updated_at: eventAt };
-
-      const entries: StackStatusEntry[] = [entry];
-      for (const cb of this.subscribers) {
-        try {
-          cb({ type: 'status', entries });
-        } catch (err) {
-          console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
-        }
-      }
+      this.broadcastStack(host, composeProject, eventAt);
     } catch (err) {
       console.error('[StackStatusBroadcastService] Failed to process docker_container_change payload:', err);
     }
@@ -346,6 +397,10 @@ export class StackStatusBroadcastService {
 
   private stopListening(): void {
     this.stopped = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.cleanupListenerClient();
   }
 

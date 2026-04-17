@@ -46,11 +46,10 @@ function createMockRepo(snapshotRows: DockerContainerEventRow[] = []) {
   const repo = {
     insert: mock(async (event: NewContainerEvent) => {
       inserted.push(event);
-      return makeRow({ eventType: event.eventType, state: event.state, containerId: event.containerId });
+      const state = event.eventType === 'upsert' ? event.state : null;
+      return makeRow({ eventType: event.eventType, state, containerId: event.containerId });
     }),
     getCurrentSnapshot: mock(async () => snapshotRows),
-    getLatestForContainer: mock(async () => null),
-    getHistoryForContainer: mock(async () => []),
   } as unknown as DockerContainerEventRepository;
   return { repo, inserted };
 }
@@ -123,7 +122,7 @@ describe('ContainerInventoryCollector — state-change dedup', () => {
 
     expect(inserted).toHaveLength(1);
     expect(inserted[0].eventType).toBe('upsert');
-    expect(inserted[0].state).toBe('running');
+    expect(inserted[0].eventType === 'upsert' && inserted[0].state).toBe('running');
   });
 
   it('upsert with same state as cache writes zero rows', async () => {
@@ -154,8 +153,8 @@ describe('ContainerInventoryCollector — state-change dedup', () => {
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
-    expect(inserted[0].state).toBe('exited');
-    expect(inserted[0].exitCode).toBe(0);
+    expect(inserted[0].eventType === 'upsert' && inserted[0].state).toBe('exited');
+    expect(inserted[0].eventType === 'upsert' && inserted[0].exitCode).toBe(0);
   });
 
   it('destroy event writes one destroy row regardless of prior state', async () => {
@@ -173,7 +172,8 @@ describe('ContainerInventoryCollector — state-change dedup', () => {
     expect(inserted).toHaveLength(1);
     expect(inserted[0].eventType).toBe('destroy');
     expect(inserted[0].containerId).toBe('abc123');
-    expect(inserted[0].state).toBeNull();
+    // destroy events carry no state field in the discriminated union
+    expect(inserted[0].eventType === 'destroy' && !('state' in inserted[0])).toBe(true);
   });
 
   it('destroy event with no prior cache still writes one destroy row', async () => {
@@ -299,7 +299,7 @@ describe('ContainerInventoryCollector — flap dampening', () => {
     await (typeof fn === 'function' ? Promise.resolve(fn()) : Promise.resolve());
 
     expect(inserted).toHaveLength(1);
-    expect(inserted[0].state).toBe('exited');
+    expect(inserted[0].eventType === 'upsert' && inserted[0].state).toBe('exited');
 
     setTimeoutSpy.mockRestore();
     clearTimeoutSpy.mockRestore();
@@ -333,7 +333,7 @@ describe('ContainerInventoryCollector — init reconciliation', () => {
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
-    expect(inserted[0].state).toBe('exited');
+    expect(inserted[0].eventType === 'upsert' && inserted[0].state).toBe('exited');
     expect(inserted[0].eventType).toBe('upsert');
   });
 
@@ -522,5 +522,51 @@ describe('ContainerInventoryCollector — reconnection and abort', () => {
 
     expect(inserted).toHaveLength(1);
     setTimeoutSpy.mockRestore();
+  });
+});
+
+describe('ContainerInventoryCollector — reconcileInit clears pending writes (Fix 6)', () => {
+  let abortController: AbortController;
+
+  beforeEach(() => {
+    abortController = new AbortController();
+  });
+
+  afterEach(() => {
+    abortController.abort();
+  });
+
+  it('reconcileInit cancels stale pending timers before processing the new snapshot', async () => {
+    const capturedTimers: Array<{ fn: TimerHandler; id: number }> = [];
+    let idCounter = 0;
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler) => {
+        const id = ++idCounter;
+        capturedTimers.push({ fn, id });
+        return id as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout,
+    );
+    const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
+      const idx = capturedTimers.findIndex((t) => t.id === id);
+      if (idx !== -1) capturedTimers.splice(idx, 1);
+    });
+
+    const { repo, inserted } = createMockRepo();
+    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+
+    // Schedule a write that should be cancelled by reconcileInit
+    (collector as any).scheduleWrite(makeContainer({ state: 'running' }), 'upsert');
+    expect(capturedTimers).toHaveLength(1);
+
+    // reconcileInit should cancel pending timers before processing
+    await (collector as any).reconcileInit([]);
+
+    // The pending timer should have been cancelled (spliced out by clearTimeout mock)
+    expect(capturedTimers).toHaveLength(0);
+    // No writes should have happened from the cancelled timer
+    expect(inserted).toHaveLength(0);
+
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
   });
 });

@@ -4,6 +4,7 @@ import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { Pool } from 'pg';
 import { BaseCollector } from '../collectors/base-collector';
+import { ContainerInventoryCollector } from '../collectors/container-inventory-collector';
 
 // Suppress console output during tests
 const originalConsoleLog = console.log;
@@ -23,6 +24,12 @@ function createMockDb() {
 /** Extract first argument from each console.info mock call */
 function getMockInfoCalls(): unknown[] {
   const mockFn = console.info as unknown as { mock: { calls: unknown[][] } };
+  return mockFn.mock.calls.map((c) => c[0]);
+}
+
+/** Extract first argument from each console.error mock call */
+function getMockErrorCalls(): unknown[] {
+  const mockFn = console.error as unknown as { mock: { calls: unknown[][] } };
   return mockFn.mock.calls.map((c) => c[0]);
 }
 
@@ -348,6 +355,174 @@ describe('createCollectorsForManagedHosts', () => {
     );
 
     expect(result.collectors).toHaveLength(0);
+
+    shutdownController.abort();
+  });
+});
+
+describe('createContainerInventoryCollectors', () => {
+  let db: ReturnType<typeof createMockDb>;
+  let runSpy: ReturnType<typeof spyOn>;
+
+  const dockerHost: ManagedHostRow = {
+    id: 1,
+    name: 'homeserver',
+    agent_url: 'http://192.168.1.10:9090',
+    capabilities: { docker: true, zfs: true },
+    agent_version: '0.1.0',
+    status: 'healthy',
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+
+  const noDockerHost: ManagedHostRow = {
+    ...dockerHost,
+    id: 2,
+    name: 'zfs-only',
+    capabilities: { docker: false, zfs: true },
+  };
+
+  beforeEach(() => {
+    db = createMockDb();
+    console.log = mock(() => {});
+    console.info = mock(() => {});
+    console.error = mock(() => {});
+    runSpy = spyOn(ContainerInventoryCollector.prototype, 'run').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    console.log = originalConsoleLog;
+    console.info = originalConsoleInfo;
+    console.error = originalConsoleError;
+    runSpy.mockRestore();
+  });
+
+  it('creates a ContainerInventoryCollector per managed host with capabilities.docker === true', async () => {
+    const { createContainerInventoryCollectors } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createContainerInventoryCollectors(
+      db as unknown as DatabaseClient,
+      shutdownController,
+      stack,
+      async () => [dockerHost],
+      async () => 'mock-token',
+    );
+
+    expect(result.runners).toHaveLength(1);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+
+    shutdownController.abort();
+  });
+
+  it('returns empty runners when no hosts exist', async () => {
+    const { createContainerInventoryCollectors } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createContainerInventoryCollectors(
+      db as unknown as DatabaseClient,
+      shutdownController,
+      stack,
+      async () => [],
+      async () => 'mock-token',
+    );
+
+    expect(result.runners).toHaveLength(0);
+
+    shutdownController.abort();
+  });
+
+  it('skips hosts where capabilities.docker === false and logs info', async () => {
+    const { createContainerInventoryCollectors } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createContainerInventoryCollectors(
+      db as unknown as DatabaseClient,
+      shutdownController,
+      stack,
+      async () => [noDockerHost],
+      async () => 'mock-token',
+    );
+
+    expect(result.runners).toHaveLength(0);
+    const infoCalls = getMockInfoCalls();
+    expect(infoCalls.some((m) => String(m).includes('Docker capability not enabled'))).toBe(true);
+
+    shutdownController.abort();
+  });
+
+  it('skips hosts whose token lookup returns null and logs info', async () => {
+    const { createContainerInventoryCollectors } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createContainerInventoryCollectors(
+      db as unknown as DatabaseClient,
+      shutdownController,
+      stack,
+      async () => [dockerHost],
+      async () => null,
+    );
+
+    expect(result.runners).toHaveLength(0);
+    const infoCalls = getMockInfoCalls();
+    expect(infoCalls.some((m) => String(m).includes('no agent token in secret store'))).toBe(true);
+
+    shutdownController.abort();
+  });
+
+  it('skips hosts whose token lookup throws, logs error, does not halt other hosts', async () => {
+    const host2: ManagedHostRow = { ...dockerHost, id: 2, name: 'host2', agent_url: 'http://192.168.1.11:9090' };
+    const { createContainerInventoryCollectors } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    let call = 0;
+    const result = await createContainerInventoryCollectors(
+      db as unknown as DatabaseClient,
+      shutdownController,
+      stack,
+      async () => [dockerHost, host2],
+      async (hostname) => {
+        call++;
+        if (hostname === 'homeserver') throw new Error('vault down');
+        return 'good-token';
+      },
+    );
+
+    // host2 succeeds, homeserver is skipped
+    expect(result.runners).toHaveLength(1);
+    expect(call).toBe(2);
+    const errorCalls = getMockErrorCalls();
+    expect(errorCalls.some((m) => String(m).includes('Failed to retrieve token'))).toBe(true);
+
+    shutdownController.abort();
+  });
+
+  it('does not throw when multiple hosts are mixed (one succeeds, one skipped)', async () => {
+    const { createContainerInventoryCollectors } = await import('../collector-factory');
+
+    const shutdownController = new AbortController();
+    await using stack = new AsyncDisposableStack();
+
+    const result = await createContainerInventoryCollectors(
+      db as unknown as DatabaseClient,
+      shutdownController,
+      stack,
+      async () => [dockerHost, noDockerHost],
+      async () => 'mock-token',
+    );
+
+    // dockerHost succeeds, noDockerHost is skipped
+    expect(result.runners).toHaveLength(1);
 
     shutdownController.abort();
   });

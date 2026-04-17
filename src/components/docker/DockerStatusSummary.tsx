@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Typography } from '@mui/material';
-import { useDockerInventory } from '@/hooks/useDockerInventory';
+import { bucketContainerState } from '@/lib/utils/docker-hierarchy-builder';
+import type { DockerContainerInventory } from '@/types/docker-inventory';
 
 interface Segment {
   label: string;
@@ -29,38 +30,24 @@ function StatusSegment({ label, count }: Readonly<Segment>) {
   );
 }
 
-export default function DockerStatusSummary() {
-  const { inventory } = useDockerInventory();
+interface DockerStatusSummaryProps {
+  inventory: Map<string, DockerContainerInventory>;
+}
 
+export default function DockerStatusSummary({ inventory }: Readonly<DockerStatusSummaryProps>) {
   const counts = useMemo(() => {
     const states = { running: 0, stopped: 0, restarting: 0, paused: 0, other: 0 };
     const hosts = new Set<string>();
     for (const row of inventory.values()) {
       hosts.add(row.host);
-      switch (row.state) {
-        case 'running':
-          states.running++;
-          break;
-        case 'restarting':
-          states.restarting++;
-          break;
-        case 'paused':
-          states.paused++;
-          break;
-        case 'exited':
-        case 'dead':
-          states.stopped++;
-          break;
-        default:
-          states.other++;
-      }
+      const bucket = bucketContainerState(row.state);
+      states[bucket]++;
     }
     return { ...states, hostCount: hosts.size };
   }, [inventory]);
 
   const segments: Segment[] = [];
 
-  // running always shows
   segments.push({ label: 'running', count: counts.running });
 
   if (counts.stopped > 0) segments.push({ label: 'stopped', count: counts.stopped });

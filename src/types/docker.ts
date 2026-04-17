@@ -100,8 +100,6 @@ export interface HostAggregatedStats {
   staleContainerCount: number; // running but no recent stats
 }
 
-// ─── Tagged-union row model for the DataTable tree structure ───────────────
-
 interface DockerTableRowBase {
   id: string;
 }

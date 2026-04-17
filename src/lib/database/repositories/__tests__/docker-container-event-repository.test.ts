@@ -78,20 +78,12 @@ describe('DockerContainerEventRepository', () => {
       expect(result.exitCode).toBeNull();
     });
 
-    it('inserts a destroy event with null state', async () => {
+    it('inserts a destroy event with null fields', async () => {
       const destroyEvent: NewContainerEvent = {
         at: new Date(),
         host: 'homeserver',
         containerId: 'abc123',
         eventType: 'destroy',
-        state: null,
-        name: null,
-        image: null,
-        labels: {},
-        serviceKey: null,
-        startedAt: null,
-        finishedAt: null,
-        exitCode: null,
       };
       mock.pushResult([{ ...dbRow, event_type: 'destroy', state: null, name: null, image: null, labels: {}, compose_project: null, service_key: null, started_at: null }]);
 
@@ -100,6 +92,27 @@ describe('DockerContainerEventRepository', () => {
       expect(result.eventType).toBe('destroy');
       expect(result.state).toBeNull();
       expect(result.composeProject).toBeNull();
+    });
+
+    it('destroy event sends null for all optional fields in the SQL params', async () => {
+      const destroyEvent: NewContainerEvent = {
+        at: new Date('2026-04-16T10:00:00Z'),
+        host: 'homeserver',
+        containerId: 'abc123',
+        eventType: 'destroy',
+      };
+      mock.pushResult([{ ...dbRow, event_type: 'destroy', state: null, name: null, image: null, labels: {}, compose_project: null, service_key: null, started_at: null }]);
+
+      await repo.insert(destroyEvent);
+
+      const params = mock.queries[0].params;
+      expect(params[4]).toBeNull();  // state
+      expect(params[5]).toBeNull();  // name
+      expect(params[6]).toBeNull();  // image
+      expect(params[8]).toBeNull();  // service_key
+      expect(params[9]).toBeNull();  // started_at
+      expect(params[10]).toBeNull(); // finished_at
+      expect(params[11]).toBeNull(); // exit_code
     });
 
     it('stores labels as JSON string parameter', async () => {
@@ -144,70 +157,6 @@ describe('DockerContainerEventRepository', () => {
     });
   });
 
-  describe('getLatestForContainer', () => {
-    it('queries by host and container_id with LIMIT 1 ordered by at DESC', async () => {
-      mock.pushResult([dbRow]);
-
-      const row = await repo.getLatestForContainer('homeserver', 'abc123');
-
-      expect(mock.queries[0].sql).toContain('WHERE host = $1 AND container_id = $2');
-      expect(mock.queries[0].sql).toContain('ORDER BY at DESC');
-      expect(mock.queries[0].sql).toContain('LIMIT 1');
-      expect(mock.queries[0].params).toEqual(['homeserver', 'abc123']);
-      expect(row).not.toBeNull();
-      expect(row!.containerId).toBe('abc123');
-      expect(row!.state).toBe('running');
-    });
-
-    it('returns null when no rows match', async () => {
-      mock.pushResult([]);
-      const row = await repo.getLatestForContainer('homeserver', 'notfound');
-      expect(row).toBeNull();
-    });
-
-    it('maps compose_project from stored column', async () => {
-      mock.pushResult([{ ...dbRow, compose_project: 'media' }]);
-      const row = await repo.getLatestForContainer('homeserver', 'abc123');
-      expect(row!.composeProject).toBe('media');
-    });
-  });
-
-  describe('getHistoryForContainer', () => {
-    it('queries with since filter ordered by at ASC', async () => {
-      const since = new Date('2026-04-16T00:00:00Z');
-      const row2 = { ...dbRow, at: new Date('2026-04-16T11:00:00Z'), state: 'exited' };
-      mock.pushResult([dbRow, row2]);
-
-      const rows = await repo.getHistoryForContainer('homeserver', 'abc123', since);
-
-      expect(mock.queries[0].sql).toContain('WHERE host = $1 AND container_id = $2 AND at >= $3');
-      expect(mock.queries[0].sql).toContain('ORDER BY at ASC');
-      expect(mock.queries[0].params).toEqual(['homeserver', 'abc123', since]);
-      expect(rows).toHaveLength(2);
-      expect(rows[0].state).toBe('running');
-      expect(rows[1].state).toBe('exited');
-    });
-
-    it('returns empty array when no history exists', async () => {
-      mock.pushResult([]);
-      const rows = await repo.getHistoryForContainer('homeserver', 'abc123', new Date());
-      expect(rows).toEqual([]);
-    });
-
-    it('returns events in chronological order (oldest first)', async () => {
-      const t1 = new Date('2026-04-16T10:00:00Z');
-      const t2 = new Date('2026-04-16T11:00:00Z');
-      mock.pushResult([
-        { ...dbRow, at: t1, state: 'running' },
-        { ...dbRow, at: t2, state: 'exited' },
-      ]);
-
-      const rows = await repo.getHistoryForContainer('homeserver', 'abc123', t1);
-      expect(rows[0].at).toEqual(t1);
-      expect(rows[1].at).toEqual(t2);
-    });
-  });
-
   describe('row mapping', () => {
     it('maps null nullable fields correctly', async () => {
       const rowWithNulls = {
@@ -223,21 +172,26 @@ describe('DockerContainerEventRepository', () => {
       };
       mock.pushResult([rowWithNulls]);
 
-      const row = await repo.getLatestForContainer('homeserver', 'abc123');
-      expect(row!.state).toBeNull();
-      expect(row!.name).toBeNull();
-      expect(row!.image).toBeNull();
-      expect(row!.composeProject).toBeNull();
-      expect(row!.serviceKey).toBeNull();
-      expect(row!.startedAt).toBeNull();
-      expect(row!.finishedAt).toBeNull();
-      expect(row!.exitCode).toBeNull();
+      const result = await repo.insert(baseEvent);
+      // Re-push for getCurrentSnapshot to use
+      mock.pushResult([rowWithNulls]);
+      const rows = await repo.getCurrentSnapshot();
+      const row = rows[0];
+      expect(row.state).toBeNull();
+      expect(row.name).toBeNull();
+      expect(row.image).toBeNull();
+      expect(row.composeProject).toBeNull();
+      expect(row.serviceKey).toBeNull();
+      expect(row.startedAt).toBeNull();
+      expect(row.finishedAt).toBeNull();
+      expect(row.exitCode).toBeNull();
+      void result;
     });
 
     it('preserves exitCode integer', async () => {
       mock.pushResult([{ ...dbRow, state: 'exited', exit_code: 1, finished_at: new Date() }]);
-      const row = await repo.getLatestForContainer('homeserver', 'abc123');
-      expect(row!.exitCode).toBe(1);
+      const rows = await repo.getCurrentSnapshot();
+      expect(rows[0].exitCode).toBe(1);
     });
   });
 });

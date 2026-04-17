@@ -1,20 +1,27 @@
 import type { Pool } from 'pg';
 import type { ContainerState } from '@/types/docker-inventory';
 
-export interface NewContainerEvent {
-  at: Date;
-  host: string;
-  containerId: string;
-  eventType: 'upsert' | 'destroy';
-  state: ContainerState | null;
-  name: string | null;
-  image: string | null;
-  labels: Record<string, string>;
-  serviceKey: string | null;
-  startedAt: Date | null;
-  finishedAt: Date | null;
-  exitCode: number | null;
-}
+export type NewContainerEvent =
+  | {
+      at: Date;
+      host: string;
+      containerId: string;
+      eventType: 'upsert';
+      state: ContainerState;
+      name: string;
+      image: string;
+      labels: Record<string, string>;
+      serviceKey: string | null;
+      startedAt: Date | null;
+      finishedAt: Date | null;
+      exitCode: number | null;
+    }
+  | {
+      at: Date;
+      host: string;
+      containerId: string;
+      eventType: 'destroy';
+    };
 
 export interface DockerContainerEventRow {
   at: Date;
@@ -55,6 +62,7 @@ export class DockerContainerEventRepository {
 
   /** Append one event row. Returns the inserted row. */
   async insert(event: NewContainerEvent): Promise<DockerContainerEventRow> {
+    const isUpsert = event.eventType === 'upsert';
     const { rows } = await this.pool.query(
       `INSERT INTO docker_container_events
          (at, host, container_id, event_type, state, name, image, labels, service_key,
@@ -68,14 +76,14 @@ export class DockerContainerEventRepository {
         event.host,
         event.containerId,
         event.eventType,
-        event.state,
-        event.name,
-        event.image,
-        JSON.stringify(event.labels),
-        event.serviceKey,
-        event.startedAt,
-        event.finishedAt,
-        event.exitCode,
+        isUpsert ? event.state : null,
+        isUpsert ? event.name : null,
+        isUpsert ? event.image : null,
+        JSON.stringify(isUpsert ? event.labels : {}),
+        isUpsert ? event.serviceKey : null,
+        isUpsert ? event.startedAt : null,
+        isUpsert ? event.finishedAt : null,
+        isUpsert ? event.exitCode : null,
       ],
     );
     return rowToEventRow(rows[0] as Record<string, unknown>);
@@ -93,33 +101,4 @@ export class DockerContainerEventRepository {
     return (rows as Record<string, unknown>[]).map(rowToEventRow);
   }
 
-  /** Latest event for a specific container. Used by collector for no-op dedup. */
-  async getLatestForContainer(host: string, containerId: string): Promise<DockerContainerEventRow | null> {
-    const { rows } = await this.pool.query(
-      `SELECT
-         at, host, container_id, event_type, state, name, image, labels,
-         compose_project, service_key, started_at, finished_at, exit_code
-       FROM docker_container_events
-       WHERE host = $1 AND container_id = $2
-       ORDER BY at DESC
-       LIMIT 1`,
-      [host, containerId],
-    );
-    if (rows.length === 0) return null;
-    return rowToEventRow(rows[0] as Record<string, unknown>);
-  }
-
-  /** Time-series of state changes for a container, oldest first. For future graphing. */
-  async getHistoryForContainer(host: string, containerId: string, since: Date): Promise<DockerContainerEventRow[]> {
-    const { rows } = await this.pool.query(
-      `SELECT
-         at, host, container_id, event_type, state, name, image, labels,
-         compose_project, service_key, started_at, finished_at, exit_code
-       FROM docker_container_events
-       WHERE host = $1 AND container_id = $2 AND at >= $3
-       ORDER BY at ASC`,
-      [host, containerId, since],
-    );
-    return (rows as Record<string, unknown>[]).map(rowToEventRow);
-  }
 }

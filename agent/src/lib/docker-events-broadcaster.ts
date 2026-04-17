@@ -1,10 +1,11 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
 
-const RECONNECT_DELAY_MS = 5_000;
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_CAP_MS = 32_000;
 
 /** Actions that trigger state updates. */
-const RELEVANT_ACTIONS = new Set(['start', 'stop', 'die', 'restart', 'create', 'destroy']);
+const RELEVANT_ACTIONS = new Set(['start', 'stop', 'die', 'restart', 'create', 'destroy', 'pause', 'unpause']);
 
 /** Minimal shape stored in the in-memory map. Avoids force-casting to the full Dockerode.ContainerInfo. */
 export interface MinimalContainerInfo {
@@ -31,9 +32,7 @@ export interface DockerEventMessage {
 interface BroadcasterState {
   /** All containers, keyed by container ID. Populated from listContainers({ all: true }) on first subscribe. */
   containers: Map<string, MinimalContainerInfo>;
-  /** Active subscriber callbacks. */
   subscribers: Set<(event: BroadcasterEvent) => void>;
-  /** The active Docker events stream, if any. */
   eventsStream: Readable | null;
   /** True while a reconnect is in progress or scheduled. */
   reconnecting: boolean;
@@ -41,6 +40,8 @@ interface BroadcasterState {
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   /** The docker instance used by the current subscription. */
   docker: Dockerode | null;
+  /** Consecutive reconnect failures for backoff calculation. */
+  reconnectFailures: number;
 }
 
 const state: BroadcasterState = {
@@ -50,12 +51,21 @@ const state: BroadcasterState = {
   reconnecting: false,
   reconnectTimer: null,
   docker: null,
+  reconnectFailures: 0,
 };
 
 function broadcastToAll(event: BroadcasterEvent): void {
   for (const cb of state.subscribers) {
     cb(event);
   }
+}
+
+/**
+ * Compute exponential backoff delay.
+ * Base 500ms, doubles each failure, capped at 32s.
+ */
+function backoffDelay(failures: number): number {
+  return Math.min(BACKOFF_BASE_MS * 2 ** failures, BACKOFF_CAP_MS);
 }
 
 async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
@@ -92,24 +102,43 @@ async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
       state.containers.delete(containerId);
       broadcastToAll({ op: 'destroy', containerId });
     } else {
-      console.error(`Failed to refresh container info after '${action}' event for ${containerId}:`, err);
+      // Treat non-404 errors as transient — do not update state or broadcast.
+      // The next event for this container will retry naturally.
+      const statusCode = (typeof err === 'object' && err !== null && 'statusCode' in err)
+        ? (err as { statusCode: number }).statusCode
+        : undefined;
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[DockerEventsBroadcaster] Transient inspect error after '${action}' for ${containerId}:`, { action, containerId, statusCode, message });
     }
   }
 }
 
 function scheduleReconnect(docker: Dockerode): void {
   state.reconnecting = true;
+  const delay = backoffDelay(state.reconnectFailures);
+  const isFirstFailure = state.reconnectFailures === 0;
+  const isLogInterval = state.reconnectFailures % 10 === 0 && state.reconnectFailures > 0;
+
+  if (isFirstFailure) {
+    console.error(`[DockerEventsBroadcaster] Events stream disconnected, reconnecting (attempt 1, delay ${delay}ms)`);
+  } else if (isLogInterval) {
+    console.warn(`[DockerEventsBroadcaster] Still reconnecting after ${state.reconnectFailures} attempts (delay ${delay}ms)`);
+  } else {
+    console.debug(`[DockerEventsBroadcaster] Reconnect attempt ${state.reconnectFailures + 1} (delay ${delay}ms)`);
+  }
+
+  state.reconnectFailures++;
   state.reconnectTimer = setTimeout(async () => {
     state.reconnectTimer = null;
+    state.reconnecting = false; // Clear before calling startEventsSubscription
     if (state.subscribers.size === 0) {
-      state.reconnecting = false;
       return;
     }
-    await startEventsSubscription(docker);
-  }, RECONNECT_DELAY_MS);
+    await startEventsSubscription(docker, true);
+  }, delay);
 }
 
-async function startEventsSubscription(docker: Dockerode): Promise<void> {
+async function startEventsSubscription(docker: Dockerode, isReconnect = false): Promise<void> {
   if (state.reconnecting && !state.reconnectTimer) return;
   state.reconnecting = true;
 
@@ -118,8 +147,24 @@ async function startEventsSubscription(docker: Dockerode): Promise<void> {
       filters: { type: ['container'] },
     }) as unknown as Readable;
 
+    // On reconnect, rebuild state from a fresh container list and emit a new init
+    // so subscribers catch up on any events missed during the outage.
+    if (isReconnect) {
+      try {
+        const freshList = await docker.listContainers({ all: true });
+        state.containers.clear();
+        for (const c of freshList) {
+          state.containers.set(c.Id, c as unknown as MinimalContainerInfo);
+        }
+        broadcastToAll({ op: 'init', containers: [...state.containers.values()] });
+      } catch (listErr) {
+        console.error('[DockerEventsBroadcaster] Failed to refresh container list on reconnect:', listErr);
+      }
+    }
+
     state.eventsStream = stream;
     state.reconnecting = false;
+    state.reconnectFailures = 0; // Reset on success
 
     let buffer = '';
     stream.on('data', (chunk: Buffer) => {
@@ -133,6 +178,7 @@ async function startEventsSubscription(docker: Dockerode): Promise<void> {
         try {
           event = JSON.parse(line);
         } catch {
+          console.warn('[DockerEventsBroadcaster] Dropped malformed SSE frame:', line.slice(0, 200));
           continue;
         }
         handleDockerEvent(event).catch((err) => {
@@ -213,6 +259,7 @@ export async function subscribe(
         state.eventsStream = null;
       }
       state.reconnecting = false;
+      state.reconnectFailures = 0;
       state.docker = null;
     }
   };
@@ -231,6 +278,7 @@ export function _resetBroadcasterForTesting(): void {
   state.containers.clear();
   state.subscribers.clear();
   state.reconnecting = false;
+  state.reconnectFailures = 0;
   state.docker = null;
 }
 

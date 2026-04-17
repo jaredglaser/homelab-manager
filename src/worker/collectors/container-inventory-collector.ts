@@ -22,6 +22,7 @@ export class ContainerInventoryCollector implements AsyncDisposable {
   private static readonly BASE_DELAY_MS = 500;
   private static readonly MAX_DELAY_MS = 32_000;
   /** 250 ms coalesce window per container to collapse flapping state transitions. */
+  // 250ms = typical restart-loop settle window; coalesces A→B→A flap into zero writes
   private static readonly FLAP_WINDOW_MS = 250;
   private readonly fetchFn: FetchFn;
 
@@ -63,6 +64,11 @@ export class ContainerInventoryCollector implements AsyncDisposable {
         this.consecutiveErrors = 0;
       } catch (error) {
         if (this.signal.aborted) break;
+        // Cancel stale pending writes so they don't fire after reconnect with old state.
+        for (const { timer } of this.pendingWrites.values()) {
+          clearTimeout(timer);
+        }
+        this.pendingWrites.clear();
         this.consecutiveErrors++;
         const delay = Math.min(
           ContainerInventoryCollector.BASE_DELAY_MS * 2 ** (this.consecutiveErrors - 1),
@@ -140,6 +146,7 @@ export class ContainerInventoryCollector implements AsyncDisposable {
           try {
             event = JSON.parse(json) as AgentContainerEvent;
           } catch {
+            console.warn('[ContainerInventoryCollector]', this.host.name, 'dropped malformed SSE frame:', json.slice(0, 200));
             continue;
           }
           await this.handleEvent(event);
@@ -166,6 +173,12 @@ export class ContainerInventoryCollector implements AsyncDisposable {
    * that disappeared while offline.
    */
   private async reconcileInit(containers: InventoryContainer[]): Promise<void> {
+    // Cancel pending flap-window timers — they captured stale pre-reconnect state.
+    for (const { timer } of this.pendingWrites.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingWrites.clear();
+
     const incomingIds = new Set(containers.map((c) => c.id));
 
     for (const container of containers) {
@@ -187,7 +200,7 @@ export class ContainerInventoryCollector implements AsyncDisposable {
    * If the same container receives another event within the window, only the final
    * state is written. If the final state matches the last-written state, nothing is written.
    */
-  private scheduleWrite(container: InventoryContainer, eventType: 'upsert' | 'destroy'): void {
+  private scheduleWrite(container: InventoryContainer, eventType: 'upsert'): void {
     const existing = this.pendingWrites.get(container.id);
     if (existing) {
       clearTimeout(existing.timer);
@@ -225,7 +238,7 @@ export class ContainerInventoryCollector implements AsyncDisposable {
     this.pendingWrites.set(containerId, { container: null, eventType: 'destroy', timer });
   }
 
-  private async writeEvent(container: InventoryContainer, eventType: 'upsert' | 'destroy'): Promise<void> {
+  private async writeEvent(container: InventoryContainer, eventType: 'upsert'): Promise<void> {
     const serviceKey = computeServiceKey(container.labels, container.name);
     try {
       await this.repository.insert({
@@ -256,14 +269,6 @@ export class ContainerInventoryCollector implements AsyncDisposable {
         host: this.host.name,
         containerId,
         eventType: 'destroy',
-        state: null,
-        name: null,
-        image: null,
-        labels: {},
-        serviceKey: null,
-        startedAt: null,
-        finishedAt: null,
-        exitCode: null,
       });
       this.stateCache.set(containerId, { state: null, eventType: 'destroy' });
     } catch (err) {

@@ -88,14 +88,15 @@ function DockerContainersPage() {
     debug: developer.sseDebugLogging,
   })
 
-  const { inventory, isConnected: isInventoryConnected } = useDockerInventory()
+  const { inventory, isConnected: isInventoryConnected, error: inventoryError } = useDockerInventory()
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <PageStatusBar left={<DockerStatusSummary />} />
+      <PageStatusBar left={<DockerStatusSummary inventory={inventory} />} />
       <ContainerTable
         inventory={inventory}
         isInventoryConnected={isInventoryConnected}
+        inventoryError={inventoryError}
         latestByEntity={stream.latestByEntity}
         rows={stream.rows}
         hasData={stream.hasData}

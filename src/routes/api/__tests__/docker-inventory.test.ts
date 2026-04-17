@@ -21,6 +21,10 @@ beforeAll(() => {
   mock.module('@/lib/server-init', () => ({}));
   mock.module('@/lib/docker/docker-inventory-broadcast-service', () => ({
     dockerInventoryBroadcastService: { subscribe: subscribeMock },
+    rowToInventory: () => ({}),
+    notifyPayloadToInventory: () => ({}),
+    DockerInventoryBroadcastService: class {},
+    DockerInventoryBroadcastServiceDeps: undefined,
   }));
 });
 

@@ -25,6 +25,8 @@ CREATE INDEX docker_container_events_compose_project
 
 CREATE OR REPLACE FUNCTION notify_docker_container_event() RETURNS trigger AS $$
 BEGIN
+  -- labels excluded from NOTIFY payload: PG NOTIFY has an 8 kB cap and label maps are unbounded;
+  -- consumers re-fetch labels from the init snapshot when needed.
   PERFORM pg_notify('docker_container_change', json_build_object(
     'at', NEW.at,
     'host', NEW.host,

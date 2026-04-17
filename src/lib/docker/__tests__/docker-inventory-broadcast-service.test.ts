@@ -570,5 +570,70 @@ describe('notifyPayloadToInventory', () => {
     expect(result.finishedAt).toEqual(new Date('2026-04-16T11:30:00Z'));
     expect(result.exitCode).toBe(1);
   });
+
+  // -------------------------------------------------------------------------
+  // Fix 7: required field validation
+  // -------------------------------------------------------------------------
+
+  it('throws when host is missing', () => {
+    const { host: _host, ...withoutHost } = basePayload;
+    void _host;
+    expect(() => notifyPayloadToInventory(withoutHost)).toThrow(/missing required field 'host'/);
+  });
+
+  it('throws when container_id is missing', () => {
+    const { container_id: _cid, ...withoutCid } = basePayload;
+    void _cid;
+    expect(() => notifyPayloadToInventory(withoutCid)).toThrow(/missing required field 'container_id'/);
+  });
+
+  it('throws when event_type is missing', () => {
+    const { event_type: _et, ...withoutEt } = basePayload;
+    void _et;
+    expect(() => notifyPayloadToInventory(withoutEt)).toThrow(/missing required field 'event_type'/);
+  });
+
+  it('throws when at is missing', () => {
+    const { at: _at, ...withoutAt } = basePayload;
+    void _at;
+    expect(() => notifyPayloadToInventory(withoutAt)).toThrow(/missing required field 'at'/);
+  });
+});
+
+describe('DockerInventoryBroadcastService — malformed NOTIFY does not crash (Fix 7)', () => {
+  it('logs and continues when NOTIFY upsert payload is missing required fields', async () => {
+    const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const poolClient = createMockPoolClient();
+
+    const service = new DockerInventoryBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [],
+    });
+
+    const received: DockerInventoryBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+    await flush();
+
+    // Emit a NOTIFY with missing host field
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        // host is missing
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'running',
+      }),
+    });
+
+    // Should not crash — error logged, service continues
+    expect(consoleSpy).toHaveBeenCalled();
+    // Only the init was received, the malformed upsert was dropped
+    expect(received.filter((e) => e.type === 'upsert')).toHaveLength(0);
+
+    consoleSpy.mockRestore();
+    await service.stop();
+  });
 });
 

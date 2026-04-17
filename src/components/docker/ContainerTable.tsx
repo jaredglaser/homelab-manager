@@ -39,6 +39,8 @@ interface ContainerTableProps {
   inventory: Map<string, DockerContainerInventory>;
   /** Whether the inventory SSE stream has connected (false until first event received) */
   isInventoryConnected: boolean;
+  /** Error from the inventory SSE stream, if it permanently failed */
+  inventoryError?: Error | null;
   latestByEntity: Map<string, DockerStatsRow>;
   rows: DockerStatsRow[];
   hasData: boolean;
@@ -59,6 +61,7 @@ interface ContainerTableProps {
 export default function ContainerTable({
   inventory,
   isInventoryConnected,
+  inventoryError = null,
   latestByEntity,
   rows,
   hasData,
@@ -82,7 +85,6 @@ export default function ContainerTable({
     staleTime: 60_000,
   });
 
-  // Convert latest stats rows to DockerStatsFromDB, keyed by host/container_id
   const prevStatsRef = useRef<Map<string, DockerStatsFromDB>>(new Map());
 
   const statsByEntityId = useMemo<Map<string, DockerStatsFromDB>>(() => {
@@ -104,7 +106,6 @@ export default function ContainerTable({
     return next;
   }, [latestByEntity, entityIcons]);
 
-  // Build per-container chart data index, keyed by host/container_id
   const prevChartDataRef = useRef<Map<string, DockerStatsRow[]>>(new Map());
 
   const chartDataByEntityId = useMemo(() => {
@@ -132,11 +133,9 @@ export default function ContainerTable({
     return map;
   }, [rows]);
 
-  // Build tree data for DataTable using inventory as source of truth
   const tableData = useMemo<DockerTableRow[]>(() => {
     const { hosts } = buildDockerTableHierarchy(inventory, statsByEntityId);
 
-    // Attach chart data and pre-computed sparkline / detail-panel data points to each container row
     return hosts.map((hostRow) => {
       const enrichedChildren: DockerContainerTableRow[] = hostRow.children.map((c) => {
         const chartData = chartDataByEntityId.get(c.id) ?? [];
@@ -147,7 +146,6 @@ export default function ContainerTable({
     });
   }, [inventory, statsByEntityId, chartDataByEntityId]);
 
-  // Host-level expansion state
   const expandedState = useMemo<ExpandedState>(() => {
     const state: Record<string, boolean> = {};
     for (const hostRow of tableData) {
@@ -339,7 +337,6 @@ export default function ContainerTable({
         ? '!bg-amber-500/10'
         : '!bg-[var(--mui-palette-background-level1)]';
     }
-    // Container rows
     if (row.isStale) {
       return '!bg-amber-500/10 !opacity-70';
     }
@@ -348,6 +345,18 @@ export default function ContainerTable({
       return '!opacity-60';
     }
     return '';
+  }, []);
+
+  const rowAttributes = useCallback((row: DockerTableRow): Record<string, string> => {
+    if (row.type === 'host') {
+      return { 'data-row-variant': row.isStale ? 'stale' : 'host' };
+    }
+    if (row.isStale) return { 'data-row-variant': 'stale' };
+    const { state } = row.inventory;
+    if (state === 'running' || state === 'restarting') {
+      return { 'data-row-variant': 'running' };
+    }
+    return { 'data-row-variant': 'stopped' };
   }, []);
 
   /** Host detail panel: a nested DataTable of container rows with its own virtualized scroll */
@@ -360,12 +369,13 @@ export default function ContainerTable({
           columns={columns}
           renderDetailPanel={renderContainerDetail}
           rowClassName={rowClassName}
+          rowAttributes={rowAttributes}
           isContainerExpanded={isContainerExpanded}
           toggleContainerExpanded={toggleContainerExpanded}
         />
       );
     },
-    [columns, renderContainerDetail, rowClassName, isContainerExpanded, toggleContainerExpanded],
+    [columns, renderContainerDetail, rowClassName, rowAttributes, isContainerExpanded, toggleContainerExpanded],
   );
 
   // Loading / error states
@@ -375,6 +385,18 @@ export default function ContainerTable({
         <Box className="p-2">
           <Typography color="error">
             Error connecting to Docker stats: {error.message}
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+  if (inventoryError && inventory.size === 0) {
+    return (
+      <Box className="w-full">
+        <Box className="p-2">
+          <Typography color="error">
+            Error connecting to Docker inventory: {inventoryError.message}
           </Typography>
         </Box>
       </Box>
@@ -406,6 +428,7 @@ export default function ContainerTable({
         onExpandedChange={handleExpandedChange}
         metricGroups={METRIC_GROUPS}
         rowClassName={rowClassName}
+        rowAttributes={rowAttributes}
         enableSorting={false}
       />
     </Box>
@@ -421,6 +444,7 @@ const ContainerSubTable = memo(function ContainerSubTable({
   columns,
   renderDetailPanel,
   rowClassName,
+  rowAttributes,
   isContainerExpanded,
   toggleContainerExpanded,
 }: Readonly<{
@@ -428,6 +452,7 @@ const ContainerSubTable = memo(function ContainerSubTable({
   columns: ColumnDef<DockerTableRow, unknown>[];
   renderDetailPanel: (row: DockerTableRow) => ReactNode;
   rowClassName: (row: DockerTableRow) => string;
+  rowAttributes: (row: DockerTableRow) => Record<string, string>;
   isContainerExpanded: (id: string) => boolean;
   toggleContainerExpanded: (id: string) => void;
 }>) {
@@ -466,6 +491,7 @@ const ContainerSubTable = memo(function ContainerSubTable({
       expandedState={containerExpanded}
       onExpandedChange={handleContainerExpandedChange}
       rowClassName={rowClassName}
+      rowAttributes={rowAttributes}
       enableSorting={false}
       showHeader={false}
     />
@@ -483,7 +509,6 @@ const HostNameCell = memo(function HostNameCell({
   const hasContainers = children.length > 0;
   const canToggle = hasContainers && totalHosts > 1;
 
-  // Determine breakdown label
   const countLabel = buildCountLabel(a);
 
   return (
@@ -516,11 +541,9 @@ function buildCountLabel(a: HostAggregatedStats): string {
   const nonRunning = total - a.runningCount;
 
   if (nonRunning === 0) {
-    // All running (or empty)
     return `${total} container${total === 1 ? '' : 's'}`;
   }
 
-  // Mixed state — show running + stopped breakdown
   const parts: string[] = [];
   if (a.runningCount > 0) parts.push(`${a.runningCount} running`);
   if (a.stoppedCount > 0) parts.push(`${a.stoppedCount} stopped`);

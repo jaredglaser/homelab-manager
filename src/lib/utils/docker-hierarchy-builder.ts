@@ -72,6 +72,30 @@ export function rowToDockerStats(
   };
 }
 
+/**
+ * Bucket a Docker container state into one of the summary categories.
+ *
+ * @param state - Raw container state string from Docker
+ * @returns `"running"`, `"stopped"`, `"restarting"`, `"paused"`, or `"other"`
+ */
+export function bucketContainerState(
+  state: string,
+): 'running' | 'stopped' | 'restarting' | 'paused' | 'other' {
+  switch (state) {
+    case 'running':
+      return 'running';
+    case 'exited':
+    case 'dead':
+      return 'stopped';
+    case 'restarting':
+      return 'restarting';
+    case 'paused':
+      return 'paused';
+    default:
+      return 'other';
+  }
+}
+
 /** State sort priority for container rows (lower = shown first) */
 const STATE_SORT_ORDER: Record<string, number> = {
   running: 0,
@@ -134,14 +158,14 @@ function computeHostAggregates(containers: DockerContainerTableRow[]): HostAggre
   for (const c of containers) {
     const { state } = c.inventory;
 
-    // Count by state
-    if (state === 'running') {
+    const bucket = bucketContainerState(state);
+    if (bucket === 'running') {
       runningCount++;
-    } else if (state === 'exited' || state === 'dead') {
+    } else if (bucket === 'stopped') {
       stoppedCount++;
-    } else if (state === 'restarting') {
+    } else if (bucket === 'restarting') {
       restartingCount++;
-    } else if (state === 'paused') {
+    } else if (bucket === 'paused') {
       pausedCount++;
     } else {
       otherCount++;
@@ -152,7 +176,6 @@ function computeHostAggregates(containers: DockerContainerTableRow[]): HostAggre
       continue;
     }
 
-    // Metrics: only running containers with live stats contribute
     if ((state === 'running' || state === 'restarting') && c.stats) {
       const { rates, memory_stats } = c.stats;
       cpuPercent += rates.cpuPercent;
@@ -211,13 +234,14 @@ export function buildDockerTableHierarchy(
   inventory: Map<string, DockerContainerInventory>,
   stats: Map<string, DockerStatsFromDB>,
 ): DockerTableHierarchy {
-  // ── 1. Dedup by serviceKey within each host ──────────────────────────────
-  // Keep only the most recently started container per host/serviceKey pair.
   const dedupedByHostServiceKey = new Map<string, DockerContainerInventory>();
 
   for (const [, inv] of inventory) {
     const hostName = inv.host;
-    const sk = computeServiceKey(inv.labels, inv.name);
+    // Use the pre-computed serviceKey stored on inventory (written by the worker from labels at
+    // write time). This avoids re-deriving the key from labels which are omitted on streaming
+    // upsert NOTIFY events — falling back to inv.name there would shift the dedup identity.
+    const sk = inv.serviceKey || inv.name;
     const dedupKey = `${hostName}/${sk}`;
 
     const existing = dedupedByHostServiceKey.get(dedupKey);
@@ -226,7 +250,6 @@ export function buildDockerTableHierarchy(
       continue;
     }
 
-    // Compare recency: prefer higher startedAt, fall back to updatedAt
     const existingTime = existing.startedAt?.getTime() ?? existing.updatedAt.getTime();
     const newTime = inv.startedAt?.getTime() ?? inv.updatedAt.getTime();
     if (newTime > existingTime) {
@@ -234,7 +257,6 @@ export function buildDockerTableHierarchy(
     }
   }
 
-  // ── 2. Bucket container rows by host ─────────────────────────────────────
   const hostMap = new Map<string, DockerContainerTableRow[]>();
 
   for (const [, inv] of dedupedByHostServiceKey) {
@@ -249,7 +271,6 @@ export function buildDockerTableHierarchy(
     bucket.push(row);
   }
 
-  // ── 3. Sort containers: state priority then name ──────────────────────────
   for (const containers of hostMap.values()) {
     containers.sort((a, b) => {
       const stateDiff =
@@ -259,7 +280,6 @@ export function buildDockerTableHierarchy(
     });
   }
 
-  // ── 4. Build host rows ────────────────────────────────────────────────────
   const sortedHostNames = [...hostMap.keys()].sort((a, b) => a.localeCompare(b));
   const totalHosts = sortedHostNames.length;
 
