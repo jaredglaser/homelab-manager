@@ -5,7 +5,8 @@ import { Typography, CircularProgress, Tooltip, Chip, ToggleButtonGroup, ToggleB
 import { Zap, Waves } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import { useAtomValue, useSetAtom } from 'jotai'
-import PageHeader from '@/components/PageHeader'
+import PageStatusBar from '@/components/PageStatusBar'
+import ProxmoxStatusSummary from '@/components/proxmox/ProxmoxStatusSummary'
 import ClusterSummaryCards from '@/components/proxmox/ClusterSummaryCards'
 import ProxmoxHostView from '@/components/proxmox/ProxmoxHostView'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
@@ -13,7 +14,7 @@ import { testProxmoxConnection } from '@/data/proxmox/functions'
 import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/lib/constants/preload-queries'
 import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
 import { apiUrl } from '@/lib/utils/api-url'
-import type { ProxmoxStatsRow } from '@/types/proxmox'
+import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
 import { useSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
 
@@ -121,30 +122,38 @@ export const Route = createFileRoute('/proxmox')({
 })
 
 /**
- * Renders the Proxmox dashboard content including the header, update controls, and main content area.
+ * Renders the Proxmox dashboard content including the status bar, update controls, and main content area.
  *
- * The header shows the page title, an update freshness indicator, and an interval toggle bound to settings.
+ * The status bar shows node/VM/LXC counts in the left slot and the update freshness indicator plus
+ * interval toggle in the right slot.
  *
  * @returns The JSX element containing the Proxmox dashboard content.
  */
 function ProxmoxPageContent() {
   const { proxmox, setProxmoxUpdateInterval } = useSettings()
+  const [overview, setOverview] = useState<ProxmoxClusterOverview | null>(null)
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="flex items-center justify-between flex-shrink-0">
-        <PageHeader title="Proxmox Dashboard" />
-        <div className="flex items-center gap-3 pr-4">
-          <UpdateIndicator expectedInterval={proxmox.updateInterval} />
-          <IntervalToggle interval={proxmox.updateInterval} onIntervalChange={setProxmoxUpdateInterval} />
-        </div>
-      </div>
-      <ProxmoxContent />
+      <PageStatusBar
+        left={<ProxmoxStatusSummary overview={overview} />}
+        right={
+          <>
+            <UpdateIndicator expectedInterval={proxmox.updateInterval} />
+            <IntervalToggle interval={proxmox.updateInterval} onIntervalChange={setProxmoxUpdateInterval} />
+          </>
+        }
+      />
+      <ProxmoxContent onOverviewChange={setOverview} />
     </div>
   )
 }
 
 const WINDOW_SECONDS = 120
+
+interface ProxmoxContentProps {
+  onOverviewChange: (overview: ProxmoxClusterOverview | null) => void;
+}
 
 /**
  * Render the Proxmox dashboard content, handling live time-series streaming, configuration checks, and overview-driven UI.
@@ -156,7 +165,7 @@ const WINDOW_SECONDS = 120
  *          when Proxmox is not configured, a loading indicator while awaiting data, or the overview UI (summary cards and host view)
  *          when overview data is available.
  */
-function ProxmoxContent() {
+function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   const [configured, setConfigured] = useState<boolean | null>(null)
   const setLastUpdate = useSetAtom(proxmoxLastUpdateAtom)
 
@@ -193,6 +202,11 @@ function ProxmoxContent() {
     () => buildProxmoxOverview(stream.latestByEntity),
     [stream.latestByEntity],
   )
+
+  // Bubble overview up to parent so the status bar can display counts
+  useEffect(() => {
+    onOverviewChange(overview)
+  }, [overview, onOverviewChange])
 
   // Mark configured once we get data
   useEffect(() => {

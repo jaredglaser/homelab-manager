@@ -1,16 +1,13 @@
 import { Typography } from '@mui/material';
-import type { ReactNode } from 'react';
 
-interface PageHeaderProps {
+interface PageTitleProps {
   title: string;
-  children?: ReactNode;
 }
 
-export default function PageHeader({ title, children }: PageHeaderProps) {
+export default function PageTitle({ title }: Readonly<PageTitleProps>) {
   return (
     <div className="py-4 px-4 flex-shrink-0">
       <Typography variant="h4">{title}</Typography>
-      {children}
     </div>
   );
 }

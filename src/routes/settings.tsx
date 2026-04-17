@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Switch, Typography } from '@mui/material'
 import { useSettings, type MemoryDisplayMode, type DecimalSettings, type LightPalette } from '@/hooks/useSettings'
-import PageHeader from '@/components/PageHeader'
+import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 
 export const Route = createFileRoute('/settings')({
@@ -14,7 +14,7 @@ function SettingsContent() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
-      <PageHeader title="Settings" />
+      <PageTitle title="Settings" />
 
       <div className="flex flex-col gap-4 max-w-2xl px-4 pb-6">
         <Card variant="outlined" className="p-4">

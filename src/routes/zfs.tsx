@@ -3,7 +3,8 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import ZFSPoolsTable from '@/components/zfs/ZFSPoolsTable'
 import ZFSPoolSpeedCharts from '@/components/zfs/ZFSPoolSpeedCharts'
-import PageHeader from '@/components/PageHeader'
+import PageStatusBar from '@/components/PageStatusBar'
+import ZFSStatusSummary from '@/components/zfs/ZFSStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
@@ -39,7 +40,7 @@ function ZFSPageContent() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <PageHeader title="ZFS Pools Dashboard" />
+      <PageStatusBar left={<ZFSStatusSummary latestByEntity={stream.latestByEntity} />} />
       <ZFSPoolsTable
         latestByEntity={stream.latestByEntity}
         hasData={stream.hasData}

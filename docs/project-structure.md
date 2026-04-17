@@ -5,7 +5,8 @@ src/
 ├── components/
 │   ├── AppShell.tsx                 # Shared layout (ThemeProvider, QueryClient, Header)
 │   ├── Header.tsx                   # Navigation header
-│   ├── PageHeader.tsx               # Page title with optional actions
+│   ├── PageStatusBar.tsx            # Thin status strip with left/right slots (dashboards)
+│   ├── PageTitle.tsx                # Plain h4 title (settings and static pages)
 │   ├── ModeToggle.tsx               # Dark/light theme toggle
 │   ├── ThemeProvider.tsx            # MUI Material theme wrapper
 │   ├── Toasts.tsx                   # Toast notification display
