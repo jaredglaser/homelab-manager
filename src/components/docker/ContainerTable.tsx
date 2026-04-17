@@ -27,7 +27,6 @@ import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import { usePulseIndicator } from '@/hooks/usePulseIndicator';
 import { buildContainerChartData } from '@/hooks/useContainerChartData';
 
-export { type DockerTableRow };
 export const DOCKER_ENTITY_ICONS_QUERY_KEY = ['docker-entity-icons'] as const;
 
 const METRIC_GROUPS: MetricGroup[] = [
@@ -38,6 +37,8 @@ const METRIC_GROUPS: MetricGroup[] = [
 
 interface ContainerTableProps {
   inventory: Map<string, DockerContainerInventory>;
+  /** Whether the inventory SSE stream has connected (false until first event received) */
+  isInventoryConnected: boolean;
   latestByEntity: Map<string, DockerStatsRow>;
   rows: DockerStatsRow[];
   hasData: boolean;
@@ -57,6 +58,7 @@ interface ContainerTableProps {
  */
 export default function ContainerTable({
   inventory,
+  isInventoryConnected,
   latestByEntity,
   rows,
   hasData,
@@ -379,7 +381,10 @@ export default function ContainerTable({
     );
   }
 
-  if (!isConnected && !hasData) {
+  // Show spinner until both streams are ready: stats SSE (isConnected or hasData)
+  // and inventory SSE (isInventoryConnected or inventory has data). Without this guard,
+  // the table would render zero rows when stats arrive before inventory.
+  if ((!isConnected && !hasData) || (!isInventoryConnected && inventory.size === 0)) {
     return (
       <Box className="w-full">
         <Box className="flex justify-center p-4">
@@ -582,8 +587,8 @@ function ContainerNameCell({
           className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
 
-        {/* Pulse indicator — only for running containers with data */}
-        {inventory.state === 'running' ? (
+        {/* Pulse indicator — for running and restarting containers with data */}
+        {(inventory.state === 'running' || inventory.state === 'restarting') && (
           <div
             ref={indicatorRef}
             className="relative w-2 h-2 flex-shrink-0"
@@ -600,7 +605,8 @@ function ContainerNameCell({
               style={{ backgroundColor: 'var(--indicator-active)' }}
             />
           </div>
-        ) : (
+        )}
+        {inventory.state !== 'running' && (
           <ContainerStateChip state={inventory.state} />
         )}
 

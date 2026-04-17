@@ -100,22 +100,6 @@ export interface HostAggregatedStats {
   staleContainerCount: number; // running but no recent stats
 }
 
-/** Container stats within a host */
-export interface ContainerStats {
-  data: DockerStatsFromDB;
-}
-
-/** Docker host with its containers */
-export interface HostStats {
-  hostName: string;
-  aggregated: HostAggregatedStats;
-  containers: Map<string, ContainerStats>;
-  isStale: boolean; // True when ALL containers are stale (host connectivity issue)
-}
-
-/** Complete Docker hierarchy: hosts -> containers */
-export type DockerHierarchy = Map<string, HostStats>;
-
 // ─── Tagged-union row model for the DataTable tree structure ───────────────
 
 interface DockerTableRowBase {

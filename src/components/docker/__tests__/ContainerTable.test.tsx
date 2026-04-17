@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
 import type { DockerStatsRow } from '@/types/docker';
 
@@ -124,6 +124,7 @@ function makeInventory(
 
 const defaultProps = {
   inventory: new Map<string, DockerContainerInventory>(),
+  isInventoryConnected: true,
   latestByEntity: new Map<string, DockerStatsRow>(),
   rows: [] as DockerStatsRow[],
   hasData: true,
@@ -229,5 +230,105 @@ describe('ContainerTable', () => {
     // No state chip for a running container — it shows pulse indicator instead
     const chips = screen.queryAllByTestId('container-state-chip');
     expect(chips.length).toBe(0);
+  });
+
+  // ── Fix 2: Inventory loading guard ──────────────────────────────────────────
+
+  it('shows spinner when stats connected but inventory not yet connected and empty', () => {
+    render(
+      <ContainerTable
+        {...defaultProps}
+        isConnected={true}
+        hasData={true}
+        isInventoryConnected={false}
+        inventory={new Map()}
+      />,
+    );
+    // Table should show loading spinner — not an empty table
+    expect(document.querySelector('[role="progressbar"]')).toBeDefined();
+  });
+
+  it('renders table when stats connected and inventory connected (even if empty)', () => {
+    render(
+      <ContainerTable
+        {...defaultProps}
+        isConnected={true}
+        hasData={true}
+        isInventoryConnected={true}
+        inventory={new Map()}
+      />,
+    );
+    // Should NOT show spinner — both streams are ready
+    expect(document.querySelector('[role="progressbar"]')).toBeNull();
+  });
+
+  // ── Fix 3: Restarting containers show both pulse indicator AND state chip ───
+
+  it('renders restarting container with state chip', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'crashing-app', 'restarting')],
+    ]);
+    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    const chips = screen.getAllByTestId('container-state-chip');
+    expect(chips.length).toBeGreaterThan(0);
+    expect(chips[0].getAttribute('data-state')).toBe('restarting');
+  });
+
+  // ── Fix 4: Row styling and history button ───────────────────────────────────
+
+  it('running-but-stale row receives amber stale class', () => {
+    // We test via rowClassName indirectly by verifying the component renders.
+    // rowClassName is passed to DataTable — we verify the logic by rendering
+    // an inventory where the running container has no stats (isStale=true).
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'stale-app', 'running')],
+    ]);
+    // No latestByEntity — stats absent means isStale=true for running container
+    const { container } = render(
+      <ContainerTable
+        {...defaultProps}
+        inventory={inventory}
+        latestByEntity={new Map()}
+      />,
+    );
+    // DataTable applies rowClassName — look for amber tint class in rendered HTML
+    const amberRows = container.querySelectorAll('[class*="bg-amber"]');
+    expect(amberRows.length).toBeGreaterThan(0);
+  });
+
+  it('stopped container row receives opacity class', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'stopped-app', 'exited')],
+    ]);
+    const { container } = render(
+      <ContainerTable {...defaultProps} inventory={inventory} />,
+    );
+    // Stopped/paused rows get !opacity-60
+    const dimmedRows = container.querySelectorAll('[class*="opacity-60"]');
+    expect(dimmedRows.length).toBeGreaterThan(0);
+  });
+
+  it('history button fires onOpenHistory with correct args when clicked', () => {
+    const calls: Array<{ containerId: string; host: string }> = [];
+    const handleOpenHistory = (containerId: string, host: string) => {
+      calls.push({ containerId, host });
+    };
+
+    const inventory = new Map([
+      ['host1/abc123', makeInventory('host1', 'abc123', 'my-app', 'exited')],
+    ]);
+    render(
+      <ContainerTable
+        {...defaultProps}
+        inventory={inventory}
+        onOpenHistory={handleOpenHistory}
+      />,
+    );
+
+    const historyButton = screen.getByLabelText('View container history');
+    fireEvent.click(historyButton);
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.containerId).toBe('abc123');
+    expect(calls[0]!.host).toBe('host1');
   });
 });

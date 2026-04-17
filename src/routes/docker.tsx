@@ -4,7 +4,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
-import PageHeader from '@/components/PageHeader'
+import PageStatusBar from '@/components/PageStatusBar'
+import DockerStatusSummary from '@/components/docker/DockerStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useDockerInventory } from '@/hooks/useDockerInventory'
 import { getDockerEntityIcons } from '@/data/docker/functions'
@@ -87,13 +88,14 @@ function DockerContainersPage() {
     debug: developer.sseDebugLogging,
   })
 
-  const { inventory } = useDockerInventory()
+  const { inventory, isConnected: isInventoryConnected } = useDockerInventory()
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <PageHeader title="Docker Containers Dashboard" />
+      <PageStatusBar left={<DockerStatusSummary />} />
       <ContainerTable
         inventory={inventory}
+        isInventoryConnected={isInventoryConnected}
         latestByEntity={stream.latestByEntity}
         rows={stream.rows}
         hasData={stream.hasData}
