@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
-import { buildDockerHierarchy, rowToDockerStats, computeServiceKey } from '../docker-hierarchy-builder';
+import { buildDockerHierarchy, buildDockerTableHierarchy, rowToDockerStats, computeServiceKey } from '../docker-hierarchy-builder';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
+import type { DockerContainerInventory } from '@/types/docker-inventory';
 
 describe('buildDockerHierarchy', () => {
   // Helper to create mock Docker stats
@@ -440,6 +441,226 @@ describe('buildDockerHierarchy', () => {
       expect(host.aggregated.memoryUsage).toBe(1000);
       expect(host.aggregated.memoryLimit).toBe(2000);
     });
+  });
+});
+
+describe('buildDockerTableHierarchy', () => {
+  const baseDate = new Date('2024-01-01T00:00:00Z');
+
+  function makeInventory(
+    host: string,
+    containerId: string,
+    name: string,
+    overrides?: Partial<DockerContainerInventory>,
+  ): DockerContainerInventory {
+    return {
+      host,
+      containerId,
+      name,
+      image: 'nginx:latest',
+      state: 'running',
+      composeProject: null,
+      serviceKey: name,
+      startedAt: baseDate,
+      finishedAt: null,
+      exitCode: null,
+      labels: {},
+      updatedAt: baseDate,
+      ...overrides,
+    };
+  }
+
+  function makeStats(
+    host: string,
+    containerId: string,
+    name: string,
+    cpuPercent = 10,
+  ): DockerStatsFromDB {
+    return {
+      id: `${host}/${containerId}`,
+      serviceKeyEntity: `${host}/${name}`,
+      name,
+      image: 'nginx:latest',
+      icon: null,
+      stale: false,
+      timestamp: baseDate,
+      rates: {
+        cpuPercent,
+        memoryPercent: 50,
+        networkRxBytesPerSec: 1000,
+        networkTxBytesPerSec: 500,
+        blockIoReadBytesPerSec: 2000,
+        blockIoWriteBytesPerSec: 1000,
+      },
+      memory_stats: { usage: 512, limit: 1024 },
+    };
+  }
+
+  it('returns empty hosts for empty inventory', () => {
+    const { hosts } = buildDockerTableHierarchy(new Map(), new Map());
+    expect(hosts).toHaveLength(0);
+  });
+
+  it('produces container rows for all inventory entries regardless of stats', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'nginx', { state: 'running' })],
+      ['host1/c2', makeInventory('host1', 'c2', 'redis', { state: 'exited' })],
+      ['host1/c3', makeInventory('host1', 'c3', 'postgres', { state: 'paused' })],
+    ]);
+    const stats = new Map([
+      ['host1/c1', makeStats('host1', 'c1', 'nginx')],
+    ]);
+
+    const { hosts } = buildDockerTableHierarchy(inventory, stats);
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0].children).toHaveLength(3);
+  });
+
+  it('marks running container with no stats as isStale=true', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'nginx', { state: 'running' })],
+    ]);
+    const { hosts } = buildDockerTableHierarchy(inventory, new Map());
+    const container = hosts[0].children[0];
+    expect(container.isStale).toBe(true);
+    expect(container.stats).toBeUndefined();
+  });
+
+  it('marks stopped container with no stats as isStale=false', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'nginx', { state: 'exited' })],
+    ]);
+    const { hosts } = buildDockerTableHierarchy(inventory, new Map());
+    const container = hosts[0].children[0];
+    expect(container.isStale).toBe(false);
+    expect(container.stats).toBeUndefined();
+  });
+
+  it('attaches stats to running container', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'nginx', { state: 'running' })],
+    ]);
+    const stats = new Map([['host1/c1', makeStats('host1', 'c1', 'nginx', 42)]]);
+    const { hosts } = buildDockerTableHierarchy(inventory, stats);
+    const container = hosts[0].children[0];
+    expect(container.stats).toBeDefined();
+    expect(container.stats!.rates.cpuPercent).toBe(42);
+    expect(container.isStale).toBe(false);
+  });
+
+  it('computes correct state counts in host aggregates', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'r', { state: 'running' })],
+      ['host1/c2', makeInventory('host1', 'c2', 'ex', { state: 'exited' })],
+      ['host1/c3', makeInventory('host1', 'c3', 'dead', { state: 'dead' })],
+      ['host1/c4', makeInventory('host1', 'c4', 'restart', { state: 'restarting' })],
+      ['host1/c5', makeInventory('host1', 'c5', 'pause', { state: 'paused' })],
+      ['host1/c6', makeInventory('host1', 'c6', 'created', { state: 'created' })],
+    ]);
+    const stats = new Map([['host1/c1', makeStats('host1', 'c1', 'r')]]);
+    const { hosts } = buildDockerTableHierarchy(inventory, stats);
+    const agg = hosts[0].aggregated;
+    expect(agg.containerCount).toBe(6);
+    expect(agg.runningCount).toBe(1);
+    expect(agg.stoppedCount).toBe(2); // exited + dead
+    expect(agg.restartingCount).toBe(1);
+    expect(agg.pausedCount).toBe(1);
+    expect(agg.otherCount).toBe(1); // created
+  });
+
+  it('computes metrics only from running containers with live stats', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'running', { state: 'running' })],
+      ['host1/c2', makeInventory('host1', 'c2', 'stopped', { state: 'exited' })],
+    ]);
+    const stats = new Map([
+      ['host1/c1', makeStats('host1', 'c1', 'running', 25)],
+    ]);
+    const { hosts } = buildDockerTableHierarchy(inventory, stats);
+    // Only running container contributes to CPU
+    expect(hosts[0].aggregated.cpuPercent).toBe(25);
+  });
+
+  it('sort order: running → restarting → paused → stopped → other', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'aaa', { state: 'created' })],
+      ['host1/c2', makeInventory('host1', 'c2', 'bbb', { state: 'exited' })],
+      ['host1/c3', makeInventory('host1', 'c3', 'ccc', { state: 'paused' })],
+      ['host1/c4', makeInventory('host1', 'c4', 'ddd', { state: 'restarting' })],
+      ['host1/c5', makeInventory('host1', 'c5', 'eee', { state: 'running' })],
+    ]);
+    const { hosts } = buildDockerTableHierarchy(inventory, new Map());
+    const states = hosts[0].children.map((c) => c.inventory.state);
+    expect(states).toEqual(['running', 'restarting', 'paused', 'exited', 'created']);
+  });
+
+  it('secondary sort by name within same state', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'zebra', { state: 'running' })],
+      ['host1/c2', makeInventory('host1', 'c2', 'apple', { state: 'running' })],
+      ['host1/c3', makeInventory('host1', 'c3', 'mango', { state: 'running' })],
+    ]);
+    const { hosts } = buildDockerTableHierarchy(inventory, new Map());
+    const names = hosts[0].children.map((c) => c.inventory.name);
+    expect(names).toEqual(['apple', 'mango', 'zebra']);
+  });
+
+  it('serviceKey dedup: keeps most recently started container', () => {
+    const old = makeInventory('host1', 'c1', 'plex', {
+      labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
+      startedAt: new Date('2024-01-01T00:00:00Z'),
+    });
+    const newer = makeInventory('host1', 'c2', 'plex', {
+      labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
+      startedAt: new Date('2024-01-02T00:00:00Z'),
+    });
+    const inventory = new Map([
+      ['host1/c1', old],
+      ['host1/c2', newer],
+    ]);
+    const { hosts } = buildDockerTableHierarchy(inventory, new Map());
+    // Only the newer one should be visible
+    expect(hosts[0].children).toHaveLength(1);
+    expect(hosts[0].children[0].id).toBe('host1/c2');
+  });
+
+  it('serviceKey dedup with mixed states: keeps most recently started', () => {
+    const stopped = makeInventory('host1', 'c1', 'app', {
+      state: 'exited',
+      startedAt: new Date('2024-01-01T00:00:00Z'),
+    });
+    const running = makeInventory('host1', 'c2', 'app', {
+      state: 'running',
+      startedAt: new Date('2024-01-02T00:00:00Z'),
+    });
+    const inventory = new Map([
+      ['host1/c1', stopped],
+      ['host1/c2', running],
+    ]);
+    const { hosts } = buildDockerTableHierarchy(inventory, new Map());
+    expect(hosts[0].children).toHaveLength(1);
+    expect(hosts[0].children[0].inventory.state).toBe('running');
+  });
+
+  it('hosts are sorted alphabetically', () => {
+    const inventory = new Map([
+      ['zeta/c1', makeInventory('zeta', 'c1', 'nginx')],
+      ['alpha/c2', makeInventory('alpha', 'c2', 'redis')],
+    ]);
+    const { hosts } = buildDockerTableHierarchy(inventory, new Map());
+    expect(hosts.map((h) => h.hostName)).toEqual(['alpha', 'zeta']);
+  });
+
+  it('staleContainerCount counts running-without-stats containers', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'r1', { state: 'running' })],
+      ['host1/c2', makeInventory('host1', 'c2', 'r2', { state: 'running' })],
+      ['host1/c3', makeInventory('host1', 'c3', 'stopped', { state: 'exited' })],
+    ]);
+    // Only c2 has stats
+    const stats = new Map([['host1/c2', makeStats('host1', 'c2', 'r2')]]);
+    const { hosts } = buildDockerTableHierarchy(inventory, stats);
+    expect(hosts[0].aggregated.staleContainerCount).toBe(1);
   });
 });
 

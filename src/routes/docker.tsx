@@ -6,6 +6,7 @@ import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/dock
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
 import PageHeader from '@/components/PageHeader'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
+import { useDockerInventory } from '@/hooks/useDockerInventory'
 import { getDockerEntityIcons } from '@/data/docker/functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
@@ -86,10 +87,13 @@ function DockerContainersPage() {
     debug: developer.sseDebugLogging,
   })
 
+  const { inventory } = useDockerInventory()
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <PageHeader title="Docker Containers Dashboard" />
       <ContainerTable
+        inventory={inventory}
         latestByEntity={stream.latestByEntity}
         rows={stream.rows}
         hasData={stream.hasData}
