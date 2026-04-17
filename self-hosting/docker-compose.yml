@@ -10,17 +10,6 @@ x-openbao-env: &openbao-env
   OPENBAO_URL: "http://openbao:8200"
   OPENBAO_TOKEN: ${OPENBAO_TOKEN}
 
-x-docker-env: &docker-env
-  DOCKER_HOST_1: ${DOCKER_HOST_1:-}
-  DOCKER_HOST_PORT_1: ${DOCKER_HOST_PORT_1:-2375}
-  DOCKER_HOST_NAME_1: ${DOCKER_HOST_NAME_1:-}
-  DOCKER_HOST_2: ${DOCKER_HOST_2:-}
-  DOCKER_HOST_PORT_2: ${DOCKER_HOST_PORT_2:-2375}
-  DOCKER_HOST_NAME_2: ${DOCKER_HOST_NAME_2:-}
-  DOCKER_HOST_3: ${DOCKER_HOST_3:-}
-  DOCKER_HOST_PORT_3: ${DOCKER_HOST_PORT_3:-2375}
-  DOCKER_HOST_NAME_3: ${DOCKER_HOST_NAME_3:-}
-
 x-proxmox-env: &proxmox-env
   PROXMOX_HOST: ${PROXMOX_HOST:-}
   PROXMOX_PORT: ${PROXMOX_PORT:-8006}
@@ -79,7 +68,7 @@ services:
     container_name: homelab-worker
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *openbao-env, *docker-env, *proxmox-env]
+      <<: [*postgres-env, *openbao-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       WORKER_ENABLED: ${WORKER_ENABLED:-true}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED:-true}

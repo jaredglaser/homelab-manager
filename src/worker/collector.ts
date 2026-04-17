@@ -1,5 +1,4 @@
 import { databaseConnectionManager } from '@/lib/clients/database-client';
-import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
@@ -17,7 +16,6 @@ function handleSettingChange(collectors: BaseCollector[], key: string, value: st
   if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
     const enabled = value === 'true';
     for (const c of collectors) c.dockerDebugLogging = enabled;
-    dockerConnectionManager.debugLogging = enabled;
   } else if (key === SETTINGS_KEYS.developer.dbFlushDebugLogging) {
     const enabled = value === 'true';
     for (const c of collectors) c.dbFlushDebugLogging = enabled;
@@ -161,10 +159,7 @@ async function main() {
 
     console.info('[Worker] Closing connections...');
     proxmoxConnectionManager.clearAll();
-    await Promise.all([
-      databaseConnectionManager.closeAll(),
-      dockerConnectionManager.closeAll(),
-    ]);
+    await databaseConnectionManager.closeAll();
 
     console.info('[Worker] Shutdown complete');
   } catch (err) {

@@ -106,43 +106,9 @@ Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular hom
 
 ### Docker Monitoring
 
-Monitor Docker hosts by configuring one or more hosts. Each host is numbered (`_1`, `_2`, `_3`).
+Docker monitoring works through agent sidecars. Deploy the agent container on each host you want to monitor, then register the host in **Settings → Managed Hosts** with the `docker` capability enabled. The worker subscribes to the agent's SSE streams for stats, container inventory, and stack events — no direct Docker socket access is required on the dashboard host.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DOCKER_HOST_1` | - | Docker host IP or hostname |
-| `DOCKER_HOST_PORT_1` | `2375` | Socket proxy port |
-| `DOCKER_HOST_NAME_1` | - | Display name shown in the dashboard |
-
-> **Docker host setup:** Run a **Docker socket proxy** on each monitored host rather than exposing the raw Docker daemon socket over TCP. [`lscr.io/linuxserver/socket-proxy`](https://github.com/linuxserver/docker-socket-proxy) binds to a TCP port and forwards only the API calls you allow. Point `DOCKER_HOST_1` at the proxy's address and port.
->
-> **Local deployment** (homelab-manager runs on the same host): Bind the socket proxy to `127.0.0.1:2375` and set `DOCKER_HOST_1` to `host.docker.internal` (or run the worker with `network_mode: host`) so the container can reach the host's localhost.
->
-> **Remote deployment** (monitoring a separate host): Bind the socket proxy to `0.0.0.0:2375` (or the host's specific management IP) and set `DOCKER_HOST_1` to that host's IP/hostname. Restrict access via firewall rules or a dedicated management VLAN — only the homelab-manager worker should reach the proxy port.
->
-> Example socket proxy compose service (monitoring only — read-only access):
->
-> ```yaml
-> services:
->   socket-proxy:
->     image: lscr.io/linuxserver/socket-proxy:latest
->     container_name: socket-proxy
->     ports:
->       - 127.0.0.1:2375:2375  # Local: bind to localhost. Remote: change to 0.0.0.0:2375
->     environment:
->       - CONTAINERS=1
->       - EVENTS=1
->       - INFO=1
->       - PING=1
->       - VERSION=1
->       - TZ=America/New_York  # Set to your local timezone
->     volumes:
->       - /var/run/docker.sock:/var/run/docker.sock:ro
->     restart: unless-stopped
->     read_only: true
->     tmpfs:
->       - /run
-> ```
+> **Setup:** See the [Docker Stack Management](#docker-stack-management) section below for the agent deploy flow. The same agent serves both monitoring and deploy operations.
 
 ### ZFS Monitoring
 
@@ -221,10 +187,8 @@ OPENBAO_TOKEN=a-long-random-string-here
 # Web Server
 # WEB_PORT=3000
 
-# Docker host monitoring (add _2, _3 for additional hosts)
-DOCKER_HOST_1=192.168.1.10
-DOCKER_HOST_PORT_1=2375
-DOCKER_HOST_NAME_1=my-server
+# Docker — no env vars needed; register hosts with the Docker capability
+# in Settings → Managed Hosts after deploying an agent sidecar.
 
 # ZFS — no env vars needed; register hosts with ZFS capability
 # in Settings → Managed Hosts after deploying an agent sidecar

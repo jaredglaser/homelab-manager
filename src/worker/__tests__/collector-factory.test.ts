@@ -41,12 +41,6 @@ function createWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
 // Store original env to restore
 const originalEnv = { ...process.env };
 
-function clearDockerEnv() {
-  Object.keys(process.env).forEach((key) => {
-    if (key.startsWith('DOCKER_HOST')) delete process.env[key];
-  });
-}
-
 function clearZFSEnv() {
   Object.keys(process.env).forEach((key) => {
     if (key.startsWith('ZFS_HOST')) delete process.env[key];
@@ -60,7 +54,6 @@ function clearProxmoxEnv() {
 }
 
 function restoreEnv() {
-  clearDockerEnv();
   clearZFSEnv();
   clearProxmoxEnv();
   Object.assign(process.env, originalEnv);
@@ -78,7 +71,6 @@ describe('createCollectors', () => {
     console.error = mock(() => {});
     // Prevent collectors from actually running (and making real network calls)
     runSpy = spyOn(BaseCollector.prototype, 'run').mockResolvedValue(undefined);
-    clearDockerEnv();
     clearZFSEnv();
     clearProxmoxEnv();
   });
@@ -91,12 +83,12 @@ describe('createCollectors', () => {
     restoreEnv();
   });
 
-  it('should return empty collectors when both docker and zfs are disabled', async () => {
+  it('should return empty collectors when all env-configured collectors are disabled', async () => {
     const { createCollectors } = await import('../collector-factory');
     const controller = new AbortController();
     await using stack = new AsyncDisposableStack();
 
-    const config = createWorkerConfig({ docker: { enabled: false }, zfs: { enabled: false } });
+    const config = createWorkerConfig({ docker: { enabled: false }, zfs: { enabled: false }, proxmox: { enabled: false } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
     expect(collectors).toHaveLength(0);
@@ -105,84 +97,17 @@ describe('createCollectors', () => {
     controller.abort();
   });
 
-  it('should log disabled messages when collectors are disabled', async () => {
+  it('should not create any env-configured collectors for docker or zfs (managed-host-only)', async () => {
     const { createCollectors } = await import('../collector-factory');
     const controller = new AbortController();
     await using stack = new AsyncDisposableStack();
 
-    const config = createWorkerConfig({ docker: { enabled: false }, zfs: { enabled: false } });
-    createCollectors(db as unknown as DatabaseClient, config, controller, stack);
-
-    const logCalls = getMockInfoCalls();
-    expect(logCalls).toContain('[Worker] Docker collector disabled');
-
-    controller.abort();
-  });
-
-  it('should log "no hosts" when docker enabled but no hosts configured', async () => {
-    const { createCollectors } = await import('../collector-factory');
-    const controller = new AbortController();
-    await using stack = new AsyncDisposableStack();
-
-    const config = createWorkerConfig({ docker: { enabled: true } });
+    const config = createWorkerConfig({ docker: { enabled: true }, zfs: { enabled: true } });
     const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
 
-    const logCalls = getMockInfoCalls();
-    expect(logCalls).toContain('[Worker] Docker enabled but no hosts configured');
+    // Docker and ZFS collectors are only created via createCollectorsForManagedHosts
     expect(collectors).toHaveLength(0);
     expect(runners).toHaveLength(0);
-
-    controller.abort();
-  });
-
-  it('should create Docker collectors when docker enabled and hosts configured', async () => {
-    process.env.DOCKER_HOST_1 = '192.168.1.100';
-    process.env.DOCKER_HOST_NAME_1 = 'docker-host-1';
-
-    const { createCollectors } = await import('../collector-factory');
-    const controller = new AbortController();
-    await using stack = new AsyncDisposableStack();
-
-    const config = createWorkerConfig({ docker: { enabled: true } });
-    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
-
-    expect(collectors).toHaveLength(1);
-    expect(runners).toHaveLength(1);
-    expect(collectors[0].name).toBe('DockerCollector[docker-host-1]');
-
-    controller.abort();
-  });
-
-  it('should not create ZFS collectors in createCollectors (ZFS uses managed hosts)', async () => {
-    const { createCollectors } = await import('../collector-factory');
-    const controller = new AbortController();
-    await using stack = new AsyncDisposableStack();
-
-    const config = createWorkerConfig({ zfs: { enabled: true } });
-    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
-
-    // ZFS collectors are now created via createCollectorsForManagedHosts, not here
-    expect(collectors).toHaveLength(0);
-    expect(runners).toHaveLength(0);
-
-    controller.abort();
-  });
-
-  it('should create multiple docker collectors for multiple hosts', async () => {
-    process.env.DOCKER_HOST_1 = '192.168.1.100';
-    process.env.DOCKER_HOST_NAME_1 = 'host-a';
-    process.env.DOCKER_HOST_2 = '192.168.1.101';
-    process.env.DOCKER_HOST_NAME_2 = 'host-b';
-
-    const { createCollectors } = await import('../collector-factory');
-    const controller = new AbortController();
-    await using stack = new AsyncDisposableStack();
-
-    const config = createWorkerConfig({ docker: { enabled: true } });
-    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
-
-    expect(collectors).toHaveLength(2);
-    expect(runners).toHaveLength(2);
 
     controller.abort();
   });
@@ -236,29 +161,6 @@ describe('createCollectors', () => {
     controller.abort();
   });
 
-  it('should create Docker and Proxmox collectors when both enabled and configured', async () => {
-    process.env.DOCKER_HOST_1 = '192.168.1.100';
-    process.env.DOCKER_HOST_NAME_1 = 'docker-1';
-    process.env.PROXMOX_HOST = '192.168.1.200';
-    process.env.PROXMOX_TOKEN_ID = 'root@pam!test';
-    process.env.PROXMOX_TOKEN_SECRET = '12345678-1234-1234-1234-123456789012';
-
-    const { createCollectors } = await import('../collector-factory');
-    const controller = new AbortController();
-    await using stack = new AsyncDisposableStack();
-
-    const config = createWorkerConfig({
-      docker: { enabled: true },
-      proxmox: { enabled: true },
-    });
-    const { collectors, runners } = createCollectors(db as unknown as DatabaseClient, config, controller, stack);
-
-    // ZFS collectors are now created via createCollectorsForManagedHosts
-    expect(collectors).toHaveLength(2);
-    expect(runners).toHaveLength(2);
-
-    controller.abort();
-  });
 });
 
 describe('createCollectorsForManagedHosts', () => {

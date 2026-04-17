@@ -97,18 +97,15 @@ src/
 │   │   └── schemas.ts              # ZFS validation schemas
 │   └── mock-docker-containers.ts    # Mock container data for testing
 ├── middleware/
-│   ├── docker-middleware.ts         # Docker client injection
 │   └── openbao-middleware.ts        # OpenBao client injection (KV v2 initialization)
 ├── lib/
 │   ├── clients/
 │   │   ├── agent-client.ts          # HTTP client for agent sidecar communication
 │   │   ├── database-client.ts       # PostgreSQL connection pool manager
-│   │   ├── docker-client.ts         # Dockerode wrapper for Docker Engine API
 │   │   ├── openbao-client.ts        # OpenBao KV v2 HTTP client for secrets
 │   │   └── proxmox-client.ts        # Proxmox VE REST API client
 │   ├── config/
 │   │   ├── database-config.ts       # Database connection configuration
-│   │   ├── docker-config.ts         # Docker host configuration (numbered env vars)
 │   │   ├── git-config.ts            # Git server configuration
 │   │   ├── openbao-config.ts        # OpenBao connection configuration
 │   │   ├── proxmox-config.ts        # Proxmox API configuration
@@ -211,7 +208,6 @@ src/
 ├── worker/
 │   ├── collectors/
 │   │   ├── base-collector.ts        # Base class (AsyncDisposable, backoff, collection loop)
-│   │   ├── docker-collector.ts      # Docker stats collection (direct socket proxy)
 │   │   ├── agent-stats-collector.ts # Agent SSE-based stats collection (pre-computed metrics)
 │   │   ├── zfs-collector.ts         # ZFS iostat collection via agent sidecar
 │   │   ├── proxmox-collector.ts     # Proxmox REST API polling

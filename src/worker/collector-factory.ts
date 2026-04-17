@@ -1,11 +1,9 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
-import { loadDockerConfig } from '@/lib/config/docker-config';
 import { isProxmoxConfigured, loadProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
-import { DockerCollector } from './collectors/docker-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
 import { StackStatusCollector } from './collectors/stack-status-collector';
 import { StackStatusRepository } from '@/lib/database/repositories/stack-status-repository';
@@ -43,27 +41,6 @@ export function createCollectors(
 ): CollectorFactoryResult {
   const collectors: BaseCollector[] = [];
   const runners: Promise<void>[] = [];
-
-  if (workerConfig.docker.enabled) {
-    const dockerConfig = loadDockerConfig();
-
-    if (dockerConfig.hosts.length === 0) {
-      console.info('[Worker] Docker enabled but no hosts configured');
-    } else {
-      console.info(`[Worker] Starting ${dockerConfig.hosts.length} Docker collector(s)`);
-
-      for (const hostConfig of dockerConfig.hosts) {
-        console.info(`[Worker] Starting Docker collector for ${hostConfig.name}`);
-        const collector = stack.use(
-          new DockerCollector(db, workerConfig, hostConfig, shutdownController)
-        );
-        collectors.push(collector);
-        runners.push(collector.run());
-      }
-    }
-  } else {
-    console.info('[Worker] Docker collector disabled');
-  }
 
   if (workerConfig.proxmox.enabled) {
     if (!isProxmoxConfigured()) {

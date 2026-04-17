@@ -143,8 +143,8 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 Hosts are registered via the Settings UI and stored in the `managed_hosts` database table with agent connection details and capabilities (docker, zfs).
 
 **Collector creation** (`src/worker/collector-factory.ts`):
-- `createCollectors()` — local Docker/Proxmox collectors from environment variables (monitoring-only)
-- `createCollectorsForManagedHosts()` — agent-based collectors for registered hosts (Docker + ZFS)
+- `createCollectors()` — env-configured collectors (Proxmox only; Docker and ZFS always go through managed hosts)
+- `createCollectorsForManagedHosts()` — agent-based collectors for registered hosts (Docker stats + ZFS)
 - `createStackStatusCollectors()` — stack container status from agent `/stacks/events`
 
 **Token resolution**: Agent tokens are stored in OpenBao and resolved via a `getToken(hostname)` callback. Hosts with missing tokens are skipped with a logged warning.
