@@ -8,7 +8,12 @@ import { SettingsRepository } from '@/lib/database/repositories/settings-reposit
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { createCollectors, createCollectorsForManagedHosts } from './collector-factory';
+import {
+  createCollectors,
+  createCollectorsForManagedHosts,
+  createContainerInventoryCollectors,
+  createStackStatusCollectors,
+} from './collector-factory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 
@@ -130,6 +135,20 @@ async function main() {
       );
       collectors.push(...managedCollectors);
       runners.push(...managedRunners);
+
+      const { runners: stackStatusRunners } = await createStackStatusCollectors(
+        db, shutdownController, stack,
+        () => hostRepo.findAll(),
+        getToken,
+      );
+      runners.push(...stackStatusRunners);
+
+      const { runners: inventoryRunners } = await createContainerInventoryCollectors(
+        db, shutdownController, stack,
+        () => hostRepo.findAll(),
+        getToken,
+      );
+      runners.push(...inventoryRunners);
 
       if (runners.length === 0) {
         console.info('[Worker] No collectors enabled, exiting');

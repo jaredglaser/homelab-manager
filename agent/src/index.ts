@@ -5,6 +5,7 @@ import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
 import { handleStackDeploy, handleStackTeardown, handleStackRestart, handleStackStatus } from './routes/stacks';
 import { handleStackEvents } from './routes/stack-events';
+import { handleContainerEvents } from './routes/containers-events';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { handleAgentUpdate } from './routes/agent-update';
@@ -95,6 +96,7 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
     if (logsMatch && request.method === 'GET') return handleLogStream(docker, logsMatch[1], request);
 
     if (url.pathname === '/stacks/events' && request.method === 'GET') return handleStackEvents(docker, request);
+    if (url.pathname === '/containers/events' && request.method === 'GET') return handleContainerEvents(docker, request);
     if (url.pathname === '/stacks/deploy' && request.method === 'POST') return handleStackDeploy(request, STACKS_DIR);
     if (url.pathname === '/stacks/teardown' && request.method === 'POST') return handleStackTeardown(request, STACKS_DIR);
     if (url.pathname === '/stacks/restart' && request.method === 'POST') return handleStackRestart(request, STACKS_DIR);

@@ -4,8 +4,10 @@ import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
+import { ContainerInventoryCollector } from './collectors/container-inventory-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
 import { StackStatusCollector } from './collectors/stack-status-collector';
+import { DockerContainerEventRepository } from '@/lib/database/repositories/docker-container-event-repository';
 import { StackStatusRepository } from '@/lib/database/repositories/stack-status-repository';
 import { ZFSCollector } from './collectors/zfs-collector';
 
@@ -169,6 +171,58 @@ export async function createStackStatusCollectors(
     console.info(`[Worker] Starting StackStatusCollector for ${host.name} (${resolvedUrl})`);
     const collector = stack.use(
       new StackStatusCollector(
+        { name: host.name, agentUrl: resolvedUrl },
+        token,
+        repo,
+        shutdownController,
+      )
+    );
+    runners.push(collector.run());
+  }
+
+  return { runners };
+}
+
+/**
+ * Create ContainerInventoryCollectors for managed hosts with Docker capability enabled.
+ * Each collector subscribes to the agent's /containers/events SSE endpoint and writes
+ * state-change events to docker_container_events (hypertable, append-only).
+ *
+ * @param getToken - Callback to look up a host's agent token from OpenBao (or other secret store)
+ */
+export async function createContainerInventoryCollectors(
+  db: DatabaseClient,
+  shutdownController: AbortController,
+  stack: AsyncDisposableStack,
+  findAllHosts: () => Promise<ManagedHostRow[]>,
+  getToken: (hostname: string) => Promise<string | null>,
+): Promise<{ runners: Promise<void>[] }> {
+  const runners: Promise<void>[] = [];
+
+  const hosts = await findAllHosts();
+  const repo = new DockerContainerEventRepository(db.getPool());
+
+  for (const host of hosts) {
+    if (!host.capabilities?.docker) {
+      console.info(`[Worker] Skipping ContainerInventoryCollector for ${host.name}: Docker capability not enabled`);
+      continue;
+    }
+    let token: string | null;
+    try {
+      token = await getToken(host.name);
+    } catch (err) {
+      console.error(`[Worker] Failed to retrieve token for ContainerInventoryCollector ${host.name}:`, err instanceof Error ? err.message : err);
+      continue;
+    }
+    if (!token) {
+      console.info(`[Worker] Skipping ContainerInventoryCollector for ${host.name}: no agent token in secret store`);
+      continue;
+    }
+
+    const resolvedUrl = resolveAgentUrl(host.agent_url);
+    console.info(`[Worker] Starting ContainerInventoryCollector for ${host.name} (${resolvedUrl})`);
+    const collector = stack.use(
+      new ContainerInventoryCollector(
         { name: host.name, agentUrl: resolvedUrl },
         token,
         repo,
