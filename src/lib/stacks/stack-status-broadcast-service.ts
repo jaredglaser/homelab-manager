@@ -1,20 +1,12 @@
 import type { PoolClient } from 'pg';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
-import type { StackContainer } from '@/types/stacks';
+import type { StackContainer, StackStatusEntry } from '@/types/stacks';
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
 import { notifyPayloadToInventory, rowToInventory } from '@/lib/docker/docker-inventory-broadcast-service';
 
-/** A live stack status row derived from container inventory. */
-export interface StackStatusRow {
-  stack: string;
-  host: string;
-  containers: StackContainer[];
-  updated_at: Date;
-}
-
 /** Discriminated union for events sent to SSE subscribers. */
 export type StackBroadcastEvent =
-  | { type: 'status'; entries: StackStatusRow[] }
+  | { type: 'status'; entries: StackStatusEntry[] }
   | { type: 'deploy_changed'; stack: string; host: string };
 
 type StackBroadcastCallback = (event: StackBroadcastEvent) => void;
@@ -33,12 +25,12 @@ function toStackContainer(inv: DockerContainerInventory): StackContainer {
   };
 }
 
-function toStackRow(host: string, stack: string, containers: DockerContainerInventory[]): StackStatusRow {
+function toStackEntry(host: string, stack: string, containers: DockerContainerInventory[]): StackStatusEntry {
   return {
     host,
     stack,
     containers: containers.map(toStackContainer),
-    updated_at: new Date(Math.max(...containers.map((c) => c.updatedAt.getTime()))),
+    updated_at: new Date(Math.max(...containers.map((c) => c.updatedAt.getTime()))).toISOString(),
   };
 }
 
@@ -74,10 +66,10 @@ async function defaultLoadSnapshot(): Promise<DockerContainerInventory[]> {
 }
 
 /**
- * Group a flat list of container inventory items into stack rows.
+ * Group a flat list of container inventory items into stack entries.
  * Containers with null composeProject are excluded — they belong to no stack.
  */
-function inventoryToStackRows(containers: DockerContainerInventory[]): StackStatusRow[] {
+function inventoryToStackEntries(containers: DockerContainerInventory[]): StackStatusEntry[] {
   const byStack = new Map<string, DockerContainerInventory[]>();
   for (const c of containers) {
     if (c.composeProject === null) continue;
@@ -90,7 +82,7 @@ function inventoryToStackRows(containers: DockerContainerInventory[]): StackStat
     }
   }
   return Array.from(byStack.entries()).map(([, group]) =>
-    toStackRow(group[0].host, group[0].composeProject!, group),
+    toStackEntry(group[0].host, group[0].composeProject!, group),
   );
 }
 
@@ -140,16 +132,37 @@ export class StackStatusBroadcastService {
 
   private async sendInit(callback: StackBroadcastCallback): Promise<void> {
     try {
-      const containers = await this.loadSnapshot();
-      // Seed in-memory state from snapshot
-      this.rebuildFromSnapshot(containers);
+      let entries: StackStatusEntry[];
+
+      if (this.stackContainers.size === 0) {
+        // First subscriber: seed in-memory state from DB snapshot
+        const containers = await this.loadSnapshot();
+        this.rebuildFromSnapshot(containers);
+        entries = inventoryToStackEntries(containers);
+      } else {
+        // Subsequent subscribers: serve current in-memory state without a DB round-trip
+        entries = this.buildInitPayloadFromMemory();
+      }
+
       if (this.subscribers.has(callback)) {
-        const entries = inventoryToStackRows(containers);
         callback({ type: 'status', entries });
       }
     } catch (error) {
       console.error('[StackStatusBroadcastService] Failed to send init:', error);
     }
+  }
+
+  /** Build an init payload from the current in-memory stackContainers without touching the DB. */
+  private buildInitPayloadFromMemory(): StackStatusEntry[] {
+    const entries: StackStatusEntry[] = [];
+    for (const [sk, byContainer] of this.stackContainers) {
+      const containers = Array.from(byContainer.values());
+      if (containers.length === 0) continue;
+      const [host, ...stackParts] = sk.split('/');
+      const stack = stackParts.join('/');
+      entries.push(toStackEntry(host, stack, containers));
+    }
+    return entries;
   }
 
   /** Rebuild in-memory stackContainers from a fresh snapshot. */
@@ -169,6 +182,7 @@ export class StackStatusBroadcastService {
 
   private async startListening(): Promise<void> {
     this.stopped = false;
+    let isFirstConnect = true;
 
     while (!this.stopped) {
       try {
@@ -206,17 +220,21 @@ export class StackStatusBroadcastService {
         await this.listenerClient.query('LISTEN docker_container_change');
         await this.listenerClient.query('LISTEN deploy_change');
 
-        // Reload snapshot on reconnect to rebuild in-memory state
-        try {
-          const containers = await this.loadSnapshot();
-          this.rebuildFromSnapshot(containers);
-        } catch (err) {
-          console.error('[StackStatusBroadcastService] Failed to reload snapshot on reconnect:', err);
+        if (!isFirstConnect) {
+          // Reconnect path: reload snapshot to catch up on missed NOTIFYs
+          try {
+            const containers = await this.loadSnapshot();
+            this.rebuildFromSnapshot(containers);
+          } catch (err) {
+            console.error('[StackStatusBroadcastService] Failed to reload snapshot on reconnect:', err);
+          }
         }
 
+        isFirstConnect = false;
         return;
       } catch (error) {
         console.error('[StackStatusBroadcastService] Failed to start listener, retrying in 5s:', error);
+        isFirstConnect = false;
         await new Promise((resolve) => setTimeout(resolve, 5_000));
       }
     }
@@ -267,11 +285,12 @@ export class StackStatusBroadcastService {
       // Broadcast updated snapshot for this specific stack
       const byContainer = this.stackContainers.get(sk);
       const stackGroup = byContainer ? Array.from(byContainer.values()) : [];
-      const entry = stackGroup.length > 0
-        ? toStackRow(host, composeProject, stackGroup)
-        : { host, stack: composeProject, containers: [], updated_at: new Date() };
+      const eventAt = new Date(parsed.at as string).toISOString();
+      const entry: StackStatusEntry = stackGroup.length > 0
+        ? toStackEntry(host, composeProject, stackGroup)
+        : { host, stack: composeProject, containers: [], updated_at: eventAt };
 
-      const entries: StackStatusRow[] = [entry];
+      const entries: StackStatusEntry[] = [entry];
       for (const cb of this.subscribers) {
         try {
           cb({ type: 'status', entries });

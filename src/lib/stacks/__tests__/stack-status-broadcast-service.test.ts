@@ -571,7 +571,7 @@ describe('StackStatusBroadcastService', () => {
     const init = received[0];
     if (init.type === 'status') {
       // composeContainer2.updatedAt (10:01) > composeContainer1.updatedAt (10:00)
-      expect(init.entries[0].updated_at).toEqual(new Date('2026-04-16T10:01:00Z'));
+      expect(init.entries[0].updated_at).toBe('2026-04-16T10:01:00.000Z');
     }
   });
 
@@ -594,12 +594,48 @@ describe('StackStatusBroadcastService', () => {
     }
   });
 
-  it('updated_at is a Date instance', async () => {
+  it('updated_at is an ISO string', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
     await flush();
 
     const init = received[0] as Extract<StackBroadcastEvent, { type: 'status' }>;
-    expect(init.entries[0].updated_at).toBeInstanceOf(Date);
+    expect(typeof init.entries[0].updated_at).toBe('string');
+    expect(init.entries[0].updated_at).toBe('2026-04-16T10:00:00.000Z');
+  });
+
+  // -------------------------------------------------------------------------
+  // Fix 4: empty-stack destroy uses event's at timestamp
+  // -------------------------------------------------------------------------
+
+  it('broadcasts empty-stack destroy with event at timestamp as ISO string', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await flush();
+
+    // Destroy the only container in the 'media' stack
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T12:34:56Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'destroy',
+        state: null,
+        name: null,
+        image: null,
+        compose_project: 'media',
+        service_key: null,
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    expect(lastStatus).toBeDefined();
+    expect(lastStatus.entries[0].containers).toHaveLength(0);
+    expect(lastStatus.entries[0].updated_at).toBe('2026-04-16T12:34:56.000Z');
   });
 });
