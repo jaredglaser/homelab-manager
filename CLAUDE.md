@@ -82,14 +82,23 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 
 ### SSE Endpoints (`src/routes/api/`)
 
-Pattern: `createFileRoute` with `server.handlers.GET` → dynamic import server-init + poll service → `ReadableStream` + subscribe → cleanup on `request.signal` abort. Track `closed` flag to prevent enqueue-after-close.
+Two factories in `src/lib/sse/` own the shared boilerplate (`ReadableStream`, heartbeat, `closed` flag, abort/teardown):
 
-Endpoints: `docker-stats`, `zfs-stats`, `proxmox-stats`, `stack-status`, `settings`, `docker-logs.$containerId` (parameterized), `git.$` (git HTTP smart protocol).
+- **`createStatsSseHandler(source)`** — for `docker-stats`, `zfs-stats`, `proxmox-stats`. Wraps the three-arg `statsPollService.subscribe(source, sendData, sendError)` and emits an `event: stats_error` frame when the subscribe path fails.
+- **`createBroadcastSseHandler({ loadSubscribe, serialize })`** — for single-arg subscribe-based services (`docker-inventory`, `stack-status`, `settings`). Caller owns the full SSE frame via `serialize`, so named events (`event: foo`) are possible when needed.
+
+Server-only imports must happen inside the factory callbacks:
 
 ```typescript
-// ALWAYS dynamic import - static imports break the client bundle:
-const { statsPollService } = await import('@/lib/database/subscription-service');
+// ALWAYS dynamic import inside the factory callback — static imports break the client bundle:
+loadSubscribe: async () => {
+  await import('@/lib/server-init');
+  const { stackStatusBroadcastService } = await import('@/lib/stacks/stack-status-broadcast-service');
+  return (cb) => stackStatusBroadcastService.subscribe(cb);
+}
 ```
+
+Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (auth + DB lookup + pipe-through from agent) and `git.$` (git HTTP smart protocol, not SSE).
 
 ### Key Patterns
 

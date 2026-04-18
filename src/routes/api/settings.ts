@@ -1,54 +1,20 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { createBroadcastSseHandler } from '@/lib/sse/create-broadcast-sse-handler';
+import type { SettingsSSEMessage } from '@/types/settings';
 
 export const Route = createFileRoute('/api/settings')({
   server: {
     handlers: {
-      GET: async ({ request }) => {
-        await import('@/lib/server-init');
-        const { settingsBroadcastService } = await import(
-          '@/lib/settings/settings-broadcast-service'
-        );
-
-        const encoder = new TextEncoder();
-        let closed = false;
-
-        const stream = new ReadableStream({
-          start(controller) {
-            // SSE heartbeat forces Nitro to flush response headers immediately
-            controller.enqueue(encoder.encode(': ok\n\n'));
-
-            const sendData = (message: unknown) => {
-              if (closed) return;
-              try {
-                const data = `data: ${JSON.stringify(message)}\n\n`;
-                controller.enqueue(encoder.encode(data));
-              } catch {
-                closed = true;
-              }
-            };
-
-            const unsubscribe = settingsBroadcastService.subscribe(sendData);
-
-            request.signal.addEventListener('abort', () => {
-              closed = true;
-              unsubscribe();
-              try {
-                controller.close();
-              } catch {
-                // Already closed
-              }
-            });
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
-          },
-        });
-      },
+      GET: createBroadcastSseHandler<SettingsSSEMessage>({
+        loadSubscribe: async () => {
+          await import('@/lib/server-init');
+          const { settingsBroadcastService } = await import(
+            '@/lib/settings/settings-broadcast-service'
+          );
+          return (cb) => settingsBroadcastService.subscribe(cb);
+        },
+        serialize: (message) => `data: ${JSON.stringify(message)}\n\n`,
+      }),
     },
   },
 });
