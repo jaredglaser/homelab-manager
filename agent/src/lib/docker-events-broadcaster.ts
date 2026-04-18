@@ -4,6 +4,12 @@ import type Dockerode from 'dockerode';
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 32_000;
 
+/** Docker's sentinel for an unset timestamp. Normalized to null. */
+const ZERO_TIMESTAMP = '0001-01-01T00:00:00Z';
+
+/** States in which ExitCode is meaningful. Docker returns 0 while running, which is misleading. */
+const TERMINAL_STATES = new Set(['exited', 'dead']);
+
 /** Actions that trigger state updates. */
 const RELEVANT_ACTIONS = new Set(['start', 'stop', 'die', 'restart', 'create', 'destroy', 'pause', 'unpause']);
 
@@ -14,6 +20,46 @@ export interface MinimalContainerInfo {
   State: string;
   Image: string;
   Labels: Record<string, string>;
+  StartedAt: string | null;
+  FinishedAt: string | null;
+  ExitCode: number | null;
+}
+
+function normalizeTimestamp(value: string | null | undefined): string | null {
+  if (!value || value === ZERO_TIMESTAMP) return null;
+  return value;
+}
+
+function normalizeExitCode(state: string, exitCode: number | null | undefined): number | null {
+  if (!TERMINAL_STATES.has(state)) return null;
+  return typeof exitCode === 'number' ? exitCode : null;
+}
+
+function buildFromInspect(inspectData: Dockerode.ContainerInspectInfo): MinimalContainerInfo {
+  const state = inspectData.State?.Status ?? 'unknown';
+  return {
+    Id: inspectData.Id,
+    Names: [inspectData.Name],
+    State: state,
+    Image: inspectData.Config?.Image ?? '',
+    Labels: inspectData.Config?.Labels ?? {},
+    StartedAt: normalizeTimestamp(inspectData.State?.StartedAt),
+    FinishedAt: normalizeTimestamp(inspectData.State?.FinishedAt),
+    ExitCode: normalizeExitCode(state, inspectData.State?.ExitCode),
+  };
+}
+
+function buildFromListEntry(c: Dockerode.ContainerInfo): MinimalContainerInfo {
+  return {
+    Id: c.Id,
+    Names: c.Names,
+    State: c.State,
+    Image: c.Image,
+    Labels: c.Labels,
+    StartedAt: null,
+    FinishedAt: null,
+    ExitCode: null,
+  };
 }
 
 export type BroadcasterEvent =
@@ -88,13 +134,7 @@ async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
 
   try {
     const inspectData = await docker.getContainer(containerId).inspect();
-    const containerInfo: MinimalContainerInfo = {
-      Id: inspectData.Id,
-      Names: [inspectData.Name],
-      State: inspectData.State?.Status ?? 'unknown',
-      Image: inspectData.Config?.Image ?? '',
-      Labels: inspectData.Config?.Labels ?? {},
-    };
+    const containerInfo = buildFromInspect(inspectData);
     state.containers.set(containerId, containerInfo);
     broadcastToAll({ op: 'upsert', container: containerInfo });
   } catch (err: unknown) {
@@ -111,6 +151,29 @@ async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
       console.error(`[DockerEventsBroadcaster] Transient inspect error after '${action}' for ${containerId}:`, { action, containerId, statusCode, message });
     }
   }
+}
+
+/**
+ * List all containers and enrich each with inspect() in parallel so we can
+ * populate StartedAt/FinishedAt/ExitCode (not available from listContainers).
+ * If an individual inspect fails, fall back to the listContainers fields for
+ * that container with null timestamps/exit code — don't fail the whole init.
+ */
+async function listAndEnrichContainers(docker: Dockerode): Promise<MinimalContainerInfo[]> {
+  const listed = await docker.listContainers({ all: true });
+  const enriched = await Promise.all(
+    listed.map(async (c): Promise<MinimalContainerInfo> => {
+      try {
+        const inspectData = await docker.getContainer(c.Id).inspect();
+        return buildFromInspect(inspectData);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[DockerEventsBroadcaster] Inspect failed for ${c.Id} during init, using listContainers fallback:`, message);
+        return buildFromListEntry(c);
+      }
+    }),
+  );
+  return enriched;
 }
 
 function scheduleReconnect(docker: Dockerode): void {
@@ -151,10 +214,10 @@ async function startEventsSubscription(docker: Dockerode, isReconnect = false): 
     // so subscribers catch up on any events missed during the outage.
     if (isReconnect) {
       try {
-        const freshList = await docker.listContainers({ all: true });
+        const freshList = await listAndEnrichContainers(docker);
         state.containers.clear();
         for (const c of freshList) {
-          state.containers.set(c.Id, c as unknown as MinimalContainerInfo);
+          state.containers.set(c.Id, c);
         }
         broadcastToAll({ op: 'init', containers: [...state.containers.values()] });
       } catch (listErr) {
@@ -225,7 +288,7 @@ export async function subscribe(
   // Preserve any entries already set by concurrent events that arrived during listContainers.
   if (state.subscribers.size === 0) {
     try {
-      const allContainers = await docker.listContainers({ all: true });
+      const allContainers = await listAndEnrichContainers(docker);
       for (const c of allContainers) {
         if (!state.containers.has(c.Id)) {
           state.containers.set(c.Id, c);

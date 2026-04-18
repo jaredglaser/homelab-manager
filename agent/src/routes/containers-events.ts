@@ -12,13 +12,6 @@ function toContainerState(raw: string): ContainerState {
   return (known as string[]).includes(raw) ? (raw as ContainerState) : 'unknown';
 }
 
-/**
- * Convert a MinimalContainerInfo (from listContainers or inspect) to InventoryContainer.
- *
- * startedAt, finishedAt, and exitCode are not available from listContainers output —
- * they require an inspect call. To keep subscribe latency low, these are set to null
- * here. A future refinement can add a lightweight inspect-on-create to populate them.
- */
 function toInventoryContainer(c: MinimalContainerInfo): InventoryContainer {
   const rawName = c.Names?.[0] ?? c.Id;
   return {
@@ -27,9 +20,9 @@ function toInventoryContainer(c: MinimalContainerInfo): InventoryContainer {
     image: c.Image,
     state: toContainerState(c.State),
     labels: c.Labels ?? {},
-    startedAt: null,
-    finishedAt: null,
-    exitCode: null,
+    startedAt: c.StartedAt,
+    finishedAt: c.FinishedAt,
+    exitCode: c.ExitCode,
   };
 }
 

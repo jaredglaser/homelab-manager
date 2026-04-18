@@ -28,7 +28,16 @@ function makeContainer(
   image = 'nginx:latest',
   labels: Record<string, string> = {},
 ): MinimalContainerInfo {
-  return { Id: id, Names: [`/${name}`], State: state, Image: image, Labels: labels };
+  return {
+    Id: id,
+    Names: [`/${name}`],
+    State: state,
+    Image: image,
+    Labels: labels,
+    StartedAt: null,
+    FinishedAt: null,
+    ExitCode: null,
+  };
 }
 
 function makeDocker(containers: MinimalContainerInfo[] = [], eventsEmitter = new EventEmitter()) {
@@ -737,6 +746,218 @@ describe('subscribe — reconnect fresh init (Fix 3)', () => {
     } finally {
       globalThis.setTimeout = originalSetTimeout;
     }
+  });
+});
+
+describe('subscribe — init enrichment via inspect', () => {
+  test('populates StartedAt/FinishedAt/ExitCode from inspect on first init', async () => {
+    const eventsEmitter = new EventEmitter();
+    const listEntry = makeContainer('c1', 'app1', 'exited');
+    const docker = {
+      listContainers: mock(() => Promise.resolve([listEntry])),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app1',
+          State: {
+            Status: 'exited',
+            StartedAt: '2026-04-17T10:00:00Z',
+            FinishedAt: '2026-04-17T11:00:00Z',
+            ExitCode: 137,
+          },
+          Config: { Image: 'nginx:latest', Labels: {} },
+        })),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    unsub();
+
+    const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+    expect(init.containers).toHaveLength(1);
+    expect(init.containers[0].StartedAt).toBe('2026-04-17T10:00:00Z');
+    expect(init.containers[0].FinishedAt).toBe('2026-04-17T11:00:00Z');
+    expect(init.containers[0].ExitCode).toBe(137);
+  });
+
+  test('normalizes zero-sentinel "0001-01-01T00:00:00Z" to null for both timestamps', async () => {
+    const eventsEmitter = new EventEmitter();
+    const listEntry = makeContainer('c1', 'app1', 'created');
+    const docker = {
+      listContainers: mock(() => Promise.resolve([listEntry])),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app1',
+          State: {
+            Status: 'created',
+            StartedAt: '0001-01-01T00:00:00Z',
+            FinishedAt: '0001-01-01T00:00:00Z',
+            ExitCode: 0,
+          },
+          Config: { Image: 'nginx:latest', Labels: {} },
+        })),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    unsub();
+
+    const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+    expect(init.containers[0].StartedAt).toBeNull();
+    expect(init.containers[0].FinishedAt).toBeNull();
+  });
+
+  test('passes real ISO timestamps through unchanged', async () => {
+    const eventsEmitter = new EventEmitter();
+    const listEntry = makeContainer('c1', 'app1', 'running');
+    const docker = {
+      listContainers: mock(() => Promise.resolve([listEntry])),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app1',
+          State: {
+            Status: 'running',
+            StartedAt: '2026-01-15T08:30:45.123Z',
+            FinishedAt: '0001-01-01T00:00:00Z',
+            ExitCode: 0,
+          },
+          Config: { Image: 'nginx:latest', Labels: {} },
+        })),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    unsub();
+
+    const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+    expect(init.containers[0].StartedAt).toBe('2026-01-15T08:30:45.123Z');
+  });
+
+  test('ExitCode is null for non-terminal states (running, paused, restarting, created)', async () => {
+    const eventsEmitter = new EventEmitter();
+    const nonTerminalStates = ['running', 'paused', 'restarting', 'created'];
+
+    for (const status of nonTerminalStates) {
+      _resetBroadcasterForTesting();
+      const listEntry = makeContainer('c1', 'app1', status);
+      const docker = {
+        listContainers: mock(() => Promise.resolve([listEntry])),
+        getEvents: mock(() => Promise.resolve(eventsEmitter)),
+        getContainer: mock(() => ({
+          inspect: mock(() => Promise.resolve({
+            Id: 'c1',
+            Name: '/app1',
+            State: {
+              Status: status,
+              StartedAt: '2026-04-17T10:00:00Z',
+              FinishedAt: '0001-01-01T00:00:00Z',
+              ExitCode: 0,
+            },
+            Config: { Image: 'nginx:latest', Labels: {} },
+          })),
+        })),
+      };
+
+      const received: BroadcasterEvent[] = [];
+      const unsub = await subscribe(docker as any, (e) => received.push(e));
+      unsub();
+
+      const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+      expect(init.containers[0].ExitCode).toBeNull();
+    }
+  });
+
+  test('ExitCode is preserved (non-null) for terminal states exited and dead', async () => {
+    const eventsEmitter = new EventEmitter();
+    const terminalStates: Array<{ state: string; code: number }> = [
+      { state: 'exited', code: 0 },
+      { state: 'exited', code: 137 },
+      { state: 'dead', code: 255 },
+    ];
+
+    for (const { state, code } of terminalStates) {
+      _resetBroadcasterForTesting();
+      const listEntry = makeContainer('c1', 'app1', state);
+      const docker = {
+        listContainers: mock(() => Promise.resolve([listEntry])),
+        getEvents: mock(() => Promise.resolve(eventsEmitter)),
+        getContainer: mock(() => ({
+          inspect: mock(() => Promise.resolve({
+            Id: 'c1',
+            Name: '/app1',
+            State: {
+              Status: state,
+              StartedAt: '2026-04-17T10:00:00Z',
+              FinishedAt: '2026-04-17T11:00:00Z',
+              ExitCode: code,
+            },
+            Config: { Image: 'nginx:latest', Labels: {} },
+          })),
+        })),
+      };
+
+      const received: BroadcasterEvent[] = [];
+      const unsub = await subscribe(docker as any, (e) => received.push(e));
+      unsub();
+
+      const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+      expect(init.containers[0].ExitCode).toBe(code);
+    }
+  });
+
+  test('inspect failure on ONE container does not crash init — others populated', async () => {
+    const eventsEmitter = new EventEmitter();
+    const list = [
+      makeContainer('c1', 'app1', 'running'),
+      makeContainer('c2', 'app2', 'exited'),
+      makeContainer('c3', 'app3', 'running'),
+    ];
+    const docker = {
+      listContainers: mock(() => Promise.resolve(list)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock((id: string) => ({
+        inspect: mock(() => {
+          if (id === 'c2') {
+            return Promise.reject(new Error('inspect blew up'));
+          }
+          const src = list.find((c) => c.Id === id)!;
+          return Promise.resolve({
+            Id: src.Id,
+            Name: src.Names[0],
+            State: {
+              Status: src.State,
+              StartedAt: '2026-04-17T10:00:00Z',
+              FinishedAt: '0001-01-01T00:00:00Z',
+              ExitCode: 0,
+            },
+            Config: { Image: src.Image, Labels: src.Labels },
+          });
+        }),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    unsub();
+
+    const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+    expect(init.containers).toHaveLength(3);
+
+    const byId = new Map(init.containers.map((c) => [c.Id, c]));
+    expect(byId.get('c1')?.StartedAt).toBe('2026-04-17T10:00:00Z');
+    expect(byId.get('c3')?.StartedAt).toBe('2026-04-17T10:00:00Z');
+    expect(byId.get('c2')?.StartedAt).toBeNull();
+    expect(byId.get('c2')?.FinishedAt).toBeNull();
+    expect(byId.get('c2')?.ExitCode).toBeNull();
+    expect(console.error).toHaveBeenCalled();
   });
 });
 
