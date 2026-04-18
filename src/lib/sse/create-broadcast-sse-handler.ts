@@ -36,19 +36,6 @@ export function createBroadcastSseHandler<Event>(
 
     const stream = new ReadableStream({
       start(controller) {
-        let unsubscribe: Unsubscribe = () => {};
-
-        const teardown = () => {
-          if (closed) return;
-          closed = true;
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            // Already closed
-          }
-        };
-
         controller.enqueue(encoder.encode(': ok\n\n'));
 
         const sendEvent = (event: Event) => {
@@ -60,7 +47,18 @@ export function createBroadcastSseHandler<Event>(
           }
         };
 
-        unsubscribe = subscribe(sendEvent);
+        const unsubscribe = subscribe(sendEvent);
+
+        const teardown = () => {
+          if (closed) return;
+          closed = true;
+          unsubscribe();
+          try {
+            controller.close();
+          } catch {
+            // Already closed
+          }
+        };
 
         request.signal.addEventListener('abort', teardown);
       },
