@@ -22,16 +22,6 @@ mock.module('@/hooks/useSettings', () => ({
   }),
 }));
 
-mock.module('@tanstack/react-query', () => ({
-  useQuery: () => ({ data: undefined }),
-  useQueryClient: () => ({ invalidateQueries: async () => {} }),
-}));
-
-mock.module('@/data/docker/functions', () => ({
-  getDockerEntityIcons: async () => ({}),
-  updateContainerIcon: async () => {},
-}));
-
 mock.module('@/hooks/toastAtom', () => ({
   useToast: () => ({ showToast: () => {} }),
 }));
@@ -132,6 +122,8 @@ const defaultProps = {
   isConnected: true,
   error: null,
   isStale: false,
+  entityIcons: {} as Record<string, { iconSlug: string | null; serviceKeyEntity: string }>,
+  onIconChange: async () => {},
 };
 
 // ── Tests ────────────────────────────────────────────────────────────────────

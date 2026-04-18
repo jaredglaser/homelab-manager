@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import { Box, Chip, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ChevronRight, History, Server, Settings, WifiOff } from 'lucide-react';
@@ -19,7 +18,6 @@ import type {
 } from '@/types/docker';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
 import { buildDockerTableHierarchy, rowToDockerStats, totalContainers } from '@/lib/utils/docker-hierarchy-builder';
-import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import ContainerDetailPanel from '@/components/docker/ContainerDetailPanel';
@@ -28,6 +26,8 @@ import { usePulseIndicator } from '@/hooks/usePulseIndicator';
 import { buildContainerChartData } from '@/hooks/useContainerChartData';
 
 export const DOCKER_ENTITY_ICONS_QUERY_KEY = ['docker-entity-icons'] as const;
+
+export type DockerEntityIconsMap = Record<string, { iconSlug: string | null; serviceKeyEntity: string }>;
 
 const METRIC_GROUPS: MetricGroup[] = [
   { label: 'CPU/Mem', columnIds: ['cpu', 'memory'] },
@@ -47,6 +47,8 @@ interface ContainerTableProps {
   isConnected: boolean;
   error: Error | null;
   isStale: boolean;
+  entityIcons: DockerEntityIconsMap;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
   onOpenHistory?: (containerId: string, host: string) => void;
 }
 
@@ -68,6 +70,8 @@ export default function ContainerTable({
   isConnected,
   error,
   isStale,
+  entityIcons,
+  onIconChange,
   onOpenHistory,
 }: Readonly<ContainerTableProps>) {
   const {
@@ -78,12 +82,6 @@ export default function ContainerTable({
     toggleHostExpanded,
     toggleContainerExpanded,
   } = useSettings();
-
-  const { data: entityIcons } = useQuery({
-    queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
-    queryFn: () => getDockerEntityIcons(),
-    staleTime: 60_000,
-  });
 
   const prevStatsRef = useRef<Map<string, DockerStatsFromDB>>(new Map());
 
@@ -199,6 +197,7 @@ export default function ContainerTable({
             <ContainerNameCell
               row={data}
               expanded={row.getIsExpanded()}
+              onIconChange={onIconChange}
               onOpenHistory={onOpenHistory}
             />
           );
@@ -311,7 +310,7 @@ export default function ContainerTable({
         getIsStale: (row) => row.isStale,
       }),
     ],
-    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onOpenHistory],
+    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onIconChange, onOpenHistory],
   );
 
   /** Render container detail panel (charts + logs) for the nested DataTable */
@@ -561,15 +560,16 @@ function buildCountLabel(a: HostAggregatedStats): string {
 function ContainerNameCell({
   row,
   expanded,
+  onIconChange,
   onOpenHistory,
 }: Readonly<{
   row: DockerContainerTableRow;
   expanded: boolean;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
   onOpenHistory?: (containerId: string, host: string) => void;
 }>) {
   const { inventory, stats } = row;
 
-  const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
@@ -588,8 +588,7 @@ function ContainerNameCell({
   const handleIconSelect = async (iconSlug: string) => {
     try {
       const serviceKeyEntity = stats?.serviceKeyEntity ?? `${inventory.host}/${inventory.name}`;
-      await updateContainerIcon({ data: { serviceKeyEntity, iconSlug } });
-      await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
+      await onIconChange(serviceKeyEntity, iconSlug);
     } catch (err) {
       console.error('Failed to update container icon:', err);
       showToast('Failed to update icon. Please try again.');

@@ -8,7 +8,7 @@ import PageStatusBar from '@/components/PageStatusBar'
 import DockerStatusSummary from '@/components/docker/DockerStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useDockerInventory } from '@/hooks/useDockerInventory'
-import { getDockerEntityIcons } from '@/data/docker/functions'
+import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
@@ -75,6 +75,20 @@ function DockerContainersPage() {
     staleTime: PRELOAD_STALE_TIME,
   })
 
+  const { data: entityIcons } = useQuery({
+    queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
+    queryFn: () => getDockerEntityIcons(),
+    staleTime: 60_000,
+  })
+
+  const handleIconChange = useCallback(
+    async (serviceKeyEntity: string, iconSlug: string) => {
+      await updateContainerIcon({ data: { serviceKeyEntity, iconSlug } })
+      await qc.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY })
+    },
+    [qc],
+  )
+
   const stream = useTimeSeriesStream<DockerStatsRow>({
     sseUrl: apiUrl('/api/docker-stats'),
     preloadFn,
@@ -103,6 +117,8 @@ function DockerContainersPage() {
         isConnected={stream.isConnected}
         error={stream.error}
         isStale={stream.isStale}
+        entityIcons={entityIcons ?? {}}
+        onIconChange={handleIconChange}
         onOpenHistory={handleOpenHistory}
       />
       {historyTarget && (
