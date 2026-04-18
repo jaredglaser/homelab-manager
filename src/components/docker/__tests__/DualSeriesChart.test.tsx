@@ -1,7 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
-import type ReactECharts from 'echarts-for-react';
-import DualSeriesChart, { getChartOption } from '../DualSeriesChart';
 
 mock.module('@/hooks/useSettings', () => ({
   useSettings: () => ({
@@ -14,10 +12,13 @@ mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
 }));
 
-const FakeChart = ({ option }: { option: unknown }) => (
-  <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
-);
-const ChartComponent = FakeChart as unknown as typeof ReactECharts;
+mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
+  default: ({ option }: { option: unknown }) => (
+    <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
+  ),
+}));
+
+const { default: DualSeriesChart, getChartOption } = await import('../DualSeriesChart');
 
 const baseSeries: [
   { name: string; dataPoints: { timestamp: number; value: number }[]; colorVar: string },
@@ -49,33 +50,30 @@ describe('DualSeriesChart', () => {
         series={baseSeries}
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
-        ChartComponent={ChartComponent}
       />,
     );
     expect(screen.getByText('CPU & Memory')).toBeTruthy();
   });
 
-  it('renders echarts component', () => {
+  it('renders the chart renderer', () => {
     render(
       <DualSeriesChart
         title="Network I/O"
         series={baseSeries}
         yAxisMode="bytes"
         formatValue={(v) => `${v} B/s`}
-        ChartComponent={ChartComponent}
       />,
     );
     expect(screen.getByTestId('echarts-mock')).toBeTruthy();
   });
 
-  it('passes two series to echarts option', () => {
+  it('passes two series to the renderer option', () => {
     render(
       <DualSeriesChart
         title="Test"
         series={baseSeries}
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
-        ChartComponent={ChartComponent}
       />,
     );
     const chartEl = screen.getByTestId('echarts-mock');
@@ -92,7 +90,6 @@ describe('DualSeriesChart', () => {
         series={baseSeries}
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
-        ChartComponent={ChartComponent}
       />,
     );
     const chartEl = screen.getByTestId('echarts-mock');
@@ -112,7 +109,6 @@ describe('DualSeriesChart', () => {
         series={emptySeries}
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
-        ChartComponent={ChartComponent}
       />,
     );
     expect(screen.getByText('Empty')).toBeTruthy();

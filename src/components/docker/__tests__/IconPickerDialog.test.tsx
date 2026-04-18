@@ -1,5 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
 mock.module('@/lib/utils/icon-resolver', () => ({
   AVAILABLE_ICONS: ['nginx', 'redis', 'postgres', 'docker'],
@@ -22,13 +22,37 @@ const defaultProps = {
   containerName: 'my-container',
 };
 
+let origGetBCR: typeof HTMLElement.prototype.getBoundingClientRect;
+const origDescriptors = {
+  clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
+  scrollHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight'),
+  offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
+};
+
+beforeEach(() => {
+  origGetBCR = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function () {
+    return { x: 0, y: 0, width: 800, height: 600, top: 0, right: 800, bottom: 600, left: 0, toJSON: () => '' };
+  };
+  Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get() { return 600; } });
+  Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true, get() { return 600; } });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return 600; } });
+});
+
+afterEach(() => {
+  HTMLElement.prototype.getBoundingClientRect = origGetBCR;
+  if (origDescriptors.clientHeight) Object.defineProperty(HTMLElement.prototype, 'clientHeight', origDescriptors.clientHeight);
+  if (origDescriptors.scrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', origDescriptors.scrollHeight);
+  if (origDescriptors.offsetHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', origDescriptors.offsetHeight);
+});
+
 describe('IconPickerDialog', () => {
   it('renders title with containerName when open', () => {
     render(<IconPickerDialog {...defaultProps} />);
     expect(screen.getByText('Select Icon for my-container')).toBeDefined();
   });
 
-  it('renders a search input with placeholder', () => {
+  it('renders a search input', () => {
     render(<IconPickerDialog {...defaultProps} />);
     expect(screen.getByPlaceholderText('Search icons...')).toBeDefined();
   });
@@ -59,5 +83,29 @@ describe('IconPickerDialog', () => {
     rerender(<IconPickerDialog {...defaultProps} onClose={onClose} />);
     const reopenedInput = screen.getByPlaceholderText('Search icons...') as HTMLInputElement;
     expect(reopenedInput.value).toBe('');
+  });
+
+  it('filters the icon list when searching', () => {
+    render(<IconPickerDialog {...defaultProps} />);
+    const input = screen.getByPlaceholderText('Search icons...');
+    fireEvent.change(input, { target: { value: 'nginx' } });
+    expect(screen.getByAltText('nginx')).toBeDefined();
+    expect(screen.queryByAltText('redis')).toBeNull();
+  });
+
+  it('calls onSelect and closes after selecting an icon', async () => {
+    const onSelect = mock((_slug: string) => {});
+    const onClose = mock(() => {});
+    render(<IconPickerDialog {...defaultProps} onSelect={onSelect} onClose={onClose} />);
+    const img = screen.getByAltText('nginx');
+    const btn = img.closest('button');
+    expect(btn).not.toBeNull();
+    fireEvent.click(btn!);
+    expect(onSelect).toHaveBeenCalledWith('nginx');
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

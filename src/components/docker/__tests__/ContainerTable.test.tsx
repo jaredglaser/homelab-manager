@@ -65,8 +65,8 @@ mock.module('@/hooks/useContainerLogs', () => ({
   useContainerLogs: () => ({ isConnected: false, error: null }),
 }));
 
-// Stub echarts (used in DualSeriesChart)
-mock.module('echarts-for-react', () => ({
+// Stub the chart renderer (project-local, narrow scope) so echarts never loads
+mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
   default: () => <div data-testid="echarts-mock" />,
 }));
 mock.module('@/hooks/useEChartTimeScroll', () => ({

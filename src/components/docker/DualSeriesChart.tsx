@@ -1,11 +1,12 @@
 import { memo, useRef } from 'react';
 import { Paper, Typography } from '@mui/material';
-import ReactECharts from 'echarts-for-react';
+import type ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useSettings } from '@/hooks/useSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
 import { resolveChartColors, resolveChartChromeColors, type ChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis, type YAxisMode } from '@/lib/charts/y-axis';
+import DualSeriesChartRenderer from '@/components/docker/DualSeriesChartRenderer';
 
 interface DataPoint {
   timestamp: number;
@@ -23,8 +24,6 @@ interface DualSeriesChartProps {
   series: [SeriesConfig, SeriesConfig];
   yAxisMode: YAxisMode;
   formatValue: (value: number) => string;
-  /** @internal Overridable for testing — default is echarts-for-react. */
-  ChartComponent?: typeof ReactECharts;
 }
 
 /** @internal Exported for testing */
@@ -174,7 +173,6 @@ export default memo(function DualSeriesChart({
   series,
   yAxisMode,
   formatValue,
-  ChartComponent = ReactECharts,
 }: DualSeriesChartProps) {
   const { general, docker } = useSettings();
   const windowMs = docker.chartWindowSeconds * 1000;
@@ -201,14 +199,7 @@ export default memo(function DualSeriesChart({
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <ChartComponent
-          ref={chartRef}
-          option={option}
-          opts={{ renderer: 'canvas' }}
-          notMerge={false}
-          lazyUpdate={true}
-          className="!h-full !w-full"
-        />
+        <DualSeriesChartRenderer ref={chartRef} option={option} />
       </div>
     </Paper>
   );

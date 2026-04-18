@@ -1,8 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
-import type DualSeriesChart from '../DualSeriesChart';
-import ContainerDetailPanel from '../ContainerDetailPanel';
 
 mock.module('@/hooks/useSettings', () => ({
   useSettings: () => ({
@@ -13,6 +11,21 @@ mock.module('@/hooks/useSettings', () => ({
 
 mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
+}));
+
+mock.module('@/components/docker/DualSeriesChart', () => ({
+  default: ({
+    title,
+    formatValue,
+  }: {
+    title?: string;
+    formatValue?: (v: number) => string;
+  }) => (
+    <div data-testid="dual-series-chart">
+      {title && <span>{title}</span>}
+      {formatValue && <span data-testid="format-value-output">{formatValue(1000)}</span>}
+    </div>
+  ),
 }));
 
 mock.module('@xterm/xterm', () => ({
@@ -39,19 +52,7 @@ mock.module('@/hooks/useContainerLogs', () => ({
   useContainerLogs: () => ({ isConnected: true, error: null }),
 }));
 
-const FakeChart = ({
-  title,
-  formatValue,
-}: {
-  title?: string;
-  formatValue?: (v: number) => string;
-}) => (
-  <div data-testid="dual-series-chart">
-    {title && <span>{title}</span>}
-    {formatValue && <span data-testid="format-value-output">{formatValue(1000)}</span>}
-  </div>
-);
-const ChartComponent = FakeChart as unknown as typeof DualSeriesChart;
+const { default: ContainerDetailPanel } = await import('../ContainerDetailPanel');
 
 const sampleDataPoints = [
   {
@@ -80,7 +81,6 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPan
       dataPoints={sampleDataPoints}
       containerId="abc123"
       host="server"
-      ChartComponent={ChartComponent}
       {...overrides}
     />,
   );
