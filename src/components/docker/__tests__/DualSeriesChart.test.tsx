@@ -1,14 +1,8 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
+import type ReactECharts from 'echarts-for-react';
+import DualSeriesChart, { getChartOption } from '../DualSeriesChart';
 
-// Mock echarts-for-react - canvas rendering not available in Happy-DOM
-mock.module('echarts-for-react', () => ({
-  default: ({ option }: { option: unknown }) => (
-    <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
-  ),
-}));
-
-// Mock useSettings to return stable defaults
 mock.module('@/hooks/useSettings', () => ({
   useSettings: () => ({
     general: { use12HourTime: false },
@@ -16,13 +10,14 @@ mock.module('@/hooks/useSettings', () => ({
   }),
 }));
 
-// Mock useEChartTimeScroll - no-op in tests
 mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
 }));
 
-// Must import after mocks
-const { default: DualSeriesChart, getChartOption } = await import('../DualSeriesChart');
+const FakeChart = ({ option }: { option: unknown }) => (
+  <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
+);
+const ChartComponent = FakeChart as unknown as typeof ReactECharts;
 
 const baseSeries: [
   { name: string; dataPoints: { timestamp: number; value: number }[]; colorVar: string },
@@ -54,6 +49,7 @@ describe('DualSeriesChart', () => {
         series={baseSeries}
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
+        ChartComponent={ChartComponent}
       />,
     );
     expect(screen.getByText('CPU & Memory')).toBeTruthy();
@@ -66,6 +62,7 @@ describe('DualSeriesChart', () => {
         series={baseSeries}
         yAxisMode="bytes"
         formatValue={(v) => `${v} B/s`}
+        ChartComponent={ChartComponent}
       />,
     );
     expect(screen.getByTestId('echarts-mock')).toBeTruthy();
@@ -78,6 +75,7 @@ describe('DualSeriesChart', () => {
         series={baseSeries}
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
+        ChartComponent={ChartComponent}
       />,
     );
     const chartEl = screen.getByTestId('echarts-mock');
@@ -94,6 +92,7 @@ describe('DualSeriesChart', () => {
         series={baseSeries}
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
+        ChartComponent={ChartComponent}
       />,
     );
     const chartEl = screen.getByTestId('echarts-mock');
@@ -113,6 +112,7 @@ describe('DualSeriesChart', () => {
         series={emptySeries}
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
+        ChartComponent={ChartComponent}
       />,
     );
     expect(screen.getByText('Empty')).toBeTruthy();
@@ -149,7 +149,6 @@ describe('getChartOption', () => {
   it('xAxis formatter formats minutes and seconds', () => {
     const option = getChartOption(baseSeries, 'percent', formatValue, false, 60000, chrome);
     const xAxisFormatter = (option.xAxis as { axisLabel: { formatter: Function } }).axisLabel.formatter;
-    // Test with a known timestamp: 2024-01-01 00:05:30
     const ts = new Date(2024, 0, 1, 0, 5, 30).getTime();
     expect(xAxisFormatter(ts)).toBe('05:30');
   });

@@ -23,6 +23,8 @@ interface DualSeriesChartProps {
   series: [SeriesConfig, SeriesConfig];
   yAxisMode: YAxisMode;
   formatValue: (value: number) => string;
+  /** @internal Overridable for testing — default is echarts-for-react. */
+  ChartComponent?: typeof ReactECharts;
 }
 
 /** @internal Exported for testing */
@@ -172,6 +174,7 @@ export default memo(function DualSeriesChart({
   series,
   yAxisMode,
   formatValue,
+  ChartComponent = ReactECharts,
 }: DualSeriesChartProps) {
   const { general, docker } = useSettings();
   const windowMs = docker.chartWindowSeconds * 1000;
@@ -198,7 +201,7 @@ export default memo(function DualSeriesChart({
         </div>
       </div>
       <div className="flex-1 min-h-0">
-        <ReactECharts
+        <ChartComponent
           ref={chartRef}
           option={option}
           opts={{ renderer: 'canvas' }}

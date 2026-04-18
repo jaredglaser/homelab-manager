@@ -9,6 +9,8 @@ interface ContainerDetailPanelProps {
   dataPoints: ChartDataPoint[];
   containerId: string;
   host: string;
+  /** @internal Overridable for testing — default is DualSeriesChart. */
+  ChartComponent?: typeof DualSeriesChart;
 }
 
 const formatPercent = (v: number) => formatAsPercent(v / 100);
@@ -26,6 +28,7 @@ export default memo(function ContainerDetailPanel({
   dataPoints,
   containerId,
   host,
+  ChartComponent = DualSeriesChart,
 }: ContainerDetailPanelProps) {
   const cpuMemSeries = useMemo<DualSeries>(
     () => [
@@ -64,7 +67,7 @@ export default memo(function ContainerDetailPanel({
       <Divider />
       <div className="grid grid-cols-1 grid-rows-[10rem_10rem_18rem] lg:grid-cols-2 lg:grid-rows-2 lg:h-[500px] gap-4 px-4 pt-4">
         <div className="min-h-0">
-          <DualSeriesChart
+          <ChartComponent
             title="CPU & Memory"
             series={cpuMemSeries}
             yAxisMode="percent"
@@ -72,7 +75,7 @@ export default memo(function ContainerDetailPanel({
           />
         </div>
         <div className="min-h-0">
-          <DualSeriesChart
+          <ChartComponent
             title="Network I/O"
             series={networkSeries}
             yAxisMode="bits"
