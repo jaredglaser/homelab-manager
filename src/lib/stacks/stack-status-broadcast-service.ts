@@ -1,7 +1,10 @@
 import type { PoolClient } from 'pg';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
 import type { StackContainer, StackStatusEntry } from '@/types/stacks';
-import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
+import type {
+  DockerContainerEventRow,
+  DockerContainerEventUpsertRow,
+} from '@/lib/database/repositories/docker-container-event-repository';
 import { notifyPayloadToInventory, rowToInventory } from '@/lib/docker/docker-inventory-broadcast-service';
 
 /** Discriminated union for events sent to SSE subscribers. */
@@ -68,7 +71,7 @@ async function defaultLoadSnapshot(): Promise<DockerContainerInventory[]> {
   const repo = new DockerContainerEventRepository(client.getPool());
   const rows: DockerContainerEventRow[] = await repo.getCurrentSnapshot();
   return rows
-    .filter((row) => row.eventType !== 'destroy')
+    .filter((row): row is DockerContainerEventUpsertRow => row.eventType === 'upsert')
     .map(rowToInventory);
 }
 
@@ -99,9 +102,7 @@ function inventoryToStackEntries(containers: DockerContainerInventory[]): StackS
  * Derives stack state from docker_container_events grouped by compose_project.
  * Listens on two PostgreSQL NOTIFY channels:
  *   - 'docker_container_change' — triggers stack snapshot re-derivation for the affected stack.
- *   - 'deploy_change' — forwards deploy lifecycle events as-is.
- * Two channels: docker_container_change for live state, deploy_change for deploy-lifecycle
- * (fired by the deploy pipeline writing directly — not derived from container events).
+ *   - 'deploy_change' — forwards deploy lifecycle events as-is (written directly by the deploy pipeline).
  *
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.
  */
@@ -111,6 +112,8 @@ export class StackStatusBroadcastService {
   private stopped = true;
   private reconnecting = false;
   private reconnectFailures = 0;
+  /** Instance-scoped so reconnect iterations preserve it and take the snapshot-reload branch. */
+  private isFirstConnect = true;
   /** Timer reference so stop() can cancel a pending reconnect. */
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -196,7 +199,6 @@ export class StackStatusBroadcastService {
 
   private async startListening(): Promise<void> {
     this.stopped = false;
-    let isFirstConnect = true;
 
     while (!this.stopped) {
       try {
@@ -207,9 +209,13 @@ export class StackStatusBroadcastService {
           return;
         }
 
-        this.listenerClient = poolClient;
+        // Bind handlers to this specific client so a stale handler firing after
+        // the client has been replaced cannot mutate shared state for the new one.
+        const currentClient = poolClient;
+        this.listenerClient = currentClient;
 
-        this.listenerClient.on('notification', (msg) => {
+        currentClient.on('notification', (msg) => {
+          if (this.listenerClient !== currentClient) return;
           if (msg.channel === 'docker_container_change') {
             this.handleContainerChange(msg.payload);
           } else if (msg.channel === 'deploy_change') {
@@ -217,8 +223,12 @@ export class StackStatusBroadcastService {
           }
         });
 
-        this.listenerClient.on('error', (err) => {
+        currentClient.on('error', (err) => {
           console.error('[StackStatusBroadcastService] Listener client error:', err);
+          if (this.listenerClient !== currentClient) {
+            // Stale handler for a replaced client — do not touch shared state.
+            return;
+          }
           this.cleanupListenerClient();
           if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
             this.reconnecting = true;
@@ -242,10 +252,10 @@ export class StackStatusBroadcastService {
         });
 
         // LISTEN registered before snapshot reload so NOTIFYs arriving during the reload are not dropped
-        await this.listenerClient.query('LISTEN docker_container_change');
-        await this.listenerClient.query('LISTEN deploy_change');
+        await currentClient.query('LISTEN docker_container_change');
+        await currentClient.query('LISTEN deploy_change');
 
-        if (!isFirstConnect) {
+        if (!this.isFirstConnect) {
           // Reconnect path: reload snapshot to catch up on missed NOTIFYs
           try {
             const containers = await this.loadSnapshot();
@@ -257,12 +267,12 @@ export class StackStatusBroadcastService {
           this.reconnectFailures = 0;
         }
 
-        isFirstConnect = false;
+        this.isFirstConnect = false;
         return;
       } catch (error) {
         const delay = backoffDelay(this.reconnectFailures);
         console.error(`[StackStatusBroadcastService] Failed to start listener, retrying in ${delay}ms:`, error);
-        isFirstConnect = false;
+        this.isFirstConnect = false;
         this.reconnectFailures++;
         await new Promise<void>((resolve) => {
           this.reconnectTimer = setTimeout(() => {
@@ -401,6 +411,10 @@ export class StackStatusBroadcastService {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    // Reset so a later start() gets a clean slate (no stuck reconnect, no reconnect-branch).
+    this.reconnecting = false;
+    this.reconnectFailures = 0;
+    this.isFirstConnect = true;
     this.cleanupListenerClient();
   }
 

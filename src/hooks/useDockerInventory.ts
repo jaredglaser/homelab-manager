@@ -1,12 +1,29 @@
 import { useCallback, useState } from 'react';
 import { apiUrl } from '@/lib/utils/api-url';
-import type { DockerContainerInventory, DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
+import type {
+  DockerContainerInventory,
+  DockerInventoryBroadcastEvent,
+  DockerInventoryUpdateContainer,
+} from '@/types/docker-inventory';
 import { useEventSource } from '@/hooks/useEventSource';
 
 export interface UseDockerInventoryResult {
   inventory: Map<string, DockerContainerInventory>;
   isConnected: boolean;
   error: Error | null;
+}
+
+/**
+ * Merge an upsert (labels-less) into the existing entry's labels (if present),
+ * or fall back to an empty label map for brand-new containers. An upsert for
+ * a container that exists in `init` preserves its labels; an upsert for one
+ * not yet seen leaves labels empty until the next init / snapshot fetch.
+ */
+function mergeUpsert(
+  prev: DockerContainerInventory | undefined,
+  update: DockerInventoryUpdateContainer,
+): DockerContainerInventory {
+  return { ...update, labels: prev?.labels ?? {} };
 }
 
 export function useDockerInventory(): UseDockerInventoryResult {
@@ -23,7 +40,8 @@ export function useDockerInventory(): UseDockerInventoryResult {
       const { container } = event;
       setInventory((prev) => {
         const next = new Map(prev);
-        next.set(`${container.host}/${container.containerId}`, container);
+        const key = `${container.host}/${container.containerId}`;
+        next.set(key, mergeUpsert(prev.get(key), container));
         return next;
       });
     } else if (event.type === 'destroy') {

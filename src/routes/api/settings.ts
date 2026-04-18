@@ -14,6 +14,7 @@ export const Route = createFileRoute('/api/settings')({
           return (cb) => settingsBroadcastService.subscribe(cb);
         },
         serialize: (message) => `data: ${JSON.stringify(message)}\n\n`,
+        errorEvent: 'settings_error',
       }),
     },
   },

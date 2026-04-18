@@ -62,8 +62,9 @@ export type DataTableProps<TRow> = {
   maxHeight?: number;
   /** Custom class name for each row based on its data */
   rowClassName?: (row: TRow) => string;
-  /** Custom HTML attributes for each row based on its data (e.g. data-* attributes) */
-  rowAttributes?: (row: TRow) => Record<string, string>;
+  /** Custom HTML attributes for each row based on its data. Restricted to `data-*` / `aria-*`
+   *  so callers cannot clobber load-bearing props like `className`, `onClick`, or `role`. */
+  rowAttributes?: (row: TRow) => Record<`data-${string}` | `aria-${string}`, string>;
   /** Toolbar actions rendered above the table */
   toolbarActions?: ReactNode;
 } & ExpansionControl;
@@ -379,7 +380,7 @@ interface DataTableRowProps<TRow> {
   row: Row<TRow>;
   gridTemplate: string;
   rowClassName?: (row: TRow) => string;
-  rowAttributes?: (row: TRow) => Record<string, string>;
+  rowAttributes?: (row: TRow) => Record<`data-${string}` | `aria-${string}`, string>;
   hasDetailPanel?: boolean;
 }
 

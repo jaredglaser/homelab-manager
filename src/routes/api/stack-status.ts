@@ -20,6 +20,7 @@ export const Route = createFileRoute('/api/stack-status')({
           }
           return `data: ${JSON.stringify(event.entries)}\n\n`;
         },
+        errorEvent: 'stack_status_error',
       }),
     },
   },

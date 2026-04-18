@@ -3,10 +3,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
 import type { DockerStatsRow } from '@/types/docker';
 
-// ── Module mocks (must appear before dynamic imports) ───────────────────────
 // Do NOT mock DataTable, columns, or other broadly-used shared modules —
 // they leak globally and break DataTable's own test file.
-
 mock.module('@/hooks/useSettings', () => ({
   useSettings: () => ({
     docker: {
@@ -38,7 +36,7 @@ mock.module('@/hooks/useContainerChartData', () => ({
   buildContainerChartData: () => ({ sparklineData: undefined, dataPoints: [] }),
 }));
 
-// Stub xterm (pulled in by ContainerDetailPanel → ContainerLogViewer)
+// xterm is pulled in by ContainerDetailPanel → ContainerLogViewer
 mock.module('@xterm/xterm', () => ({
   default: {
     Terminal: class {
@@ -65,7 +63,7 @@ mock.module('@/hooks/useContainerLogs', () => ({
   useContainerLogs: () => ({ isConnected: false, error: null }),
 }));
 
-// Stub the chart renderer (project-local, narrow scope) so echarts never loads
+// Stub the chart renderer so echarts never loads
 mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
   default: () => <div data-testid="echarts-mock" />,
 }));
@@ -82,11 +80,7 @@ mock.module('@/lib/utils/icon-resolver', () => ({
   findIconContaining: () => null,
 }));
 
-// ── Dynamic import after mocks ───────────────────────────────────────────────
-
 const { default: ContainerTable } = await import('../ContainerTable');
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 const baseDate = new Date('2024-01-01T00:00:00Z');
 
@@ -125,8 +119,6 @@ const defaultProps = {
   entityIcons: {} as Record<string, { iconSlug: string | null; serviceKeyEntity: string }>,
   onIconChange: async () => {},
 };
-
-// ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('ContainerTable', () => {
   it('renders error state when error and no data', () => {
@@ -183,7 +175,6 @@ describe('ContainerTable', () => {
       ['host1/c2', makeInventory('host1', 'c2', 'stopped-app', 'exited')],
     ]);
     render(<ContainerTable {...defaultProps} inventory={inventory} />);
-    // Both running and stopped containers should appear
     expect(screen.getByText('running-app')).toBeDefined();
     expect(screen.getByText('stopped-app')).toBeDefined();
   });
@@ -193,7 +184,6 @@ describe('ContainerTable', () => {
       ['host1/c1', makeInventory('host1', 'c1', 'old-app', 'exited')],
     ]);
     render(<ContainerTable {...defaultProps} inventory={inventory} />);
-    // The ContainerStateChip renders state text for non-running
     const chips = screen.getAllByTestId('container-state-chip');
     expect(chips.length).toBeGreaterThan(0);
     expect(chips[0].getAttribute('data-state')).toBe('exited');
@@ -205,7 +195,6 @@ describe('ContainerTable', () => {
       ['host1/c2', makeInventory('host1', 'c2', 'app2', 'exited')],
     ]);
     render(<ContainerTable {...defaultProps} inventory={inventory} />);
-    // Check the host aggregated count chip shows breakdown
     expect(screen.getByText('1 running · 1 stopped')).toBeDefined();
   });
 
@@ -231,12 +220,9 @@ describe('ContainerTable', () => {
       ['host1/c1', makeInventory('host1', 'c1', 'live-app', 'running')],
     ]);
     render(<ContainerTable {...defaultProps} inventory={inventory} />);
-    // No state chip for a running container — it shows pulse indicator instead
     const chips = screen.queryAllByTestId('container-state-chip');
     expect(chips.length).toBe(0);
   });
-
-  // ── Fix 2: Inventory loading guard ──────────────────────────────────────────
 
   it('shows spinner when stats connected but inventory not yet connected and empty', () => {
     render(
@@ -248,7 +234,6 @@ describe('ContainerTable', () => {
         inventory={new Map()}
       />,
     );
-    // Table should show loading spinner — not an empty table
     expect(document.querySelector('[role="progressbar"]')).toBeDefined();
   });
 
@@ -262,11 +247,8 @@ describe('ContainerTable', () => {
         inventory={new Map()}
       />,
     );
-    // Should NOT show spinner — both streams are ready
     expect(document.querySelector('[role="progressbar"]')).toBeNull();
   });
-
-  // ── Fix 3: Restarting containers show both pulse indicator AND state chip ───
 
   it('renders restarting container with state chip', () => {
     const inventory = new Map([
@@ -278,14 +260,11 @@ describe('ContainerTable', () => {
     expect(chips[0].getAttribute('data-state')).toBe('restarting');
   });
 
-  // ── Fix 4: Row styling and history button ───────────────────────────────────
-
   it('running-but-stale row receives stale variant', () => {
-    // rowAttributes is passed to DataTable — we verify via data-row-variant attribute.
+    // With no latestByEntity entry, isStale=true for a running container.
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'stale-app', 'running')],
     ]);
-    // No latestByEntity — stats absent means isStale=true for running container
     const { container } = render(
       <ContainerTable
         {...defaultProps}

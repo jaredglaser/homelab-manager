@@ -144,9 +144,8 @@ describe('ProxmoxStatusSummary', () => {
     expect(screen.getByText('nodes')).toBeDefined();
     expect(screen.getByText('VMs')).toBeDefined();
     expect(screen.getByText('LXCs')).toBeDefined();
-    // Multiple counts are rendered — use getAllByText for unambiguous assertions
-    const threes = screen.getAllByText('3');
-    expect(threes.length).toBeGreaterThan(0);
+    // Three segments -> exactly two middle-dot separators
+    expect(screen.getAllByText('·').length).toBe(2);
     expect(screen.getByText('1')).toBeDefined();
     expect(screen.getByText('8')).toBeDefined();
   });
@@ -166,7 +165,7 @@ describe('ProxmoxStatusSummary', () => {
       vms: [makeVM(100, 'pve1')],
     });
     render(<ProxmoxStatusSummary overview={overview} />);
-    const dots = screen.getAllByText('·');
-    expect(dots.length).toBeGreaterThan(0);
+    // Two segments -> exactly one middle-dot separator
+    expect(screen.getAllByText('·').length).toBe(1);
   });
 });

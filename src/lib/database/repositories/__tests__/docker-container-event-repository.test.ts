@@ -70,6 +70,7 @@ describe('DockerContainerEventRepository', () => {
       expect(result.containerId).toBe('abc123');
       expect(result.host).toBe('homeserver');
       expect(result.eventType).toBe('upsert');
+      if (result.eventType !== 'upsert') throw new Error('expected upsert row');
       expect(result.state).toBe('running');
       expect(result.composeProject).toBe('media');
       expect(result.serviceKey).toBe('media/plex');
@@ -90,8 +91,10 @@ describe('DockerContainerEventRepository', () => {
       const result = await repo.insert(destroyEvent);
 
       expect(result.eventType).toBe('destroy');
-      expect(result.state).toBeNull();
-      expect(result.composeProject).toBeNull();
+      // Destroy variant omits state/composeProject — enforced by the SQL CHECK constraint
+      // and the discriminated union type.
+      expect(Object.keys(result)).not.toContain('state');
+      expect(Object.keys(result)).not.toContain('composeProject');
     });
 
     it('destroy event sends null for all optional fields in the SQL params', async () => {
@@ -155,15 +158,33 @@ describe('DockerContainerEventRepository', () => {
       const rows = await repo.getCurrentSnapshot();
       expect(rows).toEqual([]);
     });
-  });
 
-  describe('row mapping', () => {
-    it('maps null nullable fields correctly', async () => {
-      const rowWithNulls = {
+    it('returns destroy row when it is the latest event for a container (caller filters)', async () => {
+      const latestDestroy = {
         ...dbRow,
+        at: new Date('2026-04-16T10:05:00Z'),
+        event_type: 'destroy',
         state: null,
         name: null,
         image: null,
+        labels: {},
+        compose_project: null,
+        service_key: null,
+        started_at: null,
+      };
+      mock.pushResult([latestDestroy]);
+
+      const rows = await repo.getCurrentSnapshot();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].eventType).toBe('destroy');
+      expect(rows[0].containerId).toBe('abc123');
+    });
+  });
+
+  describe('row mapping', () => {
+    it('maps null nullable fields correctly (upsert row with nullable metadata)', async () => {
+      const rowWithNulls = {
+        ...dbRow,
         compose_project: null,
         service_key: null,
         started_at: null,
@@ -177,9 +198,7 @@ describe('DockerContainerEventRepository', () => {
       mock.pushResult([rowWithNulls]);
       const rows = await repo.getCurrentSnapshot();
       const row = rows[0];
-      expect(row.state).toBeNull();
-      expect(row.name).toBeNull();
-      expect(row.image).toBeNull();
+      if (row.eventType !== 'upsert') throw new Error('expected upsert row');
       expect(row.composeProject).toBeNull();
       expect(row.serviceKey).toBeNull();
       expect(row.startedAt).toBeNull();
@@ -191,7 +210,9 @@ describe('DockerContainerEventRepository', () => {
     it('preserves exitCode integer', async () => {
       mock.pushResult([{ ...dbRow, state: 'exited', exit_code: 1, finished_at: new Date() }]);
       const rows = await repo.getCurrentSnapshot();
-      expect(rows[0].exitCode).toBe(1);
+      const row = rows[0];
+      if (row.eventType !== 'upsert') throw new Error('expected upsert row');
+      expect(row.exitCode).toBe(1);
     });
   });
 });

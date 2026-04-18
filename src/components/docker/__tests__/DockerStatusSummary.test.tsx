@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
+import DockerStatusSummary from '../DockerStatusSummary';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
 
 function makeContainer(overrides: Partial<DockerContainerInventory> & { host: string; containerId: string }): DockerContainerInventory {
@@ -18,9 +19,6 @@ function makeContainer(overrides: Partial<DockerContainerInventory> & { host: st
   };
 }
 
-// Lazily import to allow module resolution to settle
-const { default: DockerStatusSummary } = await import('../DockerStatusSummary');
-
 function renderSummary(inventory: Map<string, DockerContainerInventory>) {
   return render(<DockerStatusSummary inventory={inventory} />);
 }
@@ -34,9 +32,7 @@ describe('DockerStatusSummary', () => {
 
   it('always shows running segment even at zero', () => {
     renderSummary(new Map());
-    // "running" label must be present
     expect(screen.getByText('running')).toBeDefined();
-    // "stopped" should not appear when count is 0
     expect(screen.queryByText('stopped')).toBeNull();
   });
 

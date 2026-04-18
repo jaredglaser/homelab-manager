@@ -317,7 +317,7 @@ export default function ContainerTable({
   const renderContainerDetail = useCallback(
     (row: DockerTableRow) => {
       if (row.type !== 'container' || !row.dataPoints) return null;
-      const [host, containerId] = row.id.split('/');
+      const { host, containerId } = row.inventory;
       if (!host || !containerId) return null;
       return (
         <ContainerDetailPanel
@@ -346,7 +346,7 @@ export default function ContainerTable({
     return '';
   }, []);
 
-  const rowAttributes = useCallback((row: DockerTableRow): Record<string, string> => {
+  const rowAttributes = useCallback((row: DockerTableRow): Record<`data-${string}`, string> => {
     if (row.type === 'host') {
       return { 'data-row-variant': row.isStale ? 'stale' : 'host' };
     }
@@ -451,7 +451,7 @@ const ContainerSubTable = memo(function ContainerSubTable({
   columns: ColumnDef<DockerTableRow, unknown>[];
   renderDetailPanel: (row: DockerTableRow) => ReactNode;
   rowClassName: (row: DockerTableRow) => string;
-  rowAttributes: (row: DockerTableRow) => Record<string, string>;
+  rowAttributes: (row: DockerTableRow) => Record<`data-${string}` | `aria-${string}`, string>;
   isContainerExpanded: (id: string) => boolean;
   toggleContainerExpanded: (id: string) => void;
 }>) {
@@ -597,7 +597,7 @@ function ContainerNameCell({
 
   const handleHistoryClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const [host, containerId] = row.id.split('/');
+    const { host, containerId } = inventory;
     if (host && containerId && onOpenHistory) onOpenHistory(containerId, host);
   };
 

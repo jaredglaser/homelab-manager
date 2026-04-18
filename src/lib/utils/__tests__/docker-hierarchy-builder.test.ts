@@ -287,30 +287,25 @@ describe('buildDockerTableHierarchy', () => {
   });
 
   it('serviceKey dedup uses inv.serviceKey even when labels are empty (upsert event)', () => {
-    // Simulates a streaming upsert NOTIFY event: labels={} but serviceKey pre-computed by worker
     const fromInit = makeInventory('host1', 'c1', 'plex', {
       serviceKey: 'media/plex',
       labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
       startedAt: new Date('2024-01-01T00:00:00Z'),
     });
-    const fromUpsert = makeInventory('host1', 'c1', 'plex', {
+    const fromUpsert = makeInventory('host1', 'c2', 'plex', {
       serviceKey: 'media/plex',
-      labels: {}, // NOTIFY omits labels
-      startedAt: new Date('2024-01-01T00:00:00Z'),
+      labels: {},
+      startedAt: new Date('2024-01-02T00:00:00Z'),
     });
-    // Both should produce the same dedup key (media/plex), not fall back to name
-    const inventoryInit = new Map([['host1/c1', fromInit]]);
-    const inventoryUpsert = new Map([['host1/c1', fromUpsert]]);
+    const inventory = new Map([
+      ['host1/c1', fromInit],
+      ['host1/c2', fromUpsert],
+    ]);
 
-    const { hosts: hostsInit } = buildDockerTableHierarchy(inventoryInit, new Map());
-    const { hosts: hostsUpsert } = buildDockerTableHierarchy(inventoryUpsert, new Map());
+    const { hosts } = buildDockerTableHierarchy(inventory, new Map());
 
-    // Neither should produce duplicate rows
-    expect(hostsInit[0].children).toHaveLength(1);
-    expect(hostsUpsert[0].children).toHaveLength(1);
-    // The container is found under the same host in both cases
-    expect(hostsInit[0].children[0].id).toBe('host1/c1');
-    expect(hostsUpsert[0].children[0].id).toBe('host1/c1');
+    expect(hosts[0].children).toHaveLength(1);
+    expect(hosts[0].children[0].id).toBe('host1/c2');
   });
 
   it('serviceKey dedup with mixed states: keeps most recently started', () => {

@@ -9,6 +9,13 @@ export function sendSSE(
   try {
     controller.enqueue(encoder.encode(`data: ${data}\n\n`));
   } catch (err) {
-    if (!(err instanceof TypeError)) console.error('Unexpected error during SSE enqueue:', err);
+    if (err instanceof TypeError && /closed/i.test(err.message)) {
+      // Controller was closed between our check and enqueue. Mark closed so
+      // subsequent sends short-circuit without another enqueue attempt.
+      closed.value = true;
+      return;
+    }
+    if (err instanceof TypeError) throw err;
+    console.error('Unexpected error during SSE enqueue:', err);
   }
 }

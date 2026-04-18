@@ -24,30 +24,29 @@ export interface BroadcastSseHandlerOptions<Event> {
    * emit named SSE events when they need to.
    */
   serialize: (event: Event) => string;
+  /**
+   * Named SSE event emitted when `loadSubscribe()` rejects, so clients can
+   * surface the failure instead of silently stalling on an empty stream.
+   */
+  errorEvent: string;
+}
+
+function isCloseRelatedError(err: unknown): boolean {
+  return err instanceof TypeError && /closed/i.test(err.message);
 }
 
 export function createBroadcastSseHandler<Event>(
   options: BroadcastSseHandlerOptions<Event>,
 ) {
   return async ({ request }: { request: Request }): Promise<Response> => {
-    const subscribe = await options.loadSubscribe();
     const encoder = new TextEncoder();
     let closed = false;
 
     const stream = new ReadableStream({
-      start(controller) {
+      async start(controller) {
         controller.enqueue(encoder.encode(': ok\n\n'));
 
-        const sendEvent = (event: Event) => {
-          if (closed) return;
-          try {
-            controller.enqueue(encoder.encode(options.serialize(event)));
-          } catch {
-            teardown();
-          }
-        };
-
-        const unsubscribe = subscribe(sendEvent);
+        let unsubscribe: Unsubscribe = () => {};
 
         const teardown = () => {
           if (closed) return;
@@ -55,10 +54,45 @@ export function createBroadcastSseHandler<Event>(
           unsubscribe();
           try {
             controller.close();
-          } catch {
-            // Already closed
+          } catch {}
+        };
+
+        const sendEvent = (event: Event) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(options.serialize(event)));
+          } catch (err) {
+            if (!isCloseRelatedError(err)) {
+              console.error('Unexpected error during SSE enqueue:', err);
+            }
+            teardown();
           }
         };
+
+        let subscribe: (cb: (event: Event) => void) => Unsubscribe;
+        try {
+          subscribe = await options.loadSubscribe();
+        } catch (err) {
+          console.error(
+            `Failed to initialize SSE subscription for event "${options.errorEvent}":`,
+            err,
+          );
+          const message = err instanceof Error ? err.message : String(err);
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `event: ${options.errorEvent}\ndata: ${JSON.stringify({ message })}\n\n`,
+              ),
+            );
+          } catch {}
+          closed = true;
+          try {
+            controller.close();
+          } catch {}
+          return;
+        }
+
+        unsubscribe = subscribe(sendEvent);
 
         request.signal.addEventListener('abort', teardown);
       },

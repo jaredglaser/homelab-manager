@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { createBroadcastSseHandler } from '../create-broadcast-sse-handler';
 
 type Event = { n: number };
@@ -14,6 +14,7 @@ function setup(serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(
   const handler = createBroadcastSseHandler<Event>({
     loadSubscribe: async () => subscribe,
     serialize,
+    errorEvent: 'test_error',
   });
 
   return {
@@ -33,7 +34,28 @@ function readerOf(res: Response): ReadableStreamDefaultReader<Uint8Array> {
   return res.body.getReader();
 }
 
+async function readAll(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
+  const decoder = new TextDecoder();
+  let out = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    out += decoder.decode(value);
+  }
+  return out;
+}
+
 describe('createBroadcastSseHandler', () => {
+  let errorSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
   it('returns an SSE response with the standard headers', async () => {
     const { handler } = setup();
     const ac = new AbortController();
@@ -120,7 +142,71 @@ describe('createBroadcastSseHandler', () => {
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     expect(() => emit({ n: 2 })).not.toThrow();
+    expect(errorSpy).toHaveBeenCalled();
 
     reader.cancel();
+  });
+
+  it('emits the caller-provided error event when loadSubscribe rejects, then closes', async () => {
+    const handler = createBroadcastSseHandler<Event>({
+      loadSubscribe: async () => {
+        throw new Error('db offline');
+      },
+      serialize: (e) => `data: ${JSON.stringify(e)}\n\n`,
+      errorEvent: 'inventory_error',
+    });
+    const ac = new AbortController();
+
+    const res = await handler({ request: makeRequest(ac) });
+    const reader = readerOf(res);
+    const body = await readAll(reader);
+
+    expect(body).toContain(': ok\n\n');
+    expect(body).toContain('event: inventory_error\n');
+    expect(body).toContain('data: {"message":"db offline"}\n\n');
+    expect(errorSpy).toHaveBeenCalled();
+
+    ac.abort();
+  });
+
+  it('logs and tears down on unexpected (non-close) enqueue errors', async () => {
+    const unrelated = () => { throw new TypeError('something unrelated'); };
+    const { handler, emit, unsubscribe } = setup(unrelated);
+    const ac = new AbortController();
+
+    const res = await handler({ request: makeRequest(ac) });
+    const reader = readerOf(res);
+    await reader.read(); // heartbeat
+
+    emit({ n: 1 });
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      'Unexpected error during SSE enqueue:',
+      expect.any(TypeError),
+    );
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+
+    reader.cancel();
+    ac.abort();
+  });
+
+  it('silently swallows close-related TypeErrors from enqueue', async () => {
+    const closeTypeError = () => {
+      throw new TypeError('The stream is closed');
+    };
+    const { handler, emit, unsubscribe } = setup(closeTypeError);
+    const ac = new AbortController();
+
+    const res = await handler({ request: makeRequest(ac) });
+    const reader = readerOf(res);
+    await reader.read(); // heartbeat
+
+    emit({ n: 1 });
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+
+    reader.cancel();
+    ac.abort();
   });
 });

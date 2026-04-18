@@ -2,17 +2,24 @@ import type Dockerode from 'dockerode';
 import { subscribe as broadcasterSubscribe } from '../lib/docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../lib/docker-events-broadcaster';
 import { sendSSE } from '../lib/sse-utils';
-import type { AgentContainerEvent, ContainerState, InventoryContainer } from '../types/protocol';
+import type {
+  AgentContainerEvent,
+  ContainerState,
+  InventorySnapshotContainer,
+  InventoryUpdateContainer,
+} from '../types/protocol';
+
+const KNOWN_CONTAINER_STATES = new Set<string>([
+  'running', 'exited', 'paused', 'restarting', 'created', 'dead', 'removing',
+]);
 
 /** Normalize a Docker state string to our typed ContainerState. */
 function toContainerState(raw: string): ContainerState {
-  const known: ContainerState[] = [
-    'running', 'exited', 'paused', 'restarting', 'created', 'dead', 'removing',
-  ];
-  return (known as string[]).includes(raw) ? (raw as ContainerState) : 'unknown';
+  return KNOWN_CONTAINER_STATES.has(raw) ? (raw as ContainerState) : 'unknown';
 }
 
-function toInventoryContainer(c: MinimalContainerInfo): InventoryContainer {
+/** Snapshot shape: includes labels, emitted on `init`. */
+function toSnapshotContainer(c: MinimalContainerInfo): InventorySnapshotContainer {
   const rawName = c.Names?.[0] ?? c.Id;
   return {
     id: c.Id,
@@ -20,6 +27,24 @@ function toInventoryContainer(c: MinimalContainerInfo): InventoryContainer {
     image: c.Image,
     state: toContainerState(c.State),
     labels: c.Labels ?? {},
+    startedAt: c.StartedAt,
+    finishedAt: c.FinishedAt,
+    exitCode: c.ExitCode,
+  };
+}
+
+/**
+ * Update shape: labels intentionally omitted. The downstream NOTIFY trigger
+ * strips labels (8 kB cap), so making that explicit at the wire level keeps
+ * consumers honest about where label data is authoritative (the `init` path).
+ */
+function toUpdateContainer(c: MinimalContainerInfo): InventoryUpdateContainer {
+  const rawName = c.Names?.[0] ?? c.Id;
+  return {
+    id: c.Id,
+    name: rawName.replace(/^\//, ''),
+    image: c.Image,
+    state: toContainerState(c.State),
     startedAt: c.StartedAt,
     finishedAt: c.FinishedAt,
     exitCode: c.ExitCode,
@@ -55,23 +80,29 @@ export async function handleContainerEvents(docker: Dockerode, request: Request)
         unsubscribe?.();
         try {
           controller.close();
-        } catch {
-          // controller already closed
-        }
+        } catch {}
       });
 
-      unsubscribe = await broadcasterSubscribe(docker, (event: BroadcasterEvent) => {
+      if (request.signal.aborted) {
+        closed.value = true;
+        try {
+          controller.close();
+        } catch {}
+        return;
+      }
+
+      const sub = await broadcasterSubscribe(docker, (event: BroadcasterEvent) => {
         let message: AgentContainerEvent;
 
         if (event.op === 'init') {
           message = {
             op: 'init',
-            containers: event.containers.map(toInventoryContainer),
+            containers: event.containers.map(toSnapshotContainer),
           };
         } else if (event.op === 'upsert') {
           message = {
             op: 'upsert',
-            container: toInventoryContainer(event.container),
+            container: toUpdateContainer(event.container),
           };
         } else {
           message = { op: 'destroy', containerId: event.containerId };
@@ -79,6 +110,15 @@ export async function handleContainerEvents(docker: Dockerode, request: Request)
 
         sendSSE(controller, encoder, closed, JSON.stringify(message));
       });
+
+      // If abort fired while subscribe was pending, the abort handler saw a
+      // null unsubscribe. Tear down the late subscriber ourselves.
+      if (closed.value) {
+        sub();
+        return;
+      }
+
+      unsubscribe = sub;
     },
   });
 

@@ -169,7 +169,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/auth/verify` | Token verification |
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
-| GET | `/stacks/events` | SSE Docker lifecycle events grouped by compose stack |
+| GET | `/containers/events` | SSE container inventory stream |
 | POST | `/stacks/deploy` | Run `docker compose up -d` |
 | POST | `/stacks/teardown` | Run `docker compose down` |
 | POST | `/stacks/restart` | Run `docker compose restart` |

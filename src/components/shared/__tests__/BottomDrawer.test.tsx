@@ -16,7 +16,7 @@ describe('BottomDrawer', () => {
         <div data-testid="drawer-content">Hello</div>
       </BottomDrawer>,
     );
-    expect(screen.getByTestId('drawer-content')).toBeDefined();
+    expect(screen.getByTestId('drawer-content').textContent).toBe('Hello');
   });
 
   it('calls onClose when the backdrop is clicked', () => {

@@ -21,9 +21,15 @@ beforeEach(() => {
 
 afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = origGetBCR;
-  if (origDescriptors.clientHeight) Object.defineProperty(HTMLElement.prototype, 'clientHeight', origDescriptors.clientHeight);
-  if (origDescriptors.scrollHeight) Object.defineProperty(HTMLElement.prototype, 'scrollHeight', origDescriptors.scrollHeight);
-  if (origDescriptors.offsetHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', origDescriptors.offsetHeight);
+  for (const prop of ['clientHeight', 'scrollHeight', 'offsetHeight'] as const) {
+    const desc = origDescriptors[prop];
+    if (desc) {
+      Object.defineProperty(HTMLElement.prototype, prop, desc);
+    } else {
+      // Descriptor didn't exist originally — delete the test-installed getter so it doesn't leak to other tests.
+      delete (HTMLElement.prototype as unknown as Record<string, unknown>)[prop];
+    }
+  }
 });
 
 describe('IconGrid', () => {

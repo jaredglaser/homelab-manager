@@ -40,11 +40,14 @@ export default function ZFSStatusSummary({ latestByEntity }: Readonly<ZFSStatusS
     const hosts = new Set<string>();
 
     for (const row of latestByEntity.values()) {
-      hosts.add(row.host);
+      // Only count hosts that contribute to displayed segments (pools/disks).
+      // Intermediate 'vdev' rows shouldn't inflate the host count.
       if (row.entity_type === 'pool') {
         pools++;
+        hosts.add(row.host);
       } else if (row.entity_type === 'disk') {
         disks++;
+        hosts.add(row.host);
       }
     }
 

@@ -107,22 +107,34 @@ export async function createCollectorsForManagedHosts(
 
     const resolvedHost = { ...host, agent_url: resolveAgentUrl(host.agent_url) };
 
+    // Respect per-host capabilities declared in managed_hosts — skip collectors
+    // for capabilities the host didn't opt into, even if the global worker
+    // config enables them. Matches the capability check in
+    // createContainerInventoryCollectors below.
     if (workerConfig.docker.enabled) {
-      console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${resolvedHost.agent_url})`);
-      const dockerCollector = stack.use(
-        new AgentStatsCollector(db, workerConfig, resolvedHost, token, shutdownController)
-      );
-      collectors.push(dockerCollector);
-      runners.push(dockerCollector.run());
+      if (!host.capabilities?.docker) {
+        console.info(`[Worker] Skipping AgentStatsCollector for ${host.name}: Docker capability not enabled`);
+      } else {
+        console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${resolvedHost.agent_url})`);
+        const dockerCollector = stack.use(
+          new AgentStatsCollector(db, workerConfig, resolvedHost, token, shutdownController)
+        );
+        collectors.push(dockerCollector);
+        runners.push(dockerCollector.run());
+      }
     }
 
     if (workerConfig.zfs.enabled) {
-      console.info(`[Worker] Starting ZFSCollector for ${host.name} (${resolvedHost.agent_url})`);
-      const zfsCollector = stack.use(
-        new ZFSCollector(db, workerConfig, resolvedHost, token, shutdownController)
-      );
-      collectors.push(zfsCollector);
-      runners.push(zfsCollector.run());
+      if (!host.capabilities?.zfs) {
+        console.info(`[Worker] Skipping ZFSCollector for ${host.name}: ZFS capability not enabled`);
+      } else {
+        console.info(`[Worker] Starting ZFSCollector for ${host.name} (${resolvedHost.agent_url})`);
+        const zfsCollector = stack.use(
+          new ZFSCollector(db, workerConfig, resolvedHost, token, shutdownController)
+        );
+        collectors.push(zfsCollector);
+        runners.push(zfsCollector.run());
+      }
     }
   }
 

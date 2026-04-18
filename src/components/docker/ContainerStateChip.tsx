@@ -4,15 +4,10 @@ interface Props {
   state: ContainerState;
 }
 
-/**
- * A compact status-indicator dot showing the lifecycle state of a container.
- * Intentionally quiet — the dot conveys state at a glance without dominating the row.
- */
 export default function ContainerStateChip({ state }: Readonly<Props>) {
   return (
     <span
       className="inline-flex items-center gap-1.5 text-xs font-medium"
-      title={state}
       data-testid="container-state-chip"
       data-state={state}
     >

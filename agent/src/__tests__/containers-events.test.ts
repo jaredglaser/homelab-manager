@@ -28,13 +28,21 @@ async function readUntil(
   const decoder = new TextDecoder();
   try {
     while (true) {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`readUntil timed out after ${timeoutMs}ms`)), timeoutMs),
-      );
-      const { done, value } = await Promise.race([reader.read(), timeoutPromise]);
-      if (done) break;
-      text += decoder.decode(value, { stream: true });
-      if (predicate(text)) break;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`readUntil timed out after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      });
+      try {
+        const { done, value } = await Promise.race([reader.read(), timeoutPromise]);
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+        if (predicate(text)) break;
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+      }
     }
   } finally {
     reader.cancel();
@@ -409,6 +417,45 @@ describe('handleContainerEvents — request abort cleanup', () => {
       done = result.done;
     }
     expect(done).toBe(true);
+  });
+
+  test('already-aborted request does not register a broadcaster subscriber', async () => {
+    const docker = makeDocker([]);
+    const ac = new AbortController();
+    ac.abort();
+    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
+    const response = await handleContainerEvents(docker as any, request);
+
+    const reader = response.body!.getReader();
+    const result = await reader.read();
+    expect(result.done).toBe(true);
+    expect(docker.getEvents).not.toHaveBeenCalled();
+  });
+
+  test('abort during broadcasterSubscribe tears down the late-arriving subscriber', async () => {
+    // Slow listContainers so subscribe()'s await is in-flight when we abort.
+    const listHolder: { resolve: ((v: unknown[]) => void) | null } = { resolve: null };
+    const docker = {
+      listContainers: mock(() => new Promise<unknown[]>((resolve) => {
+        listHolder.resolve = resolve;
+      })),
+      getEvents: mock(() => Promise.resolve(new EventEmitter())),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.reject(Object.assign(new Error('n/a'), { statusCode: 404 }))),
+      })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
+    const response = await handleContainerEvents(docker as any, request);
+    const reader = response.body!.getReader();
+
+    await new Promise((r) => setTimeout(r, 10));
+    ac.abort();
+    listHolder.resolve?.([]);
+
+    const result = await reader.read();
+    expect(result.done).toBe(true);
   });
 });
 

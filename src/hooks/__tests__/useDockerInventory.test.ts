@@ -152,7 +152,6 @@ describe('useDockerInventory', () => {
           startedAt: null,
           finishedAt: null,
           exitCode: null,
-          labels: {},
           updatedAt: new Date(),
         },
       });
@@ -205,7 +204,6 @@ describe('useDockerInventory', () => {
           startedAt: null,
           finishedAt: new Date('2026-04-16T11:00:00Z'),
           exitCode: 0,
-          labels: {},
           updatedAt,
         },
       });

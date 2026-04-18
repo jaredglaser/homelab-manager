@@ -102,7 +102,11 @@ const state: BroadcasterState = {
 
 function broadcastToAll(event: BroadcasterEvent): void {
   for (const cb of state.subscribers) {
-    cb(event);
+    try {
+      cb(event);
+    } catch (err) {
+      console.error('[DockerEventsBroadcaster] Subscriber callback threw:', err);
+    }
   }
 }
 
@@ -202,7 +206,6 @@ function scheduleReconnect(docker: Dockerode): void {
 }
 
 async function startEventsSubscription(docker: Dockerode, isReconnect = false): Promise<void> {
-  if (state.reconnecting && !state.reconnectTimer) return;
   state.reconnecting = true;
 
   try {
@@ -284,12 +287,17 @@ export async function subscribe(
   docker: Dockerode,
   callback: (event: BroadcasterEvent) => void,
 ): Promise<() => void> {
-  // Populate the in-memory map if this is the first subscriber.
-  // Preserve any entries already set by concurrent events that arrived during listContainers.
-  if (state.subscribers.size === 0) {
+  // Register synchronously before any await so concurrent subscribe() calls
+  // see a non-zero size and skip the bootstrap.
+  const isFirst = state.subscribers.size === 0;
+  state.subscribers.add(callback);
+  state.docker = docker;
+
+  if (isFirst) {
     try {
       const allContainers = await listAndEnrichContainers(docker);
       for (const c of allContainers) {
+        // Preserve entries set by events that arrived during listContainers.
         if (!state.containers.has(c.Id)) {
           state.containers.set(c.Id, c);
         }
@@ -299,10 +307,6 @@ export async function subscribe(
     }
   }
 
-  state.subscribers.add(callback);
-  state.docker = docker;
-
-  // Send the current snapshot to this subscriber immediately.
   callback({ op: 'init', containers: [...state.containers.values()] });
 
   // Start the shared Docker events stream if not already running.

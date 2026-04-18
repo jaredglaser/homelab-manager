@@ -96,6 +96,13 @@ export default function IconGrid({
     overscan: 8,
   });
 
+  // When the filtered list changes the virtualizer may still be scrolled to an
+  // index that no longer has rows, leaving the user staring at an empty viewport.
+  // Reset the scroll position so the first match is always visible.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [filteredIcons]);
+
   return (
     <div
       ref={scrollRef}

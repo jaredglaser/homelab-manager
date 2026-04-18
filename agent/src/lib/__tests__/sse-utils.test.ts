@@ -1,10 +1,14 @@
-import { describe, expect, test, mock, beforeAll, afterAll } from 'bun:test';
+import { describe, expect, test, mock, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { sendSSE } from '../sse-utils';
 
 const originalConsoleError = console.error;
 
 beforeAll(() => {
   console.error = mock(() => {});
+});
+
+beforeEach(() => {
+  (console.error as ReturnType<typeof mock>).mockClear();
 });
 
 afterAll(() => {
@@ -69,6 +73,14 @@ describe('sendSSE', () => {
     );
   });
 
+  test('sets closed.value to true when enqueue fails with close-matching TypeError', () => {
+    const { controller, makeEnqueueThrow } = makeController();
+    makeEnqueueThrow(new TypeError('Controller is closed'));
+    const closed = { value: false };
+    sendSSE(controller, makeEncoder(), closed, 'hello');
+    expect(closed.value).toBe(true);
+  });
+
   test('logs unexpected non-TypeError errors', () => {
     const { controller, makeEnqueueThrow } = makeController();
     const err = new Error('something weird');
@@ -78,5 +90,14 @@ describe('sendSSE', () => {
       'Unexpected error during SSE enqueue:',
       err,
     );
+  });
+
+  test('propagates non-close TypeError (genuine bug)', () => {
+    const { controller, makeEnqueueThrow } = makeController();
+    const err = new TypeError('argument must be a string');
+    makeEnqueueThrow(err);
+    expect(() => {
+      sendSSE(controller, makeEncoder(), { value: false }, 'hello');
+    }).toThrow(err);
   });
 });

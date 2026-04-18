@@ -23,14 +23,14 @@ export type NewContainerEvent =
       eventType: 'destroy';
     };
 
-export interface DockerContainerEventRow {
+export interface DockerContainerEventUpsertRow {
   at: Date;
   host: string;
   containerId: string;
-  eventType: 'upsert' | 'destroy';
-  state: ContainerState | null;
-  name: string | null;
-  image: string | null;
+  eventType: 'upsert';
+  state: ContainerState;
+  name: string;
+  image: string;
   labels: Record<string, string>;
   composeProject: string | null;
   serviceKey: string | null;
@@ -39,15 +39,33 @@ export interface DockerContainerEventRow {
   exitCode: number | null;
 }
 
+export interface DockerContainerEventDestroyRow {
+  at: Date;
+  host: string;
+  containerId: string;
+  eventType: 'destroy';
+}
+
+export type DockerContainerEventRow = DockerContainerEventUpsertRow | DockerContainerEventDestroyRow;
+
 function rowToEventRow(row: Record<string, unknown>): DockerContainerEventRow {
-  return {
+  const eventType = row.event_type as 'upsert' | 'destroy';
+  const base = {
     at: row.at as Date,
     host: row.host as string,
     containerId: row.container_id as string,
-    eventType: row.event_type as 'upsert' | 'destroy',
-    state: (row.state as ContainerState | null) ?? null,
-    name: (row.name as string | null) ?? null,
-    image: (row.image as string | null) ?? null,
+  };
+
+  if (eventType === 'destroy') {
+    return { ...base, eventType };
+  }
+
+  return {
+    ...base,
+    eventType,
+    state: row.state as ContainerState,
+    name: row.name as string,
+    image: row.image as string,
     labels: (row.labels as Record<string, string>) ?? {},
     composeProject: (row.compose_project as string | null) ?? null,
     serviceKey: (row.service_key as string | null) ?? null,

@@ -18,7 +18,7 @@ const BASE_BACKOFF_MS = 500;
 export abstract class BaseCollector implements AsyncDisposable {
   protected readonly repository: StatsRepository;
   protected readonly abortController: AbortController;
-  protected readonly signal: AbortSignal;
+  readonly signal: AbortSignal;
 
   private consecutiveErrors = 0;
   private _dockerDebugLogging = false;

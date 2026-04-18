@@ -104,7 +104,7 @@ Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (a
 
 - **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. MUI theme in `src/theme.ts` uses `cssVariables` mode. Custom backgrounds: `chartBg`, `level1-3`, `popup`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
 - **Settings**: Jotai atoms synced via SSE (`/api/settings`). `useSettings()` provides optimistic setters. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
-- **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL, token, and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `StackStatusCollector`, `ContainerInventoryCollector`) — it never connects to Docker directly. The agent token is stored in OpenBao (`OPENBAO_URL`/`OPENBAO_TOKEN`) or a permissioned file, not in .env.
+- **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL, token, and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `ContainerInventoryCollector`) — it never connects to Docker directly. The agent token is stored in OpenBao (`OPENBAO_URL`/`OPENBAO_TOKEN`) or a permissioned file, not in .env.
 - **Demo mode**: `VITE_DEMO_MODE=true` swaps server functions via Vite aliases and patches `EventSource`. Zero changes to routes/hooks/components. Mock entities defined in `src/lib/mock/entities.ts`.
 - **Worker**: Collectors extend `BaseCollector` (AsyncDisposable, exponential backoff). Entry point uses `AsyncDisposableStack` for cleanup.
 - **Entity IDs**: Docker=`host/container_id`, ZFS=`host/pool/vdev/disk` (hierarchy via indent: 0=pool, 2=vdev, 4+=disk), Proxmox=varies by type.
@@ -123,7 +123,7 @@ Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/g
 
 ### Database Tables
 
-Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`. Plus `entity_metadata` (icons/labels), `settings` (KV with NOTIFY trigger), `managed_hosts` (Docker hosts with agent connection details), and `deploy_history` (deploy records with status tracking). Schema details in `migrations/`.
+Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`, `docker_container_events` (append-only state-change log; current snapshot via `DISTINCT ON (host, container_id) ORDER BY at DESC`, broadcast via `NOTIFY docker_container_change`). Plus `entity_metadata` (icons/labels), `settings` (KV with NOTIFY trigger), `managed_hosts` (Docker hosts with agent connection details), and `deploy_history` (deploy records with status tracking). Schema details in `migrations/`.
 
 ## Gotchas
 

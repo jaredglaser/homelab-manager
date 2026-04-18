@@ -14,6 +14,7 @@ export const Route = createFileRoute('/api/docker-inventory')({
           return (cb) => dockerInventoryBroadcastService.subscribe(cb);
         },
         serialize: (event) => `data: ${JSON.stringify(event)}\n\n`,
+        errorEvent: 'inventory_error',
       }),
     },
   },

@@ -106,7 +106,7 @@ Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular hom
 
 ### Docker Monitoring
 
-Docker monitoring works through agent sidecars. Deploy the agent container on each host you want to monitor, then register the host in **Settings → Managed Hosts** with the `docker` capability enabled. The worker subscribes to the agent's SSE streams for stats, container inventory, and stack events — no direct Docker socket access is required on the dashboard host.
+Docker monitoring works through agent sidecars. Deploy the agent container on each host you want to monitor, then register the host in **Settings → Managed Hosts** with the `docker` capability enabled. The worker subscribes to the agent's SSE streams for stats and container inventory — no direct Docker socket access is required on the dashboard host.
 
 > **Setup:** See the [Docker Stack Management](#docker-stack-management) section below for the agent deploy flow. The same agent serves both monitoring and deploy operations.
 

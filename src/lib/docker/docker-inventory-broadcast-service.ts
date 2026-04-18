@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import type { DockerContainerInventory, DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
-import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
+import { zDockerInventoryBroadcastEvent } from '@/types/docker-inventory';
+import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 
 type InventoryBroadcastCallback = (event: DockerInventoryBroadcastEvent) => void;
 
@@ -11,13 +12,13 @@ function backoffDelay(failures: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** failures, BACKOFF_CAP_MS);
 }
 
-export function rowToInventory(row: DockerContainerEventRow): DockerContainerInventory {
+export function rowToInventory(row: DockerContainerEventUpsertRow): DockerContainerInventory {
   return {
     host: row.host,
     containerId: row.containerId,
-    name: row.name ?? '',
-    image: row.image ?? '',
-    state: row.state ?? 'unknown',
+    name: row.name,
+    image: row.image,
+    state: row.state,
     composeProject: row.composeProject,
     serviceKey: row.serviceKey ?? '',
     startedAt: row.startedAt,
@@ -86,7 +87,7 @@ async function defaultLoadSnapshot(): Promise<DockerContainerInventory[]> {
   const repo = new DockerContainerEventRepository(client.getPool());
   const rows = await repo.getCurrentSnapshot();
   return rows
-    .filter((row) => row.eventType !== 'destroy')
+    .filter((row): row is DockerContainerEventUpsertRow => row.eventType === 'upsert')
     .map(rowToInventory);
 }
 
@@ -101,6 +102,11 @@ export interface DockerInventoryBroadcastServiceDeps {
  * Listens on PostgreSQL NOTIFY channel 'docker_container_change'. On subscribe,
  * sends an init snapshot from the DB. On each NOTIFY, forwards the event directly
  * without a round-trip DB read — the NOTIFY payload carries the full event minus labels.
+ *
+ * Ordering: LISTEN is issued before sendInit is called, so no NOTIFYs are lost
+ * while the snapshot loads. However, a NOTIFY that fires during snapshot load
+ * can be fanned out to subscribers before the init event — subscribers must be
+ * tolerant of receiving an upsert for a container already present in the init.
  *
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.
  */
@@ -162,16 +168,24 @@ export class DockerInventoryBroadcastService {
           return;
         }
 
-        this.listenerClient = poolClient;
+        // Bind handlers to this specific client so a stale handler firing after
+        // the client has been replaced cannot mutate shared state for the new one.
+        const currentClient = poolClient;
+        this.listenerClient = currentClient;
 
-        this.listenerClient.on('notification', (msg) => {
+        currentClient.on('notification', (msg) => {
+          if (this.listenerClient !== currentClient) return;
           if (msg.channel === 'docker_container_change') {
             this.handleNotify(msg.payload);
           }
         });
 
-        this.listenerClient.on('error', (err) => {
+        currentClient.on('error', (err) => {
           console.error('[DockerInventoryBroadcastService] Listener client error:', err);
+          if (this.listenerClient !== currentClient) {
+            // Stale handler for a replaced client — do not touch shared state.
+            return;
+          }
           this.cleanupListenerClient();
           if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
             this.reconnecting = true;
@@ -194,7 +208,7 @@ export class DockerInventoryBroadcastService {
           }
         });
 
-        await this.listenerClient.query('LISTEN docker_container_change');
+        await currentClient.query('LISTEN docker_container_change');
         this.reconnectFailures = 0; // Reset backoff on successful connect
         return;
       } catch (error) {
@@ -224,26 +238,36 @@ export class DockerInventoryBroadcastService {
 
     try {
       const eventType = parsed.event_type as string;
+      let candidate: DockerInventoryBroadcastEvent | null = null;
 
       if (eventType === 'upsert') {
         const container = notifyPayloadToInventory(parsed);
-        for (const cb of this.subscribers) {
-          try {
-            cb({ type: 'upsert', container });
-          } catch (err) {
-            console.error('[DockerInventoryBroadcastService] Subscriber callback failed:', err);
-          }
-        }
+        candidate = { type: 'upsert', container };
       } else if (eventType === 'destroy') {
         const host = parsed.host as string;
         const containerId = parsed.container_id as string;
         const at = new Date(parsed.at as string);
-        for (const cb of this.subscribers) {
-          try {
-            cb({ type: 'destroy', host, containerId, at });
-          } catch (err) {
-            console.error('[DockerInventoryBroadcastService] Subscriber callback failed:', err);
-          }
+        candidate = { type: 'destroy', host, containerId, at };
+      } else {
+        // Unknown event_type — drop silently; NOTIFY channel is tightly scoped.
+        return;
+      }
+
+      // Validate before fan-out: a malformed payload must never reach subscribers.
+      const result = zDockerInventoryBroadcastEvent.safeParse(candidate);
+      if (!result.success) {
+        console.error(
+          '[DockerInventoryBroadcastService] NOTIFY payload failed schema validation, dropping:',
+          result.error.issues,
+        );
+        return;
+      }
+
+      for (const cb of this.subscribers) {
+        try {
+          cb(result.data);
+        } catch (err) {
+          console.error('[DockerInventoryBroadcastService] Subscriber callback failed:', err);
         }
       }
     } catch (err) {
@@ -269,6 +293,9 @@ export class DockerInventoryBroadcastService {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    // Reset so a later start() gets a clean slate (no stuck reconnect).
+    this.reconnecting = false;
+    this.reconnectFailures = 0;
     this.cleanupListenerClient();
   }
 

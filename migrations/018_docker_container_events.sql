@@ -11,10 +11,24 @@ CREATE TABLE docker_container_events (
   service_key TEXT,
   started_at TIMESTAMPTZ,
   finished_at TIMESTAMPTZ,
-  exit_code INTEGER
+  exit_code INTEGER,
+  CONSTRAINT docker_container_events_event_type_valid CHECK (event_type IN ('upsert', 'destroy')),
+  CONSTRAINT docker_container_events_fields_match_type CHECK (
+    (event_type = 'destroy' AND state IS NULL AND name IS NULL AND image IS NULL)
+    OR
+    (event_type = 'upsert' AND state IS NOT NULL AND name IS NOT NULL AND image IS NOT NULL)
+  )
 );
 
 SELECT create_hypertable('docker_container_events', 'at');
+
+ALTER TABLE docker_container_events SET (
+  timescaledb.compress,
+  timescaledb.compress_segmentby = 'host, container_id',
+  timescaledb.compress_orderby = 'at DESC'
+);
+
+SELECT add_compression_policy('docker_container_events', INTERVAL '7 days', if_not_exists => TRUE);
 
 CREATE INDEX docker_container_events_latest
   ON docker_container_events (host, container_id, at DESC);

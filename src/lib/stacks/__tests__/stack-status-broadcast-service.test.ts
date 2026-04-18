@@ -4,10 +4,6 @@ import type { StackBroadcastEvent } from '../stack-status-broadcast-service';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
 import type { PoolClient } from 'pg';
 
-// ---------------------------------------------------------------------------
-// Mock pool client
-// ---------------------------------------------------------------------------
-
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
 
@@ -54,10 +50,6 @@ function createMockPoolClient(): MockPoolClient {
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
-
-// ---------------------------------------------------------------------------
-// Sample data
-// ---------------------------------------------------------------------------
 
 const composeContainer1: DockerContainerInventory = {
   host: 'server1',
@@ -120,10 +112,6 @@ const otherStackContainer: DockerContainerInventory = {
   updatedAt: new Date('2026-04-16T08:00:00Z'),
 };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe('StackStatusBroadcastService', () => {
   let poolClient: MockPoolClient;
   let loadSnapshotFn: ReturnType<typeof mock>;
@@ -142,10 +130,6 @@ describe('StackStatusBroadcastService', () => {
   afterEach(async () => {
     await service.stop();
   });
-
-  // -------------------------------------------------------------------------
-  // Init on subscribe
-  // -------------------------------------------------------------------------
 
   it('sends init with only compose rows grouped by (host, stack)', async () => {
     const received: StackBroadcastEvent[] = [];
@@ -231,10 +215,6 @@ describe('StackStatusBroadcastService', () => {
     await slowService.stop();
   });
 
-  // -------------------------------------------------------------------------
-  // LISTEN channels
-  // -------------------------------------------------------------------------
-
   it('issues LISTEN for both docker_container_change and deploy_change', async () => {
     service.subscribe(() => {});
     await flush();
@@ -242,10 +222,6 @@ describe('StackStatusBroadcastService', () => {
     expect(poolClient.issuedQueries).toContain('LISTEN docker_container_change');
     expect(poolClient.issuedQueries).toContain('LISTEN deploy_change');
   });
-
-  // -------------------------------------------------------------------------
-  // docker_container_change → upsert with compose_project
-  // -------------------------------------------------------------------------
 
   it('broadcasts stack status update when compose container upserted', async () => {
     const received: StackBroadcastEvent[] = [];
@@ -269,7 +245,6 @@ describe('StackStatusBroadcastService', () => {
 
     poolClient.emit('notification', { channel: 'docker_container_change', payload: notifyPayload });
 
-    // init + the stack update
     expect(received.length).toBeGreaterThanOrEqual(2);
     const statusEvent = received.find((e, i) => i > 0 && e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }> | undefined;
     expect(statusEvent).toBeDefined();
@@ -279,10 +254,6 @@ describe('StackStatusBroadcastService', () => {
       expect(statusEvent.entries[0].containers[0].status).toBe('exited');
     }
   });
-
-  // -------------------------------------------------------------------------
-  // docker_container_change → upsert with null compose_project (ignored)
-  // -------------------------------------------------------------------------
 
   it('ignores upsert of non-compose container (null compose_project)', async () => {
     const received: StackBroadcastEvent[] = [];
@@ -309,13 +280,8 @@ describe('StackStatusBroadcastService', () => {
       }),
     });
 
-    // No additional broadcast for non-compose container
     expect(received.length).toBe(countBefore);
   });
-
-  // -------------------------------------------------------------------------
-  // docker_container_change → destroy
-  // -------------------------------------------------------------------------
 
   it('broadcasts updated stack snapshot with container removed on destroy', async () => {
     service = new StackStatusBroadcastService({
@@ -327,7 +293,6 @@ describe('StackStatusBroadcastService', () => {
     service.subscribe((e) => received.push(e));
     await flush();
 
-    // Destroy composeContainer1
     poolClient.emit('notification', {
       channel: 'docker_container_change',
       payload: JSON.stringify({
@@ -347,10 +312,8 @@ describe('StackStatusBroadcastService', () => {
     });
 
     const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
-    // Should have received an update
     const lastStatus = statusEvents[statusEvents.length - 1];
     expect(lastStatus).toBeDefined();
-    // Only sonarr (def456) should remain
     expect(lastStatus.entries[0].containers).toHaveLength(1);
     expect(lastStatus.entries[0].containers[0].id).toBe('def456');
   });
@@ -360,7 +323,6 @@ describe('StackStatusBroadcastService', () => {
     service.subscribe((e) => received.push(e));
     await flush();
 
-    // Destroy the only container in the 'media' stack
     poolClient.emit('notification', {
       channel: 'docker_container_change',
       payload: JSON.stringify({
@@ -384,10 +346,6 @@ describe('StackStatusBroadcastService', () => {
     expect(lastStatus).toBeDefined();
     expect(lastStatus.entries[0].containers).toHaveLength(0);
   });
-
-  // -------------------------------------------------------------------------
-  // deploy_change → deploy_changed forwarded
-  // -------------------------------------------------------------------------
 
   it('forwards deploy_change NOTIFY as deploy_changed event', async () => {
     const received: StackBroadcastEvent[] = [];
@@ -425,10 +383,6 @@ describe('StackStatusBroadcastService', () => {
     consoleSpy.mockRestore();
   });
 
-  // -------------------------------------------------------------------------
-  // Malformed docker_container_change payload is swallowed
-  // -------------------------------------------------------------------------
-
   it('swallows malformed docker_container_change payload without crashing', async () => {
     const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
@@ -446,10 +400,6 @@ describe('StackStatusBroadcastService', () => {
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
-
-  // -------------------------------------------------------------------------
-  // Auto-start / auto-stop
-  // -------------------------------------------------------------------------
 
   it('auto-starts on first subscriber and auto-stops on last unsubscribe', async () => {
     const unsub = service.subscribe(() => {});
@@ -471,10 +421,6 @@ describe('StackStatusBroadcastService', () => {
     unsub2();
     expect(poolClient.released).toBe(true);
   });
-
-  // -------------------------------------------------------------------------
-  // Reconnect
-  // -------------------------------------------------------------------------
 
   it('schedules reconnect when listener client emits error', async () => {
     const setTimeoutSpy = spyOn(globalThis, 'setTimeout');
@@ -515,10 +461,6 @@ describe('StackStatusBroadcastService', () => {
     await reconnectService.stop();
   });
 
-  // -------------------------------------------------------------------------
-  // Notifications on unrelated channels are ignored
-  // -------------------------------------------------------------------------
-
   it('ignores notifications on unrecognized channels', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
@@ -532,10 +474,6 @@ describe('StackStatusBroadcastService', () => {
 
     expect(received.length).toBe(countBefore);
   });
-
-  // -------------------------------------------------------------------------
-  // Multiple subscribers receive the same event
-  // -------------------------------------------------------------------------
 
   it('broadcasts to multiple subscribers independently', async () => {
     const received1: StackBroadcastEvent[] = [];
@@ -554,10 +492,6 @@ describe('StackStatusBroadcastService', () => {
     expect(received2.filter((e) => e.type === 'deploy_changed')).toHaveLength(1);
   });
 
-  // -------------------------------------------------------------------------
-  // updated_at is the max across the group
-  // -------------------------------------------------------------------------
-
   it('sets updated_at to the most recent container updatedAt in the group', async () => {
     service = new StackStatusBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
@@ -574,10 +508,6 @@ describe('StackStatusBroadcastService', () => {
       expect(init.entries[0].updated_at).toBe('2026-04-16T10:01:00.000Z');
     }
   });
-
-  // -------------------------------------------------------------------------
-  // StackStatusRow shape
-  // -------------------------------------------------------------------------
 
   it('produces StackStatusRow with correct container fields', async () => {
     const received: StackBroadcastEvent[] = [];
@@ -604,16 +534,11 @@ describe('StackStatusBroadcastService', () => {
     expect(init.entries[0].updated_at).toBe('2026-04-16T10:00:00.000Z');
   });
 
-  // -------------------------------------------------------------------------
-  // Fix 4: empty-stack destroy uses event's at timestamp
-  // -------------------------------------------------------------------------
-
   it('broadcasts empty-stack destroy with event at timestamp as ISO string', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
     await flush();
 
-    // Destroy the only container in the 'media' stack
     poolClient.emit('notification', {
       channel: 'docker_container_change',
       payload: JSON.stringify({
@@ -639,12 +564,7 @@ describe('StackStatusBroadcastService', () => {
     expect(lastStatus.entries[0].updated_at).toBe('2026-04-16T12:34:56.000Z');
   });
 
-  // -------------------------------------------------------------------------
-  // Fix 1: destroy with null compose_project still removes from stackContainers
-  // -------------------------------------------------------------------------
-
   it('destroy NOTIFY with null compose_project removes container from stack and broadcasts', async () => {
-    // Start with one compose container in the 'media' stack
     service = new StackStatusBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
       loadSnapshot: async () => [composeContainer1],
@@ -654,7 +574,8 @@ describe('StackStatusBroadcastService', () => {
     service.subscribe((e) => received.push(e));
     await flush();
 
-    // Destroy arrives with labels: {} (null compose_project) — real Docker destroy events
+    // Real Docker destroy events carry labels: {} so compose_project is null
+    // — removal must still find the container via its in-memory stack entry.
     poolClient.emit('notification', {
       channel: 'docker_container_change',
       payload: JSON.stringify({
@@ -665,7 +586,7 @@ describe('StackStatusBroadcastService', () => {
         state: null,
         name: null,
         image: null,
-        compose_project: null, // destroy events have no compose label
+        compose_project: null,
         service_key: null,
         started_at: null,
         finished_at: null,
@@ -674,17 +595,158 @@ describe('StackStatusBroadcastService', () => {
     });
 
     const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
-    // Should have received an update after the destroy
     expect(statusEvents.length).toBeGreaterThanOrEqual(2);
     const lastStatus = statusEvents[statusEvents.length - 1];
     expect(lastStatus).toBeDefined();
-    // Container should be gone
     expect(lastStatus.entries[0].containers).toHaveLength(0);
   });
 
-  // -------------------------------------------------------------------------
-  // Fix 10: stopListening cancels pending reconnect timer
-  // -------------------------------------------------------------------------
+  it('rebuilds in-memory state from fresh snapshot on reconnect, discarding pre-reconnect containers', async () => {
+    // Iterate the reconnect-path startListening: 1st getPoolClient succeeds,
+    // 2nd transiently fails (flips isFirstConnect = false), 3rd succeeds so
+    // loadSnapshot + rebuildFromSnapshot fires.
+    const firstClient = createMockPoolClient();
+    const secondClient = createMockPoolClient();
+    let connectCount = 0;
+    let snapshotCallCount = 0;
+
+    const containerX: DockerContainerInventory = {
+      host: 'server1',
+      containerId: 'containerIdX',
+      name: 'plex',
+      image: 'plexinc/pms-docker:latest',
+      state: 'running',
+      composeProject: 'media',
+      serviceKey: 'media/plex',
+      startedAt: new Date('2026-04-16T10:00:00Z'),
+      finishedAt: null,
+      exitCode: null,
+      labels: { 'com.docker.compose.project': 'media' },
+      updatedAt: new Date('2026-04-16T10:00:00Z'),
+    };
+    const containerY: DockerContainerInventory = {
+      host: 'server1',
+      containerId: 'containerIdY',
+      name: 'sonarr',
+      image: 'linuxserver/sonarr:latest',
+      state: 'running',
+      composeProject: 'media',
+      serviceKey: 'media/sonarr',
+      startedAt: new Date('2026-04-16T11:00:00Z'),
+      finishedAt: null,
+      exitCode: null,
+      labels: { 'com.docker.compose.project': 'media' },
+      updatedAt: new Date('2026-04-16T11:00:00Z'),
+    };
+
+    const reconnectService = new StackStatusBroadcastService({
+      getPoolClient: async () => {
+        connectCount++;
+        if (connectCount === 1) return firstClient as unknown as PoolClient;
+        if (connectCount === 2) throw new Error('transient getPoolClient failure');
+        return secondClient as unknown as PoolClient;
+      },
+      loadSnapshot: async () => {
+        snapshotCallCount++;
+        return snapshotCallCount === 1 ? [containerX] : [containerY];
+      },
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    reconnectService.subscribe((e) => received.push(e));
+    await flush();
+
+    expect(received.length).toBeGreaterThanOrEqual(1);
+    const initStatus = received[0] as Extract<StackBroadcastEvent, { type: 'status' }>;
+    expect(initStatus.type).toBe('status');
+    expect(initStatus.entries[0].containers.map((c) => c.id)).toEqual(['containerIdX']);
+
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler) => {
+        if (typeof fn === 'function') fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout,
+    );
+
+    try {
+      firstClient.emit('error', new Error('connection lost'));
+      for (let i = 0; i < 20; i++) await flush();
+
+      expect(connectCount).toBeGreaterThanOrEqual(3);
+      expect(snapshotCallCount).toBeGreaterThanOrEqual(2);
+
+      received.length = 0;
+      secondClient.emit('notification', {
+        channel: 'docker_container_change',
+        payload: JSON.stringify({
+          at: '2026-04-16T12:00:00Z',
+          host: 'server1',
+          container_id: 'containerIdY',
+          event_type: 'upsert',
+          state: 'running',
+          name: 'sonarr',
+          image: 'linuxserver/sonarr:latest',
+          compose_project: 'media',
+          service_key: 'media/sonarr',
+          started_at: '2026-04-16T11:00:00Z',
+          finished_at: null,
+          exit_code: null,
+        }),
+      });
+
+      const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+      expect(statusEvents).toHaveLength(1);
+      const stackEntry = statusEvents[0].entries[0];
+      const ids = stackEntry.containers.map((c) => c.id);
+      expect(ids).toContain('containerIdY');
+      expect(ids).not.toContain('containerIdX');
+    } finally {
+      setTimeoutSpy.mockRestore();
+      await reconnectService.stop();
+    }
+  });
+
+  it('continues broadcasting to other subscribers when one subscriber throws', async () => {
+    const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    const received2: StackBroadcastEvent[] = [];
+    service.subscribe(() => {
+      throw new Error('subscriber 1 is broken');
+    });
+    service.subscribe((e) => received2.push(e));
+    await flush();
+
+    received2.length = 0;
+
+    service.subscribe(() => {});
+    await flush();
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'exited',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        compose_project: 'media',
+        service_key: 'media/plex',
+        started_at: null,
+        finished_at: '2026-04-16T11:00:00Z',
+        exit_code: 0,
+      }),
+    });
+
+    const statusEvents = received2.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    expect(statusEvents.length).toBeGreaterThanOrEqual(1);
+    expect(statusEvents[0].entries[0].stack).toBe('media');
+
+    expect(consoleSpy).toHaveBeenCalled();
+
+    consoleSpy.mockRestore();
+  });
 
   it('stopListening cancels pending reconnect timer on stop', async () => {
     const capturedTimers: Array<() => void> = [];
@@ -694,7 +756,6 @@ describe('StackStatusBroadcastService', () => {
     service.subscribe(() => {});
     await flush();
 
-    // Intercept setTimeout to capture reconnect timer
     (globalThis as any).setTimeout = (fn: () => void) => {
       capturedTimers.push(fn);
       timerSet = true;
@@ -705,15 +766,12 @@ describe('StackStatusBroadcastService', () => {
       poolClient.emit('error', new Error('connection reset'));
       expect(timerSet).toBe(true);
 
-      // stop() should cancel the timer — no reconnect fires
       await service.stop();
 
-      // Fire captured timers — should be no-ops since stopped
+      // Captured timers should be no-ops — stop() cleared them in stopListening.
       for (const fn of capturedTimers) {
         fn();
       }
-      // Service is stopped, no reconnect should have been initiated
-      // (the timer was cleared in stopListening)
     } finally {
       globalThis.setTimeout = originalSetTimeout;
     }

@@ -178,7 +178,7 @@ export default memo(function DualSeriesChart({
   const windowMs = docker.chartWindowSeconds * 1000;
   const chrome = resolveChartChromeColors();
   const option = getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome);
-  const chartRef = useRef<ReactECharts>(null);
+  const chartRef = useRef<ReactECharts | null>(null);
 
   useEChartTimeScroll(chartRef, windowMs);
 

@@ -19,6 +19,7 @@ afterAll(() => {
 
 beforeEach(() => {
   _resetBroadcasterForTesting();
+  (console.error as ReturnType<typeof mock>).mockClear();
 });
 
 function makeContainer(
@@ -650,6 +651,48 @@ describe('subscribe — error handling', () => {
     await new Promise((r) => setTimeout(r, 30));
     unsub();
 
+    expect(console.error).toHaveBeenCalled();
+  });
+});
+
+describe('broadcastToAll — subscriber isolation', () => {
+  test('a throwing subscriber does not prevent delivery to other subscribers', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app1')];
+    const docker = makeDocker(containers, eventsEmitter);
+
+    const received1: BroadcasterEvent[] = [];
+    const received2: BroadcasterEvent[] = [];
+    // Skip 'init' in assertions/throws: init is delivered directly by subscribe(),
+    // not via broadcastToAll — throwing there would fail subscribe() itself.
+    const throwingCallback = (e: BroadcasterEvent) => {
+      if (e.op !== 'init') throw new Error('subscriber1 threw');
+    };
+    const recordingCallback1 = (e: BroadcasterEvent) => {
+      if (e.op !== 'init') received1.push(e);
+    };
+
+    const unsubA = await subscribe(docker as any, recordingCallback1);
+    const unsubB = await subscribe(docker as any, throwingCallback);
+    const unsubC = await subscribe(docker as any, (e) => {
+      if (e.op !== 'init') received2.push(e);
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    eventsEmitter.emit('data', Buffer.from(JSON.stringify({
+      Type: 'container',
+      Action: 'destroy',
+      Actor: { ID: 'c1' },
+    }) + '\n'));
+
+    await new Promise((r) => setTimeout(r, 30));
+    unsubA();
+    unsubB();
+    unsubC();
+
+    expect(received1.some((e) => e.op === 'destroy')).toBe(true);
+    expect(received2.some((e) => e.op === 'destroy')).toBe(true);
     expect(console.error).toHaveBeenCalled();
   });
 });

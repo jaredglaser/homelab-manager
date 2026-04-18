@@ -4,10 +4,6 @@ import type { DockerContainerInventory, DockerInventoryBroadcastEvent } from '@/
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
 import type { PoolClient } from 'pg';
 
-// ---------------------------------------------------------------------------
-// Mock pool client
-// ---------------------------------------------------------------------------
-
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
 
@@ -51,17 +47,9 @@ function createMockPoolClient(): MockPoolClient {
   return client;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: flush all microtasks and pending promises
-// ---------------------------------------------------------------------------
-
 function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
-
-// ---------------------------------------------------------------------------
-// Sample data
-// ---------------------------------------------------------------------------
 
 const container1: DockerContainerInventory = {
   host: 'server1',
@@ -93,10 +81,6 @@ const container2: DockerContainerInventory = {
   updatedAt: new Date('2026-04-16T09:00:00Z'),
 };
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 describe('DockerInventoryBroadcastService', () => {
   let poolClient: MockPoolClient;
   let loadSnapshotFn: ReturnType<typeof mock>;
@@ -115,10 +99,6 @@ describe('DockerInventoryBroadcastService', () => {
   afterEach(async () => {
     await service.stop();
   });
-
-  // -------------------------------------------------------------------------
-  // Init on subscribe
-  // -------------------------------------------------------------------------
 
   it('sends init payload with containers on subscribe', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
@@ -148,19 +128,13 @@ describe('DockerInventoryBroadcastService', () => {
     resolveSnapshot([container1]);
     await flush();
 
-    // Subscriber was removed before snapshot arrived — must not call it
     expect(received).toHaveLength(0);
 
     await slowService.stop();
   });
 
-  // -------------------------------------------------------------------------
-  // Init filters out destroy events
-  // -------------------------------------------------------------------------
-
   it('excludes destroyed containers from the init snapshot', async () => {
     loadSnapshotFn = mock(async () => [container1]);
-    // loadSnapshot itself already filters; this confirms the service passes through
     service = new DockerInventoryBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
       loadSnapshot: loadSnapshotFn as () => Promise<DockerContainerInventory[]>,
@@ -177,19 +151,11 @@ describe('DockerInventoryBroadcastService', () => {
     }
   });
 
-  // -------------------------------------------------------------------------
-  // LISTEN is issued
-  // -------------------------------------------------------------------------
-
   it('issues LISTEN docker_container_change on subscribe', async () => {
     service.subscribe(() => {});
     await flush();
     expect(poolClient.querySql).toBe('LISTEN docker_container_change');
   });
-
-  // -------------------------------------------------------------------------
-  // NOTIFY → upsert
-  // -------------------------------------------------------------------------
 
   it('broadcasts upsert event from NOTIFY payload', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
@@ -219,11 +185,11 @@ describe('DockerInventoryBroadcastService', () => {
     if (upsertEvent.type === 'upsert') {
       expect(upsertEvent.container.containerId).toBe('abc123');
       expect(upsertEvent.container.state).toBe('running');
-      expect(upsertEvent.container.labels).toEqual({});
+      expect('labels' in upsertEvent.container).toBe(false);
     }
   });
 
-  it('upsert events have empty labels (NOTIFY payload omits labels)', async () => {
+  it('upsert events omit labels (NOTIFY payload omits labels)', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
     await flush();
@@ -249,13 +215,9 @@ describe('DockerInventoryBroadcastService', () => {
     const upsertEvent = received.find((e) => e.type === 'upsert');
     expect(upsertEvent).toBeDefined();
     if (upsertEvent?.type === 'upsert') {
-      expect(upsertEvent.container.labels).toEqual({});
+      expect('labels' in upsertEvent.container).toBe(false);
     }
   });
-
-  // -------------------------------------------------------------------------
-  // NOTIFY → destroy
-  // -------------------------------------------------------------------------
 
   it('broadcasts destroy event from NOTIFY payload', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
@@ -289,10 +251,6 @@ describe('DockerInventoryBroadcastService', () => {
     }
   });
 
-  // -------------------------------------------------------------------------
-  // Malformed payload is swallowed
-  // -------------------------------------------------------------------------
-
   it('swallows malformed NOTIFY payloads without crashing', async () => {
     const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
@@ -305,16 +263,11 @@ describe('DockerInventoryBroadcastService', () => {
       payload: 'not-valid-json{{{',
     });
 
-    // Should not throw — only init message received
     expect(received).toHaveLength(1);
     expect(consoleSpy).toHaveBeenCalled();
 
     consoleSpy.mockRestore();
   });
-
-  // -------------------------------------------------------------------------
-  // Auto-stop on last unsubscribe
-  // -------------------------------------------------------------------------
 
   it('stops listening when last subscriber unsubscribes', async () => {
     const unsub = service.subscribe(() => {});
@@ -337,10 +290,6 @@ describe('DockerInventoryBroadcastService', () => {
     expect(poolClient.released).toBe(true);
   });
 
-  // -------------------------------------------------------------------------
-  // Reconnect on listener client error
-  // -------------------------------------------------------------------------
-
   it('schedules reconnect when listener client emits error', async () => {
     const setTimeoutSpy = spyOn(globalThis, 'setTimeout');
 
@@ -354,7 +303,7 @@ describe('DockerInventoryBroadcastService', () => {
   });
 
   it('executes reconnect callback and restarts listening after client error', async () => {
-    // Use immediate setTimeout so the reconnect callback fires synchronously
+    // Fire setTimeout synchronously so the reconnect callback runs in-test.
     const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
       ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout
     );
@@ -375,7 +324,6 @@ describe('DockerInventoryBroadcastService', () => {
     poolClient.emit('error', new Error('transient error'));
     await flush();
 
-    // After immediate timeout + flush, should have attempted reconnect
     expect(connectCount).toBeGreaterThanOrEqual(2);
 
     setTimeoutSpy.mockRestore();
@@ -412,9 +360,56 @@ describe('DockerInventoryBroadcastService', () => {
     expect(received2.filter((e) => e.type === 'upsert')).toHaveLength(1);
   });
 
-  // -------------------------------------------------------------------------
-  // Notifications on wrong channel are ignored
-  // -------------------------------------------------------------------------
+  it('resets reconnect backoff to base delay after a successful reconnect', async () => {
+    const client1 = poolClient;
+    const client2 = createMockPoolClient();
+    const client3 = createMockPoolClient();
+    let connectCount = 0;
+
+    const resetService = new DockerInventoryBroadcastService({
+      getPoolClient: async () => {
+        connectCount++;
+        if (connectCount === 1) return client1 as unknown as PoolClient;
+        if (connectCount === 2) return client2 as unknown as PoolClient;
+        return client3 as unknown as PoolClient;
+      },
+      loadSnapshot: async () => [],
+    });
+
+    resetService.subscribe(() => {});
+    await flush();
+
+    const capturedDelays: number[] = [];
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler, delay?: number) => {
+        capturedDelays.push(delay ?? 0);
+        if (typeof fn === 'function') fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout,
+    );
+
+    try {
+      client1.emit('error', new Error('first disconnect'));
+      await flush();
+      await flush();
+
+      const firstCycleBackoffs = capturedDelays.filter((d) => d >= 500);
+      expect(firstCycleBackoffs[0]).toBe(500);
+      expect(connectCount).toBeGreaterThanOrEqual(2);
+
+      // If backoff weren't reset after the successful reconnect, the next
+      // delay would be 1000ms (500 * 2) rather than the base 500ms.
+      capturedDelays.length = 0;
+      client2.emit('error', new Error('second disconnect'));
+      await flush();
+
+      const secondCycleBackoffs = capturedDelays.filter((d) => d >= 500);
+      expect(secondCycleBackoffs[0]).toBe(500);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      await resetService.stop();
+    }
+  });
 
   it('ignores notifications on other channels', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
@@ -428,10 +423,6 @@ describe('DockerInventoryBroadcastService', () => {
 
     expect(received).toHaveLength(1); // only init
   });
-
-  // -------------------------------------------------------------------------
-  // Sample multi-container snapshot
-  // -------------------------------------------------------------------------
 
   it('sends all snapshot containers in init when multiple exist', async () => {
     service = new DockerInventoryBroadcastService({
@@ -450,10 +441,6 @@ describe('DockerInventoryBroadcastService', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Converter unit tests
-// ---------------------------------------------------------------------------
-
 describe('rowToInventory', () => {
   const baseRow: DockerContainerEventRow = {
     at: new Date('2026-04-16T10:00:00Z'),
@@ -471,8 +458,13 @@ describe('rowToInventory', () => {
     exitCode: null,
   };
 
+  function asUpsert(row: DockerContainerEventRow) {
+    if (row.eventType !== 'upsert') throw new Error('expected upsert row');
+    return row;
+  }
+
   it('maps all fields from a full row', () => {
-    const result = rowToInventory(baseRow);
+    const result = rowToInventory(asUpsert(baseRow));
     expect(result.host).toBe('server1');
     expect(result.containerId).toBe('abc123');
     expect(result.name).toBe('plex');
@@ -487,20 +479,15 @@ describe('rowToInventory', () => {
     expect(result.updatedAt).toEqual(new Date('2026-04-16T10:00:00Z'));
   });
 
-  it('defaults null nullable string fields to empty string', () => {
-    const result = rowToInventory({ ...baseRow, name: null, image: null, serviceKey: null });
-    expect(result.name).toBe('');
-    expect(result.image).toBe('');
+  it('defaults null serviceKey to empty string', () => {
+    const result = rowToInventory(asUpsert({ ...baseRow, serviceKey: null }));
     expect(result.serviceKey).toBe('');
   });
 
-  it('defaults null state to "unknown"', () => {
-    const result = rowToInventory({ ...baseRow, state: null });
-    expect(result.state).toBe('unknown');
-  });
-
   it('defaults null labels to empty object', () => {
-    const result = rowToInventory({ ...baseRow, labels: null as unknown as Record<string, string> });
+    const result = rowToInventory(
+      asUpsert({ ...baseRow, labels: null as unknown as Record<string, string> }),
+    );
     expect(result.labels).toEqual({});
   });
 });
@@ -571,10 +558,6 @@ describe('notifyPayloadToInventory', () => {
     expect(result.exitCode).toBe(1);
   });
 
-  // -------------------------------------------------------------------------
-  // Fix 7: required field validation
-  // -------------------------------------------------------------------------
-
   it('throws when host is missing', () => {
     const { host: _host, ...withoutHost } = basePayload;
     void _host;
@@ -600,7 +583,7 @@ describe('notifyPayloadToInventory', () => {
   });
 });
 
-describe('DockerInventoryBroadcastService — malformed NOTIFY does not crash (Fix 7)', () => {
+describe('DockerInventoryBroadcastService — malformed NOTIFY does not crash', () => {
   it('logs and continues when NOTIFY upsert payload is missing required fields', async () => {
     const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
     const poolClient = createMockPoolClient();
@@ -615,7 +598,6 @@ describe('DockerInventoryBroadcastService — malformed NOTIFY does not crash (F
     const flush = () => new Promise<void>((r) => setTimeout(r, 0));
     await flush();
 
-    // Emit a NOTIFY with missing host field
     poolClient.emit('notification', {
       channel: 'docker_container_change',
       payload: JSON.stringify({
@@ -627,9 +609,7 @@ describe('DockerInventoryBroadcastService — malformed NOTIFY does not crash (F
       }),
     });
 
-    // Should not crash — error logged, service continues
     expect(consoleSpy).toHaveBeenCalled();
-    // Only the init was received, the malformed upsert was dropped
     expect(received.filter((e) => e.type === 'upsert')).toHaveLength(0);
 
     consoleSpy.mockRestore();
@@ -637,3 +617,102 @@ describe('DockerInventoryBroadcastService — malformed NOTIFY does not crash (F
   });
 });
 
+describe('zDockerInventoryBroadcastEvent', () => {
+  it('parses a valid upsert frame', async () => {
+    const { zDockerInventoryBroadcastEvent } = await import('@/types/docker-inventory');
+    const frame = {
+      type: 'upsert',
+      container: {
+        host: 'server1',
+        containerId: 'abc123',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        state: 'running',
+        composeProject: 'media',
+        serviceKey: 'media/plex',
+        startedAt: new Date('2026-04-16T10:00:00Z'),
+        finishedAt: null,
+        exitCode: null,
+        updatedAt: new Date('2026-04-16T11:00:00Z'),
+      },
+    };
+    const result = zDockerInventoryBroadcastEvent.safeParse(frame);
+    expect(result.success).toBe(true);
+    // Upsert shape omits labels; zod strips them if present.
+    if (result.success && result.data.type === 'upsert') {
+      expect('labels' in result.data.container).toBe(false);
+    }
+  });
+
+  it('rejects a snapshot container missing the required labels field', async () => {
+    const { zDockerInventoryBroadcastEvent } = await import('@/types/docker-inventory');
+    const frame = {
+      type: 'init',
+      containers: [
+        {
+          host: 'server1',
+          containerId: 'abc123',
+          name: 'plex',
+          image: 'plexinc/pms-docker:latest',
+          state: 'running',
+          composeProject: null,
+          serviceKey: '',
+          startedAt: null,
+          finishedAt: null,
+          exitCode: null,
+          updatedAt: new Date(),
+          // labels intentionally missing — snapshot requires it
+        },
+      ],
+    };
+    const result = zDockerInventoryBroadcastEvent.safeParse(frame);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path.includes('labels'))).toBe(true);
+    }
+  });
+});
+
+describe('DockerInventoryBroadcastService — zod validation at NOTIFY boundary', () => {
+  it('drops malformed NOTIFY frames before fanning out to subscribers', async () => {
+    const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const poolClient = createMockPoolClient();
+
+    const service = new DockerInventoryBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [],
+    });
+
+    const received: DockerInventoryBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    const flushLocal = () => new Promise<void>((r) => setTimeout(r, 0));
+    await flushLocal();
+
+    // NOTIFY payload with event_type 'upsert' but an invalid state value —
+    // notifyPayloadToInventory builds an object, then zod rejects it.
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'bogus-state',
+        name: 'plex',
+        image: 'img',
+        compose_project: null,
+        service_key: '',
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+      }),
+    });
+
+    // Service should not crash and should not deliver the malformed frame.
+    expect(received.filter((e) => e.type === 'upsert')).toHaveLength(0);
+    expect(consoleSpy).toHaveBeenCalled();
+
+    consoleSpy.mockRestore();
+    await service.stop();
+  });
+});
