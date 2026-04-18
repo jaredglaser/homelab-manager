@@ -372,6 +372,108 @@ describe('subscribe — stream reconnect', () => {
     expect(console.error).toHaveBeenCalled();
   });
 
+  test('reconnects after stream end with scheduled timer', async () => {
+    const eventsEmitter = new EventEmitter();
+    const docker = makeDocker([], eventsEmitter);
+
+    const unsub = await subscribe(docker as any, () => {});
+    await new Promise((r) => setTimeout(r, 20));
+
+    eventsEmitter.emit('end');
+    await new Promise((r) => setTimeout(r, 20));
+
+    unsub();
+
+    expect(docker.getEvents).toHaveBeenCalled();
+  });
+
+  test('clears reconnecting state on stream end when no subscribers remain', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const eventsEmitter = new EventEmitter();
+    const docker = makeDocker([], eventsEmitter);
+
+    const unsub = await subscribe(docker as any, () => {});
+    await new Promise((r) => originalSetTimeout(r, 20));
+
+    unsub();
+    eventsEmitter.emit('end');
+    await new Promise((r) => originalSetTimeout(r, 20));
+
+    const docker2 = makeDocker([], new EventEmitter());
+    const unsub2 = await subscribe(docker2 as any, () => {});
+    await new Promise((r) => originalSetTimeout(r, 20));
+    unsub2();
+
+    expect(docker2.getEvents).toHaveBeenCalled();
+  });
+
+  test('handles getEvents rejection by scheduling reconnect', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const timerCallbacks: Array<() => void> = [];
+    (globalThis as any).setTimeout = (cb: () => void, _delay: number) => {
+      timerCallbacks.push(cb);
+      return 0;
+    };
+
+    try {
+      const docker = {
+        listContainers: mock(() => Promise.resolve([])),
+        getEvents: mock(() => Promise.reject(new Error('getEvents boom'))),
+        getContainer: mock(() => ({ inspect: mock(() => Promise.reject(new Error('n/a'))) })),
+      };
+
+      const unsub = await subscribe(docker as any, () => {});
+      await new Promise((r) => originalSetTimeout(r, 10));
+
+      expect(console.error).toHaveBeenCalled();
+      expect(timerCallbacks.length).toBeGreaterThan(0);
+
+      unsub();
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
+
+  test('logs and continues when listAndEnrichContainers fails during reconnect', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const timerCallbacks: Array<() => void> = [];
+
+    const eventsEmitter = new EventEmitter();
+    let listCalls = 0;
+    const docker = {
+      listContainers: mock(() => {
+        listCalls++;
+        if (listCalls === 1) return Promise.resolve([]);
+        return Promise.reject(new Error('list failed on reconnect'));
+      }),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({ inspect: mock(() => Promise.reject(new Error('n/a'))) })),
+    };
+
+    const unsub = await subscribe(docker as any, () => {});
+    await new Promise((r) => originalSetTimeout(r, 20));
+
+    (globalThis as any).setTimeout = (cb: () => void, _delay: number) => {
+      timerCallbacks.push(cb);
+      return 0;
+    };
+
+    try {
+      eventsEmitter.emit('error', new Error('disconnect'));
+      await new Promise((r) => originalSetTimeout(r, 10));
+
+      for (const cb of timerCallbacks) {
+        await (cb as () => Promise<void> | void)();
+      }
+      await new Promise((r) => originalSetTimeout(r, 20));
+
+      expect(console.error).toHaveBeenCalled();
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      unsub();
+    }
+  });
+
   test('does not reconnect when last subscriber unsubscribes before timer fires', async () => {
     const originalSetTimeout = globalThis.setTimeout;
     const timerCallbacks: Array<() => void> = [];
