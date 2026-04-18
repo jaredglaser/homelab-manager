@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { buildDockerTableHierarchy, rowToDockerStats, computeServiceKey } from '../docker-hierarchy-builder';
+import { buildDockerTableHierarchy, rowToDockerStats, computeServiceKey, totalContainers } from '../docker-hierarchy-builder';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
 
@@ -222,7 +222,7 @@ describe('buildDockerTableHierarchy', () => {
     const stats = new Map([['host1/c1', makeStats('host1', 'c1', 'r')]]);
     const { hosts } = buildDockerTableHierarchy(inventory, stats);
     const agg = hosts[0].aggregated;
-    expect(agg.containerCount).toBe(6);
+    expect(totalContainers(agg)).toBe(6);
     expect(agg.runningCount).toBe(1);
     expect(agg.stoppedCount).toBe(2); // exited + dead
     expect(agg.restartingCount).toBe(1);

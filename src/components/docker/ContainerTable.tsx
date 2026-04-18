@@ -18,7 +18,7 @@ import type {
   HostAggregatedStats,
 } from '@/types/docker';
 import type { DockerContainerInventory } from '@/types/docker-inventory';
-import { buildDockerTableHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
+import { buildDockerTableHierarchy, rowToDockerStats, totalContainers } from '@/lib/utils/docker-hierarchy-builder';
 import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
@@ -537,7 +537,7 @@ const HostNameCell = memo(function HostNameCell({
  * Shows a breakdown when containers are in mixed states.
  */
 function buildCountLabel(a: HostAggregatedStats): string {
-  const total = a.containerCount;
+  const total = totalContainers(a);
   const nonRunning = total - a.runningCount;
 
   if (nonRunning === 0) {

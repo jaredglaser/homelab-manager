@@ -96,6 +96,11 @@ export function bucketContainerState(
   }
 }
 
+/** Total container count derived from bucket counts — no separate field to drift. */
+export function totalContainers(agg: HostAggregatedStats): number {
+  return agg.runningCount + agg.stoppedCount + agg.restartingCount + agg.pausedCount + agg.otherCount;
+}
+
 /** State sort priority for container rows (lower = shown first) */
 const STATE_SORT_ORDER: Record<string, number> = {
   running: 0,
@@ -199,7 +204,6 @@ function computeHostAggregates(containers: DockerContainerTableRow[]): HostAggre
     networkTxBytesPerSec,
     blockIoReadBytesPerSec,
     blockIoWriteBytesPerSec,
-    containerCount: containers.length,
     runningCount,
     stoppedCount,
     restartingCount,
@@ -289,7 +293,7 @@ export function buildDockerTableHierarchy(
     const isStale =
       aggregated.staleContainerCount === aggregated.runningCount &&
       aggregated.runningCount > 0 &&
-      aggregated.containerCount > 0;
+      totalContainers(aggregated) > 0;
 
     return {
       type: 'host',

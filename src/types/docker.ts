@@ -91,7 +91,6 @@ export interface HostAggregatedStats {
   blockIoWriteBytesPerSec: number;
 
   /** Count fields: include all containers regardless of state */
-  containerCount: number;
   runningCount: number;
   stoppedCount: number;        // exited + dead
   restartingCount: number;
