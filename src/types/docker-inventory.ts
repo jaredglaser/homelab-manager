@@ -5,41 +5,9 @@
  * web broadcast service → `/api/docker-inventory` SSE → `useDockerInventory()` hook.
  */
 
-/** Canonical container state vocabulary exposed across the pipeline. */
-export type ContainerState =
-  | 'running'
-  | 'exited'
-  | 'paused'
-  | 'restarting'
-  | 'created'
-  | 'dead'
-  | 'removing'
-  | 'unknown';
+import type { ContainerState } from '@homelab-manager/agent/types/protocol';
 
-/**
- * Raw container snapshot emitted by the agent's `/containers/events` SSE endpoint.
- * Values come straight from Dockerode. Worker normalizes these into
- * `DockerContainerEventRow` writes plus `DockerContainerInventory` broadcasts.
- */
-export interface InventoryContainer {
-  id: string;
-  name: string;
-  image: string;
-  state: ContainerState;
-  labels: Record<string, string>;
-  /** ISO timestamp, null when not yet started. */
-  startedAt: string | null;
-  /** ISO timestamp, null when still running. */
-  finishedAt: string | null;
-  /** Present for `exited`/`dead`; null otherwise. */
-  exitCode: number | null;
-}
-
-/** Event shapes emitted by the agent's `/containers/events` SSE stream. */
-export type AgentContainerEvent =
-  | { op: 'init'; containers: InventoryContainer[] }
-  | { op: 'upsert'; container: InventoryContainer }
-  | { op: 'destroy'; containerId: string };
+export type { ContainerState, InventoryContainer, AgentContainerEvent } from '@homelab-manager/agent/types/protocol';
 
 /**
  * Current-state view of one container, derived from the latest event in

@@ -2,35 +2,7 @@ import type Dockerode from 'dockerode';
 import { subscribe as broadcasterSubscribe } from '../lib/docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../lib/docker-events-broadcaster';
 import { sendSSE } from '../lib/sse-utils';
-
-export type ContainerState =
-  | 'running'
-  | 'exited'
-  | 'paused'
-  | 'restarting'
-  | 'created'
-  | 'dead'
-  | 'removing'
-  | 'unknown';
-
-export interface InventoryContainer {
-  id: string;
-  name: string;
-  image: string;
-  state: ContainerState;
-  labels: Record<string, string>;
-  /** ISO timestamp; null when the container has not yet started. */
-  startedAt: string | null;
-  /** ISO timestamp; null when the container is still running. */
-  finishedAt: string | null;
-  /** Only meaningful when state is 'exited' or 'dead'. */
-  exitCode: number | null;
-}
-
-export type ContainerEventMessage =
-  | { op: 'init'; containers: InventoryContainer[] }
-  | { op: 'upsert'; container: InventoryContainer }
-  | { op: 'destroy'; containerId: string };
+import type { AgentContainerEvent, ContainerState, InventoryContainer } from '../types/protocol';
 
 /** Normalize a Docker state string to our typed ContainerState. */
 function toContainerState(raw: string): ContainerState {
@@ -96,7 +68,7 @@ export async function handleContainerEvents(docker: Dockerode, request: Request)
       });
 
       unsubscribe = await broadcasterSubscribe(docker, (event: BroadcasterEvent) => {
-        let message: ContainerEventMessage;
+        let message: AgentContainerEvent;
 
         if (event.op === 'init') {
           message = {
