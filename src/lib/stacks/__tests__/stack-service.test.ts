@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, mock } from 'bun:test';
 import {
   extractVariableNames,
   toStackDeployRecord,
@@ -9,8 +9,6 @@ import {
 import type { DeployDeps } from '@/lib/stacks/stack-mappers';
 import type { DeployRecord } from '@/lib/deploy/types';
 import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
-import { teardownAndAwaitWithDeps } from '@/lib/stacks/teardown-poller';
-import type { TeardownDeps } from '@/lib/stacks/teardown-poller';
 
 describe('extractVariableNames', () => {
   test('extracts simple variable references', () => {
@@ -60,6 +58,7 @@ describe('toStackDeployRecord', () => {
     forceRecreate: false,
     logs: 'deploy ok',
     createdAt: new Date('2026-03-01T12:00:00Z'),
+    postSuccess: null,
   };
 
   test('converts Date to ISO string', () => {
@@ -240,94 +239,39 @@ describe('SAFE_PATH_SEGMENT_PATTERN (createStackInRepo validation)', () => {
 
 
 
-type PollRecord = { status: string; logs?: string | null };
-
-function makeDeps(
-  getByIdImpl: () => Promise<PollRecord | null>,
-  overrides?: Partial<TeardownDeps>
-): TeardownDeps {
-  return {
-    deployRepo: { getById: mock(getByIdImpl) },
-    triggerDeploy: mock(() => Promise.resolve({ deployId: 99 })),
-    ...overrides,
-  };
-}
-
-describe('teardownAndAwaitWithDeps', () => {
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
-
-  beforeEach(() => {
-    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler) => {
-        if (typeof fn === 'function') fn();
-        return 0;
-      }) as unknown as typeof setTimeout
-    );
-  });
-
-  afterEach(() => {
-    setTimeoutSpy.mockRestore();
-  });
-
-  test('success path: resolves when getById eventually returns succeeded', async () => {
-    let calls = 0;
-    const deps = makeDeps(() => {
-      calls++;
-      return Promise.resolve(calls === 1 ? { status: 'pending' } : { status: 'succeeded' });
+describe('resolveDeleteStack', () => {
+  test('teardown branch: calls triggerDeploy with postSuccess=removeFromManifest and returns teardown-pending', async () => {
+    const { resolveDeleteStack } = await import('../delete-stack-resolver');
+    const triggerDeploy = mock().mockResolvedValue({ deployId: 123 });
+    const commitRemove = mock();
+    const result = await resolveDeleteStack('plex', 'homeserver', true, {
+      triggerDeploy: triggerDeploy as unknown as (
+        params: { stack: string; host: string; action: 'teardown'; postSuccess: 'removeFromManifest' },
+      ) => Promise<{ deployId: number }>,
+      commitRemoveFromManifest: commitRemove as unknown as (stack: string) => Promise<{ commitSha: string }>,
     });
-
-    await teardownAndAwaitWithDeps('mystack', 'myhost', deps);
-    expect(deps.triggerDeploy).toHaveBeenCalledWith({ stack: 'mystack', host: 'myhost', action: 'teardown' });
-    expect(calls).toBe(2);
+    expect(triggerDeploy).toHaveBeenCalledWith({
+      stack: 'plex',
+      host: 'homeserver',
+      action: 'teardown',
+      postSuccess: 'removeFromManifest',
+    });
+    expect(commitRemove).not.toHaveBeenCalled();
+    expect(result).toEqual({ status: 'teardown-pending', deployId: 123 });
   });
 
-  test('success path: resolves immediately when first record is succeeded', async () => {
-    const deps = makeDeps(() => Promise.resolve({ status: 'succeeded' }));
-    await teardownAndAwaitWithDeps('mystack', 'myhost', deps);
-    expect(deps.triggerDeploy).toHaveBeenCalledTimes(1);
-  });
-
-  test('success path: resolves when status is no_change', async () => {
-    const deps = makeDeps(() => Promise.resolve({ status: 'no_change' }));
-    await teardownAndAwaitWithDeps('mystack', 'myhost', deps);
-  });
-
-  test('success path: resolves when getById returns null (no record)', async () => {
-    const deps = makeDeps(() => Promise.resolve(null));
-    await teardownAndAwaitWithDeps('mystack', 'myhost', deps);
-  });
-
-  test("failed status: throws with the record's log content", async () => {
-    const deps = makeDeps(() => Promise.resolve({ status: 'failed', logs: 'Container crashed' }));
-    await expect(teardownAndAwaitWithDeps('mystack', 'myhost', deps)).rejects.toThrow(
-      /Teardown failed: Container crashed/
-    );
-  });
-
-  test('failed status without logs: uses unknown error fallback message', async () => {
-    const deps = makeDeps(() => Promise.resolve({ status: 'failed', logs: null }));
-    await expect(teardownAndAwaitWithDeps('mystack', 'myhost', deps)).rejects.toThrow(
-      /Teardown failed: unknown error/
-    );
-  });
-
-  test('timeout: throws when elapsed time exceeds TEARDOWN_POLL_TIMEOUT_MS', async () => {
-    let callCount = 0;
-    const originalDateNow = Date.now;
-    Date.now = () => {
-      callCount++;
-      // First call sets `start`; subsequent comparisons return past the 120s limit
-      return callCount === 1 ? 0 : 200_000;
-    };
-
-    const deps = makeDeps(() => Promise.resolve({ status: 'pending' }));
-
-    try {
-      await expect(teardownAndAwaitWithDeps('mystack', 'myhost', deps)).rejects.toThrow(
-        /Teardown timed out after 120s/
-      );
-    } finally {
-      Date.now = originalDateNow;
-    }
+  test('unmanage branch: commits manifest removal and returns removed', async () => {
+    const { resolveDeleteStack } = await import('../delete-stack-resolver');
+    const triggerDeploy = mock();
+    const commitRemove = mock().mockResolvedValue({ commitSha: 'sha-xyz' });
+    const result = await resolveDeleteStack('plex', 'homeserver', false, {
+      triggerDeploy: triggerDeploy as unknown as (
+        params: { stack: string; host: string; action: 'teardown'; postSuccess: 'removeFromManifest' },
+      ) => Promise<{ deployId: number }>,
+      commitRemoveFromManifest: commitRemove as unknown as (stack: string) => Promise<{ commitSha: string }>,
+    });
+    expect(triggerDeploy).not.toHaveBeenCalled();
+    expect(commitRemove).toHaveBeenCalledWith('plex');
+    expect(result).toEqual({ status: 'removed', commitSha: 'sha-xyz' });
   });
 });

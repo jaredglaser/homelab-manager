@@ -6,7 +6,7 @@ import ZFSPoolSpeedCharts from '@/components/zfs/ZFSPoolSpeedCharts'
 import PageStatusBar from '@/components/PageStatusBar'
 import ZFSStatusSummary from '@/components/zfs/ZFSStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
-import { useSettings } from '@/hooks/useSettings'
+import { useGeneralSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { ZFS_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadZFSStats } from '@/lib/constants/preload-queries'
 import type { ZFSStatsRow } from '@/types/zfs'
@@ -17,7 +17,7 @@ export const Route = createFileRoute('/zfs')({
 })
 
 function ZFSPageContent() {
-  const { general } = useSettings()
+  const { general } = useGeneralSettings()
 
   const preloadFn = useCallback(preloadZFSStats, [])
 

@@ -15,6 +15,7 @@ const baseRecord: DeployRecord = {
   forceRecreate: false,
   logs: null,
   createdAt: new Date('2026-01-01'),
+  postSuccess: null,
 };
 
 describe('computeSyncStatus', () => {
