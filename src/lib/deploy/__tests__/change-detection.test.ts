@@ -37,6 +37,7 @@ describe('detectChanges', () => {
     forceRecreate: false,
     logs: null,
     createdAt: new Date(),
+    postSuccess: null,
   };
 
   it('returns changed=true when no previous deploy exists (first deploy)', () => {
