@@ -3,19 +3,20 @@ import type { DeployRepository } from '@/lib/database/repositories/deploy-reposi
 export type WatchdogRepo = Pick<DeployRepository, 'timeoutStuckDeploys' | 'notifyStackChange'>;
 
 export interface DeployWatchdogConfig {
-  /** How often to check for stuck deploys. */
+  /** How often to check for stuck deploys. Must be > 0. */
   intervalMs: number;
-  /** How long an in_progress deploy may sit before being failed. */
+  /** How long an in_progress deploy may sit before being failed. Must be > 0. */
   thresholdMinutes: number;
 }
 
 const DEFAULT_INTERVAL_MS = 2 * 60 * 1000;
 const DEFAULT_THRESHOLD_MINUTES = 10;
+const FAILURE_ESCALATION_THRESHOLD = 3;
 
 /**
- * Defaults: 2 min interval / 10 min threshold — 2× the agent's 5-min compose
- * subprocess cap in agent/src/routes/stacks.ts, so deploys still in_progress
- * past this point mean the failure path itself got lost.
+ * Defaults: 2 min interval / 10 min threshold — ~2× the agent's 5-min compose
+ * subprocess cap, so deploys still in_progress past this point mean the
+ * failure path itself got lost.
  */
 export function loadDeployWatchdogConfig(): DeployWatchdogConfig {
   return {
@@ -35,8 +36,15 @@ export class DeployWatchdog {
   private readonly config: DeployWatchdogConfig;
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private consecutiveFailures = 0;
 
   constructor(config: DeployWatchdogConfig = loadDeployWatchdogConfig()) {
+    if (config.intervalMs <= 0 || !Number.isFinite(config.intervalMs)) {
+      throw new Error(`DeployWatchdog: intervalMs must be > 0, got ${config.intervalMs}`);
+    }
+    if (config.thresholdMinutes <= 0 || !Number.isFinite(config.thresholdMinutes)) {
+      throw new Error(`DeployWatchdog: thresholdMinutes must be > 0, got ${config.thresholdMinutes}`);
+    }
     this.config = config;
   }
 
@@ -56,6 +64,11 @@ export class DeployWatchdog {
     }
   }
 
+  /** Exposed for observability — number of consecutive tick failures. Resets to 0 on success. */
+  getConsecutiveFailures(): number {
+    return this.consecutiveFailures;
+  }
+
   /** Reentrancy-guarded — if a previous tick is still running, returns immediately. */
   async tick(deployRepo: WatchdogRepo): Promise<void> {
     if (this.running) return;
@@ -63,6 +76,7 @@ export class DeployWatchdog {
     try {
       const message = buildTimeoutMessage(this.config.thresholdMinutes);
       const timedOut = await deployRepo.timeoutStuckDeploys(this.config.thresholdMinutes, message);
+      this.consecutiveFailures = 0;
       if (timedOut.length === 0) return;
 
       console.info(
@@ -79,7 +93,11 @@ export class DeployWatchdog {
         }
       }
     } catch (err) {
-      console.error('[DeployWatchdog] Tick failed:', err);
+      this.consecutiveFailures += 1;
+      const prefix = this.consecutiveFailures >= FAILURE_ESCALATION_THRESHOLD
+        ? `[DeployWatchdog] Tick failed (${this.consecutiveFailures} consecutive failures — watchdog degraded)`
+        : '[DeployWatchdog] Tick failed';
+      console.error(`${prefix}:`, err);
     } finally {
       this.running = false;
     }

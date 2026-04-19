@@ -281,7 +281,12 @@ describe('DeployRepository', () => {
       mock.pushResult([]);
       const rows = await repo.recoverStuckDeploys('boom');
       expect(rows).toHaveLength(0);
-      expect(mock.queries[0].sql).toContain("status IN ('pending', 'in_progress')");
+      const sql = mock.queries[0].sql;
+      expect(sql).toContain('UPDATE deploy_history');
+      expect(sql).toContain("SET status = 'failed'");
+      expect(sql).toContain('logs = $1');
+      expect(sql).toContain("status IN ('pending', 'in_progress')");
+      expect(sql).toContain('RETURNING id, stack, host');
       expect(mock.queries[0].params).toEqual(['boom']);
     });
 
@@ -303,8 +308,13 @@ describe('DeployRepository', () => {
       mock.pushResult([]);
       const rows = await repo.timeoutStuckDeploys(30, 'timed out');
       expect(rows).toHaveLength(0);
-      expect(mock.queries[0].sql).toContain("status = 'in_progress'");
-      expect(mock.queries[0].sql).toContain('make_interval(mins => $1)');
+      const sql = mock.queries[0].sql;
+      expect(sql).toContain('UPDATE deploy_history');
+      expect(sql).toContain("SET status = 'failed'");
+      expect(sql).toContain('logs = $2');
+      expect(sql).toContain("status = 'in_progress'");
+      expect(sql).toContain('make_interval(mins => $1)');
+      expect(sql).toContain('RETURNING id, stack, host');
       expect(mock.queries[0].params).toEqual([30, 'timed out']);
     });
 

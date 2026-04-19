@@ -156,6 +156,8 @@ describe('DeployWatchdog', () => {
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
       await expect(w.tick(repo)).resolves.toBeUndefined();
       expect(notifyStackChange).toHaveBeenCalledTimes(2);
+      expect(notifyStackChange.mock.calls[0]).toEqual(['a', 'h']);
+      expect(notifyStackChange.mock.calls[1]).toEqual(['b', 'h']);
       expect(errSpy).toHaveBeenCalled();
       errSpy.mockRestore();
     });
@@ -188,6 +190,55 @@ describe('DeployWatchdog', () => {
 
       resolveFirst([]);
       await firstTick;
+    });
+
+    it('releases the reentrancy guard after the first tick completes', async () => {
+      const timeoutStuckDeploys = mock().mockResolvedValue([]);
+      const repo = createRepoMock({ timeoutStuckDeploys } as Partial<WatchdogRepo>);
+      const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
+
+      await w.tick(repo);
+      await w.tick(repo);
+      expect(timeoutStuckDeploys).toHaveBeenCalledTimes(2);
+    });
+
+    it('tracks consecutive failures and escalates the log prefix past the threshold', async () => {
+      const repo = createRepoMock({
+        timeoutStuckDeploys: mock().mockRejectedValue(new Error('db is sad')),
+      } as Partial<WatchdogRepo>);
+      const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
+      await w.tick(repo);
+      await w.tick(repo);
+      expect(w.getConsecutiveFailures()).toBe(2);
+      expect(errSpy.mock.calls.at(-1)?.[0]).not.toContain('consecutive failures');
+
+      await w.tick(repo);
+      expect(w.getConsecutiveFailures()).toBe(3);
+      expect(errSpy.mock.calls.at(-1)?.[0]).toContain('3 consecutive failures');
+      expect(errSpy.mock.calls.at(-1)?.[0]).toContain('degraded');
+
+      errSpy.mockRestore();
+    });
+
+    it('resets the consecutive failure counter after a successful tick', async () => {
+      const timeoutStuckDeploys = mock()
+        .mockRejectedValueOnce(new Error('fail'))
+        .mockRejectedValueOnce(new Error('fail'))
+        .mockResolvedValueOnce([]);
+      const repo = createRepoMock({ timeoutStuckDeploys } as Partial<WatchdogRepo>);
+      const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
+      await w.tick(repo);
+      await w.tick(repo);
+      expect(w.getConsecutiveFailures()).toBe(2);
+
+      await w.tick(repo);
+      expect(w.getConsecutiveFailures()).toBe(0);
+
+      errSpy.mockRestore();
     });
   });
 
@@ -249,12 +300,37 @@ describe('DeployWatchdog', () => {
       expect(cfg.thresholdMinutes).toBe(10);
     });
 
+    it('treats 0 as invalid and falls back to defaults', () => {
+      process.env.DEPLOY_WATCHDOG_INTERVAL_MS = '0';
+      process.env.DEPLOY_WATCHDOG_TIMEOUT_MINUTES = '0';
+      const cfg = loadDeployWatchdogConfig();
+      expect(cfg.intervalMs).toBe(2 * 60 * 1000);
+      expect(cfg.thresholdMinutes).toBe(10);
+    });
+
     it('floors fractional values', () => {
       process.env.DEPLOY_WATCHDOG_INTERVAL_MS = '1234.9';
       process.env.DEPLOY_WATCHDOG_TIMEOUT_MINUTES = '10.7';
       const cfg = loadDeployWatchdogConfig();
       expect(cfg.intervalMs).toBe(1234);
       expect(cfg.thresholdMinutes).toBe(10);
+    });
+  });
+
+  describe('constructor guards', () => {
+    it('throws when intervalMs is 0 or negative', () => {
+      expect(() => new DeployWatchdog({ intervalMs: 0, thresholdMinutes: 10 })).toThrow(/intervalMs/);
+      expect(() => new DeployWatchdog({ intervalMs: -1, thresholdMinutes: 10 })).toThrow(/intervalMs/);
+    });
+
+    it('throws when thresholdMinutes is 0 or negative', () => {
+      expect(() => new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 0 })).toThrow(/thresholdMinutes/);
+      expect(() => new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: -5 })).toThrow(/thresholdMinutes/);
+    });
+
+    it('throws when values are non-finite', () => {
+      expect(() => new DeployWatchdog({ intervalMs: Number.POSITIVE_INFINITY, thresholdMinutes: 10 })).toThrow();
+      expect(() => new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: Number.NaN })).toThrow();
     });
   });
 });

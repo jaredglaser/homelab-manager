@@ -1,6 +1,12 @@
 import type { Pool } from 'pg';
 import type { DeployAction, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 
+export interface StuckDeployRow {
+  id: number;
+  stack: string;
+  host: string;
+}
+
 interface InsertDeployParams {
   stack: string;
   host: string;
@@ -127,7 +133,7 @@ export class DeployRepository {
   }
 
   /** Fails any active deploy rows that survived a crash. Returns the recovered rows. */
-  async recoverStuckDeploys(logMessage: string): Promise<Array<{ id: number; stack: string; host: string }>> {
+  async recoverStuckDeploys(logMessage: string): Promise<StuckDeployRow[]> {
     const result = await this.pool.query(
       `UPDATE deploy_history
        SET status = 'failed', logs = $1
@@ -135,18 +141,14 @@ export class DeployRepository {
        RETURNING id, stack, host`,
       [logMessage],
     );
-    return result.rows.map((r: Record<string, unknown>) => ({
-      id: Number(r.id),
-      stack: r.stack as string,
-      host: r.host as string,
-    }));
+    return result.rows.map(toStuckDeployRow);
   }
 
   /** Fails in_progress deploys older than thresholdMinutes. Returns the timed-out rows. */
   async timeoutStuckDeploys(
     thresholdMinutes: number,
     logMessage: string,
-  ): Promise<Array<{ id: number; stack: string; host: string }>> {
+  ): Promise<StuckDeployRow[]> {
     const result = await this.pool.query(
       `UPDATE deploy_history
        SET status = 'failed', logs = $2
@@ -155,12 +157,16 @@ export class DeployRepository {
        RETURNING id, stack, host`,
       [thresholdMinutes, logMessage],
     );
-    return result.rows.map((r: Record<string, unknown>) => ({
-      id: Number(r.id),
-      stack: r.stack as string,
-      host: r.host as string,
-    }));
+    return result.rows.map(toStuckDeployRow);
   }
+}
+
+function toStuckDeployRow(row: Record<string, unknown>): StuckDeployRow {
+  return {
+    id: Number(row.id),
+    stack: row.stack as string,
+    host: row.host as string,
+  };
 }
 
 /** Check for the specific active-deploy unique constraint violation. */
