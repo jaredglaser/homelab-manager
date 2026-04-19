@@ -7,7 +7,7 @@ import { MetricCell, MetricHeaderCell } from '@/components/shared-table';
  * Creates a metric column that renders MetricCell with an optional sparkline.
  *
  * Callers pass showSparklines and useAbbreviatedUnits from their settings
- * context, since useSettings() cannot be called inside a column factory.
+ * context, since settings hooks cannot be called inside a column factory.
  */
 export function metricColumn<TRow>(opts: {
   id: string;
