@@ -2,15 +2,12 @@ import type { PoolClient } from 'pg';
 import type { DockerInventorySnapshotContainer, DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
 import { zDockerInventoryBroadcastEvent } from '@/types/docker-inventory';
 import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
+import { backoffDelayMs } from '@/lib/utils/backoff';
 
 type InventoryBroadcastCallback = (event: DockerInventoryBroadcastEvent) => void;
 
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 32_000;
-
-function backoffDelay(failures: number): number {
-  return Math.min(BACKOFF_BASE_MS * 2 ** failures, BACKOFF_CAP_MS);
-}
 
 export function rowToInventory(row: DockerContainerEventUpsertRow): DockerInventorySnapshotContainer {
   return {
@@ -189,7 +186,7 @@ export class DockerInventoryBroadcastService {
           this.cleanupListenerClient();
           if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
             this.reconnecting = true;
-            const delay = backoffDelay(this.reconnectFailures);
+            const delay = backoffDelayMs(this.reconnectFailures, { baseMs: BACKOFF_BASE_MS, capMs: BACKOFF_CAP_MS });
             if (this.reconnectFailures === 0) {
               console.error(`[DockerInventoryBroadcastService] DB connection lost, reconnecting (delay ${delay}ms)`);
             } else if (this.reconnectFailures % 10 === 0) {
@@ -212,7 +209,7 @@ export class DockerInventoryBroadcastService {
         this.reconnectFailures = 0; // Reset backoff on successful connect
         return;
       } catch (error) {
-        const delay = backoffDelay(this.reconnectFailures);
+        const delay = backoffDelayMs(this.reconnectFailures, { baseMs: BACKOFF_BASE_MS, capMs: BACKOFF_CAP_MS });
         console.error(`[DockerInventoryBroadcastService] Failed to start listener, retrying in ${delay}ms:`, error);
         this.reconnectFailures++;
         await new Promise<void>((resolve) => {

@@ -6,6 +6,7 @@ import type {
   DockerContainerEventUpsertRow,
 } from '@/lib/database/repositories/docker-container-event-repository';
 import { notifyPayloadToInventory, rowToInventory } from '@/lib/docker/docker-inventory-broadcast-service';
+import { backoffDelayMs } from '@/lib/utils/backoff';
 
 /** Discriminated union for events sent to SSE subscribers. */
 export type StackBroadcastEvent =
@@ -21,10 +22,6 @@ export interface StackStatusBroadcastServiceDeps {
 
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 32_000;
-
-function backoffDelay(failures: number): number {
-  return Math.min(BACKOFF_BASE_MS * 2 ** failures, BACKOFF_CAP_MS);
-}
 
 function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer {
   return {
@@ -232,7 +229,7 @@ export class StackStatusBroadcastService {
           this.cleanupListenerClient();
           if (!this.stopped && this.subscribers.size > 0 && !this.reconnecting) {
             this.reconnecting = true;
-            const delay = backoffDelay(this.reconnectFailures);
+            const delay = backoffDelayMs(this.reconnectFailures, { baseMs: BACKOFF_BASE_MS, capMs: BACKOFF_CAP_MS });
             if (this.reconnectFailures === 0) {
               console.error(`[StackStatusBroadcastService] DB connection lost, reconnecting (delay ${delay}ms)`);
             } else if (this.reconnectFailures % 10 === 0) {
@@ -270,7 +267,7 @@ export class StackStatusBroadcastService {
         this.isFirstConnect = false;
         return;
       } catch (error) {
-        const delay = backoffDelay(this.reconnectFailures);
+        const delay = backoffDelayMs(this.reconnectFailures, { baseMs: BACKOFF_BASE_MS, capMs: BACKOFF_CAP_MS });
         console.error(`[StackStatusBroadcastService] Failed to start listener, retrying in ${delay}ms:`, error);
         this.isFirstConnect = false;
         this.reconnectFailures++;
