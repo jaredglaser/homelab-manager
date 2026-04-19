@@ -27,9 +27,27 @@ describe('DeployRepository', () => {
 
       expect(id).toBe(42);
       expect(mock.queries[0].sql).toContain('INSERT INTO deploy_history');
+      expect(mock.queries[0].sql).toContain('post_success');
       expect(mock.queries[0].params).toEqual([
-        'plex', 'homeserver', 'abc123', 'hash1', 'hash2', 'pending', 'git_push', 'deploy', false,
+        'plex', 'homeserver', 'abc123', 'hash1', 'hash2', 'pending', 'git_push', 'deploy', false, null,
       ]);
+    });
+
+    it('persists postSuccess when set', async () => {
+      mock.pushResult([{ id: '43' }]);
+      await repo.insertDeploy({
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'abc123',
+        composeHash: 'h1',
+        envHash: 'h2',
+        status: 'pending',
+        trigger: 'ui',
+        action: 'teardown',
+        postSuccess: 'removeFromManifest',
+      });
+      const params = mock.queries[0].params;
+      expect(params[params.length - 1]).toBe('removeFromManifest');
     });
   });
 
@@ -300,6 +318,30 @@ describe('DeployRepository', () => {
         { id: 7, stack: 'plex', host: 'homeserver' },
         { id: 8, stack: 'traefik', host: 'other' },
       ]);
+    });
+  });
+
+  describe('findSucceededPostSuccessDeploys', () => {
+    it('returns rows with succeeded or no_change status and matching post_success', async () => {
+      mock.pushResult([
+        { id: '1', stack: 'plex', host: 'home' },
+        { id: '2', stack: 'grafana', host: 'home' },
+      ]);
+      const rows = await repo.findSucceededPostSuccessDeploys('removeFromManifest');
+      expect(rows).toEqual([
+        { id: 1, stack: 'plex', host: 'home' },
+        { id: 2, stack: 'grafana', host: 'home' },
+      ]);
+      const sql = mock.queries[0].sql;
+      expect(sql).toContain("status IN ('succeeded', 'no_change')");
+      expect(sql).toContain('post_success = $1');
+      expect(mock.queries[0].params).toEqual(['removeFromManifest']);
+    });
+
+    it('returns empty array when no matching rows', async () => {
+      mock.pushResult([]);
+      const rows = await repo.findSucceededPostSuccessDeploys('removeFromManifest');
+      expect(rows).toHaveLength(0);
     });
   });
 

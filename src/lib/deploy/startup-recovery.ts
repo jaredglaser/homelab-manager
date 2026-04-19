@@ -1,18 +1,32 @@
-import type { StuckDeployRow } from '@/lib/database/repositories/deploy-repository';
+import type { PostSuccessDeployRow, StuckDeployRow } from '@/lib/database/repositories/deploy-repository';
 import type { WatchdogRepo } from '@/lib/deploy/deploy-watchdog';
+import type { StackRepoWriter } from '@/lib/deploy/pipeline';
 
 export interface StartupRecoveryRepo extends WatchdogRepo {
   recoverStuckDeploys(logMessage: string): Promise<StuckDeployRow[]>;
+  findSucceededPostSuccessDeploys(kind: 'removeFromManifest'): Promise<PostSuccessDeployRow[]>;
 }
 
 export interface WatchdogController {
   start(repo: WatchdogRepo): void;
 }
 
+/**
+ * Narrow view of the manifest required by the orphaned-sweep. Kept separate
+ * from the git module so tests don't pull in isomorphic-git.
+ */
+export interface ManifestReader {
+  listStackNames(): Promise<Set<string>>;
+}
+
 export interface StartupRecoveryOptions {
   maxAttempts?: number;
   backoffMs?: (attempt: number) => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Optional — enables the orphaned manifest-delete sweep. */
+  manifestReader?: ManifestReader;
+  /** Optional — writer used by the orphaned sweep to remove manifest entries. */
+  stackRepoWriter?: StackRepoWriter;
 }
 
 export const STARTUP_RECOVERY_MESSAGE =
@@ -60,7 +74,67 @@ export async function performStartupRecovery(
     );
   }
 
+  // Second pass — orphaned manifest-delete sweep. Runs best-effort; a failure
+  // here must not prevent the watchdog from starting.
+  if (options.manifestReader && options.stackRepoWriter) {
+    try {
+      await sweepOrphanedManifestDeletes(repo, options.manifestReader, options.stackRepoWriter);
+    } catch (err) {
+      console.error('[Server] Orphaned manifest-delete sweep failed:', err);
+    }
+  }
+
   watchdog.start(repo);
+}
+
+/**
+ * Finds rows where teardown succeeded with postSuccess='removeFromManifest'
+ * but the stack is still in the manifest (process crashed between the
+ * agent ACK and the manifest delete). Runs the manifest delete for each.
+ * Idempotent — skips stacks that are no longer in the manifest.
+ */
+async function sweepOrphanedManifestDeletes(
+  repo: StartupRecoveryRepo,
+  manifestReader: ManifestReader,
+  stackRepoWriter: StackRepoWriter,
+): Promise<void> {
+  const orphaned = await repo.findSucceededPostSuccessDeploys('removeFromManifest');
+  if (orphaned.length === 0) return;
+
+  // Deduplicate — a stack may have multiple succeeded teardown rows over time.
+  const seen = new Set<string>();
+  const uniqueStacks: PostSuccessDeployRow[] = [];
+  for (const row of orphaned) {
+    if (seen.has(row.stack)) continue;
+    seen.add(row.stack);
+    uniqueStacks.push(row);
+  }
+
+  let manifestStacks: Set<string>;
+  try {
+    manifestStacks = await manifestReader.listStackNames();
+  } catch (err) {
+    console.error('[Server] Failed to read manifest during orphaned-sweep — aborting sweep:', err);
+    return;
+  }
+
+  let removed = 0;
+  for (const row of uniqueStacks) {
+    if (!manifestStacks.has(row.stack)) continue; // already gone — skip
+    try {
+      await stackRepoWriter.removeStackFromManifest(row.stack);
+      removed += 1;
+    } catch (err) {
+      console.error(
+        `[Server] Orphaned manifest-delete failed for stack "${row.stack}":`,
+        err,
+      );
+    }
+  }
+
+  if (removed > 0) {
+    console.info(`[Server] Orphaned sweep removed ${removed} stack(s) from manifest`);
+  }
 }
 
 async function runWithRetry<T>(

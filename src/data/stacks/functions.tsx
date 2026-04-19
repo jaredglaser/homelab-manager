@@ -211,11 +211,17 @@ const deleteStackSchema = z.object({
 });
 
 /**
- * Delete a stack from the git repo, optionally tearing down containers first.
+ * Delete a stack from the git repo. If `teardown` is true, queues an async
+ * teardown via the deploy pipeline and returns immediately — the pipeline's
+ * postSuccess hook removes the manifest entry once the agent reports success.
+ * If `teardown` is false, removes the stack from the manifest synchronously.
  */
 export const deleteStack = createServerFn({ method: 'POST' })
   .inputValidator(deleteStackSchema)
-  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+  .handler(async ({ data }): Promise<
+    | { status: 'removed'; commitSha: string }
+    | { status: 'teardown-pending'; deployId: number }
+  > => {
     const { deleteStackFromRepo } = await import('@/lib/stacks/stack-service');
     return deleteStackFromRepo(data.stackName, data.teardown);
   });
