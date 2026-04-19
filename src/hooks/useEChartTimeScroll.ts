@@ -1,4 +1,4 @@
-import { useCallback, type RefObject } from 'react';
+import { type RefObject } from 'react';
 import type ReactECharts from 'echarts-for-react';
 import { useVisibleRAF } from '@/hooks/useVisibleRAF';
 
@@ -15,13 +15,13 @@ export function useEChartTimeScroll(
   windowMs: number,
   targetRef: RefObject<Element | null>,
 ): void {
-  const tick = useCallback(() => {
+  const tick = () => {
     const instance = chartRef.current?.getEchartsInstance();
     if (instance) {
       const now = Date.now();
       instance.setOption({ xAxis: { min: now - windowMs, max: now } });
     }
-  }, [chartRef, windowMs]);
+  };
 
   useVisibleRAF(targetRef, tick);
 }
