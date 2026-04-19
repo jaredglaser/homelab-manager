@@ -125,6 +125,49 @@ export class DeployRepository {
     const payload = JSON.stringify({ type: 'deploy_changed', stack, host });
     await this.pool.query("SELECT pg_notify('deploy_change', $1)", [payload]);
   }
+
+  /**
+   * Mark all pending/in_progress deploys as failed. Used on server startup to recover
+   * from crashes that left a deploy row active. Returns the recovered rows so the caller
+   * can notify subscribers.
+   */
+  async recoverStuckDeploys(logMessage: string): Promise<Array<{ id: number; stack: string; host: string }>> {
+    const result = await this.pool.query(
+      `UPDATE deploy_history
+       SET status = 'failed', logs = $1
+       WHERE status IN ('pending', 'in_progress')
+       RETURNING id, stack, host`,
+      [logMessage],
+    );
+    return result.rows.map((r: Record<string, unknown>) => ({
+      id: Number(r.id),
+      stack: r.stack as string,
+      host: r.host as string,
+    }));
+  }
+
+  /**
+   * Mark in_progress deploys older than thresholdMinutes as failed.
+   * Returns the timed-out rows so the caller can notify subscribers.
+   */
+  async timeoutStuckDeploys(
+    thresholdMinutes: number,
+    logMessage: string,
+  ): Promise<Array<{ id: number; stack: string; host: string }>> {
+    const result = await this.pool.query(
+      `UPDATE deploy_history
+       SET status = 'failed', logs = $2
+       WHERE status = 'in_progress'
+         AND created_at < NOW() - make_interval(mins => $1)
+       RETURNING id, stack, host`,
+      [thresholdMinutes, logMessage],
+    );
+    return result.rows.map((r: Record<string, unknown>) => ({
+      id: Number(r.id),
+      stack: r.stack as string,
+      host: r.host as string,
+    }));
+  }
 }
 
 /** Check for the specific active-deploy unique constraint violation. */
