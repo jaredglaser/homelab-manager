@@ -1,48 +1,9 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
+import { createStore, Provider } from 'jotai';
 import { metricColumn, nameColumn, statusColumn, progressColumn } from '../columns';
-
-/** Minimal mock for settings hooks used inside MetricHeaderCell */
-mock.module('@/hooks/useSettings', () => ({
-  useSettings: () => ({
-    general: { useAbbreviatedUnits: false, showSparklines: false },
-    docker: { memoryDisplayMode: 'bytes', decimals: { cpu: false, memory: false, diskSpeed: false, networkSpeed: false }, chartWindowSeconds: 60 },
-    proxmox: { updateInterval: 10000, expandedHosts: new Set(), expandedSections: new Set() },
-    zfs: { expandedHosts: new Set(), expandedPools: new Set(), expandedVdevs: new Set(), decimals: { diskSpeed: false } },
-  }),
-  useGeneralSettings: () => ({
-    general: { useAbbreviatedUnits: false, showSparklines: false },
-  }),
-  useDockerSettings: () => ({
-    docker: { memoryDisplayMode: 'bytes', decimals: { cpu: false, memory: false, diskSpeed: false, networkSpeed: false }, chartWindowSeconds: 60 },
-    isHostExpanded: () => true,
-    isContainerExpanded: () => false,
-    toggleHostExpanded: () => {},
-    toggleContainerExpanded: () => {},
-    isStackExpanded: () => false,
-    toggleStackExpanded: () => {},
-  }),
-  useProxmoxSettings: () => ({
-    proxmox: { updateInterval: 10000, expandedHosts: new Set(), expandedSections: new Set() },
-    setProxmoxUpdateInterval: () => {},
-    toggleProxmoxHostExpanded: () => {},
-    isProxmoxHostExpanded: () => false,
-    toggleProxmoxSectionExpanded: () => {},
-    isProxmoxSectionExpanded: () => false,
-  }),
-  useZfsSettings: () => ({
-    zfs: { expandedHosts: new Set(), expandedPools: new Set(), expandedVdevs: new Set(), decimals: { diskSpeed: false } },
-    setZfsDecimal: () => {},
-    toggleZfsHostExpanded: () => {},
-    isZfsHostExpanded: () => false,
-    togglePoolExpanded: () => {},
-    isPoolExpanded: () => false,
-    toggleVdevExpanded: () => {},
-    isVdevExpanded: () => false,
-  }),
-}));
 
 /** Test row type */
 interface TestRow {
@@ -71,6 +32,7 @@ function CellRenderer<TRow>({
   column: ColumnDef<TRow, unknown>;
   row: TRow;
 }) {
+  const store = createStore();
   const table = useReactTable({
     data: [row],
     columns: [column],
@@ -80,10 +42,11 @@ function CellRenderer<TRow>({
 
   const tableRow = table.getRowModel().rows[0];
   const cell = tableRow.getVisibleCells()[0];
-  return <>{flexRender(cell.column.columnDef.cell, cell.getContext())}</>;
+  return <Provider store={store}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</Provider>;
 }
 
 function HeaderRenderer<TRow>({ column }: { column: ColumnDef<TRow, unknown> }) {
+  const store = createStore();
   const table = useReactTable({
     data: [],
     columns: [column],
@@ -93,7 +56,7 @@ function HeaderRenderer<TRow>({ column }: { column: ColumnDef<TRow, unknown> }) 
 
   const headerGroup = table.getHeaderGroups()[0];
   const header = headerGroup.headers[0];
-  return <>{flexRender(header.column.columnDef.header, header.getContext())}</>;
+  return <Provider store={store}>{flexRender(header.column.columnDef.header, header.getContext())}</Provider>;
 }
 
 describe('metricColumn', () => {

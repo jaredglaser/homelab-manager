@@ -1,39 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 
-mock.module('@/hooks/useSettings', () => ({
-  useSettings: () => ({
-    general: { use12HourTime: false },
-    docker: { chartWindowSeconds: 60 },
-    proxmox: { updateInterval: 10000, expandedHosts: new Set(), expandedSections: new Set() },
-    zfs: { expandedHosts: new Set(), expandedPools: new Set(), expandedVdevs: new Set(), decimals: { diskSpeed: false } },
-  }),
-  useGeneralSettings: () => ({
-    general: { use12HourTime: false },
-  }),
-  useDockerSettings: () => ({
-    docker: { chartWindowSeconds: 60 },
-  }),
-  useProxmoxSettings: () => ({
-    proxmox: { updateInterval: 10000, expandedHosts: new Set(), expandedSections: new Set() },
-    setProxmoxUpdateInterval: () => {},
-    toggleProxmoxHostExpanded: () => {},
-    isProxmoxHostExpanded: () => false,
-    toggleProxmoxSectionExpanded: () => {},
-    isProxmoxSectionExpanded: () => false,
-  }),
-  useZfsSettings: () => ({
-    zfs: { expandedHosts: new Set(), expandedPools: new Set(), expandedVdevs: new Set(), decimals: { diskSpeed: false } },
-    setZfsDecimal: () => {},
-    toggleZfsHostExpanded: () => {},
-    isZfsHostExpanded: () => false,
-    togglePoolExpanded: () => {},
-    isPoolExpanded: () => false,
-    toggleVdevExpanded: () => {},
-    isVdevExpanded: () => false,
-  }),
-}));
-
 mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
 }));
@@ -45,6 +12,12 @@ mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
 }));
 
 const { default: DualSeriesChart, getChartOption } = await import('../DualSeriesChart');
+const { createStore, Provider } = await import('jotai');
+
+function createWrapper() {
+  const store = createStore();
+  return ({ children }: { children: React.ReactNode }) => <Provider store={store}>{children}</Provider>;
+}
 
 const baseSeries: [
   { name: string; dataPoints: { timestamp: number; value: number }[]; colorVar: string },
@@ -77,6 +50,7 @@ describe('DualSeriesChart', () => {
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
       />,
+      { wrapper: createWrapper() },
     );
     expect(screen.getByText('CPU & Memory')).toBeTruthy();
   });
@@ -89,6 +63,7 @@ describe('DualSeriesChart', () => {
         yAxisMode="bytes"
         formatValue={(v) => `${v} B/s`}
       />,
+      { wrapper: createWrapper() },
     );
     expect(screen.getByTestId('echarts-mock')).toBeTruthy();
   });
@@ -101,6 +76,7 @@ describe('DualSeriesChart', () => {
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
       />,
+      { wrapper: createWrapper() },
     );
     const chartEl = screen.getByTestId('echarts-mock');
     const option = JSON.parse(chartEl.getAttribute('data-option')!);
@@ -117,6 +93,7 @@ describe('DualSeriesChart', () => {
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
       />,
+      { wrapper: createWrapper() },
     );
     const chartEl = screen.getByTestId('echarts-mock');
     const option = JSON.parse(chartEl.getAttribute('data-option')!);
@@ -136,6 +113,7 @@ describe('DualSeriesChart', () => {
         yAxisMode="percent"
         formatValue={(v) => `${v}%`}
       />,
+      { wrapper: createWrapper() },
     );
     expect(screen.getByText('Empty')).toBeTruthy();
   });

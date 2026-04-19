@@ -3,50 +3,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { DockerStatsRow } from '@/types/docker';
 
-// Do NOT mock DataTable, columns, or other broadly-used shared modules —
-// they leak globally and break DataTable's own test file.
-mock.module('@/hooks/useSettings', () => {
-  const dockerStub = {
-    docker: {
-      memoryDisplayMode: 'bytes',
-      decimals: { cpu: false, memory: false, diskSpeed: false, networkSpeed: false },
-      chartWindowSeconds: 60,
-    },
-    isHostExpanded: () => true,
-    isContainerExpanded: () => false,
-    toggleHostExpanded: () => {},
-    toggleContainerExpanded: () => {},
-  };
-  const generalStub = {
-    general: { showSparklines: false, useAbbreviatedUnits: false, updateIntervalMs: 1000 },
-  };
-  const proxmoxStub = {
-    proxmox: { updateInterval: 10000, expandedHosts: new Set(), expandedSections: new Set() },
-    setProxmoxUpdateInterval: () => {},
-    toggleProxmoxHostExpanded: () => {},
-    isProxmoxHostExpanded: () => false,
-    toggleProxmoxSectionExpanded: () => {},
-    isProxmoxSectionExpanded: () => false,
-  };
-  const zfsStub = {
-    zfs: { expandedHosts: new Set(), expandedPools: new Set(), expandedVdevs: new Set(), decimals: { diskSpeed: false } },
-    setZfsDecimal: () => {},
-    toggleZfsHostExpanded: () => {},
-    isZfsHostExpanded: () => false,
-    togglePoolExpanded: () => {},
-    isPoolExpanded: () => false,
-    toggleVdevExpanded: () => {},
-    isVdevExpanded: () => false,
-  };
-  return {
-    useSettings: () => ({ ...dockerStub, ...generalStub, ...proxmoxStub, ...zfsStub }),
-    useDockerSettings: () => dockerStub,
-    useGeneralSettings: () => generalStub,
-    useProxmoxSettings: () => proxmoxStub,
-    useZfsSettings: () => zfsStub,
-  };
-});
-
 mock.module('@/hooks/toastAtom', () => ({
   useToast: () => ({ showToast: () => {} }),
 }));
@@ -108,6 +64,18 @@ mock.module('@/lib/utils/icon-resolver', () => ({
 }));
 
 const { default: ContainerTable } = await import('../ContainerTable');
+const { createStore, Provider } = await import('jotai');
+
+type TableProps = React.ComponentProps<typeof ContainerTable>;
+
+function renderTable(overrides: Partial<TableProps> = {}) {
+  const store = createStore();
+  return render(
+    <Provider store={store}>
+      <ContainerTable {...defaultProps} {...overrides} />
+    </Provider>,
+  );
+}
 
 const baseDate = new Date('2024-01-01T00:00:00Z');
 
@@ -149,40 +117,22 @@ const defaultProps = {
 
 describe('ContainerTable', () => {
   it('renders error state when error and no data', () => {
-    render(
-      <ContainerTable
-        {...defaultProps}
-        error={new Error('Connection refused')}
-        hasData={false}
-      />,
-    );
+    renderTable({ error: new Error('Connection refused'), hasData: false });
     expect(screen.getByText(/Connection refused/)).toBeDefined();
   });
 
   it('renders inventory error when inventoryError set and inventory empty', () => {
-    render(
-      <ContainerTable
-        {...defaultProps}
-        inventoryError={new Error('Inventory stream failed')}
-        inventory={new Map()}
-      />,
-    );
+    renderTable({ inventoryError: new Error('Inventory stream failed'), inventory: new Map() });
     expect(screen.getByText(/Inventory stream failed/)).toBeDefined();
   });
 
   it('renders spinner when not connected and no data', () => {
-    render(
-      <ContainerTable
-        {...defaultProps}
-        isConnected={false}
-        hasData={false}
-      />,
-    );
+    renderTable({ isConnected: false, hasData: false });
     expect(document.querySelector('[role="progressbar"]')).toBeDefined();
   });
 
   it('renders without crashing with empty inventory', () => {
-    const { container } = render(<ContainerTable {...defaultProps} />);
+    const { container } = renderTable();
     expect(container).toBeDefined();
   });
 
@@ -191,7 +141,7 @@ describe('ContainerTable', () => {
       ['host1/c1', makeInventory('host1', 'c1', 'nginx')],
       ['host2/c2', makeInventory('host2', 'c2', 'redis')],
     ]);
-    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    renderTable({ inventory });
     expect(screen.getByText('host1')).toBeDefined();
     expect(screen.getByText('host2')).toBeDefined();
   });
@@ -201,7 +151,7 @@ describe('ContainerTable', () => {
       ['host1/c1', makeInventory('host1', 'c1', 'running-app', 'running')],
       ['host1/c2', makeInventory('host1', 'c2', 'stopped-app', 'exited')],
     ]);
-    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    renderTable({ inventory });
     expect(screen.getByText('running-app')).toBeDefined();
     expect(screen.getByText('stopped-app')).toBeDefined();
   });
@@ -210,7 +160,7 @@ describe('ContainerTable', () => {
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'old-app', 'exited')],
     ]);
-    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    renderTable({ inventory });
     const chips = screen.getAllByTestId('container-state-chip');
     expect(chips.length).toBeGreaterThan(0);
     expect(chips[0].getAttribute('data-state')).toBe('exited');
@@ -221,7 +171,7 @@ describe('ContainerTable', () => {
       ['host1/c1', makeInventory('host1', 'c1', 'app1', 'running')],
       ['host1/c2', makeInventory('host1', 'c2', 'app2', 'exited')],
     ]);
-    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    renderTable({ inventory });
     expect(screen.getByText('1 running · 1 stopped')).toBeDefined();
   });
 
@@ -230,7 +180,7 @@ describe('ContainerTable', () => {
       ['host1/c1', makeInventory('host1', 'c1', 'app1', 'running')],
       ['host1/c2', makeInventory('host1', 'c2', 'app2', 'running')],
     ]);
-    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    renderTable({ inventory });
     expect(screen.getByText('2 containers')).toBeDefined();
   });
 
@@ -238,7 +188,7 @@ describe('ContainerTable', () => {
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'solo', 'running')],
     ]);
-    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    renderTable({ inventory });
     expect(screen.getByText('1 container')).toBeDefined();
   });
 
@@ -246,34 +196,18 @@ describe('ContainerTable', () => {
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'live-app', 'running')],
     ]);
-    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    renderTable({ inventory });
     const chips = screen.queryAllByTestId('container-state-chip');
     expect(chips.length).toBe(0);
   });
 
   it('shows spinner when stats connected but inventory not yet connected and empty', () => {
-    render(
-      <ContainerTable
-        {...defaultProps}
-        isConnected={true}
-        hasData={true}
-        isInventoryConnected={false}
-        inventory={new Map()}
-      />,
-    );
+    renderTable({ isConnected: true, hasData: true, isInventoryConnected: false, inventory: new Map() });
     expect(document.querySelector('[role="progressbar"]')).toBeDefined();
   });
 
   it('renders table when stats connected and inventory connected (even if empty)', () => {
-    render(
-      <ContainerTable
-        {...defaultProps}
-        isConnected={true}
-        hasData={true}
-        isInventoryConnected={true}
-        inventory={new Map()}
-      />,
-    );
+    renderTable({ isConnected: true, hasData: true, isInventoryConnected: true, inventory: new Map() });
     expect(document.querySelector('[role="progressbar"]')).toBeNull();
   });
 
@@ -281,24 +215,17 @@ describe('ContainerTable', () => {
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'crashing-app', 'restarting')],
     ]);
-    render(<ContainerTable {...defaultProps} inventory={inventory} />);
+    renderTable({ inventory });
     const chips = screen.getAllByTestId('container-state-chip');
     expect(chips.length).toBeGreaterThan(0);
     expect(chips[0].getAttribute('data-state')).toBe('restarting');
   });
 
   it('running-but-stale row receives stale variant', () => {
-    // With no latestByEntity entry, isStale=true for a running container.
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'stale-app', 'running')],
     ]);
-    const { container } = render(
-      <ContainerTable
-        {...defaultProps}
-        inventory={inventory}
-        latestByEntity={new Map()}
-      />,
-    );
+    const { container } = renderTable({ inventory, latestByEntity: new Map() });
     const staleRows = container.querySelectorAll('[data-row-variant="stale"]');
     expect(staleRows.length).toBeGreaterThan(0);
   });
@@ -307,9 +234,7 @@ describe('ContainerTable', () => {
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'stopped-app', 'exited')],
     ]);
-    const { container } = render(
-      <ContainerTable {...defaultProps} inventory={inventory} />,
-    );
+    const { container } = renderTable({ inventory });
     const stoppedRows = container.querySelectorAll('[data-row-variant="stopped"]');
     expect(stoppedRows.length).toBeGreaterThan(0);
   });
@@ -323,13 +248,7 @@ describe('ContainerTable', () => {
     const inventory = new Map([
       ['host1/abc123', makeInventory('host1', 'abc123', 'my-app', 'exited')],
     ]);
-    render(
-      <ContainerTable
-        {...defaultProps}
-        inventory={inventory}
-        onOpenHistory={handleOpenHistory}
-      />,
-    );
+    renderTable({ inventory, onOpenHistory: handleOpenHistory });
 
     const historyButton = screen.getByLabelText('View container history');
     fireEvent.click(historyButton);
