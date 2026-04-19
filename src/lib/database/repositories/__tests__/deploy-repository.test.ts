@@ -275,4 +275,57 @@ describe('DeployRepository', () => {
       expect(mock.queries[0].params).toEqual([JSON.stringify({ type: 'deploy_changed', stack: 'plex', host: 'homeserver' })]);
     });
   });
+
+  describe('recoverStuckDeploys', () => {
+    it('returns an empty array when no deploys are stuck', async () => {
+      mock.pushResult([]);
+      const rows = await repo.recoverStuckDeploys('boom');
+      expect(rows).toHaveLength(0);
+      const sql = mock.queries[0].sql;
+      expect(sql).toContain('UPDATE deploy_history');
+      expect(sql).toContain("SET status = 'failed'");
+      expect(sql).toContain('logs = $1');
+      expect(sql).toContain("status IN ('pending', 'in_progress')");
+      expect(sql).toContain('RETURNING id, stack, host');
+      expect(mock.queries[0].params).toEqual(['boom']);
+    });
+
+    it('returns the recovered rows with Number-coerced ids', async () => {
+      mock.pushResult([
+        { id: '7', stack: 'plex', host: 'homeserver' },
+        { id: '8', stack: 'traefik', host: 'other' },
+      ]);
+      const rows = await repo.recoverStuckDeploys('crashed');
+      expect(rows).toEqual([
+        { id: 7, stack: 'plex', host: 'homeserver' },
+        { id: 8, stack: 'traefik', host: 'other' },
+      ]);
+    });
+  });
+
+  describe('timeoutStuckDeploys', () => {
+    it('returns an empty array when no deploys are overdue', async () => {
+      mock.pushResult([]);
+      const rows = await repo.timeoutStuckDeploys(30, 'timed out');
+      expect(rows).toHaveLength(0);
+      const sql = mock.queries[0].sql;
+      expect(sql).toContain('UPDATE deploy_history');
+      expect(sql).toContain("SET status = 'failed'");
+      expect(sql).toContain('logs = $2');
+      expect(sql).toContain("status = 'in_progress'");
+      expect(sql).toContain('make_interval(mins => $1)');
+      expect(sql).toContain('RETURNING id, stack, host');
+      expect(mock.queries[0].params).toEqual([30, 'timed out']);
+    });
+
+    it('returns the timed-out rows with Number-coerced ids', async () => {
+      mock.pushResult([
+        { id: '42', stack: 'plex', host: 'homeserver' },
+      ]);
+      const rows = await repo.timeoutStuckDeploys(15, 'slow');
+      expect(rows).toEqual([
+        { id: 42, stack: 'plex', host: 'homeserver' },
+      ]);
+    });
+  });
 });

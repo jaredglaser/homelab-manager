@@ -2,17 +2,24 @@ import { statsPollService } from '@/lib/database/subscription-service';
 import { settingsBroadcastService } from '@/lib/settings/settings-broadcast-service';
 import { stackStatusBroadcastService } from '@/lib/stacks/stack-status-broadcast-service';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
+import { DeployWatchdog } from '@/lib/deploy/deploy-watchdog';
 
 let initialized = false;
+const deployWatchdog = new DeployWatchdog();
 
-/**
- * Initialize server-side resources and register shutdown handlers.
- *
- * This function is idempotent: if initialization has already occurred it returns immediately.
- * It registers handlers for SIGTERM and SIGINT that stop the stats poller, stop the settings
- * broadcast service, and close all database connections; on successful cleanup the process
- * exits with code 0, and on error it exits with code 1.
- */
+async function startDeployRecovery(): Promise<void> {
+  const { databaseConnectionManager: dbm } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+  const { performStartupRecovery } = await import('@/lib/deploy/startup-recovery');
+
+  const dbClient = await dbm.getClient(loadDatabaseConfig());
+  const repo = new DeployRepository(dbClient.getPool());
+
+  await performStartupRecovery(repo, deployWatchdog);
+}
+
+/** Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy recovery. */
 export function initServer(): void {
   if (initialized) return;
   initialized = true;
@@ -21,6 +28,7 @@ export function initServer(): void {
     console.info('[Server] Shutdown signal received, cleaning up...');
 
     try {
+      deployWatchdog.stop();
       await statsPollService.stop();
       await settingsBroadcastService.stop();
       await stackStatusBroadcastService.stop();
@@ -37,10 +45,13 @@ export function initServer(): void {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
+  startDeployRecovery().catch((err) => {
+    console.error('[Server] Deploy recovery / watchdog startup failed:', err);
+  });
+
   console.info('[Server] Shutdown handlers registered');
 }
 
-// Auto-initialize when this module is imported on the server
 if (typeof window === 'undefined') {
   initServer();
 }

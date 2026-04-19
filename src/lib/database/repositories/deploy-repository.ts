@@ -1,6 +1,12 @@
 import type { Pool } from 'pg';
 import type { DeployAction, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 
+export interface StuckDeployRow {
+  id: number;
+  stack: string;
+  host: string;
+}
+
 interface InsertDeployParams {
   stack: string;
   host: string;
@@ -125,6 +131,50 @@ export class DeployRepository {
     const payload = JSON.stringify({ type: 'deploy_changed', stack, host });
     await this.pool.query("SELECT pg_notify('deploy_change', $1)", [payload]);
   }
+
+  /**
+   * Fails ALL pending/in_progress deploy_history rows unconditionally, overwriting
+   * `logs` with `logMessage` (any partial agent output is lost). Safe only for
+   * single-instance/single-worker startup recovery — do not call in multi-process
+   * deployments where another instance may own active rows. Returns the recovered rows.
+   */
+  async recoverStuckDeploys(logMessage: string): Promise<StuckDeployRow[]> {
+    const result = await this.pool.query(
+      `UPDATE deploy_history
+       SET status = 'failed', logs = $1
+       WHERE status IN ('pending', 'in_progress')
+       RETURNING id, stack, host`,
+      [logMessage],
+    );
+    return result.rows.map(toStuckDeployRow);
+  }
+
+  /**
+   * Fails in_progress deploys older than thresholdMinutes, overwriting `logs`
+   * with `logMessage`. Returns the timed-out rows.
+   */
+  async timeoutStuckDeploys(
+    thresholdMinutes: number,
+    logMessage: string,
+  ): Promise<StuckDeployRow[]> {
+    const result = await this.pool.query(
+      `UPDATE deploy_history
+       SET status = 'failed', logs = $2
+       WHERE status = 'in_progress'
+         AND created_at < NOW() - make_interval(mins => $1)
+       RETURNING id, stack, host`,
+      [thresholdMinutes, logMessage],
+    );
+    return result.rows.map(toStuckDeployRow);
+  }
+}
+
+function toStuckDeployRow(row: Record<string, unknown>): StuckDeployRow {
+  return {
+    id: Number(row.id),
+    stack: row.stack as string,
+    host: row.host as string,
+  };
 }
 
 /** Check for the specific active-deploy unique constraint violation. */
