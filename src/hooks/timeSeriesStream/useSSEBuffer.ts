@@ -129,7 +129,7 @@ export function useSSEBuffer<TRow>({
       lastDataTimeRef.current = now;
     }, updateIntervalMs);
     return () => clearInterval(id);
-  }, [windowSeconds, updateIntervalMs, getKeyRef, getTimeRef]);
+  }, [windowSeconds, updateIntervalMs]);
 
   return { sortedRows, hasData, enqueue, replaceBuffer, lastDataTimeRef, sortedRef };
 }

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { useRef } from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { useSSEBuffer } from '../../timeSeriesStream/useSSEBuffer';
@@ -7,6 +7,9 @@ interface Row {
   key: string;
   time: number;
 }
+
+/** Captured flush callback from the hook's setInterval, invoked manually to advance the timer. */
+let flushTick: (() => void) | null = null;
 
 function renderBuffer(windowSeconds = 60, updateIntervalMs = 30) {
   return renderHook(() => {
@@ -17,6 +20,27 @@ function renderBuffer(windowSeconds = 60, updateIntervalMs = 30) {
 }
 
 describe('useSSEBuffer', () => {
+  let setIntervalSpy: ReturnType<typeof spyOn>;
+  let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    flushTick = null;
+    setIntervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(
+      ((fn: () => void) => {
+        flushTick = fn;
+        return 0;
+      }) as unknown as typeof setInterval
+    );
+    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout
+    );
+  });
+
+  afterEach(() => {
+    setIntervalSpy.mockRestore();
+    setTimeoutSpy.mockRestore();
+  });
+
   it('starts empty with hasData=false', () => {
     const { result } = renderBuffer();
     expect(result.current.sortedRows).toEqual([]);
@@ -52,16 +76,16 @@ describe('useSSEBuffer', () => {
     expect(result.current.lastDataTimeRef.current).toBeNull();
   });
 
-  it('replaceBuffer with preserveLiveTail stitches newer rows beyond the snapshot', async () => {
+  it('replaceBuffer with preserveLiveTail stitches newer rows beyond the snapshot', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
 
     // Seed initial buffer
     act(() => result.current.replaceBuffer([{ key: 'a', time: now - 2000 }], { markHasData: true }));
 
-    // Enqueue SSE rows newer than the snapshot
+    // Enqueue SSE rows newer than the snapshot, then advance the flush timer
     act(() => result.current.enqueue([{ key: 'live', time: now + 500 }]));
-    await act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    act(() => { flushTick?.(); });
     expect(result.current.sortedRows.map(r => r.key)).toContain('live');
 
     // Refresh with a new snapshot whose max time is earlier than 'live'
@@ -70,7 +94,7 @@ describe('useSSEBuffer', () => {
     expect(keys).toEqual(['a', 'live']);
   });
 
-  it('enqueue + periodic flush deduplicates against existing rows', async () => {
+  it('enqueue + periodic flush deduplicates against existing rows', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
     act(() => result.current.replaceBuffer([{ key: 'a', time: now - 1000 }], { markHasData: true }));
@@ -79,13 +103,13 @@ describe('useSSEBuffer', () => {
       { key: 'a', time: now - 1000 }, // duplicate
       { key: 'b', time: now - 500 },
     ]));
-    await act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    act(() => { flushTick?.(); });
 
     const keys = result.current.sortedRows.map(r => r.key);
     expect(keys).toEqual(['a', 'b']);
   });
 
-  it('flush evicts rows older than the window', async () => {
+  it('flush evicts rows older than the window', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
     act(() => result.current.replaceBuffer(
@@ -97,7 +121,7 @@ describe('useSSEBuffer', () => {
     ));
 
     act(() => result.current.enqueue([{ key: 'new', time: now }]));
-    await act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    act(() => { flushTick?.(); });
 
     const keys = result.current.sortedRows.map(r => r.key);
     expect(keys).not.toContain('old');
@@ -105,7 +129,7 @@ describe('useSSEBuffer', () => {
     expect(keys).toContain('new');
   });
 
-  it('flush with only duplicate pending rows still evicts (cutoff-only branch)', async () => {
+  it('flush with only duplicate pending rows still evicts (cutoff-only branch)', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
     act(() => result.current.replaceBuffer(
@@ -119,29 +143,29 @@ describe('useSSEBuffer', () => {
     // Enqueue a row whose key already exists — newRows becomes empty after dedup,
     // but flush still evicts 'old'.
     act(() => result.current.enqueue([{ key: 'recent', time: now - 5000 }]));
-    await act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    act(() => { flushTick?.(); });
 
     const keys = result.current.sortedRows.map(r => r.key);
     expect(keys).not.toContain('old');
     expect(keys).toContain('recent');
   });
 
-  it('flush does nothing when the pending queue is empty', async () => {
+  it('flush does nothing when the pending queue is empty', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
     act(() => result.current.replaceBuffer([{ key: 'a', time: now - 1000 }], { markHasData: true }));
     const before = result.current.sortedRows;
-    await act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    act(() => { flushTick?.(); });
     // Same reference — flush skipped because no pending rows
     expect(result.current.sortedRows).toBe(before);
   });
 
-  it('flush sets hasData=true when rows flush in', async () => {
+  it('flush sets hasData=true when rows flush in', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
     expect(result.current.hasData).toBe(false);
     act(() => result.current.enqueue([{ key: 'a', time: now }]));
-    await act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    act(() => { flushTick?.(); });
     expect(result.current.hasData).toBe(true);
   });
 });

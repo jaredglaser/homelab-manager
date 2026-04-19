@@ -28,5 +28,5 @@ export function useVisibilityRefresh({ onRefresh, cooldownMs, lastRefreshRef }: 
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [cooldownMs, lastRefreshRef]);
+  }, [cooldownMs]);
 }

@@ -233,7 +233,7 @@ export function useTimeSeriesStream<TRow>({
       setIsStale(prev => prev === stale ? prev : stale);
     }, STALE_CHECK_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [hasData, lastDataTimeRef]);
+  }, [hasData]);
 
   return { rows: sortedRows, latestByEntity, isConnected, error, hasData, isStale };
 }
