@@ -10,12 +10,8 @@ const deployWatchdog = new DeployWatchdog();
 const STARTUP_RECOVERY_MESSAGE =
   'Deploy interrupted — server restarted while this deploy was in progress. The actual outcome on the host is unknown. Please verify stack status and re-trigger if needed.';
 
-/**
- * Mark any pending/in_progress deploys as failed on startup. Runs fire-and-forget so
- * startup is not blocked on the database — errors are logged but non-fatal.
- * Also starts the watchdog interval once the repo is resolved.
- */
-async function recoverStuckDeploysAndStartWatchdog(): Promise<void> {
+/** Startup recovery + watchdog. Fire-and-forget; errors are logged and non-fatal. */
+async function startDeployRecovery(): Promise<void> {
   const { databaseConnectionManager: dbm } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
@@ -45,10 +41,6 @@ async function recoverStuckDeploysAndStartWatchdog(): Promise<void> {
  * It registers handlers for SIGTERM and SIGINT that stop the stats poller, stop the settings
  * broadcast service, and close all database connections; on successful cleanup the process
  * exits with code 0, and on error it exits with code 1.
- *
- * Also fires a best-effort deploy recovery sweep and starts the DeployWatchdog so a
- * single crash or hung deploy cannot permanently block the stack+host active-deploy
- * unique index.
  */
 export function initServer(): void {
   if (initialized) return;
@@ -75,8 +67,7 @@ export function initServer(): void {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  // Fire-and-forget: never block startup on the database. Errors are logged only.
-  recoverStuckDeploysAndStartWatchdog().catch((err) => {
+  startDeployRecovery().catch((err) => {
     console.error('[Server] Deploy recovery / watchdog startup failed:', err);
   });
 

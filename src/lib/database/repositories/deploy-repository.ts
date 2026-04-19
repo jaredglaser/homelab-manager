@@ -126,11 +126,7 @@ export class DeployRepository {
     await this.pool.query("SELECT pg_notify('deploy_change', $1)", [payload]);
   }
 
-  /**
-   * Mark all pending/in_progress deploys as failed. Used on server startup to recover
-   * from crashes that left a deploy row active. Returns the recovered rows so the caller
-   * can notify subscribers.
-   */
+  /** Fails any active deploy rows that survived a crash. Returns the recovered rows. */
   async recoverStuckDeploys(logMessage: string): Promise<Array<{ id: number; stack: string; host: string }>> {
     const result = await this.pool.query(
       `UPDATE deploy_history
@@ -146,10 +142,7 @@ export class DeployRepository {
     }));
   }
 
-  /**
-   * Mark in_progress deploys older than thresholdMinutes as failed.
-   * Returns the timed-out rows so the caller can notify subscribers.
-   */
+  /** Fails in_progress deploys older than thresholdMinutes. Returns the timed-out rows. */
   async timeoutStuckDeploys(
     thresholdMinutes: number,
     logMessage: string,

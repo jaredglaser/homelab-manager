@@ -11,9 +11,9 @@ const DEFAULT_INTERVAL_MS = 2 * 60 * 1000;
 const DEFAULT_THRESHOLD_MINUTES = 10;
 
 /**
- * Load DeployWatchdog config from environment variables, falling back to sensible
- * defaults (2 minute interval, 10 minute threshold — 2x the agent's 5-minute
- * compose subprocess timeout in agent/src/routes/stacks.ts).
+ * Defaults: 2 min interval / 10 min threshold — 2× the agent's 5-min compose
+ * subprocess cap in agent/src/routes/stacks.ts, so deploys still in_progress
+ * past this point mean the failure path itself got lost.
  */
 export function loadDeployWatchdogConfig(): DeployWatchdogConfig {
   return {
@@ -28,11 +28,7 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-/**
- * Periodic background job that fails deploys stuck in `in_progress` longer than
- * the configured threshold. Recovery on startup is handled separately in
- * `server-init.ts` via `DeployRepository.recoverStuckDeploys`.
- */
+/** Periodic sweep that fails deploys stuck in `in_progress` past the threshold. */
 export class DeployWatchdog {
   private readonly config: DeployWatchdogConfig;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -42,7 +38,7 @@ export class DeployWatchdog {
     this.config = config;
   }
 
-  /** Start the periodic check. Safe to call multiple times; extra calls are no-ops. */
+  /** Idempotent — extra calls are no-ops. */
   start(deployRepo: DeployRepository): void {
     if (this.timer !== null) return;
     this.timer = setInterval(() => {
@@ -50,7 +46,7 @@ export class DeployWatchdog {
     }, this.config.intervalMs);
   }
 
-  /** Stop the periodic check. Safe to call when not started. */
+  /** Idempotent — safe to call before start. */
   stop(): void {
     if (this.timer !== null) {
       clearInterval(this.timer);
@@ -58,11 +54,7 @@ export class DeployWatchdog {
     }
   }
 
-  /**
-   * Execute a single sweep. Exposed so callers (and tests) can trigger manually.
-   * Reentrancy-guarded — if a previous tick is still running, subsequent calls
-   * return immediately.
-   */
+  /** Reentrancy-guarded — if a previous tick is still running, returns immediately. */
   async tick(deployRepo: DeployRepository): Promise<void> {
     if (this.running) return;
     this.running = true;

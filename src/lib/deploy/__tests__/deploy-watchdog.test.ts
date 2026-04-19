@@ -30,12 +30,18 @@ function createIntervalHarness() {
   };
 }
 
-function createRepoMock(overrides: Partial<DeployRepository> = {}): DeployRepository {
+type RepoMock = Pick<DeployRepository, 'timeoutStuckDeploys' | 'notifyStackChange'>;
+
+function createRepoMock(overrides: Partial<RepoMock> = {}): RepoMock {
   return {
-    timeoutStuckDeploys: mock().mockResolvedValue([]),
-    notifyStackChange: mock().mockResolvedValue(undefined),
+    timeoutStuckDeploys: mock().mockResolvedValue([]) as unknown as DeployRepository['timeoutStuckDeploys'],
+    notifyStackChange: mock().mockResolvedValue(undefined) as unknown as DeployRepository['notifyStackChange'],
     ...overrides,
-  } as unknown as DeployRepository;
+  };
+}
+
+function asRepo(mock: RepoMock): DeployRepository {
+  return mock as unknown as DeployRepository;
 }
 
 describe('DeployWatchdog', () => {
@@ -53,7 +59,7 @@ describe('DeployWatchdog', () => {
     it('registers a setInterval with the configured interval', () => {
       const w = new DeployWatchdog({ intervalMs: 500, thresholdMinutes: 10 });
       const repo = createRepoMock();
-      w.start(repo);
+      w.start(asRepo(repo));
       expect(harness.intervals).toHaveLength(1);
       expect(harness.intervals[0].ms).toBe(500);
       w.stop();
@@ -61,7 +67,7 @@ describe('DeployWatchdog', () => {
 
     it('is a no-op when start is called twice', () => {
       const w = new DeployWatchdog({ intervalMs: 500, thresholdMinutes: 10 });
-      const repo = createRepoMock();
+      const repo = asRepo(createRepoMock());
       w.start(repo);
       w.start(repo);
       expect(harness.intervals).toHaveLength(1);
@@ -71,7 +77,7 @@ describe('DeployWatchdog', () => {
     it('clears the interval on stop', () => {
       const w = new DeployWatchdog({ intervalMs: 500, thresholdMinutes: 10 });
       const repo = createRepoMock();
-      w.start(repo);
+      w.start(asRepo(repo));
       w.stop();
       expect(harness.intervals[0].cleared).toBe(true);
     });
@@ -84,7 +90,7 @@ describe('DeployWatchdog', () => {
 
     it('can be restarted after stop', () => {
       const w = new DeployWatchdog({ intervalMs: 500, thresholdMinutes: 10 });
-      const repo = createRepoMock();
+      const repo = asRepo(createRepoMock());
       w.start(repo);
       w.stop();
       w.start(repo);
@@ -96,10 +102,10 @@ describe('DeployWatchdog', () => {
   describe('tick', () => {
     it('calls timeoutStuckDeploys with the configured threshold and formatted message', async () => {
       const timeoutStuckDeploys = mock().mockResolvedValue([]);
-      const repo = createRepoMock({ timeoutStuckDeploys } as unknown as Partial<DeployRepository>);
+      const repo = createRepoMock({ timeoutStuckDeploys });
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 45 });
 
-      await w.tick(repo);
+      await w.tick(asRepo(repo));
 
       expect(timeoutStuckDeploys).toHaveBeenCalledTimes(1);
       const [threshold, message] = timeoutStuckDeploys.mock.calls[0] as [number, string];
@@ -206,9 +212,7 @@ describe('DeployWatchdog', () => {
       w.start(repo);
       expect(harness.intervals).toHaveLength(1);
 
-      // Manually fire the registered callback and wait for the void promise to settle.
       harness.intervals[0].cb();
-      await new Promise((r) => setTimeout(r, 0));
       await new Promise((r) => setTimeout(r, 0));
 
       expect(timeoutStuckDeploys).toHaveBeenCalledTimes(1);
