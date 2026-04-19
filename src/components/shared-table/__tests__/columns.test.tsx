@@ -8,9 +8,39 @@ import { metricColumn, nameColumn, statusColumn, progressColumn } from '../colum
 mock.module('@/hooks/useSettings', () => ({
   useSettings: () => ({
     general: { useAbbreviatedUnits: false, showSparklines: false },
+    docker: { memoryDisplayMode: 'bytes', decimals: { cpu: false, memory: false, diskSpeed: false, networkSpeed: false }, chartWindowSeconds: 60 },
+    proxmox: { updateInterval: 10000, expandedHosts: new Set(), expandedSections: new Set() },
+    zfs: { expandedHosts: new Set(), expandedPools: new Set(), expandedVdevs: new Set(), decimals: { diskSpeed: false } },
   }),
   useGeneralSettings: () => ({
     general: { useAbbreviatedUnits: false, showSparklines: false },
+  }),
+  useDockerSettings: () => ({
+    docker: { memoryDisplayMode: 'bytes', decimals: { cpu: false, memory: false, diskSpeed: false, networkSpeed: false }, chartWindowSeconds: 60 },
+    isHostExpanded: () => true,
+    isContainerExpanded: () => false,
+    toggleHostExpanded: () => {},
+    toggleContainerExpanded: () => {},
+    isStackExpanded: () => false,
+    toggleStackExpanded: () => {},
+  }),
+  useProxmoxSettings: () => ({
+    proxmox: { updateInterval: 10000, expandedHosts: new Set(), expandedSections: new Set() },
+    setProxmoxUpdateInterval: () => {},
+    toggleProxmoxHostExpanded: () => {},
+    isProxmoxHostExpanded: () => false,
+    toggleProxmoxSectionExpanded: () => {},
+    isProxmoxSectionExpanded: () => false,
+  }),
+  useZfsSettings: () => ({
+    zfs: { expandedHosts: new Set(), expandedPools: new Set(), expandedVdevs: new Set(), decimals: { diskSpeed: false } },
+    setZfsDecimal: () => {},
+    toggleZfsHostExpanded: () => {},
+    isZfsHostExpanded: () => false,
+    togglePoolExpanded: () => {},
+    isPoolExpanded: () => false,
+    toggleVdevExpanded: () => {},
+    isVdevExpanded: () => false,
   }),
 }));
 

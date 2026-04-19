@@ -20,10 +20,30 @@ mock.module('@/hooks/useSettings', () => {
   const generalStub = {
     general: { showSparklines: false, useAbbreviatedUnits: false, updateIntervalMs: 1000 },
   };
+  const proxmoxStub = {
+    proxmox: { updateInterval: 10000, expandedHosts: new Set(), expandedSections: new Set() },
+    setProxmoxUpdateInterval: () => {},
+    toggleProxmoxHostExpanded: () => {},
+    isProxmoxHostExpanded: () => false,
+    toggleProxmoxSectionExpanded: () => {},
+    isProxmoxSectionExpanded: () => false,
+  };
+  const zfsStub = {
+    zfs: { expandedHosts: new Set(), expandedPools: new Set(), expandedVdevs: new Set(), decimals: { diskSpeed: false } },
+    setZfsDecimal: () => {},
+    toggleZfsHostExpanded: () => {},
+    isZfsHostExpanded: () => false,
+    togglePoolExpanded: () => {},
+    isPoolExpanded: () => false,
+    toggleVdevExpanded: () => {},
+    isVdevExpanded: () => false,
+  };
   return {
-    useSettings: () => ({ ...dockerStub, ...generalStub }),
+    useSettings: () => ({ ...dockerStub, ...generalStub, ...proxmoxStub, ...zfsStub }),
     useDockerSettings: () => dockerStub,
     useGeneralSettings: () => generalStub,
+    useProxmoxSettings: () => proxmoxStub,
+    useZfsSettings: () => zfsStub,
   };
 });
 
