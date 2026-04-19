@@ -61,6 +61,7 @@ describe('SparklineCanvas', () => {
   let originalGetContext: typeof HTMLCanvasElement.prototype.getContext;
   let originalRaf: typeof window.requestAnimationFrame;
   let originalCaf: typeof window.cancelAnimationFrame;
+  let originalIO: typeof IntersectionObserver | undefined;
   let originalDPR: number;
   let mockCtx: ReturnType<typeof makeMockContext>;
   let mockGradient: ReturnType<typeof makeMockGradient>;
@@ -89,6 +90,27 @@ describe('SparklineCanvas', () => {
     window.requestAnimationFrame = rafSpy;
     window.cancelAnimationFrame = cafSpy;
 
+    // Mock IntersectionObserver to immediately report "visible" on observe()
+    originalIO = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class MockIO {
+      cb: IntersectionObserverCallback;
+      constructor(cb: IntersectionObserverCallback) {
+        this.cb = cb;
+      }
+      observe(el: Element) {
+        this.cb(
+          [{ isIntersecting: true, target: el } as unknown as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver,
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return []; }
+      root = null;
+      rootMargin = '';
+      thresholds: readonly number[] = [];
+    } as unknown as typeof IntersectionObserver;
+
     mockGradient = makeMockGradient();
     mockCtx = makeMockContext(mockGradient);
 
@@ -108,6 +130,7 @@ describe('SparklineCanvas', () => {
     HTMLCanvasElement.prototype.getContext = originalGetContext;
     window.requestAnimationFrame = originalRaf;
     window.cancelAnimationFrame = originalCaf;
+    if (originalIO) globalThis.IntersectionObserver = originalIO;
     Object.defineProperty(window, 'devicePixelRatio', { value: originalDPR, configurable: true });
     clearCssColorVars('--chart-cpu');
   });

@@ -179,8 +179,9 @@ export default memo(function DualSeriesChart({
   const chrome = resolveChartChromeColors();
   const option = getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome);
   const chartRef = useRef<ReactECharts | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
-  useEChartTimeScroll(chartRef, windowMs);
+  useEChartTimeScroll(chartRef, windowMs, wrapperRef);
 
   return (
     <Paper elevation={0} className="h-full flex flex-col rounded-sm p-2 !bg-[var(--mui-palette-background-chartBg)]">
@@ -198,7 +199,7 @@ export default memo(function DualSeriesChart({
           })}
         </div>
       </div>
-      <div className="flex-1 min-h-0">
+      <div ref={wrapperRef} className="flex-1 min-h-0">
         <DualSeriesChartRenderer ref={chartRef} option={option} />
       </div>
     </Paper>
