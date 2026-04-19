@@ -15,7 +15,7 @@ export interface DatabaseConfig {
    * self-signed cert setups where proper CA plumbing isn't yet available —
    * doing so exposes the connection to MITM attacks.
    */
-  sslRejectUnauthorized?: boolean;
+  sslRejectUnauthorized: boolean;
 }
 
 /**
@@ -41,7 +41,7 @@ export class DatabaseClient implements StreamingClient {
     };
 
     if (config.ssl) {
-      poolConfig.ssl = { rejectUnauthorized: config.sslRejectUnauthorized ?? true };
+      poolConfig.ssl = { rejectUnauthorized: config.sslRejectUnauthorized };
     }
 
     this.pool = new Pool(poolConfig);

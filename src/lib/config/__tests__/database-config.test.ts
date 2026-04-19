@@ -35,6 +35,7 @@ describe('loadDatabaseConfig', () => {
     expect(config.user).toBe('homelab');
     expect(config.password).toBe('');
     expect(config.ssl).toBe(false);
+    expect(config.sslRejectUnauthorized).toBe(true);
     expect(config.max).toBe(10);
   });
 

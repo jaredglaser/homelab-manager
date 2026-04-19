@@ -51,6 +51,7 @@ const TEST_CONFIG: DatabaseConfig = {
   database: 'testdb',
   user: 'testuser',
   password: 'testpass',
+  sslRejectUnauthorized: true,
 };
 
 describe('DatabaseClient', () => {
