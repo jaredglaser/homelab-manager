@@ -13,6 +13,7 @@ import {
 } from '@mui/material'
 import { Settings2 } from 'lucide-react'
 import { useStackStatusContext } from '@/components/stacks/stacks-context'
+import { useToast } from '@/hooks/toastAtom'
 import {
   getStackDetail,
   getDeployHistory,
@@ -41,6 +42,7 @@ function StackEditorView() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { statusMap, deployVersion } = useStackStatusContext()
+  const { showToast } = useToast()
 
   const [panel, setPanel] = useState<'secrets' | 'deploys'>('secrets')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -91,15 +93,26 @@ function StackEditorView() {
   const deleteMutation = useMutation({
     mutationFn: (teardown: boolean) =>
       deleteStack({ data: { stackName, teardown } }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
-      setDeleteDialogOpen(false)
-      navigate({ to: '/stacks' })
+      if (result.status === 'teardown-pending') {
+        showToast(`Teardown queued for ${stackName} — the stack will be removed when the agent finishes.`)
+      }
     },
     onError: (err) => {
-      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
+      showToast(err instanceof Error ? err.message : String(err))
     },
   })
+
+  function handleDeleteConfirm(teardown: boolean) {
+    // Fire the mutation without awaiting — for teardown the server returns
+    // immediately with a deployId and the pipeline handles the manifest delete
+    // asynchronously. Close the dialog and navigate right away so the user
+    // isn't held up waiting for the agent.
+    deleteMutation.mutate(teardown)
+    setDeleteDialogOpen(false)
+    navigate({ to: '/stacks' })
+  }
 
   const settingsMutation = useMutation({
     mutationFn: ({ newHost, autoDeploy }: { newHost: string; autoDeploy: boolean }) =>
@@ -229,7 +242,7 @@ function StackEditorView() {
       <DeleteStackDialog
         open={deleteDialogOpen}
         onClose={() => setDeleteDialogOpen(false)}
-        onConfirm={(teardown) => deleteMutation.mutate(teardown)}
+        onConfirm={handleDeleteConfirm}
         stackName={stackName}
         isLoading={deleteMutation.isPending}
       />
