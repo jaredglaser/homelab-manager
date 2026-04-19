@@ -1,5 +1,6 @@
 /**
- * Interface for resolving secrets during stack deployment.
+ * Resolves secrets for a stack's environment. Used by the deploy pipeline service layer.
+ *
  * The deploy pipeline calls resolveSecrets() to build the .env file.
  *
  * Implementations:
