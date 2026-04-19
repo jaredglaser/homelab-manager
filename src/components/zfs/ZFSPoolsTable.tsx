@@ -8,7 +8,7 @@ import { EMPTY_METRIC } from '@/components/shared-table';
 import type { ZFSStatsRow, ZFSHostHierarchy, ZFSHostStats, PoolStats, VdevStats } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
-import { useSettings } from '@/hooks/useSettings';
+import { useGeneralSettings, useZfsSettings } from '@/hooks/useSettings';
 import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 
 /** Flattened row model for the DataTable tree structure */
@@ -79,8 +79,8 @@ export default function ZFSPoolsTable({
     isVdevExpanded,
     toggleVdevExpanded,
     zfs,
-    general,
-  } = useSettings();
+  } = useZfsSettings();
+  const { general } = useGeneralSettings();
 
   const hostHierarchy = useMemo<ZFSHostHierarchy>(() => {
     const rows = Array.from(latestByEntity.values());

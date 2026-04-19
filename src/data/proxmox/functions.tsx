@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
+import { databaseMiddleware } from '@/middleware/database-middleware';
 import { getHistoricalProxmoxStatsSchema } from '@/data/proxmox/schemas';
 
 /**
@@ -7,20 +8,14 @@ import { getHistoricalProxmoxStatsSchema } from '@/data/proxmox/schemas';
  * Used by useTimeSeriesStream to preload data before SSE streaming begins.
  */
 export const getHistoricalProxmoxStats = createServerFn()
+  .middleware([databaseMiddleware])
   .inputValidator(getHistoricalProxmoxStatsSchema)
-  .handler(async ({ data }): Promise<ProxmoxStatsRow[]> => {
+  .handler(async ({ context, data }): Promise<ProxmoxStatsRow[]> => {
     try {
-      const { databaseConnectionManager } = await import(
-        '@/lib/clients/database-client'
-      );
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
       const { StatsRepository } = await import(
         '@/lib/database/repositories/stats-repository'
       );
-
-      const config = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(config);
-      const repo = new StatsRepository(dbClient.getPool());
+      const repo = new StatsRepository(context.pool);
 
       return await repo.getProxmoxStatsHistory(data.seconds);
     } catch (err) {

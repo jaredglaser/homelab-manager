@@ -15,6 +15,7 @@ function createMockDbConfig(): DatabaseConfig {
     database: 'test',
     user: 'test',
     password: 'test',
+    sslRejectUnauthorized: true,
   };
 }
 

@@ -1,4 +1,5 @@
 import { atom } from 'jotai';
+import { selectAtom } from 'jotai/utils';
 import { SETTINGS_KEYS } from '@/lib/constants/settings-keys';
 
 export type MemoryDisplayMode = 'percentage' | 'bytes';
@@ -211,3 +212,100 @@ export const settingsAtom = atom<Settings>((get) => parseSettings(get(rawSetting
  *  the update indicator from the data-receiving component (avoids prop drilling
  *  that would re-render the entire Proxmox page on every SSE message). */
 export const proxmoxLastUpdateAtom = atom<number>(0);
+
+/**
+ * Shallow set equality — compares two Sets by size and membership.
+ * parseSettings creates fresh Set instances on every raw change, so plain
+ * identity equality would always re-render domain subscribers. Using a
+ * structural comparison lets selectAtom short-circuit when the parsed
+ * contents match the previous slice.
+ */
+function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const item of a) {
+    if (!b.has(item)) return false;
+  }
+  return true;
+}
+
+function generalEqual(a: Settings['general'], b: Settings['general']): boolean {
+  return (
+    a === b ||
+    (a.use12HourTime === b.use12HourTime &&
+      a.updateIntervalMs === b.updateIntervalMs &&
+      a.showSparklines === b.showSparklines &&
+      a.useAbbreviatedUnits === b.useAbbreviatedUnits &&
+      a.lightPalette === b.lightPalette)
+  );
+}
+
+function dockerEqual(a: Settings['docker'], b: Settings['docker']): boolean {
+  return (
+    a === b ||
+    (a.memoryDisplayMode === b.memoryDisplayMode &&
+      a.chartWindowSeconds === b.chartWindowSeconds &&
+      a.decimals.cpu === b.decimals.cpu &&
+      a.decimals.memory === b.decimals.memory &&
+      a.decimals.diskSpeed === b.decimals.diskSpeed &&
+      a.decimals.networkSpeed === b.decimals.networkSpeed &&
+      setsEqual(a.expandedHosts, b.expandedHosts) &&
+      setsEqual(a.expandedContainers, b.expandedContainers))
+  );
+}
+
+function stacksEqual(a: Settings['stacks'], b: Settings['stacks']): boolean {
+  return a === b || setsEqual(a.expandedStacks, b.expandedStacks);
+}
+
+function zfsEqual(a: Settings['zfs'], b: Settings['zfs']): boolean {
+  return (
+    a === b ||
+    (a.decimals.diskSpeed === b.decimals.diskSpeed &&
+      setsEqual(a.expandedHosts, b.expandedHosts) &&
+      setsEqual(a.expandedPools, b.expandedPools) &&
+      setsEqual(a.expandedVdevs, b.expandedVdevs))
+  );
+}
+
+function proxmoxEqual(a: Settings['proxmox'], b: Settings['proxmox']): boolean {
+  return (
+    a === b ||
+    (a.updateInterval === b.updateInterval &&
+      setsEqual(a.expandedHosts, b.expandedHosts) &&
+      setsEqual(a.expandedSections, b.expandedSections))
+  );
+}
+
+function retentionEqual(a: Settings['retention'], b: Settings['retention']): boolean {
+  return (
+    a === b ||
+    (a.rawDataHours === b.rawDataHours &&
+      a.minuteAggDays === b.minuteAggDays &&
+      a.hourAggDays === b.hourAggDays)
+  );
+}
+
+function developerEqual(a: Settings['developer'], b: Settings['developer']): boolean {
+  return (
+    a === b ||
+    (a.dockerDebugLogging === b.dockerDebugLogging &&
+      a.dbFlushDebugLogging === b.dbFlushDebugLogging &&
+      a.sseDebugLogging === b.sseDebugLogging)
+  );
+}
+
+/**
+ * Domain-scoped derived atoms. Each selects one slice of `settingsAtom` and
+ * re-emits only when that slice differs structurally from the previous value.
+ * Components subscribing via useGeneralSettings/useDockerSettings/etc. only
+ * re-render when their own domain changes — e.g. toggling a Docker host
+ * expansion no longer re-renders ZFS or Proxmox components.
+ */
+export const generalSettingsAtom = selectAtom(settingsAtom, (s) => s.general, generalEqual);
+export const dockerSettingsAtom = selectAtom(settingsAtom, (s) => s.docker, dockerEqual);
+export const stacksSettingsAtom = selectAtom(settingsAtom, (s) => s.stacks, stacksEqual);
+export const zfsSettingsAtom = selectAtom(settingsAtom, (s) => s.zfs, zfsEqual);
+export const proxmoxSettingsAtom = selectAtom(settingsAtom, (s) => s.proxmox, proxmoxEqual);
+export const retentionSettingsAtom = selectAtom(settingsAtom, (s) => s.retention, retentionEqual);
+export const developerSettingsAtom = selectAtom(settingsAtom, (s) => s.developer, developerEqual);

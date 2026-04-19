@@ -12,24 +12,18 @@ import {
   rejectDeploySchema,
 } from '@/data/stacks/schemas';
 
-/** Module-scoped cached OpenBao client to avoid repeated init overhead. */
-let cachedBaoClient: OpenBaoClient | null = null;
-
 /**
- * Get an initialized OpenBao client. Ensures the KV v2 secrets engine
- * is enabled on first use (idempotent singleton).
+ * Lazy wrapper around the shared OpenBao client factory. The factory owns
+ * the single module-scoped cache used by both this file and openBaoMiddleware,
+ * so invalidating or initializing the client in one place is reflected in the
+ * other. Kept as a dynamic import so nothing from the factory's transitive
+ * dependency graph can leak into the client bundle via this barrel file.
  */
 async function getOpenBaoClient(): Promise<OpenBaoClient> {
-  if (cachedBaoClient) return cachedBaoClient;
-  const { isOpenBaoConfigured, loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-  if (!isOpenBaoConfigured()) throw new Error('OpenBao is not configured');
-  const { OpenBaoClient: Client } = await import('@/lib/clients/openbao-client');
-  const { initializeOpenBao } = await import('@/lib/services/openbao-init');
-  const config = loadOpenBaoConfig();
-  const client = new Client(config);
-  await initializeOpenBao(client);
-  cachedBaoClient = client;
-  return client;
+  const { getOpenBaoClient: factory } = await import(
+    '@/lib/clients/openbao-client-factory'
+  );
+  return factory();
 }
 
 /**

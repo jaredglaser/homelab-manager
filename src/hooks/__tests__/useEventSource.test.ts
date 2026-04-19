@@ -231,4 +231,53 @@ describe('useEventSource', () => {
     expect(received).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
   });
 
+  it('logs message count when debug is enabled', () => {
+    const onData = mock(() => {});
+    const origLog = console.log;
+    const logMock = mock((..._args: unknown[]) => {});
+    console.log = logMock;
+
+    try {
+      renderHook(() => useEventSource({ url: '/api/test', onData, debug: true }));
+
+      const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+      act(() => { es.onopen?.(); });
+      act(() => { es.onmessage?.({ data: JSON.stringify({ val: 1 }) }); });
+
+      const messageCall = logMock.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('Message #'),
+      );
+      expect(messageCall).toBeDefined();
+      expect(messageCall![0] as string).toContain('[useEventSource] Message #1');
+    } finally {
+      console.log = origLog;
+    }
+  });
+
+  it('logs connection error when debug is enabled', () => {
+    const origWarn = console.warn;
+    const warnMock = mock((..._args: unknown[]) => {});
+    console.warn = warnMock;
+
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      (() => 0) as unknown as typeof setTimeout,
+    );
+
+    let unmount: (() => void) | undefined;
+    try {
+      ({ unmount } = renderHook(() => useEventSource({ url: '/api/test', onData: () => {}, debug: true })));
+
+      const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+      act(() => { es.onerror?.(); });
+
+      expect(warnMock).toHaveBeenCalled();
+      const warnArg = warnMock.mock.calls[0][0] as string;
+      expect(warnArg).toContain('[useEventSource]');
+    } finally {
+      unmount?.();
+      setTimeoutSpy.mockRestore();
+      console.warn = origWarn;
+    }
+  });
+
 });

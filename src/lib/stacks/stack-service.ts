@@ -20,6 +20,7 @@ import {
 } from '@/lib/stacks/stack-mappers';
 import { resolveDeleteStack, type DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
 
+/** Re-exported alongside service layer for consistent mock.module() targeting in tests. */
 export { resolveDeleteStack } from '@/lib/stacks/delete-stack-resolver';
 export type { DeleteStackDeps, DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
 

@@ -89,7 +89,8 @@ export class DeployPipeline {
           return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId: undefined };
         }
 
-        // no_change counts as success for postSuccess hooks.
+        // postSuccess is only set for teardown actions, which never reach the no_change path.
+        // This branch exists only for future-proofing if new action types are added.
         if (deployId !== undefined && request.postSuccess === 'removeFromManifest') {
           try {
             await this.stackRepoWriter.removeStackFromManifest(request.stack);

@@ -98,11 +98,11 @@ function StackEditorView() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
       if (result.status === 'teardown-pending') {
-        showToast(`Teardown queued for ${stackName} — the stack will be removed when the agent finishes.`)
+        showToast(`Teardown queued for ${stackName} — the stack will be removed when the agent finishes.`, 'success')
       }
     },
     onError: (err) => {
-      showToast(err instanceof Error ? err.message : String(err))
+      showToast(err instanceof Error ? err.message : String(err), 'error')
     },
   })
 
