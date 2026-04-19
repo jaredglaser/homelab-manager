@@ -153,4 +153,32 @@ describe('performStartupRecovery', () => {
     expect(sleep.mock.calls[1][0]).toBe(200);
     errSpy.mockRestore();
   });
+
+  it('uses default backoff and sleep when no options are provided', async () => {
+    // Spy on setTimeout to fire synchronously so the default sleep resolves immediately.
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler) => {
+        if (typeof fn === 'function') fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout,
+    );
+
+    const recoverStuckDeploys = mock()
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValueOnce([]) as unknown as StartupRecoveryRepo['recoverStuckDeploys'];
+    const repo = createRepo({ recoverStuckDeploys });
+    const watchdog = createWatchdog();
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      // Calling without options exercises the default backoffMs and sleep inline functions.
+      await performStartupRecovery(repo, watchdog);
+
+      expect(recoverStuckDeploys).toHaveBeenCalledTimes(2);
+      expect(watchdog.startMock).toHaveBeenCalledTimes(1);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+  });
 });
