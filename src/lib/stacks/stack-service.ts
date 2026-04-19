@@ -220,41 +220,30 @@ export async function createStackInRepo(
   const managedHost = await hostsRepo.getByName(host);
   if (!managedHost) throw new Error(`Host "${host}" not found in managed_hosts`);
 
-  // Read manifest and validate stack doesn't already exist
-  let manifest: ReturnType<typeof parseManifest>;
-  try {
-    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-    manifest = parseManifest(manifestContent);
-  } catch (err: unknown) {
-    if (err instanceof FileNotFoundError) {
-      // No manifest yet — start with empty stacks
-      manifest = { stacks: {} };
-    } else {
-      throw err;
+  const commitSha = await commitFiles(repoPath, (existingFiles) => {
+    const manifestContent = existingFiles.get(MANIFEST_FILENAME);
+    const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
+
+    if (manifest.stacks[stackName]) {
+      throw new Error(`Stack "${stackName}" already exists`);
     }
-  }
 
-  if (manifest.stacks[stackName]) {
-    throw new Error(`Stack "${stackName}" already exists`);
-  }
+    manifest.stacks[stackName] = { host, autoDeploy };
+    const newManifestContent = yaml.dump(manifest, {
+      indent: 2,
+      lineWidth: -1,
+      noRefs: true,
+      sortKeys: true,
+    });
 
-  // Build updated manifest
-  manifest.stacks[stackName] = { host, autoDeploy };
-  const newManifestContent = yaml.dump(manifest, {
-    indent: 2,
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: true,
-  });
-
-  // Atomic commit: empty compose file + updated manifest
-  const commitSha = await commitFiles(repoPath, {
-    files: [
-      { path: `${stackName}/${COMPOSE_FILENAME}`, content: '' },
-      { path: MANIFEST_FILENAME, content: newManifestContent },
-    ],
-    message: `Add stack: ${stackName} on ${host}`,
-    author: SYSTEM_AUTHOR,
+    return {
+      files: [
+        { path: `${stackName}/${COMPOSE_FILENAME}`, content: '' },
+        { path: MANIFEST_FILENAME, content: newManifestContent },
+      ],
+      message: `Add stack: ${stackName} on ${host}`,
+      author: SYSTEM_AUTHOR,
+    };
   });
 
   return { commitSha };
@@ -266,7 +255,6 @@ export async function deleteStackFromRepo(
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
 
-  // Read manifest to get host for this stack
   const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
   const manifest = parseManifest(manifestContent);
   const entry = manifest.stacks[stackName];
@@ -293,33 +281,34 @@ export async function deleteStackFromRepo(
     await teardownAndAwait(stackName, host, deployRepo);
   }
 
-  // Remove stack from manifest
-  delete manifest.stacks[stackName];
-  const newManifestContent = yaml.dump(manifest, {
-    indent: 2,
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: true,
-  });
-
-  // Get all files in the stack directory to remove them
-  let stackFiles: string[];
-  try {
-    stackFiles = await (await import('@/lib/git/repo')).listFilesInRepo(repoPath, stackName);
-  } catch (err: unknown) {
-    if (err instanceof FileNotFoundError || (err instanceof Error && err.message.includes('Could not resolve'))) {
-      stackFiles = [];
-    } else {
-      throw err;
+  const commitSha = await commitFiles(repoPath, (existingFiles) => {
+    const freshManifestContent = existingFiles.get(MANIFEST_FILENAME);
+    if (freshManifestContent === undefined) {
+      throw new Error(`Stack "${stackName}" not found in manifest`);
     }
-  }
+    const manifest = parseManifest(freshManifestContent);
 
-  // Atomic commit: remove stack files + update manifest
-  const commitSha = await commitFiles(repoPath, {
-    files: [{ path: MANIFEST_FILENAME, content: newManifestContent }],
-    filesToDelete: stackFiles,
-    message: `Remove stack: ${stackName}`,
-    author: SYSTEM_AUTHOR,
+    if (!manifest.stacks[stackName]) {
+      throw new Error(`Stack "${stackName}" not found in manifest`);
+    }
+
+    delete manifest.stacks[stackName];
+    const newManifestContent = yaml.dump(manifest, {
+      indent: 2,
+      lineWidth: -1,
+      noRefs: true,
+      sortKeys: true,
+    });
+
+    const stackDirPrefix = `${stackName}/`;
+    const stackFiles = Array.from(existingFiles.keys()).filter((p) => p.startsWith(stackDirPrefix));
+
+    return {
+      files: [{ path: MANIFEST_FILENAME, content: newManifestContent }],
+      filesToDelete: stackFiles,
+      message: `Remove stack: ${stackName}`,
+      author: SYSTEM_AUTHOR,
+    };
   });
 
   return { commitSha };

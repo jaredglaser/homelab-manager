@@ -34,19 +34,19 @@ const TEST_HOST: ManagedHost = {
 };
 
 async function buildPlexChangeCommits(repoPath: string): Promise<{ sha1: string; sha2: string }> {
-  const sha1 = await commitFiles(repoPath, {
+  const sha1 = await commitFiles(repoPath, () => ({
     files: [
       { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX },
       { path: 'plex/docker-compose.yml', content: 'v1' },
     ],
     message: 'initial',
     author: { name: 'test', email: 'test@test.com' },
-  });
-  const sha2 = await commitFiles(repoPath, {
+  }));
+  const sha2 = await commitFiles(repoPath, () => ({
     files: [{ path: 'plex/docker-compose.yml', content: 'v2' }],
     message: 'update plex',
     author: { name: 'test', email: 'test@test.com' },
-  });
+  }));
   return { sha1, sha2 };
 }
 
@@ -145,19 +145,19 @@ describe('processPostReceive (pipeline paths)', () => {
 
   it('returns early when all compose file reads fail (changedStacks.size === 0)', async () => {
     // Non-compose file in plex/ triggers buildDeployRequests but compose read throws.
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX },
         { path: 'plex/readme.txt', content: 'info' },
       ],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
-    const sha2 = await commitFiles(repoPath, {
+    }));
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/readme.txt', content: 'updated info' }],
       message: 'update plex readme',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
 
@@ -219,7 +219,7 @@ describe('processPostReceive (pipeline paths)', () => {
     // Make getByName throw for the first stack (plex) but succeed for the second (sonarr).
     // getByName throws BEFORE the try/catch in dispatch(), so execute() propagates the throw.
     // processPostReceive's per-deploy catch logs the per-deploy error.
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         {
           path: 'manifest.yaml',
@@ -231,15 +231,15 @@ describe('processPostReceive (pipeline paths)', () => {
       ],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
-    const sha2 = await commitFiles(repoPath, {
+    }));
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'plex/docker-compose.yml', content: 'v2' },
         { path: 'sonarr/docker-compose.yml', content: 'v2' },
       ],
       message: 'update both stacks',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     getByNameSpy
       .mockRejectedValueOnce(new Error('host lookup failed'))
@@ -288,7 +288,7 @@ describe('processPostReceive (pipeline paths)', () => {
     );
 
     try {
-      const sha1 = await commitFiles(repoPath, {
+      const sha1 = await commitFiles(repoPath, () => ({
         files: [
           { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX },
           {
@@ -298,8 +298,8 @@ describe('processPostReceive (pipeline paths)', () => {
         ],
         message: 'initial',
         author: { name: 'test', email: 'test@test.com' },
-      });
-      const sha2 = await commitFiles(repoPath, {
+      }));
+      const sha2 = await commitFiles(repoPath, () => ({
         files: [
           {
             path: 'plex/docker-compose.yml',
@@ -309,7 +309,7 @@ describe('processPostReceive (pipeline paths)', () => {
         ],
         message: 'update plex',
         author: { name: 'test', email: 'test@test.com' },
-      });
+      }));
 
       await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
 
@@ -367,7 +367,7 @@ describe('processPostReceive (pipeline paths)', () => {
     // isOpenBaoConfigured=false (default), so baoClient=null.
     // secretResolver.resolve is called with variables but returns {} because baoClient is null.
     // To trigger secretResolver with variables, use a compose file with env var references.
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX },
         {
@@ -377,8 +377,8 @@ describe('processPostReceive (pipeline paths)', () => {
       ],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
-    const sha2 = await commitFiles(repoPath, {
+    }));
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [
         {
           path: 'plex/docker-compose.yml',
@@ -388,7 +388,7 @@ describe('processPostReceive (pipeline paths)', () => {
       ],
       message: 'update plex',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
 

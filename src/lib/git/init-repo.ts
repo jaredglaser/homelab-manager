@@ -16,17 +16,19 @@ export async function ensureRepoInitialized(): Promise<void> {
 
   await initBareRepo(repoPath);
 
-  const hasCommits = await hasAnyCommits(repoPath);
-  if (!hasCommits) {
-    await commitFiles(repoPath, {
+  if (await hasAnyCommits(repoPath)) return;
+
+  await commitFiles(repoPath, (existingFiles) => {
+    if (existingFiles.size > 0) return null; // another writer initialized first
+    return {
       files: [{ path: 'manifest.yaml', content: DEFAULT_MANIFEST }],
       message: 'Initialize stacks repository',
       author: {
         name: 'homelab-manager',
         email: 'homelab-manager@localhost',
       },
-    });
-  }
+    };
+  });
 }
 
 async function hasAnyCommits(repoPath: string): Promise<boolean> {
