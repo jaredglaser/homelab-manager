@@ -1,15 +1,9 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table';
 import type { ColumnDef } from '@tanstack/react-table';
+import { createStore, Provider } from 'jotai';
 import { metricColumn, nameColumn, statusColumn, progressColumn } from '../columns';
-
-/** Minimal mock for useSettings used inside MetricHeaderCell */
-mock.module('@/hooks/useSettings', () => ({
-  useSettings: () => ({
-    general: { useAbbreviatedUnits: false, showSparklines: false },
-  }),
-}));
 
 /** Test row type */
 interface TestRow {
@@ -38,6 +32,7 @@ function CellRenderer<TRow>({
   column: ColumnDef<TRow, unknown>;
   row: TRow;
 }) {
+  const store = createStore();
   const table = useReactTable({
     data: [row],
     columns: [column],
@@ -47,10 +42,11 @@ function CellRenderer<TRow>({
 
   const tableRow = table.getRowModel().rows[0];
   const cell = tableRow.getVisibleCells()[0];
-  return <>{flexRender(cell.column.columnDef.cell, cell.getContext())}</>;
+  return <Provider store={store}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</Provider>;
 }
 
 function HeaderRenderer<TRow>({ column }: { column: ColumnDef<TRow, unknown> }) {
+  const store = createStore();
   const table = useReactTable({
     data: [],
     columns: [column],
@@ -60,7 +56,7 @@ function HeaderRenderer<TRow>({ column }: { column: ColumnDef<TRow, unknown> }) 
 
   const headerGroup = table.getHeaderGroups()[0];
   const header = headerGroup.headers[0];
-  return <>{flexRender(header.column.columnDef.header, header.getContext())}</>;
+  return <Provider store={store}>{flexRender(header.column.columnDef.header, header.getContext())}</Provider>;
 }
 
 describe('metricColumn', () => {

@@ -9,12 +9,22 @@ export type DeployStatus =
 
 export type DeployTrigger = 'git_push' | 'ui' | 'manual_rollback';
 
+/**
+ * Action to run inside the pipeline after a deploy reaches a terminal-success
+ * state (`succeeded` or `no_change`). Currently only `removeFromManifest` is
+ * supported — used by async teardown to delete the stack entry from the git
+ * manifest once the agent reports teardown complete.
+ */
+export type DeployPostSuccess = 'removeFromManifest';
+
 interface BaseDeployRequest {
   stack: string;
   host: string;
   commitSha: string;
   trigger: DeployTrigger;
   autoApproved: boolean;
+  /** Optional post-success hook executed by the pipeline. */
+  postSuccess?: DeployPostSuccess;
 }
 
 export interface DeployActionRequest extends BaseDeployRequest {
@@ -47,6 +57,7 @@ export interface DeployRecord {
   forceRecreate: boolean;
   logs: string | null;
   createdAt: Date;
+  postSuccess: DeployPostSuccess | null;
 }
 
 // Re-export from canonical location to avoid duplication
@@ -79,10 +90,7 @@ export interface Manifest {
   stacks: Record<string, ManifestEntry>;
 }
 
-/**
- * Secret resolver interface. The no-op implementation returns an empty record.
- * The OpenBao plan provides a real implementation.
- */
+/** Secret resolution contract for the deploy pipeline executor. */
 export interface SecretResolver {
   resolve(stack: string, variables: string[]): Promise<Record<string, string>>;
 }

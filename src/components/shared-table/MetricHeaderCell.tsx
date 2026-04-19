@@ -1,5 +1,5 @@
 import { memo, type ReactNode } from 'react';
-import { useSettings } from '@/hooks/useSettings';
+import { useGeneralSettings } from '@/hooks/useSettings';
 
 /**
  * Column header that aligns with MetricCell's value portion.
@@ -9,7 +9,7 @@ import { useSettings } from '@/hooks/useSettings';
  * text width. Tables use overflow-x-auto so nothing needs to shrink.
  */
 export const MetricHeaderCell = memo(function MetricHeaderCell({ children }: { children: ReactNode }) {
-  const { general } = useSettings();
+  const { general } = useGeneralSettings();
   const { useAbbreviatedUnits, showSparklines } = general;
   const unitWidth = useAbbreviatedUnits ? 'w-[2.5rem]' : 'w-[3.5rem]';
 

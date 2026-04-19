@@ -3,7 +3,7 @@ import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { formatBytes } from '@/formatters/metrics';
-import { useSettings } from '@/hooks/useSettings';
+import { useGeneralSettings } from '@/hooks/useSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
 import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis } from '@/lib/charts/y-axis';
@@ -172,7 +172,7 @@ export default function ZFSPoolSpeedChart({
   poolName,
   dataPoints,
 }: ZFSPoolSpeedChartProps) {
-  const { general } = useSettings();
+  const { general } = useGeneralSettings();
   const option = getChartOption(dataPoints, general.use12HourTime);
   const chartRef = useRef<ReactECharts>(null);
 

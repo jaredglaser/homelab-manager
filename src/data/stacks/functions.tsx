@@ -10,24 +10,18 @@ import {
   updateStackIconSchema,
 } from '@/data/stacks/schemas';
 
-/** Module-scoped cached OpenBao client to avoid repeated init overhead. */
-let cachedBaoClient: OpenBaoClient | null = null;
-
 /**
- * Get an initialized OpenBao client. Ensures the KV v2 secrets engine
- * is enabled on first use (idempotent singleton).
+ * Lazy wrapper around the shared OpenBao client factory. The factory owns
+ * the single module-scoped cache used by both this file and openBaoMiddleware,
+ * so invalidating or initializing the client in one place is reflected in the
+ * other. Kept as a dynamic import so nothing from the factory's transitive
+ * dependency graph can leak into the client bundle via this barrel file.
  */
 async function getOpenBaoClient(): Promise<OpenBaoClient> {
-  if (cachedBaoClient) return cachedBaoClient;
-  const { isOpenBaoConfigured, loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-  if (!isOpenBaoConfigured()) throw new Error('OpenBao is not configured');
-  const { OpenBaoClient: Client } = await import('@/lib/clients/openbao-client');
-  const { initializeOpenBao } = await import('@/lib/services/openbao-init');
-  const config = loadOpenBaoConfig();
-  const client = new Client(config);
-  await initializeOpenBao(client);
-  cachedBaoClient = client;
-  return client;
+  const { getOpenBaoClient: factory } = await import(
+    '@/lib/clients/openbao-client-factory'
+  );
+  return factory();
 }
 
 /**
@@ -211,11 +205,17 @@ const deleteStackSchema = z.object({
 });
 
 /**
- * Delete a stack from the git repo, optionally tearing down containers first.
+ * Delete a stack from the git repo. If `teardown` is true, queues an async
+ * teardown via the deploy pipeline and returns immediately — the pipeline's
+ * postSuccess hook removes the manifest entry once the agent reports success.
+ * If `teardown` is false, removes the stack from the manifest synchronously.
  */
 export const deleteStack = createServerFn({ method: 'POST' })
   .inputValidator(deleteStackSchema)
-  .handler(async ({ data }): Promise<{ commitSha: string }> => {
+  .handler(async ({ data }): Promise<
+    | { status: 'removed'; commitSha: string }
+    | { status: 'teardown-pending'; deployId: number }
+  > => {
     const { deleteStackFromRepo } = await import('@/lib/stacks/stack-service');
     return deleteStackFromRepo(data.stackName, data.teardown);
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
-import { DeployPipeline } from '../pipeline';
+import { DeployPipeline, type StackRepoWriter } from '../pipeline';
 import type { DeployRecord, DeployRequest, ManagedHost, SecretResolver } from '@/lib/deploy/types';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import type { ManagedHostsRepository } from '@/lib/database/repositories/managed-hosts-repository';
@@ -18,7 +18,14 @@ const defaultPendingRecord = {
   forceRecreate: false,
   logs: null,
   createdAt: new Date(),
+  postSuccess: null,
 };
+
+function createMockStackRepoWriter(): StackRepoWriter & { removeStackFromManifest: ReturnType<typeof mock> } {
+  return {
+    removeStackFromManifest: mock().mockResolvedValue({ commitSha: 'commit-xyz' }),
+  } as StackRepoWriter & { removeStackFromManifest: ReturnType<typeof mock> };
+}
 
 function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): DeployRepository {
   return {
@@ -102,6 +109,7 @@ describe('DeployPipeline', () => {
       agentClientFactory,
       secretResolver,
       tokenResolver: () => 'test-token',
+      stackRepoWriter: createMockStackRepoWriter(),
     });
   });
 
@@ -129,6 +137,7 @@ describe('DeployPipeline', () => {
         forceRecreate: false,
         logs: null,
         createdAt: new Date(),
+        postSuccess: null,
       };
       // We need the hashes to match -- compute from the same content
       const { computeHash } = await import('../change-detection');
@@ -144,6 +153,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(testRequest);
@@ -158,6 +168,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       await expect(pipeline.execute(testRequest)).rejects.toThrow('not found in managed_hosts');
@@ -173,6 +184,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(testRequest);
@@ -199,6 +211,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(testRequest);
@@ -238,6 +251,7 @@ describe('DeployPipeline', () => {
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(requestWithVars);
@@ -263,6 +277,7 @@ describe('DeployPipeline', () => {
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       await pipeline.execute(requestWithVars);
@@ -292,6 +307,7 @@ describe('DeployPipeline', () => {
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       await pipeline.execute(requestWithEnv);
@@ -317,6 +333,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(testRequest);
@@ -336,6 +353,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(testRequest);
@@ -357,6 +375,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(testRequest);
@@ -374,6 +393,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(testRequest);
@@ -403,6 +423,7 @@ describe('DeployPipeline', () => {
           forceRecreate: false,
           logs: null,
           createdAt: new Date(),
+          postSuccess: null,
         }) as any,
       });
       pipeline = new DeployPipeline({
@@ -411,12 +432,176 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.execute(rollbackRequest);
       // Change detection is bypassed — deploy should proceed even though hashes match
       expect(result.status).toBe('succeeded');
       expect(deployRepo.getLatestSuccessful).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('postSuccess hook', () => {
+    it('invokes removeStackFromManifest after a successful teardown', async () => {
+      const writer = createMockStackRepoWriter();
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+        stackRepoWriter: writer,
+      });
+
+      const teardownRequest: DeployRequest = {
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'abc123',
+        action: 'teardown',
+        trigger: 'ui',
+        autoApproved: true,
+        postSuccess: 'removeFromManifest',
+      };
+
+      const result = await pipeline.execute(teardownRequest);
+      expect(result.status).toBe('succeeded');
+      expect(writer.removeStackFromManifest).toHaveBeenCalledTimes(1);
+      expect(writer.removeStackFromManifest).toHaveBeenCalledWith('plex');
+    });
+
+    it('invokes removeStackFromManifest on the no_change path', async () => {
+      // Previous deploy hashes match the request, so deploy becomes no_change.
+      const { computeHash } = await import('../change-detection');
+      const composeContent = 'version: "3"\nservices:\n  plex:\n    image: plexinc/pms-docker';
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue({
+          id: 99,
+          stack: 'plex',
+          host: 'homeserver',
+          commitSha: 'prev',
+          composeHash: computeHash(composeContent),
+          envHash: computeHash(''),
+          status: 'succeeded' as const,
+          trigger: 'git_push' as const,
+          action: 'deploy' as const,
+          forceRecreate: false,
+          logs: null,
+          createdAt: new Date(),
+          postSuccess: null,
+        }) as any,
+      });
+      const writer = createMockStackRepoWriter();
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+        stackRepoWriter: writer,
+      });
+
+      const req: DeployRequest = {
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'abc123',
+        composeContent,
+        envContent: '',
+        action: 'deploy',
+        trigger: 'git_push',
+        autoApproved: true,
+        postSuccess: 'removeFromManifest',
+      };
+
+      const result = await pipeline.execute(req);
+      expect(result.status).toBe('no_change');
+      expect(writer.removeStackFromManifest).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns failed and records status when manifest delete throws', async () => {
+      const writer = {
+        removeStackFromManifest: mock().mockRejectedValue(new Error('git corrupted')),
+      } as StackRepoWriter & { removeStackFromManifest: ReturnType<typeof mock> };
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+        stackRepoWriter: writer,
+      });
+
+      const teardownRequest: DeployRequest = {
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'abc123',
+        action: 'teardown',
+        trigger: 'ui',
+        autoApproved: true,
+        postSuccess: 'removeFromManifest',
+      };
+
+      const result = await pipeline.execute(teardownRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toBe('git corrupted');
+      expect(deployRepo.updateStatus).toHaveBeenCalledWith(
+        1,
+        'failed',
+        expect.stringContaining('manifest delete failed'),
+      );
+    });
+
+    it('does NOT invoke removeStackFromManifest when deploy fails', async () => {
+      const failAgent = createMockAgentClient(false);
+      agentClientFactory = mock().mockReturnValue(failAgent);
+      const writer = createMockStackRepoWriter();
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+        stackRepoWriter: writer,
+      });
+
+      const teardownRequest: DeployRequest = {
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'abc123',
+        action: 'teardown',
+        trigger: 'ui',
+        autoApproved: true,
+        postSuccess: 'removeFromManifest',
+      };
+
+      const result = await pipeline.execute(teardownRequest);
+      expect(result.status).toBe('failed');
+      expect(writer.removeStackFromManifest).not.toHaveBeenCalled();
+    });
+
+    it('does NOT invoke removeStackFromManifest when postSuccess is absent', async () => {
+      const writer = createMockStackRepoWriter();
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: () => 'test-token',
+        stackRepoWriter: writer,
+      });
+
+      const teardownRequest: DeployRequest = {
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'abc123',
+        action: 'teardown',
+        trigger: 'ui',
+        autoApproved: true,
+      };
+
+      const result = await pipeline.execute(teardownRequest);
+      expect(result.status).toBe('succeeded');
+      expect(writer.removeStackFromManifest).not.toHaveBeenCalled();
     });
   });
 
@@ -439,6 +624,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.resumePending(42, testHost, testRequest);
@@ -457,6 +643,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.resumePending(99, testHost, testRequest);
@@ -476,6 +663,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver: failResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.resumePending(42, testHost, requestWithVars);
@@ -497,6 +685,7 @@ describe('DeployPipeline', () => {
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
+        stackRepoWriter: createMockStackRepoWriter(),
       });
 
       const result = await pipeline.resumePending(42, testHost, testRequest);

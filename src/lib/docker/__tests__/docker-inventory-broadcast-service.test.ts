@@ -673,6 +673,47 @@ describe('zDockerInventoryBroadcastEvent', () => {
   });
 });
 
+describe('DockerInventoryBroadcastService — connection failure retry', () => {
+  it('retries after getPoolClient throws, resolving via the setTimeout-based await', async () => {
+    const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    let connectAttempts = 0;
+    const goodClient = createMockPoolClient();
+
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler, _delay?: number) => {
+        // Fire synchronously so the retry loop resolves in-test.
+        if (typeof fn === 'function') fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout,
+    );
+
+    const service = new DockerInventoryBroadcastService({
+      getPoolClient: async () => {
+        connectAttempts++;
+        if (connectAttempts === 1) throw new Error('connection refused');
+        return goodClient as unknown as PoolClient;
+      },
+      loadSnapshot: async () => [],
+    });
+
+    try {
+      service.subscribe(() => {});
+      // Allow the retry loop to complete.
+      await new Promise<void>((r) => queueMicrotask(r));
+      await new Promise<void>((r) => queueMicrotask(r));
+      await new Promise<void>((r) => queueMicrotask(r));
+
+      // The service should have retried and connected on the second attempt.
+      expect(connectAttempts).toBeGreaterThanOrEqual(2);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      consoleSpy.mockRestore();
+      await service.stop();
+    }
+  });
+});
+
 describe('DockerInventoryBroadcastService — zod validation at NOTIFY boundary', () => {
   it('drops malformed NOTIFY frames before fanning out to subscribers', async () => {
     const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
