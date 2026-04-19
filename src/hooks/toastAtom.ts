@@ -16,7 +16,7 @@ export function useToast() {
   const setToasts = useSetAtom(toastsAtom);
 
   const showToast = useCallback(
-    (message: string, severity: AlertColor = 'error') => {
+    (message: string, severity: AlertColor) => {
       const id = nextId++;
       setToasts(prev => [...prev, { id, message, severity }]);
     },

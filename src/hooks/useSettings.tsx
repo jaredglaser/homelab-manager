@@ -87,7 +87,7 @@ export function useSettings(): SettingsValue {
           }
           return { ...current, [key]: previousValue };
         });
-        showToast('Failed to save setting');
+        showToast('Failed to save setting', 'error');
       });
     },
     [setRaw, showToast]
