@@ -119,12 +119,12 @@ function StackEditorView() {
   const approveMutation = useMutation({
     mutationFn: (deployId: number) => resumeDeploy({ data: { deployId } }),
     onSuccess: () => {
-      showToast(`Deploy approved for ${stackName}`)
+      setDeployMessage({ type: 'success', text: `Deploy approved for ${stackName}` })
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
     },
     onError: (err) => {
-      showToast(err instanceof Error ? err.message : String(err))
+      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
   })
@@ -132,12 +132,12 @@ function StackEditorView() {
   const rejectMutation = useMutation({
     mutationFn: (deployId: number) => rejectDeploy({ data: { deployId } }),
     onSuccess: () => {
-      showToast(`Deploy rejected for ${stackName}`)
+      setDeployMessage({ type: 'success', text: `Deploy rejected for ${stackName}` })
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
     },
     onError: (err) => {
-      showToast(err instanceof Error ? err.message : String(err))
+      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
   })

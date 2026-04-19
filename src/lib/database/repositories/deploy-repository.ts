@@ -83,6 +83,20 @@ export class DeployRepository {
     }
   }
 
+  /**
+   * Atomically claim a pending deploy by transitioning it to 'in_progress'.
+   * The WHERE clause guards against concurrent approvals: only one caller will
+   * see rowCount > 0. Returns true if this caller won the race, false if the
+   * deploy was already claimed (or no longer exists).
+   */
+  async claimPending(id: number): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE deploy_history SET status = 'in_progress' WHERE id = $1 AND status = 'pending'`,
+      [id]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async getLatestSuccessful(stack: string, host: string): Promise<DeployRecord | null> {
     const result = await this.pool.query(
       `SELECT * FROM deploy_history

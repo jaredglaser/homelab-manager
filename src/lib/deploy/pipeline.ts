@@ -179,22 +179,9 @@ export class DeployPipeline {
    * Performs the same env merge / secret resolution that execute uses.
    */
   async resumePending(deployId: number, host: ManagedHost, request: DeployRequest): Promise<PipelineResult> {
-    const deploy = await this.deployRepo.getById(deployId);
-    if (!deploy || deploy.status !== 'pending') {
-      return { status: 'failed', logs: `Deploy ${deployId} is not in pending state`, deployId };
-    }
-
-    try {
-      await this.deployRepo.updateStatus(deployId, 'in_progress');
-    } catch (err) {
-      const errorMsg = `Failed to mark deploy as in_progress: ${err instanceof Error ? err.message : String(err)}`;
-      console.error(errorMsg, err);
-      try {
-        await this.deployRepo.updateStatus(deployId, 'failed', errorMsg);
-      } catch (dbErr) {
-        console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
-      }
-      return { status: 'failed', logs: errorMsg, deployId };
+    const claimed = await this.deployRepo.claimPending(deployId);
+    if (!claimed) {
+      return { status: 'failed', logs: `Deploy ${deployId} is not in pending state or was already approved`, deployId };
     }
 
     let resolvedEnvContent: string;

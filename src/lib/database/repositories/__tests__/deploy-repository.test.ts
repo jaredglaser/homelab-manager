@@ -80,6 +80,25 @@ describe('DeployRepository', () => {
     });
   });
 
+  describe('claimPending', () => {
+    it('returns true when the deploy was successfully claimed', async () => {
+      mock.pushResult([{}]); // 1 row affected
+      const result = await repo.claimPending(42);
+
+      expect(result).toBe(true);
+      expect(mock.queries[0].sql).toContain("status = 'in_progress'");
+      expect(mock.queries[0].sql).toContain("status = 'pending'");
+      expect(mock.queries[0].params).toEqual([42]);
+    });
+
+    it('returns false when the deploy was already claimed or not found', async () => {
+      mock.pushResult([]); // 0 rows affected
+      const result = await repo.claimPending(42);
+
+      expect(result).toBe(false);
+    });
+  });
+
   describe('updateStatus', () => {
     it('updates status and logs for a deploy record', async () => {
       mock.pushResult([{}]); // 1 row affected

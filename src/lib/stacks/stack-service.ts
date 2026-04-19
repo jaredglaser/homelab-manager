@@ -242,7 +242,7 @@ async function buildRequestFromDeployRecord(
       );
     } catch (err) {
       if (!(err instanceof FileNotFoundError)) throw err;
-      // Pending deploy for a stack with no compose file — let the pipeline handle it
+      console.warn(`[stack-service] compose file not found for deploy ${deploy.id}, proceeding with empty content`);
     }
     return {
       ...base,

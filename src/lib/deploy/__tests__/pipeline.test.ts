@@ -32,6 +32,7 @@ function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): Deploy
     insertDeploy: mock().mockResolvedValue(1),
     insertDeployIfNoActive: mock().mockResolvedValue(1),
     updateStatus: mock().mockResolvedValue(undefined),
+    claimPending: mock().mockResolvedValue(true),
     getById: mock().mockResolvedValue(defaultPendingRecord),
     getLatestSuccessful: mock().mockResolvedValue(null),
     hasActiveDeployForStack: mock().mockResolvedValue(false),
@@ -610,13 +611,13 @@ describe('DeployPipeline', () => {
       const result = await pipeline.resumePending(42, testHost, testRequest);
 
       expect(result.status).toBe('succeeded');
-      expect(deployRepo.updateStatus).toHaveBeenCalledWith(42, 'in_progress');
+      expect(deployRepo.claimPending).toHaveBeenCalledWith(42);
       expect(agentClientFactory).toHaveBeenCalled();
     });
 
-    it('rejects resume when deploy is not in pending state', async () => {
+    it('rejects resume when claimPending returns false (already claimed or not found)', async () => {
       deployRepo = createMockDeployRepo({
-        getById: mock().mockResolvedValue({ ...defaultPendingRecord, status: 'succeeded' }) as any,
+        claimPending: mock().mockResolvedValue(false) as any,
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
@@ -635,7 +636,7 @@ describe('DeployPipeline', () => {
 
     it('rejects resume when deploy is not found', async () => {
       deployRepo = createMockDeployRepo({
-        getById: mock().mockResolvedValue(null) as any,
+        claimPending: mock().mockResolvedValue(false) as any,
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
