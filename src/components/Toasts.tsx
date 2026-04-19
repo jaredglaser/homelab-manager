@@ -17,7 +17,7 @@ export default function Toasts() {
       onClose={() => dismissToast(toast.id)}
       anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
     >
-      <Alert severity="error" onClose={() => dismissToast(toast.id)}>
+      <Alert severity={toast.severity} onClose={() => dismissToast(toast.id)}>
         {toast.message}
       </Alert>
     </Snackbar>

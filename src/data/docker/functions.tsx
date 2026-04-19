@@ -1,5 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { DockerStatsRow } from '@/types/docker';
+import { databaseMiddleware } from '@/middleware/database-middleware';
 import {
   getHistoricalDockerStatsSchema,
   getContainerHistorySchema,
@@ -11,20 +12,14 @@ import {
  * Get historical Docker stats (wide rows) for preloading.
  */
 export const getHistoricalDockerStats = createServerFn()
+  .middleware([databaseMiddleware])
   .inputValidator(getHistoricalDockerStatsSchema)
-  .handler(async ({ data }): Promise<DockerStatsRow[]> => {
+  .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
-      const { databaseConnectionManager } = await import(
-        '@/lib/clients/database-client'
-      );
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
       const { StatsRepository } = await import(
         '@/lib/database/repositories/stats-repository'
       );
-
-      const config = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(config);
-      const repo = new StatsRepository(dbClient.getPool());
+      const repo = new StatsRepository(context.pool);
 
       return await repo.getDockerStatsHistory(data.seconds);
     } catch (err) {
@@ -40,15 +35,11 @@ export const getHistoricalDockerStats = createServerFn()
  * Icons are stored under the service_key entity so they survive container recreation.
  */
 export const getDockerEntityIcons = createServerFn()
-  .handler(async (): Promise<Record<string, { iconSlug: string | null; serviceKeyEntity: string }>> => {
+  .middleware([databaseMiddleware])
+  .handler(async ({ context }): Promise<Record<string, { iconSlug: string | null; serviceKeyEntity: string }>> => {
     try {
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
       const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-
-      const config = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(config);
-      const repo = new StatsRepository(dbClient.getPool());
+      const repo = new StatsRepository(context.pool);
 
       const metaMap = await repo.getDockerContainerMetadata('docker');
       return Object.fromEntries(metaMap);
@@ -59,16 +50,12 @@ export const getDockerEntityIcons = createServerFn()
   });
 
 export const getContainerHistory = createServerFn()
+  .middleware([databaseMiddleware])
   .inputValidator(getContainerHistorySchema)
-  .handler(async ({ data }): Promise<DockerStatsRow[]> => {
+  .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
       const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-
-      const config = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(config);
-      const repo = new StatsRepository(dbClient.getPool());
+      const repo = new StatsRepository(context.pool);
 
       const fromMs = Math.min(data.fromMs, data.toMs);
       const toMs = Math.max(data.fromMs, data.toMs);
@@ -99,8 +86,9 @@ export const getContainerHistory = createServerFn()
   });
 
 export const getContainerInfo = createServerFn()
+  .middleware([databaseMiddleware])
   .inputValidator(getContainerInfoSchema)
-  .handler(async ({ data }): Promise<{
+  .handler(async ({ context, data }): Promise<{
     containerName: string;
     image: string;
     host: string;
@@ -108,13 +96,8 @@ export const getContainerInfo = createServerFn()
     serviceKey: string | null;
   } | null> => {
     try {
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
       const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-
-      const config = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(config);
-      const repo = new StatsRepository(dbClient.getPool());
+      const repo = new StatsRepository(context.pool);
 
       const info = await repo.getContainerInfo(data.containerId, data.host);
       if (!info) return null;
@@ -140,15 +123,11 @@ export const getContainerInfo = createServerFn()
  * Stores the icon slug under the service_key entity so it persists across container recreations.
  */
 export const updateContainerIcon = createServerFn()
+  .middleware([databaseMiddleware])
   .inputValidator(updateContainerIconSchema)
-  .handler(async ({ data }): Promise<void> => {
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  .handler(async ({ context, data }): Promise<void> => {
     const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-
-    const config = loadDatabaseConfig();
-    const dbClient = await databaseConnectionManager.getClient(config);
-    const repo = new StatsRepository(dbClient.getPool());
+    const repo = new StatsRepository(context.pool);
 
     await repo.upsertEntityMetadata('docker', data.serviceKeyEntity, 'icon', data.iconSlug);
   });

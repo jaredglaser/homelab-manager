@@ -43,7 +43,7 @@ export function useOptimisticSetting(): OptimisticSetter {
           }
           return { ...current, [key]: previousValue };
         });
-        showToast('Failed to save setting');
+        showToast('Failed to save setting', 'error');
       });
     },
     [setRaw, showToast],
