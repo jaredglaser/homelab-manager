@@ -1,5 +1,7 @@
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 
+export type WatchdogRepo = Pick<DeployRepository, 'timeoutStuckDeploys' | 'notifyStackChange'>;
+
 export interface DeployWatchdogConfig {
   /** How often to check for stuck deploys. */
   intervalMs: number;
@@ -39,7 +41,7 @@ export class DeployWatchdog {
   }
 
   /** Idempotent — extra calls are no-ops. */
-  start(deployRepo: DeployRepository): void {
+  start(deployRepo: WatchdogRepo): void {
     if (this.timer !== null) return;
     this.timer = setInterval(() => {
       void this.tick(deployRepo);
@@ -55,7 +57,7 @@ export class DeployWatchdog {
   }
 
   /** Reentrancy-guarded — if a previous tick is still running, returns immediately. */
-  async tick(deployRepo: DeployRepository): Promise<void> {
+  async tick(deployRepo: WatchdogRepo): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {

@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { DeployWatchdog, loadDeployWatchdogConfig } from '../deploy-watchdog';
-import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
+import { DeployWatchdog, loadDeployWatchdogConfig, type WatchdogRepo } from '../deploy-watchdog';
 
 interface IntervalHandle {
   cb: () => void;
@@ -30,18 +29,12 @@ function createIntervalHarness() {
   };
 }
 
-type RepoMock = Pick<DeployRepository, 'timeoutStuckDeploys' | 'notifyStackChange'>;
-
-function createRepoMock(overrides: Partial<RepoMock> = {}): RepoMock {
+function createRepoMock(overrides: Partial<WatchdogRepo> = {}): WatchdogRepo {
   return {
-    timeoutStuckDeploys: mock().mockResolvedValue([]) as unknown as DeployRepository['timeoutStuckDeploys'],
-    notifyStackChange: mock().mockResolvedValue(undefined) as unknown as DeployRepository['notifyStackChange'],
+    timeoutStuckDeploys: mock().mockResolvedValue([]) as unknown as WatchdogRepo['timeoutStuckDeploys'],
+    notifyStackChange: mock().mockResolvedValue(undefined) as unknown as WatchdogRepo['notifyStackChange'],
     ...overrides,
   };
-}
-
-function asRepo(mock: RepoMock): DeployRepository {
-  return mock as unknown as DeployRepository;
 }
 
 describe('DeployWatchdog', () => {
@@ -59,7 +52,7 @@ describe('DeployWatchdog', () => {
     it('registers a setInterval with the configured interval', () => {
       const w = new DeployWatchdog({ intervalMs: 500, thresholdMinutes: 10 });
       const repo = createRepoMock();
-      w.start(asRepo(repo));
+      w.start(repo);
       expect(harness.intervals).toHaveLength(1);
       expect(harness.intervals[0].ms).toBe(500);
       w.stop();
@@ -67,7 +60,7 @@ describe('DeployWatchdog', () => {
 
     it('is a no-op when start is called twice', () => {
       const w = new DeployWatchdog({ intervalMs: 500, thresholdMinutes: 10 });
-      const repo = asRepo(createRepoMock());
+      const repo = createRepoMock();
       w.start(repo);
       w.start(repo);
       expect(harness.intervals).toHaveLength(1);
@@ -77,7 +70,7 @@ describe('DeployWatchdog', () => {
     it('clears the interval on stop', () => {
       const w = new DeployWatchdog({ intervalMs: 500, thresholdMinutes: 10 });
       const repo = createRepoMock();
-      w.start(asRepo(repo));
+      w.start(repo);
       w.stop();
       expect(harness.intervals[0].cleared).toBe(true);
     });
@@ -90,7 +83,7 @@ describe('DeployWatchdog', () => {
 
     it('can be restarted after stop', () => {
       const w = new DeployWatchdog({ intervalMs: 500, thresholdMinutes: 10 });
-      const repo = asRepo(createRepoMock());
+      const repo = createRepoMock();
       w.start(repo);
       w.stop();
       w.start(repo);
@@ -105,7 +98,7 @@ describe('DeployWatchdog', () => {
       const repo = createRepoMock({ timeoutStuckDeploys });
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 45 });
 
-      await w.tick(asRepo(repo));
+      await w.tick(repo);
 
       expect(timeoutStuckDeploys).toHaveBeenCalledTimes(1);
       const [threshold, message] = timeoutStuckDeploys.mock.calls[0] as [number, string];
@@ -124,7 +117,7 @@ describe('DeployWatchdog', () => {
       const repo = createRepoMock({
         timeoutStuckDeploys,
         notifyStackChange,
-      } as unknown as Partial<DeployRepository>);
+      } as Partial<WatchdogRepo>);
 
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
       await w.tick(repo);
@@ -139,7 +132,7 @@ describe('DeployWatchdog', () => {
       const repo = createRepoMock({
         timeoutStuckDeploys: mock().mockResolvedValue([]),
         notifyStackChange,
-      } as unknown as Partial<DeployRepository>);
+      } as Partial<WatchdogRepo>);
 
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
       await w.tick(repo);
@@ -157,7 +150,7 @@ describe('DeployWatchdog', () => {
       const repo = createRepoMock({
         timeoutStuckDeploys: mock().mockResolvedValue(rows),
         notifyStackChange,
-      } as unknown as Partial<DeployRepository>);
+      } as Partial<WatchdogRepo>);
       const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
@@ -170,7 +163,7 @@ describe('DeployWatchdog', () => {
     it('logs and swallows timeoutStuckDeploys errors', async () => {
       const repo = createRepoMock({
         timeoutStuckDeploys: mock().mockRejectedValue(new Error('db is sad')),
-      } as unknown as Partial<DeployRepository>);
+      } as Partial<WatchdogRepo>);
       const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
@@ -186,7 +179,7 @@ describe('DeployWatchdog', () => {
       );
       const repo = createRepoMock({
         timeoutStuckDeploys,
-      } as unknown as Partial<DeployRepository>);
+      } as Partial<WatchdogRepo>);
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
 
       const firstTick = w.tick(repo);
@@ -206,7 +199,7 @@ describe('DeployWatchdog', () => {
       const repo = createRepoMock({
         timeoutStuckDeploys,
         notifyStackChange,
-      } as unknown as Partial<DeployRepository>);
+      } as Partial<WatchdogRepo>);
 
       const w = new DeployWatchdog({ intervalMs: 100, thresholdMinutes: 5 });
       w.start(repo);
