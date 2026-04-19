@@ -5,20 +5,27 @@ import type { DockerStatsRow } from '@/types/docker';
 
 // Do NOT mock DataTable, columns, or other broadly-used shared modules —
 // they leak globally and break DataTable's own test file.
-mock.module('@/hooks/useSettings', () => ({
-  useSettings: () => ({
+mock.module('@/hooks/useSettings', () => {
+  const dockerStub = {
     docker: {
       memoryDisplayMode: 'bytes',
       decimals: { cpu: false, memory: false, diskSpeed: false, networkSpeed: false },
       chartWindowSeconds: 60,
     },
-    general: { showSparklines: false, useAbbreviatedUnits: false, updateIntervalMs: 1000 },
     isHostExpanded: () => true,
     isContainerExpanded: () => false,
     toggleHostExpanded: () => {},
     toggleContainerExpanded: () => {},
-  }),
-}));
+  };
+  const generalStub = {
+    general: { showSparklines: false, useAbbreviatedUnits: false, updateIntervalMs: 1000 },
+  };
+  return {
+    useSettings: () => ({ ...dockerStub, ...generalStub }),
+    useDockerSettings: () => dockerStub,
+    useGeneralSettings: () => generalStub,
+  };
+});
 
 mock.module('@/hooks/toastAtom', () => ({
   useToast: () => ({ showToast: () => {} }),

@@ -7,6 +7,12 @@ mock.module('@/hooks/useSettings', () => ({
     general: { use12HourTime: false },
     docker: { chartWindowSeconds: 60 },
   }),
+  useGeneralSettings: () => ({
+    general: { use12HourTime: false },
+  }),
+  useDockerSettings: () => ({
+    docker: { chartWindowSeconds: 60 },
+  }),
 }));
 
 mock.module('@/hooks/useEChartTimeScroll', () => ({

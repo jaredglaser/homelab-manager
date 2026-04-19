@@ -9,7 +9,7 @@ import DockerStatusSummary from '@/components/docker/DockerStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useDockerInventory } from '@/hooks/useDockerInventory'
 import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions'
-import { useSettings } from '@/hooks/useSettings'
+import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
 import type { DockerStatsRow } from '@/types/docker'
@@ -38,7 +38,8 @@ function DockerLayout() {
 const SPARKLINE_BUFFER_SECONDS = 45
 
 function DockerContainersPage() {
-  const { general, docker, developer } = useSettings()
+  const { general, developer } = useGeneralSettings()
+  const { docker } = useDockerSettings()
   const [historyTarget, setHistoryTarget] = useState<{ containerId: string; host: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
 

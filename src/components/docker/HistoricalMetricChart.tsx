@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import { useSettings } from '@/hooks/useSettings';
+import { useGeneralSettings } from '@/hooks/useSettings';
 import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis } from '@/lib/charts/y-axis';
 
@@ -174,7 +174,7 @@ export default memo(function HistoricalMetricChart({
   from,
   to,
 }: HistoricalMetricChartProps) {
-  const { general } = useSettings();
+  const { general } = useGeneralSettings();
   const isPercent = title.includes('%');
   const option = useMemo(
     () => getChartOption(dataPoints, colorVar, formatValue, isPercent, general.use12HourTime, from, to),

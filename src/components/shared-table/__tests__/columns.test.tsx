@@ -4,9 +4,12 @@ import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-tabl
 import type { ColumnDef } from '@tanstack/react-table';
 import { metricColumn, nameColumn, statusColumn, progressColumn } from '../columns';
 
-/** Minimal mock for useSettings used inside MetricHeaderCell */
+/** Minimal mock for settings hooks used inside MetricHeaderCell */
 mock.module('@/hooks/useSettings', () => ({
   useSettings: () => ({
+    general: { useAbbreviatedUnits: false, showSparklines: false },
+  }),
+  useGeneralSettings: () => ({
     general: { useAbbreviatedUnits: false, showSparklines: false },
   }),
 }));

@@ -1,6 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Switch, Typography } from '@mui/material'
-import { useSettings, type MemoryDisplayMode, type DecimalSettings, type LightPalette } from '@/hooks/useSettings'
+import {
+  useDockerSettings,
+  useGeneralSettings,
+  useZfsSettings,
+  type MemoryDisplayMode,
+  type DecimalSettings,
+  type LightPalette,
+} from '@/hooks/useSettings'
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 
@@ -10,7 +17,22 @@ export const Route = createFileRoute('/settings')({
 })
 
 function SettingsContent() {
-  const { general, docker, zfs, retention, developer, setUse12HourTime, setUpdateInterval, setMemoryDisplayMode, setChartWindowSeconds, setShowSparklines, setUseAbbreviatedUnits, setLightPalette, setDockerDecimal, setZfsDecimal, setRetention, setDockerDebugLogging, setDbFlushDebugLogging, setSseDebugLogging } = useSettings();
+  const {
+    general,
+    retention,
+    developer,
+    setUse12HourTime,
+    setUpdateInterval,
+    setShowSparklines,
+    setUseAbbreviatedUnits,
+    setLightPalette,
+    setRetention,
+    setDockerDebugLogging,
+    setDbFlushDebugLogging,
+    setSseDebugLogging,
+  } = useGeneralSettings();
+  const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
+  const { zfs, setZfsDecimal } = useZfsSettings();
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
