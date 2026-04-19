@@ -1,8 +1,19 @@
-import { describe, expect, test, spyOn } from 'bun:test';
+import { describe, expect, test, spyOn, mock, beforeEach } from 'bun:test';
 import type { Pool } from 'pg';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 
+let capturedContext: Record<string, unknown> = {};
+const nextFn = mock(({ context }: { context: Record<string, unknown> }) => {
+  capturedContext = context;
+  return Promise.resolve();
+});
+
 describe('databaseMiddleware', () => {
+  beforeEach(() => {
+    nextFn.mockClear();
+    capturedContext = {};
+  });
+
   test('middleware options have server handler defined', async () => {
     const { databaseMiddleware } = await import(
       '@/middleware/database-middleware'
@@ -30,17 +41,10 @@ describe('databaseMiddleware', () => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const serverHandler = databaseMiddleware.options.server as any;
-      let capturedContext: Record<string, unknown> = {};
-      let nextCallCount = 0;
-      const nextFn = ({ context }: { context: Record<string, unknown> }) => {
-        capturedContext = context;
-        nextCallCount++;
-        return Promise.resolve();
-      };
 
       await serverHandler({ next: nextFn });
 
-      expect(nextCallCount).toBe(1);
+      expect(nextFn).toHaveBeenCalledTimes(1);
       expect(capturedContext.pool).toBe(fakePool);
       expect(getClientSpy).toHaveBeenCalled();
     } finally {

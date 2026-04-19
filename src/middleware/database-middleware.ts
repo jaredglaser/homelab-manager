@@ -5,6 +5,9 @@ import { createMiddleware } from '@tanstack/react-start';
  * Dynamically imports server-only modules (pg, database-client, database-config)
  * to keep them out of the client bundle.
  *
+ * `loadDatabaseConfig()` is called once at middleware creation time since the
+ * config is static for the lifetime of the process.
+ *
  * Usage:
  *   createServerFn()
  *     .middleware([databaseMiddleware])
@@ -13,16 +16,15 @@ import { createMiddleware } from '@tanstack/react-start';
  *       ...
  *     });
  */
+const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+const config = loadDatabaseConfig();
+
 export const databaseMiddleware = createMiddleware().server(
   async ({ next }) => {
     const { databaseConnectionManager } = await import(
       '@/lib/clients/database-client'
     );
-    const { loadDatabaseConfig } = await import(
-      '@/lib/config/database-config'
-    );
 
-    const config = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(config);
 
     return next({ context: { pool: dbClient.getPool() } });
