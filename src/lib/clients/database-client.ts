@@ -9,6 +9,13 @@ export interface DatabaseConfig {
   password: string;
   max?: number;
   ssl?: boolean;
+  /**
+   * Whether to verify the server's TLS certificate when `ssl` is true.
+   * Defaults to `true` (secure) when unset. Set to `false` only for
+   * self-signed cert setups where proper CA plumbing isn't yet available —
+   * doing so exposes the connection to MITM attacks.
+   */
+  sslRejectUnauthorized?: boolean;
 }
 
 /**
@@ -34,7 +41,7 @@ export class DatabaseClient implements StreamingClient {
     };
 
     if (config.ssl) {
-      poolConfig.ssl = { rejectUnauthorized: false };
+      poolConfig.ssl = { rejectUnauthorized: config.sslRejectUnauthorized ?? true };
     }
 
     this.pool = new Pool(poolConfig);
