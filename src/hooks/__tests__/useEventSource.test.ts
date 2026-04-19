@@ -231,4 +231,44 @@ describe('useEventSource', () => {
     expect(received).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
   });
 
+  it('logs message count when debug is enabled', () => {
+    const onData = mock(() => {});
+    const origLog = console.log;
+    const logMock = mock(() => {});
+    console.log = logMock;
+
+    try {
+      renderHook(() => useEventSource({ url: '/api/test', onData, debug: true }));
+
+      const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+      act(() => { es.onopen?.(); });
+      act(() => { es.onmessage?.({ data: JSON.stringify({ val: 1 }) }); });
+
+      expect(logMock).toHaveBeenCalled();
+      const logArg = logMock.mock.calls[0][0] as string;
+      expect(logArg).toContain('[useEventSource]');
+    } finally {
+      console.log = origLog;
+    }
+  });
+
+  it('logs connection error when debug is enabled', () => {
+    const origWarn = console.warn;
+    const warnMock = mock(() => {});
+    console.warn = warnMock;
+
+    try {
+      renderHook(() => useEventSource({ url: '/api/test', onData: () => {}, debug: true }));
+
+      const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+      act(() => { es.onerror?.(); });
+
+      expect(warnMock).toHaveBeenCalled();
+      const warnArg = warnMock.mock.calls[0][0] as string;
+      expect(warnArg).toContain('[useEventSource]');
+    } finally {
+      console.warn = origWarn;
+    }
+  });
+
 });
