@@ -15,7 +15,9 @@ const mockGetStackDeployHistory = mock(() => Promise.resolve([
 const mockSaveStackComposeFile = mock(() => Promise.resolve({ commitSha: 'abc123' }));
 const mockUpdateStackIconSlug = mock(() => Promise.resolve(undefined));
 const mockCreateStackInRepo = mock(() => Promise.resolve({ commitSha: 'abc123' }));
-const mockDeleteStackFromRepo = mock(() => Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }));
+const mockDeleteStackFromRepo = mock((): Promise<{ status: 'removed'; commitSha: string } | { status: 'teardown-pending'; deployId: number }> =>
+  Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }),
+);
 const mockGetManagedHostNames = mock(() => Promise.resolve(['server1']));
 const mockResolveDeleteStack = mock(() =>
   Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }),
@@ -199,6 +201,17 @@ describe('stacks.functions module', () => {
       const { updateStackIcon } = await import('../functions');
       await updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } });
       expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('redis', 'redis-stack');
+    });
+  });
+
+  describe('deleteStack', () => {
+    it('delegates to deleteStackFromRepo with teardown=true and returns teardown-pending', async () => {
+      mockDeleteStackFromRepo.mockImplementationOnce(() =>
+        Promise.resolve({ status: 'teardown-pending' as const, deployId: 42 }),
+      );
+      const { deleteStack } = await import('../functions');
+      await deleteStack({ data: { stackName: 'nginx', teardown: true } });
+      expect(mockDeleteStackFromRepo).toHaveBeenCalledWith('nginx', true);
     });
   });
 
