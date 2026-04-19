@@ -2,6 +2,7 @@ import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import { StatsRepository } from '@/lib/database/repositories/stats-repository';
 import { abortableSleep, isAbortError } from '@/lib/utils/abortable-sleep';
+import { backoffDelayMs } from '@/lib/utils/backoff';
 
 const MAX_BACKOFF_EXPONENT = 5; // max 32s
 const MAX_BACKOFF_MS = 30_000;
@@ -77,8 +78,11 @@ export abstract class BaseCollector implements AsyncDisposable {
         }
 
         this.consecutiveErrors++;
-        const exponent = Math.min(this.consecutiveErrors, MAX_BACKOFF_EXPONENT);
-        const backoffMs = Math.min(BASE_BACKOFF_MS * Math.pow(2, exponent), MAX_BACKOFF_MS);
+        const backoffMs = backoffDelayMs(this.consecutiveErrors, {
+          baseMs: BASE_BACKOFF_MS,
+          capMs: MAX_BACKOFF_MS,
+          maxExponent: MAX_BACKOFF_EXPONENT,
+        });
 
         const errMsg = err instanceof Error ? err.message : String(err);
         const errCode = (err as any)?.code || 'unknown';
