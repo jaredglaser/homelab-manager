@@ -51,6 +51,7 @@ const TEST_CONFIG: DatabaseConfig = {
   database: 'testdb',
   user: 'testuser',
   password: 'testpass',
+  sslRejectUnauthorized: true,
 };
 
 describe('DatabaseClient', () => {
@@ -63,12 +64,27 @@ describe('DatabaseClient', () => {
     expect(client.id).toBe('postgres://testuser@localhost:5432/testdb');
   });
 
-  it('enables SSL when configured', () => {
+  it('enables SSL with cert verification on by default', () => {
     const client = new DatabaseClient({ ...TEST_CONFIG, ssl: true });
     const pool = poolInstances[0];
-    expect(pool.config.ssl).toEqual({ rejectUnauthorized: false });
+    expect(pool.config.ssl).toEqual({ rejectUnauthorized: true });
     // suppress unused warning
     expect(client.id).toContain('testdb');
+  });
+
+  it('honours sslRejectUnauthorized=false when explicitly opted out', () => {
+    new DatabaseClient({ ...TEST_CONFIG, ssl: true, sslRejectUnauthorized: false });
+    expect(poolInstances[0].config.ssl).toEqual({ rejectUnauthorized: false });
+  });
+
+  it('honours sslRejectUnauthorized=true when explicitly set', () => {
+    new DatabaseClient({ ...TEST_CONFIG, ssl: true, sslRejectUnauthorized: true });
+    expect(poolInstances[0].config.ssl).toEqual({ rejectUnauthorized: true });
+  });
+
+  it('does not configure SSL when ssl is false', () => {
+    new DatabaseClient({ ...TEST_CONFIG, ssl: false, sslRejectUnauthorized: false });
+    expect(poolInstances[0].config.ssl).toBeUndefined();
   });
 
   it('uses default max of 10 when not specified', () => {

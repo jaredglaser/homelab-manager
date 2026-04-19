@@ -2,7 +2,7 @@ import { memo, useRef } from 'react';
 import { Paper, Typography } from '@mui/material';
 import type ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import { useSettings } from '@/hooks/useSettings';
+import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
 import { resolveChartColors, resolveChartChromeColors, type ChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis, type YAxisMode } from '@/lib/charts/y-axis';
@@ -174,7 +174,8 @@ export default memo(function DualSeriesChart({
   yAxisMode,
   formatValue,
 }: DualSeriesChartProps) {
-  const { general, docker } = useSettings();
+  const { general } = useGeneralSettings();
+  const { docker } = useDockerSettings();
   const windowMs = docker.chartWindowSeconds * 1000;
   const chrome = resolveChartChromeColors();
   const option = getChartOption(series, yAxisMode, formatValue, general.use12HourTime, windowMs, chrome);

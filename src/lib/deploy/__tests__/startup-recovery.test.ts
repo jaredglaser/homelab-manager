@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, spyOn } from 'bun:test';
+import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import {
   performStartupRecovery,
   type StartupRecoveryRepo,
@@ -10,6 +10,7 @@ function createRepo(overrides: Partial<StartupRecoveryRepo> = {}): StartupRecove
     recoverStuckDeploys: mock().mockResolvedValue([]) as unknown as StartupRecoveryRepo['recoverStuckDeploys'],
     timeoutStuckDeploys: mock().mockResolvedValue([]) as unknown as StartupRecoveryRepo['timeoutStuckDeploys'],
     notifyStackChange: mock().mockResolvedValue(undefined) as unknown as StartupRecoveryRepo['notifyStackChange'],
+    findSucceededPostSuccessDeploys: mock().mockResolvedValue([]) as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
     ...overrides,
   };
 }
@@ -23,6 +24,25 @@ function createWatchdog(): WatchdogController & { startMock: ReturnType<typeof m
 }
 
 describe('performStartupRecovery', () => {
+  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let capturedDelays: number[];
+
+  beforeEach(() => {
+    capturedDelays = [];
+    // Fire retry()'s abortableSleep synchronously so tests don't wait on real timers.
+    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler, delay?: number) => {
+        capturedDelays.push(delay ?? 0);
+        if (typeof fn === 'function') fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout,
+    );
+  });
+
+  afterEach(() => {
+    setTimeoutSpy.mockRestore();
+  });
+
   it('starts the watchdog when no rows are recovered', async () => {
     const repo = createRepo();
     const watchdog = createWatchdog();
@@ -99,11 +119,7 @@ describe('performStartupRecovery', () => {
     const watchdog = createWatchdog();
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    await performStartupRecovery(repo, watchdog, {
-      maxAttempts: 3,
-      backoffMs: () => 0,
-      sleep: async () => {},
-    });
+    await performStartupRecovery(repo, watchdog);
 
     expect(recoverStuckDeploys).toHaveBeenCalledTimes(2);
     expect(watchdog.startMock).toHaveBeenCalledTimes(1);
@@ -118,11 +134,7 @@ describe('performStartupRecovery', () => {
     const watchdog = createWatchdog();
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    await performStartupRecovery(repo, watchdog, {
-      maxAttempts: 3,
-      backoffMs: () => 0,
-      sleep: async () => {},
-    });
+    await performStartupRecovery(repo, watchdog);
 
     expect(recoverStuckDeploys).toHaveBeenCalledTimes(3);
     expect(watchdog.startMock).toHaveBeenCalledTimes(1);
@@ -131,26 +143,171 @@ describe('performStartupRecovery', () => {
     errSpy.mockRestore();
   });
 
-  it('sleeps between retry attempts using the provided backoff', async () => {
-    const sleep = mock().mockResolvedValue(undefined);
-    const backoffMs = mock().mockImplementation((attempt: number) => 100 * (attempt + 1));
-    const repo = createRepo({
-      recoverStuckDeploys: mock()
-        .mockRejectedValueOnce(new Error('1'))
-        .mockRejectedValueOnce(new Error('2'))
-        .mockResolvedValueOnce([]) as unknown as StartupRecoveryRepo['recoverStuckDeploys'],
+  describe('orphaned manifest-delete sweep', () => {
+    it('removes stacks still in manifest that have succeeded postSuccess rows', async () => {
+      const findSucceededPostSuccessDeploys = mock().mockResolvedValue([
+        { id: 10, stack: 'orphan-1', host: 'home' },
+        { id: 11, stack: 'orphan-2', host: 'home' },
+      ]);
+      const repo = createRepo({
+        findSucceededPostSuccessDeploys: findSucceededPostSuccessDeploys as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
+      });
+      const removeStackFromManifest = mock().mockResolvedValue({ commitSha: 'x' });
+      const manifestReader = {
+        listStackNames: mock().mockResolvedValue(new Set(['orphan-1', 'orphan-2'])),
+      };
+
+      await performStartupRecovery(repo, createWatchdog(), {
+        manifestReader,
+        stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
+      });
+
+      expect(findSucceededPostSuccessDeploys).toHaveBeenCalledWith('removeFromManifest');
+      expect(removeStackFromManifest).toHaveBeenCalledTimes(2);
+      expect(removeStackFromManifest.mock.calls[0]).toEqual(['orphan-1']);
+      expect(removeStackFromManifest.mock.calls[1]).toEqual(['orphan-2']);
     });
+
+    it('skips rows whose stack is already gone from the manifest', async () => {
+      const repo = createRepo({
+        findSucceededPostSuccessDeploys: mock().mockResolvedValue([
+          { id: 10, stack: 'ghost', host: 'home' },
+        ]) as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
+      });
+      const removeStackFromManifest = mock();
+      const manifestReader = {
+        listStackNames: mock().mockResolvedValue(new Set<string>()), // empty — ghost isn't there
+      };
+
+      await performStartupRecovery(repo, createWatchdog(), {
+        manifestReader,
+        stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
+      });
+
+      expect(removeStackFromManifest).not.toHaveBeenCalled();
+    });
+
+    it('continues after a per-stack failure', async () => {
+      const repo = createRepo({
+        findSucceededPostSuccessDeploys: mock().mockResolvedValue([
+          { id: 10, stack: 'a', host: 'home' },
+          { id: 11, stack: 'b', host: 'home' },
+        ]) as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
+      });
+      const removeStackFromManifest = mock()
+        .mockRejectedValueOnce(new Error('disk full'))
+        .mockResolvedValueOnce({ commitSha: 'x' });
+      const manifestReader = {
+        listStackNames: mock().mockResolvedValue(new Set(['a', 'b'])),
+      };
+      const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      await performStartupRecovery(repo, createWatchdog(), {
+        manifestReader,
+        stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
+      });
+
+      expect(removeStackFromManifest).toHaveBeenCalledTimes(2);
+      errSpy.mockRestore();
+    });
+
+    it('deduplicates multiple succeeded rows for the same stack', async () => {
+      const repo = createRepo({
+        findSucceededPostSuccessDeploys: mock().mockResolvedValue([
+          { id: 10, stack: 'dup', host: 'home' },
+          { id: 11, stack: 'dup', host: 'home' },
+          { id: 12, stack: 'dup', host: 'home' },
+        ]) as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
+      });
+      const removeStackFromManifest = mock().mockResolvedValue({ commitSha: 'x' });
+      const manifestReader = {
+        listStackNames: mock().mockResolvedValue(new Set(['dup'])),
+      };
+
+      await performStartupRecovery(repo, createWatchdog(), {
+        manifestReader,
+        stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
+      });
+
+      expect(removeStackFromManifest).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the sweep entirely when manifestReader or writer is omitted', async () => {
+      const findSucceededPostSuccessDeploys = mock().mockResolvedValue([
+        { id: 10, stack: 'plex', host: 'home' },
+      ]);
+      const repo = createRepo({
+        findSucceededPostSuccessDeploys: findSucceededPostSuccessDeploys as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
+      });
+
+      await performStartupRecovery(repo, createWatchdog(), {
+      });
+
+      expect(findSucceededPostSuccessDeploys).not.toHaveBeenCalled();
+    });
+
+    it('starts the watchdog even if the sweep throws', async () => {
+      const repo = createRepo({
+        findSucceededPostSuccessDeploys: mock().mockRejectedValue(new Error('db down')) as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
+      });
+      const watchdog = createWatchdog();
+      const manifestReader = {
+        listStackNames: mock().mockResolvedValue(new Set<string>()),
+      };
+      const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+      await performStartupRecovery(repo, watchdog, {
+        manifestReader,
+        stackRepoWriter: { removeStackFromManifest: (async () => ({ commitSha: 'x' })) },
+      });
+
+      expect(watchdog.startMock).toHaveBeenCalledTimes(1);
+      errSpy.mockRestore();
+    });
+
+    it('aborts the sweep and logs when listStackNames throws', async () => {
+      const repo = createRepo({
+        findSucceededPostSuccessDeploys: mock().mockResolvedValue([
+          { id: 10, stack: 'plex', host: 'home' },
+        ]) as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
+      });
+      const removeStackFromManifest = mock().mockResolvedValue({ commitSha: 'x' });
+      const manifestReader = {
+        listStackNames: mock().mockRejectedValue(new Error('git read error')),
+      };
+      const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+      const watchdog = createWatchdog();
+
+      await performStartupRecovery(repo, watchdog, {
+        manifestReader,
+        stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
+      });
+
+      // Should not attempt any manifest delete
+      expect(removeStackFromManifest).not.toHaveBeenCalled();
+      // Watchdog still starts
+      expect(watchdog.startMock).toHaveBeenCalledTimes(1);
+      const messages = errSpy.mock.calls.map((c) => String(c[0]));
+      expect(messages.some((m) => m.includes('Failed to read manifest'))).toBe(true);
+      errSpy.mockRestore();
+    });
+  });
+
+  it('passes the signal option through to retry() so shutdown short-circuits the loop', async () => {
+    const controller = new AbortController();
+    controller.abort(); // pre-aborted — retry() will bail after the first attempt's sleep
+    const recoverStuckDeploys = mock().mockRejectedValue(new Error('boom'));
+    const repo = createRepo({
+      recoverStuckDeploys: recoverStuckDeploys as unknown as StartupRecoveryRepo['recoverStuckDeploys'],
+    });
+    const watchdog = createWatchdog();
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    await performStartupRecovery(repo, createWatchdog(), {
-      maxAttempts: 3,
-      backoffMs: backoffMs as unknown as (attempt: number) => number,
-      sleep: sleep as unknown as (ms: number) => Promise<void>,
-    });
+    await performStartupRecovery(repo, watchdog, { signal: controller.signal });
 
-    expect(sleep).toHaveBeenCalledTimes(2);
-    expect(sleep.mock.calls[0][0]).toBe(100);
-    expect(sleep.mock.calls[1][0]).toBe(200);
+    // fn ran once; abortableSleep rejected synchronously on the already-aborted signal.
+    expect(recoverStuckDeploys).toHaveBeenCalledTimes(1);
+    expect(watchdog.startMock).toHaveBeenCalledTimes(1);
     errSpy.mockRestore();
   });
 });

@@ -1,21 +1,14 @@
 import { createServerFn } from '@tanstack/react-start';
+import { databaseMiddleware } from '@/middleware/database-middleware';
 import { updateSettingSchema } from '@/data/settings/schemas';
 
-async function getSettingsRepository() {
-  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-  const { SettingsRepository } = await import(
-    '@/lib/database/repositories/settings-repository'
-  );
-
-  const config = loadDatabaseConfig();
-  const client = await databaseConnectionManager.getClient(config);
-  return new SettingsRepository(client.getPool());
-}
-
 export const updateSetting = createServerFn()
+  .middleware([databaseMiddleware])
   .inputValidator(updateSettingSchema)
-  .handler(async ({ data }): Promise<void> => {
-    const repo = await getSettingsRepository();
+  .handler(async ({ context, data }): Promise<void> => {
+    const { SettingsRepository } = await import(
+      '@/lib/database/repositories/settings-repository'
+    );
+    const repo = new SettingsRepository(context.pool);
     await repo.set(data.key, data.value);
   });

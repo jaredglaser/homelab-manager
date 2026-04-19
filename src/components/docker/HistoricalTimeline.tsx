@@ -7,7 +7,7 @@ import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import { useSettings } from '@/hooks/useSettings';
+import { useGeneralSettings } from '@/hooks/useSettings';
 import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
 import type { DockerStatsRow } from '@/types/docker';
 import type { MetricType } from '@/components/docker/MetricCheckboxes';
@@ -136,7 +136,7 @@ export default memo(function HistoricalTimeline({
   onPresetChange,
   onCustomRangeChange,
 }: HistoricalTimelineProps) {
-  const { general } = useSettings();
+  const { general } = useGeneralSettings();
   const chartRef = useRef<ReactECharts>(null);
   const initializedRef = useRef(false);
   const suppressZoomRef = useRef(false);

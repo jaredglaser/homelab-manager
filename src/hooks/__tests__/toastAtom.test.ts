@@ -22,11 +22,46 @@ describe('useToast', () => {
     );
 
     act(() => {
-      result.current.toast.showToast('Hello world');
+      result.current.toast.showToast('Hello world', 'error');
     });
 
     expect(result.current.toasts).toHaveLength(1);
     expect(result.current.toasts[0].message).toBe('Hello world');
+    expect(result.current.toasts[0].severity).toBe('error');
+  });
+
+  it('should accept a "success" severity', () => {
+    const wrapper = createWrapper();
+    const { result } = renderHook(
+      () => ({
+        toast: useToast(),
+        toasts: useAtomValue(toastsAtom),
+      }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.toast.showToast('hi', 'success');
+    });
+
+    expect(result.current.toasts[0].severity).toBe('success');
+  });
+
+  it('should accept an "info" severity', () => {
+    const wrapper = createWrapper();
+    const { result } = renderHook(
+      () => ({
+        toast: useToast(),
+        toasts: useAtomValue(toastsAtom),
+      }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.toast.showToast('hi', 'info');
+    });
+
+    expect(result.current.toasts[0].severity).toBe('info');
   });
 
   it('should auto-increment toast IDs', () => {
@@ -40,8 +75,8 @@ describe('useToast', () => {
     );
 
     act(() => {
-      result.current.toast.showToast('Toast 1');
-      result.current.toast.showToast('Toast 2');
+      result.current.toast.showToast('Toast 1', 'info');
+      result.current.toast.showToast('Toast 2', 'info');
     });
 
     expect(result.current.toasts).toHaveLength(2);
@@ -60,9 +95,9 @@ describe('useToast', () => {
     );
 
     act(() => {
-      result.current.toast.showToast('Toast A');
-      result.current.toast.showToast('Toast B');
-      result.current.toast.showToast('Toast C');
+      result.current.toast.showToast('Toast A', 'info');
+      result.current.toast.showToast('Toast B', 'info');
+      result.current.toast.showToast('Toast C', 'info');
     });
 
     const middleId = result.current.toasts[1].id;
@@ -86,7 +121,7 @@ describe('useToast', () => {
     );
 
     act(() => {
-      result.current.toast.showToast('Toast');
+      result.current.toast.showToast('Toast', 'warning');
     });
 
     act(() => {
