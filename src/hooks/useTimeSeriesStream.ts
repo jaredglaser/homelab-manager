@@ -1,5 +1,8 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useEventSource } from './useEventSource';
+import { useSSEBuffer } from './timeSeriesStream/useSSEBuffer';
+import { useVisibilityRefresh } from './timeSeriesStream/useVisibilityRefresh';
+import { useLatestByEntity } from './timeSeriesStream/useLatestByEntity';
 
 const STALE_THRESHOLD_MS = 30000;
 const STALE_CHECK_INTERVAL_MS = 5000;
@@ -32,28 +35,14 @@ interface UseTimeSeriesStreamResult<TRow> {
 }
 
 /**
- * Find the first index in a time-sorted array whose time is greater than or equal to a cutoff.
- *
- * The input array must be sorted in ascending order according to `getTime`.
- *
- * @param arr - Array of items sorted by time
- * @param cutoff - Time cutoff (inclusive)
- * @param getTime - Function that returns the time value for an item
- * @returns The index of the first element with `getTime(element) >= cutoff`; returns `arr.length` if no such element exists
- */
-function lowerBound<T>(arr: T[], cutoff: number, getTime: (item: T) => number): number {
-  let lo = 0;
-  let hi = arr.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (getTime(arr[mid]) < cutoff) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-/**
  * Provides a time-windowed stream of rows by preloading historical data and merging subsequent SSE updates.
+ *
+ * Composes sub-hooks from `./timeSeriesStream/`:
+ *  - `useSSEBuffer` - sorted buffer + dedup + periodic flush + eviction
+ *  - `useVisibilityRefresh` - re-fetch history when tab becomes visible
+ *  - `useLatestByEntity` - latest-per-entity Map with structural sharing
+ *
+ * The orchestrator owns one-time preload, periodic refresh, and stale detection.
  *
  * @param options - Configuration options for the stream
  * @param options.sseUrl - Server-Sent Events URL to subscribe for incremental updates
@@ -84,20 +73,8 @@ export function useTimeSeriesStream<TRow>({
   initialData,
   debug = false,
 }: UseTimeSeriesStreamOptions<TRow>): UseTimeSeriesStreamResult<TRow> {
-  // Primary sorted state - drives renders. sortedRef mirrors it for synchronous reads in the flush interval.
-  const [sortedRows, setSortedRows] = useState<TRow[]>([]);
-  const sortedRef = useRef<TRow[]>([]);
-  // Dedup set: O(1) key lookup prevents duplicate entries from preload/SSE overlap
-  const dedupRef = useRef<Set<string>>(new Set());
-
-  const [hasData, setHasData] = useState(false);
-  const lastDataTimeRef = useRef<number | null>(null);
-  const [preloadError, setPreloadError] = useState<Error | null>(null);
-  const [serviceError, setServiceError] = useState<Error | null>(null);
-  const preloadedRef = useRef(false);
-
   // Keep refs up to date for use in callbacks and memoization
-  // (callers pass inline arrows - refs give stable identities for useMemo)
+  // (callers pass inline arrows - refs give stable identities for useMemo and interval callbacks)
   const getKeyRef = useRef(getKey);
   const getTimeRef = useRef(getTime);
   const getEntityRef = useRef(getEntity);
@@ -107,11 +84,22 @@ export function useTimeSeriesStream<TRow>({
   getEntityRef.current = getEntity;
   preloadFnRef.current = preloadFn;
 
-  // Track last refresh time for visibility cooldown
+  const { sortedRows, hasData, enqueue, replaceBuffer, lastDataTimeRef } = useSSEBuffer<TRow>({
+    getKeyRef,
+    getTimeRef,
+    windowSeconds,
+    updateIntervalMs,
+  });
+
+  const [preloadError, setPreloadError] = useState<Error | null>(null);
+  const [serviceError, setServiceError] = useState<Error | null>(null);
+  const [isStale, setIsStale] = useState(false);
+  const preloadedRef = useRef(false);
+
+  // Track last refresh time for visibility cooldown (shared with useVisibilityRefresh)
   const lastRefreshRef = useRef(0);
 
   // Atomic buffer refresh — re-fetches bucketed history and swaps the buffer in one state update.
-  // Declared before the preload effect so both the preload effect and later effects can reference it.
   // Stored as a ref so effects always invoke the latest closure without recreating intervals.
   const doRefreshRef = useRef<() => Promise<void>>(async () => {});
   doRefreshRef.current = async () => {
@@ -124,28 +112,11 @@ export function useTimeSeriesStream<TRow>({
     const now = Date.now();
     lastRefreshRef.current = now;
     if (rows.length === 0) return;
-    lastDataTimeRef.current = now;
     setIsStale(false);
-
-    const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
-    const preloadMaxTime = getTimeRef.current(sorted[sorted.length - 1]);
-
-    // Preserve SSE rows too recent to have been committed to the DB yet (typically last 1-5s).
-    // These sit beyond the preload snapshot and must be stitched in so the live tail is seamless.
-    const liveTail = sortedRef.current.filter(r => getTimeRef.current(r) > preloadMaxTime);
-    const merged = liveTail.length > 0 ? [...sorted, ...liveTail] : sorted;
-
-    // Atomically rebuild dedup set and swap the buffer - single setSortedRows call = one re-render
-    const newDedup = new Set<string>();
-    for (const row of merged) newDedup.add(getKeyRef.current(row));
-    dedupRef.current = newDedup;
-    sortedRef.current = merged;
-    setSortedRows(merged);
+    replaceBuffer(rows, { preserveLiveTail: true });
 
     if (debug) {
-      console.log(
-        `[useTimeSeriesStream] Buffer refresh: ${sorted.length} bucketed + ${liveTail.length} live = ${merged.length} total`
-      );
+      console.log(`[useTimeSeriesStream] Buffer refresh: ${rows.length} rows`);
     }
   };
 
@@ -164,13 +135,7 @@ export function useTimeSeriesStream<TRow>({
 
     const seedRows = (rows: TRow[]) => {
       if (rows.length === 0) return;
-      const sorted = [...rows].sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
-      const dedup = dedupRef.current;
-      for (const row of sorted) dedup.add(getKeyRef.current(row));
-      sortedRef.current = sorted;
-      setSortedRows(sorted);
-      setHasData(true);
-      lastDataTimeRef.current = Date.now();
+      replaceBuffer(rows, { markHasData: true });
       lastRefreshRef.current = Date.now();
     };
 
@@ -207,10 +172,7 @@ export function useTimeSeriesStream<TRow>({
         console.error('[useTimeSeriesStream] Failed to preload:', err);
         setPreloadError(err instanceof Error ? err : new Error(String(err)));
       });
-  }, [preloadFn, debug]);
-
-  // Pending rows accumulated between flushes
-  const pendingRef = useRef<TRow[]>([]);
+  }, [preloadFn, debug, replaceBuffer]);
 
   // Each SSE message queues rows for the next flush; also clears any prior errors (DB recovered).
   // Uses refs to avoid calling setState when errors are already null — those no-op setState calls
@@ -223,66 +185,8 @@ export function useTimeSeriesStream<TRow>({
   const handleData = useCallback((incoming: TRow[]) => {
     if (preloadErrorRef.current !== null) setPreloadError(null);
     if (serviceErrorRef.current !== null) setServiceError(null);
-    pendingRef.current.push(...incoming);
-  }, []);
-
-  // Flush pending rows into the sorted array on a fixed interval.
-  // O(k log k + log n) per flush vs O(n log n) with full re-sort:
-  //   - new rows (k) are sorted among themselves and appended at the end
-  //   - expired rows are evicted from the front via binary search
-  useEffect(() => {
-    const id = setInterval(() => {
-      const pending = pendingRef.current;
-      if (pending.length === 0) return;
-      pendingRef.current = [];
-
-      const now = Date.now();
-      const cutoff = now - windowSeconds * 1000;
-      const dedup = dedupRef.current;
-      const sorted = sortedRef.current;
-
-      // Filter to new unique rows only - skips preload/SSE overlap duplicates
-      const newRows: TRow[] = [];
-      for (const row of pending) {
-        const key = getKeyRef.current(row);
-        if (!dedup.has(key)) {
-          dedup.add(key);
-          newRows.push(row);
-        }
-      }
-
-      // Sort the incoming batch (small - typically one per container per second)
-      newRows.sort((a, b) => getTimeRef.current(a) - getTimeRef.current(b));
-
-      // Binary search for the eviction boundary - O(log n)
-      const cutoffIdx = lowerBound(sorted, cutoff, getTimeRef.current);
-
-      // Remove evicted keys from the dedup set
-      for (let i = 0; i < cutoffIdx; i++) {
-        dedup.delete(getKeyRef.current(sorted[i]));
-      }
-
-      // Build new array: surviving suffix + new rows
-      const hasCutoff = cutoffIdx > 0;
-      const hasNew = newRows.length > 0;
-      let next: TRow[];
-      if (!hasCutoff && !hasNew) {
-        next = sorted;
-      } else if (!hasCutoff) {
-        next = [...sorted, ...newRows];
-      } else if (!hasNew) {
-        next = sorted.slice(cutoffIdx);
-      } else {
-        next = [...sorted.slice(cutoffIdx), ...newRows];
-      }
-
-      sortedRef.current = next;
-      setSortedRows(next);
-      setHasData(true);
-      lastDataTimeRef.current = now;
-    }, updateIntervalMs);
-    return () => clearInterval(id);
-  }, [windowSeconds, updateIntervalMs]);
+    enqueue(incoming);
+  }, [enqueue]);
 
   // Periodic refresh: keeps the buffer bounded at ~preload size regardless of how long the
   // SSE stream has been running. Without this, a 30-min window accumulates ~1800 raw rows/container.
@@ -293,16 +197,11 @@ export function useTimeSeriesStream<TRow>({
   }, [refreshIntervalMs]);
 
   // Re-fetch history when tab becomes visible after idle/sleep
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (Date.now() - lastRefreshRef.current < VISIBILITY_REFRESH_COOLDOWN_MS) return;
-      doRefreshRef.current().catch(() => {});
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  useVisibilityRefresh({
+    onRefresh: () => { doRefreshRef.current().catch(() => {}); },
+    cooldownMs: VISIBILITY_REFRESH_COOLDOWN_MS,
+    lastRefreshRef,
+  });
 
   const onServiceError = useCallback(() => {
     setServiceError(new Error('Database unavailable'));
@@ -317,40 +216,15 @@ export function useTimeSeriesStream<TRow>({
 
   const error = sseError ?? serviceError ?? preloadError;
 
-  const prevLatestRef = useRef<Map<string, TRow>>(new Map());
+  const latestByEntity = useLatestByEntity<TRow>({
+    rows: sortedRows,
+    getEntityRef,
+    getTimeRef,
+    getKeyRef,
+  });
 
-  const latestByEntity = useMemo(() => {
-    const prev = prevLatestRef.current;
-    const next = new Map<string, TRow>();
-
-    for (const row of sortedRows) {
-      const entity = getEntityRef.current(row);
-      const existing = next.get(entity);
-      if (!existing || getTimeRef.current(row) > getTimeRef.current(existing)) {
-        next.set(entity, row);
-      }
-    }
-
-    // Structural sharing: return previous Map if nothing changed.
-    // Compare by row key (dedup key includes timestamp, so this detects actual data changes).
-    if (next.size !== prev.size) {
-      prevLatestRef.current = next;
-      return next;
-    }
-    for (const [entity, row] of next) {
-      const prevRow = prev.get(entity);
-      if (!prevRow || getKeyRef.current(row) !== getKeyRef.current(prevRow)) {
-        prevLatestRef.current = next;
-        return next;
-      }
-    }
-
-    return prev;
-  }, [sortedRows]);
-
-  // Stale detection via interval — uses lastDataTimeRef (declared above) to
+  // Stale detection via interval — uses lastDataTimeRef to
   // avoid tearing down/recreating the interval every time new data arrives.
-  const [isStale, setIsStale] = useState(false);
   useEffect(() => {
     if (!hasData) return;
     const id = setInterval(() => {
@@ -359,7 +233,7 @@ export function useTimeSeriesStream<TRow>({
       setIsStale(prev => prev === stale ? prev : stale);
     }, STALE_CHECK_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [hasData]);
+  }, [hasData, lastDataTimeRef]);
 
   return { rows: sortedRows, latestByEntity, isConnected, error, hasData, isStale };
 }

@@ -569,3 +569,57 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
     expect(result.current.latestByEntity).toBe(firstMap);
   });
 });
+
+describe('useTimeSeriesStream preloadFn change', () => {
+  it('re-fetches history when preloadFn changes after initial mount', async () => {
+    const now = Date.now();
+    const firstFn = mock(() => Promise.resolve([makeRow('a', 5)]));
+    const secondFn = mock(() => Promise.resolve([{ key: 'b-1', time: now, entity: 'b' }]));
+
+    const { rerender } = renderHook(
+      ({ fn }: { fn: () => Promise<TestRow[]> }) =>
+        useTimeSeriesStream({ sseUrl: '/api/test', preloadFn: fn, ...defaultOpts, windowSeconds: 60 }),
+      { initialProps: { fn: firstFn } },
+    );
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(firstFn).toHaveBeenCalledTimes(1);
+    expect(secondFn).toHaveBeenCalledTimes(0);
+
+    // Change preloadFn (e.g. window size changed via settings)
+    rerender({ fn: secondFn });
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    // The new preloadFn should have been invoked by the refresh path
+    expect(secondFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useTimeSeriesStream debug logging', () => {
+  it('logs via console.log when debug=true', async () => {
+    const origLog = console.log;
+    const logSpy = mock(() => {});
+    console.log = logSpy;
+
+    try {
+      const preloadFn = mock(() => Promise.resolve([makeRow('a', 5)]));
+      renderHook(() =>
+        useTimeSeriesStream({
+          sseUrl: '/api/test',
+          preloadFn,
+          ...defaultOpts,
+          windowSeconds: 60,
+          refreshIntervalMs: 40,
+          debug: true,
+        })
+      );
+
+      // Wait long enough for preload + at least one periodic refresh.
+      await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+
+      expect(logSpy).toHaveBeenCalled();
+    } finally {
+      console.log = origLog;
+    }
+  });
+});
