@@ -1,20 +1,17 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { saveComposeFile } from '@/data/stacks/functions';
 
-const mockSaveStackComposeFile = mock(() => Promise.resolve({ commitSha: 'abc123' }));
-
-mock.module('@/lib/stacks/stack-service', () => ({
-  getStackSummaries: mock(() => Promise.resolve([])),
-  getStackDetailByName: mock(() => Promise.resolve(null)),
-  triggerStackDeploy: mock(() => Promise.resolve({ deployId: 1 })),
-  getStackDeployHistory: mock(() => Promise.resolve([])),
-  saveStackComposeFile: mockSaveStackComposeFile,
-  updateStackIconSlug: mock(() => Promise.resolve()),
-  createStackInRepo: mock(() => Promise.resolve()),
-  deleteStackFromRepo: mock(() => Promise.resolve()),
-  getManagedHostNames: mock(() => Promise.resolve([])),
-}));
+/**
+ * Test-only stub for saveComposeFile. Injected via the `_saveCompose` prop
+ * on ComposeEditor to avoid mock.module() on the stack-service module, which
+ * would pollute concurrent test files that import the real service.
+ * bun's mock() doesn't structurally match the createServerFn fetcher type
+ * (extra properties like url/method/__executeServer), so we cast at the seam.
+ */
+const mockSaveCompose = mock(() => Promise.resolve({ commitSha: 'abc123' }));
+const saveComposeStub = mockSaveCompose as unknown as typeof saveComposeFile;
 
 /**
  * Monaco Editor cannot render in Happy-DOM (CDN script loading is blocked).
@@ -71,7 +68,7 @@ async function renderComposeEditor(props?: Partial<{ stackName: string; content:
     variables: [],
     ...props,
   };
-  const result = render(<ComposeEditor {...defaultProps} />, { wrapper: createWrapper() });
+  const result = render(<ComposeEditor {...defaultProps} _saveCompose={saveComposeStub} />, { wrapper: createWrapper() });
   // Wait for monaco-setup dynamic import to resolve and Editor to render
   await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
   return result;
@@ -193,7 +190,7 @@ describe('ComposeEditor component', () => {
   });
 
   it('triggers save mutation and invalidates queries on success', async () => {
-    mockSaveStackComposeFile.mockClear();
+    mockSaveCompose.mockClear();
     const { act } = await import('@testing-library/react');
 
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -203,7 +200,7 @@ describe('ComposeEditor component', () => {
     const { default: ComposeEditor } = await import('../ComposeEditor');
     render(
       <QueryClientProvider client={queryClient}>
-        <ComposeEditor stackName="test-stack" content="image: nginx" variables={[]} />
+        <ComposeEditor stackName="test-stack" content="image: nginx" variables={[]} _saveCompose={saveComposeStub} />
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
@@ -212,7 +209,7 @@ describe('ComposeEditor component', () => {
     const saveButton = screen.getByRole('button', { name: /save & commit/i });
 
     await act(async () => { fireEvent.click(saveButton); });
-    await waitFor(() => expect(mockSaveStackComposeFile).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockSaveCompose).toHaveBeenCalledTimes(1));
 
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stack-detail', 'test-stack'] });
