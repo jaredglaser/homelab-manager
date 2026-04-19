@@ -21,7 +21,7 @@ export interface StackStatusBroadcastServiceDeps {
 }
 
 const BACKOFF_BASE_MS = 500;
-const BACKOFF_CAP_MS = 32_000;
+const BACKOFF_CAP_MS = 30_000;
 
 function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer {
   return {

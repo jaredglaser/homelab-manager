@@ -7,7 +7,7 @@ import { backoffDelayMs } from '@/lib/utils/backoff';
 type InventoryBroadcastCallback = (event: DockerInventoryBroadcastEvent) => void;
 
 const BACKOFF_BASE_MS = 500;
-const BACKOFF_CAP_MS = 32_000;
+const BACKOFF_CAP_MS = 30_000;
 
 export function rowToInventory(row: DockerContainerEventUpsertRow): DockerInventorySnapshotContainer {
   return {

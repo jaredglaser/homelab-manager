@@ -44,19 +44,18 @@ export interface RetryOpts extends BackoffOpts {
  */
 export async function retry<T>(fn: () => Promise<T>, opts: RetryOpts): Promise<T> {
   if (opts.maxAttempts < 1) throw new Error('retry: maxAttempts must be >= 1');
-  let lastErr: unknown;
+  const signal = opts.signal ?? new AbortController().signal;
   for (let attempt = 0; attempt < opts.maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      lastErr = err;
       const isLastAttempt = attempt === opts.maxAttempts - 1;
       if (isLastAttempt || !opts.isRetryable(err)) throw err;
       const delayMs = backoffDelayMs(attempt, opts);
       opts.onRetry?.(err, attempt + 1, delayMs);
-      const signal = opts.signal ?? new AbortController().signal;
       await abortableSleep(delayMs, signal);
     }
   }
-  throw lastErr;
+  // Unreachable: the loop always returns or throws on the last attempt.
+  throw new Error('retry: no attempts made');
 }
