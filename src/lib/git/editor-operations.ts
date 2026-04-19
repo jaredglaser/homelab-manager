@@ -1,5 +1,5 @@
 import yaml from 'js-yaml';
-import { commitFiles } from '@/lib/git/repo';
+import { commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 
 interface SaveFileOptions {
@@ -39,15 +39,16 @@ interface UpdateManifestOptions {
 
 /**
  * Add or update a stack entry in manifest.yaml and commit.
- * The manifest is read inside the commit callback (under the repo lock)
- * so concurrent callers never overwrite each other's mutations.
  */
 export async function updateManifest(
   repoPath: string,
   options: UpdateManifestOptions,
 ): Promise<SaveResult> {
   const commitSha = await commitFiles(repoPath, (existingFiles) => {
-    const manifestContent = existingFiles.get('manifest.yaml') ?? 'stacks: {}\n';
+    const manifestContent = existingFiles.get('manifest.yaml');
+    if (manifestContent === undefined) {
+      throw new FileNotFoundError('manifest.yaml');
+    }
     const manifest = parseManifest(manifestContent);
 
     manifest.stacks[options.stackName] = {

@@ -209,7 +209,7 @@ export async function createStackInRepo(
     throw new Error(`Invalid stack name "${stackName}" — must contain only letters, numbers, hyphens, and underscores`);
   }
 
-  // Validate host exists in managed_hosts (DB call must stay OUTSIDE the git lock).
+  // Validate host exists in managed_hosts
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
@@ -220,9 +220,6 @@ export async function createStackInRepo(
   const managedHost = await hostsRepo.getByName(host);
   if (!managedHost) throw new Error(`Host "${host}" not found in managed_hosts`);
 
-  // Manifest read + "already exists" check + manifest mutation all happen inside
-  // the commit callback so concurrent creates for different stacks cannot race:
-  // each call sees the other's committed manifest via the fresh HEAD snapshot.
   const commitSha = await commitFiles(repoPath, (existingFiles) => {
     const manifestContent = existingFiles.get(MANIFEST_FILENAME);
     const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
@@ -258,16 +255,14 @@ export async function deleteStackFromRepo(
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
 
-  // Read manifest OUTSIDE the git lock to get the host for DB/teardown operations.
-  // The authoritative manifest read happens again inside the commit callback below.
   const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-  const preManifest = parseManifest(manifestContent);
-  const entry = preManifest.stacks[stackName];
+  const manifest = parseManifest(manifestContent);
+  const entry = manifest.stacks[stackName];
   if (!entry) throw new Error(`Stack "${stackName}" not found in manifest`);
 
   const { host } = entry;
 
-  // Check for active deploys (DB calls must stay OUTSIDE the git lock).
+  // Check for active deploys
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
@@ -286,11 +281,12 @@ export async function deleteStackFromRepo(
     await teardownAndAwait(stackName, host, deployRepo);
   }
 
-  // Manifest mutation + stack-file enumeration both derive from the fresh HEAD
-  // snapshot inside the lock so concurrent deletes/creates cannot clobber each other.
   const commitSha = await commitFiles(repoPath, (existingFiles) => {
     const freshManifestContent = existingFiles.get(MANIFEST_FILENAME);
-    const manifest = freshManifestContent ? parseManifest(freshManifestContent) : { stacks: {} };
+    if (freshManifestContent === undefined) {
+      throw new Error(`Stack "${stackName}" not found in manifest`);
+    }
+    const manifest = parseManifest(freshManifestContent);
 
     if (!manifest.stacks[stackName]) {
       throw new Error(`Stack "${stackName}" not found in manifest`);

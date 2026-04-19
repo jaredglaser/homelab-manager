@@ -68,10 +68,6 @@ export interface FileEntry {
   content: string;
 }
 
-/**
- * Plan returned by a {@link CommitCallback}, describing the mutations to apply
- * to the repository's current HEAD tree.
- */
 export interface CommitPlan {
   files: FileEntry[];
   /** Paths to remove from the tree in this commit (e.g. deleting a stack directory). */
@@ -80,23 +76,14 @@ export interface CommitPlan {
   author: { name: string; email: string };
 }
 
-/**
- * Callback invoked inside the repo lock with a snapshot of the current HEAD tree.
- * Return a {@link CommitPlan} describing the mutations to apply on top of that snapshot.
- * Running the plan computation inside the lock prevents stale-read races between
- * concurrent `commitFiles` calls.
- */
+/** Runs inside the repo lock with a HEAD snapshot — guarantees mutations derive from current state, not a stale pre-lock read. */
 export type CommitCallback = (
   existingFiles: ReadonlyMap<string, string>,
 ) => Promise<CommitPlan> | CommitPlan;
 
 /**
- * Commit files to a bare repository.
- *
- * The caller provides a callback that runs INSIDE `withRepoLock` and receives a
- * snapshot of HEAD's tree. The callback decides what files to write or delete,
- * returning a {@link CommitPlan}. This prevents races where two callers read
- * stale state before the lock and then overwrite each other's mutations.
+ * Commit files to a bare repository. The callback runs inside the repo lock
+ * and receives a snapshot of HEAD's tree; it returns the commit plan.
  *
  * Note: This reads the entire existing tree into memory to overlay new files.
  * This is acceptable for v1 since repos only contain small compose files and manifests.
