@@ -1,5 +1,6 @@
-import { describe, it, expect, spyOn, beforeEach, afterEach } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, spyOn, beforeEach, afterEach, mock } from 'bun:test';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { useState } from 'react';
 import { ErrorBoundary } from '../ErrorBoundary';
 
 /** Component that throws when `shouldThrow` is true */
@@ -93,5 +94,51 @@ describe('ErrorBoundary', () => {
       </ErrorBoundary>,
     );
     expect(screen.queryByText('Child content')).toBeNull();
+  });
+
+  it('clicking "Try again" calls onReset and clears the error state', () => {
+    const onReset = mock(() => {});
+
+    function Wrapper() {
+      const [shouldThrow, setShouldThrow] = useState(true);
+      return (
+        <ErrorBoundary onReset={() => { onReset(); setShouldThrow(false); }}>
+          <ThrowingChild shouldThrow={shouldThrow} />
+        </ErrorBoundary>
+      );
+    }
+
+    render(<Wrapper />);
+    expect(screen.getByText('Something went wrong')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Try again'));
+
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Child content')).toBeTruthy();
+  });
+
+  it('render-prop fallback receives a working reset callback', () => {
+    const onReset = mock(() => {});
+
+    function Wrapper() {
+      const [shouldThrow, setShouldThrow] = useState(true);
+      return (
+        <ErrorBoundary
+          onReset={() => { onReset(); setShouldThrow(false); }}
+          fallback={(reset) => (
+            <button type="button" onClick={reset} data-testid="custom-reset">
+              Reset
+            </button>
+          )}
+        >
+          <ThrowingChild shouldThrow={shouldThrow} />
+        </ErrorBoundary>
+      );
+    }
+
+    render(<Wrapper />);
+    fireEvent.click(screen.getByTestId('custom-reset'));
+    expect(onReset).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Child content')).toBeTruthy();
   });
 });

@@ -1,14 +1,12 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
-import { loadDockerConfig } from '@/lib/config/docker-config';
 import { isProxmoxConfigured, loadProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
-import { DockerCollector } from './collectors/docker-collector';
+import { ContainerInventoryCollector } from './collectors/container-inventory-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { StackStatusCollector } from './collectors/stack-status-collector';
-import { StackStatusRepository } from '@/lib/database/repositories/stack-status-repository';
+import { DockerContainerEventRepository } from '@/lib/database/repositories/docker-container-event-repository';
 import { ZFSCollector } from './collectors/zfs-collector';
 
 export interface CollectorFactoryResult {
@@ -43,27 +41,6 @@ export function createCollectors(
 ): CollectorFactoryResult {
   const collectors: BaseCollector[] = [];
   const runners: Promise<void>[] = [];
-
-  if (workerConfig.docker.enabled) {
-    const dockerConfig = loadDockerConfig();
-
-    if (dockerConfig.hosts.length === 0) {
-      console.info('[Worker] Docker enabled but no hosts configured');
-    } else {
-      console.info(`[Worker] Starting ${dockerConfig.hosts.length} Docker collector(s)`);
-
-      for (const hostConfig of dockerConfig.hosts) {
-        console.info(`[Worker] Starting Docker collector for ${hostConfig.name}`);
-        const collector = stack.use(
-          new DockerCollector(db, workerConfig, hostConfig, shutdownController)
-        );
-        collectors.push(collector);
-        runners.push(collector.run());
-      }
-    }
-  } else {
-    console.info('[Worker] Docker collector disabled');
-  }
 
   if (workerConfig.proxmox.enabled) {
     if (!isProxmoxConfigured()) {
@@ -130,22 +107,34 @@ export async function createCollectorsForManagedHosts(
 
     const resolvedHost = { ...host, agent_url: resolveAgentUrl(host.agent_url) };
 
+    // Respect per-host capabilities declared in managed_hosts — skip collectors
+    // for capabilities the host didn't opt into, even if the global worker
+    // config enables them. Matches the capability check in
+    // createContainerInventoryCollectors below.
     if (workerConfig.docker.enabled) {
-      console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${resolvedHost.agent_url})`);
-      const dockerCollector = stack.use(
-        new AgentStatsCollector(db, workerConfig, resolvedHost, token, shutdownController)
-      );
-      collectors.push(dockerCollector);
-      runners.push(dockerCollector.run());
+      if (!host.capabilities?.docker) {
+        console.info(`[Worker] Skipping AgentStatsCollector for ${host.name}: Docker capability not enabled`);
+      } else {
+        console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${resolvedHost.agent_url})`);
+        const dockerCollector = stack.use(
+          new AgentStatsCollector(db, workerConfig, resolvedHost, token, shutdownController)
+        );
+        collectors.push(dockerCollector);
+        runners.push(dockerCollector.run());
+      }
     }
 
     if (workerConfig.zfs.enabled) {
-      console.info(`[Worker] Starting ZFSCollector for ${host.name} (${resolvedHost.agent_url})`);
-      const zfsCollector = stack.use(
-        new ZFSCollector(db, workerConfig, resolvedHost, token, shutdownController)
-      );
-      collectors.push(zfsCollector);
-      runners.push(zfsCollector.run());
+      if (!host.capabilities?.zfs) {
+        console.info(`[Worker] Skipping ZFSCollector for ${host.name}: ZFS capability not enabled`);
+      } else {
+        console.info(`[Worker] Starting ZFSCollector for ${host.name} (${resolvedHost.agent_url})`);
+        const zfsCollector = stack.use(
+          new ZFSCollector(db, workerConfig, resolvedHost, token, shutdownController)
+        );
+        collectors.push(zfsCollector);
+        runners.push(zfsCollector.run());
+      }
     }
   }
 
@@ -153,13 +142,13 @@ export async function createCollectorsForManagedHosts(
 }
 
 /**
- * Create StackStatusCollectors for managed hosts.
- * Each collector connects to the agent's /stacks/events SSE endpoint and persists
- * container status to the database.
+ * Create ContainerInventoryCollectors for managed hosts with Docker capability enabled.
+ * Each collector subscribes to the agent's /containers/events SSE endpoint and writes
+ * state-change events to docker_container_events (hypertable, append-only).
  *
  * @param getToken - Callback to look up a host's agent token from OpenBao (or other secret store)
  */
-export async function createStackStatusCollectors(
+export async function createContainerInventoryCollectors(
   db: DatabaseClient,
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
@@ -169,29 +158,29 @@ export async function createStackStatusCollectors(
   const runners: Promise<void>[] = [];
 
   const hosts = await findAllHosts();
-  const repo = new StackStatusRepository(db.getPool());
+  const repo = new DockerContainerEventRepository(db.getPool());
 
   for (const host of hosts) {
     if (!host.capabilities?.docker) {
-      console.info(`[Worker] Skipping StackStatusCollector for ${host.name}: Docker capability not enabled`);
+      console.info(`[Worker] Skipping ContainerInventoryCollector for ${host.name}: Docker capability not enabled`);
       continue;
     }
     let token: string | null;
     try {
       token = await getToken(host.name);
     } catch (err) {
-      console.error(`[Worker] Failed to retrieve token for StackStatusCollector ${host.name}:`, err instanceof Error ? err.message : err);
+      console.error(`[Worker] Failed to retrieve token for ContainerInventoryCollector ${host.name}:`, err instanceof Error ? err.message : err);
       continue;
     }
     if (!token) {
-      console.info(`[Worker] Skipping StackStatusCollector for ${host.name}: no agent token in secret store`);
+      console.info(`[Worker] Skipping ContainerInventoryCollector for ${host.name}: no agent token in secret store`);
       continue;
     }
 
     const resolvedUrl = resolveAgentUrl(host.agent_url);
-    console.info(`[Worker] Starting StackStatusCollector for ${host.name} (${resolvedUrl})`);
+    console.info(`[Worker] Starting ContainerInventoryCollector for ${host.name} (${resolvedUrl})`);
     const collector = stack.use(
-      new StackStatusCollector(
+      new ContainerInventoryCollector(
         { name: host.name, agentUrl: resolvedUrl },
         token,
         repo,

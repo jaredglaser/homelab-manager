@@ -23,6 +23,7 @@ import { Route as ApiStackStatusRouteImport } from './routes/api/stack-status'
 import { Route as ApiSettingsRouteImport } from './routes/api/settings'
 import { Route as ApiProxmoxStatsRouteImport } from './routes/api/proxmox-stats'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
+import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
 import { Route as StacksHostHostNameRouteImport } from './routes/stacks/host.$hostName'
 import { Route as ApiGitSplatRouteImport } from './routes/api/git.$'
 import { Route as ApiDockerLogsContainerIdRouteImport } from './routes/api/docker-logs.$containerId'
@@ -97,6 +98,11 @@ const ApiDockerStatsRoute = ApiDockerStatsRouteImport.update({
   path: '/api/docker-stats',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDockerInventoryRoute = ApiDockerInventoryRouteImport.update({
+  id: '/api/docker-inventory',
+  path: '/api/docker-inventory',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const StacksHostHostNameRoute = StacksHostHostNameRouteImport.update({
   id: '/host/$hostName',
   path: '/host/$hostName',
@@ -121,6 +127,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
+  '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/proxmox': typeof ProxmoxRoute
   '/settings': typeof SettingsRoute
   '/zfs': typeof ZfsRoute
+  '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/stacks': typeof StacksRouteWithChildren
   '/zfs': typeof ZfsRoute
+  '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stacks'
     | '/zfs'
+    | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/proxmox-stats'
     | '/api/settings'
@@ -198,6 +208,7 @@ export interface FileRouteTypes {
     | '/proxmox'
     | '/settings'
     | '/zfs'
+    | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/proxmox-stats'
     | '/api/settings'
@@ -217,6 +228,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stacks'
     | '/zfs'
+    | '/api/docker-inventory'
     | '/api/docker-stats'
     | '/api/proxmox-stats'
     | '/api/settings'
@@ -237,6 +249,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   StacksRoute: typeof StacksRouteWithChildren
   ZfsRoute: typeof ZfsRoute
+  ApiDockerInventoryRoute: typeof ApiDockerInventoryRoute
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
   ApiProxmoxStatsRoute: typeof ApiProxmoxStatsRoute
   ApiSettingsRoute: typeof ApiSettingsRoute
@@ -346,6 +359,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDockerStatsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/docker-inventory': {
+      id: '/api/docker-inventory'
+      path: '/api/docker-inventory'
+      fullPath: '/api/docker-inventory'
+      preLoaderRoute: typeof ApiDockerInventoryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/stacks/host/$hostName': {
       id: '/stacks/host/$hostName'
       path: '/host/$hostName'
@@ -403,6 +423,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   StacksRoute: StacksRouteWithChildren,
   ZfsRoute: ZfsRoute,
+  ApiDockerInventoryRoute: ApiDockerInventoryRoute,
   ApiDockerStatsRoute: ApiDockerStatsRoute,
   ApiProxmoxStatsRoute: ApiProxmoxStatsRoute,
   ApiSettingsRoute: ApiSettingsRoute,

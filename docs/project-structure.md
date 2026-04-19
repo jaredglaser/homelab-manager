@@ -5,22 +5,26 @@ src/
 ├── components/
 │   ├── AppShell.tsx                 # Shared layout (ThemeProvider, QueryClient, Header)
 │   ├── Header.tsx                   # Navigation header
-│   ├── PageHeader.tsx               # Page title with optional actions
+│   ├── PageStatusBar.tsx            # Thin status strip with left/right slots (dashboards)
+│   ├── PageTitle.tsx                # Plain h4 title (settings and static pages)
 │   ├── ModeToggle.tsx               # Dark/light theme toggle
 │   ├── ThemeProvider.tsx            # MUI Material theme wrapper
 │   ├── Toasts.tsx                   # Toast notification display
 │   ├── docker/
 │   │   ├── ContainerTable.tsx       # Docker table (wraps shared DataTable, includes HostRow)
 │   │   ├── ContainerRow.tsx         # Container row with icon, metrics, and sparklines
+│   │   ├── ContainerStateChip.tsx   # Container state indicator chip (running/stopped/etc.)
 │   │   ├── ContainerChartsCard.tsx  # Expanded container detail (dual-series charts + log viewer)
 │   │   ├── ContainerHistoryPage.tsx # Historical data page for a container
 │   │   ├── ContainerHistoryPanel.tsx # History panel drawer wrapper
 │   │   ├── ContainerLogViewer.tsx   # Live xterm.js log viewer with SSE streaming
 │   │   ├── ContainerMetricChart.tsx # Individual metric chart component
 │   │   ├── DualSeriesChart.tsx      # Dual-series ECharts component (CPU/Mem, Network I/O)
+│   │   ├── DualSeriesChartRenderer.tsx # Renders dual-series chart from shared data/config
 │   │   ├── HistoricalChartsGrid.tsx # Grid layout for historical charts
 │   │   ├── HistoricalMetricChart.tsx # Individual historical metric chart
 │   │   ├── HistoricalTimeline.tsx   # Timeline navigation for history
+│   │   ├── IconGrid.tsx             # Grid of selectable container icons
 │   │   ├── IconPickerDialog.tsx     # Container icon picker with search
 │   │   ├── MetricCheckboxes.tsx     # Metric toggle controls
 │   │   ├── MetricSparkline.tsx      # Inline sparkline for metric values
@@ -72,6 +76,7 @@ src/
 │   ├── useContainerLogs.ts          # SSE-based container log stream → xterm.js with reconnection
 │   ├── useTimeSeriesStream.ts       # Preload + SSE merge + time-windowed buffer + stale detection
 │   ├── useStackStatus.ts            # Stack status SSE subscription with shallow equality
+│   ├── useDockerInventory.ts        # Docker container inventory SSE subscription
 │   ├── useEChartTimeScroll.ts       # ECharts time-axis scroll interaction
 │   ├── useLightPaletteEffect.ts     # Light mode palette adjustment
 │   └── toastAtom.ts                 # Toast notification atom + useToast hook
@@ -97,18 +102,15 @@ src/
 │   │   └── schemas.ts              # ZFS validation schemas
 │   └── mock-docker-containers.ts    # Mock container data for testing
 ├── middleware/
-│   ├── docker-middleware.ts         # Docker client injection
 │   └── openbao-middleware.ts        # OpenBao client injection (KV v2 initialization)
 ├── lib/
 │   ├── clients/
 │   │   ├── agent-client.ts          # HTTP client for agent sidecar communication
 │   │   ├── database-client.ts       # PostgreSQL connection pool manager
-│   │   ├── docker-client.ts         # Dockerode wrapper for Docker Engine API
 │   │   ├── openbao-client.ts        # OpenBao KV v2 HTTP client for secrets
 │   │   └── proxmox-client.ts        # Proxmox VE REST API client
 │   ├── config/
 │   │   ├── database-config.ts       # Database connection configuration
-│   │   ├── docker-config.ts         # Docker host configuration (numbered env vars)
 │   │   ├── git-config.ts            # Git server configuration
 │   │   ├── openbao-config.ts        # OpenBao connection configuration
 │   │   ├── proxmox-config.ts        # Proxmox API configuration
@@ -129,6 +131,7 @@ src/
 │   │   │   ├── deploy-repository.ts # Deploy history data access
 │   │   │   ├── host-repository.ts   # Host registration data access
 │   │   │   ├── managed-hosts-repository.ts # Managed hosts data access
+│   │   │   ├── docker-container-event-repository.ts # Docker container inventory events data access
 │   │   │   └── stack-status-repository.ts  # Stack status data access
 │   │   ├── subscription-service.ts  # StatsPollService - shared 1s poll, broadcasts to SSE clients
 │   │   └── migrate.ts               # Database migration runner
@@ -174,6 +177,11 @@ src/
 │   │   └── host-utils.ts            # Host utility functions
 │   ├── settings/
 │   │   └── settings-broadcast-service.ts  # PostgreSQL LISTEN + SSE broadcast for settings changes
+│   ├── sse/
+│   │   ├── create-stats-sse-handler.ts      # SSE factory for stats poll sources (docker/zfs/proxmox)
+│   │   └── create-broadcast-sse-handler.ts  # SSE factory for subscribe-based broadcasts (inventory/status/settings)
+│   ├── docker/
+│   │   └── docker-inventory-broadcast-service.ts # PostgreSQL LISTEN + SSE broadcast for container inventory
 │   ├── server-functions/
 │   │   └── openbao-server-functions.ts # OpenBao server function wrappers
 │   ├── parsers/
@@ -211,11 +219,10 @@ src/
 ├── worker/
 │   ├── collectors/
 │   │   ├── base-collector.ts        # Base class (AsyncDisposable, backoff, collection loop)
-│   │   ├── docker-collector.ts      # Docker stats collection (direct socket proxy)
 │   │   ├── agent-stats-collector.ts # Agent SSE-based stats collection (pre-computed metrics)
 │   │   ├── zfs-collector.ts         # ZFS iostat collection via agent sidecar
 │   │   ├── proxmox-collector.ts     # Proxmox REST API polling
-│   │   └── stack-status-collector.ts # Stack container status via agent events
+│   │   └── container-inventory-collector.ts # Docker container inventory via agent events
 │   ├── collector.ts                 # Worker entry point (AsyncDisposableStack, AbortController)
 │   ├── collector-factory.ts         # Factory for creating configured collectors (local + managed hosts)
 │   ├── settings-listener.ts         # Runtime settings change listener
@@ -228,6 +235,7 @@ src/
     ├── __root.tsx                   # HTML shell (SSR-safe, no MUI)
     ├── api/
     │   ├── docker-stats.ts          # Docker SSE endpoint
+    │   ├── docker-inventory.ts      # Docker container inventory SSE endpoint
     │   ├── docker-logs.$containerId.ts  # Container log SSE endpoint
     │   ├── zfs-stats.ts             # ZFS SSE endpoint
     │   ├── proxmox-stats.ts         # Proxmox SSE endpoint
@@ -260,7 +268,7 @@ agent/                               # Agent sidecar container (separate Bun pac
 │   │   ├── stats.ts                # SSE container stats with pre-computed metrics
 │   │   ├── logs.ts                 # SSE container log streaming (backlog + live)
 │   │   ├── stacks.ts               # Stack deploy/teardown/restart/status
-│   │   ├── stack-events.ts         # SSE Docker lifecycle events grouped by compose stack
+│   │   ├── containers-events.ts    # SSE Docker container inventory stream
 │   │   ├── zfs.ts                  # ZFS pool status and SSE iostat streaming
 │   │   └── agent-update.ts         # Agent self-update endpoint
 │   └── lib/

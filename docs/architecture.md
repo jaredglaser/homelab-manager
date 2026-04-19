@@ -9,20 +9,20 @@ graph TD
     subgraph TanStack_Start["TanStack Start Server"]
         SSE["SSE Endpoints<br/>(server routes)"]
         PollSvc["StatsPollService<br/>(shared 1s poll)"]
-        StackBroadcast["StackStatusBroadcastService<br/>(LISTEN stack_change)"]
+        StackBroadcast["StackStatusBroadcastService<br/>(LISTEN docker_container_change + deploy_change)"]
     end
 
     subgraph Database["TimescaleDB"]
         DockerTable["docker_stats hypertable"]
         ZFSTable["zfs_stats hypertable"]
         ProxmoxTable["proxmox_stats hypertable"]
-        StackStatusTable["stack_status"]
+        ContainerEvents["docker_container_events hypertable"]
         DeployHistory["deploy_history"]
         ManagedHosts["managed_hosts"]
     end
 
     subgraph Worker["Background Worker"]
-        Collectors["Collectors<br/>(Docker, AgentStats, ZFS, Proxmox, StackStatus)"]
+        Collectors["Collectors<br/>(Docker, AgentStats, ZFS, Proxmox, ContainerInventory)"]
     end
 
     subgraph Hosts["Managed Docker Hosts"]
@@ -39,11 +39,11 @@ graph TD
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| DockerTable
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| ZFSTable
     PollSvc -->|"Query new rows<br/>(1 query/sec/source)"| ProxmoxTable
-    StackBroadcast -->|"LISTEN"| StackStatusTable
+    StackBroadcast -->|"LISTEN"| ContainerEvents
     Collectors -->|"INSERT"| DockerTable
     Collectors -->|"INSERT"| ZFSTable
     Collectors -->|"INSERT"| ProxmoxTable
-    Collectors -->|"INSERT"| StackStatusTable
+    Collectors -->|"INSERT"| ContainerEvents
     Collectors -->|"SSE"| Agent1
     Collectors -->|"SSE"| Agent2
     Collectors --> ProxmoxHost
@@ -91,7 +91,7 @@ flowchart LR
 1. **Agent sidecars** run alongside each managed Docker host, streaming stats and container events
 2. **AgentStatsCollector** connects to each agent's `/stats/stream` endpoint and receives pre-computed Docker metrics (CPU%, memory, network/block I/O rates)
 3. **ZFSCollector** connects to each agent's `/zfs/stats/stream` endpoint, parses `zpool iostat` output, and calculates rates
-4. **StackStatusCollector** connects to each agent's `/stacks/events` endpoint and persists container status snapshots
+4. **ContainerInventoryCollector** connects to each agent's `/containers/events` endpoint and persists container inventory events to `docker_container_events`
 5. **Proxmox collector** polls the Proxmox REST API at a configurable interval (1s or 10s), converts the cluster overview to flat rows, and inserts into TimescaleDB
 6. Stats are **inserted** into TimescaleDB wide hypertables
 7. **StatsPollService** runs one `setInterval(1s)` per source (docker, zfs, proxmox), querying for new rows using seq-based cursors and broadcasting results to all subscribed SSE endpoints
@@ -143,9 +143,9 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 Hosts are registered via the Settings UI and stored in the `managed_hosts` database table with agent connection details and capabilities (docker, zfs).
 
 **Collector creation** (`src/worker/collector-factory.ts`):
-- `createCollectors()` — local Docker/Proxmox collectors from environment variables (monitoring-only)
-- `createCollectorsForManagedHosts()` — agent-based collectors for registered hosts (Docker + ZFS)
-- `createStackStatusCollectors()` — stack container status from agent `/stacks/events`
+- `createCollectors()` — env-configured collectors (Proxmox only; Docker and ZFS always go through managed hosts)
+- `createCollectorsForManagedHosts()` — agent-based collectors for registered hosts (Docker stats + ZFS)
+- `createContainerInventoryCollectors()` — container inventory from agent `/containers/events` SSE, writing to `docker_container_events`
 
 **Token resolution**: Agent tokens are stored in OpenBao and resolved via a `getToken(hostname)` callback. Hosts with missing tokens are skipped with a logged warning.
 
@@ -169,7 +169,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/auth/verify` | Token verification |
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
-| GET | `/stacks/events` | SSE Docker lifecycle events grouped by compose stack |
+| GET | `/containers/events` | SSE container inventory stream |
 | POST | `/stacks/deploy` | Run `docker compose up -d` |
 | POST | `/stacks/teardown` | Run `docker compose down` |
 | POST | `/stacks/restart` | Run `docker compose restart` |
@@ -210,7 +210,7 @@ DeployRequest -> Validate -> Resolve Secrets -> Dispatch to Agent -> Record Resu
 **Database tables:**
 - `managed_hosts` — registered Docker hosts with agent connection details and capabilities
 - `deploy_history` — deploy records with status tracking (pending -> in_progress -> succeeded/failed/no_change)
-- `stack_status` — per-host container status snapshots from agent events
+- `docker_container_events` — per-host container inventory events from agent `/containers/events`
 
 ### Stack Status Pipeline
 
@@ -219,19 +219,19 @@ Real-time stack container status tracking from agent to browser:
 ```mermaid
 flowchart LR
     DE["Docker Events"]
-    AE["Agent /stacks/events"]
-    SC["StackStatusCollector"]
-    DB["stack_status table<br/>+ NOTIFY stack_change"]
-    BS["StackStatusBroadcastService<br/>(LISTEN)"]
+    AE["Agent /containers/events"]
+    CIC["ContainerInventoryCollector"]
+    DB["docker_container_events table<br/>+ NOTIFY docker_container_change"]
+    BS["StackStatusBroadcastService<br/>(LISTEN docker_container_change + deploy_change)"]
     SSE["/api/stack-status SSE"]
     UI["useStackStatus hook"]
 
-    DE --> AE --> SC --> DB --> BS --> SSE --> UI
+    DE --> AE --> CIC --> DB --> BS --> SSE --> UI
 ```
 
-- **Agent** subscribes to Docker daemon events, groups containers by compose stack
-- **StackStatusCollector** (worker) persists snapshots to the `stack_status` table
-- **StackStatusBroadcastService** (server) listens to PostgreSQL `NOTIFY` on `stack_change` channel
+- **Agent** subscribes to Docker daemon events, streams container inventory via SSE
+- **ContainerInventoryCollector** (worker) persists events to the `docker_container_events` table
+- **StackStatusBroadcastService** (server) listens to PostgreSQL `NOTIFY` on `docker_container_change` and `deploy_change` channels
 - **SSE endpoint** sends initial full snapshot on connect, then incremental updates
 - **Event types:** `{ type: 'status', entries: [...] }` and `{ type: 'deploy_changed', stack, host }`
 

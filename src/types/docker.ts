@@ -1,3 +1,5 @@
+import type { DockerContainerInventory } from '@/types/docker-inventory';
+
 export interface DockerContainer {
   name: string;
   cpuUtil: number; // percentage
@@ -78,6 +80,7 @@ export interface ContainerStatsDisplay {
 
 /** Aggregated stats for a Docker host (calculated from containers) */
 export interface HostAggregatedStats {
+  /** Metric fields: computed over running containers with live stats only */
   cpuPercent: number;
   memoryUsage: number;
   memoryLimit: number;
@@ -86,22 +89,42 @@ export interface HostAggregatedStats {
   networkTxBytesPerSec: number;
   blockIoReadBytesPerSec: number;
   blockIoWriteBytesPerSec: number;
-  containerCount: number;
-  staleContainerCount: number;
+
+  /** Count fields: include all containers regardless of state */
+  runningCount: number;
+  stoppedCount: number;        // exited + dead
+  restartingCount: number;
+  pausedCount: number;
+  otherCount: number;          // created, removing, unknown
+  staleContainerCount: number; // running but no recent stats
 }
 
-/** Container stats within a host */
-export interface ContainerStats {
-  data: DockerStatsFromDB;
+interface DockerTableRowBase {
+  id: string;
 }
 
-/** Docker host with its containers */
-export interface HostStats {
+export interface DockerHostTableRow extends DockerTableRowBase {
+  type: 'host';
   hostName: string;
   aggregated: HostAggregatedStats;
-  containers: Map<string, ContainerStats>;
-  isStale: boolean; // True when ALL containers are stale (host connectivity issue)
+  totalHosts: number;
+  children: DockerContainerTableRow[];
+  /** True when ALL containers on this host are stale */
+  isStale: boolean;
 }
 
-/** Complete Docker hierarchy: hosts -> containers */
-export type DockerHierarchy = Map<string, HostStats>;
+export interface DockerContainerTableRow extends DockerTableRowBase {
+  type: 'container';
+  hostName: string;
+  /** Always present — provides state, name, image, timestamps */
+  inventory: DockerContainerInventory;
+  /** Present only when live metrics are available */
+  stats?: DockerStatsFromDB;
+  /** True when state === 'running' but no recent stats are available */
+  isStale: boolean;
+  chartData?: DockerStatsRow[];
+  sparklineData?: import('@/hooks/useContainerChartData').SparklineData;
+  dataPoints?: import('@/hooks/useContainerChartData').ChartDataPoint[];
+}
+
+export type DockerTableRow = DockerHostTableRow | DockerContainerTableRow;

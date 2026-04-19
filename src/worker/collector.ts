@@ -1,5 +1,4 @@
 import { databaseConnectionManager } from '@/lib/clients/database-client';
-import { dockerConnectionManager } from '@/lib/clients/docker-client';
 import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadWorkerConfig } from '@/lib/config/worker-config';
@@ -9,7 +8,11 @@ import { SettingsRepository } from '@/lib/database/repositories/settings-reposit
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import { createCollectors, createCollectorsForManagedHosts } from './collector-factory';
+import {
+  createCollectors,
+  createCollectorsForManagedHosts,
+  createContainerInventoryCollectors,
+} from './collector-factory';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 
@@ -17,7 +20,6 @@ function handleSettingChange(collectors: BaseCollector[], key: string, value: st
   if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
     const enabled = value === 'true';
     for (const c of collectors) c.dockerDebugLogging = enabled;
-    dockerConnectionManager.debugLogging = enabled;
   } else if (key === SETTINGS_KEYS.developer.dbFlushDebugLogging) {
     const enabled = value === 'true';
     for (const c of collectors) c.dbFlushDebugLogging = enabled;
@@ -133,6 +135,13 @@ async function main() {
       collectors.push(...managedCollectors);
       runners.push(...managedRunners);
 
+      const { runners: inventoryRunners } = await createContainerInventoryCollectors(
+        db, shutdownController, stack,
+        () => hostRepo.findAll(),
+        getToken,
+      );
+      runners.push(...inventoryRunners);
+
       if (runners.length === 0) {
         console.info('[Worker] No collectors enabled, exiting');
         process.exit(0);
@@ -161,10 +170,7 @@ async function main() {
 
     console.info('[Worker] Closing connections...');
     proxmoxConnectionManager.clearAll();
-    await Promise.all([
-      databaseConnectionManager.closeAll(),
-      dockerConnectionManager.closeAll(),
-    ]);
+    await databaseConnectionManager.closeAll();
 
     console.info('[Worker] Shutdown complete');
   } catch (err) {

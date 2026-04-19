@@ -4,9 +4,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
-import PageHeader from '@/components/PageHeader'
+import PageStatusBar from '@/components/PageStatusBar'
+import DockerStatusSummary from '@/components/docker/DockerStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
-import { getDockerEntityIcons } from '@/data/docker/functions'
+import { useDockerInventory } from '@/hooks/useDockerInventory'
+import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions'
 import { useSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
@@ -73,6 +75,20 @@ function DockerContainersPage() {
     staleTime: PRELOAD_STALE_TIME,
   })
 
+  const { data: entityIcons } = useQuery({
+    queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
+    queryFn: () => getDockerEntityIcons(),
+    staleTime: 60_000,
+  })
+
+  const handleIconChange = useCallback(
+    async (serviceKeyEntity: string, iconSlug: string) => {
+      await updateContainerIcon({ data: { serviceKeyEntity, iconSlug } })
+      await qc.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY })
+    },
+    [qc],
+  )
+
   const stream = useTimeSeriesStream<DockerStatsRow>({
     sseUrl: apiUrl('/api/docker-stats'),
     preloadFn,
@@ -86,16 +102,23 @@ function DockerContainersPage() {
     debug: developer.sseDebugLogging,
   })
 
+  const { inventory, isConnected: isInventoryConnected, error: inventoryError } = useDockerInventory()
+
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <PageHeader title="Docker Containers Dashboard" />
+      <PageStatusBar left={<DockerStatusSummary inventory={inventory} />} />
       <ContainerTable
+        inventory={inventory}
+        isInventoryConnected={isInventoryConnected}
+        inventoryError={inventoryError}
         latestByEntity={stream.latestByEntity}
         rows={stream.rows}
         hasData={stream.hasData}
         isConnected={stream.isConnected}
         error={stream.error}
         isStale={stream.isStale}
+        entityIcons={entityIcons ?? {}}
+        onIconChange={handleIconChange}
         onOpenHistory={handleOpenHistory}
       />
       {historyTarget && (

@@ -2,9 +2,17 @@ import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 
-// Stub DualSeriesChart to call formatValue so the formatter props are actually exercised.
-// `getChartOption` is also stubbed because bun 1.3.x leaks mock.module across test files —
-// without it, DualSeriesChart's own test file sees `getChartOption` as undefined.
+mock.module('@/hooks/useSettings', () => ({
+  useSettings: () => ({
+    general: { use12HourTime: false },
+    docker: { chartWindowSeconds: 60 },
+  }),
+}));
+
+mock.module('@/hooks/useEChartTimeScroll', () => ({
+  useEChartTimeScroll: () => {},
+}));
+
 mock.module('@/components/docker/DualSeriesChart', () => ({
   default: ({
     title,
@@ -18,30 +26,8 @@ mock.module('@/components/docker/DualSeriesChart', () => ({
       {formatValue && <span data-testid="format-value-output">{formatValue(1000)}</span>}
     </div>
   ),
-  getChartOption: () => ({}),
 }));
 
-// Mock echarts-for-react
-mock.module('echarts-for-react', () => ({
-  default: ({ option }: { option: unknown }) => (
-    <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
-  ),
-}));
-
-// Mock useSettings
-mock.module('@/hooks/useSettings', () => ({
-  useSettings: () => ({
-    general: { use12HourTime: false },
-    docker: { chartWindowSeconds: 60 },
-  }),
-}));
-
-// Mock useEChartTimeScroll
-mock.module('@/hooks/useEChartTimeScroll', () => ({
-  useEChartTimeScroll: () => {},
-}));
-
-// Mock xterm.js - CJS modules need default export for bun:test ESM loader
 mock.module('@xterm/xterm', () => ({
   default: {
     Terminal: class MockTerminal {
@@ -62,7 +48,6 @@ mock.module('@xterm/addon-fit', () => ({
 }));
 mock.module('@xterm/xterm/css/xterm.css', () => ({}));
 
-// Mock useContainerLogs
 mock.module('@/hooks/useContainerLogs', () => ({
   useContainerLogs: () => ({ isConnected: true, error: null }),
 }));
@@ -121,10 +106,6 @@ describe('ContainerDetailPanel', () => {
 
   it('formats CPU/memory values as percentages and network as bit rate', () => {
     renderPanel();
-    // The mock calls formatValue(1000) for each chart.
-    // formatPercent(1000) = formatAsPercent(1000/100) = "1000.00%"
-    // formatNetwork(1000) = formatBitsSIUnits(1000, true) = "1.00 Kbps"
-    // (the bytes→bits *8 happens in ContainerDetailPanel's data mapping, not the formatter)
     screen.getByText('1000.00%');
     screen.getByText('1.00 Kbps');
   });

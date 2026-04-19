@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import { Box, Chip, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ChevronRight, History, Server, Settings, WifiOff } from 'lucide-react';
@@ -9,36 +8,26 @@ import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
 import { metricColumn, nameColumn } from '@/components/shared-table/columns';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
-import type { DockerStatsRow, DockerStatsFromDB, DockerHierarchy, HostAggregatedStats } from '@/types/docker';
-import { buildDockerHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
-import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions';
+import type {
+  DockerStatsRow,
+  DockerStatsFromDB,
+  DockerHostTableRow,
+  DockerContainerTableRow,
+  DockerTableRow,
+  HostAggregatedStats,
+} from '@/types/docker';
+import type { DockerContainerInventory } from '@/types/docker-inventory';
+import { buildDockerTableHierarchy, rowToDockerStats, totalContainers } from '@/lib/utils/docker-hierarchy-builder';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import ContainerDetailPanel from '@/components/docker/ContainerDetailPanel';
+import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import { usePulseIndicator } from '@/hooks/usePulseIndicator';
-import { buildContainerChartData, type ChartDataPoint, type SparklineData } from '@/hooks/useContainerChartData';
+import { buildContainerChartData } from '@/hooks/useContainerChartData';
 
 export const DOCKER_ENTITY_ICONS_QUERY_KEY = ['docker-entity-icons'] as const;
 
-/** Flattened row model for the DataTable tree structure */
-export interface DockerTableRow {
-  type: 'host' | 'container';
-  id: string;
-  isStale: boolean;
-  /** Host fields */
-  hostName?: string;
-  aggregated?: HostAggregatedStats;
-  totalHosts?: number;
-  /** Container fields */
-  container?: DockerStatsFromDB;
-  chartData?: DockerStatsRow[];
-  /** Pre-computed sparkline data for container rows */
-  sparklineData?: SparklineData;
-  /** Pre-computed chart data points for container detail panel */
-  dataPoints?: ChartDataPoint[];
-  /** Tree children: containers under a host */
-  children?: DockerTableRow[];
-}
+export type DockerEntityIconsMap = Record<string, { iconSlug: string | null; serviceKeyEntity: string }>;
 
 const METRIC_GROUPS: MetricGroup[] = [
   { label: 'CPU/Mem', columnIds: ['cpu', 'memory'] },
@@ -47,12 +36,19 @@ const METRIC_GROUPS: MetricGroup[] = [
 ];
 
 interface ContainerTableProps {
+  inventory: Map<string, DockerContainerInventory>;
+  /** Whether the inventory SSE stream has connected (false until first event received) */
+  isInventoryConnected: boolean;
+  /** Error from the inventory SSE stream, if it permanently failed */
+  inventoryError?: Error | null;
   latestByEntity: Map<string, DockerStatsRow>;
   rows: DockerStatsRow[];
   hasData: boolean;
   isConnected: boolean;
   error: Error | null;
   isStale: boolean;
+  entityIcons: DockerEntityIconsMap;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
   onOpenHistory?: (containerId: string, host: string) => void;
 }
 
@@ -60,14 +56,22 @@ interface ContainerTableProps {
  * Render a virtualized, expandable table of Docker hosts and their containers
  * showing CPU, memory, disk and network metrics. Uses the shared DataTable
  * component with tree data (hosts -> containers) and detail panels.
+ *
+ * Inventory is the source of truth for which rows exist. Stats merge in for
+ * running containers; stopped/paused containers show dashes and a state chip.
  */
 export default function ContainerTable({
+  inventory,
+  isInventoryConnected,
+  inventoryError = null,
   latestByEntity,
   rows,
   hasData,
   isConnected,
   error,
   isStale,
+  entityIcons,
+  onIconChange,
   onOpenHistory,
 }: Readonly<ContainerTableProps>) {
   const {
@@ -79,21 +83,11 @@ export default function ContainerTable({
     toggleContainerExpanded,
   } = useSettings();
 
-  const { data: entityIcons } = useQuery({
-    queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY,
-    queryFn: () => getDockerEntityIcons(),
-    staleTime: 60_000,
-  });
+  const prevStatsRef = useRef<Map<string, DockerStatsFromDB>>(new Map());
 
-  // Convert latest rows to DockerStatsFromDB and build hierarchy.
-  // Deduplicate by serviceKeyEntity so that when a container is recreated
-  // (new container_id, same logical service), only the most recently active
-  // incarnation is shown in the live dashboard.
-  const prevContainersRef = useRef<Map<string, DockerStatsFromDB>>(new Map());
-
-  const hierarchy = useMemo<DockerHierarchy>(() => {
-    const byServiceKey = new Map<string, DockerStatsFromDB>();
-    const prev = prevContainersRef.current;
+  const statsByEntityId = useMemo<Map<string, DockerStatsFromDB>>(() => {
+    const next = new Map<string, DockerStatsFromDB>();
+    const prev = prevStatsRef.current;
 
     for (const row of latestByEntity.values()) {
       const entityId = `${row.host}/${row.container_id}`;
@@ -101,33 +95,25 @@ export default function ContainerTable({
       const meta = entityIcons?.[entityId];
       const stat = rowToDockerStats(row, meta?.iconSlug ?? null, meta?.serviceKeyEntity ?? `${row.host}/${name}`);
 
-      // Reuse previous object if the underlying data hasn't changed
-      const prevStat = prev.get(stat.serviceKeyEntity);
-      const reuse = prevStat?.timestamp === stat.timestamp;
-
-      const existing = byServiceKey.get(stat.serviceKeyEntity);
-      if (!existing || stat.timestamp > existing.timestamp) {
-        byServiceKey.set(stat.serviceKeyEntity, reuse ? prevStat : stat);
-      }
+      const prevStat = prev.get(entityId);
+      const reuse = prevStat?.timestamp.getTime() === stat.timestamp.getTime();
+      next.set(entityId, reuse ? prevStat : stat);
     }
 
-    prevContainersRef.current = byServiceKey;
-    return buildDockerHierarchy([...byServiceKey.values()]);
+    prevStatsRef.current = next;
+    return next;
   }, [latestByEntity, entityIcons]);
 
-  // Build per-service chart data index, keyed by serviceKeyEntity
   const prevChartDataRef = useRef<Map<string, DockerStatsRow[]>>(new Map());
 
-  const chartDataByServiceKey = useMemo(() => {
+  const chartDataByEntityId = useMemo(() => {
     const map = new Map<string, DockerStatsRow[]>();
     for (const row of rows) {
       const entityId = `${row.host}/${row.container_id}`;
-      const name = row.container_name || row.container_id.substring(0, 12);
-      const serviceKey = entityIcons?.[entityId]?.serviceKeyEntity ?? `${row.host}/${name}`;
-      let arr = map.get(serviceKey);
+      let arr = map.get(entityId);
       if (!arr) {
         arr = [];
-        map.set(serviceKey, arr);
+        map.set(entityId, arr);
       }
       arr.push(row);
     }
@@ -143,50 +129,26 @@ export default function ContainerTable({
 
     prevChartDataRef.current = map;
     return map;
-  }, [rows, entityIcons]);
+  }, [rows]);
 
-  // Build tree data for DataTable
   const tableData = useMemo<DockerTableRow[]>(() => {
-    const totalHosts = hierarchy.size;
-    const hosts = Array.from(hierarchy.values()).sort((a, b) => a.hostName.localeCompare(b.hostName));
+    const { hosts } = buildDockerTableHierarchy(inventory, statsByEntityId);
 
-    return hosts.map((host) => {
-      const containers = Array.from(host.containers.values())
-        .sort((a, b) => a.data.name.localeCompare(b.data.name));
-
-      const children: DockerTableRow[] = containers.map((c) => {
-        const chartData = chartDataByServiceKey.get(c.data.serviceKeyEntity) ?? [];
+    return hosts.map((hostRow) => {
+      const enrichedChildren: DockerContainerTableRow[] = hostRow.children.map((c) => {
+        const chartData = chartDataByEntityId.get(c.id) ?? [];
         const { sparklineData, dataPoints } = buildContainerChartData(chartData);
-
-        return {
-          type: 'container' as const,
-          id: c.data.id,
-          isStale: c.data.stale,
-          container: c.data,
-          chartData,
-          sparklineData,
-          dataPoints,
-        };
+        return { ...c, chartData, sparklineData, dataPoints };
       });
-
-      return {
-        type: 'host' as const,
-        id: `host:${host.hostName}`,
-        isStale: host.isStale,
-        hostName: host.hostName,
-        aggregated: host.aggregated,
-        totalHosts,
-        children,
-      };
+      return { ...hostRow, children: enrichedChildren };
     });
-  }, [hierarchy, chartDataByServiceKey]);
+  }, [inventory, statsByEntityId, chartDataByEntityId]);
 
-  // Host-level expansion state (container expansion handled by nested DataTable)
   const expandedState = useMemo<ExpandedState>(() => {
     const state: Record<string, boolean> = {};
     for (const hostRow of tableData) {
-      if (hostRow.type === 'host' && hostRow.hostName) {
-        state[hostRow.id] = isHostExpanded(hostRow.hostName, hostRow.totalHosts ?? 1);
+      if (hostRow.type === 'host') {
+        state[hostRow.id] = isHostExpanded(hostRow.hostName, hostRow.totalHosts);
       }
     }
     return state;
@@ -217,8 +179,8 @@ export default function ContainerTable({
     () => [
       nameColumn<DockerTableRow>({
         getLabel: (row) => {
-          if (row.type === 'host') return row.hostName ?? '';
-          return row.container?.name ?? '';
+          if (row.type === 'host') return row.hostName;
+          return row.inventory.name;
         },
         size: 300,
         cell: ({ row }) => {
@@ -231,11 +193,11 @@ export default function ContainerTable({
               />
             );
           }
-          if (!data.container) return null;
           return (
             <ContainerNameCell
               row={data}
               expanded={row.getIsExpanded()}
+              onIconChange={onIconChange}
               onOpenHistory={onOpenHistory}
             />
           );
@@ -249,15 +211,13 @@ export default function ContainerTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         sparklineColor: '--chart-cpu',
         getValue: (row) => {
-          if (row.type === 'host' && row.aggregated) {
+          if (row.type === 'host') {
             return formatAsPercentParts(row.aggregated.cpuPercent / 100, docker.decimals.cpu);
           }
-          if (row.container) {
-            return formatAsPercentParts(row.container.rates.cpuPercent / 100, docker.decimals.cpu);
-          }
-          return { value: '--', unit: '' };
+          if (!row.stats) return { value: '—', unit: '' };
+          return formatAsPercentParts(row.stats.rates.cpuPercent / 100, docker.decimals.cpu);
         },
-        getSparklineData: (row) => row.sparklineData?.cpu ?? [],
+        getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.cpu ?? []) : []),
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -268,19 +228,17 @@ export default function ContainerTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         sparklineColor: '--chart-memory',
         getValue: (row) => {
-          if (row.type === 'host' && row.aggregated) {
+          if (row.type === 'host') {
             return docker.memoryDisplayMode === 'bytes'
               ? formatBytesParts(row.aggregated.memoryUsage, false, docker.decimals.memory)
               : formatAsPercentParts(row.aggregated.memoryPercent / 100, docker.decimals.memory);
           }
-          if (row.container) {
-            return docker.memoryDisplayMode === 'bytes'
-              ? formatBytesParts(row.container.memory_stats.usage, false, docker.decimals.memory)
-              : formatAsPercentParts(row.container.rates.memoryPercent / 100, docker.decimals.memory);
-          }
-          return { value: '--', unit: '' };
+          if (!row.stats) return { value: '—', unit: '' };
+          return docker.memoryDisplayMode === 'bytes'
+            ? formatBytesParts(row.stats.memory_stats.usage, false, docker.decimals.memory)
+            : formatAsPercentParts(row.stats.rates.memoryPercent / 100, docker.decimals.memory);
         },
-        getSparklineData: (row) => row.sparklineData?.memory ?? [],
+        getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.memory ?? []) : []),
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -291,15 +249,13 @@ export default function ContainerTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         sparklineColor: '--chart-read',
         getValue: (row) => {
-          if (row.type === 'host' && row.aggregated) {
+          if (row.type === 'host') {
             return formatBytesParts(row.aggregated.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
           }
-          if (row.container) {
-            return formatBytesParts(row.container.rates.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
-          }
-          return { value: '--', unit: '' };
+          if (!row.stats) return { value: '—', unit: '' };
+          return formatBytesParts(row.stats.rates.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
         },
-        getSparklineData: (row) => row.sparklineData?.blockRead ?? [],
+        getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.blockRead ?? []) : []),
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -310,15 +266,13 @@ export default function ContainerTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         sparklineColor: '--chart-write',
         getValue: (row) => {
-          if (row.type === 'host' && row.aggregated) {
+          if (row.type === 'host') {
             return formatBytesParts(row.aggregated.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
           }
-          if (row.container) {
-            return formatBytesParts(row.container.rates.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
-          }
-          return { value: '--', unit: '' };
+          if (!row.stats) return { value: '—', unit: '' };
+          return formatBytesParts(row.stats.rates.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
         },
-        getSparklineData: (row) => row.sparklineData?.blockWrite ?? [],
+        getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.blockWrite ?? []) : []),
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -329,15 +283,13 @@ export default function ContainerTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         sparklineColor: '--chart-read',
         getValue: (row) => {
-          if (row.type === 'host' && row.aggregated) {
+          if (row.type === 'host') {
             return formatBitsSIUnitsParts(row.aggregated.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
           }
-          if (row.container) {
-            return formatBitsSIUnitsParts(row.container.rates.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
-          }
-          return { value: '--', unit: '' };
+          if (!row.stats) return { value: '—', unit: '' };
+          return formatBitsSIUnitsParts(row.stats.rates.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
         },
-        getSparklineData: (row) => row.sparklineData?.networkRx ?? [],
+        getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.networkRx ?? []) : []),
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -348,26 +300,24 @@ export default function ContainerTable({
         useAbbreviatedUnits: general.useAbbreviatedUnits,
         sparklineColor: '--chart-write',
         getValue: (row) => {
-          if (row.type === 'host' && row.aggregated) {
+          if (row.type === 'host') {
             return formatBitsSIUnitsParts(row.aggregated.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
           }
-          if (row.container) {
-            return formatBitsSIUnitsParts(row.container.rates.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
-          }
-          return { value: '--', unit: '' };
+          if (!row.stats) return { value: '—', unit: '' };
+          return formatBitsSIUnitsParts(row.stats.rates.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
         },
-        getSparklineData: (row) => row.sparklineData?.networkTx ?? [],
+        getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.networkTx ?? []) : []),
         getIsStale: (row) => row.isStale,
       }),
     ],
-    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onOpenHistory],
+    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onIconChange, onOpenHistory],
   );
 
   /** Render container detail panel (charts + logs) for the nested DataTable */
   const renderContainerDetail = useCallback(
     (row: DockerTableRow) => {
-      if (row.type !== 'container' || !row.container || !row.dataPoints) return null;
-      const [host, containerId] = row.container.id.split('/');
+      if (row.type !== 'container' || !row.dataPoints) return null;
+      const { host, containerId } = row.inventory;
       if (!host || !containerId) return null;
       return (
         <ContainerDetailPanel
@@ -389,25 +339,42 @@ export default function ContainerTable({
     if (row.isStale) {
       return '!bg-amber-500/10 !opacity-70';
     }
+    const { state } = row.inventory;
+    if (state !== 'running' && state !== 'restarting') {
+      return '!opacity-60';
+    }
     return '';
+  }, []);
+
+  const rowAttributes = useCallback((row: DockerTableRow): Record<`data-${string}`, string> => {
+    if (row.type === 'host') {
+      return { 'data-row-variant': row.isStale ? 'stale' : 'host' };
+    }
+    if (row.isStale) return { 'data-row-variant': 'stale' };
+    const { state } = row.inventory;
+    if (state === 'running' || state === 'restarting') {
+      return { 'data-row-variant': 'running' };
+    }
+    return { 'data-row-variant': 'stopped' };
   }, []);
 
   /** Host detail panel: a nested DataTable of container rows with its own virtualized scroll */
   const renderDetailPanel = useCallback(
     (row: DockerTableRow) => {
-      if (row.type !== 'host' || !row.children?.length) return null;
+      if (row.type !== 'host' || !row.children.length) return null;
       return (
         <ContainerSubTable
           containers={row.children}
           columns={columns}
           renderDetailPanel={renderContainerDetail}
           rowClassName={rowClassName}
+          rowAttributes={rowAttributes}
           isContainerExpanded={isContainerExpanded}
           toggleContainerExpanded={toggleContainerExpanded}
         />
       );
     },
-    [columns, renderContainerDetail, rowClassName, isContainerExpanded, toggleContainerExpanded],
+    [columns, renderContainerDetail, rowClassName, rowAttributes, isContainerExpanded, toggleContainerExpanded],
   );
 
   // Loading / error states
@@ -423,7 +390,22 @@ export default function ContainerTable({
     );
   }
 
-  if (!isConnected && !hasData) {
+  if (inventoryError && inventory.size === 0) {
+    return (
+      <Box className="w-full">
+        <Box className="p-2">
+          <Typography color="error">
+            Error connecting to Docker inventory: {inventoryError.message}
+          </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+  // Show spinner until both streams are ready: stats SSE (isConnected or hasData)
+  // and inventory SSE (isInventoryConnected or inventory has data). Without this guard,
+  // the table would render zero rows when stats arrive before inventory.
+  if ((!isConnected && !hasData) || (!isInventoryConnected && inventory.size === 0)) {
     return (
       <Box className="w-full">
         <Box className="flex justify-center p-4">
@@ -445,6 +427,7 @@ export default function ContainerTable({
         onExpandedChange={handleExpandedChange}
         metricGroups={METRIC_GROUPS}
         rowClassName={rowClassName}
+        rowAttributes={rowAttributes}
         enableSorting={false}
       />
     </Box>
@@ -460,13 +443,15 @@ const ContainerSubTable = memo(function ContainerSubTable({
   columns,
   renderDetailPanel,
   rowClassName,
+  rowAttributes,
   isContainerExpanded,
   toggleContainerExpanded,
 }: Readonly<{
-  containers: DockerTableRow[];
+  containers: DockerContainerTableRow[];
   columns: ColumnDef<DockerTableRow, unknown>[];
   renderDetailPanel: (row: DockerTableRow) => ReactNode;
   rowClassName: (row: DockerTableRow) => string;
+  rowAttributes: (row: DockerTableRow) => Record<`data-${string}` | `aria-${string}`, string>;
   isContainerExpanded: (id: string) => boolean;
   toggleContainerExpanded: (id: string) => void;
 }>) {
@@ -505,6 +490,7 @@ const ContainerSubTable = memo(function ContainerSubTable({
       expandedState={containerExpanded}
       onExpandedChange={handleContainerExpandedChange}
       rowClassName={rowClassName}
+      rowAttributes={rowAttributes}
       enableSorting={false}
       showHeader={false}
     />
@@ -515,13 +501,14 @@ const HostNameCell = memo(function HostNameCell({
   row,
   expanded,
 }: Readonly<{
-  row: DockerTableRow;
+  row: DockerHostTableRow;
   expanded: boolean;
 }>) {
-  const totalHosts = row.totalHosts ?? 1;
-  const hasContainers = (row.children?.length ?? 0) > 0;
+  const { totalHosts, children, aggregated: a } = row;
+  const hasContainers = children.length > 0;
   const canToggle = hasContainers && totalHosts > 1;
-  const a = row.aggregated;
+
+  const countLabel = buildCountLabel(a);
 
   return (
     <div className="flex items-center gap-2">
@@ -536,10 +523,8 @@ const HostNameCell = memo(function HostNameCell({
         <WifiOff size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
       )}
       <span className="font-bold">{row.hostName}</span>
-      {a && (
-        <Chip size="small" variant="filled" label={`${a.containerCount} container${a.containerCount === 1 ? '' : 's'}`} />
-      )}
-      {a && a.staleContainerCount > 0 && !row.isStale && (
+      <Chip size="small" variant="filled" label={countLabel} />
+      {a.staleContainerCount > 0 && !row.isStale && (
         <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
       )}
     </div>
@@ -547,25 +532,49 @@ const HostNameCell = memo(function HostNameCell({
 });
 
 /**
- * Name cell for container rows - shows icon, pulse indicator, name,
+ * Build a human-readable container count label for the host chip.
+ * Shows a breakdown when containers are in mixed states.
+ */
+function buildCountLabel(a: HostAggregatedStats): string {
+  const total = totalContainers(a);
+  const nonRunning = total - a.runningCount;
+
+  if (nonRunning === 0) {
+    return `${total} container${total === 1 ? '' : 's'}`;
+  }
+
+  const parts: string[] = [];
+  if (a.runningCount > 0) parts.push(`${a.runningCount} running`);
+  if (a.stoppedCount > 0) parts.push(`${a.stoppedCount} stopped`);
+  if (a.restartingCount > 0) parts.push(`${a.restartingCount} restarting`);
+  if (a.pausedCount > 0) parts.push(`${a.pausedCount} paused`);
+  if (a.otherCount > 0) parts.push(`${a.otherCount} other`);
+
+  return parts.join(' · ');
+}
+
+/**
+ * Name cell for container rows — shows icon, pulse indicator, state chip, name,
  * settings and history buttons. Uses hooks for pulse animation and icon picker.
  */
 function ContainerNameCell({
   row,
   expanded,
+  onIconChange,
   onOpenHistory,
 }: Readonly<{
-  row: DockerTableRow;
+  row: DockerContainerTableRow;
   expanded: boolean;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
   onOpenHistory?: (containerId: string, host: string) => void;
 }>) {
-  const container = row.container!; // parent guarantees this is present
+  const { inventory, stats } = row;
 
-  const queryClient = useQueryClient();
   const { showToast } = useToast();
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState(false);
-  const iconUrl = getIconUrl(container.icon, container.image);
+
+  const iconUrl = getIconUrl(stats?.icon ?? null, inventory.image);
 
   useEffect(() => {
     setIconError(false);
@@ -578,12 +587,18 @@ function ContainerNameCell({
 
   const handleIconSelect = async (iconSlug: string) => {
     try {
-      await updateContainerIcon({ data: { serviceKeyEntity: container.serviceKeyEntity, iconSlug } });
-      await queryClient.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY });
+      const serviceKeyEntity = stats?.serviceKeyEntity ?? `${inventory.host}/${inventory.name}`;
+      await onIconChange(serviceKeyEntity, iconSlug);
     } catch (err) {
       console.error('Failed to update container icon:', err);
       showToast('Failed to update icon. Please try again.');
     }
+  };
+
+  const handleHistoryClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const { host, containerId } = inventory;
+    if (host && containerId && onOpenHistory) onOpenHistory(containerId, host);
   };
 
   return (
@@ -594,23 +609,28 @@ function ContainerNameCell({
           className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
 
-        {/* Pulse indicator */}
-        <div
-          ref={indicatorRef}
-          className="relative w-2 h-2 flex-shrink-0"
-          title={lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'No data yet'}
-        >
+        {/* Pulse indicator — for running and restarting containers with data */}
+        {(inventory.state === 'running' || inventory.state === 'restarting') && (
           <div
-            ref={pingRef}
-            className="absolute inset-0 rounded-full transition-opacity duration-200 opacity-0"
-            style={{ backgroundColor: 'var(--indicator-active)' }}
-          />
-          <div
-            ref={dotRef}
-            className="absolute inset-0 rounded-full transition-colors duration-300"
-            style={{ backgroundColor: 'var(--indicator-active)' }}
-          />
-        </div>
+            ref={indicatorRef}
+            className="relative w-2 h-2 flex-shrink-0"
+            title={lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'No data yet'}
+          >
+            <div
+              ref={pingRef}
+              className="absolute inset-0 rounded-full transition-opacity duration-200 opacity-0"
+              style={{ backgroundColor: 'var(--indicator-active)' }}
+            />
+            <div
+              ref={dotRef}
+              className="absolute inset-0 rounded-full transition-colors duration-300"
+              style={{ backgroundColor: 'var(--indicator-active)' }}
+            />
+          </div>
+        )}
+        {inventory.state !== 'running' && (
+          <ContainerStateChip state={inventory.state} />
+        )}
 
         <img
           src={iconError ? FALLBACK_ICON_URL : iconUrl}
@@ -618,7 +638,7 @@ function ContainerNameCell({
           className="w-5 h-5 flex-shrink-0"
           onError={() => setIconError(true)}
         />
-        <span className="truncate">{container.name}</span>
+        <span className="truncate">{inventory.name}</span>
         <IconButton
           size="small"
           onClick={(e) => {
@@ -635,11 +655,7 @@ function ContainerNameCell({
         {onOpenHistory && (
           <IconButton
             size="small"
-            onClick={(e) => {
-              e.stopPropagation();
-              const [host, containerId] = container.id.split('/');
-              if (host && containerId) onOpenHistory(containerId, host);
-            }}
+            onClick={handleHistoryClick}
             className={`!p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
             aria-label="View container history"
             tabIndex={expanded ? 0 : -1}
@@ -655,8 +671,8 @@ function ContainerNameCell({
           open={iconPickerOpen}
           onClose={() => setIconPickerOpen(false)}
           onSelect={handleIconSelect}
-          currentIcon={container.icon}
-          containerName={container.name}
+          currentIcon={stats?.icon ?? null}
+          containerName={inventory.name}
         />
       )}
     </>

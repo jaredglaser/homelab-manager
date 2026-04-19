@@ -87,7 +87,7 @@ This starts:
 
 The stacks feature uses an in-app git repo to store Docker Compose files. Clone it and add some sample containers so the dashboard has data to display:
 
-**Docker monitoring:** The local compose file includes a socket proxy service that gives the worker read-only access to your Docker API. Set `DOCKER_HOST_1=socket-proxy` in `.env` — the worker resolves it by service name on the shared Docker network. No need to expose the Docker socket on a host port.
+**Docker monitoring:** The local compose file seeds a localhost agent (via `DEV_AGENT_TOKEN`) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams — it does not connect to Docker directly. No host port is needed for the Docker socket.
 
 ```bash
 git clone http://x:dev-git-token@localhost:3000/api/git/stacks ~/stacks

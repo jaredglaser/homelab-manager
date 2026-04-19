@@ -1,14 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 
-// Mock echarts-for-react - canvas rendering not available in Happy-DOM
-mock.module('echarts-for-react', () => ({
-  default: ({ option }: { option: unknown }) => (
-    <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
-  ),
-}));
-
-// Mock useSettings to return stable defaults
 mock.module('@/hooks/useSettings', () => ({
   useSettings: () => ({
     general: { use12HourTime: false },
@@ -16,12 +8,16 @@ mock.module('@/hooks/useSettings', () => ({
   }),
 }));
 
-// Mock useEChartTimeScroll - no-op in tests
 mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
 }));
 
-// Must import after mocks
+mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
+  default: ({ option }: { option: unknown }) => (
+    <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
+  ),
+}));
+
 const { default: DualSeriesChart, getChartOption } = await import('../DualSeriesChart');
 
 const baseSeries: [
@@ -59,7 +55,7 @@ describe('DualSeriesChart', () => {
     expect(screen.getByText('CPU & Memory')).toBeTruthy();
   });
 
-  it('renders echarts component', () => {
+  it('renders the chart renderer', () => {
     render(
       <DualSeriesChart
         title="Network I/O"
@@ -71,7 +67,7 @@ describe('DualSeriesChart', () => {
     expect(screen.getByTestId('echarts-mock')).toBeTruthy();
   });
 
-  it('passes two series to echarts option', () => {
+  it('passes two series to the renderer option', () => {
     render(
       <DualSeriesChart
         title="Test"
@@ -149,7 +145,6 @@ describe('getChartOption', () => {
   it('xAxis formatter formats minutes and seconds', () => {
     const option = getChartOption(baseSeries, 'percent', formatValue, false, 60000, chrome);
     const xAxisFormatter = (option.xAxis as { axisLabel: { formatter: Function } }).axisLabel.formatter;
-    // Test with a known timestamp: 2024-01-01 00:05:30
     const ts = new Date(2024, 0, 1, 0, 5, 30).getTime();
     expect(xAxisFormatter(ts)).toBe('05:30');
   });
