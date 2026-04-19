@@ -136,6 +136,7 @@ async function sweepOrphanedManifestDeletes(
     console.info(`[Server] Orphaned sweep removed ${removed} stack(s) from manifest`);
   }
 }
+// TODO: migrate to the shared retry() utility from @/lib/utils/backoff
 async function runWithRetry<T>(
   fn: () => Promise<T>,
   opts: {
