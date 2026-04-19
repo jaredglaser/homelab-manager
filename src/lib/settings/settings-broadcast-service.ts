@@ -1,7 +1,42 @@
 import type { PoolClient } from 'pg';
 import type { SettingsSSEMessage } from '@/types/settings';
+import { backoffDelayMs } from '@/lib/utils/backoff';
 
 type SettingsCallback = (message: SettingsSSEMessage) => void;
+
+async function defaultGetPoolClient(): Promise<PoolClient> {
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const config = loadDatabaseConfig();
+  const client = await databaseConnectionManager.getClient(config);
+  return client.getPool().connect();
+}
+
+async function defaultLoadAllSettings(): Promise<Map<string, string>> {
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { SettingsRepository } = await import('@/lib/database/repositories/settings-repository');
+  const config = loadDatabaseConfig();
+  const client = await databaseConnectionManager.getClient(config);
+  const repo = new SettingsRepository(client.getPool());
+  return repo.getAll();
+}
+
+async function defaultLoadSingleSetting(key: string): Promise<string | null> {
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { SettingsRepository } = await import('@/lib/database/repositories/settings-repository');
+  const config = loadDatabaseConfig();
+  const client = await databaseConnectionManager.getClient(config);
+  const repo = new SettingsRepository(client.getPool());
+  return repo.get(key);
+}
+
+export interface SettingsBroadcastServiceDeps {
+  getPoolClient?: () => Promise<PoolClient>;
+  loadAllSettings?: () => Promise<Map<string, string>>;
+  loadSingleSetting?: (key: string) => Promise<string | null>;
+}
 
 /**
  * Server-side broadcast service for settings changes.
@@ -13,11 +48,12 @@ type SettingsCallback = (message: SettingsSSEMessage) => void;
  *
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.
  */
-class SettingsBroadcastService {
+export class SettingsBroadcastService {
   private subscribers = new Set<SettingsCallback>();
   private listenerClient: PoolClient | null = null;
   private stopped = true;
   private reconnecting = false;
+  private reconnectFailures = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /**
    * In-flight startListening() promise. Serializes concurrent callers
@@ -26,6 +62,15 @@ class SettingsBroadcastService {
    * a listenerClient.
    */
   private startInFlight: Promise<boolean> | null = null;
+  private readonly getPoolClient: () => Promise<PoolClient>;
+  private readonly loadAllSettings: () => Promise<Map<string, string>>;
+  private readonly loadSingleSetting: (key: string) => Promise<string | null>;
+
+  constructor(deps: SettingsBroadcastServiceDeps = {}) {
+    this.getPoolClient = deps.getPoolClient ?? defaultGetPoolClient;
+    this.loadAllSettings = deps.loadAllSettings ?? defaultLoadAllSettings;
+    this.loadSingleSetting = deps.loadSingleSetting ?? defaultLoadSingleSetting;
+  }
 
   subscribe(callback: SettingsCallback): () => void {
     this.subscribers.add(callback);
@@ -47,16 +92,7 @@ class SettingsBroadcastService {
 
   private async sendInit(callback: SettingsCallback): Promise<void> {
     try {
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { SettingsRepository } = await import(
-        '@/lib/database/repositories/settings-repository'
-      );
-
-      const config = loadDatabaseConfig();
-      const client = await databaseConnectionManager.getClient(config);
-      const repo = new SettingsRepository(client.getPool());
-      const all = await repo.getAll();
+      const all = await this.loadAllSettings();
 
       // Only send if subscriber is still active
       if (this.subscribers.has(callback)) {
@@ -81,13 +117,7 @@ class SettingsBroadcastService {
     let poolClient: PoolClient | null = null;
 
     try {
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-
-      const config = loadDatabaseConfig();
-      const client = await databaseConnectionManager.getClient(config);
-      const pool = client.getPool();
-      poolClient = await pool.connect();
+      poolClient = await this.getPoolClient();
 
       if (this.stopped) {
         try { poolClient.release(); } catch { /* best-effort */ }
@@ -112,6 +142,7 @@ class SettingsBroadcastService {
       });
 
       await this.listenerClient.query('LISTEN settings_change');
+      this.reconnectFailures = 0;
       return true;
     } catch (error) {
       console.error('[SettingsBroadcastService] Failed to start listener:', error);
@@ -136,16 +167,7 @@ class SettingsBroadcastService {
   private async resyncAllSubscribers(): Promise<void> {
     if (this.subscribers.size === 0) return;
     try {
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { SettingsRepository } = await import(
-        '@/lib/database/repositories/settings-repository'
-      );
-
-      const config = loadDatabaseConfig();
-      const client = await databaseConnectionManager.getClient(config);
-      const repo = new SettingsRepository(client.getPool());
-      const all = await repo.getAll();
+      const all = await this.loadAllSettings();
       const message: SettingsSSEMessage = { type: 'init', settings: Object.fromEntries(all) };
 
       for (const cb of this.subscribers) {
@@ -162,6 +184,8 @@ class SettingsBroadcastService {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== null) return;
+    const delayMs = backoffDelayMs(this.reconnectFailures, { baseMs: 500, capMs: 30_000 });
+    this.reconnectFailures++;
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       if (!this.stopped && this.subscribers.size > 0) {
@@ -172,7 +196,7 @@ class SettingsBroadcastService {
           // current state to all subscribers so their cached view is fresh.
           await this.resyncAllSubscribers();
         } else {
-          // Still reconnecting — retry again after the same backoff.
+          // Still reconnecting — retry again after the next backoff step.
           // Note: startListening() may have already scheduled a retry via its
           // own catch block; scheduleReconnect() is idempotent thanks to the
           // reconnectTimer guard, so calling it again is safe.
@@ -181,21 +205,12 @@ class SettingsBroadcastService {
       } else {
         this.reconnecting = false;
       }
-    }, 5_000);
+    }, delayMs);
   }
 
   private async handleChange(key: string): Promise<void> {
     try {
-      const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-      const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-      const { SettingsRepository } = await import(
-        '@/lib/database/repositories/settings-repository'
-      );
-
-      const config = loadDatabaseConfig();
-      const client = await databaseConnectionManager.getClient(config);
-      const repo = new SettingsRepository(client.getPool());
-      const value = await repo.get(key);
+      const value = await this.loadSingleSetting(key);
 
       if (value !== null) {
         const message: SettingsSSEMessage = { type: 'change', key, value };
@@ -226,6 +241,7 @@ class SettingsBroadcastService {
   private stopListening(): void {
     this.stopped = true;
     this.reconnecting = false;
+    this.reconnectFailures = 0;
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
