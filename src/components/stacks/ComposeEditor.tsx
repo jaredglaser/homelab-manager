@@ -17,9 +17,10 @@ interface ComposeEditorProps {
   content: string;
   variables: string[];
   _monacoLoader?: () => Promise<unknown>;
+  _saveCompose?: typeof saveComposeFile;
 }
 
-export default function ComposeEditor({ stackName, content, variables: initialVariables, _monacoLoader }: Readonly<ComposeEditorProps>) {
+export default function ComposeEditor({ stackName, content, variables: initialVariables, _monacoLoader, _saveCompose }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
   const [monacoLoadFailed, setMonacoLoadFailed] = useState(false);
   const [editorContent, setEditorContent] = useState(content);
@@ -50,7 +51,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
   const isDirty = editorContent !== content;
 
   const saveMutation = useMutation({
-    mutationFn: () => saveComposeFile({ data: { stackName, content: editorContent } }),
+    mutationFn: () => (_saveCompose ?? saveComposeFile)({ data: { stackName, content: editorContent } }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
     },

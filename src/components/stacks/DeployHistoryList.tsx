@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Skeleton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
 import { HelpCircle } from 'lucide-react';
 import type { StackDeployRecord, DeployStatus } from '@/types/stacks';
+import type { triggerDeploy } from '@/data/stacks/functions';
 import DeployHistoryRow from '@/components/stacks/DeployHistoryRow';
 
 type StatusFilter = DeployStatus | 'all';
@@ -13,6 +14,7 @@ interface DeployHistoryListProps {
   host?: string;
   onRollbackComplete?: () => void;
   onRollbackError?: (err: Error) => void;
+  _triggerDeploy?: typeof triggerDeploy;
 }
 
 export default function DeployHistoryList({
@@ -22,6 +24,7 @@ export default function DeployHistoryList({
   host,
   onRollbackComplete,
   onRollbackError,
+  _triggerDeploy,
 }: Readonly<DeployHistoryListProps>) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
@@ -109,6 +112,7 @@ export default function DeployHistoryList({
               host={host}
               onRollbackComplete={onRollbackComplete}
               onRollbackError={onRollbackError}
+              _triggerDeploy={_triggerDeploy}
             />
           ))}
         </div>

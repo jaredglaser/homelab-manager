@@ -13,14 +13,14 @@ describe('saveAndCommitFile', () => {
     testDir = mkdtempSync(join(getTestTmpDir(), 'git-editor-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
-    await commitFiles(repoPath, {
+    await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'services:\n  plex:\n    image: plex:v1\n' },
       ],
       message: 'initial',
       author: { name: 'system', email: 'system@localhost' },
-    });
+    }));
   });
 
   afterEach(() => {
@@ -90,13 +90,13 @@ describe('updateManifest', () => {
     testDir = mkdtempSync(join(getTestTmpDir(), 'git-manifest-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
-    await commitFiles(repoPath, {
+    await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
       ],
       message: 'initial',
       author: { name: 'system', email: 'system@localhost' },
-    });
+    }));
   });
 
   afterEach(() => {
