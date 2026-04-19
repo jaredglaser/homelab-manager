@@ -15,7 +15,7 @@ import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/
 import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
 import { apiUrl } from '@/lib/utils/api-url'
 import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
-import { useSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
+import { useProxmoxSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
 
 function IntervalToggle({
@@ -130,7 +130,7 @@ export const Route = createFileRoute('/proxmox')({
  * @returns The JSX element containing the Proxmox dashboard content.
  */
 function ProxmoxPageContent() {
-  const { proxmox, setProxmoxUpdateInterval } = useSettings()
+  const { proxmox, setProxmoxUpdateInterval } = useProxmoxSettings()
   const [overview, setOverview] = useState<ProxmoxClusterOverview | null>(null)
 
   return (

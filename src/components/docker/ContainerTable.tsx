@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import { Box, Chip, CircularProgress, IconButton, Typography } from '@mui/material';
 import { ChevronRight, History, Server, Settings, WifiOff } from 'lucide-react';
-import { useSettings } from '@/hooks/useSettings';
+import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
 import { useToast } from '@/hooks/toastAtom';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
@@ -76,12 +76,12 @@ export default function ContainerTable({
 }: Readonly<ContainerTableProps>) {
   const {
     docker,
-    general,
     isHostExpanded,
     isContainerExpanded,
     toggleHostExpanded,
     toggleContainerExpanded,
-  } = useSettings();
+  } = useDockerSettings();
+  const { general } = useGeneralSettings();
 
   const prevStatsRef = useRef<Map<string, DockerStatsFromDB>>(new Map());
 

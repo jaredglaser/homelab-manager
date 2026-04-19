@@ -2,7 +2,7 @@ import { memo, useMemo, useRef } from 'react';
 import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
-import { useSettings } from '@/hooks/useSettings';
+import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
 import { resolveChartColors, resolveChartChromeColors } from '@/lib/charts/css-vars';
 import { calculateCleanYAxis } from '@/lib/charts/y-axis';
@@ -152,7 +152,8 @@ export default memo(function ContainerMetricChart({
   colorVar,
   formatValue,
 }: ContainerMetricChartProps) {
-  const { general, docker } = useSettings();
+  const { general } = useGeneralSettings();
+  const { docker } = useDockerSettings();
   const windowMs = docker.chartWindowSeconds * 1000;
   const isPercent = title.includes('%');
   const option = useMemo(
