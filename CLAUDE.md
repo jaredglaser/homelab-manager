@@ -9,6 +9,13 @@
 **After editing files:**
 - When `<new-diagnostics>` appear with SonarQube issues on files you just edited, fix them before moving on. Only fix issues on files you modified — do not touch unrelated files.
 
+**PR stacks:**
+- Work through stacked PRs linearly (main→PR1→PR2→PR3→…) — never skip steps when rebasing; propagate lower-stack changes upward.
+- Always target the correct base branch — never target `main` for a mid-stack PR.
+
+**Coverage verification:**
+- Coverage percentages differ between local and CI (some tests skip in CI). Use `gh run view` or `gh pr checks` to verify pipeline results, not just local `bun test`.
+
 ## Commands
 
 ```bash
@@ -41,7 +48,7 @@ cd agent && bun run typecheck  # Agent type checking
 
 ## Critical Rules
 
-1. **Styling**: TailwindCSS ONLY. Never use MUI `sx` props or create `.css` files (exceptions: `App.css`, `theme.ts`). Inline `style` only when Tailwind cannot express the value (virtualizer positioning, dynamic indent, computed transforms). Never use hardcoded hex colors - use theme CSS variables. To override MUI defaults, use Tailwind's `!` prefix: `!bg-[var(--mui-palette-background-chartBg)]`.
+1. **Styling**: TailwindCSS ONLY. Never use MUI `sx` props or create `.css` files (exceptions: `App.css`, `theme.ts`). Inline `style` only when Tailwind cannot express the value (virtualizer positioning, dynamic indent, computed transforms). Never use hardcoded hex colors - use theme CSS variables. To override MUI defaults, use Tailwind's `!` prefix: `!bg-[var(--mui-palette-background-chartBg)]`. Prefer MUI's built-in component behavior (hover effects, transitions) over custom overrides unless there's a specific design requirement.
 2. **Imports**: Always use `@/` for src files. Relative paths only within `__tests__/`. Never mix both in one file (except tests).
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly in server functions.
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app with `node:async_hooks` errors.
@@ -51,6 +58,9 @@ cd agent && bun run typecheck  # Agent type checking
 8. **Logging**: Be purposeful with console methods. Use `console.error` for actual errors, `console.info` for operational messages (startup, shutdown), and `console.log` sparingly for temporary debugging only (do not commit). No drive-by `console.log` statements in committed code.
 9. **Routing**: Never edit `routeTree.gen.ts` (auto-generated). `AppShell` renders in root layout (`__root.tsx`) - never wrap individual routes with it. All routes use `ssr: false`. QueryClient is a singleton in `AppShell.tsx` - never create per-route.
 10. **Entity IDs**: Always use entity IDs with host prefix (e.g., `server1/tank`, `192.168.1.10/abc123`) for state keys and uniqueness checks. Never use display names - they collide across hosts.
+11. **Scope discipline**: When asked to plan, research, or review — produce only that deliverable. Do not start executing unless explicitly asked. Once a direction is approved, execute without re-confirming at each step.
+12. **Commit scope**: Only commit files relevant to the current task. When fixing coverage, only commit test files — don't push unrelated source changes.
+13. **Verify review findings**: When resolving PR review comments, verify each finding against current code before fixing. Don't blindly apply suggestions — the code may have already changed.
 
 ## Tech Stack
 
@@ -100,6 +110,18 @@ loadSubscribe: async () => {
 
 Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (auth + DB lookup + pipe-through from agent) and `git.$` (git HTTP smart protocol, not SSE).
 
+### Shared DataTable (`src/components/shared-table/`)
+
+Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `DataTable.tsx`, `DataTableToolbar.tsx`, `columns.tsx` (factories: `metricColumn`, `nameColumn`, `statusColumn`, `progressColumn`), `MetricCell.tsx`, `SparklineCell.tsx`, `SparklineCanvas.tsx`.
+
+**Virtualization**: Automatic threshold at 150 rows. Below: normal DOM flow with `content-visibility: auto` + `contain-intrinsic-size` (browser-native off-screen optimization, preserves Collapse animations). Above: `useVirtualizer` with absolute positioning (no animations). Never remove virtualization to solve other problems — a single host can have hundreds of containers.
+
+**Expansion**: Two patterns — `getSubRows` for tree data sharing the same columns (ZFS hierarchy), `renderDetailPanel` for full-width custom content like nested DataTables (Docker hosts → containers, Proxmox hosts → guests). Detail panels always render inline within the DataTable row, never outside. Entire expandable rows are clickable (not just the name cell).
+
+**Mobile**: `ResizeObserver` on DataTable container detects <1024px (not media queries). Sticky toolbar shows metric group toggles (CPU/RAM, Disk I/O, Net I/O) — one group at a time.
+
+**Scroll**: Table fills remaining viewport height (`flex-1 min-h-0`). `scrollbar-gutter: stable` on the DataTable scroll container (not `html`). Sticky header inside scroll container tracks horizontal scroll.
+
 ### Key Patterns
 
 - **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. MUI theme in `src/theme.ts` uses `cssVariables` mode. Custom backgrounds: `chartBg`, `level1-3`, `popup`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
@@ -115,7 +137,7 @@ Separate Bun package that runs as a sidecar container alongside Docker hosts. Pr
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index.
+Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index. Stuck deploys recovered on startup and via `DeployWatchdog` (default 10-min threshold) so a crashed process can't leave `in_flight` rows stranded.
 
 ### Git Management (`src/lib/git/`)
 
@@ -134,10 +156,14 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 3. **Stable ordering from Maps**: Map iteration is insertion-order, not sorted. Always sort data from Maps before rendering to prevent layout shift.
 4. **PostgreSQL extended query protocol**: Parameterized queries use extended protocol which doesn't support multi-statement. INSERT and NOTIFY must be separate `client.query()` calls.
 5. **React.memo with streaming data**: Incorrect memoization freezes streaming updates. Be cautious with `React.memo` on components receiving `latestByEntity` or `rows`.
-10. **Conditional rendering belongs in the parent**: When a component only renders for a subset of rows/items (e.g., container rows but not host rows), guard at the call site — `if (!row.container) return null` in the column `cell` function — rather than adding an early return inside the component. This makes it immediately clear from reading the parent what is always rendered vs. conditionally rendered, and avoids calling hooks conditionally inside the child.
-6. **Layout shift in metric columns**: Dynamic number formatting (KB→MB, varying decimals) causes width instability. Use minimum widths with `ch` units in MetricValue.
-7. **Fix root causes, not symptoms**: Investigate actual bugs rather than adding caching/memoization workarounds. Past band-aid fixes were frequently reverted.
-8. **Icon attribution**: Dashboard icons from `homarr-labs/dashboard-icons` (NOT the old `walkxcode` name).
+6. **Conditional rendering belongs in the parent**: When a component only renders for a subset of rows/items (e.g., container rows but not host rows), guard at the call site — `if (!row.container) return null` in the column `cell` function — rather than adding an early return inside the component. This makes it immediately clear from reading the parent what is always rendered vs. conditionally rendered, and avoids calling hooks conditionally inside the child.
+7. **Layout shift in metric columns**: Dynamic number formatting (KB→MB, varying decimals) causes width instability. Use minimum widths with `ch` units in MetricValue.
+8. **Fix root causes, not symptoms**: Investigate actual bugs rather than adding caching/memoization workarounds. Past band-aid fixes were frequently reverted.
+9. **Icon attribution**: Dashboard icons from `homarr-labs/dashboard-icons` (NOT the old `walkxcode` name).
+10. **Parallel agent worktree isolation**: When dispatching multiple agents into git worktrees, each agent must `cd "$WORKTREE_PATH"` before any file writes and use relative paths only. Never run `git stash` inside a worktree while other worktrees are active — `.git/refs/stash` is shared across all worktrees, so a stash created in one worktree can be popped (and destroyed) by an agent in another.
+11. **CSS vars empty on initial render**: CSS custom properties can resolve to empty strings before the theme applies. `CanvasGradient.addColorStop()` throws on empty color. Always guard canvas color operations.
+12. **Virtualizer remounting resets component state**: When `useVirtualizer` repositions rows after collapse, components remount and lose refs/state. Use entity-keyed external state (not component-local refs) for data that must survive remounting (e.g., sparkline accumulators).
+13. **Collapse + virtualizer can't sync**: MUI Collapse (CSS transitions) and virtualizer repositioning (JS `measureElement`) run on different systems. Don't virtualize the outer level (host rows) — only virtualize inner levels (container rows).
 
 ## CI/CD
 
