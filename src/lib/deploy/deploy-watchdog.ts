@@ -8,11 +8,12 @@ export interface DeployWatchdogConfig {
 }
 
 const DEFAULT_INTERVAL_MS = 2 * 60 * 1000;
-const DEFAULT_THRESHOLD_MINUTES = 30;
+const DEFAULT_THRESHOLD_MINUTES = 10;
 
 /**
  * Load DeployWatchdog config from environment variables, falling back to sensible
- * defaults (2 minute interval, 30 minute threshold).
+ * defaults (2 minute interval, 10 minute threshold — 2x the agent's 5-minute
+ * compose subprocess timeout in agent/src/routes/stacks.ts).
  */
 export function loadDeployWatchdogConfig(): DeployWatchdogConfig {
   return {
