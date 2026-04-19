@@ -1,9 +1,11 @@
+import type { AlertColor } from '@mui/material';
 import { atom, useSetAtom } from 'jotai';
 import { useCallback } from 'react';
 
 export interface Toast {
   id: number;
   message: string;
+  severity: AlertColor;
 }
 
 let nextId = 0;
@@ -14,9 +16,9 @@ export function useToast() {
   const setToasts = useSetAtom(toastsAtom);
 
   const showToast = useCallback(
-    (message: string) => {
+    (message: string, severity: AlertColor = 'error') => {
       const id = nextId++;
-      setToasts(prev => [...prev, { id, message }]);
+      setToasts(prev => [...prev, { id, message, severity }]);
     },
     [setToasts]
   );

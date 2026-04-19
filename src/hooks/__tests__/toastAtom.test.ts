@@ -29,6 +29,57 @@ describe('useToast', () => {
     expect(result.current.toasts[0].message).toBe('Hello world');
   });
 
+  it('should default to severity "error" when not provided', () => {
+    const wrapper = createWrapper();
+    const { result } = renderHook(
+      () => ({
+        toast: useToast(),
+        toasts: useAtomValue(toastsAtom),
+      }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.toast.showToast('hi');
+    });
+
+    expect(result.current.toasts[0].severity).toBe('error');
+  });
+
+  it('should accept a "success" severity', () => {
+    const wrapper = createWrapper();
+    const { result } = renderHook(
+      () => ({
+        toast: useToast(),
+        toasts: useAtomValue(toastsAtom),
+      }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.toast.showToast('hi', 'success');
+    });
+
+    expect(result.current.toasts[0].severity).toBe('success');
+  });
+
+  it('should accept an "info" severity', () => {
+    const wrapper = createWrapper();
+    const { result } = renderHook(
+      () => ({
+        toast: useToast(),
+        toasts: useAtomValue(toastsAtom),
+      }),
+      { wrapper },
+    );
+
+    act(() => {
+      result.current.toast.showToast('hi', 'info');
+    });
+
+    expect(result.current.toasts[0].severity).toBe('info');
+  });
+
   it('should auto-increment toast IDs', () => {
     const wrapper = createWrapper();
     const { result } = renderHook(
