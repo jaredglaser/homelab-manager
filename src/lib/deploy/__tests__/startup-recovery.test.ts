@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, spyOn } from 'bun:test';
+import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import {
   performStartupRecovery,
   type StartupRecoveryRepo,
@@ -24,6 +24,25 @@ function createWatchdog(): WatchdogController & { startMock: ReturnType<typeof m
 }
 
 describe('performStartupRecovery', () => {
+  let setTimeoutSpy: ReturnType<typeof spyOn>;
+  let capturedDelays: number[];
+
+  beforeEach(() => {
+    capturedDelays = [];
+    // Fire retry()'s abortableSleep synchronously so tests don't wait on real timers.
+    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: TimerHandler, delay?: number) => {
+        capturedDelays.push(delay ?? 0);
+        if (typeof fn === 'function') fn();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as unknown as typeof setTimeout,
+    );
+  });
+
+  afterEach(() => {
+    setTimeoutSpy.mockRestore();
+  });
+
   it('starts the watchdog when no rows are recovered', async () => {
     const repo = createRepo();
     const watchdog = createWatchdog();
@@ -100,11 +119,7 @@ describe('performStartupRecovery', () => {
     const watchdog = createWatchdog();
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    await performStartupRecovery(repo, watchdog, {
-      maxAttempts: 3,
-      backoffMs: () => 0,
-      sleep: async () => {},
-    });
+    await performStartupRecovery(repo, watchdog);
 
     expect(recoverStuckDeploys).toHaveBeenCalledTimes(2);
     expect(watchdog.startMock).toHaveBeenCalledTimes(1);
@@ -119,11 +134,7 @@ describe('performStartupRecovery', () => {
     const watchdog = createWatchdog();
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    await performStartupRecovery(repo, watchdog, {
-      maxAttempts: 3,
-      backoffMs: () => 0,
-      sleep: async () => {},
-    });
+    await performStartupRecovery(repo, watchdog);
 
     expect(recoverStuckDeploys).toHaveBeenCalledTimes(3);
     expect(watchdog.startMock).toHaveBeenCalledTimes(1);
@@ -147,9 +158,6 @@ describe('performStartupRecovery', () => {
       };
 
       await performStartupRecovery(repo, createWatchdog(), {
-        maxAttempts: 1,
-        backoffMs: () => 0,
-        sleep: async () => {},
         manifestReader,
         stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
       });
@@ -172,9 +180,6 @@ describe('performStartupRecovery', () => {
       };
 
       await performStartupRecovery(repo, createWatchdog(), {
-        maxAttempts: 1,
-        backoffMs: () => 0,
-        sleep: async () => {},
         manifestReader,
         stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
       });
@@ -198,9 +203,6 @@ describe('performStartupRecovery', () => {
       const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       await performStartupRecovery(repo, createWatchdog(), {
-        maxAttempts: 1,
-        backoffMs: () => 0,
-        sleep: async () => {},
         manifestReader,
         stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
       });
@@ -223,9 +225,6 @@ describe('performStartupRecovery', () => {
       };
 
       await performStartupRecovery(repo, createWatchdog(), {
-        maxAttempts: 1,
-        backoffMs: () => 0,
-        sleep: async () => {},
         manifestReader,
         stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
       });
@@ -242,9 +241,6 @@ describe('performStartupRecovery', () => {
       });
 
       await performStartupRecovery(repo, createWatchdog(), {
-        maxAttempts: 1,
-        backoffMs: () => 0,
-        sleep: async () => {},
       });
 
       expect(findSucceededPostSuccessDeploys).not.toHaveBeenCalled();
@@ -261,9 +257,6 @@ describe('performStartupRecovery', () => {
       const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
       await performStartupRecovery(repo, watchdog, {
-        maxAttempts: 1,
-        backoffMs: () => 0,
-        sleep: async () => {},
         manifestReader,
         stackRepoWriter: { removeStackFromManifest: (async () => ({ commitSha: 'x' })) },
       });
@@ -286,9 +279,6 @@ describe('performStartupRecovery', () => {
       const watchdog = createWatchdog();
 
       await performStartupRecovery(repo, watchdog, {
-        maxAttempts: 1,
-        backoffMs: () => 0,
-        sleep: async () => {},
         manifestReader,
         stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
       });
@@ -303,54 +293,21 @@ describe('performStartupRecovery', () => {
     });
   });
 
-  it('sleeps between retry attempts using the provided backoff', async () => {
-    const sleep = mock().mockResolvedValue(undefined);
-    const backoffMs = mock().mockImplementation((attempt: number) => 100 * (attempt + 1));
+  it('passes the signal option through to retry() so shutdown short-circuits the loop', async () => {
+    const controller = new AbortController();
+    controller.abort(); // pre-aborted — retry() will bail after the first attempt's sleep
+    const recoverStuckDeploys = mock().mockRejectedValue(new Error('boom'));
     const repo = createRepo({
-      recoverStuckDeploys: mock()
-        .mockRejectedValueOnce(new Error('1'))
-        .mockRejectedValueOnce(new Error('2'))
-        .mockResolvedValueOnce([]) as unknown as StartupRecoveryRepo['recoverStuckDeploys'],
+      recoverStuckDeploys: recoverStuckDeploys as unknown as StartupRecoveryRepo['recoverStuckDeploys'],
     });
-    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
-
-    await performStartupRecovery(repo, createWatchdog(), {
-      maxAttempts: 3,
-      backoffMs: backoffMs as unknown as (attempt: number) => number,
-      sleep: sleep as unknown as (ms: number) => Promise<void>,
-    });
-
-    expect(sleep).toHaveBeenCalledTimes(2);
-    expect(sleep.mock.calls[0][0]).toBe(100);
-    expect(sleep.mock.calls[1][0]).toBe(200);
-    errSpy.mockRestore();
-  });
-
-  it('uses default backoff and sleep when no options are provided', async () => {
-    // Spy on setTimeout to fire synchronously so the default sleep resolves immediately.
-    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler) => {
-        if (typeof fn === 'function') fn();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      }) as unknown as typeof setTimeout,
-    );
-
-    const recoverStuckDeploys = mock()
-      .mockRejectedValueOnce(new Error('transient'))
-      .mockResolvedValueOnce([]) as unknown as StartupRecoveryRepo['recoverStuckDeploys'];
-    const repo = createRepo({ recoverStuckDeploys });
     const watchdog = createWatchdog();
     const errSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    try {
-      // Calling without options exercises the default backoffMs and sleep inline functions.
-      await performStartupRecovery(repo, watchdog);
+    await performStartupRecovery(repo, watchdog, { signal: controller.signal });
 
-      expect(recoverStuckDeploys).toHaveBeenCalledTimes(2);
-      expect(watchdog.startMock).toHaveBeenCalledTimes(1);
-    } finally {
-      setTimeoutSpy.mockRestore();
-      errSpy.mockRestore();
-    }
+    // fn ran once; abortableSleep rejected synchronously on the already-aborted signal.
+    expect(recoverStuckDeploys).toHaveBeenCalledTimes(1);
+    expect(watchdog.startMock).toHaveBeenCalledTimes(1);
+    errSpy.mockRestore();
   });
 });
