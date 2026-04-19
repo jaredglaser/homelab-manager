@@ -66,7 +66,7 @@ describe('buildDeployRequests', () => {
   });
 
   it('should build deploy requests for autoDeploy stacks', async () => {
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n  traefik:\n    host: homeserver\n    autoDeploy: false\n' },
         { path: 'plex/docker-compose.yml', content: 'services:\n  plex:\n    image: plex:v1\n' },
@@ -74,16 +74,16 @@ describe('buildDeployRequests', () => {
       ],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'plex/docker-compose.yml', content: 'services:\n  plex:\n    image: plex:v2\n' },
         { path: 'traefik/docker-compose.yml', content: 'services:\n  traefik:\n    image: traefik:v2\n' },
       ],
       message: 'update both stacks',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     const requests = await buildDeployRequests(repoPath, sha1, sha2);
 
@@ -101,40 +101,40 @@ describe('buildDeployRequests', () => {
   });
 
   it('should skip stacks not in manifest', async () => {
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'unknown/docker-compose.yml', content: 'services: {}' },
       ],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'unknown/docker-compose.yml', content: 'services: {updated: true}' }],
       message: 'update unknown',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     const requests = await buildDeployRequests(repoPath, sha1, sha2);
     expect(requests).toHaveLength(0);
   });
 
   it('should include compose path in deploy request', async () => {
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'v1' },
       ],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/docker-compose.yml', content: 'v2' }],
       message: 'update',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     const requests = await buildDeployRequests(repoPath, sha1, sha2);
     expect(requests[0].composePath).toBe('plex/docker-compose.yml');

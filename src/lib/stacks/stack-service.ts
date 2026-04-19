@@ -209,7 +209,7 @@ export async function createStackInRepo(
     throw new Error(`Invalid stack name "${stackName}" — must contain only letters, numbers, hyphens, and underscores`);
   }
 
-  // Validate host exists in managed_hosts
+  // Validate host exists in managed_hosts (DB call must stay OUTSIDE the git lock).
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
@@ -220,41 +220,33 @@ export async function createStackInRepo(
   const managedHost = await hostsRepo.getByName(host);
   if (!managedHost) throw new Error(`Host "${host}" not found in managed_hosts`);
 
-  // Read manifest and validate stack doesn't already exist
-  let manifest: ReturnType<typeof parseManifest>;
-  try {
-    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-    manifest = parseManifest(manifestContent);
-  } catch (err: unknown) {
-    if (err instanceof FileNotFoundError) {
-      // No manifest yet — start with empty stacks
-      manifest = { stacks: {} };
-    } else {
-      throw err;
+  // Manifest read + "already exists" check + manifest mutation all happen inside
+  // the commit callback so concurrent creates for different stacks cannot race:
+  // each call sees the other's committed manifest via the fresh HEAD snapshot.
+  const commitSha = await commitFiles(repoPath, (existingFiles) => {
+    const manifestContent = existingFiles.get(MANIFEST_FILENAME);
+    const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
+
+    if (manifest.stacks[stackName]) {
+      throw new Error(`Stack "${stackName}" already exists`);
     }
-  }
 
-  if (manifest.stacks[stackName]) {
-    throw new Error(`Stack "${stackName}" already exists`);
-  }
+    manifest.stacks[stackName] = { host, autoDeploy };
+    const newManifestContent = yaml.dump(manifest, {
+      indent: 2,
+      lineWidth: -1,
+      noRefs: true,
+      sortKeys: true,
+    });
 
-  // Build updated manifest
-  manifest.stacks[stackName] = { host, autoDeploy };
-  const newManifestContent = yaml.dump(manifest, {
-    indent: 2,
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: true,
-  });
-
-  // Atomic commit: empty compose file + updated manifest
-  const commitSha = await commitFiles(repoPath, {
-    files: [
-      { path: `${stackName}/${COMPOSE_FILENAME}`, content: '' },
-      { path: MANIFEST_FILENAME, content: newManifestContent },
-    ],
-    message: `Add stack: ${stackName} on ${host}`,
-    author: SYSTEM_AUTHOR,
+    return {
+      files: [
+        { path: `${stackName}/${COMPOSE_FILENAME}`, content: '' },
+        { path: MANIFEST_FILENAME, content: newManifestContent },
+      ],
+      message: `Add stack: ${stackName} on ${host}`,
+      author: SYSTEM_AUTHOR,
+    };
   });
 
   return { commitSha };
@@ -266,15 +258,16 @@ export async function deleteStackFromRepo(
 ): Promise<{ commitSha: string }> {
   const repoPath = getRepoPath();
 
-  // Read manifest to get host for this stack
+  // Read manifest OUTSIDE the git lock to get the host for DB/teardown operations.
+  // The authoritative manifest read happens again inside the commit callback below.
   const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
-  const manifest = parseManifest(manifestContent);
-  const entry = manifest.stacks[stackName];
+  const preManifest = parseManifest(manifestContent);
+  const entry = preManifest.stacks[stackName];
   if (!entry) throw new Error(`Stack "${stackName}" not found in manifest`);
 
   const { host } = entry;
 
-  // Check for active deploys
+  // Check for active deploys (DB calls must stay OUTSIDE the git lock).
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
@@ -293,33 +286,33 @@ export async function deleteStackFromRepo(
     await teardownAndAwait(stackName, host, deployRepo);
   }
 
-  // Remove stack from manifest
-  delete manifest.stacks[stackName];
-  const newManifestContent = yaml.dump(manifest, {
-    indent: 2,
-    lineWidth: -1,
-    noRefs: true,
-    sortKeys: true,
-  });
+  // Manifest mutation + stack-file enumeration both derive from the fresh HEAD
+  // snapshot inside the lock so concurrent deletes/creates cannot clobber each other.
+  const commitSha = await commitFiles(repoPath, (existingFiles) => {
+    const freshManifestContent = existingFiles.get(MANIFEST_FILENAME);
+    const manifest = freshManifestContent ? parseManifest(freshManifestContent) : { stacks: {} };
 
-  // Get all files in the stack directory to remove them
-  let stackFiles: string[];
-  try {
-    stackFiles = await (await import('@/lib/git/repo')).listFilesInRepo(repoPath, stackName);
-  } catch (err: unknown) {
-    if (err instanceof FileNotFoundError || (err instanceof Error && err.message.includes('Could not resolve'))) {
-      stackFiles = [];
-    } else {
-      throw err;
+    if (!manifest.stacks[stackName]) {
+      throw new Error(`Stack "${stackName}" not found in manifest`);
     }
-  }
 
-  // Atomic commit: remove stack files + update manifest
-  const commitSha = await commitFiles(repoPath, {
-    files: [{ path: MANIFEST_FILENAME, content: newManifestContent }],
-    filesToDelete: stackFiles,
-    message: `Remove stack: ${stackName}`,
-    author: SYSTEM_AUTHOR,
+    delete manifest.stacks[stackName];
+    const newManifestContent = yaml.dump(manifest, {
+      indent: 2,
+      lineWidth: -1,
+      noRefs: true,
+      sortKeys: true,
+    });
+
+    const stackDirPrefix = `${stackName}/`;
+    const stackFiles = Array.from(existingFiles.keys()).filter((p) => p.startsWith(stackDirPrefix));
+
+    return {
+      files: [{ path: MANIFEST_FILENAME, content: newManifestContent }],
+      filesToDelete: stackFiles,
+      message: `Remove stack: ${stackName}`,
+      author: SYSTEM_AUTHOR,
+    };
   });
 
   return { commitSha };

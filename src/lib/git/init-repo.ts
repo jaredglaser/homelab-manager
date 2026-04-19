@@ -18,14 +18,14 @@ export async function ensureRepoInitialized(): Promise<void> {
 
   const hasCommits = await hasAnyCommits(repoPath);
   if (!hasCommits) {
-    await commitFiles(repoPath, {
+    await commitFiles(repoPath, () => ({
       files: [{ path: 'manifest.yaml', content: DEFAULT_MANIFEST }],
       message: 'Initialize stacks repository',
       author: {
         name: 'homelab-manager',
         email: 'homelab-manager@localhost',
       },
-    });
+    }));
   }
 }
 
