@@ -23,17 +23,8 @@ class StatsPollService {
   private lastPollTime = new Map<StatsSource, Date>();
   private consecutiveFailures = new Map<StatsSource, number>();
   private errorSignalled = new Set<StatsSource>();
-  private repo: StatsRepository | null = null;
   private stoppedSources = new Set<StatsSource>();
-
-  private async getRepo(): Promise<StatsRepository> {
-    if (!this.repo) {
-      const config = loadDatabaseConfig();
-      const dbClient = await databaseConnectionManager.getClient(config);
-      this.repo = new StatsRepository(dbClient.getPool());
-    }
-    return this.repo;
-  }
+  private readonly dbConfig = loadDatabaseConfig();
 
   subscribe(source: StatsSource, callback: StatsCallback, onError?: StatsErrorCallback): () => void {
     let subs = this.subscribers.get(source);
@@ -75,7 +66,11 @@ class StatsPollService {
       if (!subs || subs.size === 0) return;
 
       try {
-        const repo = await this.getRepo();
+        // Rebuild the repo each tick so we pick up a fresh pg.Pool after any
+        // reconnect in DatabaseConnectionManager. getClient() is cached on the
+        // healthy path, so this costs one Map lookup + a no-op constructor.
+        const dbClient = await databaseConnectionManager.getClient(this.dbConfig);
+        const repo = new StatsRepository(dbClient.getPool());
         const last = this.lastPollTime.get(source) ?? new Date();
         const since = new Date(last.getTime() - 200); // 200ms lookback for late-committing rows
 
@@ -149,7 +144,6 @@ class StatsPollService {
       this.stopPolling(source);
     }
     this.subscribers.clear();
-    this.repo = null;
   }
 }
 
