@@ -27,6 +27,7 @@ describe('useToast', () => {
 
     expect(result.current.toasts).toHaveLength(1);
     expect(result.current.toasts[0].message).toBe('Hello world');
+    expect(result.current.toasts[0].severity).toBe('error');
   });
 
   it('should default to severity "error" when not provided', () => {
