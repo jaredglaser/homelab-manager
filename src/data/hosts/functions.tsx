@@ -6,6 +6,7 @@ import {
   handleUpdateAgent, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
+import type { OpenBaoClient } from '@/lib/clients/openbao-client';
 
 export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
 
@@ -18,10 +19,13 @@ async function loadDeps(): Promise<HostHandlerDeps> {
   return { repo: new HostRepository(dbClient.getPool()) };
 }
 
-async function loadBaoClient() {
-  const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-  const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-  return new OpenBaoClient(loadOpenBaoConfig());
+/**
+ * Lazy wrapper around the shared OpenBao client factory. Delegates caching and
+ * initializeOpenBao to the factory so all call sites share one client instance.
+ */
+async function loadBaoClient(): Promise<OpenBaoClient> {
+  const { getOpenBaoClient } = await import('@/lib/clients/openbao-client-factory');
+  return getOpenBaoClient();
 }
 
 async function loadDockerClient(socketProxyUrl: string) {
@@ -45,7 +49,6 @@ export const addHost = createServerFn()
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     const baoClient = await loadBaoClient();
-    await baoClient.ensureSecretsEngine();
     const provService = new AgentProvisioningService();
     return handleAddHost({
       ...baseDeps,
