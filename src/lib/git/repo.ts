@@ -81,6 +81,11 @@ export type CommitCallback = (
   existingFiles: ReadonlyMap<string, string>,
 ) => Promise<CommitPlan> | CommitPlan;
 
+/** Like {@link CommitCallback} but may return null to skip the commit (e.g., another writer already did it). */
+export type SkippableCommitCallback = (
+  existingFiles: ReadonlyMap<string, string>,
+) => Promise<CommitPlan | null> | CommitPlan | null;
+
 /**
  * Commit files to a bare repository. The callback runs inside the repo lock
  * and receives a snapshot of HEAD's tree; it returns the commit plan.
@@ -89,10 +94,12 @@ export type CommitCallback = (
  * This is acceptable for v1 since repos only contain small compose files and manifests.
  * For optimization later, compare blob OIDs instead of reading content to skip unchanged files.
  */
+export async function commitFiles(repoPath: string, callback: CommitCallback): Promise<string>;
+export async function commitFiles(repoPath: string, callback: SkippableCommitCallback): Promise<string | null>;
 export async function commitFiles(
   repoPath: string,
-  callback: CommitCallback,
-): Promise<string> {
+  callback: SkippableCommitCallback,
+): Promise<string | null> {
   return withRepoLock(repoPath, async () => {
     const existingFiles = new Map<string, string>();
     let parentCommit: string | undefined;
@@ -109,6 +116,7 @@ export async function commitFiles(
     }
 
     const plan = await callback(existingFiles);
+    if (plan === null) return null;
     const { files, filesToDelete, message, author } = plan;
 
     for (const file of files) {

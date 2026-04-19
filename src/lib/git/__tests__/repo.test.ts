@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import git from 'isomorphic-git';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'node:path';
+import yaml from 'js-yaml';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import {
   initBareRepo,
@@ -286,13 +287,9 @@ describe('commitFiles callback runs inside lock (issue #98)', () => {
     function addStackCallback(stackName: string, host: string) {
       return (existingFiles: ReadonlyMap<string, string>) => {
         const current = existingFiles.get('manifest.yaml') ?? 'stacks: {}\n';
-        // Trivial YAML merge: append a new entry under "stacks:".
-        // (Parsing/dumping is exercised elsewhere — we just need a deterministic merge.)
-        const hasEntry = current.includes(`${stackName}:`);
-        const updated = hasEntry
-          ? current
-          : current.replace(/stacks:\s*(\{\}\s*)?\n?/, `stacks:\n`) +
-            `  ${stackName}:\n    host: ${host}\n    autoDeploy: true\n`;
+        const parsed = (yaml.load(current) as { stacks?: Record<string, unknown> } | null) ?? { stacks: {} };
+        parsed.stacks = { ...(parsed.stacks ?? {}), [stackName]: { host, autoDeploy: true } };
+        const updated = yaml.dump(parsed, { indent: 2, sortKeys: true });
         return {
           files: [
             { path: `${stackName}/docker-compose.yml`, content: `# ${stackName} compose\n` },
