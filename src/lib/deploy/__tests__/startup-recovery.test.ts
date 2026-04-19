@@ -271,6 +271,36 @@ describe('performStartupRecovery', () => {
       expect(watchdog.startMock).toHaveBeenCalledTimes(1);
       errSpy.mockRestore();
     });
+
+    it('aborts the sweep and logs when listStackNames throws', async () => {
+      const repo = createRepo({
+        findSucceededPostSuccessDeploys: mock().mockResolvedValue([
+          { id: 10, stack: 'plex', host: 'home' },
+        ]) as unknown as StartupRecoveryRepo['findSucceededPostSuccessDeploys'],
+      });
+      const removeStackFromManifest = mock().mockResolvedValue({ commitSha: 'x' });
+      const manifestReader = {
+        listStackNames: mock().mockRejectedValue(new Error('git read error')),
+      };
+      const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+      const watchdog = createWatchdog();
+
+      await performStartupRecovery(repo, watchdog, {
+        maxAttempts: 1,
+        backoffMs: () => 0,
+        sleep: async () => {},
+        manifestReader,
+        stackRepoWriter: { removeStackFromManifest: removeStackFromManifest as unknown as (s: string) => Promise<{ commitSha: string }> },
+      });
+
+      // Should not attempt any manifest delete
+      expect(removeStackFromManifest).not.toHaveBeenCalled();
+      // Watchdog still starts
+      expect(watchdog.startMock).toHaveBeenCalledTimes(1);
+      const messages = errSpy.mock.calls.map((c) => String(c[0]));
+      expect(messages.some((m) => m.includes('Failed to read manifest'))).toBe(true);
+      errSpy.mockRestore();
+    });
   });
 
   it('sleeps between retry attempts using the provided backoff', async () => {
