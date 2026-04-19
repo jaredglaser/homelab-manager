@@ -138,6 +138,7 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 6. **Layout shift in metric columns**: Dynamic number formatting (KB→MB, varying decimals) causes width instability. Use minimum widths with `ch` units in MetricValue.
 7. **Fix root causes, not symptoms**: Investigate actual bugs rather than adding caching/memoization workarounds. Past band-aid fixes were frequently reverted.
 8. **Icon attribution**: Dashboard icons from `homarr-labs/dashboard-icons` (NOT the old `walkxcode` name).
+9. **Parallel agent worktree isolation**: When dispatching multiple agents into git worktrees, each agent must `cd "$WORKTREE_PATH"` before any file writes and use relative paths only. Never run `git stash` inside a worktree while other worktrees are active — `.git/refs/stash` is shared across all worktrees, so a stash created in one worktree can be popped (and destroyed) by an agent in another.
 
 ## CI/CD
 
