@@ -11,6 +11,14 @@ interface PipelineResult {
   deployId?: number;
 }
 
+/**
+ * Writes to the stacks git repo. The pipeline calls this after a successful
+ * teardown when `postSuccess: 'removeFromManifest'` is set.
+ */
+export interface StackRepoWriter {
+  removeStackFromManifest(stackName: string): Promise<{ commitSha: string }>;
+}
+
 interface PipelineDeps {
   deployRepo: DeployRepository;
   hostsRepo: ManagedHostsRepository;
@@ -18,6 +26,8 @@ interface PipelineDeps {
   secretResolver: SecretResolver;
   /** Resolve the agent bearer token for a given host. */
   tokenResolver: (host: ManagedHost) => Promise<string> | string;
+  /** Writes to the stacks git repo for postSuccess hooks. */
+  stackRepoWriter: StackRepoWriter;
 }
 
 /**
@@ -30,6 +40,7 @@ export class DeployPipeline {
   private readonly agentClientFactory: PipelineDeps['agentClientFactory'];
   private readonly secretResolver: SecretResolver;
   private readonly tokenResolver: PipelineDeps['tokenResolver'];
+  private readonly stackRepoWriter: StackRepoWriter;
 
   constructor(deps: PipelineDeps) {
     this.deployRepo = deps.deployRepo;
@@ -37,6 +48,7 @@ export class DeployPipeline {
     this.agentClientFactory = deps.agentClientFactory;
     this.secretResolver = deps.secretResolver;
     this.tokenResolver = deps.tokenResolver;
+    this.stackRepoWriter = deps.stackRepoWriter;
   }
 
   async execute(request: DeployRequest): Promise<PipelineResult> {
@@ -70,11 +82,41 @@ export class DeployPipeline {
             trigger: request.trigger,
             action: request.action,
             forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
+            postSuccess: request.postSuccess ?? null,
           });
         } catch (err) {
           console.error(`Failed to insert no_change deploy record for stack "${request.stack}":`, err);
           return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId: undefined };
         }
+
+        // no_change counts as success for postSuccess hooks.
+        if (deployId !== undefined && request.postSuccess === 'removeFromManifest') {
+          try {
+            await this.stackRepoWriter.removeStackFromManifest(request.stack);
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error(
+              `[Pipeline] postSuccess manifest delete failed for "${request.stack}" (no_change path):`,
+              err,
+            );
+            try {
+              await this.deployRepo.updateStatus(
+                deployId,
+                'failed',
+                `No change, but manifest delete failed: ${errMsg}`,
+              );
+            } catch (updateErr) {
+              console.error('[Pipeline] Failed to record postSuccess failure status:', updateErr);
+            }
+            try {
+              await this.deployRepo.notifyStackChange(request.stack, request.host);
+            } catch (notifyErr) {
+              console.error(`Failed to notify stack change for "${request.stack}":`, notifyErr);
+            }
+            return { status: 'failed', logs: errMsg, deployId };
+          }
+        }
+
         try {
           await this.deployRepo.notifyStackChange(request.stack, request.host);
         } catch (err) {
@@ -95,6 +137,7 @@ export class DeployPipeline {
       trigger: request.trigger,
       action: request.action,
       forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
+      postSuccess: request.postSuccess ?? null,
     });
 
     if (deployId === null) {
@@ -240,6 +283,38 @@ export class DeployPipeline {
         err,
       );
     }
+
+    // Post-success hook — runs after status update so a later crash can still
+    // recover via startup sweep of rows with postSuccess set.
+    // `no_change` is treated as success (teardown of a stack with nothing running).
+    const treatAsSuccess = finalStatus === 'succeeded';
+    if (treatAsSuccess && request.postSuccess === 'removeFromManifest') {
+      try {
+        await this.stackRepoWriter.removeStackFromManifest(request.stack);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(
+          `[Pipeline] postSuccess manifest delete failed for "${request.stack}":`,
+          err,
+        );
+        try {
+          await this.deployRepo.updateStatus(
+            deployId,
+            'failed',
+            `Teardown succeeded but manifest delete failed: ${errMsg}`,
+          );
+        } catch (updateErr) {
+          console.error('[Pipeline] Failed to record postSuccess failure status:', updateErr);
+        }
+        try {
+          await this.deployRepo.notifyStackChange(request.stack, host.name);
+        } catch (notifyErr) {
+          console.error(`Failed to notify stack change for "${request.stack}":`, notifyErr);
+        }
+        return { status: 'failed', logs: errMsg, deployId };
+      }
+    }
+
     try {
       await this.deployRepo.notifyStackChange(request.stack, host.name);
     } catch (err) {

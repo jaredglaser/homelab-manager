@@ -14,6 +14,12 @@ const mockGetStackDeployHistory = mock(() => Promise.resolve([
 ]));
 const mockSaveStackComposeFile = mock(() => Promise.resolve({ commitSha: 'abc123' }));
 const mockUpdateStackIconSlug = mock(() => Promise.resolve(undefined));
+const mockCreateStackInRepo = mock(() => Promise.resolve({ commitSha: 'abc123' }));
+const mockDeleteStackFromRepo = mock(() => Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }));
+const mockGetManagedHostNames = mock(() => Promise.resolve(['server1']));
+const mockResolveDeleteStack = mock(() =>
+  Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }),
+);
 
 mock.module('@/lib/stacks/stack-service', () => ({
   getStackSummaries: mockGetStackSummaries,
@@ -22,6 +28,10 @@ mock.module('@/lib/stacks/stack-service', () => ({
   getStackDeployHistory: mockGetStackDeployHistory,
   saveStackComposeFile: mockSaveStackComposeFile,
   updateStackIconSlug: mockUpdateStackIconSlug,
+  createStackInRepo: mockCreateStackInRepo,
+  deleteStackFromRepo: mockDeleteStackFromRepo,
+  getManagedHostNames: mockGetManagedHostNames,
+  resolveDeleteStack: mockResolveDeleteStack,
 }));
 
 /**

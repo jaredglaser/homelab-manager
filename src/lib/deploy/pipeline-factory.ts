@@ -1,9 +1,10 @@
-import type { DeployPipeline } from '@/lib/deploy/pipeline';
+import type { DeployPipeline, StackRepoWriter } from '@/lib/deploy/pipeline';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 
 export interface DeployPipelineBundle {
   pipeline: DeployPipeline;
   deployRepo: DeployRepository;
+  stackRepoWriter: StackRepoWriter;
 }
 
 /**
@@ -43,10 +44,14 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   // is negligible — no singleton needed here.
   const deployRepo = new DeployRepository(pool);
 
+  const { createStackRepoWriter } = await import('@/lib/deploy/stack-repo-writer');
+  const stackRepoWriter = createStackRepoWriter();
+
   const pipeline = new DeployPipeline({
     deployRepo,
     hostsRepo: new ManagedHostsRepository(pool),
     agentClientFactory: (url, token) => new AgentClient({ agentUrl: url, agentToken: token }),
+    stackRepoWriter,
     secretResolver: {
       async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
         if (variables.length === 0) return {};
@@ -75,5 +80,5 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     },
   });
 
-  return { pipeline, deployRepo };
+  return { pipeline, deployRepo, stackRepoWriter };
 }

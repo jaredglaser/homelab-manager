@@ -1,7 +1,13 @@
 import type { Pool } from 'pg';
-import type { DeployAction, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployAction, DeployPostSuccess, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 
 export interface StuckDeployRow {
+  id: number;
+  stack: string;
+  host: string;
+}
+
+export interface PostSuccessDeployRow {
   id: number;
   stack: string;
   host: string;
@@ -17,6 +23,7 @@ interface InsertDeployParams {
   trigger: DeployTrigger;
   action: DeployAction;
   forceRecreate?: boolean;
+  postSuccess?: DeployPostSuccess | null;
 }
 
 export class DeployRepository {
@@ -24,10 +31,21 @@ export class DeployRepository {
 
   async insertDeploy(params: InsertDeployParams): Promise<number> {
     const result = await this.pool.query(
-      `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, force_recreate)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO deploy_history (stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, force_recreate, post_success)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id`,
-      [params.stack, params.host, params.commitSha, params.composeHash, params.envHash, params.status, params.trigger, params.action, params.forceRecreate ?? false]
+      [
+        params.stack,
+        params.host,
+        params.commitSha,
+        params.composeHash,
+        params.envHash,
+        params.status,
+        params.trigger,
+        params.action,
+        params.forceRecreate ?? false,
+        params.postSuccess ?? null,
+      ]
     );
     return Number(result.rows[0].id);
   }
@@ -120,11 +138,36 @@ export class DeployRepository {
    */
   async getLatestDeployPerStack(): Promise<DeployRecord[]> {
     const { rows } = await this.pool.query(
-      `SELECT DISTINCT ON (stack, host) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, force_recreate, logs, created_at
+      `SELECT DISTINCT ON (stack, host) id, stack, host, commit_sha, compose_hash, env_hash, status, trigger, action, force_recreate, logs, created_at, post_success
        FROM deploy_history
        ORDER BY stack, host, created_at DESC`
     );
     return rows.map(toDeployRecord);
+  }
+
+  /**
+   * Find deploys that reached a terminal-success state with the given
+   * `post_success` value. Used by startup recovery to sweep up orphaned
+   * post-success hooks (e.g. manifest removals that never ran because the
+   * process crashed between status update and hook execution). Caller is
+   * responsible for filtering by current manifest contents.
+   */
+  async findSucceededPostSuccessDeploys(
+    kind: DeployPostSuccess,
+  ): Promise<PostSuccessDeployRow[]> {
+    const result = await this.pool.query(
+      `SELECT id, stack, host
+       FROM deploy_history
+       WHERE status IN ('succeeded', 'no_change')
+         AND post_success = $1
+       ORDER BY created_at DESC`,
+      [kind],
+    );
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      stack: row.stack as string,
+      host: row.host as string,
+    }));
   }
 
   async notifyStackChange(stack: string, host: string): Promise<void> {
@@ -198,5 +241,6 @@ function toDeployRecord(row: Record<string, unknown>): DeployRecord {
     forceRecreate: row.force_recreate === true,
     logs: (row.logs as string) ?? null,
     createdAt: row.created_at as Date,
+    postSuccess: (row.post_success as DeployRecord['postSuccess']) ?? null,
   };
 }

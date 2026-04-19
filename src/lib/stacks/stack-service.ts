@@ -17,7 +17,10 @@ import {
   handleTriggerDeploy,
   computeSyncStatus,
 } from '@/lib/stacks/stack-mappers';
-import { teardownAndAwaitWithDeps } from '@/lib/stacks/teardown-poller';
+import { resolveDeleteStack, type DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
+
+export { resolveDeleteStack } from '@/lib/stacks/delete-stack-resolver';
+export type { DeleteStackDeps, DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
 
 const COMPOSE_FILENAME = 'docker-compose.yml';
 const MANIFEST_FILENAME = 'manifest.yaml';
@@ -27,20 +30,6 @@ function getRepoPath(): string {
   const config = loadGitConfig();
   return config.repoPath;
 }
-
-/** Trigger teardown and poll until it reaches a terminal status. */
-async function teardownAndAwait(
-  stackName: string,
-  host: string,
-  deployRepo: { getById: (id: number) => Promise<{ status: string; logs?: string | null } | null> },
-): Promise<void> {
-  return teardownAndAwaitWithDeps(stackName, host, {
-    deployRepo,
-    triggerDeploy: (params) => triggerStackDeploy(params),
-  });
-}
-
-
 
 export async function getStackSummaries(): Promise<StackSummary[]> {
   const repoPath = getRepoPath();
@@ -123,6 +112,7 @@ export async function triggerStackDeploy(params: {
   action: 'deploy' | 'teardown' | 'restart';
   commitSha?: string;
   forceRecreate?: boolean;
+  postSuccess?: 'removeFromManifest';
 }): Promise<{ deployId: number }> {
   const repoPath = getRepoPath();
 
@@ -155,7 +145,10 @@ export async function triggerStackDeploy(params: {
   return handleTriggerDeploy({
     readCompose: (stack) => readFileFromRepo(repoPath, `${stack}/${COMPOSE_FILENAME}`),
     getCommitSha: () => git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' }),
-    buildRequest: (input) => builder.build(input),
+    buildRequest: (input) => {
+      const req = builder.build(input);
+      return params.postSuccess ? { ...req, postSuccess: params.postSuccess } : req;
+    },
     executePipeline: (request) => pipeline.execute(request),
   }, params);
 }
@@ -252,7 +245,7 @@ export async function createStackInRepo(
 export async function deleteStackFromRepo(
   stackName: string,
   teardown: boolean,
-): Promise<{ commitSha: string }> {
+): Promise<DeleteStackResult> {
   const repoPath = getRepoPath();
 
   const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
@@ -277,10 +270,16 @@ export async function deleteStackFromRepo(
     throw new Error(`Stack "${stackName}" has an active deploy in progress — cannot delete`);
   }
 
-  if (teardown) {
-    await teardownAndAwait(stackName, host, deployRepo);
-  }
+  return resolveDeleteStack(stackName, host, teardown, {
+    triggerDeploy: (params) => triggerStackDeploy(params),
+    commitRemoveFromManifest: (sn) => commitRemoveStackFromManifest(repoPath, sn),
+  });
+}
 
+async function commitRemoveStackFromManifest(
+  repoPath: string,
+  stackName: string,
+): Promise<{ commitSha: string }> {
   const commitSha = await commitFiles(repoPath, (existingFiles) => {
     const freshManifestContent = existingFiles.get(MANIFEST_FILENAME);
     if (freshManifestContent === undefined) {

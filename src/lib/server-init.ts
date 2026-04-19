@@ -12,11 +12,31 @@ async function startDeployRecovery(): Promise<void> {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
   const { performStartupRecovery } = await import('@/lib/deploy/startup-recovery');
+  const { createStackRepoWriter } = await import('@/lib/deploy/stack-repo-writer');
+  const { loadGitConfig } = await import('@/lib/config/git-config');
+  const { readFileFromRepo } = await import('@/lib/git/repo');
+  const { parseManifest } = await import('@/lib/git/manifest');
 
   const dbClient = await dbm.getClient(loadDatabaseConfig());
   const repo = new DeployRepository(dbClient.getPool());
 
-  await performStartupRecovery(repo, deployWatchdog);
+  const manifestReader = {
+    async listStackNames(): Promise<Set<string>> {
+      try {
+        const { repoPath } = loadGitConfig();
+        const content = await readFileFromRepo(repoPath, 'manifest.yaml');
+        return new Set(Object.keys(parseManifest(content).stacks));
+      } catch {
+        // No repo, no manifest — nothing to orphan-sweep against.
+        return new Set();
+      }
+    },
+  };
+
+  await performStartupRecovery(repo, deployWatchdog, {
+    manifestReader,
+    stackRepoWriter: createStackRepoWriter(),
+  });
 }
 
 /** Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy recovery. */
