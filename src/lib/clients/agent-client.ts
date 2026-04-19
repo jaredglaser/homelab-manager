@@ -1,5 +1,6 @@
 import type { AgentStackResponse, AgentHealthCheckResponse } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse } from '@/lib/deploy/types';
+import { retry } from '@/lib/utils/backoff';
 
 export interface ZfsPool {
   name: string;
@@ -22,6 +23,10 @@ export class AgentClientError extends Error {
     message: string,
     public readonly statusCode?: number,
     public readonly agentUrl?: string,
+    /** True when the per-attempt timeout fired. Retry classifier uses this to avoid
+     *  re-running a long-running operation (e.g. `docker compose up`) that may still
+     *  be in flight on the agent. */
+    public readonly wasTimeout: boolean = false,
   ) {
     super(message);
     this.name = 'AgentClientError';
@@ -50,6 +55,11 @@ export interface AgentHealthResponse {
  * HTTPS is supported natively — use https:// in the agent URL.
  * For self-signed certs (e.g., from OpenBao PKI), set NODE_EXTRA_CA_CERTS
  * env var to the CA certificate path.
+ *
+ * Transient failures (network errors, 502/503/504) are retried up to 3 total
+ * attempts with exponential backoff (1s, 2s) via the shared `retry()` helper.
+ * 4xx responses, non-retryable 5xx responses, per-attempt timeouts, and invalid
+ * JSON bodies fail immediately.
  */
 export class AgentClient {
   private readonly agentUrl: string;
@@ -107,16 +117,17 @@ export class AgentClient {
         `Agent request failed: ${err instanceof Error ? err.message : String(err)}`,
         undefined,
         url,
+        false,
       );
     }
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new AgentClientError(`Agent returned ${response.status}: ${body}`, response.status, url);
+      throw new AgentClientError(`Agent returned ${response.status}: ${body}`, response.status, url, false);
     }
 
     if (!response.body) {
-      throw new AgentClientError('No response body for SSE stream', undefined, url);
+      throw new AgentClientError('No response body for SSE stream', undefined, url, false);
     }
 
     const reader = response.body.getReader();
@@ -168,9 +179,38 @@ export class AgentClient {
     });
   }
 
+  /** Classifier used by the retry wrapper. Exposed as a static so the retry
+   *  helper can call it without binding `this`. */
+  private static isRetryable(err: unknown): boolean {
+    if (!(err instanceof AgentClientError)) return false;
+    // Never retry our own per-attempt timeout: the in-flight operation (e.g.
+    // `docker compose up`) may still be running on the agent.
+    if (err.wasTimeout) return false;
+    // Network-layer failures (fetch threw) have no statusCode — retry.
+    if (err.statusCode === undefined) return true;
+    // Transient gateway errors are retryable; everything else is not.
+    return err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504;
+  }
+
   private async request<T>(path: string, init: RequestInit): Promise<T> {
     const url = `${this.agentUrl}${path}`;
+    return retry(() => this.attempt<T>(url, init), {
+      maxAttempts: 3,
+      baseMs: 1000,
+      maxExponent: 2,
+      isRetryable: AgentClient.isRetryable,
+      onRetry: (err, attempt, delayMs) => {
+        const code = err instanceof AgentClientError
+          ? (err.statusCode ?? 'network error')
+          : 'unknown';
+        console.info(
+          `[AgentClient] Retry ${attempt}/2 for ${path} after ${code}, waiting ${delayMs}ms`,
+        );
+      },
+    });
+  }
 
+  private async attempt<T>(url: string, init: RequestInit): Promise<T> {
     let response: Response;
     try {
       response = await this.fetchFn(url, {
@@ -178,10 +218,17 @@ export class AgentClient {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch (err) {
+      // Distinguish our own per-attempt timeout from a genuine network failure.
+      // DOMException('...', 'TimeoutError') is the canonical AbortSignal.timeout()
+      // rejection, but some runtimes surface a plain AbortError — treat both as
+      // "our timeout" to be safe.
+      const wasTimeout =
+        err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
       throw new AgentClientError(
         `Agent request failed: ${err instanceof Error ? err.message : String(err)}`,
         undefined,
         url,
+        wasTimeout,
       );
     }
 
@@ -191,6 +238,7 @@ export class AgentClient {
         `Agent returned ${response.status}: ${body}`,
         response.status,
         url,
+        false,
       );
     }
 
@@ -199,9 +247,10 @@ export class AgentClient {
       return JSON.parse(text) as T;
     } catch {
       throw new AgentClientError(
-        `Agent returned invalid JSON from ${path}: ${text.slice(0, 200)}`,
+        `Agent returned invalid JSON from ${url}: ${text.slice(0, 200)}`,
         response.status,
         url,
+        false,
       );
     }
   }

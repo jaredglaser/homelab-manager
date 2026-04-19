@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { AgentClient, AgentClientError, type ZfsPool } from '../agent-client';
 
 describe('AgentClient', () => {
@@ -75,7 +75,8 @@ describe('AgentClient', () => {
     });
 
     it('throws AgentClientError on fetch failure (network error)', async () => {
-      fetchMock.mockRejectedValueOnce(new Error('Connection refused'));
+      // Network errors retry up to 3 times — reject all attempts so we see the final error.
+      fetchMock.mockRejectedValue(new Error('Connection refused'));
 
       await expect(client.deploy({
         stack: 'plex',
@@ -139,7 +140,8 @@ describe('AgentClient', () => {
     });
 
     it('throws AgentClientError when agent is unreachable', async () => {
-      fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      // Network errors retry up to 3 times — reject all attempts.
+      fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
       await expect(client.health()).rejects.toThrow(AgentClientError);
     });
@@ -319,6 +321,196 @@ describe('AgentClient', () => {
 
       expect(results).toHaveLength(1);
       expect(results[0]).toEqual({ line: 'ok', timestamp: 999 });
+    });
+  });
+
+  describe('retry behaviour', () => {
+    // Collapse retry backoff sleeps so we don't wait real 1s/2s intervals.
+    // Scoped to this block so stream tests above keep real setTimeout.
+    let setTimeoutSpy: ReturnType<typeof spyOn>;
+    let capturedDelays: number[];
+
+    beforeEach(() => {
+      capturedDelays = [];
+      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+        ((fn: TimerHandler, delay?: number) => {
+          capturedDelays.push(delay ?? 0);
+          if (typeof fn === 'function') fn();
+          return 0 as unknown as ReturnType<typeof setTimeout>;
+        }) as unknown as typeof setTimeout,
+      );
+    });
+
+    afterEach(() => {
+      setTimeoutSpy.mockRestore();
+    });
+
+    const successResponse = () =>
+      new Response(JSON.stringify({ status: 'success', stdout: 'ok', stderr: '' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    const deployPayload = {
+      stack: 'plex',
+      composeContent: 'version: "3"',
+      envContent: '',
+      action: 'deploy' as const,
+    };
+
+    it('success on first attempt → fetch called once, no retry', async () => {
+      fetchMock.mockResolvedValueOnce(successResponse());
+
+      const result = await client.deploy(deployPayload);
+
+      expect(result.success).toBe(true);
+      expect(fetchMock.mock.calls).toHaveLength(1);
+      expect(capturedDelays).toEqual([]);
+    });
+
+    it('network error on attempts 1 & 2, success on 3 → fetch called 3 times', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('ECONNRESET'));
+      fetchMock.mockRejectedValueOnce(new Error('socket hang up'));
+      fetchMock.mockResolvedValueOnce(successResponse());
+
+      const result = await client.deploy(deployPayload);
+
+      expect(result.success).toBe(true);
+      expect(fetchMock.mock.calls).toHaveLength(3);
+      // 1s then 2s (baseMs 1000, maxExponent 2 → 2^0=1, 2^1=2).
+      expect(capturedDelays).toEqual([1000, 2000]);
+    });
+
+    it('503 on attempt 1, 200 on attempt 2 → fetch called 2 times', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('Service Unavailable', { status: 503 }));
+      fetchMock.mockResolvedValueOnce(successResponse());
+
+      const result = await client.deploy(deployPayload);
+
+      expect(result.success).toBe(true);
+      expect(fetchMock.mock.calls).toHaveLength(2);
+      expect(capturedDelays).toEqual([1000]);
+    });
+
+    it('400 on attempt 1 → throws immediately, fetch called once', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('Bad Request', { status: 400 }));
+
+      let thrown: unknown;
+      try {
+        await client.deploy(deployPayload);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).statusCode).toBe(400);
+      expect(fetchMock.mock.calls).toHaveLength(1);
+      expect(capturedDelays).toEqual([]);
+    });
+
+    it('500 (non-retryable 5xx) → throws immediately, fetch called once', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
+
+      let thrown: unknown;
+      try {
+        await client.deploy(deployPayload);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).statusCode).toBe(500);
+      expect(fetchMock.mock.calls).toHaveLength(1);
+      expect(capturedDelays).toEqual([]);
+    });
+
+    it('504 all 3 attempts → throws AgentClientError with statusCode 504 after 3 fetches', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('Gateway Timeout', { status: 504 }));
+      fetchMock.mockResolvedValueOnce(new Response('Gateway Timeout', { status: 504 }));
+      fetchMock.mockResolvedValueOnce(new Response('Gateway Timeout', { status: 504 }));
+
+      let thrown: unknown;
+      try {
+        await client.deploy(deployPayload);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).statusCode).toBe(504);
+      expect(fetchMock.mock.calls).toHaveLength(3);
+      expect(capturedDelays).toEqual([1000, 2000]);
+    });
+
+    it('network error all 3 attempts → throws with statusCode undefined after 3 fetches', async () => {
+      fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+      fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+
+      let thrown: unknown;
+      try {
+        await client.deploy(deployPayload);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).statusCode).toBeUndefined();
+      expect((thrown as AgentClientError).wasTimeout).toBe(false);
+      expect(fetchMock.mock.calls).toHaveLength(3);
+      expect(capturedDelays).toEqual([1000, 2000]);
+    });
+
+    it('per-attempt timeout → throws with wasTimeout true, fetch called exactly once', async () => {
+      // Simulate AbortSignal.timeout() rejection with a TimeoutError.
+      const timeoutErr = new Error('The operation timed out.');
+      timeoutErr.name = 'TimeoutError';
+      fetchMock.mockRejectedValueOnce(timeoutErr);
+
+      let thrown: unknown;
+      try {
+        await client.deploy(deployPayload);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).wasTimeout).toBe(true);
+      expect((thrown as AgentClientError).statusCode).toBeUndefined();
+      expect(fetchMock.mock.calls).toHaveLength(1);
+      expect(capturedDelays).toEqual([]);
+    });
+
+    it('AbortError (runtime variant of timeout) → wasTimeout true, no retry', async () => {
+      const abortErr = new Error('The operation was aborted.');
+      abortErr.name = 'AbortError';
+      fetchMock.mockRejectedValueOnce(abortErr);
+
+      let thrown: unknown;
+      try {
+        await client.deploy(deployPayload);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).wasTimeout).toBe(true);
+      expect(fetchMock.mock.calls).toHaveLength(1);
+      expect(capturedDelays).toEqual([]);
+    });
+
+    it('invalid JSON response → throws immediately (non-retryable), fetch called once', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('<html>Not JSON</html>', {
+          status: 200,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+      );
+
+      let thrown: unknown;
+      try {
+        await client.deploy(deployPayload);
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).message).toMatch(/invalid JSON/);
+      expect(fetchMock.mock.calls).toHaveLength(1);
+      expect(capturedDelays).toEqual([]);
     });
   });
 });
