@@ -72,14 +72,15 @@ async function runWithRetry<T>(
     onAttemptFailed: (attempt: number, err: unknown) => void;
   },
 ): Promise<T> {
+  const attempts = Math.max(1, Math.floor(opts.maxAttempts));
   let lastErr: unknown;
-  for (let attempt = 1; attempt <= opts.maxAttempts; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
       opts.onAttemptFailed(attempt, err);
-      if (attempt < opts.maxAttempts) await opts.sleep(opts.backoff(attempt - 1));
+      if (attempt < attempts) await opts.sleep(opts.backoff(attempt - 1));
     }
   }
   throw lastErr;

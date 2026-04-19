@@ -37,6 +37,7 @@ export class DeployWatchdog {
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
   private consecutiveFailures = 0;
+  private skippedTicks = 0;
 
   constructor(config: DeployWatchdogConfig = loadDeployWatchdogConfig()) {
     if (config.intervalMs <= 0 || !Number.isFinite(config.intervalMs)) {
@@ -69,9 +70,18 @@ export class DeployWatchdog {
     return this.consecutiveFailures;
   }
 
-  /** Reentrancy-guarded — if a previous tick is still running, returns immediately. */
+  /** Exposed for observability — total ticks dropped because a prior tick was still running. */
+  getSkippedTicks(): number {
+    return this.skippedTicks;
+  }
+
+  /** Reentrancy-guarded — if a previous tick is still running, logs and returns. */
   async tick(deployRepo: WatchdogRepo): Promise<void> {
-    if (this.running) return;
+    if (this.running) {
+      this.skippedTicks += 1;
+      console.info(`[DeployWatchdog] Skipped tick — already running (skipped=${this.skippedTicks})`);
+      return;
+    }
     this.running = true;
     try {
       const message = buildTimeoutMessage(this.config.thresholdMinutes);

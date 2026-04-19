@@ -132,7 +132,12 @@ export class DeployRepository {
     await this.pool.query("SELECT pg_notify('deploy_change', $1)", [payload]);
   }
 
-  /** Fails any active deploy rows that survived a crash. Returns the recovered rows. */
+  /**
+   * Fails ALL pending/in_progress deploy_history rows unconditionally, overwriting
+   * `logs` with `logMessage` (any partial agent output is lost). Safe only for
+   * single-instance/single-worker startup recovery — do not call in multi-process
+   * deployments where another instance may own active rows. Returns the recovered rows.
+   */
   async recoverStuckDeploys(logMessage: string): Promise<StuckDeployRow[]> {
     const result = await this.pool.query(
       `UPDATE deploy_history
@@ -144,7 +149,10 @@ export class DeployRepository {
     return result.rows.map(toStuckDeployRow);
   }
 
-  /** Fails in_progress deploys older than thresholdMinutes. Returns the timed-out rows. */
+  /**
+   * Fails in_progress deploys older than thresholdMinutes, overwriting `logs`
+   * with `logMessage`. Returns the timed-out rows.
+   */
   async timeoutStuckDeploys(
     thresholdMinutes: number,
     logMessage: string,
