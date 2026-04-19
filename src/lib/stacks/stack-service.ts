@@ -4,6 +4,7 @@
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
+import type { DeployRecord, DeployRequest } from '@/lib/deploy/types';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
@@ -151,6 +152,108 @@ export async function triggerStackDeploy(params: {
     },
     executePipeline: (request) => pipeline.execute(request),
   }, params);
+}
+
+/**
+ * Approve a pending deploy and run it through the pipeline's `resumePending` path.
+ * Rebuilds the `DeployRequest` from the stored deploy record, reading the compose
+ * file at the record's commitSha so the exact configuration that was pending is what gets deployed.
+ */
+export async function resumePendingDeploy(deployId: number): Promise<{ deployId: number }> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
+  const { createDeployPipeline } = await import('@/lib/deploy/pipeline-factory');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const pool = dbClient.getPool();
+  const deployRepo = new DeployRepository(pool);
+  const hostsRepo = new ManagedHostsRepository(pool);
+
+  const deploy = await deployRepo.getById(deployId);
+  if (!deploy) throw new Error(`Deploy ${deployId} not found`);
+  if (deploy.status !== 'pending') {
+    throw new Error(`Deploy is not pending (status: ${deploy.status})`);
+  }
+
+  const host = await hostsRepo.getByName(deploy.host);
+  if (!host) throw new Error(`Host "${deploy.host}" not found in managed_hosts`);
+
+  // Rebuild the DeployRequest. For deploy action we need compose content; read it
+  // from the commit the pending deploy was recorded against so what we approve
+  // is exactly what was pending.
+  const request = await buildRequestFromDeployRecord(deploy);
+
+  const { pipeline } = await createDeployPipeline();
+  const result = await pipeline.resumePending(deployId, host, request);
+  return { deployId: result.deployId ?? deployId };
+}
+
+/**
+ * Reject a pending deploy. Marks it as `failed` with a "Manually rejected" log
+ * message and notifies subscribers so the UI refreshes.
+ */
+export async function rejectPendingDeploy(deployId: number): Promise<{ deployId: number }> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const deployRepo = new DeployRepository(dbClient.getPool());
+
+  const deploy = await deployRepo.getById(deployId);
+  if (!deploy) throw new Error(`Deploy ${deployId} not found`);
+  if (deploy.status !== 'pending') {
+    throw new Error(`Deploy is not pending (status: ${deploy.status})`);
+  }
+
+  await deployRepo.updateStatus(deployId, 'failed', 'Manually rejected');
+  try {
+    await deployRepo.notifyStackChange(deploy.stack, deploy.host);
+  } catch (err) {
+    console.error(`Failed to notify stack change after rejecting deploy ${deployId}:`, err);
+  }
+  return { deployId };
+}
+
+async function buildRequestFromDeployRecord(
+  deploy: DeployRecord,
+): Promise<DeployRequest> {
+  const base = {
+    stack: deploy.stack,
+    host: deploy.host,
+    commitSha: deploy.commitSha,
+    trigger: deploy.trigger,
+    autoApproved: true,
+    postSuccess: deploy.postSuccess ?? undefined,
+  };
+
+  if (deploy.action === 'deploy') {
+    const repoPath = getRepoPath();
+    let composeContent = '';
+    try {
+      composeContent = await readFileFromRepo(
+        repoPath,
+        `${deploy.stack}/${COMPOSE_FILENAME}`,
+        deploy.commitSha,
+      );
+    } catch (err) {
+      if (!(err instanceof FileNotFoundError)) throw err;
+      // Pending deploy for a stack with no compose file — let the pipeline handle it
+    }
+    return {
+      ...base,
+      action: 'deploy',
+      composeContent,
+      envContent: '',
+      forceRecreate: deploy.forceRecreate,
+    };
+  }
+
+  return { ...base, action: deploy.action };
 }
 
 export async function getStackDeployHistory(

@@ -21,6 +21,8 @@ import {
   deleteStack,
   updateStackSettings,
   listManagedHostNames,
+  resumeDeploy,
+  rejectDeploy,
 } from '@/data/stacks/functions'
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
@@ -113,6 +115,32 @@ function StackEditorView() {
     setDeleteDialogOpen(false)
     navigate({ to: '/stacks' })
   }
+
+  const approveMutation = useMutation({
+    mutationFn: (deployId: number) => resumeDeploy({ data: { deployId } }),
+    onSuccess: () => {
+      showToast(`Deploy approved for ${stackName}`)
+      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
+      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+    },
+    onError: (err) => {
+      showToast(err instanceof Error ? err.message : String(err))
+      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
+    },
+  })
+
+  const rejectMutation = useMutation({
+    mutationFn: (deployId: number) => rejectDeploy({ data: { deployId } }),
+    onSuccess: () => {
+      showToast(`Deploy rejected for ${stackName}`)
+      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
+      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+    },
+    onError: (err) => {
+      showToast(err instanceof Error ? err.message : String(err))
+      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
+    },
+  })
 
   const settingsMutation = useMutation({
     mutationFn: ({ newHost, autoDeploy }: { newHost: string; autoDeploy: boolean }) =>
@@ -211,6 +239,10 @@ function StackEditorView() {
               onRollbackError={(err) => {
                 setDeployMessage({ type: 'error', text: err.message })
               }}
+              onApprove={(deployId) => approveMutation.mutate(deployId)}
+              onReject={(deployId) => rejectMutation.mutate(deployId)}
+              isApproving={approveMutation.isPending}
+              isRejecting={rejectMutation.isPending}
             />
           )}
         </div>

@@ -31,3 +31,11 @@ export const updateStackIconSchema = z.object({
   stackName: stackNameField,
   iconSlug: z.string().min(1),
 });
+
+export const resumeDeploySchema = z.object({
+  deployId: z.number().int().positive(),
+});
+
+export const rejectDeploySchema = z.object({
+  deployId: z.number().int().positive(),
+});
