@@ -591,7 +591,7 @@ function ContainerNameCell({
       await onIconChange(serviceKeyEntity, iconSlug);
     } catch (err) {
       console.error('Failed to update container icon:', err);
-      showToast('Failed to update icon. Please try again.');
+      showToast('Failed to update icon. Please try again.', 'error');
     }
   };
 
