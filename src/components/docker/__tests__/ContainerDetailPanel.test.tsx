@@ -2,29 +2,13 @@ import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 
-mock.module('@/hooks/useSettings', () => ({
-  useSettings: () => ({
-    general: { use12HourTime: false },
-    docker: { chartWindowSeconds: 60 },
-  }),
-}));
-
 mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
 }));
 
-mock.module('@/components/docker/DualSeriesChart', () => ({
-  default: ({
-    title,
-    formatValue,
-  }: {
-    title?: string;
-    formatValue?: (v: number) => string;
-  }) => (
-    <div data-testid="dual-series-chart">
-      {title && <span>{title}</span>}
-      {formatValue && <span data-testid="format-value-output">{formatValue(1000)}</span>}
-    </div>
+mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
+  default: ({ option }: { option: unknown }) => (
+    <div data-testid="echarts-mock" data-option={JSON.stringify(option)} />
   ),
 }));
 
@@ -53,6 +37,7 @@ mock.module('@/hooks/useContainerLogs', () => ({
 }));
 
 const { default: ContainerDetailPanel } = await import('../ContainerDetailPanel');
+const { createStore, Provider } = await import('jotai');
 
 const sampleDataPoints = [
   {
@@ -76,13 +61,16 @@ const sampleDataPoints = [
 ];
 
 function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPanel>> = {}) {
+  const store = createStore();
   return render(
-    <ContainerDetailPanel
-      dataPoints={sampleDataPoints}
-      containerId="abc123"
-      host="server"
-      {...overrides}
-    />,
+    <Provider store={store}>
+      <ContainerDetailPanel
+        dataPoints={sampleDataPoints}
+        containerId="abc123"
+        host="server"
+        {...overrides}
+      />
+    </Provider>,
   );
 }
 
@@ -100,14 +88,16 @@ describe('ContainerDetailPanel', () => {
 
   it('renders two chart instances', () => {
     renderPanel();
-    const charts = screen.getAllByTestId('dual-series-chart');
-    expect(charts).toHaveLength(2);
+    expect(screen.getAllByTestId('echarts-mock')).toHaveLength(2);
   });
 
-  it('formats CPU/memory values as percentages and network as bit rate', () => {
+  it('wires cpuPercent to the first chart and networkRxBytesPerSec (×8) to the second', () => {
     renderPanel();
-    screen.getByText('1000.00%');
-    screen.getByText('1.00 Kbps');
+    const [cpuChart, netChart] = screen.getAllByTestId('echarts-mock');
+    const cpuOpt = JSON.parse(cpuChart.getAttribute('data-option')!);
+    const netOpt = JSON.parse(netChart.getAttribute('data-option')!);
+    expect(cpuOpt.series[0].data[0][1]).toBe(sampleDataPoints[0].cpuPercent);
+    expect(netOpt.series[0].data[0][1]).toBe(sampleDataPoints[0].networkRxBytesPerSec * 8);
   });
 
   it('renders with empty data points', () => {

@@ -79,10 +79,7 @@ export interface Manifest {
   stacks: Record<string, ManifestEntry>;
 }
 
-/**
- * Secret resolver interface. The no-op implementation returns an empty record.
- * The OpenBao plan provides a real implementation.
- */
+/** Secret resolution contract for the deploy pipeline executor. */
 export interface SecretResolver {
   resolve(stack: string, variables: string[]): Promise<Record<string, string>>;
 }

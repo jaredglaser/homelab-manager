@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { Paper, Chip, Collapse } from '@mui/material'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
-import { useSettings } from '@/hooks/useSettings'
+import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
 import { EMPTY_METRIC } from '@/components/shared-table'
 import { formatUptime } from '@/components/proxmox/utils'
 import { GuestSection } from '@/components/proxmox/GuestSection'
@@ -19,8 +19,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
     isProxmoxSectionExpanded,
     toggleProxmoxSectionExpanded,
     proxmox: { expandedHosts, expandedSections },
-    general: { showSparklines, useAbbreviatedUnits },
-  } = useSettings()
+  } = useProxmoxSettings()
+  const { general: { showSparklines, useAbbreviatedUnits } } = useGeneralSettings()
 
   // On first render with no saved expansion state, default to all expanded
   const hasExpansionState = expandedHosts.size > 0 || expandedSections.size > 0

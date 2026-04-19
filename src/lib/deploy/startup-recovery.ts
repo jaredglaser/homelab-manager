@@ -63,6 +63,7 @@ export async function performStartupRecovery(
   watchdog.start(repo);
 }
 
+// TODO: migrate to the shared retry() utility from @/lib/utils/backoff
 async function runWithRetry<T>(
   fn: () => Promise<T>,
   opts: {
