@@ -5,7 +5,7 @@ import type {
   DockerHostTableRow,
   DockerContainerTableRow,
 } from '@/types/docker';
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 /**
  * Compute a stable service key for a Docker container.
@@ -123,7 +123,7 @@ function getStateSortPriority(state: string): number {
  */
 function buildContainerRow(
   entityId: string,
-  inventory: DockerContainerInventory,
+  inventory: DockerInventorySnapshotContainer,
   stats: Map<string, DockerStatsFromDB>,
   hostName: string,
 ): DockerContainerTableRow {
@@ -231,14 +231,14 @@ export interface DockerTableHierarchy {
  * ServiceKey deduplication: within a host, only the most recently started
  * container per `serviceKey` is kept (max `startedAt`, fallback `updatedAt`).
  *
- * @param inventory - Map of `host/containerId` → `DockerContainerInventory`
+ * @param inventory - Map of `host/containerId` → `DockerInventorySnapshotContainer`
  * @param stats - Map of `host/containerId` → `DockerStatsFromDB`
  */
 export function buildDockerTableHierarchy(
-  inventory: Map<string, DockerContainerInventory>,
+  inventory: Map<string, DockerInventorySnapshotContainer>,
   stats: Map<string, DockerStatsFromDB>,
 ): DockerTableHierarchy {
-  const dedupedByHostServiceKey = new Map<string, DockerContainerInventory>();
+  const dedupedByHostServiceKey = new Map<string, DockerInventorySnapshotContainer>();
 
   for (const [, inv] of inventory) {
     const hostName = inv.host;

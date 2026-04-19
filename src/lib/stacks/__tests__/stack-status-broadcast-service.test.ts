@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import { StackStatusBroadcastService } from '../stack-status-broadcast-service';
 import type { StackBroadcastEvent } from '../stack-status-broadcast-service';
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { PoolClient } from 'pg';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
@@ -51,7 +51,7 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-const composeContainer1: DockerContainerInventory = {
+const composeContainer1: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'abc123',
   name: 'plex',
@@ -66,7 +66,7 @@ const composeContainer1: DockerContainerInventory = {
   updatedAt: new Date('2026-04-16T10:00:00Z'),
 };
 
-const composeContainer2: DockerContainerInventory = {
+const composeContainer2: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'def456',
   name: 'sonarr',
@@ -82,7 +82,7 @@ const composeContainer2: DockerContainerInventory = {
 };
 
 /** A container with no compose project — should always be excluded from stack output. */
-const nonComposeContainer: DockerContainerInventory = {
+const nonComposeContainer: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'standalone999',
   name: 'traefik',
@@ -97,7 +97,7 @@ const nonComposeContainer: DockerContainerInventory = {
   updatedAt: new Date('2026-04-16T09:00:00Z'),
 };
 
-const otherStackContainer: DockerContainerInventory = {
+const otherStackContainer: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'proxy111',
   name: 'nginx',
@@ -123,7 +123,7 @@ describe('StackStatusBroadcastService', () => {
 
     service = new StackStatusBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
-      loadSnapshot: loadSnapshotFn as () => Promise<DockerContainerInventory[]>,
+      loadSnapshot: loadSnapshotFn as () => Promise<DockerInventorySnapshotContainer[]>,
     });
   });
 
@@ -198,8 +198,8 @@ describe('StackStatusBroadcastService', () => {
   });
 
   it('does not send init to subscriber that unsubscribed before snapshot resolved', async () => {
-    let resolveSnapshot!: (v: DockerContainerInventory[]) => void;
-    const slowSnapshot = new Promise<DockerContainerInventory[]>((r) => { resolveSnapshot = r; });
+    let resolveSnapshot!: (v: DockerInventorySnapshotContainer[]) => void;
+    const slowSnapshot = new Promise<DockerInventorySnapshotContainer[]>((r) => { resolveSnapshot = r; });
     const slowService = new StackStatusBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
       loadSnapshot: () => slowSnapshot,
@@ -610,7 +610,7 @@ describe('StackStatusBroadcastService', () => {
     let connectCount = 0;
     let snapshotCallCount = 0;
 
-    const containerX: DockerContainerInventory = {
+    const containerX: DockerInventorySnapshotContainer = {
       host: 'server1',
       containerId: 'containerIdX',
       name: 'plex',
@@ -624,7 +624,7 @@ describe('StackStatusBroadcastService', () => {
       labels: { 'com.docker.compose.project': 'media' },
       updatedAt: new Date('2026-04-16T10:00:00Z'),
     };
-    const containerY: DockerContainerInventory = {
+    const containerY: DockerInventorySnapshotContainer = {
       host: 'server1',
       containerId: 'containerIdY',
       name: 'sonarr',

@@ -16,7 +16,7 @@ import type {
   DockerTableRow,
   HostAggregatedStats,
 } from '@/types/docker';
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import { buildDockerTableHierarchy, rowToDockerStats, totalContainers } from '@/lib/utils/docker-hierarchy-builder';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
@@ -36,7 +36,7 @@ const METRIC_GROUPS: MetricGroup[] = [
 ];
 
 interface ContainerTableProps {
-  inventory: Map<string, DockerContainerInventory>;
+  inventory: Map<string, DockerInventorySnapshotContainer>;
   /** Whether the inventory SSE stream has connected (false until first event received) */
   isInventoryConnected: boolean;
   /** Error from the inventory SSE stream, if it permanently failed */

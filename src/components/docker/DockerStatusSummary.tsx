@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Typography } from '@mui/material';
 import { bucketContainerState } from '@/lib/utils/docker-hierarchy-builder';
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 interface Segment {
   label: string;
@@ -31,7 +31,7 @@ function StatusSegment({ label, count }: Readonly<Segment>) {
 }
 
 interface DockerStatusSummaryProps {
-  inventory: Map<string, DockerContainerInventory>;
+  inventory: Map<string, DockerInventorySnapshotContainer>;
 }
 
 export default function DockerStatusSummary({ inventory }: Readonly<DockerStatusSummaryProps>) {

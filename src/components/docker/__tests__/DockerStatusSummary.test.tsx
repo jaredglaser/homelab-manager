@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import DockerStatusSummary from '../DockerStatusSummary';
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
-function makeContainer(overrides: Partial<DockerContainerInventory> & { host: string; containerId: string }): DockerContainerInventory {
+function makeContainer(overrides: Partial<DockerInventorySnapshotContainer> & { host: string; containerId: string }): DockerInventorySnapshotContainer {
   return {
     name: 'container',
     image: 'img',
@@ -19,7 +19,7 @@ function makeContainer(overrides: Partial<DockerContainerInventory> & { host: st
   };
 }
 
-function renderSummary(inventory: Map<string, DockerContainerInventory>) {
+function renderSummary(inventory: Map<string, DockerInventorySnapshotContainer>) {
   return render(<DockerStatusSummary inventory={inventory} />);
 }
 

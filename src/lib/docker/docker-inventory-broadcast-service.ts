@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import type { DockerContainerInventory, DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer, DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
 import { zDockerInventoryBroadcastEvent } from '@/types/docker-inventory';
 import type { DockerContainerEventUpsertRow } from '@/lib/database/repositories/docker-container-event-repository';
 
@@ -12,7 +12,7 @@ function backoffDelay(failures: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** failures, BACKOFF_CAP_MS);
 }
 
-export function rowToInventory(row: DockerContainerEventUpsertRow): DockerContainerInventory {
+export function rowToInventory(row: DockerContainerEventUpsertRow): DockerInventorySnapshotContainer {
   return {
     host: row.host,
     containerId: row.containerId,
@@ -30,10 +30,10 @@ export function rowToInventory(row: DockerContainerEventUpsertRow): DockerContai
 }
 
 /**
- * Convert a raw NOTIFY payload to DockerContainerInventory.
+ * Convert a raw NOTIFY payload to DockerInventorySnapshotContainer.
  * Validates required fields and throws a descriptive error if they are missing.
  */
-export function notifyPayloadToInventory(payload: Record<string, unknown>): DockerContainerInventory {
+export function notifyPayloadToInventory(payload: Record<string, unknown>): DockerInventorySnapshotContainer {
   const host = payload.host;
   const containerId = payload.container_id;
   const eventType = payload.event_type;
@@ -57,7 +57,7 @@ export function notifyPayloadToInventory(payload: Record<string, unknown>): Dock
     containerId,
     name: (payload.name as string | null) ?? '',
     image: (payload.image as string | null) ?? '',
-    state: (payload.state as DockerContainerInventory['state'] | null) ?? 'unknown',
+    state: (payload.state as DockerInventorySnapshotContainer['state'] | null) ?? 'unknown',
     composeProject: (payload.compose_project as string | null) ?? null,
     serviceKey: (payload.service_key as string | null) ?? '',
     startedAt: payload.started_at ? new Date(payload.started_at as string) : null,
@@ -76,7 +76,7 @@ async function defaultGetPoolClient(): Promise<PoolClient> {
   return client.getPool().connect();
 }
 
-async function defaultLoadSnapshot(): Promise<DockerContainerInventory[]> {
+async function defaultLoadSnapshot(): Promise<DockerInventorySnapshotContainer[]> {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { DockerContainerEventRepository } = await import(
@@ -93,7 +93,7 @@ async function defaultLoadSnapshot(): Promise<DockerContainerInventory[]> {
 
 export interface DockerInventoryBroadcastServiceDeps {
   getPoolClient?: () => Promise<PoolClient>;
-  loadSnapshot?: () => Promise<DockerContainerInventory[]>;
+  loadSnapshot?: () => Promise<DockerInventorySnapshotContainer[]>;
 }
 
 /**
@@ -119,7 +119,7 @@ export class DockerInventoryBroadcastService {
   /** Timer reference so stop() can cancel a pending reconnect. */
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly getPoolClient: () => Promise<PoolClient>;
-  private readonly loadSnapshot: () => Promise<DockerContainerInventory[]>;
+  private readonly loadSnapshot: () => Promise<DockerInventorySnapshotContainer[]>;
 
   constructor(deps: DockerInventoryBroadcastServiceDeps = {}) {
     this.getPoolClient = deps.getPoolClient ?? defaultGetPoolClient;

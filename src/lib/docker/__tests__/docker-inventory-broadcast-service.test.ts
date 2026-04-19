@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import { DockerInventoryBroadcastService, rowToInventory, notifyPayloadToInventory } from '../docker-inventory-broadcast-service';
-import type { DockerContainerInventory, DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer, DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
 import type { PoolClient } from 'pg';
 
@@ -51,7 +51,7 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-const container1: DockerContainerInventory = {
+const container1: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'abc123',
   name: 'plex',
@@ -66,7 +66,7 @@ const container1: DockerContainerInventory = {
   updatedAt: new Date('2026-04-16T10:00:00Z'),
 };
 
-const container2: DockerContainerInventory = {
+const container2: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'def456',
   name: 'traefik',
@@ -92,7 +92,7 @@ describe('DockerInventoryBroadcastService', () => {
 
     service = new DockerInventoryBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
-      loadSnapshot: loadSnapshotFn as () => Promise<DockerContainerInventory[]>,
+      loadSnapshot: loadSnapshotFn as () => Promise<DockerInventorySnapshotContainer[]>,
     });
   });
 
@@ -114,8 +114,8 @@ describe('DockerInventoryBroadcastService', () => {
   });
 
   it('does not send init to subscriber that unsubscribed before snapshot resolved', async () => {
-    let resolveSnapshot!: (v: DockerContainerInventory[]) => void;
-    const slowSnapshot = new Promise<DockerContainerInventory[]>((r) => { resolveSnapshot = r; });
+    let resolveSnapshot!: (v: DockerInventorySnapshotContainer[]) => void;
+    const slowSnapshot = new Promise<DockerInventorySnapshotContainer[]>((r) => { resolveSnapshot = r; });
     const slowService = new DockerInventoryBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
       loadSnapshot: () => slowSnapshot,
@@ -137,7 +137,7 @@ describe('DockerInventoryBroadcastService', () => {
     loadSnapshotFn = mock(async () => [container1]);
     service = new DockerInventoryBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
-      loadSnapshot: loadSnapshotFn as () => Promise<DockerContainerInventory[]>,
+      loadSnapshot: loadSnapshotFn as () => Promise<DockerInventorySnapshotContainer[]>,
     });
 
     const received: DockerInventoryBroadcastEvent[] = [];

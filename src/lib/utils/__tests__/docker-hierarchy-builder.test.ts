@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { buildDockerTableHierarchy, rowToDockerStats, computeServiceKey, totalContainers } from '../docker-hierarchy-builder';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 describe('rowToDockerStats', () => {
   function createMockRow(overrides?: Partial<DockerStatsRow>): DockerStatsRow {
@@ -113,8 +113,8 @@ describe('buildDockerTableHierarchy', () => {
     host: string,
     containerId: string,
     name: string,
-    overrides?: Partial<DockerContainerInventory>,
-  ): DockerContainerInventory {
+    overrides?: Partial<DockerInventorySnapshotContainer>,
+  ): DockerInventorySnapshotContainer {
     return {
       host,
       containerId,

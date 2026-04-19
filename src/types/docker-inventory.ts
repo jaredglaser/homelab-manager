@@ -19,7 +19,6 @@ import { z } from 'zod';
 
 export type {
   ContainerState,
-  InventoryContainer,
   InventorySnapshotContainer,
   InventoryUpdateContainer,
   AgentContainerEvent,
@@ -68,15 +67,6 @@ export type DockerInventorySnapshotContainer = z.infer<typeof zDockerInventorySn
  */
 export const zDockerInventoryUpdateContainer = zInventoryContainerBase;
 export type DockerInventoryUpdateContainer = z.infer<typeof zDockerInventoryUpdateContainer>;
-
-/**
- * Back-compat alias used on paths that accept either shape (tests, DB-row
- * conversions). Equivalent to the snapshot container — write-through paths
- * already carry real labels, so keeping labels on the broad alias keeps
- * existing code compiling without forcing widespread narrowing where both
- * shapes are structurally acceptable.
- */
-export type DockerContainerInventory = DockerInventorySnapshotContainer;
 
 /** Events fanned out from `DockerInventoryBroadcastService` to SSE subscribers. */
 export const zDockerInventoryBroadcastEvent = z.discriminatedUnion('type', [

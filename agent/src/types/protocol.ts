@@ -55,15 +55,6 @@ export type InventorySnapshotContainer = z.infer<typeof zInventorySnapshotContai
 export const zInventoryUpdateContainer = zInventorySnapshotContainer.omit({ labels: true });
 export type InventoryUpdateContainer = z.infer<typeof zInventoryUpdateContainer>;
 
-/**
- * Back-compat alias: prior to the snapshot/update split, the agent exported a
- * single `InventoryContainer` shape. Still useful as the broad input type on
- * write-through paths (collector → DB) that only care about fields both
- * variants share. Kept as `InventorySnapshotContainer` so existing call sites
- * that pass labels keep working.
- */
-export type InventoryContainer = InventorySnapshotContainer;
-
 export const zAgentContainerEvent = z.discriminatedUnion('op', [
   z.object({ op: z.literal('init'), containers: z.array(zInventorySnapshotContainer) }),
   z.object({ op: z.literal('upsert'), container: zInventoryUpdateContainer }),

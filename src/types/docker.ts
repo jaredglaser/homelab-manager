@@ -1,4 +1,4 @@
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 export interface DockerContainer {
   name: string;
@@ -117,7 +117,7 @@ export interface DockerContainerTableRow extends DockerTableRowBase {
   type: 'container';
   hostName: string;
   /** Always present — provides state, name, image, timestamps */
-  inventory: DockerContainerInventory;
+  inventory: DockerInventorySnapshotContainer;
   /** Present only when live metrics are available */
   stats?: DockerStatsFromDB;
   /** True when state === 'running' but no recent stats are available */

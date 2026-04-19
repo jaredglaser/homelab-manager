@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { DockerStatsRow } from '@/types/docker';
 
 // Do NOT mock DataTable, columns, or other broadly-used shared modules —
@@ -88,8 +88,8 @@ function makeInventory(
   host: string,
   containerId: string,
   name: string,
-  state: DockerContainerInventory['state'] = 'running',
-): DockerContainerInventory {
+  state: DockerInventorySnapshotContainer['state'] = 'running',
+): DockerInventorySnapshotContainer {
   return {
     host,
     containerId,
@@ -107,7 +107,7 @@ function makeInventory(
 }
 
 const defaultProps = {
-  inventory: new Map<string, DockerContainerInventory>(),
+  inventory: new Map<string, DockerInventorySnapshotContainer>(),
   isInventoryConnected: true,
   inventoryError: null,
   latestByEntity: new Map<string, DockerStatsRow>(),

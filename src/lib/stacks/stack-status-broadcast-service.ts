@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import type { DockerContainerInventory } from '@/types/docker-inventory';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { StackContainer, StackStatusEntry } from '@/types/stacks';
 import type {
   DockerContainerEventRow,
@@ -16,7 +16,7 @@ type StackBroadcastCallback = (event: StackBroadcastEvent) => void;
 
 export interface StackStatusBroadcastServiceDeps {
   getPoolClient?: () => Promise<PoolClient>;
-  loadSnapshot?: () => Promise<DockerContainerInventory[]>;
+  loadSnapshot?: () => Promise<DockerInventorySnapshotContainer[]>;
 }
 
 const BACKOFF_BASE_MS = 500;
@@ -26,7 +26,7 @@ function backoffDelay(failures: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** failures, BACKOFF_CAP_MS);
 }
 
-function toStackContainer(inv: DockerContainerInventory): StackContainer {
+function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer {
   return {
     id: inv.containerId,
     name: inv.name,
@@ -35,7 +35,7 @@ function toStackContainer(inv: DockerContainerInventory): StackContainer {
   };
 }
 
-function toStackEntry(host: string, stack: string, containers: DockerContainerInventory[]): StackStatusEntry {
+function toStackEntry(host: string, stack: string, containers: DockerInventorySnapshotContainer[]): StackStatusEntry {
   return {
     host,
     stack,
@@ -60,7 +60,7 @@ async function defaultGetPoolClient(): Promise<PoolClient> {
   return client.getPool().connect();
 }
 
-async function defaultLoadSnapshot(): Promise<DockerContainerInventory[]> {
+async function defaultLoadSnapshot(): Promise<DockerInventorySnapshotContainer[]> {
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { DockerContainerEventRepository } = await import(
@@ -79,8 +79,8 @@ async function defaultLoadSnapshot(): Promise<DockerContainerInventory[]> {
  * Group a flat list of container inventory items into stack entries.
  * Containers with null composeProject are excluded — they belong to no stack.
  */
-function inventoryToStackEntries(containers: DockerContainerInventory[]): StackStatusEntry[] {
-  const byStack = new Map<string, DockerContainerInventory[]>();
+function inventoryToStackEntries(containers: DockerInventorySnapshotContainer[]): StackStatusEntry[] {
+  const byStack = new Map<string, DockerInventorySnapshotContainer[]>();
   for (const c of containers) {
     if (c.composeProject === null) continue;
     const key = stackKey(c.host, c.composeProject);
@@ -118,10 +118,10 @@ export class StackStatusBroadcastService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** In-memory map from 'host/stack' → per-container inventory for that stack. */
-  private readonly stackContainers = new Map<string, Map<string, DockerContainerInventory>>();
+  private readonly stackContainers = new Map<string, Map<string, DockerInventorySnapshotContainer>>();
 
   private readonly getPoolClient: () => Promise<PoolClient>;
-  private readonly loadSnapshot: () => Promise<DockerContainerInventory[]>;
+  private readonly loadSnapshot: () => Promise<DockerInventorySnapshotContainer[]>;
 
   constructor(deps: StackStatusBroadcastServiceDeps = {}) {
     this.getPoolClient = deps.getPoolClient ?? defaultGetPoolClient;
@@ -183,7 +183,7 @@ export class StackStatusBroadcastService {
   }
 
   /** Rebuild in-memory stackContainers from a fresh snapshot. */
-  private rebuildFromSnapshot(containers: DockerContainerInventory[]): void {
+  private rebuildFromSnapshot(containers: DockerInventorySnapshotContainer[]): void {
     this.stackContainers.clear();
     for (const c of containers) {
       if (c.composeProject === null) continue;

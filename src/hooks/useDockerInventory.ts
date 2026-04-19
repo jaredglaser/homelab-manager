@@ -1,14 +1,14 @@
 import { useCallback, useState } from 'react';
 import { apiUrl } from '@/lib/utils/api-url';
 import type {
-  DockerContainerInventory,
+  DockerInventorySnapshotContainer,
   DockerInventoryBroadcastEvent,
   DockerInventoryUpdateContainer,
 } from '@/types/docker-inventory';
 import { useEventSource } from '@/hooks/useEventSource';
 
 export interface UseDockerInventoryResult {
-  inventory: Map<string, DockerContainerInventory>;
+  inventory: Map<string, DockerInventorySnapshotContainer>;
   isConnected: boolean;
   error: Error | null;
 }
@@ -20,18 +20,18 @@ export interface UseDockerInventoryResult {
  * not yet seen leaves labels empty until the next init / snapshot fetch.
  */
 function mergeUpsert(
-  prev: DockerContainerInventory | undefined,
+  prev: DockerInventorySnapshotContainer | undefined,
   update: DockerInventoryUpdateContainer,
-): DockerContainerInventory {
+): DockerInventorySnapshotContainer {
   return { ...update, labels: prev?.labels ?? {} };
 }
 
 export function useDockerInventory(): UseDockerInventoryResult {
-  const [inventory, setInventory] = useState<Map<string, DockerContainerInventory>>(new Map());
+  const [inventory, setInventory] = useState<Map<string, DockerInventorySnapshotContainer>>(new Map());
 
   const handleData = useCallback((event: DockerInventoryBroadcastEvent) => {
     if (event.type === 'init') {
-      const next = new Map<string, DockerContainerInventory>();
+      const next = new Map<string, DockerInventorySnapshotContainer>();
       for (const container of event.containers) {
         next.set(`${container.host}/${container.containerId}`, container);
       }
