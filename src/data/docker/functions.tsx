@@ -38,8 +38,10 @@ export const getDockerEntityIcons = createServerFn()
   .middleware([databaseMiddleware])
   .handler(async ({ context }): Promise<Record<string, { iconSlug: string | null; serviceKeyEntity: string }>> => {
     try {
-      const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-      const repo = new StatsRepository(context.pool);
+      const { EntityMetadataRepository } = await import(
+        '@/lib/database/repositories/entity-metadata-repository'
+      );
+      const repo = new EntityMetadataRepository(context.pool);
 
       const metaMap = await repo.getDockerContainerMetadata('docker');
       return Object.fromEntries(metaMap);
@@ -55,7 +57,11 @@ export const getContainerHistory = createServerFn()
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
       const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+      const { EntityMetadataRepository } = await import(
+        '@/lib/database/repositories/entity-metadata-repository'
+      );
       const repo = new StatsRepository(context.pool);
+      const metaRepo = new EntityMetadataRepository(context.pool);
 
       const fromMs = Math.min(data.fromMs, data.toMs);
       const toMs = Math.max(data.fromMs, data.toMs);
@@ -64,7 +70,7 @@ export const getContainerHistory = createServerFn()
       // so history is seamlessly unified across container recreations.
       let containerIds: string[] = [data.containerId];
       if (data.host) {
-        const linked = await repo.getLinkedContainerIds(
+        const linked = await metaRepo.getLinkedContainerIds(
           'docker',
           `${data.host}/${data.containerId}`,
           data.host,
@@ -97,13 +103,17 @@ export const getContainerInfo = createServerFn()
   } | null> => {
     try {
       const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+      const { EntityMetadataRepository } = await import(
+        '@/lib/database/repositories/entity-metadata-repository'
+      );
       const repo = new StatsRepository(context.pool);
+      const metaRepo = new EntityMetadataRepository(context.pool);
 
       const info = await repo.getContainerInfo(data.containerId, data.host);
       if (!info) return null;
 
       const containerEntity = `${info.host}/${data.containerId}`;
-      const serviceInfo = await repo.getContainerServiceInfo('docker', containerEntity);
+      const serviceInfo = await metaRepo.getContainerServiceInfo('docker', containerEntity);
 
       return {
         containerName: info.container_name ?? data.containerId.substring(0, 12),
@@ -126,8 +136,10 @@ export const updateContainerIcon = createServerFn()
   .middleware([databaseMiddleware])
   .inputValidator(updateContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
-    const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
-    const repo = new StatsRepository(context.pool);
+    const { EntityMetadataRepository } = await import(
+      '@/lib/database/repositories/entity-metadata-repository'
+    );
+    const repo = new EntityMetadataRepository(context.pool);
 
     await repo.upsertEntityMetadata('docker', data.serviceKeyEntity, 'icon', data.iconSlug);
   });

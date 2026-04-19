@@ -86,9 +86,9 @@ export class AgentStatsCollector extends BaseCollector {
 
     try {
       const entityPath = `${this.host.name}/${event.containerId}`;
-      await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', event.containerName);
-      await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', event.image);
-      await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', event.containerName);
+      await this.entityMetadataRepository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', event.containerName);
+      await this.entityMetadataRepository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', event.image);
+      await this.entityMetadataRepository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', event.containerName);
       this.knownContainers.add(event.containerId);
     } catch (err) {
       console.error(
