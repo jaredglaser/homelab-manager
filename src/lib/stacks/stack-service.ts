@@ -189,6 +189,12 @@ export async function resumePendingDeploy(deployId: number): Promise<{ deployId:
 
   const { pipeline } = await createDeployPipeline();
   const result = await pipeline.resumePending(deployId, host, request);
+  // resumePending returns failed (instead of throwing) when claimPending loses a
+  // race or the dispatch fails. Surface either case to the caller so the UI
+  // shows an error toast instead of a misleading "Deploy approved" success.
+  if (result.status === 'failed') {
+    throw new Error(result.logs);
+  }
   return { deployId: result.deployId ?? deployId };
 }
 
@@ -211,7 +217,12 @@ export async function rejectPendingDeploy(deployId: number): Promise<{ deployId:
     throw new Error(`Deploy is not pending (status: ${deploy.status})`);
   }
 
-  await deployRepo.updateStatus(deployId, 'failed', 'Manually rejected');
+  // Atomic transition guards against rejecting a deploy that was just approved
+  // by another client between the getById above and this UPDATE.
+  const claimed = await deployRepo.rejectPending(deployId, 'Manually rejected');
+  if (!claimed) {
+    throw new Error(`Deploy ${deployId} is no longer pending — it was approved or rejected by another client`);
+  }
   try {
     await deployRepo.notifyStackChange(deploy.stack, deploy.host);
   } catch (err) {

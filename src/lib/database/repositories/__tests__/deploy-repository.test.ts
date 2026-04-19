@@ -99,6 +99,25 @@ describe('DeployRepository', () => {
     });
   });
 
+  describe('rejectPending', () => {
+    it('returns true when the deploy was successfully rejected and writes the log message', async () => {
+      mock.pushResult([{}]);
+      const result = await repo.rejectPending(42, 'Manually rejected');
+
+      expect(result).toBe(true);
+      expect(mock.queries[0].sql).toContain("status = 'failed'");
+      expect(mock.queries[0].sql).toContain("status = 'pending'");
+      expect(mock.queries[0].params).toEqual([42, 'Manually rejected']);
+    });
+
+    it('returns false when the deploy is no longer pending', async () => {
+      mock.pushResult([]);
+      const result = await repo.rejectPending(42, 'Manually rejected');
+
+      expect(result).toBe(false);
+    });
+  });
+
   describe('updateStatus', () => {
     it('updates status and logs for a deploy record', async () => {
       mock.pushResult([{}]); // 1 row affected
