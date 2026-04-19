@@ -3,15 +3,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { Provider, useSetAtom } from 'jotai';
 import { createElement, useEffect } from 'react';
 import Toasts from '../Toasts';
-import { toastsAtom } from '@/hooks/toastAtom';
+import { toastsAtom, type Toast } from '@/hooks/toastAtom';
 
-function createWrapper(initialToasts: { id: number; message: string; severity: 'error' | 'warning' | 'info' | 'success' }[]) {
+function createWrapper(initialToasts: Toast[]) {
   return ({ children }: { children: React.ReactNode }) => {
     function Seeder() {
       const setToasts = useSetAtom(toastsAtom);
       useEffect(() => {
         setToasts(initialToasts);
-      }, [setToasts]);
+      }, [setToasts, initialToasts]);
       return null;
     }
     return createElement(Provider, null, createElement(Seeder), children);
@@ -70,7 +70,9 @@ describe('Toasts', () => {
   it('dismisses the toast when the Alert close button is clicked', () => {
     const wrapper = createWrapper([{ id: 1, message: 'Dismiss me', severity: 'error' }]);
     render(<Toasts />, { wrapper });
+    expect(screen.getByText('Dismiss me')).toBeDefined();
     const closeButtons = screen.getAllByRole('button');
     fireEvent.click(closeButtons[0]);
+    expect(screen.queryByText('Dismiss me')).toBeNull();
   });
 });

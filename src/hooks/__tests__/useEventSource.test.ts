@@ -234,7 +234,7 @@ describe('useEventSource', () => {
   it('logs message count when debug is enabled', () => {
     const onData = mock(() => {});
     const origLog = console.log;
-    const logMock = mock(() => {});
+    const logMock = mock((..._args: unknown[]) => {});
     console.log = logMock;
 
     try {
@@ -244,9 +244,11 @@ describe('useEventSource', () => {
       act(() => { es.onopen?.(); });
       act(() => { es.onmessage?.({ data: JSON.stringify({ val: 1 }) }); });
 
-      expect(logMock).toHaveBeenCalled();
-      const logArg = logMock.mock.calls[0][0] as string;
-      expect(logArg).toContain('[useEventSource]');
+      const messageCall = logMock.mock.calls.find(
+        (call) => typeof call[0] === 'string' && call[0].includes('Message #'),
+      );
+      expect(messageCall).toBeDefined();
+      expect(messageCall![0] as string).toContain('[useEventSource] Message #1');
     } finally {
       console.log = origLog;
     }
@@ -254,11 +256,16 @@ describe('useEventSource', () => {
 
   it('logs connection error when debug is enabled', () => {
     const origWarn = console.warn;
-    const warnMock = mock(() => {});
+    const warnMock = mock((..._args: unknown[]) => {});
     console.warn = warnMock;
 
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      (() => 0) as unknown as typeof setTimeout,
+    );
+
+    let unmount: (() => void) | undefined;
     try {
-      renderHook(() => useEventSource({ url: '/api/test', onData: () => {}, debug: true }));
+      ({ unmount } = renderHook(() => useEventSource({ url: '/api/test', onData: () => {}, debug: true })));
 
       const es = MockEventSource.instances[MockEventSource.instances.length - 1];
       act(() => { es.onerror?.(); });
@@ -267,6 +274,8 @@ describe('useEventSource', () => {
       const warnArg = warnMock.mock.calls[0][0] as string;
       expect(warnArg).toContain('[useEventSource]');
     } finally {
+      unmount?.();
+      setTimeoutSpy.mockRestore();
       console.warn = origWarn;
     }
   });
