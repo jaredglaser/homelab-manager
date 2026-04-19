@@ -21,11 +21,11 @@ describe('handleInfoRefs', () => {
   });
 
   it('should return info/refs for upload-pack service', async () => {
-    await commitFiles(repoPath, {
+    await commitFiles(repoPath, () => ({
       files: [{ path: 'test.txt', content: 'hello' }],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     const response = await handleInfoRefs(repoPath, 'git-upload-pack');
     expect(response.status).toBe(200);
@@ -35,11 +35,11 @@ describe('handleInfoRefs', () => {
   });
 
   it('should return info/refs for receive-pack service', async () => {
-    await commitFiles(repoPath, {
+    await commitFiles(repoPath, () => ({
       files: [{ path: 'test.txt', content: 'hello' }],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     const response = await handleInfoRefs(repoPath, 'git-receive-pack');
     expect(response.status).toBe(200);
@@ -67,11 +67,11 @@ describe('handleUploadPack', () => {
     testDir = mkdtempSync(join(getTestTmpDir(), 'git-upload-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
-    await commitFiles(repoPath, {
+    await commitFiles(repoPath, () => ({
       files: [{ path: 'test.txt', content: 'hello' }],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
   });
 
   afterEach(() => {
@@ -131,11 +131,11 @@ describe('handleReceivePack', () => {
     testDir = mkdtempSync(join(getTestTmpDir(), 'git-receive-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
-    await commitFiles(repoPath, {
+    await commitFiles(repoPath, () => ({
       files: [{ path: 'test.txt', content: 'hello' }],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
   });
 
   afterEach(() => {
@@ -163,11 +163,11 @@ describe('request body size limit', () => {
     testDir = mkdtempSync(join(getTestTmpDir(), 'git-size-'));
     repoPath = join(testDir, 'test.git');
     await initBareRepo(repoPath);
-    await commitFiles(repoPath, {
+    await commitFiles(repoPath, () => ({
       files: [{ path: 'test.txt', content: 'hello' }],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
   });
 
   afterEach(() => {
@@ -217,11 +217,11 @@ describe('getHeadOid', () => {
   });
 
   it('should return commit OID when HEAD exists', async () => {
-    const commitSha = await commitFiles(repoPath, {
+    const commitSha = await commitFiles(repoPath, () => ({
       files: [{ path: 'test.txt', content: 'hello' }],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     const oid = await getHeadOid(repoPath);
     expect(oid).toBe(commitSha);

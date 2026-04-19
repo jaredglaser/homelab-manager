@@ -27,20 +27,20 @@ describe('processPostReceive', () => {
   });
 
   it('should log deploy requests for changed stacks and resolve without error', async () => {
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'v1' },
       ],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/docker-compose.yml', content: 'v2' }],
       message: 'update plex',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     // processPostReceive catches all pipeline errors internally, so it should always resolve
     await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
@@ -51,22 +51,22 @@ describe('processPostReceive', () => {
   });
 
   it('should handle manifest-only changes gracefully without logging deploy requests', async () => {
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/docker-compose.yml', content: 'v1' },
       ],
       message: 'initial',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: false\n' },
       ],
       message: 'update manifest only',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
 
@@ -78,17 +78,17 @@ describe('processPostReceive', () => {
   });
 
   it('should throw when manifest.yaml is missing', async () => {
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/docker-compose.yml', content: 'v1' }],
       message: 'initial without manifest',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/docker-compose.yml', content: 'v2' }],
       message: 'update plex',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     await expect(processPostReceive(repoPath, sha1, sha2)).rejects.toThrow();
   });
@@ -96,20 +96,20 @@ describe('processPostReceive', () => {
   it('should exclude stacks whose compose file is missing from results', async () => {
 
     // Commit a manifest listing 'plex' with a non-compose file change (so stack is detected as changed)
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/README.md', content: 'v1' },
       ],
       message: 'initial — has README but no docker-compose.yml',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/README.md', content: 'v2' }],
       message: 'update README, no compose file',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     await processPostReceive(repoPath, sha1, sha2);
     // plex changed but has no docker-compose.yml — should be excluded (logged as error)
@@ -130,20 +130,20 @@ describe('processPostReceive', () => {
       }),
     } as unknown as DeployRepository;
 
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/README.md', content: 'v1' },
       ],
       message: 'initial without compose',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/README.md', content: 'v2' }],
       message: 'update plex README, no compose',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     await processPostReceive(repoPath, sha1, sha2, deployRepo);
     expect(insertedDeploys).toHaveLength(1);
@@ -155,20 +155,20 @@ describe('processPostReceive', () => {
 
   it('should log full error object (not just message) when compose read fails', async () => {
 
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/README.md', content: 'v1' },
       ],
       message: 'initial without compose',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/README.md', content: 'v2' }],
       message: 'update plex README, no compose',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     await processPostReceive(repoPath, sha1, sha2);
 
@@ -188,20 +188,20 @@ describe('processPostReceive', () => {
       insertDeploy: mock(async () => { throw new Error('DB unavailable'); }),
     } as unknown as DeployRepository;
 
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/README.md', content: 'v1' },
       ],
       message: 'initial without compose',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
-    const sha2 = await commitFiles(repoPath, {
+    const sha2 = await commitFiles(repoPath, () => ({
       files: [{ path: 'plex/README.md', content: 'v2' }],
       message: 'update plex README, no compose',
       author: { name: 'test', email: 'test@test.com' },
-    });
+    }));
 
     // Should resolve (not throw), even though deployRepo.insertDeploy throws
     await processPostReceive(repoPath, sha1, sha2, deployRepo);

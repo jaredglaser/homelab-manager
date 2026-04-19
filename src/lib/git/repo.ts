@@ -68,7 +68,7 @@ export interface FileEntry {
   content: string;
 }
 
-export interface CommitOptions {
+export interface CommitPlan {
   files: FileEntry[];
   /** Paths to remove from the tree in this commit (e.g. deleting a stack directory). */
   filesToDelete?: string[];
@@ -76,23 +76,32 @@ export interface CommitOptions {
   author: { name: string; email: string };
 }
 
+/** Runs inside the repo lock with a HEAD snapshot — guarantees mutations derive from current state, not a stale pre-lock read. */
+export type CommitCallback = (
+  existingFiles: ReadonlyMap<string, string>,
+) => Promise<CommitPlan> | CommitPlan;
+
+/** Like {@link CommitCallback} but may return null to skip the commit (e.g., another writer already did it). */
+export type SkippableCommitCallback = (
+  existingFiles: ReadonlyMap<string, string>,
+) => Promise<CommitPlan | null> | CommitPlan | null;
+
 /**
- * Commit files to a bare repository.
- * Builds a tree from scratch each time (full snapshot), writes it, and creates a commit
- * pointing to the current HEAD (if any) as parent.
+ * Commit files to a bare repository. The callback runs inside the repo lock
+ * and receives a snapshot of HEAD's tree; it returns the commit plan.
  *
  * Note: This reads the entire existing tree into memory to overlay new files.
  * This is acceptable for v1 since repos only contain small compose files and manifests.
  * For optimization later, compare blob OIDs instead of reading content to skip unchanged files.
  */
+export async function commitFiles(repoPath: string, callback: CommitCallback): Promise<string>;
+export async function commitFiles(repoPath: string, callback: SkippableCommitCallback): Promise<string | null>;
 export async function commitFiles(
   repoPath: string,
-  options: CommitOptions,
-): Promise<string> {
+  callback: SkippableCommitCallback,
+): Promise<string | null> {
   return withRepoLock(repoPath, async () => {
-    const { files, filesToDelete, message, author } = options;
-
-    let existingFiles = new Map<string, string>();
+    const existingFiles = new Map<string, string>();
     let parentCommit: string | undefined;
     try {
       parentCommit = await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
@@ -102,8 +111,13 @@ export async function commitFiles(
 
     if (parentCommit) {
       const { tree } = await git.readTree({ fs, gitdir: repoPath, oid: parentCommit });
-      existingFiles = await readTreeRecursive(repoPath, tree, '');
+      const snapshot = await readTreeRecursive(repoPath, tree, '');
+      for (const [k, v] of snapshot) existingFiles.set(k, v);
     }
+
+    const plan = await callback(existingFiles);
+    if (plan === null) return null;
+    const { files, filesToDelete, message, author } = plan;
 
     for (const file of files) {
       existingFiles.set(file.path, file.content);

@@ -24,7 +24,7 @@ describe('Git management integration', () => {
 
   it('should support full workflow: init -> add stack -> edit -> detect changes -> deploy request', async () => {
     // 1. Create initial manifest and stack
-    const sha1 = await commitFiles(repoPath, {
+    const sha1 = await commitFiles(repoPath, () => ({
       files: [
         {
           path: 'manifest.yaml',
@@ -37,7 +37,7 @@ describe('Git management integration', () => {
       ],
       message: 'Initial setup',
       author: { name: 'jared', email: 'jared@example.com' },
-    });
+    }));
 
     // 2. Verify files are readable
     const manifest = await readFileFromRepo(repoPath, 'manifest.yaml');
