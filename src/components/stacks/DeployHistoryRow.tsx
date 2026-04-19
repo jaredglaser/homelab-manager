@@ -41,9 +41,10 @@ interface DeployHistoryRowProps {
   host?: string;
   onRollbackComplete?: () => void;
   onRollbackError?: (err: Error) => void;
+  _triggerDeploy?: typeof triggerDeploy;
 }
 
-export default function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError }: Readonly<DeployHistoryRowProps>) {
+export default function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError, _triggerDeploy }: Readonly<DeployHistoryRowProps>) {
   const [expanded, setExpanded] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const statusColor = STATUS_COLOR[record.status];
@@ -52,7 +53,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
   const rollbackMutation = useMutation({
     mutationFn: () =>
-      triggerDeploy({ data: { stack: stackName!, host: host!, action: 'deploy', commitSha: record.commitSha } }),
+      (_triggerDeploy ?? triggerDeploy)({ data: { stack: stackName!, host: host!, action: 'deploy', commitSha: record.commitSha } }),
     onSuccess: () => onRollbackComplete?.(),
     onError: (err) => onRollbackError?.(err instanceof Error ? err : new Error(String(err))),
   });

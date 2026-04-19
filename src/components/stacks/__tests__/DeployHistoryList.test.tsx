@@ -2,22 +2,18 @@ import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDeployRecord } from '@/types/stacks';
+import type { triggerDeploy } from '@/data/stacks/functions';
+import DeployHistoryList from '../DeployHistoryList';
 
-const mockTriggerStackDeploy = mock(() => Promise.resolve({ deployId: 1 }));
-
-mock.module('@/lib/stacks/stack-service', () => ({
-  getStackSummaries: mock(() => Promise.resolve([])),
-  getStackDetailByName: mock(() => Promise.resolve(null)),
-  triggerStackDeploy: mockTriggerStackDeploy,
-  getStackDeployHistory: mock(() => Promise.resolve([])),
-  saveStackComposeFile: mock(() => Promise.resolve({ commitSha: 'abc123' })),
-  updateStackIconSlug: mock(() => Promise.resolve()),
-  createStackInRepo: mock(() => Promise.resolve()),
-  deleteStackFromRepo: mock(() => Promise.resolve()),
-  getManagedHostNames: mock(() => Promise.resolve([])),
-}));
-
-const { default: DeployHistoryList } = await import('../DeployHistoryList');
+/**
+ * Test-only stub for triggerDeploy. Injected via the `_triggerDeploy` prop
+ * on DeployHistoryList to avoid mock.module() on the stack-service module,
+ * which would pollute concurrent test files that import the real service.
+ * bun's mock() doesn't structurally match the createServerFn fetcher type
+ * (extra properties like url/method/__executeServer), so we cast at the seam.
+ */
+const mockTriggerDeploy = mock(() => Promise.resolve({ deployId: 1 }));
+const triggerDeployStub = mockTriggerDeploy as unknown as typeof triggerDeploy;
 
 const mockRecords: StackDeployRecord[] = [
   {
@@ -173,7 +169,7 @@ describe('DeployHistoryList', () => {
   });
 
   it('calls triggerDeploy when rollback is confirmed', async () => {
-    mockTriggerStackDeploy.mockClear();
+    mockTriggerDeploy.mockClear();
 
     render(
       <DeployHistoryList
@@ -181,6 +177,7 @@ describe('DeployHistoryList', () => {
         isLoading={false}
         stackName="plex"
         host="homeserver"
+        _triggerDeploy={triggerDeployStub}
       />,
       { wrapper: createWrapper() },
     );
@@ -191,14 +188,16 @@ describe('DeployHistoryList', () => {
     fireEvent.click(screen.getByText('Confirm Rollback'));
 
     await waitFor(() => {
-      expect(mockTriggerStackDeploy).toHaveBeenCalledTimes(1);
+      expect(mockTriggerDeploy).toHaveBeenCalledTimes(1);
     });
 
-    expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
-      stack: 'plex',
-      host: 'homeserver',
-      action: 'deploy',
-      commitSha: 'a1b2c3d4e5f6',
+    expect(mockTriggerDeploy).toHaveBeenCalledWith({
+      data: {
+        stack: 'plex',
+        host: 'homeserver',
+        action: 'deploy',
+        commitSha: 'a1b2c3d4e5f6',
+      },
     });
   });
 
@@ -231,7 +230,7 @@ describe('DeployHistoryList', () => {
   });
 
   it('calls onRollbackComplete after successful rollback', async () => {
-    mockTriggerStackDeploy.mockClear();
+    mockTriggerDeploy.mockClear();
     const onComplete = mock(() => {});
 
     render(
@@ -241,6 +240,7 @@ describe('DeployHistoryList', () => {
         stackName="plex"
         host="homeserver"
         onRollbackComplete={onComplete}
+        _triggerDeploy={triggerDeployStub}
       />,
       { wrapper: createWrapper() },
     );
@@ -252,7 +252,7 @@ describe('DeployHistoryList', () => {
   });
 
   it('calls onRollbackError when rollback fails', async () => {
-    mockTriggerStackDeploy.mockImplementationOnce(() => Promise.reject(new Error('deploy failed')));
+    const failingTriggerDeploy = mock(() => Promise.reject(new Error('deploy failed'))) as unknown as typeof triggerDeploy;
     const onError = mock(() => {});
 
     render(
@@ -262,6 +262,7 @@ describe('DeployHistoryList', () => {
         stackName="plex"
         host="homeserver"
         onRollbackError={onError}
+        _triggerDeploy={failingTriggerDeploy}
       />,
       { wrapper: createWrapper() },
     );
