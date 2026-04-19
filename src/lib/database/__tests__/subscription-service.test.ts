@@ -80,36 +80,35 @@ describe('StatsPollService', () => {
     const firstPool = createMockPool('pool-1');
     const secondPool = createMockPool('pool-2');
 
+    const firstClient = createMockDbClient(firstPool.pool);
+    const secondClient = createMockDbClient(secondPool.pool);
+
+    // Spy on getPool so we can verify which client was used each tick.
+    const firstGetPool = spyOn(firstClient, 'getPool');
+    const secondGetPool = spyOn(secondClient, 'getPool');
+
     getClientSpy = spyOn(databaseConnectionManager, 'getClient')
-      .mockResolvedValueOnce(createMockDbClient(firstPool.pool) as never)
-      .mockResolvedValueOnce(createMockDbClient(secondPool.pool) as never);
+      .mockResolvedValueOnce(firstClient as never)
+      .mockResolvedValueOnce(secondClient as never);
 
-    // Observe which pool StatsRepository is constructed with on each tick.
-    const reposBuiltOn: import('pg').Pool[] = [];
-    const ctorSpy = spyOn(StatsRepository.prototype, 'getDockerStatsSince').mockImplementation(
-      async function getDockerStatsSince(this: StatsRepository) {
-        // `this.pool` is private, but reading it through an index keeps the
-        // assertion honest about which pool the per-tick repo holds.
-        reposBuiltOn.push((this as unknown as { pool: import('pg').Pool }).pool);
-        return [];
-      },
-    );
+    const querySpy = spyOn(StatsRepository.prototype, 'getDockerStatsSince').mockResolvedValue([]);
 
-    const received: unknown[][] = [];
-    statsPollService.subscribe('docker', rows => received.push(rows));
+    statsPollService.subscribe('docker', () => {});
 
     expect(harness.intervals).toHaveLength(1);
     const tick = harness.intervals[0].cb;
 
     await tick();
+    expect(firstGetPool).toHaveBeenCalledTimes(1);
+    expect(secondGetPool).toHaveBeenCalledTimes(0);
+
     await tick();
+    expect(firstGetPool).toHaveBeenCalledTimes(1);
+    expect(secondGetPool).toHaveBeenCalledTimes(1);
 
     expect(getClientSpy).toHaveBeenCalledTimes(2);
-    expect(reposBuiltOn).toHaveLength(2);
-    expect(reposBuiltOn[0]).toBe(firstPool.pool);
-    expect(reposBuiltOn[1]).toBe(secondPool.pool);
 
-    ctorSpy.mockRestore();
+    querySpy.mockRestore();
   });
 
   it('does not throw on the healthy path when getClient returns the same client twice', async () => {

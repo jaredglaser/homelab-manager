@@ -24,6 +24,7 @@ class StatsPollService {
   private consecutiveFailures = new Map<StatsSource, number>();
   private errorSignalled = new Set<StatsSource>();
   private stoppedSources = new Set<StatsSource>();
+  private readonly dbConfig = loadDatabaseConfig();
 
   subscribe(source: StatsSource, callback: StatsCallback, onError?: StatsErrorCallback): () => void {
     let subs = this.subscribers.get(source);
@@ -68,8 +69,7 @@ class StatsPollService {
         // Rebuild the repo each tick so we pick up a fresh pg.Pool after any
         // reconnect in DatabaseConnectionManager. getClient() is cached on the
         // healthy path, so this costs one Map lookup + a no-op constructor.
-        const config = loadDatabaseConfig();
-        const dbClient = await databaseConnectionManager.getClient(config);
+        const dbClient = await databaseConnectionManager.getClient(this.dbConfig);
         const repo = new StatsRepository(dbClient.getPool());
         const last = this.lastPollTime.get(source) ?? new Date();
         const since = new Date(last.getTime() - 200); // 200ms lookback for late-committing rows
