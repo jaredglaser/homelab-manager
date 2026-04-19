@@ -193,9 +193,10 @@ export class AgentClient {
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {
+    const MAX_RETRIES = 2; // maxAttempts - 1
     const url = `${this.agentUrl}${path}`;
     return retry(() => this.attempt<T>(url, init), {
-      maxAttempts: 3,
+      maxAttempts: MAX_RETRIES + 1,
       baseMs: 1000,
       maxExponent: 2,
       isRetryable: AgentClient.isRetryable,
@@ -204,7 +205,7 @@ export class AgentClient {
           ? (err.statusCode ?? 'network error')
           : 'unknown';
         console.info(
-          `[AgentClient] Retry ${attempt}/2 for ${path} after ${code}, waiting ${delayMs}ms`,
+          `[AgentClient] Retry ${attempt}/${MAX_RETRIES} for ${path} after ${code}, waiting ${delayMs}ms`,
         );
       },
     });
