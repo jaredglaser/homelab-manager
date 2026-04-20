@@ -59,6 +59,10 @@ describe('stacks.functions module', () => {
     mockGetStackDeployHistory.mockClear();
     mockSaveStackComposeFile.mockClear();
     mockUpdateStackIconSlug.mockClear();
+    mockCreateStackInRepo.mockClear();
+    mockDeleteStackFromRepo.mockClear();
+    mockGetManagedHostNames.mockClear();
+    mockResolveDeleteStack.mockClear();
     mockResumePendingDeploy.mockClear();
     mockRejectPendingDeploy.mockClear();
   });

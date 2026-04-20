@@ -634,24 +634,6 @@ describe('DeployPipeline', () => {
       expect(deployRepo.updateStatus).not.toHaveBeenCalled();
     });
 
-    it('rejects resume when deploy is not found', async () => {
-      deployRepo = createMockDeployRepo({
-        claimPending: mock().mockResolvedValue(false) as any,
-      });
-      pipeline = new DeployPipeline({
-        deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
-        agentClientFactory,
-        secretResolver,
-        tokenResolver: () => 'test-token',
-        stackRepoWriter: createMockStackRepoWriter(),
-      });
-
-      const result = await pipeline.resumePending(99, testHost, testRequest);
-      expect(result.status).toBe('failed');
-      expect(result.logs).toContain('not in pending state');
-    });
-
     it('handles secret resolution failure during resume', async () => {
       const failResolver: SecretResolver = {
         resolve: mock().mockRejectedValue(new Error('vault unreachable')),

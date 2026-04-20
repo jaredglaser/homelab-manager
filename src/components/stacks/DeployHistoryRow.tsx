@@ -134,6 +134,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
                 e.stopPropagation();
                 onApprove(record.id);
               }}
+              onKeyDown={(e) => e.stopPropagation()}
               disabled={isApproving || isRejecting}
             >
               Approve
@@ -149,6 +150,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
                 e.stopPropagation();
                 onReject(record.id);
               }}
+              onKeyDown={(e) => e.stopPropagation()}
               disabled={isApproving || isRejecting}
             >
               Reject
