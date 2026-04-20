@@ -31,7 +31,7 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
   const hostRepo = new HostRepository(db.getPool());
   const existingHosts = await hostRepo.findAll();
   if (existingHosts.length > 0) {
-    // Host exists; ensure token is stored and agent URL is up to date
+    // A managed host was found; ensure dev host token is stored and agent URL is up to date
     await ensureTokenStored(devHostName, devToken);
     const devHost = existingHosts.find((h) => h.name === devHostName);
     if (devHost && devHost.agent_url !== DEV_AGENT_URL) {

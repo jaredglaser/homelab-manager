@@ -6,7 +6,7 @@ interface ErrorBoundaryProps {
   fallback?: ReactNode | ((reset: () => void) => ReactNode);
   /** Optional label for identifying which boundary caught the error */
   name?: string;
-  /** Called when the boundary resets, use for external state cleanup */
+  /** Called when the boundary resets; use for external state cleanup */
   onReset?: () => void;
 }
 
