@@ -1,4 +1,5 @@
 import type { DockerStatsRow } from '@/types/docker';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import { generateSimplexMetric, spike } from '@/lib/mock/patterns';
 import { DOCKER_ENTITIES, type DockerEntityDef } from '@/lib/mock/entities';
 import { mulberry32, hashCode } from '@/lib/mock/prng';
@@ -39,6 +40,35 @@ export function generateDockerSnapshot(time: Date): DockerStatsRow[] {
   const timeMs = time.getTime();
   const timeStr = time.toISOString();
   return DOCKER_ENTITIES.map((e) => buildDockerRow(e, timeMs, timeStr));
+}
+
+/**
+ * Generate a Docker inventory init snapshot for demo mode.
+ *
+ * Returns one entry per entity matching `DockerInventorySnapshotContainer`. All containers are
+ * `running`; `startedAt`/`updatedAt` are staggered per-entity so deterministic tie-breaking in
+ * any downstream dedup path has something to work with. Downstream `JSON.stringify` serializes
+ * the `Date` fields to ISO strings, matching the real broadcast wire format.
+ */
+export function generateDockerInventorySnapshot(now: Date): DockerInventorySnapshotContainer[] {
+  const nowMs = now.getTime();
+  return DOCKER_ENTITIES.map((e, idx) => {
+    const startedAt = new Date(nowMs - (idx + 1) * 60_000);
+    return {
+      host: e.host,
+      containerId: e.containerId,
+      name: e.containerName,
+      image: e.image,
+      state: 'running',
+      composeProject: null,
+      serviceKey: e.serviceKey,
+      startedAt,
+      finishedAt: null,
+      exitCode: null,
+      labels: {},
+      updatedAt: startedAt,
+    };
+  });
 }
 
 /**

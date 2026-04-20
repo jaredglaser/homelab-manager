@@ -1,4 +1,9 @@
-import { generateDockerSnapshot, generateContainerLogBatch, generateContainerLogHistory } from '@/lib/mock/generators/docker';
+import {
+  generateDockerSnapshot,
+  generateDockerInventorySnapshot,
+  generateContainerLogBatch,
+  generateContainerLogHistory,
+} from '@/lib/mock/generators/docker';
 import { generateZFSSnapshot } from '@/lib/mock/generators/zfs';
 import { generateProxmoxSnapshot } from '@/lib/mock/generators/proxmox';
 import { DEMO_SETTINGS_STORAGE_KEY } from '@/lib/constants/settings-keys';
@@ -119,6 +124,16 @@ export class MockEventSource {
       // Docker logs endpoint: emit log batches every 3 seconds
       if (path.includes('docker-logs')) {
         this._startDockerLogs(path, parsed.searchParams);
+        return;
+      }
+
+      // Docker inventory endpoint: emit one init snapshot then stay quiet. Inventory is the
+      // table's source-of-truth, so without this the Docker page renders no rows even though
+      // stats stream fine. In the real pipeline updates arrive via pg NOTIFY, which the demo
+      // does not simulate.
+      if (path.includes('docker-inventory')) {
+        const event = { type: 'init', containers: generateDockerInventorySnapshot(new Date()) };
+        this._dispatchEvent('message', new MessageEvent('message', { data: JSON.stringify(event) }));
         return;
       }
 

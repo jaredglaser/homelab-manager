@@ -112,6 +112,31 @@ describe('MockEventSource', () => {
     });
   });
 
+  describe('docker-inventory endpoint', () => {
+    it('emits init event with containers array', async () => {
+      instance = new MockEventSource(`${ORIGIN}/api/docker-inventory`);
+
+      const data = await new Promise<unknown>((resolve) => {
+        instance.onmessage = (event) => {
+          resolve(JSON.parse(event.data as string));
+        };
+      });
+
+      const msg = data as { type: string; containers: unknown[] };
+      expect(msg.type).toBe('init');
+      expect(Array.isArray(msg.containers)).toBe(true);
+      expect(msg.containers.length).toBeGreaterThan(0);
+
+      const first = msg.containers[0] as Record<string, unknown>;
+      expect(typeof first.host).toBe('string');
+      expect(typeof first.containerId).toBe('string');
+      expect(first.state).toBe('running');
+      // Date fields serialize as ISO strings, matching the real broadcast wire format.
+      expect(typeof first.startedAt).toBe('string');
+      expect(typeof first.updatedAt).toBe('string');
+    });
+  });
+
   describe('settings endpoint', () => {
     it('emits init message with settings', async () => {
       instance = new MockEventSource(`${ORIGIN}/api/settings`);
