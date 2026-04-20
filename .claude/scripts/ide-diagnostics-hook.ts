@@ -96,7 +96,29 @@ if (envPort && existsSync(join(ideDir, `${envPort}.lock`))) {
   lockPath = join(ideDir, `${envPort}.lock`);
 } else if (existsSync(ideDir)) {
   const locks = readdirSync(ideDir).filter((f) => f.endsWith(".lock"));
-  if (locks.length === 1) lockPath = join(ideDir, locks[0]);
+  if (locks.length === 1) {
+    lockPath = join(ideDir, locks[0]);
+  } else if (locks.length > 1) {
+    // Multiple VS Code windows (e.g. main repo + worktree). Pick the lock whose
+    // workspaceFolders best covers this session's dir; longest-prefix wins so a
+    // worktree beats its parent repo. Harness sets CLAUDE_CODE_SSE_PORT, so this
+    // branch only fires for --query from a shell.
+    const sessionDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+    let bestMatchLen = -1;
+    for (const name of locks) {
+      const candidate = join(ideDir, name);
+      try {
+        const parsed: { workspaceFolders?: string[] } = JSON.parse(readFileSync(candidate, "utf8"));
+        for (const folder of parsed.workspaceFolders ?? []) {
+          const covers = sessionDir === folder || sessionDir.startsWith(folder + "/");
+          if (covers && folder.length > bestMatchLen) {
+            bestMatchLen = folder.length;
+            lockPath = candidate;
+          }
+        }
+      } catch { /* skip malformed lock */ }
+    }
+  }
 }
 if (!lockPath) {
   if (isQuery) failQuery("No IDE lockfile in ~/.claude/ide/. Is VS Code running with the Claude Code extension active?");
