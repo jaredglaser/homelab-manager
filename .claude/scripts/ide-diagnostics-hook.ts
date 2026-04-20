@@ -62,15 +62,11 @@ function failQuery(msg: string): never {
   process.exit(1);
 }
 
-// --- Argument parsing ---------------------------------------------------
-
 const argv = process.argv.slice(2);
 const queryIdx = argv.indexOf("--query");
 const queryArg = queryIdx >= 0 ? argv[queryIdx + 1] : undefined;
 const wantJson = argv.includes("--json");
 const isQuery = queryArg !== undefined;
-
-// --- Target file resolution ---------------------------------------------
 
 let filePath: string;
 if (isQuery) {
@@ -86,8 +82,6 @@ if (isQuery) {
   if (!candidate) exitSilently("no file_path in tool_input");
   filePath = candidate;
 }
-
-// --- Locate IDE lockfile ------------------------------------------------
 
 const ideDir = join(homedir(), ".claude", "ide");
 let lockPath: string | undefined;
@@ -138,8 +132,6 @@ const wsUrl = `ws://127.0.0.1:${port}`;
 const fileUri = pathToFileURL(filePath).toString();
 
 log(`mode=${isQuery ? "query" : "hook"} file=${filePath} port=${port}`);
-
-// --- MCP WebSocket round-trip ------------------------------------------
 
 async function fetchDiagnostics(): Promise<Diagnostic[] | null> {
   return new Promise((done) => {
@@ -233,8 +225,6 @@ async function fetchDiagnostics(): Promise<Diagnostic[] | null> {
   });
 }
 
-// --- Formatting helpers -------------------------------------------------
-
 const SEVERITY_LABELS: Record<string, string> = {
   "1": "ERROR",
   "2": "WARN",
@@ -256,8 +246,6 @@ const formatDiag = (d: Diagnostic): string => {
   const src = d.source ? `(${d.source}) ` : "";
   return `  L${line}:${col} ${severityName(d.severity)} ${src}${d.message}${codeStr}`;
 };
-
-// --- Main ---------------------------------------------------------------
 
 const diagnostics = await fetchDiagnostics();
 
