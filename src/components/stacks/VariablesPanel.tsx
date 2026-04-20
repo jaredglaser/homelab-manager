@@ -18,7 +18,7 @@ interface VariablesPanelProps {
 
 /**
  * Side panel showing variables stored in OpenBao for a stack.
- * Source of truth is OpenBao — compose file variables drive initial creation only.
+ * Source of truth is OpenBao; compose file variables drive initial creation only.
  */
 export default function VariablesPanel({ stackName, composeVariables }: Readonly<VariablesPanelProps>) {
   const queryClient = useQueryClient();
@@ -44,7 +44,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
     ensurePending.current = true;
     ensureVariablesExist({ data: { stackName, variableNames: missing } })
       .then(() => queryClient.invalidateQueries({ queryKey: ['stack-variables', stackName] }))
-      .catch(() => { /* OpenBao unreachable — error already shown by the query */ })
+      .catch(() => { /* OpenBao unreachable, error already shown by the query */ })
       .finally(() => { ensurePending.current = false; });
   }, [variables, composeVariables, stackName, queryClient]);
 

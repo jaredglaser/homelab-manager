@@ -12,7 +12,7 @@ export type DeployTrigger = 'git_push' | 'ui' | 'manual_rollback';
 /**
  * Action to run inside the pipeline after a deploy reaches a terminal-success
  * state (`succeeded` or `no_change`). Currently only `removeFromManifest` is
- * supported — used by async teardown to delete the stack entry from the git
+ * supported, used by async teardown to delete the stack entry from the git
  * manifest once the agent reports teardown complete.
  */
 export type DeployPostSuccess = 'removeFromManifest';

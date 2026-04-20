@@ -27,7 +27,7 @@ export interface DockerSettingsValue {
 /**
  * Docker-dashboard settings: memory display, decimals, chart window, and host
  * / container / stack expansion state. Subscribes only to the docker and
- * stacks slices — ZFS/Proxmox/General changes do not re-render consumers.
+ * stacks slices: ZFS/Proxmox/General changes do not re-render consumers.
  */
 export function useDockerSettings(): DockerSettingsValue {
   const docker = useAtomValue(dockerSettingsAtom);

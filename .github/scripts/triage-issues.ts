@@ -2,8 +2,8 @@
 /**
  * Reads sonar-issues.json, groups issues by rule/file/directory,
  * selects the best group to fix, and writes:
- *   selected-issues.json  — issues for Claude Code to fix
- *   triage-summary.md     — human-readable summary for the PR description
+ *   selected-issues.json: issues for Claude Code to fix
+ *   triage-summary.md: human-readable summary for the PR description
  */
 
 import { readFileSync, writeFileSync } from "fs";
@@ -133,7 +133,7 @@ function renderSummary(all: Group[], selected: Group | null, maxIssues: number):
   ];
 
   if (!selected) {
-    lines.push("_No group selected — no group had ≤ max_issues safe issues._");
+    lines.push("_No group selected: no group had <= max_issues safe issues._");
   } else {
     lines.push(`**Label:** ${selected.label}`);
     lines.push(`**Type:** ${selected.groupType}`);

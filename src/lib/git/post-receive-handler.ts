@@ -78,13 +78,13 @@ export async function processPostReceive(
   }
 
   // Set up pipeline dependencies and dispatch deploy requests.
-  // Wrap in try/catch so pipeline failures never propagate — the post-receive
+  // Wrap in try/catch so pipeline failures never propagate; the post-receive
   // hook must always complete so the git push is not blocked.
   try {
     const { createDeployPipeline } = await import('@/lib/deploy/pipeline-factory');
     const { pipeline } = await createDeployPipeline();
 
-    // Group deploys by host — sequential within each host, parallel across hosts
+    // Group deploys by host: sequential within each host, parallel across hosts
     const byHost = new Map<string, typeof deployRequests>();
     for (const request of deployRequests) {
       const hostRequests = byHost.get(request.host) ?? [];

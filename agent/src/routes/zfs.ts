@@ -1,7 +1,7 @@
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 
 /**
- * GET /zfs/stats/stream — SSE endpoint that streams `zpool iostat -v 1` output.
+ * GET /zfs/stats/stream: SSE endpoint that streams `zpool iostat -v 1` output.
  *
  * Each non-empty line from the subprocess is emitted as an SSE event with
  * `{ line, timestamp }`. The subprocess is killed when the client disconnects.
@@ -94,7 +94,7 @@ export function handleZfsStatsStream(
 }
 
 /**
- * GET /zfs/pools — Returns parsed pool data from `zpool list -Hp`.
+ * GET /zfs/pools: Returns parsed pool data from `zpool list -Hp`.
  *
  * Response: `{ pools: Array<{ name, size, allocated, free, fragmentation, capacity, dedup, health }> }`
  */

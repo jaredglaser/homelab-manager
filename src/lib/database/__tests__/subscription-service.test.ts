@@ -68,7 +68,7 @@ describe('StatsPollService', () => {
   });
 
   afterEach(async () => {
-    // Ensure polling state is fully reset between tests — the service is a
+    // Ensure polling state is fully reset between tests. The service is a
     // module-level singleton, so lingering subscribers would leak across cases.
     await statsPollService.stop();
     getClientSpy?.mockRestore();
@@ -147,7 +147,7 @@ describe('StatsPollService', () => {
 
     const tick = harness.intervals[0].cb;
 
-    // Threshold is 3 consecutive failures — first two ticks stay silent, the
+    // Threshold is 3 consecutive failures: first two ticks stay silent, the
     // third trips the onError callback exactly once.
     await tick();
     expect(errorFired).toBe(0);

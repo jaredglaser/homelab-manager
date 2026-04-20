@@ -121,7 +121,7 @@ describe('AgentStatsCollector', () => {
     );
     mockDb.patchRepository(collector);
 
-    // Run collection — the stream closes after one event, so collect() returns
+    // Run collection: the stream closes after one event, so collect() returns
     await (collector as any).collect();
 
     expect(mockDb.insertedRows).toHaveLength(1);
@@ -380,7 +380,7 @@ describe('AgentStatsCollector', () => {
   });
 });
 
-describe('AgentStatsCollector — reconnection', () => {
+describe('AgentStatsCollector: reconnection', () => {
   let mockDb: ReturnType<typeof createMockDb>;
   let abortController: AbortController;
 
@@ -513,9 +513,9 @@ describe('AgentStatsCollector — reconnection', () => {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
-        // Named "containers" event — should be skipped
+        // Named "containers" event: should be skipped
         controller.enqueue(encoder.encode(`event: containers\ndata: {"ids":["abc123"]}\n\n`));
-        // Named "container-error" event — should be skipped
+        // Named "container-error" event: should be skipped
         controller.enqueue(encoder.encode(`event: container-error\ndata: {"containerId":"abc123","error":"stream died"}\n\n`));
         // Valid stats event (no event: prefix)
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));

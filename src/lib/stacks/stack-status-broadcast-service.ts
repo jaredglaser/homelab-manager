@@ -43,7 +43,7 @@ function toStackEntry(host: string, stack: string, containers: DockerInventorySn
 
 /**
  * Returns a stable map key for a (host, composeProject) pair.
- * Using '/' separator — same convention as entity IDs throughout the codebase.
+ * Using '/' separator: same convention as entity IDs throughout the codebase.
  */
 function stackKey(host: string, composeProject: string): string {
   return `${host}/${composeProject}`;
@@ -74,7 +74,7 @@ async function defaultLoadSnapshot(): Promise<DockerInventorySnapshotContainer[]
 
 /**
  * Group a flat list of container inventory items into stack entries.
- * Containers with null composeProject are excluded — they belong to no stack.
+ * Containers with null composeProject are excluded (they belong to no stack).
  */
 function inventoryToStackEntries(containers: DockerInventorySnapshotContainer[]): StackStatusEntry[] {
   const byStack = new Map<string, DockerInventorySnapshotContainer[]>();
@@ -98,8 +98,8 @@ function inventoryToStackEntries(containers: DockerInventorySnapshotContainer[])
  *
  * Derives stack state from docker_container_events grouped by compose_project.
  * Listens on two PostgreSQL NOTIFY channels:
- *   - 'docker_container_change' — triggers stack snapshot re-derivation for the affected stack.
- *   - 'deploy_change' — forwards deploy lifecycle events as-is (written directly by the deploy pipeline).
+ *   - 'docker_container_change': triggers stack snapshot re-derivation for the affected stack.
+ *   - 'deploy_change': forwards deploy lifecycle events as-is (written directly by the deploy pipeline).
  *
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.
  */
@@ -223,7 +223,7 @@ export class StackStatusBroadcastService {
         currentClient.on('error', (err) => {
           console.error('[StackStatusBroadcastService] Listener client error:', err);
           if (this.listenerClient !== currentClient) {
-            // Stale handler for a replaced client — do not touch shared state.
+            // Stale handler for a replaced client: do not touch shared state.
             return;
           }
           this.cleanupListenerClient();
@@ -316,7 +316,7 @@ export class StackStatusBroadcastService {
       const containerId = parsed.container_id as string;
       const eventAt = new Date(parsed.at as string).toISOString();
 
-      // Handle destroy BEFORE the null-compose guard — destroy events have labels: {}
+      // Handle destroy BEFORE the null-compose guard: destroy events have labels: {}
       // which produces compose_project: null. We must scan stackContainers to find the entry.
       if (eventType === 'destroy') {
         for (const [sk, byContainer] of this.stackContainers) {
@@ -332,14 +332,14 @@ export class StackStatusBroadcastService {
             return;
           }
         }
-        // Non-compose container destroyed — nothing to broadcast
+        // Non-compose container destroyed: nothing to broadcast
         return;
       }
 
       const composeProject = (parsed.compose_project as string | null) ?? null;
 
       if (composeProject === null) {
-        // Non-compose container upsert — not part of any stack, ignore
+        // Non-compose container upsert: not part of any stack, ignore
         return;
       }
 

@@ -46,7 +46,7 @@ afterEach(() => {
     if (desc) {
       Object.defineProperty(HTMLElement.prototype, prop, desc);
     } else {
-      // Descriptor didn't exist originally — delete the test-installed getter so it doesn't leak to other tests.
+      // Descriptor didn't exist originally: delete the test-installed getter so it doesn't leak to other tests.
       delete (HTMLElement.prototype as unknown as Record<string, unknown>)[prop];
     }
   }

@@ -20,7 +20,7 @@ for _ in $(seq 1 30); do
     SERVER_READY=true
     break
   fi
-  # 501=not initialized, 503=sealed — both mean "server is up"
+  # 501=not initialized, 503=sealed (both mean "server is up")
   if wget -q -O /dev/null "$BAO_ADDR/v1/sys/seal-status" 2>/dev/null; then
     SERVER_READY=true
     break
@@ -34,7 +34,7 @@ if [ "$SERVER_READY" != "true" ]; then
 fi
 
 if [ ! -f "$INIT_FILE" ]; then
-  echo "[openbao-init] First start — initializing..."
+  echo "[openbao-init] First start: initializing..."
 
   # Initialize via HTTP API
   wget -q -O "$INIT_FILE" --post-data '{"secret_shares":1,"secret_threshold":1}' \
@@ -63,7 +63,7 @@ if [ ! -f "$INIT_FILE" ]; then
     --header="Content-Type: application/json" \
     --header="X-Vault-Token: $ROOT_TOKEN" \
     "$BAO_ADDR/v1/auth/token/create-orphan" 2>&1) || {
-    # Token may already exist from a prior run — check for known error patterns
+    # Token may already exist from a prior run; check for known error patterns
     case "$TOKEN_RESPONSE" in
       *"already exists"*|*"token already"*)
         echo "[openbao-init] Dev root token already exists, continuing." ;;
@@ -75,7 +75,7 @@ if [ ! -f "$INIT_FILE" ]; then
 
   echo "[openbao-init] Initialization complete."
 else
-  echo "[openbao-init] Existing data — unsealing..."
+  echo "[openbao-init] Existing data: unsealing..."
   UNSEAL_KEY=$(sed -n 's/.*"keys_base64":\["\([^"]*\)".*/\1/p' "$INIT_FILE")
 
   if [ -z "$UNSEAL_KEY" ]; then

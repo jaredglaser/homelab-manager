@@ -96,7 +96,7 @@ jobs:
             selected-issues.json
             triage-summary.md
 
-      - name: Dry run complete — no PR opened
+      - name: Dry run complete (no PR opened)
         if: ${{ inputs.dry_run }}
         run: |
           echo "### Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
@@ -157,7 +157,7 @@ jobs:
           git checkout -b "$BRANCH"
           git add src/ agent/ migrations/ .github/
           if git diff --cached --quiet; then
-            echo "No changes to commit — Claude Code made no edits."
+            echo "No changes to commit. Claude Code made no edits."
             exit 0
           fi
 

@@ -38,7 +38,7 @@ POSTGRES_PASSWORD="changeme"
 POSTGRES_PORT="5432"
 POSTGRES_POOL_SIZE="10"
 
-# Worker — enable Docker collection
+# Worker: enable Docker collection
 WORKER_ENABLED="true"
 WORKER_DOCKER_ENABLED="true"
 WORKER_COLLECTION_INTERVAL_MS="1000"
@@ -77,17 +77,17 @@ bun dev
 ```
 
 This starts:
-- **PostgreSQL** — database
-- **Worker** — background stats collector
-- **OpenBao** — secrets manager (file backend, auto-initializes on first start with root token `dev-root-token`, data persists across restarts)
-- **Socket proxy** — safe Docker API access
-- **Agent** — sidecar that streams container stats and handles deploys
+- **PostgreSQL**: database
+- **Worker**: background stats collector
+- **OpenBao**: secrets manager (file backend, auto-initializes on first start with root token `dev-root-token`, data persists across restarts)
+- **Socket proxy**: safe Docker API access
+- **Agent**: sidecar that streams container stats and handles deploys
 
 ### Step 3: Add Sample Containers via the Stacks Repo
 
 The stacks feature uses an in-app git repo to store Docker Compose files. Clone it and add some sample containers so the dashboard has data to display:
 
-**Docker monitoring:** The local compose file seeds a localhost agent (via `DEV_AGENT_TOKEN`) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams — it does not connect to Docker directly. No host port is needed for the Docker socket.
+**Docker monitoring:** The local compose file seeds a localhost agent (via `DEV_AGENT_TOKEN`) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams; it does not connect to Docker directly. No host port is needed for the Docker socket.
 
 ```bash
 git clone http://x:dev-git-token@localhost:3000/api/git/stacks ~/stacks
@@ -238,7 +238,7 @@ bun build               # Production build (runs typecheck first)
 
 ## TLS Setup (Agent Communication)
 
-Agent sidecars can optionally serve over HTTPS. This is not required for local network use — agents work over plain HTTP by default. For production or untrusted networks, use OpenBao's PKI secrets engine to issue short-lived certificates.
+Agent sidecars can optionally serve over HTTPS. This is not required for local network use; agents work over plain HTTP by default. For production or untrusted networks, use OpenBao's PKI secrets engine to issue short-lived certificates.
 
 ### Enable the PKI secrets engine
 
@@ -276,4 +276,4 @@ bao write pki/issue/agent \
 - The agent reads the certificate and key from `TLS_CERT_PATH` and `TLS_KEY_PATH` env vars.
 - Set `NODE_EXTRA_CA_CERTS` on the web server and worker to trust the internal CA.
 - Certificates have short TTLs (30 days) and should be renewed before expiry.
-- The PKI engine acts as an internal CA — no external certificate authority is required.
+- The PKI engine acts as an internal CA, so no external certificate authority is required.

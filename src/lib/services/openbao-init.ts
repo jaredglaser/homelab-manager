@@ -5,7 +5,7 @@ let initPromise: Promise<void> | null = null;
 /**
  * Initialize OpenBao for first use.
  * Ensures the KV v2 secrets engine is enabled at the `secret/` path.
- * Safe to call multiple times — uses a promise-based singleton to prevent
+ * Safe to call multiple times: uses a promise-based singleton to prevent
  * race conditions when concurrent requests arrive simultaneously.
  * The first call creates the initialization promise; subsequent calls await it.
  */

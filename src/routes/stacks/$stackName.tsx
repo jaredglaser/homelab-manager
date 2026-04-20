@@ -96,7 +96,7 @@ function StackEditorView() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
       if (result.status === 'teardown-pending') {
-        showToast(`Teardown queued for ${stackName} — the stack will be removed when the agent finishes.`, 'success')
+        showToast(`Teardown queued for ${stackName}: the stack will be removed when the agent finishes.`, 'success')
       }
     },
     onError: (err) => {
@@ -105,7 +105,7 @@ function StackEditorView() {
   })
 
   function handleDeleteConfirm(teardown: boolean) {
-    // Fire the mutation without awaiting — for teardown the server returns
+    // Fire the mutation without awaiting; for teardown the server returns
     // immediately with a deployId and the pipeline handles the manifest delete
     // asynchronously. Close the dialog and navigate right away so the user
     // isn't held up waiting for the agent.

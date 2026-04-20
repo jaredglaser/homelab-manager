@@ -70,7 +70,7 @@ export const getDeployHistory = createServerFn()
 /**
  * Save compose file content (creates a git commit).
  * After a successful commit, ensures OpenBao entries exist for all detected variables.
- * Returns warnings if OpenBao is unavailable — the save itself still succeeds.
+ * Returns warnings if OpenBao is unavailable; the save itself still succeeds.
  */
 export const saveComposeFile = createServerFn()
   .inputValidator(saveComposeFileSchema)
@@ -206,7 +206,7 @@ const deleteStackSchema = z.object({
 
 /**
  * Delete a stack from the git repo. If `teardown` is true, queues an async
- * teardown via the deploy pipeline and returns immediately — the pipeline's
+ * teardown via the deploy pipeline and returns immediately; the pipeline's
  * postSuccess hook removes the manifest entry once the agent reports success.
  * If `teardown` is false, removes the stack from the manifest synchronously.
  */

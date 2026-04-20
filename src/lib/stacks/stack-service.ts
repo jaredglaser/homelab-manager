@@ -1,5 +1,5 @@
 /**
- * Stack service — integration layer between git management and deploy pipeline.
+ * Stack service: integration layer between git management and deploy pipeline.
  * Called by server functions in src/data/stacks/functions.tsx.
  */
 
@@ -200,7 +200,7 @@ export async function createStackInRepo(
   const repoPath = getRepoPath();
 
   if (!SAFE_PATH_SEGMENT_PATTERN.test(stackName)) {
-    throw new Error(`Invalid stack name "${stackName}" — must contain only letters, numbers, hyphens, and underscores`);
+    throw new Error(`Invalid stack name "${stackName}": must contain only letters, numbers, hyphens, and underscores`);
   }
 
   // Validate host exists in managed_hosts
@@ -268,7 +268,7 @@ export async function deleteStackFromRepo(
   const deployRepo = new DeployRepository(pool);
   const hasActive = await deployRepo.hasActiveDeployForStack(stackName, host);
   if (hasActive) {
-    throw new Error(`Stack "${stackName}" has an active deploy in progress — cannot delete`);
+    throw new Error(`Stack "${stackName}" has an active deploy in progress, cannot delete`);
   }
 
   return resolveDeleteStack(stackName, host, teardown, {

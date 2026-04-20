@@ -110,7 +110,7 @@ export function useTimeSeriesStream<TRow>({
   // Track last refresh time for visibility cooldown
   const lastRefreshRef = useRef(0);
 
-  // Atomic buffer refresh — re-fetches bucketed history and swaps the buffer in one state update.
+  // Atomic buffer refresh: re-fetches bucketed history and swaps the buffer in one state update.
   // Declared before the preload effect so both the preload effect and later effects can reference it.
   // Stored as a ref so effects always invoke the latest closure without recreating intervals.
   const doRefreshRef = useRef<() => Promise<void>>(async () => {});
@@ -213,7 +213,7 @@ export function useTimeSeriesStream<TRow>({
   const pendingRef = useRef<TRow[]>([]);
 
   // Each SSE message queues rows for the next flush; also clears any prior errors (DB recovered).
-  // Uses refs to avoid calling setState when errors are already null — those no-op setState calls
+  // Uses refs to avoid calling setState when errors are already null; those no-op setState calls
   // still enter the reconciler and produce an extra React commit per SSE tick.
   const preloadErrorRef = useRef<Error | null>(null);
   const serviceErrorRef = useRef<Error | null>(null);
@@ -348,7 +348,7 @@ export function useTimeSeriesStream<TRow>({
     return prev;
   }, [sortedRows]);
 
-  // Stale detection via interval — uses lastDataTimeRef (declared above) to
+  // Stale detection via interval: uses lastDataTimeRef (declared above) to
   // avoid tearing down/recreating the interval every time new data arrives.
   const [isStale, setIsStale] = useState(false);
   useEffect(() => {

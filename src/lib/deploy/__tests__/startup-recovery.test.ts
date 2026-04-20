@@ -176,7 +176,7 @@ describe('performStartupRecovery', () => {
       });
       const removeStackFromManifest = mock();
       const manifestReader = {
-        listStackNames: mock().mockResolvedValue(new Set<string>()), // empty — ghost isn't there
+        listStackNames: mock().mockResolvedValue(new Set<string>()), // empty: ghost isn't there
       };
 
       await performStartupRecovery(repo, createWatchdog(), {
@@ -295,7 +295,7 @@ describe('performStartupRecovery', () => {
 
   it('passes the signal option through to retry() so shutdown short-circuits the loop', async () => {
     const controller = new AbortController();
-    controller.abort(); // pre-aborted — retry() will bail after the first attempt's sleep
+    controller.abort(); // pre-aborted: retry() will bail after the first attempt's sleep
     const recoverStuckDeploys = mock().mockRejectedValue(new Error('boom'));
     const repo = createRepo({
       recoverStuckDeploys: recoverStuckDeploys as unknown as StartupRecoveryRepo['recoverStuckDeploys'],

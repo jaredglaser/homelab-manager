@@ -104,7 +104,7 @@ export function useEventSource<T>({
         if (eventSource !== eventSourceRef.current) return;
         setIsConnected(false);
 
-        // Close current connection — we manage reconnection manually with backoff
+        // Close current connection: we manage reconnection manually with backoff
         eventSource.close();
         eventSourceRef.current = null;
 

@@ -47,7 +47,7 @@ export const zInventorySnapshotContainer = z.object({
 export type InventorySnapshotContainer = z.infer<typeof zInventorySnapshotContainer>;
 
 /**
- * Update shape: emitted on `op: 'upsert'`. Labels are intentionally absent —
+ * Update shape: emitted on `op: 'upsert'`. Labels are intentionally absent:
  * the Docker event stream does not deliver them, and the NOTIFY payload
  * downstream omits them (8 kB cap). Callers that need labels must fetch from
  * the snapshot path (init / DB).

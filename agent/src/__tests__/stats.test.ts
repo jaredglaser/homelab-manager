@@ -395,11 +395,11 @@ describe('handleStatsStream', () => {
 
     await new Promise((r) => setTimeout(r, 20));
 
-    // Emit end — the stream should be cleaned up
+    // Emit end; the stream should be cleaned up
     statsEmitter.emit('end');
     await new Promise((r) => setTimeout(r, 10));
 
-    // Now abort — destroy should NOT be called since stream already ended and was removed
+    // Now abort; destroy should NOT be called since stream already ended and was removed
     ac.abort();
     await new Promise((r) => setTimeout(r, 10));
 
@@ -499,7 +499,7 @@ describe('handleStatsStream', () => {
 
 const fastOptions: StatsStreamOptions = { refreshIntervalMs: 0, pollIntervalMs: 10 };
 
-describe('handleStatsStream — container refresh', () => {
+describe('handleStatsStream: container refresh', () => {
   test('detects new containers and opens streams for them', async () => {
     const container1 = { Id: 'c1', Names: ['/first'], Image: 'a:latest' };
     const container2 = { Id: 'c2', Names: ['/second'], Image: 'b:latest' };

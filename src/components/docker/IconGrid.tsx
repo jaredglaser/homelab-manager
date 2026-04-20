@@ -2,7 +2,7 @@ import { memo, useState, useMemo, useRef, useCallback, useEffect, createContext,
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ButtonBase, Skeleton } from '@mui/material';
 
-/** Row-level AbortController context — aborts all in-flight icon loads when the row unmounts. */
+/** Row-level AbortController context: aborts all in-flight icon loads when the row unmounts. */
 const AbortContext = createContext<AbortSignal | null>(null);
 
 const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: string; selected: boolean; onSelect: (slug: string) => void }) {

@@ -46,7 +46,7 @@ TOTAL=-1
 FETCHED=0
 MAX_PAGES=$((10000 / PAGE_SIZE))
 
-# Use a temp file to accumulate pages — avoids ARG_MAX limits with large payloads
+# Use a temp file to accumulate pages: avoids ARG_MAX limits with large payloads
 PAGES_DIR=$(mktemp -d)
 trap 'rm -rf "$PAGES_DIR"' EXIT
 

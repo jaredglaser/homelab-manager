@@ -107,7 +107,7 @@ export async function createCollectorsForManagedHosts(
 
     const resolvedHost = { ...host, agent_url: resolveAgentUrl(host.agent_url) };
 
-    // Respect per-host capabilities declared in managed_hosts — skip collectors
+    // Respect per-host capabilities declared in managed_hosts: skip collectors
     // for capabilities the host didn't opt into, even if the global worker
     // config enables them. Matches the capability check in
     // createContainerInventoryCollectors below.

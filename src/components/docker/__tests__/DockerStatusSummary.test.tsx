@@ -110,7 +110,7 @@ describe('DockerStatusSummary', () => {
       ['server1/c2', makeContainer({ host: 'server1', containerId: 'c2', state: 'exited' })],
     ]);
     renderSummary(inventory);
-    // Both running and stopped are shown — dots should be present
+    // Both running and stopped are shown, dots should be present
     const dots = screen.getAllByText('·');
     expect(dots.length).toBeGreaterThan(0);
   });

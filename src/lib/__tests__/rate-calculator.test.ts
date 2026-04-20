@@ -10,7 +10,7 @@ import {
   computeBlockIoRates,
 } from '../rate-calculator';
 
-// Narrow fixture builders — each returns a partial Dockerode.ContainerStats with only
+// Narrow fixture builders: each returns a partial Dockerode.ContainerStats with only
 // the fields the helper under test actually reads. Casting to ContainerStats keeps the
 // helper signatures simple while letting tests stay focused on what matters.
 

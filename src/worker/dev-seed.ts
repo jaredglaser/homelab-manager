@@ -20,7 +20,7 @@ function getDevHostName(): string {
 /**
  * Auto-seed a managed host for local development.
  * Uses the first Docker config host name so entity IDs align.
- * Gated by DEV_AGENT_TOKEN env var — never runs in production.
+ * Gated by DEV_AGENT_TOKEN env var: never runs in production.
  * Idempotent: skips if any managed hosts already exist.
  */
 export async function seedDevAgent(db: DatabaseClient): Promise<void> {
@@ -31,7 +31,7 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
   const hostRepo = new HostRepository(db.getPool());
   const existingHosts = await hostRepo.findAll();
   if (existingHosts.length > 0) {
-    // Host exists — ensure token is stored and agent URL is up to date
+    // Host exists; ensure token is stored and agent URL is up to date
     await ensureTokenStored(devHostName, devToken);
     const devHost = existingHosts.find((h) => h.name === devHostName);
     if (devHost && devHost.agent_url !== DEV_AGENT_URL) {
@@ -52,7 +52,7 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
   // Store dev token in OpenBao (retries until OpenBao is ready)
   await ensureTokenStored(devHostName, devToken);
 
-  // Health check with retries — agent may still be starting
+  // Health check with retries; agent may still be starting
   for (let attempt = 1; attempt <= HEALTH_CHECK_ATTEMPTS; attempt++) {
     try {
       const response = await fetch(`${DEV_HEALTH_CHECK_URL}/health`);
@@ -71,7 +71,7 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
     }
   }
 
-  console.info(`[DevSeed] Agent health check failed after ${HEALTH_CHECK_ATTEMPTS} attempts — host remains in "pending" status. Agent may start later.`);
+  console.info(`[DevSeed] Agent health check failed after ${HEALTH_CHECK_ATTEMPTS} attempts; host remains in "pending" status. Agent may start later.`);
 }
 
 /**
@@ -96,7 +96,7 @@ async function ensureTokenStored(hostname: string, token: string): Promise<void>
       return;
     }
   } catch {
-    // OpenBao not ready or secret doesn't exist — proceed to store
+    // OpenBao not ready or secret doesn't exist; proceed to store
   }
 
   for (let attempt = 1; attempt <= OPENBAO_RETRY_ATTEMPTS; attempt++) {

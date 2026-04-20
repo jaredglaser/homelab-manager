@@ -35,7 +35,7 @@ export async function verifyAgentToken(
   }
 
   if (response.status === 401) {
-    throw new Error('The provided agent token is invalid — the agent rejected authentication');
+    throw new Error('The provided agent token is invalid: the agent rejected authentication');
   }
 
   if (!response.ok) {
@@ -46,7 +46,7 @@ export async function verifyAgentToken(
 /**
  * Check the health of an agent by calling its /health endpoint.
  * Returns a result object indicating health status and version info.
- * Never throws — all errors are captured in the result.
+ * Never throws: all errors are captured in the result.
  *
  * @param fetchFn - Injectable fetch function for testing (defaults to globalThis.fetch)
  */

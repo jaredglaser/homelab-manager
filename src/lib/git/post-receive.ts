@@ -52,7 +52,7 @@ export async function buildDeployRequests(
   for (const stackName of changedStacks) {
     const stackConfig = manifest.stacks[stackName];
     if (!stackConfig) {
-      console.info(`[PostReceive] Stack "${stackName}" changed but not in manifest — skipping`);
+      console.info(`[PostReceive] Stack "${stackName}" changed but not in manifest, skipping`);
       continue;
     }
 
