@@ -192,14 +192,59 @@ describe('useVisibleRAF', () => {
     expect(cb1).not.toHaveBeenCalled();
   });
 
-  it('no-ops (no observer) when targetRef.current is null', () => {
+  it('logs an error and no-ops (no observer) when targetRef.current is null', () => {
     const cb = mock(() => {});
     const targetRef = { current: null };
 
+    const errSpy = mock(() => {});
+    const originalErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+
+    try {
+      renderHook(() => useVisibleRAF(targetRef, cb));
+
+      expect(ioInstances.length).toBe(0);
+      expect(rafCallbacks.length).toBe(0);
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      console.error = originalErr;
+    }
+  });
+
+  it('does not double-schedule rAF on repeated isIntersecting:true emits', () => {
+    const cb = mock(() => {});
+    const targetRef = makeTargetRef();
+
     renderHook(() => useVisibleRAF(targetRef, cb));
 
-    expect(ioInstances.length).toBe(0);
-    expect(rafCallbacks.length).toBe(0);
+    const ioInstance = ioInstances[0];
+
+    ioInstance.emit(targetRef.current, true);
+    ioInstance.emit(targetRef.current, true);
+    ioInstance.emit(targetRef.current, true);
+
+    // Without the `visible` guard, three emits would queue three parallel rAF loops.
+    expect(rafCallbacks.length).toBe(1);
+  });
+
+  it('disconnects old observer and observes new element when targetRef identity changes', () => {
+    const cb = mock(() => {});
+    const targetRef1 = makeTargetRef();
+    const targetRef2 = makeTargetRef();
+
+    const { rerender } = renderHook(
+      ({ ref }: { ref: { current: Element | null } }) => useVisibleRAF(ref, cb),
+      { initialProps: { ref: targetRef1 } },
+    );
+
+    expect(ioInstances.length).toBe(1);
+    const firstObserver = ioInstances[0];
+
+    rerender({ ref: targetRef2 });
+
+    expect(firstObserver.disconnect).toHaveBeenCalled();
+    expect(ioInstances.length).toBe(2);
+    expect(ioInstances[1].observed).toContain(targetRef2.current);
   });
 
   it('falls back to unconditional rAF when IntersectionObserver is unavailable', () => {
@@ -220,6 +265,58 @@ describe('useVisibleRAF', () => {
       expect(cb).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.IntersectionObserver = originalIoInner;
+    }
+  });
+
+  it('cancels rAF on unmount in the IO-absent fallback path', () => {
+    const originalIoInner = globalThis.IntersectionObserver;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).IntersectionObserver = undefined;
+
+    try {
+      const cb = mock(() => {});
+      const targetRef = makeTargetRef();
+
+      const { unmount } = renderHook(() => useVisibleRAF(targetRef, cb));
+
+      const cafSpy = globalThis.cancelAnimationFrame as unknown as ReturnType<typeof mock>;
+      const cafBefore = cafSpy.mock.calls.length;
+
+      unmount();
+
+      expect(cafSpy.mock.calls.length).toBeGreaterThan(cafBefore);
+    } finally {
+      globalThis.IntersectionObserver = originalIoInner;
+    }
+  });
+
+  it('falls back to unconditional rAF when IntersectionObserver constructor throws', () => {
+    const originalIoInner = globalThis.IntersectionObserver;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).IntersectionObserver = class {
+      constructor() {
+        throw new Error('options bag rejected');
+      }
+    };
+
+    const errSpy = mock(() => {});
+    const originalErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+
+    try {
+      const cb = mock(() => {});
+      const targetRef = makeTargetRef();
+
+      renderHook(() => useVisibleRAF(targetRef, cb));
+
+      expect(rafCallbacks.length).toBe(1);
+      expect(errSpy).toHaveBeenCalled();
+
+      rafCallbacks[0](performance.now());
+      expect(cb).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.IntersectionObserver = originalIoInner;
+      console.error = originalErr;
     }
   });
 });

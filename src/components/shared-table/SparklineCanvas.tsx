@@ -136,7 +136,7 @@ export default memo(function SparklineCanvas({
   // sliding smoothly without burning GPU on 60fps draws per sparkline.
   const IDLE_INTERVAL_MS = 250;
 
-  // Per-frame render. Gated by useVisibleRAF — only runs while wrapper is in viewport.
+  // Per-frame render, gated by useVisibleRAF: only runs while wrapper is in viewport.
   useVisibleRAF(wrapperRef, (now: number) => {
     const ctx = gradientCtxRef.current;
     if (!ctx) return;

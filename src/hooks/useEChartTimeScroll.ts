@@ -6,7 +6,7 @@ import { useVisibleRAF } from '@/hooks/useVisibleRAF';
  * Smooth-scrolls an ECharts time axis via requestAnimationFrame.
  * Updates xAxis min/max to [now - windowMs, now] every frame.
  *
- * The rAF loop is gated by `useVisibleRAF` — it only runs while `targetRef`
+ * The rAF loop is gated by `useVisibleRAF`: it only runs while `targetRef`
  * is intersecting the viewport. Pass a ref to the chart's wrapper element
  * so off-screen charts stop burning cycles.
  */
