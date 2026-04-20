@@ -91,8 +91,8 @@ describe('DockerContainerEventRepository', () => {
       const result = await repo.insert(destroyEvent);
 
       expect(result.eventType).toBe('destroy');
-      // Destroy variant omits state/composeProject — enforced by the SQL CHECK constraint
-      // and the discriminated union type.
+      // Destroy variant omits state/composeProject (enforced by the SQL CHECK constraint
+      // and the discriminated union type).
       expect(Object.keys(result)).not.toContain('state');
       expect(Object.keys(result)).not.toContain('composeProject');
     });

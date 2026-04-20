@@ -217,7 +217,7 @@ describe('ManagedHostsCard', () => {
 
     it('Next button advances to compose step (no ZFS)', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
-      // Docker is checked by default, ZFS is not — skip ZFS Setup
+      // Docker is checked by default, ZFS is not, skip ZFS Setup
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-compose')).toBeDefined()
     })
@@ -309,7 +309,7 @@ describe('ManagedHostsCard', () => {
 
     it('Verify Connection button is disabled while isAdding', () => {
       render(<ManagedHostsCardView {...makeProps({ isAdding: true })} />)
-      // Navigate to verify step — capabilities -> compose -> configuration -> verify
+      // Navigate to verify step: capabilities -> compose -> configuration -> verify
       // The Next button is not disabled by isAdding, only Back and Verify are
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))

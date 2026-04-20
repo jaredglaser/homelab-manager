@@ -73,7 +73,7 @@ const DEFAULT_ROW_HEIGHT = 41;
 const DEFAULT_OVERSCAN = 20;
 /** Tables below this threshold use `contentVisibility: 'auto'` instead of virtualization,
  * letting the browser natively skip layout/paint for off-screen rows. This also preserves
- * Collapse animations on nested detail panels — virtualized rows use instant show/hide
+ * Collapse animations on nested detail panels. Virtualized rows use instant show/hide
  * to avoid layout conflicts with `contain: layout style`. */
 const VIRTUALIZATION_THRESHOLD = 150;
 
@@ -254,9 +254,9 @@ export function DataTable<TRow>({
     <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
       {toolbar}
 
-      {/* Scrollable container — header + body scroll horizontally together */}
+      {/* Scrollable container: header + body scroll horizontally together */}
       <div ref={scrollRef} className="overflow-y-auto overflow-x-auto flex-1 min-h-0" style={{ scrollbarGutter: isVirtualized || maxHeight ? 'stable' : undefined, maxHeight: maxHeight ?? undefined }}>
-        {/* Sticky header — inside scroll container so it tracks horizontal scroll */}
+        {/* Sticky header: inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div
             className="grid border-b border-neutral-200 dark:border-neutral-700 bg-[var(--mui-palette-background-default)] sticky top-0 z-10"

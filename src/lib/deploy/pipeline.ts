@@ -127,7 +127,7 @@ export class DeployPipeline {
       }
     }
 
-    // 3. Atomic insert — the partial unique index rejects if an active deploy exists
+    // 3. Atomic insert: the partial unique index rejects if an active deploy exists
     const deployId = await this.deployRepo.insertDeployIfNoActive({
       stack: request.stack,
       host: request.host,
@@ -274,7 +274,7 @@ export class DeployPipeline {
       return { status: 'failed', logs: errorMsg, deployId };
     }
 
-    // Record result outside try — a DB failure here must not be misattributed to the agent
+    // Record result outside try: a DB failure here must not be misattributed to the agent
     const finalStatus: DeployStatus = result.success ? 'succeeded' : 'failed';
     try {
       await this.deployRepo.updateStatus(deployId, finalStatus, result.logs);
@@ -285,7 +285,7 @@ export class DeployPipeline {
       );
     }
 
-    // Post-success hook — runs after status update so a later crash can still
+    // Post-success hook: runs after status update so a later crash can still
     // recover via startup sweep of rows with postSuccess set.
     // `no_change` is treated as success (teardown of a stack with nothing running).
     const treatAsSuccess = finalStatus === 'succeeded';

@@ -47,7 +47,7 @@ function clearCssColorVars(base: string) {
   root.style.removeProperty(`${base}-area-end`);
 }
 
-// Named color constants — avoid bare hex literals while keeping values Happy-DOM can read
+// Named color constants: avoid bare hex literals while keeping values Happy-DOM can read
 const CPU_LINE = 'rgb(255, 0, 0)';
 const CPU_AREA_START = 'rgba(255,0,0,0.3)';
 const CPU_AREA_END = 'rgba(255,0,0,0)';
@@ -245,7 +245,7 @@ describe('SparklineCanvas', () => {
 
     let result: RenderResult;
 
-    // Mount with initial color — canvas setup effect stores gradientCtxRef.current
+    // Mount with initial color: canvas setup effect stores gradientCtxRef.current
     act(() => {
       result = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
     });
@@ -256,7 +256,7 @@ describe('SparklineCanvas', () => {
     const callsAfterMount = (mockCtx.createLinearGradient as Mock<typeof mockCtx.createLinearGradient>).mock.calls.length;
     expect(callsAfterMount).toBeGreaterThan(0);
 
-    // Re-render with a different color — the color/height effect runs again and
+    // Re-render with a different color: the color/height effect runs again and
     // now gradientCtxRef.current is set, so lines 62-65 execute
     act(() => {
       result!.rerender(<SparklineCanvas data={[]} color="--chart-memory" />);

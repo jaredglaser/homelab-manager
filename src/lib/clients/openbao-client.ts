@@ -3,7 +3,7 @@ import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
 
 /**
  * Thin wrapper around OpenBao HTTP API (KV v2 secrets engine).
- * Uses native fetch() — no SDK dependency.
+ * Uses native fetch(), no SDK dependency.
  *
  * Secret path convention: secret/stacks/<stack-name>/<key>
  */
@@ -51,7 +51,7 @@ export class OpenBaoClient {
 
   /**
    * Parse a JSON response body, wrapping parse failures with OpenBao context.
-   * Proxies or load balancers may return HTML with a 200 status — this ensures
+   * Proxies or load balancers may return HTML with a 200 status: this ensures
    * the error is actionable instead of a raw SyntaxError.
    */
   private async parseJsonResponse(
@@ -83,7 +83,7 @@ export class OpenBaoClient {
       const body = await response.json();
       if (body.errors) detail = `: ${(body.errors as string[]).join(', ')}`;
     } catch {
-      // Response body not JSON — ignore
+      // Response body not JSON, ignore
     }
     throw new Error(
       `OpenBao ${operation} failed for ${context} (HTTP ${response.status})${detail}`,
@@ -312,7 +312,7 @@ export class OpenBaoClient {
    * single-path-per-stack in v2 if needed.
    *
    * Fetches all secrets concurrently. If any fetch fails with a non-404 error,
-   * the entire operation fails — partial secrets are worse than no deploy.
+   * the entire operation fails: partial secrets are worse than no deploy.
    * Individual 404s (race with deletion) are silently skipped.
    */
   async getAllSecrets(stack: string): Promise<Record<string, string>> {
@@ -353,7 +353,7 @@ export class OpenBaoClient {
 
   /**
    * Ensure the KV v2 secrets engine is enabled at the `secret/` path.
-   * Safe to call multiple times — checks existing mounts first.
+   * Safe to call multiple times: checks existing mounts first.
    */
   async ensureSecretsEngine(): Promise<void> {
     const mountsResponse = await this.request(

@@ -42,7 +42,7 @@ export interface StackDeployRecord {
   createdAt: string;
 }
 
-/** Request to trigger a deploy from the UI — reuses canonical DeployAction. */
+/** Request to trigger a deploy from the UI; reuses canonical DeployAction. */
 export interface UIDeployRequest {
   stack: string;
   host: string;

@@ -154,7 +154,7 @@ describe('calculateCleanYAxis', () => {
     });
 
     it('should use bps-scale for low throughput', () => {
-      // 400 bps — stays in bps range
+      // 400 bps stays in bps range
       const result = calculateCleanYAxis(400, 'bits');
       expect(result.max).toBeGreaterThanOrEqual(400);
       expect(result.interval).toBeLessThan(1000);

@@ -2,7 +2,7 @@ import type { StatsSource } from '@/lib/database/subscription-service';
 
 /**
  * Factory for stats SSE route handlers.
- * All three stats endpoints (docker, zfs, proxmox) share identical logic —
+ * All three stats endpoints (docker, zfs, proxmox) share identical logic;
  * only the source string differs.
  */
 export function createStatsSseHandler(source: StatsSource) {

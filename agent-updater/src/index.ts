@@ -31,7 +31,7 @@ async function main(): Promise<void> {
     checkIntervalMs,
   }, healthReporter);
 
-  console.info(`Agent updater started — watching container '${containerName}' for image '${imageName}'`);
+  console.info(`Agent updater started, watching container '${containerName}' for image '${imageName}'`);
   console.info(`Check interval: ${intervalStr} (${checkIntervalMs}ms)`);
 
   let shutdownRequested = false;

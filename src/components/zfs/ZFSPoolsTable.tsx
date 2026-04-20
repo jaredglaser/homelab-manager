@@ -41,7 +41,7 @@ const METRIC_GROUPS: MetricGroup[] = [
   { label: 'Throughput', columnIds: ['readBytes', 'writeBytes', 'utilization'] },
 ];
 
-/** Cell renderer for ZFS entity names — extracted to satisfy component-definition rules */
+/** Cell renderer for ZFS entity names, extracted to satisfy component-definition rules */
 function ZFSNameCell({ row }: Readonly<{ row: { original: ZFSTableRow; getIsExpanded: () => boolean } }>) {
   const data = row.original;
   return (
@@ -423,7 +423,7 @@ const VdevDiskSubTable = memo(function VdevDiskSubTable({
 
 /**
  * Leaf-level DataTable for disk rows within an expanded vdev.
- * No expansion — just renders disk rows.
+ * No expansion, just renders disk rows.
  */
 const DiskSubTable = memo(function DiskSubTable({
   disks,

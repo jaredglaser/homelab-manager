@@ -4,7 +4,7 @@ import type { DatabaseConfig } from '@/lib/clients/database-client';
 let cachedConfig: DatabaseConfig | null = null;
 
 /**
- * Database middleware — injects a pg Pool into the server function context.
+ * Database middleware: injects a pg Pool into the server function context.
  *
  * All server-only modules (`database-client`, `database-config`) are imported
  * inside the `.server()` callback so they never enter the client bundle. The
@@ -13,7 +13,7 @@ let cachedConfig: DatabaseConfig | null = null;
  *
  * Bootstrap failures (bad env, DB unreachable) are logged with a
  * `[databaseMiddleware]` prefix and re-thrown. The server function's RPC call
- * will reject on the client — callers that previously relied on the handler's
+ * will reject on the client. Callers that previously relied on the handler's
  * `try/catch` returning `[]`/`{}`/`null` on DB outage will now receive an
  * error (intentional: silent empty fallbacks hid outages).
  *

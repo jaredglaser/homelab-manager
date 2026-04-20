@@ -103,7 +103,7 @@ describe('databaseMiddleware', () => {
       await serverHandler({ next: mock(() => Promise.resolve()) });
       await serverHandler({ next: mock(() => Promise.resolve()) });
 
-      // Same config object passed to getClient on both invocations — proves the
+      // Same config object passed to getClient on both invocations, proving the
       // module-scoped cache, not a re-load per request.
       expect(getClientSpy).toHaveBeenCalledTimes(2);
       expect(getClientSpy.mock.calls[0][0]).toBe(getClientSpy.mock.calls[1][0]);

@@ -7,11 +7,11 @@
 - Check if `README.md` and `CLAUDE.md` need updates.
 
 **After editing files:**
-- When `<new-diagnostics>` appear with SonarQube issues on files you just edited, fix them before moving on. Only fix issues on files you modified — do not touch unrelated files.
+- When `<new-diagnostics>` appear with SonarQube issues on files you just edited, fix them before moving on. Only fix issues on files you modified, do not touch unrelated files.
 
 **PR stacks:**
-- Work through stacked PRs linearly (main→PR1→PR2→PR3→…) — never skip steps when rebasing; propagate lower-stack changes upward.
-- Always target the correct base branch — never target `main` for a mid-stack PR.
+- Work through stacked PRs linearly (main→PR1→PR2→PR3→…); never skip steps when rebasing; propagate lower-stack changes upward.
+- Always target the correct base branch; never target `main` for a mid-stack PR.
 
 **Coverage verification:**
 - Coverage percentages differ between local and CI (some tests skip in CI). Use `gh run view` or `gh pr checks` to verify pipeline results, not just local `bun test`.
@@ -54,13 +54,15 @@ cd agent && bun run typecheck  # Agent type checking
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app with `node:async_hooks` errors.
 5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → shared `DataTable` (CSS Grid + conditional `useVirtualizer`). Use div-based rows (not `<table>/<tr>/<td>`). Server handles client disconnect via `request.signal`. Never use TanStack Start streaming server functions for real-time data.
 6. **File Creation**: PREFER editing existing files over creating new ones.
-7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 95% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead. **Never `mock.module()` on `functions.tsx` barrel modules** (e.g., `@/data/stacks/functions`) — mock the underlying service layer instead (e.g., `@/lib/stacks/stack-service`). This avoids global pollution while still intercepting the dynamic `await import()` calls inside `createServerFn` handlers. Always provide ALL exports when mocking a service module to prevent other test files from seeing `undefined` exports. When tests need `setTimeout` to fire immediately (retry loops, health checks), spy on `globalThis.setTimeout` in `beforeEach`/`afterEach` at the appropriate `describe` scope.
+7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 95% functions / 99% lines coverage enforced. Avoid `mock.module()` on React or broadly-used modules - it pollutes globally across concurrent tests. Use `renderHook`, dependency injection, or narrow-scope mocks instead. **Never `mock.module()` on `functions.tsx` barrel modules** (e.g., `@/data/stacks/functions`); mock the underlying service layer instead (e.g., `@/lib/stacks/stack-service`). This avoids global pollution while still intercepting the dynamic `await import()` calls inside `createServerFn` handlers. Always provide ALL exports when mocking a service module to prevent other test files from seeing `undefined` exports. When tests need `setTimeout` to fire immediately (retry loops, health checks), spy on `globalThis.setTimeout` in `beforeEach`/`afterEach` at the appropriate `describe` scope.
 8. **Logging**: Be purposeful with console methods. Use `console.error` for actual errors, `console.info` for operational messages (startup, shutdown), and `console.log` sparingly for temporary debugging only (do not commit). No drive-by `console.log` statements in committed code.
 9. **Routing**: Never edit `routeTree.gen.ts` (auto-generated). `AppShell` renders in root layout (`__root.tsx`) - never wrap individual routes with it. All routes use `ssr: false`. QueryClient is a singleton in `AppShell.tsx` - never create per-route.
 10. **Entity IDs**: Always use entity IDs with host prefix (e.g., `server1/tank`, `192.168.1.10/abc123`) for state keys and uniqueness checks. Never use display names - they collide across hosts.
-11. **Scope discipline**: When asked to plan, research, or review — produce only that deliverable. Do not start executing unless explicitly asked. Once a direction is approved, execute without re-confirming at each step.
-12. **Commit scope**: Only commit files relevant to the current task. When fixing coverage, only commit test files — don't push unrelated source changes.
-13. **Verify review findings**: When resolving PR review comments, verify each finding against current code before fixing. Don't blindly apply suggestions — the code may have already changed.
+11. **Scope discipline**: When asked to plan, research, or review, produce only that deliverable. Do not start executing unless explicitly asked. Once a direction is approved, execute without re-confirming at each step.
+12. **Commit scope**: Only commit files relevant to the current task. When fixing coverage, only commit test files; don't push unrelated source changes.
+13. **Verify review findings**: When resolving PR review comments, verify each finding against current code before fixing. Don't blindly apply suggestions; the code may have already changed.
+14. **Comments**: Write comments that capture project-specific WHY: hidden constraints, perf invariants with real numbers (e.g. "without this, a 30-min window accumulates ~1800 rows/container"), user-facing scenarios, operational concerns, non-obvious invariants a future reader would otherwise have to reverse-engineer. Don't restate framework/language behavior: `useRef`, `useMemo`, `useCallback`, `useEffect` deps, `??`/`?.`, discriminated unions, structural typing, JSX semantics, etc. are knowable from docs and add noise. JSDoc `@param`/`@returns` on complex public hooks and functions is encouraged when it documents semantics, units, defaults, or preference order, but skip it for trivial helpers where the signature already says everything.
+15. **No claudisms in written output**: Avoid LLM stylistic tells in code, comments, JSDoc, commit messages, PR descriptions, and docs. Banned: em dashes (`—`) and en dashes (`–`); vocabulary tells ("delve", "tapestry", "intricate", "robust", "comprehensive", "meticulous", "leverage", "utilize", "facilitate", "it's worth noting", "it's important to note", "essentially", "fundamentally"); performative qualifiers in comments and commits ("carefully", "thoroughly", "comprehensively"); boilerplate sign-offs in docs/PRs ("Hope this helps!", "Feel free to reach out"); excessive emojis (✅🎉🚀✨). Use plain alternatives: "use" not "leverage"/"utilize", "help" not "facilitate", "explore" not "delve", commas/parens/colons instead of em dashes.
 
 ## Tech Stack
 
@@ -94,13 +96,13 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 
 Two factories in `src/lib/sse/` own the shared boilerplate (`ReadableStream`, heartbeat, `closed` flag, abort/teardown):
 
-- **`createStatsSseHandler(source)`** — for `docker-stats`, `zfs-stats`, `proxmox-stats`. Wraps the three-arg `statsPollService.subscribe(source, sendData, sendError)` and emits an `event: stats_error` frame when the subscribe path fails.
-- **`createBroadcastSseHandler({ loadSubscribe, serialize })`** — for single-arg subscribe-based services (`docker-inventory`, `stack-status`, `settings`). Caller owns the full SSE frame via `serialize`, so named events (`event: foo`) are possible when needed.
+- **`createStatsSseHandler(source)`**: for `docker-stats`, `zfs-stats`, `proxmox-stats`. Wraps the three-arg `statsPollService.subscribe(source, sendData, sendError)` and emits an `event: stats_error` frame when the subscribe path fails.
+- **`createBroadcastSseHandler({ loadSubscribe, serialize })`**: for single-arg subscribe-based services (`docker-inventory`, `stack-status`, `settings`). Caller owns the full SSE frame via `serialize`, so named events (`event: foo`) are possible when needed.
 
 Server-only imports must happen inside the factory callbacks:
 
 ```typescript
-// ALWAYS dynamic import inside the factory callback — static imports break the client bundle:
+// ALWAYS dynamic import inside the factory callback; static imports break the client bundle:
 loadSubscribe: async () => {
   await import('@/lib/server-init');
   const { stackStatusBroadcastService } = await import('@/lib/stacks/stack-status-broadcast-service');
@@ -114,11 +116,11 @@ Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (a
 
 Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `DataTable.tsx`, `DataTableToolbar.tsx`, `columns.tsx` (factories: `metricColumn`, `nameColumn`, `statusColumn`, `progressColumn`), `MetricCell.tsx`, `SparklineCell.tsx`, `SparklineCanvas.tsx`.
 
-**Virtualization**: Automatic threshold at 150 rows. Below: normal DOM flow with `content-visibility: auto` + `contain-intrinsic-size` (browser-native off-screen optimization, preserves Collapse animations). Above: `useVirtualizer` with absolute positioning (no animations). Never remove virtualization to solve other problems — a single host can have hundreds of containers.
+**Virtualization**: Automatic threshold at 150 rows. Below: normal DOM flow with `content-visibility: auto` + `contain-intrinsic-size` (browser-native off-screen optimization, preserves Collapse animations). Above: `useVirtualizer` with absolute positioning (no animations). Never remove virtualization to solve other problems; a single host can have hundreds of containers.
 
-**Expansion**: Two patterns — `getSubRows` for tree data sharing the same columns (ZFS hierarchy), `renderDetailPanel` for full-width custom content like nested DataTables (Docker hosts → containers, Proxmox hosts → guests). Detail panels always render inline within the DataTable row, never outside. Entire expandable rows are clickable (not just the name cell).
+**Expansion**: Two patterns: `getSubRows` for tree data sharing the same columns (ZFS hierarchy), `renderDetailPanel` for full-width custom content like nested DataTables (Docker hosts → containers, Proxmox hosts → guests). Detail panels always render inline within the DataTable row, never outside. Entire expandable rows are clickable (not just the name cell).
 
-**Mobile**: `ResizeObserver` on DataTable container detects <1024px (not media queries). Sticky toolbar shows metric group toggles (CPU/RAM, Disk I/O, Net I/O) — one group at a time.
+**Mobile**: `ResizeObserver` on DataTable container detects <1024px (not media queries). Sticky toolbar shows metric group toggles (CPU/RAM, Disk I/O, Net I/O), one group at a time.
 
 **Scroll**: Table fills remaining viewport height (`flex-1 min-h-0`). `scrollbar-gutter: stable` on the DataTable scroll container (not `html`). Sticky header inside scroll container tracks horizontal scroll.
 
@@ -126,14 +128,14 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 
 - **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. MUI theme in `src/theme.ts` uses `cssVariables` mode. Custom backgrounds: `chartBg`, `level1-3`, `popup`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
 - **Settings**: Jotai atoms synced via SSE (`/api/settings`). Domain-scoped hooks (`useDockerSettings`, `useZfsSettings`, `useProxmoxSettings`, `useGeneralSettings`) provide optimistic setters and subscribe via `selectAtom` so each consumer only re-renders when its own slice changes. `useSettings()` remains as a composite wrapper for the settings page. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
-- **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL, token, and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `ContainerInventoryCollector`) — it never connects to Docker directly. The agent token is stored in OpenBao (`OPENBAO_URL`/`OPENBAO_TOKEN`) or a permissioned file, not in .env.
+- **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL, token, and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `ContainerInventoryCollector`); it never connects to Docker directly. The agent token is stored in OpenBao (`OPENBAO_URL`/`OPENBAO_TOKEN`) or a permissioned file, not in .env.
 - **Demo mode**: `VITE_DEMO_MODE=true` swaps server functions via Vite aliases and patches `EventSource`. Zero changes to routes/hooks/components. Mock entities defined in `src/lib/mock/entities.ts`.
 - **Worker**: Collectors extend `BaseCollector` (AsyncDisposable, exponential backoff). Entry point uses `AsyncDisposableStack` for cleanup.
 - **Entity IDs**: Docker=`host/container_id`, ZFS=`host/pool/vdev/disk` (hierarchy via indent: 0=pool, 2=vdev, 4+=disk), Proxmox=varies by type.
 
 ### Agent (`agent/`)
 
-Separate Bun package that runs as a sidecar container alongside Docker hosts. Provides a REST/SSE API for Docker management operations (deploy, logs, stats streaming). Uses raw `Bun.serve()` with manual route matching and timing-safe auth middleware — zero framework dependencies beyond Dockerode. The agent replaces direct Docker API calls from the worker — the main app communicates with agents rather than Docker hosts directly.
+Separate Bun package that runs as a sidecar container alongside Docker hosts. Provides a REST/SSE API for Docker management operations (deploy, logs, stats streaming). Uses raw `Bun.serve()` with manual route matching and timing-safe auth middleware (zero framework dependencies beyond Dockerode). The agent replaces direct Docker API calls from the worker; the main app communicates with agents rather than Docker hosts directly.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
@@ -156,14 +158,14 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 3. **Stable ordering from Maps**: Map iteration is insertion-order, not sorted. Always sort data from Maps before rendering to prevent layout shift.
 4. **PostgreSQL extended query protocol**: Parameterized queries use extended protocol which doesn't support multi-statement. INSERT and NOTIFY must be separate `client.query()` calls.
 5. **React.memo with streaming data**: Incorrect memoization freezes streaming updates. Be cautious with `React.memo` on components receiving `latestByEntity` or `rows`.
-6. **Conditional rendering belongs in the parent**: When a component only renders for a subset of rows/items (e.g., container rows but not host rows), guard at the call site — `if (!row.container) return null` in the column `cell` function — rather than adding an early return inside the component. This makes it immediately clear from reading the parent what is always rendered vs. conditionally rendered, and avoids calling hooks conditionally inside the child.
+6. **Conditional rendering belongs in the parent**: When a component only renders for a subset of rows/items (e.g., container rows but not host rows), guard at the call site (`if (!row.container) return null` in the column `cell` function) rather than adding an early return inside the component. This makes it immediately clear from reading the parent what is always rendered vs. conditionally rendered, and avoids calling hooks conditionally inside the child.
 7. **Layout shift in metric columns**: Dynamic number formatting (KB→MB, varying decimals) causes width instability. Use minimum widths with `ch` units in MetricValue.
 8. **Fix root causes, not symptoms**: Investigate actual bugs rather than adding caching/memoization workarounds. Past band-aid fixes were frequently reverted.
 9. **Icon attribution**: Dashboard icons from `homarr-labs/dashboard-icons` (NOT the old `walkxcode` name).
-10. **Parallel agent worktree isolation**: When dispatching multiple agents into git worktrees, each agent must `cd "$WORKTREE_PATH"` before any file writes and use relative paths only. Never run `git stash` inside a worktree while other worktrees are active — `.git/refs/stash` is shared across all worktrees, so a stash created in one worktree can be popped (and destroyed) by an agent in another.
+10. **Parallel agent worktree isolation**: When dispatching multiple agents into git worktrees, each agent must `cd "$WORKTREE_PATH"` before any file writes and use relative paths only. Never run `git stash` inside a worktree while other worktrees are active: `.git/refs/stash` is shared across all worktrees, so a stash created in one worktree can be popped (and destroyed) by an agent in another.
 11. **CSS vars empty on initial render**: CSS custom properties can resolve to empty strings before the theme applies. `CanvasGradient.addColorStop()` throws on empty color. Always guard canvas color operations.
 12. **Virtualizer remounting resets component state**: When `useVirtualizer` repositions rows after collapse, components remount and lose refs/state. Use entity-keyed external state (not component-local refs) for data that must survive remounting (e.g., sparkline accumulators).
-13. **Collapse + virtualizer can't sync**: MUI Collapse (CSS transitions) and virtualizer repositioning (JS `measureElement`) run on different systems. Don't virtualize the outer level (host rows) — only virtualize inner levels (container rows).
+13. **Collapse + virtualizer can't sync**: MUI Collapse (CSS transitions) and virtualizer repositioning (JS `measureElement`) run on different systems. Don't virtualize the outer level (host rows); only virtualize inner levels (container rows).
 
 ## CI/CD
 

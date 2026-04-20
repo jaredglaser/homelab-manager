@@ -270,7 +270,7 @@ describe('DataTable', () => {
   it('uses normal flow when row count is at or below virtualization threshold', () => {
     const { container } = render(<DataTable {...defaultProps()} />);
 
-    // 3 rows is well below threshold — should NOT have absolute-positioned wrappers
+    // 3 rows is well below threshold, should NOT have absolute-positioned wrappers
     const absoluteRows = container.querySelectorAll('[style*="position: absolute"]');
     expect(absoluteRows.length).toBe(0);
 

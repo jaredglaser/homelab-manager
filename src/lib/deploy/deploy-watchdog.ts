@@ -14,8 +14,8 @@ const DEFAULT_THRESHOLD_MINUTES = 10;
 const FAILURE_ESCALATION_THRESHOLD = 3;
 
 /**
- * Defaults: 2 min interval / 10 min threshold — ~2× the agent's 5-min compose
- * subprocess cap, so deploys still in_progress past this point mean the
+ * Defaults: 2 min interval / 10 min threshold (~2x the agent's 5-min compose
+ * subprocess cap), so deploys still in_progress past this point mean the
  * failure path itself got lost.
  */
 export function loadDeployWatchdogConfig(): DeployWatchdogConfig {
@@ -49,7 +49,7 @@ export class DeployWatchdog {
     this.config = config;
   }
 
-  /** Idempotent — extra calls are no-ops. */
+  /** Idempotent: extra calls are no-ops. */
   start(deployRepo: WatchdogRepo): void {
     if (this.timer !== null) return;
     this.timer = setInterval(() => {
@@ -57,7 +57,7 @@ export class DeployWatchdog {
     }, this.config.intervalMs);
   }
 
-  /** Idempotent — safe to call before start. */
+  /** Idempotent: safe to call before start. */
   stop(): void {
     if (this.timer !== null) {
       clearInterval(this.timer);
@@ -65,21 +65,21 @@ export class DeployWatchdog {
     }
   }
 
-  /** Exposed for observability — number of consecutive tick failures. Resets to 0 on success. */
+  /** Exposed for observability: number of consecutive tick failures. Resets to 0 on success. */
   getConsecutiveFailures(): number {
     return this.consecutiveFailures;
   }
 
-  /** Exposed for observability — total ticks dropped because a prior tick was still running. */
+  /** Exposed for observability: total ticks dropped because a prior tick was still running. */
   getSkippedTicks(): number {
     return this.skippedTicks;
   }
 
-  /** Reentrancy-guarded — if a previous tick is still running, logs and returns. */
+  /** Reentrancy-guarded: if a previous tick is still running, logs and returns. */
   async tick(deployRepo: WatchdogRepo): Promise<void> {
     if (this.running) {
       this.skippedTicks += 1;
-      console.info(`[DeployWatchdog] Skipped tick — already running (skipped=${this.skippedTicks})`);
+      console.info(`[DeployWatchdog] Skipped tick (already running, skipped=${this.skippedTicks})`);
       return;
     }
     this.running = true;
@@ -105,7 +105,7 @@ export class DeployWatchdog {
     } catch (err) {
       this.consecutiveFailures += 1;
       const prefix = this.consecutiveFailures >= FAILURE_ESCALATION_THRESHOLD
-        ? `[DeployWatchdog] Tick failed (${this.consecutiveFailures} consecutive failures — watchdog degraded)`
+        ? `[DeployWatchdog] Tick failed (${this.consecutiveFailures} consecutive failures, watchdog degraded)`
         : '[DeployWatchdog] Tick failed';
       console.error(`${prefix}:`, err);
     } finally {
@@ -115,5 +115,5 @@ export class DeployWatchdog {
 }
 
 function buildTimeoutMessage(minutes: number): string {
-  return `Deploy marked failed by watchdog — no completion signal received after ${minutes} minutes. The deploy may still be running on the host; check the agent before re-triggering.`;
+  return `Deploy marked failed by watchdog: no completion signal received after ${minutes} minutes. The deploy may still be running on the host; check the agent before re-triggering.`;
 }

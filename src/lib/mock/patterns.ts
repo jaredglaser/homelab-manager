@@ -194,7 +194,7 @@ export interface ActivityProfile {
   noise: number;
   /**
    * How long the transition between two states lasts (ms).
-   * 0 = instant step (NVMe). 2000–3000 = brief HDD spin-up.
+   * 0 = instant step (NVMe). 2000-3000 = brief HDD spin-up.
    * Must be less than `stateDurationMs`.
    */
   transitionMs: number;

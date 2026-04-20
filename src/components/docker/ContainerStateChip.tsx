@@ -54,7 +54,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
     );
   }
 
-  // created, removing, unknown — outlined dot
+  // created, removing, unknown: outlined dot
   return (
     <span
       className="inline-block w-2 h-2 rounded-full border border-[var(--mui-palette-action-disabled)]"

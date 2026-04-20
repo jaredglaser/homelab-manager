@@ -56,7 +56,7 @@ html {
 }
 
 
-/* Themed scrollbar for drawer panels — uses MUI palette for theme adaptation */
+/* Themed scrollbar for drawer panels: uses MUI palette for theme adaptation */
 .themed-scrollbar {
   &::-webkit-scrollbar {
     width: 14px;
@@ -91,7 +91,7 @@ html {
   background-color: var(--mui-palette-background-default);
 }
 
-/* page-content has its own animation per type — disable the default crossfade */
+/* page-content has its own animation per type: disable the default crossfade */
 ::view-transition-old(page-content),
 ::view-transition-new(page-content) {
   animation: none;
@@ -146,7 +146,7 @@ html {
   from { opacity: 0; }
 }
 
-/* Sparkline loading shimmer — sweeps left to right */
+/* Sparkline loading shimmer: sweeps left to right */
 @keyframes sparkline-shimmer {
   0% { transform: translateX(-100%); opacity: 0; }
   30% { opacity: 0.4; }

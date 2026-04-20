@@ -236,7 +236,7 @@ describe('SettingsBroadcastService', () => {
         expect(connectCount).toBeGreaterThanOrEqual(2);
 
         // After the successful reconnect on client2, a second disconnect should
-        // again start from the base 500ms — if the counter weren't reset it
+        // again start from the base 500ms; if the counter weren't reset it
         // would continue from 1000ms.
         capturedDelays.length = 0;
         client2.emit('error', new Error('second disconnect'));

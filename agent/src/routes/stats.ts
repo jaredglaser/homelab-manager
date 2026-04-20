@@ -241,7 +241,7 @@ function openContainerStream(
 
     readable.on('error', (error: Error) => {
       if (isContainerGone(error)) {
-        // Container removed while streaming — normal lifecycle, not an error
+        // Container removed while streaming: normal lifecycle, not an error
         ctx.containerStreams.delete(id);
         return;
       }
@@ -254,7 +254,7 @@ function openContainerStream(
       ctx.containerStreams.delete(id);
     });
   }).catch((error: Error) => {
-    if (isContainerGone(error)) return; // Container removed between list and stats — race condition
+    if (isContainerGone(error)) return; // Container removed between list and stats (race condition)
     console.error(`Failed to open stats stream for container ${id}:`, error.message);
     sendErrorSSE(ctx, { containerId: id, error: error.message });
   });
@@ -385,11 +385,11 @@ async function runStatsLoop(
  * new containers and destroying stale ones.
  *
  * SSE event types emitted:
- * - `data` (default): `{ containerId, containerName, image, cpuPercent, memoryUsage, ... }` — pre-computed metrics
- * - `containers`: `{ ids: string[] }` — emitted after each container list refresh
- * - `container-error`: `{ containerId, error }` — per-container stream or open failure
- * - `container-error` with `type: "refresh_failed"`: `{ error, type }` — container list refresh failure
- * - `error`: `{ error }` — fatal stream-level failure (e.g. initial listContainers fails)
+ * - `data` (default): `{ containerId, containerName, image, cpuPercent, memoryUsage, ... }`, pre-computed metrics
+ * - `containers`: `{ ids: string[] }`, emitted after each container list refresh
+ * - `container-error`: `{ containerId, error }`, per-container stream or open failure
+ * - `container-error` with `type: "refresh_failed"`: `{ error, type }`, container list refresh failure
+ * - `error`: `{ error }`, fatal stream-level failure (e.g. initial listContainers fails)
  *
  * Clients MUST handle the `error` and `container-error` SSE events since the HTTP
  * status is always 200 (the Response is returned before async start() runs).

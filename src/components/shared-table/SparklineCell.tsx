@@ -31,7 +31,7 @@ export default memo(function SparklineCell({ data, color }: SparklineCellProps) 
   const maxTsRef = useRef(0);
   // 'pending' = first mount, 'waiting' = skipped stale data, 'seeded' = ready
   const stateRef = useRef<'pending' | 'waiting' | 'seeded'>('pending');
-  // Render-time ref mutation — intentional and safe.
+  // Render-time ref mutation: intentional and safe.
   //
   // These refs (stateRef, accRef, maxTsRef) are mutated during render instead of
   // using useState/useEffect. This is safe because updates are idempotent and fully

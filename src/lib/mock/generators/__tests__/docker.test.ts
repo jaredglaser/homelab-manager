@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'bun:test';
-import { generateDockerSnapshot, generateDockerHistory, generateContainerHistory, generateContainerLogBatch, generateContainerLogHistory } from '../docker';
+import {
+  generateDockerSnapshot,
+  generateDockerInventorySnapshot,
+  generateDockerHistory,
+  generateContainerHistory,
+  generateContainerLogBatch,
+  generateContainerLogHistory,
+} from '../docker';
 import { DOCKER_ENTITIES } from '../../entities';
 
 describe('generateDockerSnapshot', () => {
@@ -43,6 +50,48 @@ describe('generateDockerSnapshot', () => {
     const hosts = new Set(rows.map((r) => r.host));
     const expectedHosts = new Set(DOCKER_ENTITIES.map((e) => e.host));
     expect(hosts).toEqual(expectedHosts);
+  });
+});
+
+describe('generateDockerInventorySnapshot', () => {
+  const now = new Date('2025-06-15T12:00:00Z');
+
+  it('returns one container per entity', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    expect(containers).toHaveLength(DOCKER_ENTITIES.length);
+  });
+
+  it('matches each entity on host, containerId, name, image, serviceKey', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    for (const c of containers) {
+      const entity = DOCKER_ENTITIES.find(
+        (e) => e.host === c.host && e.containerId === c.containerId,
+      );
+      expect(entity).toBeDefined();
+      expect(c.name).toBe(entity!.containerName);
+      expect(c.image).toBe(entity!.image);
+      expect(c.serviceKey).toBe(entity!.serviceKey);
+    }
+  });
+
+  it('marks every container running with empty labels and no exit info', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    for (const c of containers) {
+      expect(c.state).toBe('running');
+      expect(c.composeProject).toBeNull();
+      expect(c.finishedAt).toBeNull();
+      expect(c.exitCode).toBeNull();
+      expect(c.labels).toEqual({});
+    }
+  });
+
+  it('uses Date objects for startedAt and updatedAt so JSON.stringify emits ISO strings', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    for (const c of containers) {
+      expect(c.startedAt).toBeInstanceOf(Date);
+      expect(c.updatedAt).toBeInstanceOf(Date);
+      expect(c.startedAt!.getTime()).toBeLessThan(now.getTime());
+    }
   });
 });
 

@@ -162,7 +162,7 @@ describe('DeployHistoryList', () => {
       { wrapper: createWrapper() },
     );
 
-    // Click the "Succeeded" toggle button — no records have status 'succeeded', so none match
+    // Click the "Succeeded" toggle button: no records have status 'succeeded', so none match
     const succeededButton = screen.getByRole('button', { name: 'Succeeded' });
     fireEvent.click(succeededButton);
     expect(screen.getByText('No deploys match the selected filters.')).toBeDefined();

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Test performance profiler — shows slowest test suites and individual tests
+# Test performance profiler: shows slowest test suites and individual tests
 # Usage: ./scripts/test-perf.sh [threshold_ms]
 #
 # Runs bun test with JUnit output, parses timing data, and reports:

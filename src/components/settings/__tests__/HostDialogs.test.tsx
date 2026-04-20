@@ -156,7 +156,7 @@ describe('EditDialog', () => {
   it('does not call onConfirm when host is null', () => {
     const onConfirm = mock(() => {})
     render(<EditDialog {...defaultProps} host={null} onConfirm={onConfirm} />)
-    // Fields will have empty values, Save is disabled — clicking it does nothing
+    // Fields will have empty values, Save is disabled, clicking it does nothing
     const saveBtn = screen.getByRole('button', { name: 'Save' })
     expect(saveBtn.hasAttribute('disabled')).toBe(true)
   })

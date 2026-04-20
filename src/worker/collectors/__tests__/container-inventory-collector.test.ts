@@ -75,7 +75,7 @@ function createNeverEndingStream(events: unknown[]): ReadableStream<Uint8Array> 
       for (const event of events) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
       }
-      // Never close — collector runs until aborted
+      // Never close; collector runs until aborted
     },
   });
 }
@@ -98,7 +98,7 @@ function spyImmediateTimeout() {
   );
 }
 
-describe('ContainerInventoryCollector — state-change dedup', () => {
+describe('ContainerInventoryCollector: state-change dedup', () => {
   let abortController: AbortController;
   let setTimeoutSpy: ReturnType<typeof spyOn>;
 
@@ -193,7 +193,7 @@ describe('ContainerInventoryCollector — state-change dedup', () => {
   });
 });
 
-describe('ContainerInventoryCollector — flap dampening', () => {
+describe('ContainerInventoryCollector: flap dampening', () => {
   let abortController: AbortController;
 
   beforeEach(() => {
@@ -260,7 +260,7 @@ describe('ContainerInventoryCollector — flap dampening', () => {
     (collector as any).scheduleWrite(makeContainer({ state: 'exited' }), 'upsert');
     expect(timers).toHaveLength(1);
 
-    // B→A (running) — cancels prior timer, schedules new one
+    // B→A (running): cancels prior timer, schedules new one
     (collector as any).scheduleWrite(makeContainer({ state: 'running' }), 'upsert');
     expect(timers).toHaveLength(1);
 
@@ -308,7 +308,7 @@ describe('ContainerInventoryCollector — flap dampening', () => {
   });
 });
 
-describe('ContainerInventoryCollector — init reconciliation', () => {
+describe('ContainerInventoryCollector: init reconciliation', () => {
   let abortController: AbortController;
   let setTimeoutSpy: ReturnType<typeof spyOn>;
 
@@ -402,7 +402,7 @@ describe('ContainerInventoryCollector — init reconciliation', () => {
   });
 });
 
-describe('ContainerInventoryCollector — reconnection and abort', () => {
+describe('ContainerInventoryCollector: reconnection and abort', () => {
   let abortController: AbortController;
 
   beforeEach(() => {
@@ -527,7 +527,7 @@ describe('ContainerInventoryCollector — reconnection and abort', () => {
   });
 });
 
-describe('ContainerInventoryCollector — reconcileInit clears pending writes (Fix 6)', () => {
+describe('ContainerInventoryCollector: reconcileInit clears pending writes (Fix 6)', () => {
   let abortController: AbortController;
 
   beforeEach(() => {
@@ -639,7 +639,7 @@ describe('ContainerInventoryCollector — reconcileInit clears pending writes (F
   });
 });
 
-describe('ContainerInventoryCollector — DB-write failure triggers reconnect', () => {
+describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () => {
   let abortController: AbortController;
 
   beforeEach(() => {
@@ -700,7 +700,7 @@ describe('ContainerInventoryCollector — DB-write failure triggers reconnect', 
     const pending: Map<string, unknown> = (collector as any).pendingWrites;
     expect(pending.size).toBe(0);
 
-    // Failed write must not poison the cache — reconcileInit needs the pre-failure state.
+    // Failed write must not poison the cache; reconcileInit needs the pre-failure state.
     const cache: Map<string, { state: string | null }> = (collector as any).stateCache;
     expect(cache.get('abc123')?.state).toBe('running');
 

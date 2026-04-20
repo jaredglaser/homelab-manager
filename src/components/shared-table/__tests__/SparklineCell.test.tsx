@@ -50,7 +50,7 @@ describe('SparklineCell', () => {
     it('renders PulseLine when data is empty', () => {
       const { container } = render(<SparklineCell data={[]} color="--chart-cpu" />);
 
-      // No canvas rendered — should show PulseLine placeholder
+      // No canvas rendered, should show PulseLine placeholder
       expect(container.querySelector('canvas')).toBeNull();
 
       const outerDiv = container.firstElementChild as HTMLElement;

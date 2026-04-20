@@ -275,7 +275,7 @@ describe('commitFiles callback runs inside lock (issue #98)', () => {
 
   it('concurrent manifest-merging commits for different stacks both end up in manifest', async () => {
     // Simulates createStackInRepo's pattern: read manifest from HEAD, add a new stack,
-    // write updated manifest + a new compose file — all inside the commit callback.
+    // write updated manifest + a new compose file, all inside the commit callback.
     //
     // Before the #98 fix: readers outside the lock both saw manifest = {} and
     // then serialized their pre-built plans, clobbering each other's manifest entries
@@ -307,13 +307,13 @@ describe('commitFiles callback runs inside lock (issue #98)', () => {
     ]);
 
     const manifest = await readFileFromRepo(repoPath, 'manifest.yaml');
-    // Both stacks' entries must be present — neither overwrote the other.
+    // Both stacks' entries must be present; neither overwrote the other.
     expect(manifest).toContain('alpha:');
     expect(manifest).toContain('beta:');
     expect(manifest).toContain('host: host-a');
     expect(manifest).toContain('host: host-b');
 
-    // Both compose files must survive in HEAD — no orphan, no lost entry.
+    // Both compose files must survive in HEAD: no orphan, no lost entry.
     const alphaCompose = await readFileFromRepo(repoPath, 'alpha/docker-compose.yml');
     const betaCompose = await readFileFromRepo(repoPath, 'beta/docker-compose.yml');
     expect(alphaCompose).toContain('alpha compose');
