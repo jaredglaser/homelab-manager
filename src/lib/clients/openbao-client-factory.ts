@@ -14,7 +14,7 @@ let cachedClient: OpenBaoClient | null = null;
 /**
  * Get the shared OpenBaoClient singleton. Throws if OpenBao is not configured
  * (missing OPENBAO_URL or OPENBAO_TOKEN). Runs initializeOpenBao on first use
- * to ensure the KV v2 engine is enabled — subsequent calls reuse the cached
+ * to ensure the KV v2 engine is enabled. Subsequent calls reuse the cached
  * client and the init guard in initializeOpenBao makes repeat calls cheap.
  */
 export async function getOpenBaoClient(): Promise<OpenBaoClient> {

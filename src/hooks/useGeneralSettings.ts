@@ -28,7 +28,7 @@ export interface GeneralSettingsValue {
 /**
  * Cross-cutting app settings: theme/time format, data update cadence, unit
  * formatting, retention windows, and developer debug toggles. Subscribes only
- * to the general/retention/developer slices — Docker, ZFS, and Proxmox
+ * to the general/retention/developer slices: Docker, ZFS, and Proxmox
  * changes do not re-render consumers.
  */
 export function useGeneralSettings(): GeneralSettingsValue {

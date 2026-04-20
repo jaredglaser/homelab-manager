@@ -12,10 +12,10 @@ import { withRepoLock } from '@/lib/git/repo';
 
 const VALID_SERVICES = ['git-upload-pack', 'git-receive-pack'] as const;
 
-/** 50 MB — git pack files for compose files and manifests should be well under this. */
+/** 50 MB: git pack files for compose files and manifests should be well under this. */
 const MAX_GIT_BODY_SIZE = 50 * 1024 * 1024;
 
-/** 60 seconds — git operations on compose files should complete in milliseconds. */
+/** 60 seconds: git operations on compose files should complete in milliseconds. */
 const GIT_PROCESS_TIMEOUT_MS = 60_000;
 
 /**

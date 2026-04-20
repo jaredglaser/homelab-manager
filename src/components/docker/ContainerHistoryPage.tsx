@@ -187,7 +187,7 @@ export default function ContainerHistoryPage({
       {/* Sticky panel header */}
       <div className="sticky top-0 z-10 !bg-[var(--mui-palette-background-level1)] border-b border-[var(--mui-palette-divider)] px-6 pt-4 pb-3 select-none">
         <div className="relative">
-          {/* Real content — always in flow, determines height */}
+          {/* Real content: always in flow, determines height */}
           <div className={`flex items-center gap-3 transition-opacity duration-300 ${infoQuery.isLoading ? 'opacity-0' : 'opacity-100'}`}>
             <img
               src={iconError ? FALLBACK_ICON_URL : iconUrl}
@@ -213,7 +213,7 @@ export default function ContainerHistoryPage({
               </IconButton>
             )}
           </div>
-          {/* Skeleton overlay — always absolute, fades out */}
+          {/* Skeleton overlay: always absolute, fades out */}
           <div className={`absolute inset-0 flex items-center gap-3 transition-opacity duration-300 ${infoQuery.isLoading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
             <Skeleton variant="rounded" width={32} height={32} className="flex-shrink-0" />
             <div className="min-w-0 flex-1">

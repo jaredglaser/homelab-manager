@@ -286,7 +286,7 @@ describe('DeployPipeline', () => {
     });
 
     it('strips outer quotes from existing env values even when followed by CR', async () => {
-      // FOO="bar"\r — windows line ending or stray CR after a quoted value.
+      // FOO="bar"\r (windows line ending or stray CR after a quoted value).
       // The quote check must ignore trailing CR/LF so the outer quotes get stripped,
       // otherwise we'd end up with FOO='"bar"' (double-quoted) in the rendered env.
       // Compose must reference a variable so the pipeline routes through buildEnvContent.
@@ -436,7 +436,7 @@ describe('DeployPipeline', () => {
       });
 
       const result = await pipeline.execute(rollbackRequest);
-      // Change detection is bypassed — deploy should proceed even though hashes match
+      // Change detection is bypassed: deploy should proceed even though hashes match
       expect(result.status).toBe('succeeded');
       expect(deployRepo.getLatestSuccessful).not.toHaveBeenCalled();
     });

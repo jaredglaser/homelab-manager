@@ -7,6 +7,7 @@ import { useToast } from '@/hooks/toastAtom';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
 import { metricColumn, nameColumn } from '@/components/shared-table/columns';
+import { EMPTY_METRIC } from '@/components/shared-table/MetricCell';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import type {
   DockerStatsRow,
@@ -214,7 +215,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatAsPercentParts(row.aggregated.cpuPercent / 100, docker.decimals.cpu);
           }
-          if (!row.stats) return { value: '—', unit: '' };
+          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
           return formatAsPercentParts(row.stats.rates.cpuPercent / 100, docker.decimals.cpu);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.cpu ?? []) : []),
@@ -233,7 +234,7 @@ export default function ContainerTable({
               ? formatBytesParts(row.aggregated.memoryUsage, false, docker.decimals.memory)
               : formatAsPercentParts(row.aggregated.memoryPercent / 100, docker.decimals.memory);
           }
-          if (!row.stats) return { value: '—', unit: '' };
+          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
           return docker.memoryDisplayMode === 'bytes'
             ? formatBytesParts(row.stats.memory_stats.usage, false, docker.decimals.memory)
             : formatAsPercentParts(row.stats.rates.memoryPercent / 100, docker.decimals.memory);
@@ -252,7 +253,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatBytesParts(row.aggregated.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
           }
-          if (!row.stats) return { value: '—', unit: '' };
+          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
           return formatBytesParts(row.stats.rates.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.blockRead ?? []) : []),
@@ -269,7 +270,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatBytesParts(row.aggregated.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
           }
-          if (!row.stats) return { value: '—', unit: '' };
+          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
           return formatBytesParts(row.stats.rates.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.blockWrite ?? []) : []),
@@ -286,7 +287,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatBitsSIUnitsParts(row.aggregated.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
           }
-          if (!row.stats) return { value: '—', unit: '' };
+          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
           return formatBitsSIUnitsParts(row.stats.rates.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.networkRx ?? []) : []),
@@ -303,7 +304,7 @@ export default function ContainerTable({
           if (row.type === 'host') {
             return formatBitsSIUnitsParts(row.aggregated.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
           }
-          if (!row.stats) return { value: '—', unit: '' };
+          if (!row.stats) return { value: EMPTY_METRIC, unit: '' };
           return formatBitsSIUnitsParts(row.stats.rates.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.networkTx ?? []) : []),
@@ -554,7 +555,7 @@ function buildCountLabel(a: HostAggregatedStats): string {
 }
 
 /**
- * Name cell for container rows — shows icon, pulse indicator, state chip, name,
+ * Name cell for container rows: shows icon, pulse indicator, state chip, name,
  * settings and history buttons. Uses hooks for pulse animation and icon picker.
  */
 function ContainerNameCell({
@@ -609,7 +610,7 @@ function ContainerNameCell({
           className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
 
-        {/* Pulse indicator — for running and restarting containers with data */}
+        {/* Pulse indicator: for running and restarting containers with data */}
         {(inventory.state === 'running' || inventory.state === 'restarting') && (
           <div
             ref={indicatorRef}

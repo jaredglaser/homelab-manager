@@ -101,7 +101,7 @@ describe('processPostReceive', () => {
         { path: 'manifest.yaml', content: 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n' },
         { path: 'plex/README.md', content: 'v1' },
       ],
-      message: 'initial — has README but no docker-compose.yml',
+      message: 'initial: has README but no docker-compose.yml',
       author: { name: 'test', email: 'test@test.com' },
     }));
 
@@ -112,7 +112,7 @@ describe('processPostReceive', () => {
     }));
 
     await processPostReceive(repoPath, sha1, sha2);
-    // plex changed but has no docker-compose.yml — should be excluded (logged as error)
+    // plex changed but has no docker-compose.yml: should be excluded (logged as error)
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining('[PostReceive] Failed to read compose file'),
       expect.anything(),

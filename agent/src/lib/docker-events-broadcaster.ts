@@ -146,7 +146,7 @@ async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
       state.containers.delete(containerId);
       broadcastToAll({ op: 'destroy', containerId });
     } else {
-      // Treat non-404 errors as transient — do not update state or broadcast.
+      // Treat non-404 errors as transient: do not update state or broadcast.
       // The next event for this container will retry naturally.
       const statusCode = (typeof err === 'object' && err !== null && 'statusCode' in err)
         ? (err as { statusCode: number }).statusCode
@@ -161,7 +161,7 @@ async function handleDockerEvent(event: DockerEventMessage): Promise<void> {
  * List all containers and enrich each with inspect() in parallel so we can
  * populate StartedAt/FinishedAt/ExitCode (not available from listContainers).
  * If an individual inspect fails, fall back to the listContainers fields for
- * that container with null timestamps/exit code — don't fail the whole init.
+ * that container with null timestamps/exit code, don't fail the whole init.
  */
 async function listAndEnrichContainers(docker: Dockerode): Promise<MinimalContainerInfo[]> {
   const listed = await docker.listContainers({ all: true });
@@ -352,7 +352,7 @@ export function _resetBroadcasterForTesting(): void {
 /**
  * Simulate a Docker event flowing through the broadcaster. Intended for tests only.
  * The docker parameter is accepted for API compatibility with callers that pass a
- * Dockerode instance — state.docker is used internally (already set by subscribe()).
+ * Dockerode instance; state.docker is used internally (already set by subscribe()).
  */
 export async function _handleDockerEventForTesting(
   _docker: Dockerode,

@@ -56,7 +56,7 @@ export default memo(function SparklineCanvas({
     areaStartColorRef.current = colors.areaStart;
     areaEndColorRef.current = colors.areaEnd;
 
-    // Rebuild cached gradient — skip if CSS vars unresolved
+    // Rebuild cached gradient, skip if CSS vars unresolved
     const ctx = gradientCtxRef.current;
     if (ctx && areaStartColorRef.current && areaEndColorRef.current) {
       const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
@@ -112,7 +112,7 @@ export default memo(function SparklineCanvas({
     canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    // Build initial gradient — guard against empty color refs (CSS vars may not yet be resolved)
+    // Build initial gradient, guarding against empty color refs (CSS vars may not yet be resolved)
     if (areaStartColorRef.current && areaEndColorRef.current) {
       const gradient = ctx.createLinearGradient(0, PADDING, 0, height - PADDING);
       gradient.addColorStop(0, areaStartColorRef.current);
@@ -126,7 +126,7 @@ export default memo(function SparklineCanvas({
     const pxBuf = pointsXRef.current;
     const pyBuf = pointsYRef.current;
 
-    // Throttle interval when idle (pulse done) — ~4fps keeps the time-axis
+    // Throttle interval when idle (pulse done): ~4fps keeps the time-axis
     // sliding smoothly without burning GPU on 60fps draws per sparkline.
     const IDLE_INTERVAL_MS = 250;
     let lastDrawTime = 0;

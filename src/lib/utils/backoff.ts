@@ -5,7 +5,7 @@ export interface BackoffOpts {
   baseMs?: number;
   /** Hard ceiling on the returned delay in milliseconds (default: 30_000). */
   capMs?: number;
-  /** Maximum exponent applied to 2^attempt before the cap (default: Infinity — cap alone bounds the result). */
+  /** Maximum exponent applied to 2^attempt before the cap (default: Infinity, cap alone bounds the result). */
   maxExponent?: number;
 }
 
@@ -29,7 +29,7 @@ export interface RetryOpts extends BackoffOpts {
   maxAttempts: number;
   /** Return true if the error should trigger another attempt. */
   isRetryable: (err: unknown) => boolean;
-  /** Optional abort signal — aborting rejects the current sleep with AbortError. */
+  /** Optional abort signal: aborting rejects the current sleep with AbortError. */
   signal?: AbortSignal;
   /** Called before each sleep with the attempt number just completed (1-indexed) and the delay about to elapse. */
   onRetry?: (err: unknown, attempt: number, delayMs: number) => void;

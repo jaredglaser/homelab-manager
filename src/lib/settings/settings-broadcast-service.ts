@@ -192,11 +192,11 @@ export class SettingsBroadcastService {
         const ok = await this.startListening();
         if (ok) {
           this.reconnecting = false;
-          // Settings may have changed during the disconnect window — push the
+          // Settings may have changed during the disconnect window; push the
           // current state to all subscribers so their cached view is fresh.
           await this.resyncAllSubscribers();
         } else {
-          // Still reconnecting — retry again after the next backoff step.
+          // Still reconnecting: retry again after the next backoff step.
           // Note: startListening() may have already scheduled a retry via its
           // own catch block; scheduleReconnect() is idempotent thanks to the
           // reconnectTimer guard, so calling it again is safe.
@@ -232,7 +232,7 @@ export class SettingsBroadcastService {
       await client.query('UNLISTEN *');
       client.release();
     } catch {
-      // UNLISTEN failed (connection broken) — release with error flag so the
+      // UNLISTEN failed (connection broken): release with error flag so the
       // pool discards this connection rather than returning it for reuse.
       try { client.release(true); } catch { /* best-effort */ }
     }

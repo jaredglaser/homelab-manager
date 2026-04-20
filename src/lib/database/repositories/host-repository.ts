@@ -25,7 +25,7 @@ export interface CreateHostInput {
   capabilities?: HostCapabilities;
 }
 
-// No separate mapping needed — SERIAL (INT4) returns JavaScript numbers
+// No separate mapping needed: SERIAL (INT4) returns JavaScript numbers
 // from node-postgres, unlike BIGINT which returns strings. The query result
 // rows match ManagedHostRow directly.
 

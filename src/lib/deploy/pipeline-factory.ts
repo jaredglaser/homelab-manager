@@ -41,7 +41,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
 
   // DeployRepository and ManagedHostsRepository are lightweight pool wrappers.
   // The pool itself is cached by databaseConnectionManager, so per-call allocation
-  // is negligible — no singleton needed here.
+  // is negligible, so no singleton is needed here.
   const deployRepo = new DeployRepository(pool);
 
   const { createStackRepoWriter } = await import('@/lib/deploy/stack-repo-writer');
@@ -56,7 +56,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
       async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
         if (variables.length === 0) return {};
         if (!baoClient) {
-          console.info(`[deploy] OpenBao not configured — skipping secrets for stack "${stack}": ${variables.join(', ')}`);
+          console.info(`[deploy] OpenBao not configured, skipping secrets for stack "${stack}": ${variables.join(', ')}`);
           return {};
         }
         const entries = await Promise.all(
@@ -73,7 +73,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
       },
     },
     tokenResolver: async (host) => {
-      if (!baoClient) throw new Error('OpenBao not configured — cannot resolve agent token');
+      if (!baoClient) throw new Error('OpenBao not configured, cannot resolve agent token');
       const token = await baoClient.getHostSecret(host.name, 'agent_token');
       if (!token) throw new Error(`No agent token found in OpenBao for host "${host.name}"`);
       return token;

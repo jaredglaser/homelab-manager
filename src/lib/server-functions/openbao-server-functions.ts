@@ -77,7 +77,7 @@ export const listStackSecrets = createServerFn({ method: 'GET' })
 
 /**
  * Get a single secret value (for reveal in UI).
- * Returns the value directly — the frontend should display it briefly and discard.
+ * Returns the value directly: the frontend should display it briefly and discard.
  */
 export const getStackSecret = createServerFn({ method: 'POST' })
   .middleware([openBaoMiddleware])

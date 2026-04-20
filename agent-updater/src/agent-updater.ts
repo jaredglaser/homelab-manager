@@ -218,7 +218,7 @@ export class AgentUpdater {
           return false;
         }
         if (healthStatus === undefined) {
-          // No healthcheck defined — consider running as healthy
+          // No healthcheck defined; consider running as healthy
           if (info.State.Running) {
             return true;
           }

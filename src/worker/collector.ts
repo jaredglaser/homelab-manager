@@ -108,7 +108,7 @@ async function main() {
       // Also start AgentStatsCollectors for managed hosts
       const hostRepo = new HostRepository(db.getPool());
       let getToken: ((hostname: string) => Promise<string | null>) = () => {
-        throw new Error('OpenBao client is not available — initialization failed at startup');
+        throw new Error('OpenBao client is not available: initialization failed at startup');
       };
 
       try {

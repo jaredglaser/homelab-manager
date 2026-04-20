@@ -63,7 +63,7 @@ function makeDocker(containers: MinimalContainerInfo[] = [], eventsEmitter = new
   };
 }
 
-describe('subscribe — init snapshot', () => {
+describe('subscribe: init snapshot', () => {
   test('sends init event with all containers on first subscribe', async () => {
     const containers = [
       makeContainer('c1', 'app1'),
@@ -99,7 +99,7 @@ describe('subscribe — init snapshot', () => {
   });
 });
 
-describe('subscribe — multiple subscribers', () => {
+describe('subscribe: multiple subscribers', () => {
   test('each subscriber receives its own independent init event', async () => {
     const containers = [makeContainer('c1', 'app1')];
     const docker = makeDocker(containers);
@@ -159,7 +159,7 @@ describe('subscribe — multiple subscribers', () => {
 
     unsub1();
 
-    // Emit a start event — subscriber2 should still receive it
+    // Emit a start event; subscriber2 should still receive it
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'start',
@@ -174,7 +174,7 @@ describe('subscribe — multiple subscribers', () => {
   });
 });
 
-describe('subscribe — upsert events', () => {
+describe('subscribe: upsert events', () => {
   test('start event produces an upsert with the container info', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1')];
@@ -303,7 +303,7 @@ describe('subscribe — upsert events', () => {
   });
 });
 
-describe('subscribe — destroy events', () => {
+describe('subscribe: destroy events', () => {
   test('destroy action emits a destroy event', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1')];
@@ -356,7 +356,7 @@ describe('subscribe — destroy events', () => {
   });
 });
 
-describe('subscribe — stream reconnect', () => {
+describe('subscribe: stream reconnect', () => {
   test('reconnects after stream error with scheduled timer', async () => {
     const eventsEmitter = new EventEmitter();
     const docker = makeDocker([], eventsEmitter);
@@ -364,7 +364,7 @@ describe('subscribe — stream reconnect', () => {
     const unsub = await subscribe(docker as any, () => {});
     await new Promise((r) => setTimeout(r, 20));
 
-    // Emit stream error — broadcaster should log and schedule reconnect
+    // Emit stream error; broadcaster should log and schedule reconnect
     eventsEmitter.emit('error', new Error('stream error'));
     await new Promise((r) => setTimeout(r, 20));
 
@@ -498,7 +498,7 @@ describe('subscribe — stream reconnect', () => {
       // Unsubscribe before the timer fires
       unsub();
 
-      // Fire the captured timer — no subscribers remain, should clear reconnecting
+      // Fire the captured timer; no subscribers remain, should clear reconnecting
       for (const cb of timerCallbacks) {
         await (cb as () => Promise<void> | void)();
       }
@@ -519,7 +519,7 @@ describe('subscribe — stream reconnect', () => {
   });
 });
 
-describe('subscribe — cleanup (last unsubscribe)', () => {
+describe('subscribe: cleanup (last unsubscribe)', () => {
   test('destroys the events stream when the last subscriber unsubscribes', async () => {
     const eventsEmitter = new EventEmitter();
     const destroySpy = mock(() => {});
@@ -555,7 +555,7 @@ describe('subscribe — cleanup (last unsubscribe)', () => {
   });
 });
 
-describe('subscribe — error handling', () => {
+describe('subscribe: error handling', () => {
   test('handles listContainers failure gracefully', async () => {
     const eventsEmitter = new EventEmitter();
     const docker = {
@@ -655,7 +655,7 @@ describe('subscribe — error handling', () => {
   });
 });
 
-describe('broadcastToAll — subscriber isolation', () => {
+describe('broadcastToAll: subscriber isolation', () => {
   test('a throwing subscriber does not prevent delivery to other subscribers', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1')];
@@ -664,7 +664,7 @@ describe('broadcastToAll — subscriber isolation', () => {
     const received1: BroadcasterEvent[] = [];
     const received2: BroadcasterEvent[] = [];
     // Skip 'init' in assertions/throws: init is delivered directly by subscribe(),
-    // not via broadcastToAll — throwing there would fail subscribe() itself.
+    // not via broadcastToAll; throwing there would fail subscribe() itself.
     const throwingCallback = (e: BroadcasterEvent) => {
       if (e.op !== 'init') throw new Error('subscriber1 threw');
     };
@@ -720,7 +720,7 @@ describe('_handleDockerEventForTesting', () => {
   });
 });
 
-describe('subscribe — error handling (data handler catch path)', () => {
+describe('subscribe: error handling (data handler catch path)', () => {
   test('logs error when handleDockerEvent rejects inside data handler', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1')];
@@ -749,7 +749,7 @@ describe('subscribe — error handling (data handler catch path)', () => {
   });
 });
 
-describe('subscribe — pause and unpause events (Fix 2)', () => {
+describe('subscribe: pause and unpause events (Fix 2)', () => {
   test('pause event produces an upsert', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1', 'running')];
@@ -823,7 +823,7 @@ describe('subscribe — pause and unpause events (Fix 2)', () => {
   });
 });
 
-describe('subscribe — reconnect fresh init (Fix 3)', () => {
+describe('subscribe: reconnect fresh init (Fix 3)', () => {
   test('after reconnect, subscribers receive a fresh init reflecting updated container state', async () => {
     const originalSetTimeout = globalThis.setTimeout;
     let capturedReconnectCallback: (() => void) | null = null;
@@ -872,7 +872,7 @@ describe('subscribe — reconnect fresh init (Fix 3)', () => {
       // Restore real setTimeout before firing the callback (it awaits async operations)
       globalThis.setTimeout = originalSetTimeout;
 
-      // Fire the reconnect — triggers startEventsSubscription(docker, true)
+      // Fire the reconnect; triggers startEventsSubscription(docker, true)
       // which calls listContainers (reconnect path) and broadcasts fresh init
       await (capturedReconnectCallback as unknown as () => Promise<void>)();
       await new Promise((r) => originalSetTimeout(r, 20));
@@ -894,7 +894,7 @@ describe('subscribe — reconnect fresh init (Fix 3)', () => {
   });
 });
 
-describe('subscribe — init enrichment via inspect', () => {
+describe('subscribe: init enrichment via inspect', () => {
   test('populates StartedAt/FinishedAt/ExitCode from inspect on first init', async () => {
     const eventsEmitter = new EventEmitter();
     const listEntry = makeContainer('c1', 'app1', 'exited');
@@ -1058,7 +1058,7 @@ describe('subscribe — init enrichment via inspect', () => {
     }
   });
 
-  test('inspect failure on ONE container does not crash init — others populated', async () => {
+  test('inspect failure on ONE container does not crash init, others populated', async () => {
     const eventsEmitter = new EventEmitter();
     const list = [
       makeContainer('c1', 'app1', 'running'),
@@ -1106,7 +1106,7 @@ describe('subscribe — init enrichment via inspect', () => {
   });
 });
 
-describe('_resetBroadcasterForTesting — with active reconnect timer', () => {
+describe('_resetBroadcasterForTesting: with active reconnect timer', () => {
   test('clears pending reconnect timer during reset', async () => {
     const originalSetTimeout = globalThis.setTimeout;
     const timerCallbacks: Array<() => void> = [];
@@ -1124,11 +1124,11 @@ describe('_resetBroadcasterForTesting — with active reconnect timer', () => {
     };
 
     try {
-      // Trigger a stream error — scheduleReconnect will capture a timer via mocked setTimeout
+      // Trigger a stream error; scheduleReconnect will capture a timer via mocked setTimeout
       eventsEmitter.emit('error', new Error('disconnect'));
       await new Promise((r) => originalSetTimeout(r, 10));
 
-      // Reset while the timer is pending — exercises lines 224-225
+      // Reset while the timer is pending; exercises lines 224-225
       _resetBroadcasterForTesting();
 
       // Timer callback was captured but should now be a no-op (state cleared)

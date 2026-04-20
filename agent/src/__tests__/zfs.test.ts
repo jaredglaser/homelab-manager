@@ -145,7 +145,7 @@ describe('handleZfsStatsStream', () => {
     const killMock = mock(() => {});
     const readableStream = new ReadableStream<Uint8Array>({
       start() {
-        // Keep stream open — simulates long-running iostat
+        // Keep stream open; simulates long-running iostat
       },
     });
 
@@ -201,7 +201,7 @@ describe('handleZfsStatsStream', () => {
     ac.abort();
     await new Promise((r) => setTimeout(r, 20));
 
-    // Now release the second chunk — enqueue should catch
+    // Now release the second chunk; enqueue should catch
     resolveSecondChunk?.();
     await new Promise((r) => setTimeout(r, 20));
 

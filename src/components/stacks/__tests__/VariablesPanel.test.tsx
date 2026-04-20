@@ -275,7 +275,7 @@ describe('VariablesPanel', () => {
   });
 
   it('silently catches error when ensureVariablesExist rejects', async () => {
-    // OpenBao has DB_URL but compose also references NEW_VAR — triggers ensureVariablesExist
+    // OpenBao has DB_URL but compose also references NEW_VAR, triggers ensureVariablesExist
     mockListSecrets.mockImplementationOnce(() => Promise.resolve(['DB_URL']));
     mockEnsureVariablesExist.mockImplementationOnce(() => Promise.reject(new Error('OpenBao unreachable')));
 
@@ -284,7 +284,7 @@ describe('VariablesPanel', () => {
     await waitFor(() => {
       expect(mockEnsureVariablesExist).toHaveBeenCalledTimes(1);
     });
-    // The catch callback silences the error — no throw, no error UI for this path
+    // The catch callback silences the error: no throw, no error UI for this path
   });
 
   it('save button is disabled when field has not been fetched yet', async () => {
@@ -328,7 +328,7 @@ describe('VariablesPanel', () => {
       expect(screen.getByText('Failed to retrieve value from OpenBao.')).toBeDefined();
     });
 
-    // Hide then reveal again — retry should clear the error
+    // Hide then reveal again, retry should clear the error
     fireEvent.click(screen.getByLabelText('Hide value'));
     fireEvent.click(screen.getByLabelText('Reveal value'));
     await waitFor(() => {

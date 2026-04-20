@@ -450,7 +450,7 @@ describe('handleAddHost', () => {
     await expect(
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow(/health check failed/);
-    // deleteToken threw but the error was caught — the rollback error is the one that propagates
+    // deleteToken threw but the error was caught; the rollback error is the one that propagates
     expect(deps.deleteToken).toHaveBeenCalledWith('new');
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });

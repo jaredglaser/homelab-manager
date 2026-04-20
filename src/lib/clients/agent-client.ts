@@ -52,7 +52,7 @@ export interface AgentHealthResponse {
  * All requests include the bearer token and a timeout via AbortSignal.
  * Adapts the raw agent JSON into the internal AgentDeployResponse / AgentHealthResponse shapes.
  *
- * HTTPS is supported natively — use https:// in the agent URL.
+ * HTTPS is supported natively: use https:// in the agent URL.
  * For self-signed certs (e.g., from OpenBao PKI), set NODE_EXTRA_CA_CERTS
  * env var to the CA certificate path.
  *
@@ -186,7 +186,7 @@ export class AgentClient {
     // Never retry our own per-attempt timeout: the in-flight operation (e.g.
     // `docker compose up`) may still be running on the agent.
     if (err.wasTimeout) return false;
-    // Network-layer failures (fetch threw) have no statusCode — retry.
+    // Network-layer failures (fetch threw) have no statusCode, retry.
     if (err.statusCode === undefined) return true;
     // Transient gateway errors are retryable; everything else is not.
     return err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504;
@@ -221,7 +221,7 @@ export class AgentClient {
     } catch (err) {
       // Distinguish our own per-attempt timeout from a genuine network failure.
       // DOMException('...', 'TimeoutError') is the canonical AbortSignal.timeout()
-      // rejection, but some runtimes surface a plain AbortError — treat both as
+      // rejection, but some runtimes surface a plain AbortError, treat both as
       // "our timeout" to be safe.
       const wasTimeout =
         err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');

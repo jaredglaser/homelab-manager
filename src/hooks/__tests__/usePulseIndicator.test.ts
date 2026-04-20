@@ -135,7 +135,7 @@ describe('usePulseIndicator', () => {
       // Reset captured timer state from the first trigger
       timerCallbacks.clear();
 
-      // Second render with the SAME timestamp — must be a no-op
+      // Second render with the SAME timestamp: must be a no-op
       act(() => { rerender({ val: ts }); });
 
       expect(timerCallbacks.size).toBe(0);
@@ -279,7 +279,7 @@ describe('usePulseIndicator', () => {
         lateEntry![1].fn();
       });
 
-      // DOM should be unchanged — cancelled flag blocks timer callbacks from writing
+      // DOM should be unchanged: cancelled flag blocks timer callbacks from writing
       expect(ping.style.backgroundColor).toBe(bgAfterStart);
       expect(dot.style.backgroundColor).toBe(bgAfterStart);
       // animate-ping was added by the initial trigger; pulse timer is the one that removes it,

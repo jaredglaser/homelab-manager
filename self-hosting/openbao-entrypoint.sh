@@ -21,7 +21,7 @@ for _ in $(seq 1 30); do
     SERVER_READY=true
     break
   fi
-  # 501=not initialized, 503=sealed — both mean "server is up"
+  # 501=not initialized, 503=sealed (both mean "server is up")
   if wget -q -O /dev/null "$BAO_ADDR/v1/sys/seal-status" 2>/dev/null; then
     SERVER_READY=true
     break
@@ -34,12 +34,12 @@ if [ "$SERVER_READY" != "true" ]; then
   exit 1
 fi
 
-# Query init status before deciding to initialize — avoids re-init if INIT_FILE
+# Query init status before deciding to initialize: avoids re-init if INIT_FILE
 # was lost but the server was already initialized (which would fail anyway).
 ALREADY_INITIALIZED=$(wget -q -O - "$BAO_ADDR/v1/sys/init" 2>/dev/null | sed -n 's/.*"initialized":\(true\|false\).*/\1/p')
 
 if [ "$ALREADY_INITIALIZED" = "false" ]; then
-  echo "[openbao-init] First start — initializing..."
+  echo "[openbao-init] First start: initializing..."
 
   # Write to a temp file, validate, then atomically persist only the unseal key.
   # The root_token is used only during bootstrap and must not be stored on disk.
@@ -97,7 +97,7 @@ POLICY
 
   echo "[openbao-init] Initialization complete."
 else
-  echo "[openbao-init] Existing data — unsealing..."
+  echo "[openbao-init] Existing data: unsealing..."
 
   if [ ! -f "$INIT_FILE" ]; then
     echo "[openbao-init] ERROR: Server is initialized but $INIT_FILE is missing. Cannot unseal."

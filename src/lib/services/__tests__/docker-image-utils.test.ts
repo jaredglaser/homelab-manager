@@ -75,7 +75,7 @@ describe('pullImage', () => {
     const docker = {
       pull: async () => stream,
       modem: {
-        // Never call the callback — simulates a stalled pull
+        // Never call the callback (simulates a stalled pull)
         followProgress: () => {},
       },
     } as any;

@@ -583,7 +583,7 @@ describe('notifyPayloadToInventory', () => {
   });
 });
 
-describe('DockerInventoryBroadcastService — malformed NOTIFY does not crash', () => {
+describe('DockerInventoryBroadcastService: malformed NOTIFY does not crash', () => {
   it('logs and continues when NOTIFY upsert payload is missing required fields', async () => {
     const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
     const poolClient = createMockPoolClient();
@@ -661,7 +661,7 @@ describe('zDockerInventoryBroadcastEvent', () => {
           finishedAt: null,
           exitCode: null,
           updatedAt: new Date(),
-          // labels intentionally missing — snapshot requires it
+          // labels intentionally missing; snapshot requires it
         },
       ],
     };
@@ -673,7 +673,7 @@ describe('zDockerInventoryBroadcastEvent', () => {
   });
 });
 
-describe('DockerInventoryBroadcastService — connection failure retry', () => {
+describe('DockerInventoryBroadcastService: connection failure retry', () => {
   it('retries after getPoolClient throws, resolving via the setTimeout-based await', async () => {
     const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
@@ -714,7 +714,7 @@ describe('DockerInventoryBroadcastService — connection failure retry', () => {
   });
 });
 
-describe('DockerInventoryBroadcastService — zod validation at NOTIFY boundary', () => {
+describe('DockerInventoryBroadcastService: zod validation at NOTIFY boundary', () => {
   it('drops malformed NOTIFY frames before fanning out to subscribers', async () => {
     const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
     const poolClient = createMockPoolClient();
@@ -729,7 +729,7 @@ describe('DockerInventoryBroadcastService — zod validation at NOTIFY boundary'
     const flushLocal = () => new Promise<void>((r) => setTimeout(r, 0));
     await flushLocal();
 
-    // NOTIFY payload with event_type 'upsert' but an invalid state value —
+    // NOTIFY payload with event_type 'upsert' but an invalid state value:
     // notifyPayloadToInventory builds an object, then zod rejects it.
     poolClient.emit('notification', {
       channel: 'docker_container_change',

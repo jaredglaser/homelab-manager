@@ -81,7 +81,7 @@ const composeContainer2: DockerInventorySnapshotContainer = {
   updatedAt: new Date('2026-04-16T10:01:00Z'),
 };
 
-/** A container with no compose project — should always be excluded from stack output. */
+/** A container with no compose project; should always be excluded from stack output. */
 const nonComposeContainer: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'standalone999',
@@ -574,8 +574,8 @@ describe('StackStatusBroadcastService', () => {
     service.subscribe((e) => received.push(e));
     await flush();
 
-    // Real Docker destroy events carry labels: {} so compose_project is null
-    // — removal must still find the container via its in-memory stack entry.
+    // Real Docker destroy events carry labels: {} so compose_project is null,
+    // so removal must still find the container via its in-memory stack entry.
     poolClient.emit('notification', {
       channel: 'docker_container_change',
       payload: JSON.stringify({
@@ -768,7 +768,7 @@ describe('StackStatusBroadcastService', () => {
 
       await service.stop();
 
-      // Captured timers should be no-ops — stop() cleared them in stopListening.
+      // Captured timers should be no-ops: stop() cleared them in stopListening.
       for (const fn of capturedTimers) {
         fn();
       }
