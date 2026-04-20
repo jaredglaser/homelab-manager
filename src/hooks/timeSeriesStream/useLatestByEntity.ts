@@ -1,54 +1,56 @@
 import { useMemo, useRef } from 'react';
+import type { RowAccessors } from './types';
 
-interface UseLatestByEntityOptions<TRow> {
+interface UseLatestByEntityOptions<
+  TRow,
+  TKey extends PropertyKey,
+  TEntity extends PropertyKey,
+> {
   rows: TRow[];
-  /** Ref-wrapped getters so callers can pass inline arrows without busting memoization. */
-  getEntityRef: React.RefObject<(row: TRow) => string>;
-  getTimeRef: React.RefObject<(row: TRow) => number>;
-  getKeyRef: React.RefObject<(row: TRow) => string>;
+  accessorsRef: React.RefObject<RowAccessors<TRow, TKey, TEntity>>;
 }
 
 /**
- * Computes the most recent row per entity from a sorted-rows buffer.
- *
- * Preserves structural sharing: when no entity's latest row has changed (by key), returns the
- * previous Map reference. This lets downstream consumers rely on reference equality to skip work.
+ * Latest row per entity, with structural sharing: returns the previous Map reference
+ * when no entity's latest row changed (by key) so downstream consumers can short-circuit
+ * via reference equality.
  */
-export function useLatestByEntity<TRow>({
+export function useLatestByEntity<
+  TRow,
+  TKey extends PropertyKey = string,
+  TEntity extends PropertyKey = string,
+>({
   rows,
-  getEntityRef,
-  getTimeRef,
-  getKeyRef,
-}: UseLatestByEntityOptions<TRow>): Map<string, TRow> {
-  const prevLatestRef = useRef<Map<string, TRow>>(new Map());
+  accessorsRef,
+}: UseLatestByEntityOptions<TRow, TKey, TEntity>): Map<TEntity, TRow> {
+  const prevLatestRef = useRef<Map<TEntity, TRow>>(new Map());
 
   return useMemo(() => {
     const prev = prevLatestRef.current;
-    const next = new Map<string, TRow>();
+    const next = new Map<TEntity, TRow>();
+    const { entity, time, key } = accessorsRef.current;
 
     for (const row of rows) {
-      const entity = getEntityRef.current(row);
-      const existing = next.get(entity);
-      if (!existing || getTimeRef.current(row) > getTimeRef.current(existing)) {
-        next.set(entity, row);
+      const e = entity(row);
+      const existing = next.get(e);
+      if (!existing || time(row) > time(existing)) {
+        next.set(e, row);
       }
     }
 
-    // Structural sharing: return previous Map if nothing changed.
-    // Compare by row key (dedup key includes timestamp, so this detects actual data changes).
     if (next.size !== prev.size) {
       prevLatestRef.current = next;
       return next;
     }
-    for (const [entity, row] of next) {
-      const prevRow = prev.get(entity);
-      if (!prevRow || getKeyRef.current(row) !== getKeyRef.current(prevRow)) {
+    for (const [e, row] of next) {
+      const prevRow = prev.get(e);
+      if (!prevRow || key(row) !== key(prevRow)) {
         prevLatestRef.current = next;
         return next;
       }
     }
 
     return prev;
-    // getEntityRef/getTimeRef/getKeyRef are stable ref objects; only `rows` drives recomputation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows]);
 }

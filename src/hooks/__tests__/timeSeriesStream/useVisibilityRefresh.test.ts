@@ -72,4 +72,28 @@ describe('useVisibilityRefresh', () => {
     act(() => simulateVisibilityChange('visible'));
     expect(onRefresh).toHaveBeenCalledTimes(0);
   });
+
+  it('honors cooldown set by another refresh source (shared ref contract)', () => {
+    const onRefresh = mock(() => {});
+    // Shared between the hook and the outside writer (the role the orchestrator plays in production).
+    const sharedRef = { current: 0 };
+    renderHook(() => {
+      useVisibilityRefresh({ onRefresh, cooldownMs: 5000, lastRefreshRef: sharedRef });
+    });
+
+    // First visibility event: ref is 0, cooldown has elapsed → refresh fires and we mark it done
+    // (the hook itself does not mutate lastRefreshRef; the callback is expected to).
+    act(() => simulateVisibilityChange('visible'));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    sharedRef.current = Date.now();
+
+    // Second visibility event within cooldown: the external write must be respected → no refresh.
+    act(() => simulateVisibilityChange('visible'));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    // After cooldown elapses (simulated by rewinding the ref), refresh fires again.
+    sharedRef.current = Date.now() - 6000;
+    act(() => simulateVisibilityChange('visible'));
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
 });

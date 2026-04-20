@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { useRef } from 'react';
 import { renderHook } from '@testing-library/react';
 import { useLatestByEntity } from '../../timeSeriesStream/useLatestByEntity';
+import type { RowAccessors } from '../../timeSeriesStream/types';
 
 interface Row {
   key: string;
@@ -9,13 +10,17 @@ interface Row {
   entity: string;
 }
 
+const defaultAccessors: RowAccessors<Row> = {
+  key: r => r.key,
+  time: r => r.time,
+  entity: r => r.entity,
+};
+
 function renderLatest(rows: Row[]) {
   return renderHook(
     ({ rs }: { rs: Row[] }) => {
-      const getKeyRef = useRef((r: Row) => r.key);
-      const getTimeRef = useRef((r: Row) => r.time);
-      const getEntityRef = useRef((r: Row) => r.entity);
-      return useLatestByEntity<Row>({ rows: rs, getEntityRef, getTimeRef, getKeyRef });
+      const accessorsRef = useRef<RowAccessors<Row>>(defaultAccessors);
+      return useLatestByEntity<Row>({ rows: rs, accessorsRef });
     },
     { initialProps: { rs: rows } },
   );
@@ -40,8 +45,8 @@ describe('useLatestByEntity', () => {
       { key: 'b-1', time: 2, entity: 'b' },
     ];
     const rows2: Row[] = [
-      { key: 'a-1', time: 1, entity: 'a' }, // same latest for 'a'
-      { key: 'b-1', time: 2, entity: 'b' }, // same latest for 'b'
+      { key: 'a-1', time: 1, entity: 'a' },
+      { key: 'b-1', time: 2, entity: 'b' },
     ];
     const { result, rerender } = renderLatest(rows1);
     const first = result.current;
@@ -65,7 +70,6 @@ describe('useLatestByEntity', () => {
     rerender({ rs: rows2 });
     expect(result.current).not.toBe(first);
     expect(result.current.get('a')?.key).toBe('a-2');
-    // Entity 'b' row reference is preserved when the source row object is the same.
     expect(result.current.get('b')).toBe(first.get('b'));
   });
 
@@ -87,7 +91,6 @@ describe('useLatestByEntity', () => {
       { key: 'a-1', time: 1, entity: 'a' },
       { key: 'b-1', time: 2, entity: 'b' },
     ];
-    // Same two entities but entity 'a' gets a replacement row (e.g. windowing evicted 'a-1' and a new 'a-2' arrived).
     const rows2: Row[] = [
       { key: 'a-2', time: 3, entity: 'a' },
       { key: 'b-1', time: 2, entity: 'b' },
@@ -104,7 +107,6 @@ describe('useLatestByEntity', () => {
       { key: 'a-1', time: 1, entity: 'a' },
       { key: 'b-1', time: 2, entity: 'b' },
     ];
-    // same count, but 'b' dropped and 'c' added — prev has no row for 'c'
     const rows2: Row[] = [
       { key: 'a-1', time: 1, entity: 'a' },
       { key: 'c-1', time: 3, entity: 'c' },

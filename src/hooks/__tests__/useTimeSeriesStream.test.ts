@@ -431,8 +431,11 @@ describe('useTimeSeriesStream stale initialData', () => {
     // Wait for the stale-data refresh (setTimeout 0 + preloadFn)
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
-    // preloadFn should have been called to refresh stale data
+    // preloadFn should have been called, and the buffer should now contain the fresh rows.
     expect(preloadFn).toHaveBeenCalledTimes(1);
+    const keys = result.current.rows.map(r => r.key);
+    expect(keys).toContain('a-2');
+    expect(keys).toContain('b-2');
   });
 
   it('does not refresh when initialData is fresh', async () => {
@@ -571,35 +574,52 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
 });
 
 describe('useTimeSeriesStream preloadFn change', () => {
-  it('re-fetches history when preloadFn changes after initial mount', async () => {
+  it('re-fetches history when preloadFn changes and preserves in-flight SSE live-tail', async () => {
     const now = Date.now();
-    const firstFn = mock(() => Promise.resolve([makeRow('a', 5)]));
-    const secondFn = mock(() => Promise.resolve([{ key: 'b-1', time: now, entity: 'b' }]));
+    const firstFn = mock(() => Promise.resolve([{ key: 'a-1', time: now - 10_000, entity: 'a' }]));
+    const secondFn = mock(() => Promise.resolve([{ key: 'a-1', time: now - 10_000, entity: 'a' }]));
 
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       ({ fn }: { fn: () => Promise<TestRow[]> }) =>
-        useTimeSeriesStream({ sseUrl: '/api/test', preloadFn: fn, ...defaultOpts, windowSeconds: 60 }),
+        useTimeSeriesStream({
+          sseUrl: '/api/test',
+          preloadFn: fn,
+          ...defaultOpts,
+          windowSeconds: 60,
+          updateIntervalMs: 30,
+        }),
       { initialProps: { fn: firstFn } },
     );
 
+    // Initial preload completes; buffer has 'a-1'.
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
     expect(firstFn).toHaveBeenCalledTimes(1);
-    expect(secondFn).toHaveBeenCalledTimes(0);
+    expect(result.current.rows).toHaveLength(1);
 
-    // Change preloadFn (e.g. window size changed via settings)
+    // An SSE row arrives that is newer than the (upcoming) refresh snapshot's max.
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.onmessage?.({ data: JSON.stringify([{ key: 'live', time: now + 5_000, entity: 'a' }]) });
+    });
+    await act(async () => { await new Promise(r => setTimeout(r, 60)); });
+    expect(result.current.rows.map(r => r.key)).toContain('live');
+
+    // Change preloadFn (e.g. window size changed via settings) → triggers a refresh, not a fresh seed.
     rerender({ fn: secondFn });
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
-    // The new preloadFn should have been invoked by the refresh path
     expect(secondFn).toHaveBeenCalledTimes(1);
+    // The live-tail row must survive the refresh; that's the preserveLiveTail contract.
+    expect(result.current.rows.map(r => r.key)).toContain('live');
+    expect(result.current.rows.map(r => r.key)).toContain('a-1');
   });
 });
 
 describe('useTimeSeriesStream debug logging', () => {
-  it('logs via console.log when debug=true', async () => {
+  it('logs distinct messages for preload and refresh', async () => {
     const origLog = console.log;
-    const logSpy = mock(() => {});
-    console.log = logSpy;
+    const messages: string[] = [];
+    console.log = ((...args: unknown[]) => { messages.push(String(args[0] ?? '')); }) as typeof console.log;
 
     try {
       const preloadFn = mock(() => Promise.resolve([makeRow('a', 5)]));
@@ -614,12 +634,42 @@ describe('useTimeSeriesStream debug logging', () => {
         })
       );
 
-      // Wait long enough for preload + at least one periodic refresh.
-      await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+      await act(async () => { await new Promise(r => setTimeout(r, 150)); });
 
-      expect(logSpy).toHaveBeenCalled();
+      expect(messages.some(m => m.includes('Starting preload'))).toBe(true);
+      expect(messages.some(m => m.includes('Preload complete'))).toBe(true);
+      // Refresh log carries the bucketed + liveTail = total breakdown restored from main.
+      const refreshLog = messages.find(m => m.includes('Buffer refresh'));
+      expect(refreshLog).toBeDefined();
+      expect(refreshLog).toMatch(/\d+ bucketed \+ \d+ live = \d+ total/);
     } finally {
       console.log = origLog;
+    }
+  });
+});
+
+describe('useTimeSeriesStream error composition', () => {
+  it('prefers serviceError over preloadError when both are present', async () => {
+    const origError = console.error;
+    console.error = mock(() => {});
+
+    try {
+      const preloadFn = mock(() => Promise.reject(new Error('DB down')));
+      const { result } = renderHook(() =>
+        useTimeSeriesStream({ sseUrl: '/api/test', preloadFn, ...defaultOpts }),
+      );
+
+      // Preload fails → preloadError is set
+      await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+      expect(result.current.error?.message).toBe('DB down');
+
+      // Fire stats_error → serviceError is set. Composed error should switch to "Database unavailable".
+      const es = MockEventSource.instances[0];
+      act(() => { es.fireEvent('stats_error'); });
+
+      expect(result.current.error?.message).toBe('Database unavailable');
+    } finally {
+      console.error = origError;
     }
   });
 });
