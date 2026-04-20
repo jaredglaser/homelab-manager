@@ -83,12 +83,12 @@ describe('processPostReceive (pipeline paths)', () => {
     // This prevents the real env var (OPENBAO_URL) from triggering real HTTP requests.
     isConfiguredSpy = spyOn(openbaoConfig, 'isOpenBaoConfigured').mockReturnValue(false);
 
-    // Database connection — return a mock client with an empty pool object
+    // Database connection: return a mock client with an empty pool object
     getClientSpy = spyOn(databaseConnectionManager, 'getClient').mockResolvedValue(
       mockDbClient as never,
     );
 
-    // Spy on repository prototype methods — applies to all instances created by processPostReceive
+    // Spy on repository prototype methods: applies to all instances created by processPostReceive
     insertDeployIfNoActiveSpy = spyOn(
       DeployRepository.prototype,
       'insertDeployIfNoActive',
@@ -114,13 +114,13 @@ describe('processPostReceive (pipeline paths)', () => {
       'getByName',
     ).mockResolvedValue(TEST_HOST as never);
 
-    // Agent deploy — returns success by default
+    // Agent deploy: returns success by default
     agentDeploySpy = spyOn(AgentClient.prototype, 'deploy').mockResolvedValue({
       success: true,
       logs: 'deployed ok',
     } as never);
 
-    // OpenBaoClient.getHostSecret — used by tokenResolver; return a valid token by default
+    // OpenBaoClient.getHostSecret: used by tokenResolver; return a valid token by default
     getHostSecretSpy = spyOn(
       OpenBaoClient.prototype,
       'getHostSecret',
@@ -165,7 +165,7 @@ describe('processPostReceive (pipeline paths)', () => {
       expect.stringContaining('[PostReceive] Failed to read compose file for stack "plex"'),
       expect.anything(),
     );
-    // Pipeline never initialized — getClient should not have been called
+    // Pipeline never initialized: getClient should not have been called
     expect(getClientSpy).not.toHaveBeenCalled();
   });
 
@@ -192,7 +192,7 @@ describe('processPostReceive (pipeline paths)', () => {
 
     await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
 
-    // Pipeline was set up — DB was accessed
+    // Pipeline was set up; DB was accessed
     expect(getClientSpy).toHaveBeenCalledTimes(1);
     // Execute was called (pipeline ran)
     expect(insertDeployIfNoActiveSpy).toHaveBeenCalledTimes(1);

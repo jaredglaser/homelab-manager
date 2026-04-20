@@ -147,7 +147,7 @@ export function handleLogStream(
 
         // Send periodic heartbeat to prevent idle socket timeouts from killing
         // the connection. Must be shorter than any intermediary timeout (Bun
-        // fetch, Nitro, reverse proxies) — 5 s is safe for typical defaults.
+        // fetch, Nitro, reverse proxies); 5 s is safe for typical defaults.
         controller.enqueue(encoder.encode(':\n\n'));
         const heartbeatInterval = setInterval(() => {
           if (closed) { clearInterval(heartbeatInterval); return; }

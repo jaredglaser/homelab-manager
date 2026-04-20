@@ -30,7 +30,7 @@ const mockHosts: readonly HostListItem[] = [
 
 let nextMockId = mockHosts.length + 1;
 
-/** Intentionally stateless — returns a plausible result without mutating mockHosts. Demo mode shows a fixed set of hosts. */
+/** Intentionally stateless: returns a plausible result without mutating mockHosts. Demo mode shows a fixed set of hosts. */
 export async function verifyHost(_data: {
   name: string;
   agentUrl: string;
@@ -51,7 +51,7 @@ export async function verifyHost(_data: {
   return { host: newHost };
 }
 
-/** Intentionally stateless — returns success without mutating mockHosts. */
+/** Intentionally stateless: returns success without mutating mockHosts. */
 export async function removeHost(_data: {
   hostId: number;
 }): Promise<{ success: boolean }> {

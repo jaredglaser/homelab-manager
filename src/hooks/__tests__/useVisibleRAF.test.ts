@@ -92,7 +92,7 @@ describe('useVisibleRAF', () => {
 
     expect(rafCallbacks.length).toBe(1);
 
-    // Invoke the frame callback — user callback should be called
+    // Invoke the frame callback; user callback should be called
     rafCallbacks[0](performance.now());
     expect(cb).toHaveBeenCalledTimes(1);
   });
@@ -181,7 +181,7 @@ describe('useVisibleRAF', () => {
 
     ioInstances[0].emit(targetRef.current, true);
 
-    // Rerender with a new callback — should NOT create a new observer
+    // Rerender with a new callback; should NOT create a new observer
     rerender({ fn: cb2 });
 
     expect(ioInstances.length).toBe(1);

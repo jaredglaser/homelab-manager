@@ -106,7 +106,7 @@ export class AgentProvisioningService {
       }
       await container.remove();
     } catch (err: unknown) {
-      // 404 means container doesn't exist — that's fine
+      // 404 means container doesn't exist, that's fine
       if (
         err &&
         typeof err === 'object' &&

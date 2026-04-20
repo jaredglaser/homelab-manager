@@ -5,7 +5,7 @@ import {
 } from '@/lib/clients/openbao-client-factory';
 
 /**
- * OpenBao middleware — injects an OpenBaoClient into the server function context.
+ * OpenBao middleware: injects an OpenBaoClient into the server function context.
  * Delegates to the shared client factory so the cache is unified with any
  * server functions that call getOpenBaoClient() directly.
  */

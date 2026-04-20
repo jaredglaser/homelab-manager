@@ -34,7 +34,7 @@ export function authenticateRequest(
   }
 
   if (!expectedToken.trim()) {
-    console.error('AGENT_TOKEN is empty or whitespace — rejecting all requests');
+    console.error('AGENT_TOKEN is empty or whitespace, rejecting all requests');
     return Response.json({ error: 'Server misconfigured' }, { status: 500 });
   }
 

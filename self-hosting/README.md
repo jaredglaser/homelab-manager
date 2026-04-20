@@ -37,7 +37,7 @@ POSTGRES_USER=homelab
 POSTGRES_PASSWORD=changeme   # change this
 
 # OpenBao (secrets storage for managed host agent tokens)
-OPENBAO_TOKEN=changeme       # change this — use a long random string
+OPENBAO_TOKEN=changeme       # change this; use a long random string
 ```
 
 See [Configuration](#configuration) for all available options.
@@ -88,7 +88,7 @@ All configuration is done via environment variables in your `.env` file.
 | `POSTGRES_DB` | Database name |
 | `POSTGRES_USER` | Database user |
 | `POSTGRES_PASSWORD` | Database password |
-| `OPENBAO_TOKEN` | Root token for OpenBao secrets storage — use a long random string |
+| `OPENBAO_TOKEN` | Root token for OpenBao secrets storage (use a long random string) |
 
 ### Web Server
 
@@ -106,13 +106,13 @@ Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular hom
 
 ### Docker Monitoring
 
-Docker monitoring works through agent sidecars. Deploy the agent container on each host you want to monitor, then register the host in **Settings → Managed Hosts** with the `docker` capability enabled. The worker subscribes to the agent's SSE streams for stats and container inventory — no direct Docker socket access is required on the dashboard host.
+Docker monitoring works through agent sidecars. Deploy the agent container on each host you want to monitor, then register the host in **Settings → Managed Hosts** with the `docker` capability enabled. The worker subscribes to the agent's SSE streams for stats and container inventory; no direct Docker socket access is required on the dashboard host.
 
 > **Setup:** See the [Docker Stack Management](#docker-stack-management) section below for the agent deploy flow. The same agent serves both monitoring and deploy operations.
 
 ### ZFS Monitoring
 
-ZFS monitoring works through agent sidecars — the same agents used for Docker management. When you register a managed host with ZFS capability, the worker connects to the agent's `/zfs/stats/stream` SSE endpoint to receive real-time `zpool iostat` data. No SSH configuration is needed.
+ZFS monitoring works through agent sidecars (the same agents used for Docker management). When you register a managed host with ZFS capability, the worker connects to the agent's `/zfs/stats/stream` SSE endpoint to receive real-time `zpool iostat` data. No SSH configuration is needed.
 
 > **Setup:** Deploy the agent container on a host with ZFS pools, then register the host in **Settings → Managed Hosts** with the `zfs` capability enabled. The agent auto-detects ZFS by checking for the `zpool` binary at startup.
 
@@ -130,7 +130,7 @@ ZFS monitoring works through agent sidecars — the same agents used for Docker 
 
 ### Docker Stack Management
 
-Stack management lets you deploy and manage Docker Compose stacks on your hosts via the dashboard. Agent tokens are stored in OpenBao — no `.env` file or token file is distributed to hosts.
+Stack management lets you deploy and manage Docker Compose stacks on your hosts via the dashboard. Agent tokens are stored in OpenBao, so no `.env` file or token file is distributed to hosts.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -140,7 +140,7 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 >
 > **Adding a host:** Deploy the agent on your Docker host, then register it in **Settings → Managed Hosts** by providing the agent's URL and token. The dashboard verifies connectivity before saving.
 >
-> **Agent setup:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose file, a `.env`, and a token file (`agent-token`) for the agent host. The same token is stored in OpenBao by the dashboard when you complete the wizard — it is never embedded in the compose environment directly.
+> **Agent setup:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose file, a `.env`, and a token file (`agent-token`) for the agent host. The same token is stored in OpenBao by the dashboard when you complete the wizard; it is never embedded in the compose environment directly.
 >
 > The wizard-generated compose mounts the token from a local file rather than an env var:
 >
@@ -158,7 +158,7 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 >   restart: unless-stopped
 > ```
 >
-> Run `chmod 600 agent-token` after creating the token file. Once the agent is running, provide its URL in the wizard's Verify step — the dashboard verifies connectivity and stores the token in OpenBao.
+> Run `chmod 600 agent-token` after creating the token file. Once the agent is running, provide its URL in the wizard's Verify step; the dashboard verifies connectivity and stores the token in OpenBao.
 
 ### Worker Behavior
 
@@ -187,10 +187,10 @@ OPENBAO_TOKEN=a-long-random-string-here
 # Web Server
 # WEB_PORT=3000
 
-# Docker — no env vars needed; register hosts with the Docker capability
+# Docker: no env vars needed; register hosts with the Docker capability
 # in Settings → Managed Hosts after deploying an agent sidecar.
 
-# ZFS — no env vars needed; register hosts with ZFS capability
+# ZFS: no env vars needed; register hosts with ZFS capability
 # in Settings → Managed Hosts after deploying an agent sidecar
 
 # Proxmox VE
@@ -243,4 +243,4 @@ docker compose up -d
 **OpenBao fails to start**
 - Ensure `OPENBAO_TOKEN` is set in your `.env`.
 - Check logs: `docker compose logs openbao`
-- The `openbao-data` volume persists the init keys — do not delete it unless you intend to reinitialize.
+- The `openbao-data` volume persists the init keys; do not delete it unless you intend to reinitialize.

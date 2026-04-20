@@ -178,7 +178,7 @@ export class DeployRepository {
   /**
    * Fails ALL pending/in_progress deploy_history rows unconditionally, overwriting
    * `logs` with `logMessage` (any partial agent output is lost). Safe only for
-   * single-instance/single-worker startup recovery — do not call in multi-process
+   * single-instance/single-worker startup recovery: do not call in multi-process
    * deployments where another instance may own active rows. Returns the recovered rows.
    */
   async recoverStuckDeploys(logMessage: string): Promise<StuckDeployRow[]> {

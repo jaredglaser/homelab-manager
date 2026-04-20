@@ -214,7 +214,7 @@ export const settingsAtom = atom<Settings>((get) => parseSettings(get(rawSetting
 export const proxmoxLastUpdateAtom = atom<number>(0);
 
 /**
- * Shallow set equality — compares two Sets by size and membership.
+ * Shallow set equality: compares two Sets by size and membership.
  * parseSettings creates fresh Set instances on every raw change, so plain
  * identity equality would always re-render domain subscribers. Using a
  * structural comparison lets selectAtom short-circuit when the parsed
@@ -299,7 +299,7 @@ function developerEqual(a: Settings['developer'], b: Settings['developer']): boo
  * Domain-scoped derived atoms. Each selects one slice of `settingsAtom` and
  * re-emits only when that slice differs structurally from the previous value.
  * Components subscribing via useGeneralSettings/useDockerSettings/etc. only
- * re-render when their own domain changes — e.g. toggling a Docker host
+ * re-render when their own domain changes: e.g. toggling a Docker host
  * expansion no longer re-renders ZFS or Proxmox components.
  */
 export const generalSettingsAtom = selectAtom(settingsAtom, (s) => s.general, generalEqual);

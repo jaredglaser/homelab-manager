@@ -60,7 +60,7 @@ export const zDockerInventorySnapshotContainer = zInventoryContainerBase.extend(
 export type DockerInventorySnapshotContainer = z.infer<typeof zDockerInventorySnapshotContainer>;
 
 /**
- * Update shape emitted on `type: 'upsert'`. Labels are intentionally absent —
+ * Update shape emitted on `type: 'upsert'`. Labels are intentionally absent:
  * the NOTIFY trigger in migration 018 omits them (8 kB cap on PG NOTIFY).
  * Consumers that need labels must narrow to the snapshot shape and fetch from
  * the init / DB path.

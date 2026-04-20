@@ -1,4 +1,4 @@
-# Toolchain stage — downloads Docker CLI + Compose (cached independently)
+# Toolchain stage: downloads Docker CLI + Compose (cached independently)
 FROM oven/bun:1 AS toolchain
 
 # Pin versions for reproducible builds
@@ -23,7 +23,7 @@ RUN apt-get update && \
     -o /tmp/docker-compose.sha256 && \
     sed -i "s|docker-compose-linux-${COMPOSE_ARCH}|/usr/local/lib/docker/cli-plugins/docker-compose|" /tmp/docker-compose.sha256 && \
     grep -q '/usr/local/lib/docker/cli-plugins/docker-compose$' /tmp/docker-compose.sha256 || \
-      { echo "ERROR: sha256 file rewrite failed — expected absolute path in checksum file"; exit 1; } && \
+      { echo "ERROR: sha256 file rewrite failed, expected absolute path in checksum file"; exit 1; } && \
     sha256sum -c /tmp/docker-compose.sha256 && \
     rm /tmp/docker-compose.sha256 && \
     chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \

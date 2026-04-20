@@ -191,7 +191,7 @@ export async function handleStackDeploy(
   const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack };
 
   // When force recreate is enabled, remove any containers with explicit
-  // container_name values that might conflict — they could belong to a
+  // container_name values that might conflict: they could belong to a
   // different compose project so `docker compose down` won't touch them.
   if (parsed.forceRecreate) {
     // Resolve env-var interpolations in the compose file (e.g. ${APP_NAME}-web)
@@ -213,7 +213,7 @@ export async function handleStackDeploy(
         resolvedContent = configResult.stdout;
       }
     } catch {
-      // Non-fatal — fall back to raw content
+      // Non-fatal: fall back to raw content
     } finally {
       try { unlinkSync(tmpFile); } catch { /* ignore */ }
     }
@@ -228,7 +228,7 @@ export async function handleStackDeploy(
           env: composeEnv,
         }, 10_000);
       } catch {
-        // Non-fatal — container may not exist
+        // Non-fatal: container may not exist
       }
     }
   }

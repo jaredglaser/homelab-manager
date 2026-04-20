@@ -141,7 +141,7 @@ describe('handleStackDeploy', () => {
   });
 });
 
-describe('handleStackDeploy — type validation', () => {
+describe('handleStackDeploy: type validation', () => {
   test('returns 400 when stack is not a string', async () => {
     const request = new Request('http://localhost/stacks/deploy', {
       method: 'POST',
@@ -182,7 +182,7 @@ describe('handleStackDeploy — type validation', () => {
   });
 });
 
-describe('handleStackDeploy — payload size limits', () => {
+describe('handleStackDeploy: payload size limits', () => {
   test('returns 413 for oversized composeContent', async () => {
     const request = new Request('http://localhost/stacks/deploy', {
       method: 'POST',
@@ -210,7 +210,7 @@ describe('handleStackDeploy — payload size limits', () => {
   });
 });
 
-describe('handleStackDeploy — path traversal', () => {
+describe('handleStackDeploy: path traversal', () => {
   test('rejects stack names with path traversal', async () => {
     const request = new Request('http://localhost/stacks/deploy', {
       method: 'POST',
@@ -249,7 +249,7 @@ describe('handleStackDeploy — path traversal', () => {
   });
 });
 
-describe('handleStackDeploy — file write failure', () => {
+describe('handleStackDeploy: file write failure', () => {
   test('returns 500 when writing stack files fails', async () => {
     // Create a file where the stack directory should be, so mkdirSync fails
     await Bun.write(join(TEST_STACKS_DIR, 'plex'), 'not a directory');
@@ -272,7 +272,7 @@ describe('handleStackDeploy — file write failure', () => {
   });
 });
 
-describe('handleStackDeploy — subprocess timeout', () => {
+describe('handleStackDeploy: subprocess timeout', () => {
   test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
     let resolveExited: (code: number) => void;
     const hangingSpawn = mock(() => ({
@@ -302,7 +302,7 @@ describe('handleStackDeploy — subprocess timeout', () => {
   });
 });
 
-describe('handleStackDeploy — spawn failure', () => {
+describe('handleStackDeploy: spawn failure', () => {
   test('returns 500 with detail when spawn throws', async () => {
     const throwSpawn = mock(() => { throw new Error('docker: not found'); });
 
@@ -414,7 +414,7 @@ describe('handleStackTeardown', () => {
   });
 });
 
-describe('handleStackTeardown — path traversal', () => {
+describe('handleStackTeardown: path traversal', () => {
   test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
     const request = new Request('http://localhost/stacks/teardown', {
       method: 'POST',
@@ -429,7 +429,7 @@ describe('handleStackTeardown — path traversal', () => {
   });
 });
 
-describe('handleStackTeardown — subprocess timeout', () => {
+describe('handleStackTeardown: subprocess timeout', () => {
   test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
     await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), 'services: {}');
@@ -457,7 +457,7 @@ describe('handleStackTeardown — subprocess timeout', () => {
   });
 });
 
-describe('handleStackTeardown — spawn failure', () => {
+describe('handleStackTeardown: spawn failure', () => {
   test('returns 500 with detail when spawn throws', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
     await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), 'services: {}');
@@ -566,7 +566,7 @@ describe('handleStackRestart', () => {
   });
 });
 
-describe('handleStackRestart — path traversal', () => {
+describe('handleStackRestart: path traversal', () => {
   test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
@@ -581,7 +581,7 @@ describe('handleStackRestart — path traversal', () => {
   });
 });
 
-describe('handleStackRestart — subprocess timeout', () => {
+describe('handleStackRestart: subprocess timeout', () => {
   test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
     await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
@@ -609,7 +609,7 @@ describe('handleStackRestart — subprocess timeout', () => {
   });
 });
 
-describe('handleStackRestart — spawn failure', () => {
+describe('handleStackRestart: spawn failure', () => {
   test('returns 500 with detail when spawn throws', async () => {
     mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
     await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
@@ -629,7 +629,7 @@ describe('handleStackRestart — spawn failure', () => {
   });
 });
 
-describe('handleStackDeploy — without envContent', () => {
+describe('handleStackDeploy: without envContent', () => {
   test('deploys stack without creating .env file when envContent is absent', async () => {
     const mockSpawn = mock(() => ({
       exited: Promise.resolve(0),
@@ -951,7 +951,7 @@ describe('parseContainerNames', () => {
   });
 
   test('returns the literal string for container names with unresolved env var syntax', () => {
-    // parseContainerNames does simple regex extraction — it does not interpolate
+    // parseContainerNames does simple regex extraction; it does not interpolate
     // env vars. Resolution happens upstream in handleStackDeploy via
     // `docker compose config` before this function is called during force-recreate.
     const compose = `services:
@@ -961,7 +961,7 @@ describe('parseContainerNames', () => {
   });
 });
 
-describe('handleStackDeploy — force recreate', () => {
+describe('handleStackDeploy: force recreate', () => {
   test('runs docker rm -f for each container_name then docker compose up --force-recreate', async () => {
     const spawnCalls: { cmd: string[] }[] = [];
     const trackingSpawn = mock((opts: any) => {
@@ -1094,7 +1094,7 @@ describe('handleStackDeploy — force recreate', () => {
     const response = await handleStackDeploy(request, TEST_STACKS_DIR, trackingSpawn as any);
     expect(response.status).toBe(200);
 
-    // Falls back to raw content — literal name is still used
+    // Falls back to raw content; literal name is still used
     const rmCalls = spawnCalls.filter(c => c.cmd.includes('rm'));
     expect(rmCalls).toHaveLength(1);
     expect(rmCalls[0].cmd).toEqual(['docker', 'rm', '-f', 'myapp-web']);

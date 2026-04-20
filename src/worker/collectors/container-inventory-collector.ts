@@ -42,7 +42,7 @@ export class ContainerInventoryCollector extends BaseCollector {
   override readonly signal: AbortSignal;
   /**
    * Per-cycle controller for the in-flight SSE fetch. Distinct from BaseCollector's
-   * lifecycle `signal` so a DB-write failure can abort just the current cycle —
+   * lifecycle `signal` so a DB-write failure can abort just the current cycle.
    * run()'s catch path then drives reconnect via the base backoff.
    */
   private collectAbort: AbortController | null = null;
@@ -58,7 +58,7 @@ export class ContainerInventoryCollector extends BaseCollector {
   private readonly stateCache = new Map<string, CachedContainerState>();
   /**
    * Pending write timers keyed by containerId. Each value is the latest container
-   * snapshot. Accepts either event shape — `InventorySnapshotContainer` (from init)
+   * snapshot. Accepts either event shape: `InventorySnapshotContainer` (from init)
    * carries labels; `InventoryUpdateContainer` (from upsert) does not.
    */
   private readonly pendingWrites = new Map<string, { container: InventorySnapshotContainer | InventoryUpdateContainer | null; eventType: 'upsert' | 'destroy'; timer: ReturnType<typeof setTimeout> }>();
@@ -188,7 +188,7 @@ export class ContainerInventoryCollector extends BaseCollector {
    * fails from a flap-window timer so reconcileInit can re-sync state from the agent.
    */
   private triggerReconnect(reason: string): void {
-    // Drop pending flap-window timers — reconcileInit will reassess state from the
+    // Drop pending flap-window timers; reconcileInit will reassess state from the
     // post-reconnect snapshot, so racing more stale writes is pointless.
     for (const { timer } of this.pendingWrites.values()) {
       clearTimeout(timer);
@@ -200,10 +200,10 @@ export class ContainerInventoryCollector extends BaseCollector {
 
   private async handleEvent(event: AgentContainerEvent): Promise<void> {
     if (event.op === 'init') {
-      // Narrowed to InventorySnapshotContainer[] — labels are authoritative here.
+      // Narrowed to InventorySnapshotContainer[]; labels are authoritative here.
       await this.reconcileInit(event.containers);
     } else if (event.op === 'upsert') {
-      // Narrowed to InventoryUpdateContainer — labels intentionally absent; the
+      // Narrowed to InventoryUpdateContainer; labels intentionally absent. The
       // writer fills an empty map. reconcileInit() re-supplies labels on reconnect.
       this.scheduleWrite(event.container, 'upsert');
     } else if (event.op === 'destroy') {
@@ -217,7 +217,7 @@ export class ContainerInventoryCollector extends BaseCollector {
    * that disappeared while offline.
    */
   private async reconcileInit(containers: InventorySnapshotContainer[]): Promise<void> {
-    // Cancel pending flap-window timers — they captured stale pre-reconnect state.
+    // Cancel pending flap-window timers; they captured stale pre-reconnect state.
     for (const { timer } of this.pendingWrites.values()) {
       clearTimeout(timer);
     }
@@ -292,7 +292,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     eventType: 'upsert',
   ): Promise<void> {
     // Snapshot containers carry labels; update containers (streaming upserts) do not.
-    // When labels are absent, serviceKey falls back to container name — the next
+    // When labels are absent, serviceKey falls back to container name; the next
     // reconcileInit will re-derive the full key from the snapshot labels.
     const labels = 'labels' in container ? container.labels : {};
     const serviceKey = computeServiceKey(labels, container.name);

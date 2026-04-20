@@ -36,7 +36,7 @@ describe('useEventSource', () => {
         useEventSource({ url: '/api/test', onData: () => {} })
       );
 
-      // Exhaust reconnect attempts — error on the latest instance each time
+      // Exhaust reconnect attempts: error on the latest instance each time
       // since stale instances are correctly ignored after reconnection
       act(() => {
         for (let i = 0; i <= 5; i++) {
@@ -47,7 +47,7 @@ describe('useEventSource', () => {
 
       expect(result.current.error).not.toBeNull();
 
-      // Tab becomes visible — should create a new connection
+      // Tab becomes visible: should create a new connection
       act(() => simulateVisibilityChange('visible'));
 
       expect(MockEventSource.instances.length).toBeGreaterThanOrEqual(2);
@@ -135,7 +135,7 @@ describe('useEventSource', () => {
       });
       expect(result.current.error).not.toBeNull();
 
-      // Switch to a new URL — should reset error and create a fresh connection
+      // Switch to a new URL: should reset error and create a fresh connection
       act(() => { rerender({ url: '/api/second' }); });
 
       expect(result.current.error).toBeNull();

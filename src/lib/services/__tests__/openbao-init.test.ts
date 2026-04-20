@@ -10,7 +10,7 @@ describe('OpenBao initialization', () => {
   test('ensureSecretsEngine is idempotent', async () => {
     const mockFetch = mock();
 
-    // First call: check mounts — engine already exists
+    // First call: check mounts (engine already exists)
     mockFetch.mockResolvedValueOnce(
       new Response(
         JSON.stringify({
@@ -32,7 +32,7 @@ describe('OpenBao initialization', () => {
   test('ensureSecretsEngine enables engine when missing', async () => {
     const mockFetch = mock();
 
-    // First call: check mounts — no secret/ engine
+    // First call: check mounts (no secret/ engine)
     mockFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ 'sys/': { type: 'system' } }), {
         status: 200,
@@ -55,7 +55,7 @@ describe('OpenBao initialization', () => {
   test('initializeOpenBao calls ensureSecretsEngine once (singleton)', async () => {
     const mockFetch = mock();
 
-    // Only one mount check needed — engine exists
+    // Only one mount check needed (engine exists)
     mockFetch.mockResolvedValue(
       new Response(
         JSON.stringify({

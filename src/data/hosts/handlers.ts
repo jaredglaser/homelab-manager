@@ -236,7 +236,7 @@ export async function handleUpdateHost(
 }
 
 /**
- * Register an existing agent that's already running. No container provisioning —
+ * Register an existing agent that's already running. No container provisioning:
  * just creates the DB record, stores the token in OpenBao, and health-checks.
  */
 export async function handleRegisterExistingHost(
@@ -376,7 +376,7 @@ async function rollbackPostProvision(
   const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, hostId, containerContext);
   const suffix = containerCleaned
     ? 'Host record and container have been cleaned up.'
-    : 'Host record deleted but agent container cleanup failed — manual removal may be required.';
+    : 'Host record deleted but agent container cleanup failed; manual removal may be required.';
   throw new Error(`Failed to finalize host after provisioning: ${errorMessage(err)}. ${suffix}`);
 }
 
@@ -389,7 +389,7 @@ async function rollbackHealthCheckFailure(
   await deps.repo.delete(hostId);
   const suffix = containerCleaned
     ? 'Host record, token, and container have been cleaned up.'
-    : 'Host record and token deleted but agent container cleanup failed — manual removal may be required.';
+    : 'Host record and token deleted but agent container cleanup failed; manual removal may be required.';
   throw new Error(`Agent provisioned but health check failed after 3 attempts: ${healthError}. ${suffix}`);
 }
 
@@ -406,7 +406,7 @@ async function finalizeHostRecord(
     await deps.repo.delete(hostId);
     const suffix = containerCleaned
       ? 'Host record, token, and container have been cleaned up.'
-      : 'Host record and token deleted but agent container cleanup failed — manual removal may be required.';
+      : 'Host record and token deleted but agent container cleanup failed; manual removal may be required.';
     console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, errorMessage(err), suffix);
     throw new Error(`Agent is healthy but failed to finalize host record: ${errorMessage(err)}. ${suffix}`);
   }

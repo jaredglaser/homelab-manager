@@ -23,14 +23,14 @@ export interface ManifestReader {
 export interface StartupRecoveryOptions {
   /** Aborts the retry loop during graceful shutdown. */
   signal?: AbortSignal;
-  /** Optional — enables the orphaned manifest-delete sweep. */
+  /** Optional: enables the orphaned manifest-delete sweep. */
   manifestReader?: ManifestReader;
-  /** Optional — writer used by the orphaned sweep to remove manifest entries. */
+  /** Optional: writer used by the orphaned sweep to remove manifest entries. */
   stackRepoWriter?: StackRepoWriter;
 }
 
 export const STARTUP_RECOVERY_MESSAGE =
-  'Deploy interrupted — server restarted while this deploy was in progress. The actual outcome on the host is unknown. Please verify stack status and re-trigger if needed.';
+  'Deploy interrupted: server restarted while this deploy was in progress. The actual outcome on the host is unknown. Please verify stack status and re-trigger if needed.';
 
 const MAX_ATTEMPTS = 3;
 
@@ -69,12 +69,12 @@ export async function performStartupRecovery(
     }
   } catch (err) {
     console.error(
-      `[Server] Startup recovery exhausted after ${MAX_ATTEMPTS} attempts — watchdog will keep retrying:`,
+      `[Server] Startup recovery exhausted after ${MAX_ATTEMPTS} attempts, watchdog will keep retrying:`,
       err,
     );
   }
 
-  // Second pass — orphaned manifest-delete sweep. Runs best-effort; a failure
+  // Second pass: orphaned manifest-delete sweep. Runs best-effort; a failure
   // here must not prevent the watchdog from starting.
   if (options.manifestReader && options.stackRepoWriter) {
     try {
@@ -91,7 +91,7 @@ export async function performStartupRecovery(
  * Finds rows where teardown succeeded with postSuccess='removeFromManifest'
  * but the stack is still in the manifest (process crashed between the
  * agent ACK and the manifest delete). Runs the manifest delete for each.
- * Idempotent — skips stacks that are no longer in the manifest.
+ * Idempotent: skips stacks that are no longer in the manifest.
  */
 async function sweepOrphanedManifestDeletes(
   repo: StartupRecoveryRepo,
@@ -101,7 +101,7 @@ async function sweepOrphanedManifestDeletes(
   const orphaned = await repo.findSucceededPostSuccessDeploys('removeFromManifest');
   if (orphaned.length === 0) return;
 
-  // Deduplicate — a stack may have multiple succeeded teardown rows over time.
+  // Deduplicate: a stack may have multiple succeeded teardown rows over time.
   const seen = new Set<string>();
   const uniqueStacks: PostSuccessDeployRow[] = [];
   for (const row of orphaned) {
@@ -114,13 +114,13 @@ async function sweepOrphanedManifestDeletes(
   try {
     manifestStacks = await manifestReader.listStackNames();
   } catch (err) {
-    console.error('[Server] Failed to read manifest during orphaned-sweep — aborting sweep:', err);
+    console.error('[Server] Failed to read manifest during orphaned-sweep, aborting sweep:', err);
     return;
   }
 
   let removed = 0;
   for (const row of uniqueStacks) {
-    if (!manifestStacks.has(row.stack)) continue; // already gone — skip
+    if (!manifestStacks.has(row.stack)) continue; // already gone, skip
     try {
       await stackRepoWriter.removeStackFromManifest(row.stack);
       removed += 1;

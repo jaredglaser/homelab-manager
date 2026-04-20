@@ -12,8 +12,8 @@ export interface DatabaseConfig {
   /**
    * Whether to verify the server's TLS certificate when `ssl` is true.
    * Defaults to `true` (secure) when unset. Set to `false` only for
-   * self-signed cert setups where proper CA plumbing isn't yet available —
-   * doing so exposes the connection to MITM attacks.
+   * self-signed cert setups where proper CA plumbing isn't yet available.
+   * Doing so exposes the connection to MITM attacks.
    */
   sslRejectUnauthorized: boolean;
 }

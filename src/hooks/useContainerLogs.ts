@@ -22,8 +22,8 @@ interface UseContainerLogsResult {
  * Streams container logs from the SSE endpoint and writes them to an xterm.js Terminal.
  *
  * The agent streams logs in two phases:
- * 1. **Backlog** — last 200 lines, written to the terminal immediately
- * 2. **Live** — new lines as they arrive, after a `backlog_done` event
+ * 1. **Backlog**: last 200 lines, written to the terminal immediately
+ * 2. **Live**: new lines as they arrive, after a `backlog_done` event
  *
  * Clears the terminal on reconnection to prevent duplicate backlog lines.
  * Reconnects with exponential backoff (1s, 2s, 4s, 8s, 16s) up to
@@ -99,7 +99,7 @@ export function useContainerLogs({
         }
       };
 
-      // Intentionally empty — both backlog and live phases write to the terminal
+      // Intentionally empty: both backlog and live phases write to the terminal
       // identically, so no state transition is needed. The listener must be registered
       // to prevent the event from hitting the default onmessage handler.
       eventSource.addEventListener('backlog_done', () => {});

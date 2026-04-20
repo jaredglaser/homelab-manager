@@ -96,7 +96,7 @@ export function bucketContainerState(
   }
 }
 
-/** Total container count derived from bucket counts — no separate field to drift. */
+/** Total container count derived from bucket counts (no separate field to drift). */
 export function totalContainers(agg: HostAggregatedStats): number {
   return agg.runningCount + agg.stoppedCount + agg.restartingCount + agg.pausedCount + agg.otherCount;
 }
@@ -244,7 +244,7 @@ export function buildDockerTableHierarchy(
     const hostName = inv.host;
     // Use the pre-computed serviceKey stored on inventory (written by the worker from labels at
     // write time). This avoids re-deriving the key from labels which are omitted on streaming
-    // upsert NOTIFY events — falling back to inv.name there would shift the dedup identity.
+    // upsert NOTIFY events, where falling back to inv.name would shift the dedup identity.
     const sk = inv.serviceKey || inv.name;
     const dedupKey = `${hostName}/${sk}`;
 

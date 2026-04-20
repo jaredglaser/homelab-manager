@@ -19,7 +19,7 @@ const saveComposeStub = mockSaveCompose as unknown as typeof saveComposeFile;
  * to provide a simple textarea stand-in. This lets us test the toolbar,
  * save button, VariablesPanel integration, and dirty-state logic.
  *
- * monaco-setup uses Vite ?worker imports that Bun can't resolve — must be
+ * monaco-setup uses Vite ?worker imports that Bun can't resolve, so it must be
  * mocked before ComposeEditor is imported.
  */
 /** Stored onChange callback from the most recent mock editor render */

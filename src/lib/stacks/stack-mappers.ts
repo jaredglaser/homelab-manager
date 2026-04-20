@@ -93,7 +93,7 @@ export interface DeployDeps {
   executePipeline: (request: DeployRequest) => Promise<{ deployId?: number; logs?: string }>;
 }
 
-/** Testable deploy handler — takes deps instead of importing them. */
+/** Testable deploy handler: takes deps instead of importing them. */
 export async function handleTriggerDeploy(
   deps: DeployDeps,
   params: { stack: string; host: string; action: 'deploy' | 'teardown' | 'restart'; forceRecreate?: boolean },

@@ -122,7 +122,7 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
         </Button>
       </div>
 
-      {/* Editor + resizable variables panel — use calc() so Monaco gets an explicit width */}
+      {/* Editor + resizable variables panel: use calc() so Monaco gets an explicit width */}
       <div className="relative min-h-[400px]">
         <div
           className="absolute inset-y-0 left-0 overflow-hidden"

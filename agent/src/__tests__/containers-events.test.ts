@@ -87,7 +87,7 @@ function makeDocker(
   };
 }
 
-describe('handleContainerEvents — response headers', () => {
+describe('handleContainerEvents: response headers', () => {
   test('returns SSE response with correct headers and 200 status', async () => {
     const docker = makeDocker([]);
     const ac = new AbortController();
@@ -102,7 +102,7 @@ describe('handleContainerEvents — response headers', () => {
   });
 });
 
-describe('handleContainerEvents — init snapshot', () => {
+describe('handleContainerEvents: init snapshot', () => {
   test('emits init event with all containers on connect', async () => {
     const containers = [
       makeContainer('c1', 'app1', 'running'),
@@ -209,7 +209,7 @@ describe('handleContainerEvents — init snapshot', () => {
   });
 });
 
-describe('handleContainerEvents — start event produces upsert', () => {
+describe('handleContainerEvents: start event produces upsert', () => {
   test('docker start event emits op:upsert with state:running', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1', 'running')];
@@ -243,7 +243,7 @@ describe('handleContainerEvents — start event produces upsert', () => {
   });
 });
 
-describe('handleContainerEvents — die event produces upsert with exited state', () => {
+describe('handleContainerEvents: die event produces upsert with exited state', () => {
   test('docker die event emits op:upsert with state:dead or exited', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1', 'running')];
@@ -287,7 +287,7 @@ describe('handleContainerEvents — die event produces upsert with exited state'
   });
 });
 
-describe('handleContainerEvents — destroy event', () => {
+describe('handleContainerEvents: destroy event', () => {
   test('docker destroy event emits op:destroy', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1')];
@@ -318,7 +318,7 @@ describe('handleContainerEvents — destroy event', () => {
   });
 });
 
-describe('handleContainerEvents — multiple subscribers', () => {
+describe('handleContainerEvents: multiple subscribers', () => {
   test('each subscriber gets independent SSE streams', async () => {
     const eventsEmitter = new EventEmitter();
     const containers = [makeContainer('c1', 'app1')];
@@ -384,7 +384,7 @@ describe('handleContainerEvents — multiple subscribers', () => {
     ac1.abort();
     await new Promise((r) => setTimeout(r, 20));
 
-    // Emit destroy — subscriber2 should still receive it
+    // Emit destroy; subscriber2 should still receive it
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
       Action: 'destroy',
@@ -398,7 +398,7 @@ describe('handleContainerEvents — multiple subscribers', () => {
   });
 });
 
-describe('handleContainerEvents — request abort cleanup', () => {
+describe('handleContainerEvents: request abort cleanup', () => {
   test('stream closes when request is aborted', async () => {
     const docker = makeDocker([]);
     const ac = new AbortController();
@@ -459,7 +459,7 @@ describe('handleContainerEvents — request abort cleanup', () => {
   });
 });
 
-describe('handleContainerEvents — error resilience', () => {
+describe('handleContainerEvents: error resilience', () => {
   test('continues serving after stream error on events stream', async () => {
     const eventsEmitter = new EventEmitter();
     const docker = makeDocker([], eventsEmitter);

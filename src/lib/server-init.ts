@@ -27,7 +27,7 @@ async function startDeployRecovery(): Promise<void> {
         const content = await readFileFromRepo(repoPath, 'manifest.yaml');
         return new Set(Object.keys(parseManifest(content).stacks));
       } catch {
-        // No repo, no manifest — nothing to orphan-sweep against.
+        // No repo, no manifest, nothing to orphan-sweep against.
         return new Set();
       }
     },

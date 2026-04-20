@@ -55,7 +55,7 @@ export async function repoExists(repoPath: string): Promise<boolean> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('Could not resolve') || message.includes('resolve ref') || message.includes('Could not find')) {
-      // HEAD doesn't resolve to a commit yet (empty repo) — check for HEAD file
+      // HEAD doesn't resolve to a commit yet (empty repo): check for HEAD file
       return existsSync(`${repoPath}/HEAD`) && existsSync(`${repoPath}/objects`) && existsSync(`${repoPath}/refs`);
     }
     console.error('[Git] Unexpected error checking repo:', message);
@@ -76,7 +76,7 @@ export interface CommitPlan {
   author: { name: string; email: string };
 }
 
-/** Runs inside the repo lock with a HEAD snapshot — guarantees mutations derive from current state, not a stale pre-lock read. */
+/** Runs inside the repo lock with a HEAD snapshot, guaranteeing mutations derive from current state, not a stale pre-lock read. */
 export type CommitCallback = (
   existingFiles: ReadonlyMap<string, string>,
 ) => Promise<CommitPlan> | CommitPlan;
@@ -106,7 +106,7 @@ export async function commitFiles(
     try {
       parentCommit = await git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' });
     } catch {
-      // No HEAD yet — first commit, existingFiles stays empty
+      // No HEAD yet (first commit), existingFiles stays empty
     }
 
     if (parentCommit) {

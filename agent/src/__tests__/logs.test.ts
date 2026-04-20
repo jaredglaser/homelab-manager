@@ -241,7 +241,7 @@ describe('handleLogStream', () => {
     liveEmitter.emit('error', new Error('pipe broken'));
     await new Promise((r) => setTimeout(r, 10));
 
-    // Abort after error — controller.close() will throw TypeError (already closed)
+    // Abort after error; controller.close() will throw TypeError (already closed)
     abortController.abort();
     await new Promise((r) => setTimeout(r, 10));
 
@@ -434,7 +434,7 @@ describe('handleLogStream', () => {
 
       await new Promise((r) => setTimeout(r, 20));
 
-      // Close the stream, then fire heartbeat — it should clearInterval
+      // Close the stream, then fire heartbeat; it should clearInterval
       abortController.abort();
       await new Promise((r) => setTimeout(r, 10));
       heartbeatCb!();
@@ -456,7 +456,7 @@ describe('handleLogStream', () => {
       inspect: mock(() => Promise.resolve({ Config: { Tty: true } })),
       logs: mock((opts: Record<string, unknown>) => {
         if (!opts.follow) return Promise.resolve(Buffer.alloc(0));
-        // Return a promise that we control — abort will fire while it's pending
+        // Return a promise that we control; abort will fire while it's pending
         return new Promise((resolve) => { resolveLogsPromise = resolve; });
       }),
     };

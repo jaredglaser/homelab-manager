@@ -98,11 +98,11 @@ export interface DockerInventoryBroadcastServiceDeps {
  *
  * Listens on PostgreSQL NOTIFY channel 'docker_container_change'. On subscribe,
  * sends an init snapshot from the DB. On each NOTIFY, forwards the event directly
- * without a round-trip DB read — the NOTIFY payload carries the full event minus labels.
+ * without a round-trip DB read: the NOTIFY payload carries the full event minus labels.
  *
  * Ordering: LISTEN is issued before sendInit is called, so no NOTIFYs are lost
  * while the snapshot loads. However, a NOTIFY that fires during snapshot load
- * can be fanned out to subscribers before the init event — subscribers must be
+ * can be fanned out to subscribers before the init event, so subscribers must be
  * tolerant of receiving an upsert for a container already present in the init.
  *
  * Auto-starts on first subscriber, auto-stops on last unsubscribe.
@@ -180,7 +180,7 @@ export class DockerInventoryBroadcastService {
         currentClient.on('error', (err) => {
           console.error('[DockerInventoryBroadcastService] Listener client error:', err);
           if (this.listenerClient !== currentClient) {
-            // Stale handler for a replaced client — do not touch shared state.
+            // Stale handler for a replaced client: do not touch shared state.
             return;
           }
           this.cleanupListenerClient();
@@ -246,7 +246,7 @@ export class DockerInventoryBroadcastService {
         const at = new Date(parsed.at as string);
         candidate = { type: 'destroy', host, containerId, at };
       } else {
-        // Unknown event_type — drop silently; NOTIFY channel is tightly scoped.
+        // Unknown event_type: drop silently; NOTIFY channel is tightly scoped.
         return;
       }
 

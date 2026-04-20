@@ -30,7 +30,7 @@ function authenticateRequest(request: Request): Response | null {
   if (authHeader.startsWith('Bearer ')) {
     providedToken = authHeader.slice('Bearer '.length);
   } else if (authHeader.startsWith('Basic ')) {
-    // Git sends Basic auth as base64(username:password) — the token is the password
+    // Git sends Basic auth as base64(username:password); the token is the password
     let decoded: string;
     try {
       decoded = atob(authHeader.slice('Basic '.length));

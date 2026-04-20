@@ -17,7 +17,7 @@ export interface SecretResolver {
 
 /**
  * No-op implementation used when OpenBao is not configured.
- * Returns empty secrets — stacks use whatever .env files already exist on the host.
+ * Returns empty secrets: stacks use whatever .env files already exist on the host.
  */
 export class NoOpSecretResolver implements SecretResolver {
   async resolveSecrets(_stack: string): Promise<Record<string, string>> {

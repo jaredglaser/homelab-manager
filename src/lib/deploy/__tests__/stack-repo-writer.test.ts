@@ -94,7 +94,7 @@ describe('createStackRepoWriter', () => {
     ]);
 
     const writer = createStackRepoWriter();
-    // Remove a stack that is not in the manifest — should not throw
+    // Remove a stack that is not in the manifest: should not throw
     const result = await writer.removeStackFromManifest('traefik');
 
     expect(typeof result.commitSha).toBe('string');

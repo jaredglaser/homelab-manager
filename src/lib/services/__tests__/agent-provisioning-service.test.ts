@@ -157,7 +157,7 @@ describe('AgentProvisioningService', () => {
     it('handles already-stopped container', async () => {
       mockDocker.setContainerExists(true);
       mockDocker.setContainerRunning(false);
-      // stop() will be called but that's fine — Dockerode handles it
+      // stop() will be called but that's fine, Dockerode handles it
       await service.removeAgent(mockDocker.docker, 1);
       expect(mockDocker.removedContainers).toHaveLength(1);
     });

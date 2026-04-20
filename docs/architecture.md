@@ -70,7 +70,7 @@ flowchart LR
     Agent --> SSE --> WK --> DB
 ```
 
-The worker connects to agent sidecars on each managed host via SSE. For Docker stats, the agent pre-computes metrics (CPU%, memory%, network/block I/O rates) before streaming — the worker receives ready-to-insert rows. For ZFS, the agent streams raw `zpool iostat` output which the worker parses and rate-calculates. Proxmox is a direct REST API poll (no agent).
+The worker connects to agent sidecars on each managed host via SSE. For Docker stats, the agent pre-computes metrics (CPU%, memory%, network/block I/O rates) before streaming, so the worker receives ready-to-insert rows. For ZFS, the agent streams raw `zpool iostat` output which the worker parses and rate-calculates. Proxmox is a direct REST API poll (no agent).
 
 ### Stage 2: Real-Time Streaming (Server -> Browser)
 
@@ -109,7 +109,7 @@ Proxmox uses a single wide `proxmox_stats` hypertable with an `entity_type` disc
 
 ## Docker Stack Management
 
-GitOps-style Docker stack management. Users define stacks as docker-compose files in a git repository managed by homelab-manager. Changes — via an in-app editor or `git push` — trigger deployments to Docker hosts through lightweight agent containers.
+GitOps-style Docker stack management. Users define stacks as docker-compose files in a git repository managed by homelab-manager. Changes (via an in-app editor or `git push`) trigger deployments to Docker hosts through lightweight agent containers.
 
 ### High-Level Flow
 
@@ -143,9 +143,9 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 Hosts are registered via the Settings UI and stored in the `managed_hosts` database table with agent connection details and capabilities (docker, zfs).
 
 **Collector creation** (`src/worker/collector-factory.ts`):
-- `createCollectors()` — env-configured collectors (Proxmox only; Docker and ZFS always go through managed hosts)
-- `createCollectorsForManagedHosts()` — agent-based collectors for registered hosts (Docker stats + ZFS)
-- `createContainerInventoryCollectors()` — container inventory from agent `/containers/events` SSE, writing to `docker_container_events`
+- `createCollectors()`: env-configured collectors (Proxmox only; Docker and ZFS always go through managed hosts)
+- `createCollectorsForManagedHosts()`: agent-based collectors for registered hosts (Docker stats + ZFS)
+- `createContainerInventoryCollectors()`: container inventory from agent `/containers/events` SSE, writing to `docker_container_events`
 
 **Token resolution**: Agent tokens are stored in OpenBao and resolved via a `getToken(hostname)` callback. Hosts with missing tokens are skipped with a logged warning.
 
@@ -203,14 +203,14 @@ DeployRequest -> Validate -> Resolve Secrets -> Dispatch to Agent -> Record Resu
 ```
 
 - **Change detection:** Content hashing to skip no-op deploys
-- **Secret resolution:** Pluggable interface — no-op by default, OpenBao when configured. Resolves `${SECRET:path/key}` variable references in compose files
+- **Secret resolution:** Pluggable interface (no-op by default, OpenBao when configured). Resolves `${SECRET:path/key}` variable references in compose files
 - **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host
 - **Agent client:** HTTP wrapper for communicating with agents (deploy/teardown/restart)
 
 **Database tables:**
-- `managed_hosts` — registered Docker hosts with agent connection details and capabilities
-- `deploy_history` — deploy records with status tracking (pending -> in_progress -> succeeded/failed/no_change)
-- `docker_container_events` — per-host container inventory events from agent `/containers/events`
+- `managed_hosts`: registered Docker hosts with agent connection details and capabilities
+- `deploy_history`: deploy records with status tracking (pending -> in_progress -> succeeded/failed/no_change)
+- `docker_container_events`: per-host container inventory events from agent `/containers/events`
 
 ### Stack Status Pipeline
 
@@ -287,7 +287,7 @@ flowchart TD
     N --> O[Record result in deploy_history]
 ```
 
-Pipeline errors do not block the git push — they are caught and logged.
+Pipeline errors do not block the git push; they are caught and logged.
 
 **Manifest format** (`manifest.yaml`):
 
@@ -303,8 +303,8 @@ stacks:
 
 **In-app editor operations** (`src/lib/git/editor-operations.ts`):
 
-- `saveAndCommitFile` — save a compose file and create a commit
-- `updateManifest` — add/update a stack entry in manifest.yaml
+- `saveAndCommitFile`: save a compose file and create a commit
+- `updateManifest`: add/update a stack entry in manifest.yaml
 
 **Concurrency safety:** Commits are serialized per-repo via an async mutex to prevent lost updates from concurrent writes.
 
@@ -327,7 +327,7 @@ stacks:
 Secret management via [OpenBao](https://openbao.org/) (open-source Vault fork).
 
 - KV v2 HTTP client for secret CRUD (`src/lib/clients/openbao-client.ts`)
-- Pluggable `SecretResolver` interface — auto-detects OpenBao when `OPENBAO_URL` is set, falls back to no-op
+- Pluggable `SecretResolver` interface: auto-detects OpenBao when `OPENBAO_URL` is set, falls back to no-op
 - Deploy pipeline resolves `${SECRET:path/key}` variable references in compose files before dispatching to agents
 - Agent tokens stored and retrieved from OpenBao KV v2
 - OpenBao dev server in docker-compose for local development (management profile)

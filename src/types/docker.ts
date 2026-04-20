@@ -116,7 +116,7 @@ export interface DockerHostTableRow extends DockerTableRowBase {
 export interface DockerContainerTableRow extends DockerTableRowBase {
   type: 'container';
   hostName: string;
-  /** Always present — provides state, name, image, timestamps */
+  /** Always present: provides state, name, image, timestamps */
   inventory: DockerInventorySnapshotContainer;
   /** Present only when live metrics are available */
   stats?: DockerStatsFromDB;

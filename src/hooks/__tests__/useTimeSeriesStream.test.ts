@@ -307,7 +307,7 @@ describe('useTimeSeriesStream SSE flush', () => {
       await act(async () => { await new Promise(r => setTimeout(r, 50)); });
       expect(result.current.error?.message).toBe('DB down');
 
-      // SSE data arrives — should clear the preload error
+      // SSE data arrives: should clear the preload error
       const es = MockEventSource.instances[0];
       const now = Date.now();
       act(() => {
@@ -395,7 +395,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
     // Wait for periodic refresh that fails
     await act(async () => { await new Promise(r => setTimeout(r, 150)); });
 
-    // Error should not propagate — data should still be intact
+    // Error should not propagate; data should still be intact
     expect(result.current.rows.length).toBeGreaterThan(0);
   });
 });
@@ -455,7 +455,7 @@ describe('useTimeSeriesStream stale initialData', () => {
 
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
-    // preloadFn should NOT have been called — initialData was fresh
+    // preloadFn should NOT have been called; initialData was fresh
     expect(preloadFn).toHaveBeenCalledTimes(0);
   });
 });
@@ -482,7 +482,7 @@ describe('useTimeSeriesStream cutoff-only eviction', () => {
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
     expect(result.current.rows).toHaveLength(2);
 
-    // Send a duplicate row — triggers flush with pending > 0, but newRows is empty after dedup.
+    // Send a duplicate row: triggers flush with pending > 0, but newRows is empty after dedup.
     // This exercises the cutoff-only branch (hasCutoff && !hasNew).
     const es = MockEventSource.instances[0];
     act(() => {
@@ -557,7 +557,7 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
     const firstMap = result.current.latestByEntity;
     expect(firstMap.size).toBe(2);
 
-    // Send a duplicate row (same key as existing) — should be deduped, no latest change
+    // Send a duplicate row (same key as existing): should be deduped, no latest change
     const es = MockEventSource.instances[0];
     act(() => {
       es.onmessage?.({ data: JSON.stringify([{ key: 'a-1', time: now - 10000, entity: 'a' }]) });
@@ -565,7 +565,7 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
 
     await act(async () => { await new Promise(r => setTimeout(r, 100)); });
 
-    // Map reference should be identical — no entity's latest changed
+    // Map reference should be identical: no entity's latest changed
     expect(result.current.latestByEntity).toBe(firstMap);
   });
 });

@@ -75,7 +75,7 @@ describe('AgentClient', () => {
     });
 
     it('throws AgentClientError on fetch failure (network error)', async () => {
-      // Network errors retry up to 3 times — reject all attempts so we see the final error.
+      // Network errors retry up to 3 times: reject all attempts so we see the final error.
       fetchMock.mockRejectedValue(new Error('Connection refused'));
 
       await expect(client.deploy({
@@ -140,7 +140,7 @@ describe('AgentClient', () => {
     });
 
     it('throws AgentClientError when agent is unreachable', async () => {
-      // Network errors retry up to 3 times — reject all attempts.
+      // Network errors retry up to 3 times: reject all attempts.
       fetchMock.mockRejectedValue(new Error('ECONNREFUSED'));
 
       await expect(client.health()).rejects.toThrow(AgentClientError);
