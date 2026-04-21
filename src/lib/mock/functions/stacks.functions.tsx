@@ -221,6 +221,19 @@ volumes:
 
 const MOCK_DEPLOY_HISTORY: StackDeployRecord[] = [
   {
+    id: 4,
+    stack: 'plex',
+    host: 'nas01',
+    commitSha: 'b2c3d4e',
+    envHash: 'jkl012',
+    status: 'pending',
+    trigger: 'git_push',
+    action: 'deploy',
+    forceRecreate: false,
+    logs: null,
+    createdAt: new Date(Date.now() - 3_600_000 / 2).toISOString(),
+  },
+  {
     id: 3,
     stack: 'plex',
     host: 'homeserver',
@@ -293,6 +306,18 @@ export async function triggerDeploy(_opts: {
   // Simulate a short delay
   await new Promise((resolve) => setTimeout(resolve, 500));
   return { deployId: MOCK_DEPLOY_HISTORY.length + 1 };
+}
+
+export async function resumeDeploy(opts: {
+  data: { deployId: number };
+}): Promise<{ deployId: number }> {
+  return { deployId: opts.data.deployId };
+}
+
+export async function rejectDeploy(opts: {
+  data: { deployId: number };
+}): Promise<{ deployId: number }> {
+  return { deployId: opts.data.deployId };
 }
 
 export async function getDeployHistory(opts: {
