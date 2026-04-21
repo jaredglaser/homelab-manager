@@ -136,6 +136,11 @@ export default memo(function SparklineCanvas({
   // sliding smoothly without burning GPU on 60fps draws per sparkline.
   const IDLE_INTERVAL_MS = 250;
 
+  // After useVisibleRAF re-enters visibility, lastFrameTimeRef can be seconds
+  // stale. Treat any delta over this as a resume, not a real frame gap, so an
+  // in-flight pulse doesn't saturate (0 → 1) in a single post-resume tick.
+  const PULSE_RESUME_THRESHOLD_MS = 100;
+
   // Per-frame render, gated by useVisibleRAF: only runs while wrapper is in viewport.
   useVisibleRAF(wrapperRef, (now: number) => {
     const ctx = gradientCtxRef.current;
@@ -144,8 +149,9 @@ export default memo(function SparklineCanvas({
     const pxBuf = pointsXRef.current;
     const pyBuf = pointsYRef.current;
 
-    const delta = now - lastFrameTimeRef.current;
+    const rawDelta = now - lastFrameTimeRef.current;
     lastFrameTimeRef.current = now;
+    const delta = rawDelta > PULSE_RESUME_THRESHOLD_MS ? 0 : rawDelta;
 
     // Animate pulse
     pulseProgressRef.current = Math.min(1, pulseProgressRef.current + delta / 1200);
