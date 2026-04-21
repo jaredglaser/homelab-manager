@@ -4,6 +4,7 @@
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
+import type { DeployRecord, DeployRequest } from '@/lib/deploy/types';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
@@ -152,6 +153,119 @@ export async function triggerStackDeploy(params: {
     },
     executePipeline: (request) => pipeline.execute(request),
   }, params);
+}
+
+/**
+ * Approve a pending deploy and run it through the pipeline's `resumePending` path.
+ * Rebuilds the `DeployRequest` from the stored deploy record, reading the compose
+ * file at the record's commitSha so the exact configuration that was pending is what gets deployed.
+ */
+export async function resumePendingDeploy(deployId: number): Promise<{ deployId: number }> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
+  const { createDeployPipeline } = await import('@/lib/deploy/pipeline-factory');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const pool = dbClient.getPool();
+  const deployRepo = new DeployRepository(pool);
+  const hostsRepo = new ManagedHostsRepository(pool);
+
+  const deploy = await deployRepo.getById(deployId);
+  if (!deploy) throw new Error(`Deploy ${deployId} not found`);
+  if (deploy.status !== 'pending') {
+    throw new Error(`Deploy is not pending (status: ${deploy.status})`);
+  }
+
+  const host = await hostsRepo.getByName(deploy.host);
+  if (!host) throw new Error(`Host "${deploy.host}" not found in managed_hosts`);
+
+  // Rebuild the DeployRequest. For deploy action we need compose content; read it
+  // from the commit the pending deploy was recorded against so what we approve
+  // is exactly what was pending.
+  const request = await buildRequestFromDeployRecord(deploy);
+
+  const { pipeline } = await createDeployPipeline();
+  const result = await pipeline.resumePending(deployId, host, request);
+  // resumePending returns failed (instead of throwing) when claimPending loses a
+  // race or the dispatch fails. Surface either case to the caller so the UI
+  // shows an error toast instead of a misleading "Deploy approved" success.
+  if (result.status === 'failed') {
+    throw new Error(result.logs);
+  }
+  return { deployId: result.deployId ?? deployId };
+}
+
+/**
+ * Reject a pending deploy. Marks it as `failed` with a "Manually rejected" log
+ * message and notifies subscribers so the UI refreshes.
+ */
+export async function rejectPendingDeploy(deployId: number): Promise<{ deployId: number }> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const deployRepo = new DeployRepository(dbClient.getPool());
+
+  const deploy = await deployRepo.getById(deployId);
+  if (!deploy) throw new Error(`Deploy ${deployId} not found`);
+  if (deploy.status !== 'pending') {
+    throw new Error(`Deploy is not pending (status: ${deploy.status})`);
+  }
+
+  // Atomic transition guards against rejecting a deploy that was just approved
+  // by another client between the getById above and this UPDATE.
+  const claimed = await deployRepo.rejectPending(deployId, 'Manually rejected');
+  if (!claimed) {
+    throw new Error(`Deploy ${deployId} is no longer pending — it was approved or rejected by another client`);
+  }
+  try {
+    await deployRepo.notifyStackChange(deploy.stack, deploy.host);
+  } catch (err) {
+    console.error(`Failed to notify stack change after rejecting deploy ${deployId}:`, err);
+  }
+  return { deployId };
+}
+
+async function buildRequestFromDeployRecord(
+  deploy: DeployRecord,
+): Promise<DeployRequest> {
+  const base = {
+    stack: deploy.stack,
+    host: deploy.host,
+    commitSha: deploy.commitSha,
+    trigger: deploy.trigger,
+    autoApproved: true,
+    postSuccess: deploy.postSuccess ?? undefined,
+  };
+
+  if (deploy.action === 'deploy') {
+    const repoPath = getRepoPath();
+    let composeContent = '';
+    try {
+      composeContent = await readFileFromRepo(
+        repoPath,
+        `${deploy.stack}/${COMPOSE_FILENAME}`,
+        deploy.commitSha,
+      );
+    } catch (err) {
+      if (!(err instanceof FileNotFoundError)) throw err;
+      console.warn(`[stack-service] compose file not found for deploy ${deploy.id}, proceeding with empty content`);
+    }
+    return {
+      ...base,
+      action: 'deploy',
+      composeContent,
+      envContent: '',
+      forceRecreate: deploy.forceRecreate,
+    };
+  }
+
+  return { ...base, action: deploy.action };
 }
 
 export async function getStackDeployHistory(

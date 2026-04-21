@@ -161,15 +161,16 @@ export default memo(function ContainerMetricChart({
     [dataPoints, colorVar, formatValue, isPercent, general.use12HourTime, windowMs],
   );
   const chartRef = useRef<ReactECharts>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
-  useEChartTimeScroll(chartRef, windowMs);
+  useEChartTimeScroll(chartRef, windowMs, wrapperRef);
 
   return (
     <Paper elevation={0} className="rounded-sm p-3 !bg-[var(--mui-palette-background-chartBg)]">
       <Typography variant="body2" className="mb-1 font-medium">
         {title}
       </Typography>
-      <div className="h-32">
+      <div ref={wrapperRef} className="h-32">
         <ReactECharts
           ref={chartRef}
           option={option}

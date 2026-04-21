@@ -273,4 +273,153 @@ describe('DeployHistoryList', () => {
     await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
   });
 
+  describe('pending approval workflow', () => {
+    const pendingRecord: StackDeployRecord = {
+      id: 77,
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha: 'pending12345',
+      envHash: 'envhash',
+      status: 'pending',
+      trigger: 'git_push',
+      action: 'deploy',
+      forceRecreate: false,
+      logs: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    it('shows Approve + Reject buttons and "Pending approval" chip for pending rows when handlers are provided', () => {
+      const onApprove = mock(() => {});
+      const onReject = mock(() => {});
+      render(
+        <DeployHistoryList
+          records={[pendingRecord]}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+          onApprove={onApprove}
+          onReject={onReject}
+        />,
+        { wrapper: createWrapper() },
+      );
+      expect(screen.getByText('Approve')).toBeDefined();
+      expect(screen.getByText('Reject')).toBeDefined();
+      expect(screen.getByText('Pending approval')).toBeDefined();
+    });
+
+    it('does not show Approve/Reject buttons for non-pending rows', () => {
+      const onApprove = mock(() => {});
+      const onReject = mock(() => {});
+      render(
+        <DeployHistoryList
+          records={mockRecords}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+          onApprove={onApprove}
+          onReject={onReject}
+        />,
+        { wrapper: createWrapper() },
+      );
+      expect(screen.queryByText('Approve')).toBeNull();
+      expect(screen.queryByText('Reject')).toBeNull();
+    });
+
+    it('calls onApprove with the deploy id when Approve is clicked', () => {
+      const onApprove = mock(() => {});
+      const onReject = mock(() => {});
+      render(
+        <DeployHistoryList
+          records={[pendingRecord]}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+          onApprove={onApprove}
+          onReject={onReject}
+        />,
+        { wrapper: createWrapper() },
+      );
+      fireEvent.click(screen.getByText('Approve'));
+      expect(onApprove).toHaveBeenCalledTimes(1);
+      expect(onApprove).toHaveBeenCalledWith(77);
+    });
+
+    it('calls onReject with the deploy id when Reject is clicked', () => {
+      const onApprove = mock(() => {});
+      const onReject = mock(() => {});
+      render(
+        <DeployHistoryList
+          records={[pendingRecord]}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+          onApprove={onApprove}
+          onReject={onReject}
+        />,
+        { wrapper: createWrapper() },
+      );
+      fireEvent.click(screen.getByText('Reject'));
+      expect(onReject).toHaveBeenCalledTimes(1);
+      expect(onReject).toHaveBeenCalledWith(77);
+    });
+
+    it('disables both Approve and Reject while isApproving is true', () => {
+      const onApprove = mock(() => {});
+      const onReject = mock(() => {});
+      render(
+        <DeployHistoryList
+          records={[pendingRecord]}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+          onApprove={onApprove}
+          onReject={onReject}
+          isApproving={true}
+        />,
+        { wrapper: createWrapper() },
+      );
+      const approveBtn = screen.getByText('Approve').closest('button') as HTMLButtonElement;
+      const rejectBtn = screen.getByText('Reject').closest('button') as HTMLButtonElement;
+      expect(approveBtn.disabled).toBe(true);
+      expect(rejectBtn.disabled).toBe(true);
+    });
+
+    it('disables both Approve and Reject while isRejecting is true', () => {
+      const onApprove = mock(() => {});
+      const onReject = mock(() => {});
+      render(
+        <DeployHistoryList
+          records={[pendingRecord]}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+          onApprove={onApprove}
+          onReject={onReject}
+          isRejecting={true}
+        />,
+        { wrapper: createWrapper() },
+      );
+      const approveBtn = screen.getByText('Approve').closest('button') as HTMLButtonElement;
+      const rejectBtn = screen.getByText('Reject').closest('button') as HTMLButtonElement;
+      expect(approveBtn.disabled).toBe(true);
+      expect(rejectBtn.disabled).toBe(true);
+    });
+
+    it('does not show Approve/Reject for pending rows when handlers are not provided', () => {
+      render(
+        <DeployHistoryList
+          records={[pendingRecord]}
+          isLoading={false}
+          stackName="plex"
+          host="homeserver"
+        />,
+        { wrapper: createWrapper() },
+      );
+      expect(screen.queryByText('Approve')).toBeNull();
+      expect(screen.queryByText('Reject')).toBeNull();
+      // The pending chip should still render to indicate awaiting state
+      expect(screen.getByText('Pending approval')).toBeDefined();
+    });
+  });
+
 });
