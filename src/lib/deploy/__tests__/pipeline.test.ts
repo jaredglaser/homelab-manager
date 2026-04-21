@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { DeployPipeline, type StackRepoWriter } from '../pipeline';
 import type { DeployRecord, DeployRequest, ManagedHost, SecretResolver } from '@/lib/deploy/types';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
-import type { ManagedHostsRepository } from '@/lib/database/repositories/managed-hosts-repository';
+import type { HostRepository } from '@/lib/database/repositories/host-repository';
 import type { AgentClient } from '@/lib/clients/agent-client';
 
 const defaultPendingRecord = {
@@ -45,14 +45,14 @@ function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): Deploy
   } as unknown as DeployRepository;
 }
 
-function createMockHostsRepo(host: ManagedHost | null = null): ManagedHostsRepository {
+function createMockHostsRepo(host: ManagedHost | null = null): HostRepository {
   return {
-    getByName: mock().mockResolvedValue(host),
-    getAll: mock().mockResolvedValue(host ? [host] : []),
-    insert: mock().mockResolvedValue(1),
+    findByName: mock().mockResolvedValue(host),
+    findAll: mock().mockResolvedValue(host ? [host] : []),
+    create: mock().mockResolvedValue(host),
     updateStatus: mock().mockResolvedValue(undefined),
     updateAgentVersion: mock().mockResolvedValue(undefined),
-  } as unknown as ManagedHostsRepository;
+  } as unknown as HostRepository;
 }
 
 function createMockAgentClient(success = true): AgentClient {
@@ -78,6 +78,7 @@ const testHost: ManagedHost = {
   agentVersion: '0.1.0',
   status: 'healthy',
   createdAt: new Date(),
+  updatedAt: new Date(),
 };
 
 const testRequest: DeployRequest = {
@@ -106,7 +107,7 @@ describe('DeployPipeline', () => {
     secretResolver = createMockSecretResolver();
     pipeline = new DeployPipeline({
       deployRepo: deployRepo as unknown as DeployRepository,
-      hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+      hostsRepo: hostsRepo as unknown as HostRepository,
       agentClientFactory,
       secretResolver,
       tokenResolver: () => 'test-token',
@@ -150,7 +151,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -165,7 +166,7 @@ describe('DeployPipeline', () => {
       hostsRepo = createMockHostsRepo(null);
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -181,7 +182,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -208,7 +209,7 @@ describe('DeployPipeline', () => {
       agentClientFactory = mock().mockReturnValue(failAgent);
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -248,7 +249,7 @@ describe('DeployPipeline', () => {
       const capturedFactory = mock().mockReturnValue(mockAgent);
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
         tokenResolver: () => 'test-token',
@@ -274,7 +275,7 @@ describe('DeployPipeline', () => {
       const capturedFactory = mock().mockReturnValue(mockAgent);
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
         tokenResolver: () => 'test-token',
@@ -304,7 +305,7 @@ describe('DeployPipeline', () => {
       const capturedFactory = mock().mockReturnValue(mockAgent);
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
         tokenResolver: () => 'test-token',
@@ -330,7 +331,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -350,7 +351,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -372,7 +373,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -390,7 +391,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -429,7 +430,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -448,7 +449,7 @@ describe('DeployPipeline', () => {
       const writer = createMockStackRepoWriter();
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -495,7 +496,7 @@ describe('DeployPipeline', () => {
       const writer = createMockStackRepoWriter();
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -525,7 +526,7 @@ describe('DeployPipeline', () => {
       } as StackRepoWriter & { removeStackFromManifest: ReturnType<typeof mock> };
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -558,7 +559,7 @@ describe('DeployPipeline', () => {
       const writer = createMockStackRepoWriter();
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -584,7 +585,7 @@ describe('DeployPipeline', () => {
       const writer = createMockStackRepoWriter();
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -621,7 +622,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',
@@ -642,7 +643,7 @@ describe('DeployPipeline', () => {
       const requestWithVars = { ...testRequest, composeContent: composeWithVars };
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver: failResolver,
         tokenResolver: () => 'test-token',
@@ -664,7 +665,7 @@ describe('DeployPipeline', () => {
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
-        hostsRepo: hostsRepo as unknown as ManagedHostsRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
         tokenResolver: () => 'test-token',

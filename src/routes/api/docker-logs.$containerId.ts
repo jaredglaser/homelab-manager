@@ -32,7 +32,7 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
           return new Response(`No agent token for host: ${hostName}`, { status: 503 });
         }
 
-        const agentUrl = `${managedHost.agent_url}/logs/${encodeURIComponent(containerId)}`;
+        const agentUrl = `${managedHost.agentUrl}/logs/${encodeURIComponent(containerId)}`;
         const agentResponse = await fetch(agentUrl, {
           headers: { Authorization: `Bearer ${token}` },
           signal: request.signal,

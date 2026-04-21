@@ -1,4 +1,4 @@
-import type { HostStatus, HostCapabilities, ManagedHostRow } from '@/lib/database/repositories/host-repository';
+import type { HostStatus, HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
 
 /** Dockerode connection options parsed from a socket proxy URL. */
 export interface DockerodeConfig {
@@ -28,18 +28,18 @@ export type HealthCheckOutcome =
  * Optional overrides allow setting status/version from health check results.
  */
 export function toHostListItem(
-  row: ManagedHostRow,
+  row: ManagedHost,
   overrides?: { agentVersion?: string | null; status?: HostStatus },
 ): HostListItem {
   return {
     id: row.id,
     name: row.name,
-    agentUrl: row.agent_url,
+    agentUrl: row.agentUrl,
     capabilities: row.capabilities ?? {},
-    agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agent_version,
+    agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agentVersion,
     status: overrides?.status ?? row.status,
-    createdAt: row.created_at.toISOString(),
-    updatedAt: row.updated_at.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 

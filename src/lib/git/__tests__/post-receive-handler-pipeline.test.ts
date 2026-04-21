@@ -13,7 +13,7 @@ import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
 // other test files running in the same Bun worker).
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
-import { ManagedHostsRepository } from '@/lib/database/repositories/managed-hosts-repository';
+import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { AgentClient } from '@/lib/clients/agent-client';
 import { OpenBaoClient } from '@/lib/clients/openbao-client';
 import * as openbaoConfig from '@/lib/config/openbao-config';
@@ -31,6 +31,7 @@ const TEST_HOST: ManagedHost = {
   agentVersion: '0.1.0',
   status: 'healthy',
   createdAt: new Date(),
+  updatedAt: new Date(),
 };
 
 async function buildPlexChangeCommits(repoPath: string): Promise<{ sha1: string; sha2: string }> {
@@ -64,7 +65,7 @@ describe('processPostReceive (pipeline paths)', () => {
   let updateStatusSpy: ReturnType<typeof spyOn>;
   let deduplicatePendingSpy: ReturnType<typeof spyOn>;
   let notifyStackChangeSpy: ReturnType<typeof spyOn>;
-  let getByNameSpy: ReturnType<typeof spyOn>;
+  let findByNameSpy: ReturnType<typeof spyOn>;
   let agentDeploySpy: ReturnType<typeof spyOn>;
   let getHostSecretSpy: ReturnType<typeof spyOn>;
 
@@ -109,9 +110,9 @@ describe('processPostReceive (pipeline paths)', () => {
       DeployRepository.prototype,
       'notifyStackChange',
     ).mockResolvedValue(undefined as never);
-    getByNameSpy = spyOn(
-      ManagedHostsRepository.prototype,
-      'getByName',
+    findByNameSpy = spyOn(
+      HostRepository.prototype,
+      'findByName',
     ).mockResolvedValue(TEST_HOST as never);
 
     // Agent deploy: returns success by default
@@ -137,7 +138,7 @@ describe('processPostReceive (pipeline paths)', () => {
     updateStatusSpy.mockRestore();
     deduplicatePendingSpy.mockRestore();
     notifyStackChangeSpy.mockRestore();
-    getByNameSpy.mockRestore();
+    findByNameSpy.mockRestore();
     agentDeploySpy.mockRestore();
     getHostSecretSpy.mockRestore();
     rmSync(testDir, { recursive: true, force: true });
@@ -241,7 +242,7 @@ describe('processPostReceive (pipeline paths)', () => {
       author: { name: 'test', email: 'test@test.com' },
     }));
 
-    getByNameSpy
+    findByNameSpy
       .mockRejectedValueOnce(new Error('host lookup failed'))
       .mockResolvedValueOnce(TEST_HOST as never);
 

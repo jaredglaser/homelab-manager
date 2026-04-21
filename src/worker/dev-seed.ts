@@ -34,9 +34,9 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
     // A managed host was found; ensure dev host token is stored and agent URL is up to date
     await ensureTokenStored(devHostName, devToken);
     const devHost = existingHosts.find((h) => h.name === devHostName);
-    if (devHost && devHost.agent_url !== DEV_AGENT_URL) {
-      await hostRepo.update(devHost.id, { agent_url: DEV_AGENT_URL });
-      console.info(`[DevSeed] Updated agent URL from ${devHost.agent_url} to ${DEV_AGENT_URL}`);
+    if (devHost && devHost.agentUrl !== DEV_AGENT_URL) {
+      await hostRepo.update(devHost.id, { agentUrl: DEV_AGENT_URL });
+      console.info(`[DevSeed] Updated agent URL from ${devHost.agentUrl} to ${DEV_AGENT_URL}`);
     }
     return;
   }
@@ -45,7 +45,7 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
 
   const host = await hostRepo.create({
     name: devHostName,
-    agent_url: DEV_AGENT_URL,
+    agentUrl: DEV_AGENT_URL,
     capabilities: { docker: true },
   });
 

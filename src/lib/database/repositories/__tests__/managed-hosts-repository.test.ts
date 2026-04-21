@@ -79,7 +79,7 @@ describe('ManagedHostsRepository', () => {
       await repo.updateStatus(1, 'healthy');
 
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
-      expect(mock.queries[0].params).toEqual([1, 'healthy']);
+      expect(mock.queries[0].params).toEqual(['healthy', 1]);
     });
   });
 
@@ -88,7 +88,7 @@ describe('ManagedHostsRepository', () => {
       await repo.updateAgentVersion(1, '0.2.0');
 
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
-      expect(mock.queries[0].params).toEqual([1, '0.2.0']);
+      expect(mock.queries[0].params).toEqual(['0.2.0', 1]);
     });
   });
 });

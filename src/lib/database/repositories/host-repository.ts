@@ -8,103 +8,118 @@ export interface HostCapabilities {
   zfs?: boolean;
 }
 
-export interface ManagedHostRow {
+export interface ManagedHost {
   id: number;
   name: string;
-  agent_url: string;
+  agentUrl: string;
   capabilities: HostCapabilities;
-  agent_version: string | null;
+  agentVersion: string | null;
   status: HostStatus;
-  created_at: Date;
-  updated_at: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface CreateHostInput {
   name: string;
-  agent_url: string;
+  agentUrl: string;
   capabilities?: HostCapabilities;
 }
 
-// No separate mapping needed: SERIAL (INT4) returns JavaScript numbers
-// from node-postgres, unlike BIGINT which returns strings. The query result
-// rows match ManagedHostRow directly.
+export interface UpdateHostInput {
+  name?: string;
+  agentUrl?: string;
+  capabilities?: HostCapabilities;
+}
 
-/**
- * Intentionally explicit field mapping (identity for now). Ensures the returned
- * object only contains known ManagedHostRow fields and guards against future column
- * additions leaking through via SELECT *.
- */
-function rowToHost(row: ManagedHostRow): ManagedHostRow {
+function toManagedHost(row: Record<string, unknown>): ManagedHost {
   return {
-    id: row.id,
-    name: row.name,
-    agent_url: row.agent_url,
-    capabilities: row.capabilities ?? {},
-    agent_version: row.agent_version,
-    status: row.status,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
+    id: Number(row.id),
+    name: row.name as string,
+    agentUrl: row.agent_url as string,
+    capabilities: (row.capabilities as HostCapabilities) ?? {},
+    agentVersion: (row.agent_version as string | null | undefined) ?? null,
+    status: row.status as HostStatus,
+    createdAt: row.created_at as Date,
+    updatedAt: row.updated_at as Date,
   };
 }
 
 export class HostRepository {
   constructor(private readonly pool: Pool) {}
 
-  async create(input: CreateHostInput): Promise<ManagedHostRow> {
+  async create(input: CreateHostInput): Promise<ManagedHost> {
     const result = await this.pool.query(
       `INSERT INTO managed_hosts (name, agent_url, capabilities)
        VALUES ($1, $2, $3)
        RETURNING *`,
-      [input.name, input.agent_url, JSON.stringify(input.capabilities ?? {})]
+      [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
     );
-    return rowToHost(result.rows[0] as ManagedHostRow);
+    return toManagedHost(result.rows[0] as Record<string, unknown>);
   }
 
-  async findAll(): Promise<ManagedHostRow[]> {
+  async insert(input: CreateHostInput): Promise<number> {
     const result = await this.pool.query(
-      'SELECT * FROM managed_hosts ORDER BY name ASC'
+      `INSERT INTO managed_hosts (name, agent_url, capabilities)
+       VALUES ($1, $2, $3)
+       RETURNING id`,
+      [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
     );
-    return (result.rows as ManagedHostRow[]).map(rowToHost);
+    return Number((result.rows[0] as Record<string, unknown>).id);
   }
 
-  async findByName(name: string): Promise<ManagedHostRow | null> {
+  async findAll(): Promise<ManagedHost[]> {
+    const result = await this.pool.query(
+      'SELECT * FROM managed_hosts ORDER BY name ASC',
+    );
+    return result.rows.map((row) => toManagedHost(row as Record<string, unknown>));
+  }
+
+  async getAll(): Promise<ManagedHost[]> {
+    return this.findAll();
+  }
+
+  async findByName(name: string): Promise<ManagedHost | null> {
     const result = await this.pool.query(
       'SELECT * FROM managed_hosts WHERE name = $1',
-      [name]
+      [name],
     );
-    return result.rows.length > 0 ? rowToHost(result.rows[0] as ManagedHostRow) : null;
+    return result.rows.length > 0 ? toManagedHost(result.rows[0] as Record<string, unknown>) : null;
   }
 
-  async findById(id: number): Promise<ManagedHostRow | null> {
+  async getByName(name: string): Promise<ManagedHost | null> {
+    return this.findByName(name);
+  }
+
+  async findById(id: number): Promise<ManagedHost | null> {
     const result = await this.pool.query(
       'SELECT * FROM managed_hosts WHERE id = $1',
-      [id]
+      [id],
     );
-    return result.rows.length > 0 ? rowToHost(result.rows[0] as ManagedHostRow) : null;
+    return result.rows.length > 0 ? toManagedHost(result.rows[0] as Record<string, unknown>) : null;
   }
 
   async updateStatus(id: number, status: HostStatus): Promise<void> {
     await this.pool.query(
       'UPDATE managed_hosts SET status = $1, updated_at = NOW() WHERE id = $2',
-      [status, id]
+      [status, id],
     );
   }
 
   async updateAgentVersion(id: number, version: string): Promise<void> {
     await this.pool.query(
       'UPDATE managed_hosts SET agent_version = $1, updated_at = NOW() WHERE id = $2',
-      [version, id]
+      [version, id],
     );
   }
 
   async updateAgentUrl(id: number, agentUrl: string): Promise<void> {
     await this.pool.query(
       'UPDATE managed_hosts SET agent_url = $1, updated_at = NOW() WHERE id = $2',
-      [agentUrl, id]
+      [agentUrl, id],
     );
   }
 
-  async update(id: number, fields: { name?: string; agent_url?: string; capabilities?: HostCapabilities }): Promise<ManagedHostRow> {
+  async update(id: number, fields: UpdateHostInput): Promise<ManagedHost> {
     const setClauses: string[] = [];
     const params: unknown[] = [];
 
@@ -112,8 +127,8 @@ export class HostRepository {
       params.push(fields.name);
       setClauses.push(`name = $${params.length}`);
     }
-    if (fields.agent_url !== undefined) {
-      params.push(fields.agent_url);
+    if (fields.agentUrl !== undefined) {
+      params.push(fields.agentUrl);
       setClauses.push(`agent_url = $${params.length}`);
     }
     if (fields.capabilities !== undefined) {
@@ -127,22 +142,22 @@ export class HostRepository {
       return existing;
     }
 
-    setClauses.push(`updated_at = NOW()`);
+    setClauses.push('updated_at = NOW()');
     params.push(id);
 
     const result = await this.pool.query(
       `UPDATE managed_hosts SET ${setClauses.join(', ')} WHERE id = $${params.length} RETURNING *`,
-      params
+      params,
     );
 
     if (result.rows.length === 0) throw new Error(`Host with id ${id} not found`);
-    return rowToHost(result.rows[0] as ManagedHostRow);
+    return toManagedHost(result.rows[0] as Record<string, unknown>);
   }
 
   async delete(id: number): Promise<void> {
     await this.pool.query(
       'DELETE FROM managed_hosts WHERE id = $1',
-      [id]
+      [id],
     );
   }
 }

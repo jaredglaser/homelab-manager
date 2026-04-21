@@ -1,4 +1,4 @@
-import type { ManagedHostRow, HostStatus } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost, HostStatus } from '@/lib/database/repositories/host-repository';
 import { toHostListItem, retryHealthCheck, getAgentImage, HEALTH_CHECK_DELAYS_MS } from '@/lib/hosts/host-utils';
 import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
@@ -16,14 +16,14 @@ export type HealthCheckResult = HostOperationResult;
 export type UpdateAgentResult = HostOperationResult;
 
 export interface HostRepo {
-  findById(id: number): Promise<ManagedHostRow | null>;
-  findAll(): Promise<ManagedHostRow[]>;
-  create(input: { name: string; agent_url: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHostRow>;
+  findById(id: number): Promise<ManagedHost | null>;
+  findAll(): Promise<ManagedHost[]>;
+  create(input: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
   delete(id: number): Promise<void>;
   updateStatus(id: number, status: HostStatus): Promise<void>;
   updateAgentVersion(id: number, version: string): Promise<void>;
   updateAgentUrl(id: number, agentUrl: string): Promise<void>;
-  update(id: number, fields: { name?: string; agent_url?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHostRow>;
+  update(id: number, fields: { name?: string; agentUrl?: string; capabilities?: { docker?: boolean; zfs?: boolean } }): Promise<ManagedHost>;
 }
 
 export interface HostHandlerDeps {
@@ -45,7 +45,7 @@ export async function handleCheckHostHealth(
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const healthResult = await deps.checkHealth(host.agent_url);
+  const healthResult = await deps.checkHealth(host.agentUrl);
   const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
   await deps.repo.updateStatus(host.id, newStatus);
 
@@ -86,7 +86,7 @@ export async function handleRefreshHostStatus(
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const healthResult = await deps.checkHealth(host.agent_url);
+  const healthResult = await deps.checkHealth(host.agentUrl);
   const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
   await deps.repo.updateStatus(host.id, newStatus);
   if (healthResult.healthy && healthResult.version) {
@@ -109,7 +109,7 @@ export async function handleUpdateAgent(
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   // 1. Record current version before update
-  const preCheck = await deps.checkHealth(host.agent_url);
+  const preCheck = await deps.checkHealth(host.agentUrl);
   if (!preCheck.healthy) {
     return {
       hostId: host.id,
@@ -142,7 +142,7 @@ export async function handleUpdateAgent(
   // 3. Trigger update on agent
   let triggerResponse: Response;
   try {
-    const agentBaseUrl = host.agent_url.replace(/\/+$/, '');
+    const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
     triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
@@ -180,7 +180,7 @@ export async function handleUpdateAgent(
 
   for (const delay of HEALTH_CHECK_DELAYS_MS) {
     await new Promise((resolve) => setTimeout(resolve, delay));
-    lastResult = await deps.checkHealth(host.agent_url);
+    lastResult = await deps.checkHealth(host.agentUrl);
     if (lastResult.healthy && lastResult.version !== currentVersion) {
       newVersion = lastResult.version;
       break;
@@ -227,9 +227,9 @@ export async function handleUpdateHost(
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const fields: { name?: string; agent_url?: string } = {};
+  const fields: { name?: string; agentUrl?: string } = {};
   if (data.name !== undefined) fields.name = data.name;
-  if (data.agentUrl !== undefined) fields.agent_url = data.agentUrl;
+  if (data.agentUrl !== undefined) fields.agentUrl = data.agentUrl;
 
   const updated = await deps.repo.update(data.hostId, fields);
   return toHostListItem(updated);
@@ -250,7 +250,7 @@ export async function handleRegisterExistingHost(
 
   const host = await deps.repo.create({
     name: data.name,
-    agent_url: data.agentUrl,
+    agentUrl: data.agentUrl,
   });
 
   try {
@@ -304,7 +304,7 @@ export async function handleVerifyHost(
   // 3. Create DB record
   const host = await deps.repo.create({
     name: data.name,
-    agent_url: data.agentUrl,
+    agentUrl: data.agentUrl,
     capabilities: data.capabilities,
   });
 
@@ -422,7 +422,7 @@ export async function handleAddHost(
 
   const host = await deps.repo.create({
     name: data.name,
-    agent_url: '',
+    agentUrl: '',
   });
 
   let provisionResult;
@@ -457,7 +457,7 @@ export async function handleAddHost(
 
   return {
     host: toHostListItem(
-      { ...host, agent_url: provisionResult.agentUrl },
+      { ...host, agentUrl: provisionResult.agentUrl },
       { agentVersion: healthResult.version || null, status },
     ),
   };
