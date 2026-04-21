@@ -175,15 +175,16 @@ export default function ZFSPoolSpeedChart({
   const { general } = useGeneralSettings();
   const option = getChartOption(dataPoints, general.use12HourTime);
   const chartRef = useRef<ReactECharts>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
 
-  useEChartTimeScroll(chartRef, WINDOW_MS);
+  useEChartTimeScroll(chartRef, WINDOW_MS, wrapperRef);
 
   return (
     <Paper elevation={0} className="rounded-sm p-4 !bg-[var(--mui-palette-background-chartBg)]">
       <Typography variant="subtitle2" className="mb-2">
         {poolName}
       </Typography>
-      <div className="h-48">
+      <div ref={wrapperRef} className="h-48">
         <ReactECharts
           ref={chartRef}
           option={option}
