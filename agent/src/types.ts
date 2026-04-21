@@ -11,6 +11,25 @@ export interface AgentStackResponse {
   exitCode?: number;
 }
 
+/** One stack directory discovered on the agent filesystem. */
+export interface AgentStackInventoryEntry {
+  name: string;
+  hasComposeFile: true;
+  composeHash: string;
+}
+
+/** Successful /stacks/inventory response. */
+export interface AgentStackInventoryResponse {
+  stacks: AgentStackInventoryEntry[];
+}
+
+/** Successful /stacks/compose response. */
+export interface AgentStackComposeResponse {
+  stack: string;
+  composeContent: string;
+  composeHash: string;
+}
+
 /** Successful /health response (HTTP 200). */
 export interface AgentHealthyResponse {
   status: 'healthy';

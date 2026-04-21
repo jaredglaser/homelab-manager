@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
+import type { StackDriftResolution } from '@/types/stacks';
 
 /** Allowed stack name pattern: must match SAFE_PATH_SEGMENT_PATTERN used by OpenBao client. No dots, slashes, or path traversal. */
 const stackNameField = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Stack name must contain only letters, numbers, hyphens, and underscores');
@@ -38,4 +39,12 @@ export const resumeDeploySchema = z.object({
 
 export const rejectDeploySchema = z.object({
   deployId: z.number().int().positive(),
+});
+
+const RESOLUTIONS = ['trust_repo', 'trust_agent', 'remove'] as const satisfies readonly StackDriftResolution[];
+
+export const resolveDriftSchema = z.object({
+  host: z.string().min(1),
+  stack: stackNameField,
+  resolution: z.enum(RESOLUTIONS),
 });

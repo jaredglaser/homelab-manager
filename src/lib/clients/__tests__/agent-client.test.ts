@@ -121,6 +121,56 @@ describe('AgentClient', () => {
     });
   });
 
+  describe('getStackInventory', () => {
+    it('returns parsed stack inventory from the agent', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          stacks: [
+            { name: 'grafana', hasComposeFile: true, composeHash: 'hash-1' },
+            { name: 'plex', hasComposeFile: true, composeHash: 'hash-2' },
+          ],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      const result = await client.getStackInventory();
+
+      expect(result).toEqual([
+        { name: 'grafana', hasComposeFile: true, composeHash: 'hash-1' },
+        { name: 'plex', hasComposeFile: true, composeHash: 'hash-2' },
+      ]);
+      const [url] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/stacks/inventory');
+    });
+  });
+
+  describe('getStackCompose', () => {
+    it('requests compose content for a specific stack', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          stack: 'plex',
+          composeContent: 'services: {}',
+          composeHash: 'hash-1',
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+
+      const result = await client.getStackCompose('plex');
+
+      expect(result).toEqual({
+        stack: 'plex',
+        composeContent: 'services: {}',
+        composeHash: 'hash-1',
+      });
+      const [url] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/stacks/compose?stack=plex');
+    });
+  });
+
   describe('health', () => {
     it('returns health info from GET /health', async () => {
       fetchMock.mockResolvedValueOnce(

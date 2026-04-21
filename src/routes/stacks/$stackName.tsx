@@ -23,6 +23,8 @@ import {
   listManagedHostNames,
   resumeDeploy,
   rejectDeploy,
+  scanDrift,
+  resolveDrift,
 } from '@/data/stacks/functions'
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
@@ -31,7 +33,8 @@ import ContainerList from '@/components/stacks/ContainerList'
 import StackActionBar from '@/components/stacks/StackActionBar'
 import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
-import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import StackDriftWarning from '@/components/stacks/StackDriftWarning'
+import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { parseVariables } from '@/lib/stacks/parse-variables'
 
 export const Route = createFileRoute('/stacks/$stackName')({
@@ -68,6 +71,13 @@ function StackEditorView() {
     enabled: settingsDialogOpen,
   })
 
+  const { data: driftReport } = useQuery({
+    queryKey: STACK_DRIFT_QUERY_KEY,
+    queryFn: () => scanDrift(),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  })
+
   // Invalidate deploy history when a deploy completes
   useEffect(() => {
     if (deployVersion === 0) return;
@@ -78,6 +88,9 @@ function StackEditorView() {
 
   const statusKey = detail ? `${detail.host}/${detail.name}` : ''
   const containers = statusMap.get(statusKey)?.containers ?? []
+  const driftItem = detail
+    ? (driftReport?.items ?? []).find((item) => item.host === detail.host && item.stack === detail.name) ?? null
+    : null
 
   const deployMutation = useMutation({
     mutationFn: (action: 'deploy' | 'restart' | 'teardown') =>
@@ -156,6 +169,20 @@ function StackEditorView() {
     },
   })
 
+  const resolveDriftMutation = useMutation({
+    mutationFn: (input: { host: string; stack: string; resolution: 'trust_repo' | 'trust_agent' | 'remove' }) =>
+      resolveDrift({ data: input }),
+    onSuccess: (result) => {
+      setDeployMessage({ type: 'success', text: result.outcome })
+      queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
+    },
+    onError: (err) => {
+      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
+    },
+  })
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm opacity-70 py-8">
@@ -198,6 +225,16 @@ function StackEditorView() {
               </IconButton>
             </Tooltip>
           </div>
+
+          <StackDriftWarning
+            item={driftItem}
+            isResolving={resolveDriftMutation.isPending}
+            onResolve={(item, resolution) => resolveDriftMutation.mutate({
+              host: item.host,
+              stack: item.stack,
+              resolution,
+            })}
+          />
 
           {/* Compose Editor */}
           <ComposeEditorLoader

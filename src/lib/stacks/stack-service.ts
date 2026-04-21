@@ -3,12 +3,22 @@
  * Called by server functions in src/data/stacks/functions.tsx.
  */
 
-import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
+import type {
+  StackSummary,
+  StackDetail,
+  StackDeployRecord,
+  StackDriftReport,
+  StackDriftResolution,
+  StackDriftResolutionResult,
+} from '@/types/stacks';
 import type { DeployRecord, DeployRequest } from '@/lib/deploy/types';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
+import { computeHash } from '@/lib/deploy/change-detection';
+import { AgentClientError } from '@/lib/clients/agent-client';
+import type { AgentStackInventoryEntry } from '@homelab-manager/agent/types';
 import yaml from 'js-yaml';
 import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
 import {
@@ -19,6 +29,11 @@ import {
   computeSyncStatus,
 } from '@/lib/stacks/stack-mappers';
 import { resolveDeleteStack, type DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
+import {
+  buildStackDriftReport,
+  resolveStackDriftItem,
+  type RepoStackSnapshot,
+} from '@/lib/stacks/stack-drift-service';
 
 /** Re-exported alongside service layer for consistent mock.module() targeting in tests. */
 export { resolveDeleteStack } from '@/lib/stacks/delete-stack-resolver';
@@ -221,7 +236,7 @@ export async function rejectPendingDeploy(deployId: number): Promise<{ deployId:
   // by another client between the getById above and this UPDATE.
   const claimed = await deployRepo.rejectPending(deployId, 'Manually rejected');
   if (!claimed) {
-    throw new Error(`Deploy ${deployId} is no longer pending — it was approved or rejected by another client`);
+    throw new Error(`Deploy ${deployId} is no longer pending: it was approved or rejected by another client`);
   }
   try {
     await deployRepo.notifyStackChange(deploy.stack, deploy.host);
@@ -438,6 +453,191 @@ export async function getManagedHostNames(): Promise<string[]> {
   const hostsRepo = new ManagedHostsRepository(dbClient.getPool());
   const hosts = await hostsRepo.getAll();
   return hosts.map((h) => h.name);
+}
+
+async function getManagedHosts() {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const hostsRepo = new ManagedHostsRepository(dbClient.getPool());
+  return hostsRepo.getAll();
+}
+
+async function getLatestDeploys() {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const repo = new DeployRepository(dbClient.getPool());
+  return repo.getLatestDeployPerStack();
+}
+
+async function getAgentClientForHost(hostName: string) {
+  const [hosts, { getOpenBaoClient }, { AgentClient }] = await Promise.all([
+    getManagedHosts(),
+    import('@/lib/clients/openbao-client-factory'),
+    import('@/lib/clients/agent-client'),
+  ]);
+  const host = hosts.find((candidate) => candidate.name === hostName);
+  if (!host) throw new Error(`Host "${hostName}" not found in managed_hosts`);
+  const baoClient = await getOpenBaoClient();
+  const token = await baoClient.getHostSecret(host.name, 'agent_token');
+  if (!token) throw new Error(`No agent token found in OpenBao for host "${host.name}"`);
+  return new AgentClient({ agentUrl: host.agentUrl, agentToken: token });
+}
+
+async function loadRepoStacks(): Promise<RepoStackSnapshot[]> {
+  const repoPath = getRepoPath();
+  let manifestContent: string;
+  try {
+    manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  } catch (err) {
+    // A missing manifest means no stacks yet, empty drift state is correct.
+    // Rethrow anything else so a corrupt git ODB does not masquerade as
+    // "every agent stack is untracked" and invite destructive cleanup.
+    if (err instanceof FileNotFoundError) return [];
+    console.error('[StackService] loadRepoStacks: failed to read manifest:', err);
+    throw err;
+  }
+
+  const manifest = parseManifest(manifestContent);
+  const entries = await Promise.all(
+    Object.entries(manifest.stacks).map(async ([stack, entry]) => {
+      let composeContent = '';
+      try {
+        composeContent = await readFileFromRepo(repoPath, `${stack}/${COMPOSE_FILENAME}`);
+      } catch (err) {
+        if (!(err instanceof FileNotFoundError)) throw err;
+      }
+
+      return {
+        stack,
+        host: entry.host,
+        autoDeploy: entry.autoDeploy,
+        composeContent,
+        composeHash: computeHash(composeContent),
+      } satisfies RepoStackSnapshot;
+    }),
+  );
+
+  return entries;
+}
+
+async function syncRepoStackToAgentCompose(params: {
+  stack: string;
+  host: string;
+  composeContent: string;
+}): Promise<{ commitSha: string }> {
+  const repoPath = getRepoPath();
+  const commitSha = await commitFiles(repoPath, (existingFiles) => {
+    const manifestContent = existingFiles.get(MANIFEST_FILENAME);
+    const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
+    const existingEntry = manifest.stacks[params.stack];
+
+    // If the stack was created in the repo on a different host since the
+    // scan, bail out so we don't silently rewrite the host assignment.
+    // The user must re-scan and explicitly pick an action.
+    if (existingEntry && existingEntry.host !== params.host) {
+      throw new Error(
+        `Stack "${params.stack}" already exists in manifest on host "${existingEntry.host}"; refusing to sync from "${params.host}"`,
+      );
+    }
+
+    manifest.stacks[params.stack] = {
+      host: params.host,
+      autoDeploy: existingEntry?.autoDeploy ?? false,
+    };
+
+    const newManifestContent = yaml.dump(manifest, {
+      indent: 2,
+      lineWidth: -1,
+      noRefs: true,
+      sortKeys: true,
+    });
+
+    return {
+      files: [
+        { path: MANIFEST_FILENAME, content: newManifestContent },
+        { path: `${params.stack}/${COMPOSE_FILENAME}`, content: params.composeContent },
+      ],
+      message: `Sync stack from agent: ${params.stack} on ${params.host}`,
+      author: SYSTEM_AUTHOR,
+    };
+  });
+
+  if (commitSha === null) {
+    throw new Error(`Sync produced no commit for stack "${params.stack}"`);
+  }
+  return { commitSha };
+}
+
+export async function scanStackDrift(): Promise<StackDriftReport> {
+  const [repoStacks, hosts, latestDeploys] = await Promise.all([
+    loadRepoStacks(),
+    getManagedHosts(),
+    getLatestDeploys(),
+  ]);
+
+  const dockerHosts = hosts
+    .filter((host) => host.capabilities.docker === true)
+    .map((host) => ({ name: host.name, dockerEnabled: true }));
+
+  const agentStacksByHost = new Map<string, AgentStackInventoryEntry[]>();
+  const scanErrors: Array<{ host: string; message: string }> = [];
+
+  // Every async path inside MUST report via scanErrors. An uncaught throw
+  // here would abort all parallel host scans and we'd lose visibility on
+  // hosts that are reachable just because one is not.
+  await Promise.all(dockerHosts.map(async (host) => {
+    try {
+      const agent = await getAgentClientForHost(host.name);
+      agentStacksByHost.set(host.name, await agent.getStackInventory());
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[StackService] drift scan failed for host "${host.name}":`, err);
+      scanErrors.push({ host: host.name, message });
+    }
+  }));
+
+  return buildStackDriftReport({
+    repoStacks,
+    hosts: dockerHosts,
+    latestDeploys,
+    agentStacksByHost,
+    scanErrors,
+  });
+}
+
+export async function resolveStackDrift(input: {
+  host: string;
+  stack: string;
+  resolution: StackDriftResolution;
+}): Promise<StackDriftResolutionResult> {
+  return resolveStackDriftItem({
+    ...input,
+    loadCurrentReport: () => scanStackDrift(),
+    readRepoStack: async (stack) => {
+      const repoStacks = await loadRepoStacks();
+      return repoStacks.find((candidate) => candidate.stack === stack) ?? null;
+    },
+    readAgentCompose: async (host, stack) => {
+      try {
+        const agent = await getAgentClientForHost(host);
+        return await agent.getStackCompose(stack);
+      } catch (err) {
+        if (err instanceof AgentClientError && err.statusCode === 404) return null;
+        throw err;
+      }
+    },
+    triggerDeploy: ({ stack, host, action }) => triggerStackDeploy({ stack, host, action }),
+    deleteTrackedStack: (stack, teardown) => deleteStackFromRepo(stack, teardown),
+    syncRepoToAgent: syncRepoStackToAgentCompose,
+  });
 }
 
 export async function updateStackIconSlug(

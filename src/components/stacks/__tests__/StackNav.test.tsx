@@ -1,21 +1,27 @@
 import { describe, it, expect, mock, beforeAll } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
+import type { StackDriftItem } from '@/types/stacks';
+import {
+  StackListContext,
+  StackStatusContext,
+  type StackListContextValue,
+  type StackStatusContextValue,
+} from '@/components/stacks/stacks-context';
 
-// Provide mocks for the split contexts
-const mockStacks = [
+const mockStacks: StackListContextValue['stacks'] = [
   { name: 'app-web', host: 'server-1', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 2, icon: 'nginx' },
   { name: 'app-db', host: 'server-1', syncStatus: 'pending', deployMode: 'manual', lastDeployAt: null, lastDeployStatus: null, containerCount: 1, icon: null },
   { name: 'monitoring', host: 'server-2', syncStatus: 'in_sync', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 3, icon: 'grafana' },
 ];
 
-const mockListContextValue = {
+const listValue: StackListContextValue = {
   stacks: mockStacks,
   hosts: ['server-1', 'server-2'],
   isLoading: false,
 };
 
-const mockStatusContextValue = {
+const statusValue: StackStatusContextValue = {
   statusMap: new Map(),
   deployVersion: 0,
 };
@@ -29,83 +35,96 @@ mock.module('@/lib/utils/icon-resolver', () => ({
   getIconUrl: (slug: string) => slug ? `https://icons.test/${slug}.png` : null,
 }));
 
-const realContextModule = await import('@/components/stacks/stacks-context');
-
-mock.module('@/components/stacks/stacks-context', () => ({
-  ...realContextModule,
-  useStackListContext: () => mockListContextValue,
-  useStackStatusContext: () => mockStatusContextValue,
-}));
-
 mock.module('@tanstack/react-router', () => ({
-  Link: ({ children, to, params, className, activeProps, ...rest }: any) => (
+  Link: ({ children, to, params, className, activeProps: _activeProps, ...rest }: { children?: ReactNode; to: string; params?: Record<string, unknown>; className?: string; activeProps?: unknown; [k: string]: unknown }) => (
     <a href={to} data-params={JSON.stringify(params)} className={className} {...rest}>
       {children}
     </a>
   ),
-  // Additional exports that leak into concurrent test files via the shared module
-  // registry. `@tanstack/react-start`'s createServerFn imports both at runtime, so
-  // unrelated tests that transitively load a server function crash with a cryptic
-  // "Export not found" error unless we provide no-op stubs here.
+  // `@tanstack/react-start`'s createServerFn imports these at runtime in
+  // concurrent test files. Provide no-op stubs so unrelated tests don't
+  // crash with a cryptic "Export not found" error.
   isRedirect: () => false,
   useRouter: () => ({ navigate: () => {}, invalidate: () => {} }),
 }));
 
-let StackNav: ComponentType<{ onCreateClick: () => void }>;
+let StackNav: ComponentType<{ onCreateClick: () => void; driftByKey?: Map<string, StackDriftItem> }>;
+
+const driftByKey = new Map<string, StackDriftItem>([
+  ['server-1/app-db', {
+    host: 'server-1',
+    stack: 'app-db',
+    kind: 'ghost',
+    repoComposeHash: 'repo-hash',
+    latestDeployStatus: 'succeeded',
+  }],
+]);
 
 beforeAll(async () => {
   const mod = await import('../StackNav');
   StackNav = mod.default;
 });
 
+// Wrap in real context providers so we don't have to mock.module the context
+// module. Mocking the context module globally pollutes other tests that import
+// the same hooks (e.g. stacks-context.test.ts) because bun's mock.module is
+// process-scoped, not test-file-scoped.
+function renderWithContexts(ui: ReactNode) {
+  return render(
+    <StackListContext value={listValue}>
+      <StackStatusContext value={statusValue}>
+        {ui}
+      </StackStatusContext>
+    </StackListContext>,
+  );
+}
+
 describe('StackNav', () => {
   it('renders the Stacks header', () => {
-    render(<StackNav onCreateClick={() => {}} />);
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     expect(screen.getByText('Stacks')).toBeDefined();
   });
 
   it('renders the create button', () => {
-    render(<StackNav onCreateClick={() => {}} />);
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     expect(screen.getByLabelText('Create stack')).toBeDefined();
   });
 
   it('calls onCreateClick when create button is clicked', () => {
     const onCreateClick = mock(() => {});
-    render(<StackNav onCreateClick={onCreateClick} />);
+    renderWithContexts(<StackNav onCreateClick={onCreateClick} driftByKey={driftByKey} />);
     fireEvent.click(screen.getByLabelText('Create stack'));
     expect(onCreateClick).toHaveBeenCalledTimes(1);
   });
 
   it('renders host headers sorted alphabetically', () => {
-    render(<StackNav onCreateClick={() => {}} />);
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     const hosts = screen.getAllByText(/server-/);
     expect(hosts[0].textContent).toBe('server-1');
     expect(hosts[1].textContent).toBe('server-2');
   });
 
   it('renders stack names under their hosts', () => {
-    render(<StackNav onCreateClick={() => {}} />);
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     expect(screen.getByText('app-db')).toBeDefined();
     expect(screen.getByText('app-web')).toBeDefined();
     expect(screen.getByText('monitoring')).toBeDefined();
   });
 
   it('renders stacks sorted alphabetically within each host', () => {
-    render(<StackNav onCreateClick={() => {}} />);
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     const allLinks = screen.getAllByRole('link');
     const stackLinks = allLinks.filter((l) => {
       const params = l.getAttribute('data-params');
       return params && params.includes('stackName');
     });
-    // server-1 stacks: app-db before app-web
     expect(stackLinks[0].textContent).toContain('app-db');
     expect(stackLinks[1].textContent).toContain('app-web');
-    // server-2 stacks: monitoring
     expect(stackLinks[2].textContent).toContain('monitoring');
   });
 
   it('renders host links pointing to host settings route with correct params', () => {
-    render(<StackNav onCreateClick={() => {}} />);
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     const hostLinks = screen.getAllByRole('link').filter((l) =>
       l.getAttribute('href')?.includes('/stacks/host/'),
     );
@@ -116,7 +135,7 @@ describe('StackNav', () => {
   });
 
   it('renders stack links pointing to stack editor route with correct params', () => {
-    render(<StackNav onCreateClick={() => {}} />);
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     const stackLinks = screen.getAllByRole('link').filter((l) =>
       l.getAttribute('href')?.includes('/stacks/$stackName'),
     );
@@ -128,23 +147,25 @@ describe('StackNav', () => {
   });
 
   it('renders icon images for stacks with icons', () => {
-    const { container } = render(<StackNav onCreateClick={() => {}} />);
+    const { container } = renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     const images = container.querySelectorAll('img');
-    // app-web has nginx icon, monitoring has grafana icon
     expect(images).toHaveLength(2);
   });
 
   it('renders letter fallback for stacks without icons', () => {
-    render(<StackNav onCreateClick={() => {}} />);
-    // app-db has no icon, should show 'A' fallback
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     expect(screen.getByText('A')).toBeDefined();
   });
 
   it('shows container count when > 0', () => {
-    // app-web has 2 containers, app-db has 1, monitoring has 3
-    render(<StackNav onCreateClick={() => {}} />);
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
     expect(screen.getByText('2')).toBeDefined();
     expect(screen.getByText('1')).toBeDefined();
     expect(screen.getByText('3')).toBeDefined();
+  });
+
+  it('renders a drift marker for stacks with drift', () => {
+    renderWithContexts(<StackNav onCreateClick={() => {}} driftByKey={driftByKey} />);
+    expect(screen.getByLabelText('Drift detected for app-db')).toBeDefined();
   });
 });

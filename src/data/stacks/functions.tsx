@@ -10,7 +10,9 @@ import {
   updateStackIconSchema,
   resumeDeploySchema,
   rejectDeploySchema,
+  resolveDriftSchema,
 } from '@/data/stacks/schemas';
+import type { StackDriftReport, StackDriftResolutionResult } from '@/types/stacks';
 
 /**
  * Lazy wrapper around the shared OpenBao client factory. The factory owns
@@ -60,7 +62,7 @@ export const triggerDeploy = createServerFn()
   });
 
 /**
- * Approve a pending deploy — runs it through the pipeline's resumePending path.
+ * Approve a pending deploy: runs it through the pipeline's resumePending path.
  */
 export const resumeDeploy = createServerFn({ method: 'POST' })
   .inputValidator(resumeDeploySchema)
@@ -70,13 +72,34 @@ export const resumeDeploy = createServerFn({ method: 'POST' })
   });
 
 /**
- * Reject a pending deploy — marks it failed with a "Manually rejected" log.
+ * Reject a pending deploy: marks it failed with a "Manually rejected" log.
  */
 export const rejectDeploy = createServerFn({ method: 'POST' })
   .inputValidator(rejectDeploySchema)
   .handler(async ({ data }): Promise<{ deployId: number }> => {
     const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
     return rejectPendingDeploy(data.deployId);
+  });
+
+/**
+ * Scan for drift between the repo manifest and each Docker host's agent filesystem.
+ * Fans out one agent call per host and returns items classified as ghost/untracked/content.
+ */
+export const scanDrift = createServerFn({ method: 'GET' })
+  .handler(async (): Promise<StackDriftReport> => {
+    const { scanStackDrift } = await import('@/lib/stacks/stack-service');
+    return scanStackDrift();
+  });
+
+/**
+ * Apply a chosen resolution to a single drift item.
+ * Re-scans before acting to catch stale UI clicks.
+ */
+export const resolveDrift = createServerFn({ method: 'POST' })
+  .inputValidator(resolveDriftSchema)
+  .handler(async ({ data }): Promise<StackDriftResolutionResult> => {
+    const { resolveStackDrift } = await import('@/lib/stacks/stack-service');
+    return resolveStackDrift(data);
   });
 
 /**

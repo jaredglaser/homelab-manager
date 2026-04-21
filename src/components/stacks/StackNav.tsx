@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { IconButton, Typography } from '@mui/material';
-import { Plus, Server } from 'lucide-react';
+import { AlertTriangle, Plus, Server } from 'lucide-react';
 import { useStackListContext, useStackStatusContext } from '@/components/stacks/stacks-context';
 import { getIconUrl } from '@/lib/utils/icon-resolver';
+import type { StackDriftItem } from '@/types/stacks';
 
 type NavItem =
   | { type: 'host'; host: string }
@@ -14,9 +15,10 @@ const STACK_ROW_HEIGHT = 32;
 
 interface StackNavProps {
   onCreateClick: () => void;
+  driftByKey?: Map<string, StackDriftItem>;
 }
 
-export default function StackNav({ onCreateClick }: StackNavProps) {
+export default function StackNav({ onCreateClick, driftByKey = new Map() }: StackNavProps) {
   const { stacks } = useStackListContext();
   const { statusMap } = useStackStatusContext();
   const listRef = useRef<HTMLDivElement>(null);
@@ -92,6 +94,7 @@ export default function StackNav({ onCreateClick }: StackNavProps) {
                   name={item.name}
                   icon={item.icon}
                   containerCount={item.containerCount}
+                  driftItem={driftByKey.get(`${item.host}/${item.name}`) ?? null}
                 />
               )}
             </div>
@@ -116,7 +119,17 @@ function HostNavItem({ host }: { host: string }) {
   );
 }
 
-function StackNavItem({ name, icon, containerCount }: { name: string; icon: string | null; containerCount: number }) {
+function StackNavItem({
+  name,
+  icon,
+  containerCount,
+  driftItem,
+}: {
+  name: string;
+  icon: string | null;
+  containerCount: number;
+  driftItem: StackDriftItem | null;
+}) {
   const iconUrl = icon ? getIconUrl(icon, '') : null;
 
   return (
@@ -134,6 +147,13 @@ function StackNavItem({ name, icon, containerCount }: { name: string; icon: stri
         </span>
       )}
       <span className="truncate flex-1">{name}</span>
+      {driftItem ? (
+        <AlertTriangle
+          size={12}
+          className="text-[var(--mui-palette-warning-main)]"
+          aria-label={`Drift detected for ${name}`}
+        />
+      ) : null}
       {containerCount > 0 && (
         <span className="text-[10px] opacity-50">{containerCount}</span>
       )}

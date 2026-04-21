@@ -24,6 +24,12 @@ const mockResolveDeleteStack = mock(() =>
 );
 const mockResumePendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
 const mockRejectPendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
+const mockScanStackDrift = mock(() => Promise.resolve({
+  items: [],
+  summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
+  scanErrors: [],
+}));
+const mockResolveStackDrift = mock(() => Promise.resolve({ outcome: 'repo-synced' as const, commitSha: 'abc123' }));
 
 mock.module('@/lib/stacks/stack-service', () => ({
   getStackSummaries: mockGetStackSummaries,
@@ -38,6 +44,8 @@ mock.module('@/lib/stacks/stack-service', () => ({
   resolveDeleteStack: mockResolveDeleteStack,
   resumePendingDeploy: mockResumePendingDeploy,
   rejectPendingDeploy: mockRejectPendingDeploy,
+  scanStackDrift: mockScanStackDrift,
+  resolveStackDrift: mockResolveStackDrift,
 }));
 
 /**
@@ -65,6 +73,8 @@ describe('stacks.functions module', () => {
     mockResolveDeleteStack.mockClear();
     mockResumePendingDeploy.mockClear();
     mockRejectPendingDeploy.mockClear();
+    mockScanStackDrift.mockClear();
+    mockResolveStackDrift.mockClear();
   });
 
   describe('exports', () => {
@@ -102,6 +112,18 @@ describe('stacks.functions module', () => {
       const mod = await import('../functions');
       expect(mod.updateStackIcon).toBeDefined();
       expect(typeof mod.updateStackIcon).toBe('function');
+    });
+
+    it('exports scanDrift server function', async () => {
+      const mod = await import('../functions');
+      expect(mod.scanDrift).toBeDefined();
+      expect(typeof mod.scanDrift).toBe('function');
+    });
+
+    it('exports resolveDrift server function', async () => {
+      const mod = await import('../functions');
+      expect(mod.resolveDrift).toBeDefined();
+      expect(typeof mod.resolveDrift).toBe('function');
     });
   });
 
@@ -269,6 +291,27 @@ describe('stacks.functions module', () => {
       await expect(rejectDeploy({ data: { deployId: 999 } })).rejects.toThrow(
         'Deploy 999 not found'
       );
+    });
+  });
+
+  describe('scanDrift', () => {
+    it('delegates to scanStackDrift', async () => {
+      const { scanDrift } = await import('../functions');
+      await scanDrift({});
+      expect(mockScanStackDrift).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('resolveDrift', () => {
+    it('delegates to resolveStackDrift with host, stack, and resolution', async () => {
+      const { resolveDrift } = await import('../functions');
+      await resolveDrift({ data: { host: 'server1', stack: 'grafana', resolution: 'trust_agent' } });
+      expect(mockResolveStackDrift).toHaveBeenCalledTimes(1);
+      expect(mockResolveStackDrift).toHaveBeenCalledWith({
+        host: 'server1',
+        stack: 'grafana',
+        resolution: 'trust_agent',
+      });
     });
   });
 
