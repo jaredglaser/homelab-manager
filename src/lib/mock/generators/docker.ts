@@ -6,6 +6,15 @@ import { mulberry32, hashCode } from '@/lib/mock/prng';
 
 type DemoContainerState = DockerInventorySnapshotContainer['state'];
 
+// 128 + SIGKILL(9): the exit code Docker reports for force-killed or OOM-killed containers.
+// Demo uses this so the exited row exercises the UI's non-zero-exit styling.
+const DEMO_EXITED_EXIT_CODE = 137;
+
+// DEMO_FINISHED_STAGGER_MS is kept smaller than DEMO_STARTED_STAGGER_MS so that any exited
+// entity's finishedAt lands between its startedAt and now, regardless of index.
+const DEMO_STARTED_STAGGER_MS = 60_000;
+const DEMO_FINISHED_STAGGER_MS = 30_000;
+
 function getDemoContainerState(idx: number): DemoContainerState {
   if (idx === 2) return 'exited';
   if (idx === 3) return 'restarting';
@@ -65,9 +74,11 @@ export function generateDockerSnapshot(time: Date): DockerStatsRow[] {
 export function generateDockerInventorySnapshot(now: Date): DockerInventorySnapshotContainer[] {
   const nowMs = now.getTime();
   return DOCKER_ENTITIES.map((e, idx) => {
-    const startedAt = new Date(nowMs - (idx + 1) * 60_000);
+    const startedAt = new Date(nowMs - (idx + 1) * DEMO_STARTED_STAGGER_MS);
     const state = getDemoContainerState(idx);
-    const finishedAt = state === 'exited' ? new Date(nowMs - idx * 30_000) : null;
+    const finishedAt = state === 'exited'
+      ? new Date(startedAt.getTime() + DEMO_FINISHED_STAGGER_MS)
+      : null;
     return {
       host: e.host,
       containerId: e.containerId,
@@ -78,7 +89,7 @@ export function generateDockerInventorySnapshot(now: Date): DockerInventorySnaps
       serviceKey: e.serviceKey,
       startedAt,
       finishedAt,
-      exitCode: state === 'exited' ? 137 : null,
+      exitCode: state === 'exited' ? DEMO_EXITED_EXIT_CODE : null,
       labels: {},
       updatedAt: startedAt,
     };
