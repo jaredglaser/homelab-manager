@@ -256,4 +256,23 @@ describe('ContainerTable', () => {
     expect(calls[0]!.containerId).toBe('abc123');
     expect(calls[0]!.host).toBe('host1');
   });
+
+  it('shows exit metadata in the expanded detail panel for an exited container', () => {
+    const inventory = new Map([
+      ['host1/abc123', {
+        ...makeInventory('host1', 'abc123', 'old-app', 'exited'),
+        finishedAt: new Date('2024-01-01T01:00:00Z'),
+        exitCode: 137,
+      }],
+    ]);
+
+    renderTable({ inventory });
+
+    fireEvent.click(screen.getByText('old-app'));
+
+    expect(screen.getByText('Container Status')).toBeDefined();
+    expect(screen.getByText('Exited')).toBeDefined();
+    expect(screen.getByText('Exit code')).toBeDefined();
+    expect(screen.getByText('137')).toBeDefined();
+  });
 });

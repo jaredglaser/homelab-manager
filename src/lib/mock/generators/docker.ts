@@ -4,6 +4,15 @@ import { generateSimplexMetric, spike } from '@/lib/mock/patterns';
 import { DOCKER_ENTITIES, type DockerEntityDef } from '@/lib/mock/entities';
 import { mulberry32, hashCode } from '@/lib/mock/prng';
 
+type DemoContainerState = DockerInventorySnapshotContainer['state'];
+
+function getDemoContainerState(idx: number): DemoContainerState {
+  if (idx === 2) return 'exited';
+  if (idx === 3) return 'restarting';
+  if (idx === 4) return 'paused';
+  return 'running';
+}
+
 /** Build a single DockerStatsRow from an entity definition at a given time. */
 function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string, sampleMs?: number): DockerStatsRow {
   const entityKey = `${e.host}/${e.containerId}`;
@@ -39,32 +48,37 @@ function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string, sam
 export function generateDockerSnapshot(time: Date): DockerStatsRow[] {
   const timeMs = time.getTime();
   const timeStr = time.toISOString();
-  return DOCKER_ENTITIES.map((e) => buildDockerRow(e, timeMs, timeStr));
+  return DOCKER_ENTITIES.flatMap((e, idx) => (
+    getDemoContainerState(idx) === 'running' ? [buildDockerRow(e, timeMs, timeStr)] : []
+  ));
 }
 
 /**
  * Generate a Docker inventory init snapshot for demo mode.
  *
- * Returns one entry per entity matching `DockerInventorySnapshotContainer`. All containers are
- * `running`; `startedAt`/`updatedAt` are staggered per-entity so deterministic tie-breaking in
- * any downstream dedup path has something to work with. Downstream `JSON.stringify` serializes
- * the `Date` fields to ISO strings, matching the real broadcast wire format.
+ * Returns one entry per entity matching `DockerInventorySnapshotContainer`. State is varied by
+ * entity index so the demo exercises running, exited, restarting, and paused UI paths.
+ * `startedAt`/`updatedAt` are staggered per-entity so deterministic tie-breaking in any
+ * downstream dedup path has something to work with. Downstream `JSON.stringify` serializes the
+ * `Date` fields to ISO strings, matching the real broadcast wire format.
  */
 export function generateDockerInventorySnapshot(now: Date): DockerInventorySnapshotContainer[] {
   const nowMs = now.getTime();
   return DOCKER_ENTITIES.map((e, idx) => {
     const startedAt = new Date(nowMs - (idx + 1) * 60_000);
+    const state = getDemoContainerState(idx);
+    const finishedAt = state === 'exited' ? new Date(nowMs - idx * 30_000) : null;
     return {
       host: e.host,
       containerId: e.containerId,
       name: e.containerName,
       image: e.image,
-      state: 'running',
+      state,
       composeProject: null,
       serviceKey: e.serviceKey,
       startedAt,
-      finishedAt: null,
-      exitCode: null,
+      finishedAt,
+      exitCode: state === 'exited' ? 137 : null,
       labels: {},
       updatedAt: startedAt,
     };
