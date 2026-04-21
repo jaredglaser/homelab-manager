@@ -192,22 +192,22 @@ describe('useVisibleRAF', () => {
     expect(cb1).not.toHaveBeenCalled();
   });
 
-  it('logs an error and no-ops (no observer) when targetRef.current is null', () => {
+  it('warns and no-ops (no observer) when targetRef.current is null', () => {
     const cb = mock(() => {});
     const targetRef = { current: null };
 
-    const errSpy = mock(() => {});
-    const originalErr = console.error;
-    console.error = errSpy as unknown as typeof console.error;
+    const warnSpy = mock(() => {});
+    const originalWarn = console.warn;
+    console.warn = warnSpy as unknown as typeof console.warn;
 
     try {
       renderHook(() => useVisibleRAF(targetRef, cb));
 
       expect(ioInstances.length).toBe(0);
       expect(rafCallbacks.length).toBe(0);
-      expect(errSpy).toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalled();
     } finally {
-      console.error = originalErr;
+      console.warn = originalWarn;
     }
   });
 
@@ -218,13 +218,17 @@ describe('useVisibleRAF', () => {
     renderHook(() => useVisibleRAF(targetRef, cb));
 
     const ioInstance = ioInstances[0];
+    const rafSpy = globalThis.requestAnimationFrame as unknown as ReturnType<typeof mock>;
+    const rafCallsBefore = rafSpy.mock.calls.length;
 
     ioInstance.emit(targetRef.current, true);
     ioInstance.emit(targetRef.current, true);
     ioInstance.emit(targetRef.current, true);
 
     // Without the `visible` guard, three emits would queue three parallel rAF loops.
-    expect(rafCallbacks.length).toBe(1);
+    // Assert on the mock's call count directly so this cannot be masked by
+    // coincidental buffer-length matches in future refactors.
+    expect(rafSpy.mock.calls.length - rafCallsBefore).toBe(1);
   });
 
   it('disconnects old observer and observes new element when targetRef identity changes', () => {
@@ -316,6 +320,85 @@ describe('useVisibleRAF', () => {
       expect(cb).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.IntersectionObserver = originalIoInner;
+      console.error = originalErr;
+    }
+  });
+
+  it('falls back to unconditional rAF when observer.observe() throws', () => {
+    const originalIoInner = globalThis.IntersectionObserver;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).IntersectionObserver = class {
+      observe() { throw new Error('detached node'); }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() { return []; }
+      root = null;
+      rootMargin = '';
+      thresholds: readonly number[] = [];
+    };
+
+    const errSpy = mock(() => {});
+    const originalErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+
+    try {
+      const cb = mock(() => {});
+      const targetRef = makeTargetRef();
+
+      renderHook(() => useVisibleRAF(targetRef, cb));
+
+      expect(rafCallbacks.length).toBe(1);
+      expect(errSpy).toHaveBeenCalled();
+
+      rafCallbacks[0](performance.now());
+      expect(cb).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.IntersectionObserver = originalIoInner;
+      console.error = originalErr;
+    }
+  });
+
+  it('stops the loop and logs when the callback throws, allowing resume on next visibility toggle', () => {
+    const error = new Error('boom');
+    let throwOnce = true;
+    const cb = mock((_ts: number) => {
+      if (throwOnce) {
+        throwOnce = false;
+        throw error;
+      }
+    });
+    const targetRef = makeTargetRef();
+
+    const errSpy = mock(() => {});
+    const originalErr = console.error;
+    console.error = errSpy as unknown as typeof console.error;
+
+    try {
+      renderHook(() => useVisibleRAF(targetRef, cb));
+
+      const ioInstance = ioInstances[0];
+      const rafSpy = globalThis.requestAnimationFrame as unknown as ReturnType<typeof mock>;
+      const cafSpy = globalThis.cancelAnimationFrame as unknown as ReturnType<typeof mock>;
+
+      ioInstance.emit(targetRef.current, true);
+      expect(rafCallbacks.length).toBe(1);
+
+      const rafCallsBeforeFrame = rafSpy.mock.calls.length;
+      const cafCallsBeforeFrame = cafSpy.mock.calls.length;
+
+      // Fire the frame: callback throws, loop should tear down without propagating.
+      expect(() => rafCallbacks[0](performance.now())).not.toThrow();
+
+      expect(errSpy).toHaveBeenCalled();
+      expect(rafSpy.mock.calls.length).toBe(rafCallsBeforeFrame); // no re-schedule
+      expect(cafSpy.mock.calls.length).toBeGreaterThan(cafCallsBeforeFrame); // loop torn down
+
+      // Next visibility toggle false → true restarts the loop (self-heals).
+      ioInstance.emit(targetRef.current, false);
+      const rafCallsAfterStop = rafSpy.mock.calls.length;
+      ioInstance.emit(targetRef.current, true);
+      expect(rafSpy.mock.calls.length).toBeGreaterThan(rafCallsAfterStop);
+    } finally {
       console.error = originalErr;
     }
   });
