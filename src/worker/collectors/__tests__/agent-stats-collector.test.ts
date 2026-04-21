@@ -8,7 +8,7 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 /** Create a mock DatabaseClient that captures insertDockerStats calls */
 function createMockDb() {
   const insertedRows: DockerStatsRow[][] = [];
-  const upsertedMetadata: { source: string; entity: string; key: string; value: string }[] = [];
+  const upsertedMetadata: { entity: string; key: string; value: string }[] = [];
   return {
     db: {
       getPool: () => ({
@@ -19,13 +19,13 @@ function createMockDb() {
     upsertedMetadata,
     /** Patch the repository after construction */
     patchRepository(collector: AgentStatsCollector) {
-      // Access the protected repository via any cast
       const repo = (collector as any).repository;
+      const metaRepo = (collector as any).entityMetadataRepository;
       repo.insertDockerStats = async (rows: DockerStatsRow[]) => {
         insertedRows.push(rows);
       };
-      repo.upsertEntityMetadata = async (source: string, entity: string, key: string, value: string) => {
-        upsertedMetadata.push({ source, entity, key, value });
+      metaRepo.upsertEntityMetadata = async (entity: string, key: string, value: string) => {
+        upsertedMetadata.push({ entity, key, value });
       };
     },
   };
@@ -255,7 +255,8 @@ describe('AgentStatsCollector', () => {
       mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     const repo = (collector as any).repository;
-    repo.upsertEntityMetadata = async () => {};
+    const metaRepo = (collector as any).entityMetadataRepository;
+    metaRepo.upsertEntityMetadata = async () => {};
     repo.insertDockerStats = async () => {
       insertCallCount++;
       if (insertCallCount === 1) throw new Error('DB write failed');
@@ -290,8 +291,9 @@ describe('AgentStatsCollector', () => {
       mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
     );
     const repo = (collector as any).repository;
+    const metaRepo = (collector as any).entityMetadataRepository;
     // First upsert call throws (first event), second succeeds (retry on second event)
-    repo.upsertEntityMetadata = async () => {
+    metaRepo.upsertEntityMetadata = async () => {
       upsertCallCount++;
       if (upsertCallCount === 1) throw new Error('DB connection lost');
     };

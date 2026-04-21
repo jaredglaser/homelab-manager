@@ -27,8 +27,8 @@ interface CachedContainerState {
 }
 
 /**
- * BaseCollector eagerly instantiates a StatsRepository from `db.getPool()`.
- * The inventory collector persists via its own DockerContainerEventRepository
+ * BaseCollector eagerly instantiates StatsRepository from `db.getPool()`. The
+ * inventory collector persists via its own DockerContainerEventRepository
  * instead and never touches the base repository, so we hand super() a stub
  * whose pool is never dereferenced. Keeps the (host, token, repo, ...)
  * constructor shape that callers + tests depend on.

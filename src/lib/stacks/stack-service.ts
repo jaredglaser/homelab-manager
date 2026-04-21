@@ -454,11 +454,11 @@ export async function updateStackIconSlug(
 
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { StatsRepository } = await import('@/lib/database/repositories/stats-repository');
+  const { EntityMetadataRepository } = await import('@/lib/database/repositories/entity-metadata-repository');
 
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  const repo = new StatsRepository(dbClient.getPool());
+  const repo = new EntityMetadataRepository(dbClient.getPool());
 
-  await repo.upsertEntityMetadata('docker', `${entry.host}/${stackName}`, 'icon', iconSlug);
+  await repo.upsertEntityMetadata(`${entry.host}/${stackName}`, 'icon', iconSlug);
 }

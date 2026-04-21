@@ -1,10 +1,9 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
+import { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
 import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
 import type { DockerStatsRow } from '@/types/docker';
 import { BaseCollector } from './base-collector';
-
-const DOCKER_SOURCE = 'docker';
 
 /** Shape of SSE events emitted by the agent's GET /stats/stream endpoint */
 interface AgentStatsEvent {
@@ -63,6 +62,7 @@ export class AgentStatsCollector extends BaseCollector {
   private readonly host: ManagedHostRow;
   private readonly token: string;
   private readonly fetchFn: FetchFn;
+  private readonly entityMetadataRepository: EntityMetadataRepository;
   private readonly knownContainers = new Set<string>();
 
   constructor(
@@ -78,6 +78,7 @@ export class AgentStatsCollector extends BaseCollector {
     this.token = token;
     this.name = `AgentStatsCollector[${host.name}]`;
     this.fetchFn = fetchFn ?? globalThis.fetch;
+    this.entityMetadataRepository = new EntityMetadataRepository(db.getPool());
   }
 
   /** Upsert entity metadata for a newly seen container */
@@ -86,9 +87,9 @@ export class AgentStatsCollector extends BaseCollector {
 
     try {
       const entityPath = `${this.host.name}/${event.containerId}`;
-      await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'name', event.containerName);
-      await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'image', event.image);
-      await this.repository.upsertEntityMetadata(DOCKER_SOURCE, entityPath, 'service_key', event.containerName);
+      await this.entityMetadataRepository.upsertEntityMetadata(entityPath, 'name', event.containerName);
+      await this.entityMetadataRepository.upsertEntityMetadata(entityPath, 'image', event.image);
+      await this.entityMetadataRepository.upsertEntityMetadata(entityPath, 'service_key', event.containerName);
       this.knownContainers.add(event.containerId);
     } catch (err) {
       console.error(
