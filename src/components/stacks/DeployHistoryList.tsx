@@ -14,6 +14,10 @@ interface DeployHistoryListProps {
   host?: string;
   onRollbackComplete?: () => void;
   onRollbackError?: (err: Error) => void;
+  onApprove?: (deployId: number) => void;
+  onReject?: (deployId: number) => void;
+  isApproving?: boolean;
+  isRejecting?: boolean;
   _triggerDeploy?: typeof triggerDeploy;
 }
 
@@ -24,6 +28,10 @@ export default function DeployHistoryList({
   host,
   onRollbackComplete,
   onRollbackError,
+  onApprove,
+  onReject,
+  isApproving,
+  isRejecting,
   _triggerDeploy,
 }: Readonly<DeployHistoryListProps>) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -112,6 +120,10 @@ export default function DeployHistoryList({
               host={host}
               onRollbackComplete={onRollbackComplete}
               onRollbackError={onRollbackError}
+              onApprove={onApprove}
+              onReject={onReject}
+              isApproving={isApproving}
+              isRejecting={isRejecting}
               _triggerDeploy={_triggerDeploy}
             />
           ))}

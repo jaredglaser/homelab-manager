@@ -8,6 +8,8 @@ import {
   getDeployHistorySchema,
   saveComposeFileSchema,
   updateStackIconSchema,
+  resumeDeploySchema,
+  rejectDeploySchema,
 } from '@/data/stacks/schemas';
 
 /**
@@ -55,6 +57,26 @@ export const triggerDeploy = createServerFn()
   .handler(async ({ data }): Promise<{ deployId: number }> => {
     const { triggerStackDeploy } = await import('@/lib/stacks/stack-service');
     return triggerStackDeploy(data);
+  });
+
+/**
+ * Approve a pending deploy — runs it through the pipeline's resumePending path.
+ */
+export const resumeDeploy = createServerFn({ method: 'POST' })
+  .inputValidator(resumeDeploySchema)
+  .handler(async ({ data }): Promise<{ deployId: number }> => {
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    return resumePendingDeploy(data.deployId);
+  });
+
+/**
+ * Reject a pending deploy — marks it failed with a "Manually rejected" log.
+ */
+export const rejectDeploy = createServerFn({ method: 'POST' })
+  .inputValidator(rejectDeploySchema)
+  .handler(async ({ data }): Promise<{ deployId: number }> => {
+    const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
+    return rejectPendingDeploy(data.deployId);
   });
 
 /**
