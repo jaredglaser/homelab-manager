@@ -6,6 +6,8 @@ import type { StackDeployRecord, DeployAction, DeployStatus } from '@/types/stac
 import { triggerDeploy } from '@/data/stacks/functions';
 import RollbackDialog from '@/components/stacks/RollbackDialog';
 
+const PENDING_APPROVAL_LABEL = 'Pending approval';
+
 const STATUS_COLOR: Record<DeployStatus, string> = {
   succeeded: 'var(--chart-deploy-success)',
   failed: 'var(--chart-deploy-failed)',
@@ -41,15 +43,21 @@ interface DeployHistoryRowProps {
   host?: string;
   onRollbackComplete?: () => void;
   onRollbackError?: (err: Error) => void;
+  onApprove?: (deployId: number) => void;
+  onReject?: (deployId: number) => void;
+  isApproving?: boolean;
+  isRejecting?: boolean;
   _triggerDeploy?: typeof triggerDeploy;
 }
 
-export default function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError, _triggerDeploy }: Readonly<DeployHistoryRowProps>) {
+export default function DeployHistoryRow({ record, stackName, host, onRollbackComplete, onRollbackError, onApprove, onReject, isApproving, isRejecting, _triggerDeploy }: Readonly<DeployHistoryRowProps>) {
   const [expanded, setExpanded] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const statusColor = STATUS_COLOR[record.status];
   const timestamp = new Date(record.createdAt);
   const canRollback = stackName !== undefined && host !== undefined && record.action === 'deploy' && ROLLBACK_ELIGIBLE.has(record.status);
+  const isPending = record.status === 'pending';
+  const showApprovalActions = isPending && (onApprove !== undefined || onReject !== undefined);
 
   const rollbackMutation = useMutation({
     mutationFn: () =>
@@ -94,17 +102,60 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
             variant="filled"
           />
 
-          <Chip
-            size="small"
-            label={STATUS_LABEL[record.status]}
-            className="!text-xs !h-5"
-            style={{ color: statusColor, borderColor: statusColor }}
-            variant="outlined"
-          />
+          {isPending ? (
+            <Chip
+              size="small"
+              color="warning"
+              label={PENDING_APPROVAL_LABEL}
+              className="!text-xs !h-5"
+              variant="outlined"
+            />
+          ) : (
+            <Chip
+              size="small"
+              label={STATUS_LABEL[record.status]}
+              className="!text-xs !h-5"
+              style={{ color: statusColor, borderColor: statusColor }}
+              variant="outlined"
+            />
+          )}
 
           <span className="ml-auto opacity-50 text-xs whitespace-nowrap">
             {timestamp.toLocaleDateString()} {timestamp.toLocaleTimeString()}
           </span>
+
+          {showApprovalActions && onApprove !== undefined && (
+            <Button
+              size="small"
+              variant="contained"
+              color="primary"
+              className="!text-xs !h-6 !min-w-0 !px-2 !ml-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                onApprove(record.id);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+              disabled={isApproving || isRejecting}
+            >
+              Approve
+            </Button>
+          )}
+          {showApprovalActions && onReject !== undefined && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="error"
+              className="!text-xs !h-6 !min-w-0 !px-2 !ml-1"
+              onClick={(e) => {
+                e.stopPropagation();
+                onReject(record.id);
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+              disabled={isApproving || isRejecting}
+            >
+              Reject
+            </Button>
+          )}
 
           {canRollback && (
             <Button

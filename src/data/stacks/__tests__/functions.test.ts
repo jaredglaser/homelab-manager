@@ -22,6 +22,8 @@ const mockGetManagedHostNames = mock(() => Promise.resolve(['server1']));
 const mockResolveDeleteStack = mock(() =>
   Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }),
 );
+const mockResumePendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
+const mockRejectPendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
 
 mock.module('@/lib/stacks/stack-service', () => ({
   getStackSummaries: mockGetStackSummaries,
@@ -34,6 +36,8 @@ mock.module('@/lib/stacks/stack-service', () => ({
   deleteStackFromRepo: mockDeleteStackFromRepo,
   getManagedHostNames: mockGetManagedHostNames,
   resolveDeleteStack: mockResolveDeleteStack,
+  resumePendingDeploy: mockResumePendingDeploy,
+  rejectPendingDeploy: mockRejectPendingDeploy,
 }));
 
 /**
@@ -55,6 +59,12 @@ describe('stacks.functions module', () => {
     mockGetStackDeployHistory.mockClear();
     mockSaveStackComposeFile.mockClear();
     mockUpdateStackIconSlug.mockClear();
+    mockCreateStackInRepo.mockClear();
+    mockDeleteStackFromRepo.mockClear();
+    mockGetManagedHostNames.mockClear();
+    mockResolveDeleteStack.mockClear();
+    mockResumePendingDeploy.mockClear();
+    mockRejectPendingDeploy.mockClear();
   });
 
   describe('exports', () => {
@@ -201,6 +211,64 @@ describe('stacks.functions module', () => {
       const { updateStackIcon } = await import('../functions');
       await updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } });
       expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('redis', 'redis-stack');
+    });
+  });
+
+  describe('resumeDeploy', () => {
+    it('delegates to resumePendingDeploy with deployId', async () => {
+      const { resumeDeploy } = await import('../functions');
+      await resumeDeploy({ data: { deployId: 42 } });
+      expect(mockResumePendingDeploy).toHaveBeenCalledTimes(1);
+      expect(mockResumePendingDeploy).toHaveBeenCalledWith(42);
+    });
+
+    it('propagates service errors (e.g. non-pending status)', async () => {
+      mockResumePendingDeploy.mockImplementationOnce(() =>
+        Promise.reject(new Error('Deploy is not pending (status: succeeded)'))
+      );
+      const { resumeDeploy } = await import('../functions');
+      await expect(resumeDeploy({ data: { deployId: 42 } })).rejects.toThrow(
+        'Deploy is not pending (status: succeeded)'
+      );
+    });
+
+    it('propagates service errors when deploy is missing', async () => {
+      mockResumePendingDeploy.mockImplementationOnce(() =>
+        Promise.reject(new Error('Deploy 999 not found'))
+      );
+      const { resumeDeploy } = await import('../functions');
+      await expect(resumeDeploy({ data: { deployId: 999 } })).rejects.toThrow(
+        'Deploy 999 not found'
+      );
+    });
+  });
+
+  describe('rejectDeploy', () => {
+    it('delegates to rejectPendingDeploy with deployId', async () => {
+      const { rejectDeploy } = await import('../functions');
+      await rejectDeploy({ data: { deployId: 42 } });
+      expect(mockRejectPendingDeploy).toHaveBeenCalledTimes(1);
+      expect(mockRejectPendingDeploy).toHaveBeenCalledWith(42);
+    });
+
+    it('propagates service errors (e.g. non-pending status)', async () => {
+      mockRejectPendingDeploy.mockImplementationOnce(() =>
+        Promise.reject(new Error('Deploy is not pending (status: in_progress)'))
+      );
+      const { rejectDeploy } = await import('../functions');
+      await expect(rejectDeploy({ data: { deployId: 42 } })).rejects.toThrow(
+        'Deploy is not pending (status: in_progress)'
+      );
+    });
+
+    it('propagates service errors when deploy is missing', async () => {
+      mockRejectPendingDeploy.mockImplementationOnce(() =>
+        Promise.reject(new Error('Deploy 999 not found'))
+      );
+      const { rejectDeploy } = await import('../functions');
+      await expect(rejectDeploy({ data: { deployId: 999 } })).rejects.toThrow(
+        'Deploy 999 not found'
+      );
     });
   });
 
