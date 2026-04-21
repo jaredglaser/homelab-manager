@@ -1,6 +1,6 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import { ZFSRateCalculator } from '@/lib/utils/zfs-rate-calculator';
 import { parseZFSIOStat } from '@/lib/parsers/zfs-iostat-parser';
 import type { ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
@@ -92,14 +92,14 @@ interface AgentZfsStatsEvent {
 export class ZFSCollector extends BaseCollector {
   readonly name: string;
   private readonly calculator = new ZFSRateCalculator();
-  private readonly host: ManagedHostRow;
+  private readonly host: ManagedHost;
   private readonly token: string;
   private readonly fetchFn: FetchFn;
 
   constructor(
     db: DatabaseClient,
     config: WorkerConfig,
-    host: ManagedHostRow,
+    host: ManagedHost,
     token: string,
     abortController?: AbortController,
     fetchFn?: FetchFn,
@@ -114,11 +114,11 @@ export class ZFSCollector extends BaseCollector {
   protected async collect(): Promise<void> {
     let url: string;
     try {
-      const parsed = new URL(this.host.agent_url);
+      const parsed = new URL(this.host.agentUrl);
       parsed.pathname = parsed.pathname.replace(/\/$/, '') + '/zfs/stats/stream';
       url = parsed.toString();
     } catch {
-      url = `${this.host.agent_url}/zfs/stats/stream`;
+      url = `${this.host.agentUrl}/zfs/stats/stream`;
     }
     this.debugLog(`[${this.name}] Connecting to ${url}`);
 
@@ -214,10 +214,10 @@ export class ZFSCollector extends BaseCollector {
 
           let hostId: string;
           try {
-            const parsed = new URL(this.host.agent_url);
+            const parsed = new URL(this.host.agentUrl);
             hostId = parsed.hostname + (parsed.port ? `:${parsed.port}` : '');
           } catch {
-            hostId = this.host.agent_url.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+            hostId = this.host.agentUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
           }
           const { path: entityPath, pool, entityType, ctx: newCtx } = buildEntityPath(statsWithRates, hierarchyCtx);
           hierarchyCtx = newCtx;

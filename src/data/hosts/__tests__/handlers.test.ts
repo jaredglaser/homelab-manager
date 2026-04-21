@@ -18,11 +18,11 @@ const NOW = new Date('2026-03-01T00:00:00Z');
 function mockRow(overrides?: Record<string, unknown>) {
   return {
     id: 1, name: 'test-host',
-    agent_url: 'http://192.168.1.10:9090',
+    agentUrl: 'http://192.168.1.10:9090',
     capabilities: { docker: true },
-    agent_version: null,
+    agentVersion: null,
     status: 'pending' as const,
-    created_at: NOW, updated_at: NOW,
+    createdAt: NOW, updatedAt: NOW,
     ...overrides,
   };
 }
@@ -167,7 +167,7 @@ describe('handleVerifyHost', () => {
     expect(deps.checkHealth).toHaveBeenCalled();
     expect(deps.repo.create).toHaveBeenCalledWith({
       name: 'new-host',
-      agent_url: 'http://192.168.1.10:9090',
+      agentUrl: 'http://192.168.1.10:9090',
       capabilities: { docker: true },
     });
     expect(deps.storeToken).toHaveBeenCalledWith('new-host', 'test-token');
@@ -213,7 +213,7 @@ describe('handleVerifyHost', () => {
     });
     expect(deps.repo.create).toHaveBeenCalledWith({
       name: 'zfs-host',
-      agent_url: 'http://x:9090',
+      agentUrl: 'http://x:9090',
       capabilities: { docker: true, zfs: true },
     });
   });
@@ -262,7 +262,7 @@ describe('handleRegisterExistingHost', () => {
     expect(result.host.status).toBe('healthy');
     expect(deps.repo.create).toHaveBeenCalledWith({
       name: 'existing-host',
-      agent_url: 'http://192.168.1.20:9090',
+      agentUrl: 'http://192.168.1.20:9090',
     });
     expect(deps.storeToken).toHaveBeenCalledWith('existing-host', 'my-token');
     expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
@@ -350,7 +350,7 @@ describe('handleAddHost', () => {
     expect(deps.provision).toHaveBeenCalled();
     expect(deps.repo.create).toHaveBeenCalledWith({
       name: 'new',
-      agent_url: '',
+      agentUrl: '',
     });
     expect(deps.storeToken).toHaveBeenCalledWith('new', 'mock-token');
     expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
@@ -593,7 +593,7 @@ describe('handleUpdateAgent', () => {
 
 describe('handleUpdateHost', () => {
   it('updates the host and returns mapped HostListItem', async () => {
-    const updatedRow = mockRow({ name: 'renamed', agent_url: 'http://new-url:9090' });
+    const updatedRow = mockRow({ name: 'renamed', agentUrl: 'http://new-url:9090' });
     const repo = mockRepo({ update: mock(() => Promise.resolve(updatedRow)) });
     const deps = baseDeps();
     deps.repo = repo;
@@ -602,7 +602,7 @@ describe('handleUpdateHost', () => {
 
     expect(result.name).toBe('renamed');
     expect(result.agentUrl).toBe('http://new-url:9090');
-    expect(repo.update).toHaveBeenCalledWith(1, { name: 'renamed', agent_url: 'http://new-url:9090' });
+    expect(repo.update).toHaveBeenCalledWith(1, { name: 'renamed', agentUrl: 'http://new-url:9090' });
   });
 
   it('throws when host not found', async () => {

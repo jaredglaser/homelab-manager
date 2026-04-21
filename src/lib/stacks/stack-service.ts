@@ -164,14 +164,14 @@ export async function resumePendingDeploy(deployId: number): Promise<{ deployId:
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
-  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
+  const { HostRepository } = await import('@/lib/database/repositories/host-repository');
   const { createDeployPipeline } = await import('@/lib/deploy/pipeline-factory');
 
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
   const pool = dbClient.getPool();
   const deployRepo = new DeployRepository(pool);
-  const hostsRepo = new ManagedHostsRepository(pool);
+  const hostsRepo = new HostRepository(pool);
 
   const deploy = await deployRepo.getById(deployId);
   if (!deploy) throw new Error(`Deploy ${deployId} not found`);
@@ -179,7 +179,7 @@ export async function resumePendingDeploy(deployId: number): Promise<{ deployId:
     throw new Error(`Deploy is not pending (status: ${deploy.status})`);
   }
 
-  const host = await hostsRepo.getByName(deploy.host);
+  const host = await hostsRepo.findByName(deploy.host);
   if (!host) throw new Error(`Host "${deploy.host}" not found in managed_hosts`);
 
   // Rebuild the DeployRequest. For deploy action we need compose content; read it
@@ -320,12 +320,12 @@ export async function createStackInRepo(
   // Validate host exists in managed_hosts
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
+  const { HostRepository } = await import('@/lib/database/repositories/host-repository');
 
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  const hostsRepo = new ManagedHostsRepository(dbClient.getPool());
-  const managedHost = await hostsRepo.getByName(host);
+  const hostsRepo = new HostRepository(dbClient.getPool());
+  const managedHost = await hostsRepo.findByName(host);
   if (!managedHost) throw new Error(`Host "${host}" not found in managed_hosts`);
 
   const commitSha = await commitFiles(repoPath, (existingFiles) => {
@@ -431,12 +431,12 @@ async function commitRemoveStackFromManifest(
 export async function getManagedHostNames(): Promise<string[]> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { ManagedHostsRepository } = await import('@/lib/database/repositories/managed-hosts-repository');
+  const { HostRepository } = await import('@/lib/database/repositories/host-repository');
 
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  const hostsRepo = new ManagedHostsRepository(dbClient.getPool());
-  const hosts = await hostsRepo.getAll();
+  const hostsRepo = new HostRepository(dbClient.getPool());
+  const hosts = await hostsRepo.findAll();
   return hosts.map((h) => h.name);
 }
 

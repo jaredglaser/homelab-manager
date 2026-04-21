@@ -5,18 +5,18 @@ import {
   getAgentImage,
 } from '../host-utils';
 import type { HealthCheckOutcome } from '../host-utils';
-import type { ManagedHostRow } from '../../database/repositories/host-repository';
+import type { ManagedHost } from '../../database/repositories/host-repository';
 
 describe('toHostListItem', () => {
-  const baseRow: ManagedHostRow = {
+  const baseRow: ManagedHost = {
     id: 1,
     name: 'test-host',
-    agent_url: 'http://192.168.1.10:9090',
+    agentUrl: 'http://192.168.1.10:9090',
     capabilities: { docker: true },
-    agent_version: '1.0.0',
+    agentVersion: '1.0.0',
     status: 'healthy',
-    created_at: new Date('2026-01-01T00:00:00Z'),
-    updated_at: new Date('2026-01-02T00:00:00Z'),
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-02T00:00:00Z'),
   };
 
   test('maps DB row to HostListItem', () => {
@@ -55,7 +55,7 @@ describe('toHostListItem', () => {
   });
 
   test('preserves original values when no overrides', () => {
-    const item = toHostListItem({ ...baseRow, agent_version: null, status: 'unhealthy' });
+    const item = toHostListItem({ ...baseRow, agentVersion: null, status: 'unhealthy' });
     expect(item.agentVersion).toBeNull();
     expect(item.status).toBe('unhealthy');
   });
@@ -67,7 +67,7 @@ describe('toHostListItem', () => {
   });
 
   test('defaults capabilities to empty object when undefined', () => {
-    const row = { ...baseRow, capabilities: undefined as unknown as ManagedHostRow['capabilities'] };
+    const row = { ...baseRow, capabilities: undefined as unknown as ManagedHost['capabilities'] };
     const item = toHostListItem(row);
     expect(item.capabilities).toEqual({});
   });

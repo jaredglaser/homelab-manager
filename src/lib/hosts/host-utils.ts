@@ -1,4 +1,4 @@
-import type { HostStatus, HostCapabilities, ManagedHostRow } from '@/lib/database/repositories/host-repository';
+import type { HostStatus, HostCapabilities, ManagedHost } from '@/lib/database/repositories/host-repository';
 
 /** Dockerode connection options parsed from a socket proxy URL. */
 export interface DockerodeConfig {
@@ -7,7 +7,7 @@ export interface DockerodeConfig {
   protocol: 'http' | 'https';
 }
 
-/** Parsed from the managed_hosts DB row for API responses. */
+/** Serialized ManagedHost for API responses (Date -> ISO string). */
 export interface HostListItem {
   id: number;
   name: string;
@@ -24,22 +24,22 @@ export type HealthCheckOutcome =
   | { healthy: false; error: string };
 
 /**
- * Convert a managed_hosts DB row to an API-facing HostListItem.
+ * Convert a ManagedHost to an API-facing HostListItem (stringifies Date fields).
  * Optional overrides allow setting status/version from health check results.
  */
 export function toHostListItem(
-  row: ManagedHostRow,
+  row: ManagedHost,
   overrides?: { agentVersion?: string | null; status?: HostStatus },
 ): HostListItem {
   return {
     id: row.id,
     name: row.name,
-    agentUrl: row.agent_url,
+    agentUrl: row.agentUrl,
     capabilities: row.capabilities ?? {},
-    agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agent_version,
+    agentVersion: overrides && 'agentVersion' in overrides ? (overrides.agentVersion ?? null) : row.agentVersion,
     status: overrides?.status ?? row.status,
-    createdAt: row.created_at.toISOString(),
-    updatedAt: row.updated_at.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
   };
 }
 

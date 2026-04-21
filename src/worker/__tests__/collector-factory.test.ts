@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { Pool } from 'pg';
 import { BaseCollector } from '../collectors/base-collector';
 import { ContainerInventoryCollector } from '../collectors/container-inventory-collector';
@@ -188,15 +188,15 @@ describe('createCollectorsForManagedHosts', () => {
     runSpy.mockRestore();
   });
 
-  const sampleManagedHost: ManagedHostRow = {
+  const sampleManagedHost: ManagedHost = {
     id: 1,
     name: 'homeserver',
-    agent_url: 'http://192.168.1.10:9090',
+    agentUrl: 'http://192.168.1.10:9090',
     capabilities: { docker: true, zfs: true },
-    agent_version: '0.1.0',
+    agentVersion: '0.1.0',
     status: 'healthy',
-    created_at: new Date(),
-    updated_at: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
   it('creates AgentStatsCollector for each managed host', async () => {
@@ -243,7 +243,7 @@ describe('createCollectorsForManagedHosts', () => {
   });
 
   it('skips managed host and continues when getToken throws', async () => {
-    const host2: ManagedHostRow = { ...sampleManagedHost, id: 2, name: 'other-host', agent_url: 'http://192.168.1.11:9090' };
+    const host2: ManagedHost = { ...sampleManagedHost, id: 2, name: 'other-host', agentUrl: 'http://192.168.1.11:9090' };
 
     const mockFindAll = mock(async () => [sampleManagedHost, host2]);
     let callCount = 0;
@@ -364,18 +364,18 @@ describe('createContainerInventoryCollectors', () => {
   let db: ReturnType<typeof createMockDb>;
   let runSpy: ReturnType<typeof spyOn>;
 
-  const dockerHost: ManagedHostRow = {
+  const dockerHost: ManagedHost = {
     id: 1,
     name: 'homeserver',
-    agent_url: 'http://192.168.1.10:9090',
+    agentUrl: 'http://192.168.1.10:9090',
     capabilities: { docker: true, zfs: true },
-    agent_version: '0.1.0',
+    agentVersion: '0.1.0',
     status: 'healthy',
-    created_at: new Date(),
-    updated_at: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
-  const noDockerHost: ManagedHostRow = {
+  const noDockerHost: ManagedHost = {
     ...dockerHost,
     id: 2,
     name: 'zfs-only',
@@ -479,7 +479,7 @@ describe('createContainerInventoryCollectors', () => {
   });
 
   it('skips hosts whose token lookup throws, logs error, does not halt other hosts', async () => {
-    const host2: ManagedHostRow = { ...dockerHost, id: 2, name: 'host2', agent_url: 'http://192.168.1.11:9090' };
+    const host2: ManagedHost = { ...dockerHost, id: 2, name: 'host2', agentUrl: 'http://192.168.1.11:9090' };
     const { createContainerInventoryCollectors } = await import('../collector-factory');
 
     const shutdownController = new AbortController();

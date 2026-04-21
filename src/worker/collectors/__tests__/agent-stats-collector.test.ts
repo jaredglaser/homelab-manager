@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { AgentStatsCollector } from '../agent-stats-collector';
-import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { DockerStatsRow } from '@/types/docker';
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
@@ -39,15 +39,15 @@ const defaultConfig = {
   collection: { interval: 1000 },
 } as any;
 
-const sampleHost: ManagedHostRow = {
+const sampleHost: ManagedHost = {
   id: 1,
   name: 'homeserver',
-  agent_url: 'http://192.168.1.10:9090',
+  agentUrl: 'http://192.168.1.10:9090',
   capabilities: { docker: true },
-  agent_version: '0.1.0',
+  agentVersion: '0.1.0',
   status: 'healthy',
-  created_at: new Date('2026-01-01T00:00:00Z'),
-  updated_at: new Date('2026-01-01T00:00:00Z'),
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
 
 /** Build a ReadableStream that emits SSE-formatted lines, then closes */

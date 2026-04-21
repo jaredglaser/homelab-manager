@@ -21,7 +21,7 @@ function createMockPool() {
 }
 
 const sampleRow = {
-  id: 1, // SERIAL (INT4) returns number from node-postgres (only BIGINT returns strings)
+  id: '1',
   name: 'homeserver',
   agent_url: 'http://192.168.1.10:9090',
   capabilities: { docker: true, zfs: true },
@@ -46,7 +46,7 @@ describe('HostRepository', () => {
 
       const input: CreateHostInput = {
         name: 'homeserver',
-        agent_url: 'http://192.168.1.10:9090',
+        agentUrl: 'http://192.168.1.10:9090',
         capabilities: { docker: true },
       };
 
@@ -54,11 +54,25 @@ describe('HostRepository', () => {
 
       expect(result.id).toBe(1);
       expect(result.name).toBe('homeserver');
-      expect(result.agent_url).toBe('http://192.168.1.10:9090');
+      expect(result.agentUrl).toBe('http://192.168.1.10:9090');
       expect(result.status).toBe('healthy');
       expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
       expect(mock.queries[0].sql).toContain('RETURNING');
       expect(mock.queries[0].params).toContain('homeserver');
+    });
+
+    it('insert returns only the generated id for deploy callers', async () => {
+      mock.pushResult([{ id: '5' }]);
+
+      const id = await repo.insert({
+        name: 'newhost',
+        agentUrl: 'http://agent:9090',
+        capabilities: { docker: true },
+      });
+
+      expect(id).toBe(5);
+      expect(mock.queries[0].sql).toContain('INSERT INTO managed_hosts');
+      expect(mock.queries[0].params).toContain(JSON.stringify({ docker: true }));
     });
   });
 
@@ -82,6 +96,21 @@ describe('HostRepository', () => {
       expect(result[1].name).toBe('beta');
       expect(result[0].id).toBe(1);
       expect(result[1].id).toBe(2);
+      expect(result[0].agentUrl).toBe('http://192.168.1.10:9090');
+    });
+
+    it('getAll returns the camelCase host shape', async () => {
+      mock.pushResult([sampleRow]);
+
+      const result = await repo.getAll();
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: 1,
+        name: 'homeserver',
+        agentUrl: 'http://192.168.1.10:9090',
+        agentVersion: '0.1.0',
+      });
     });
   });
 
@@ -98,6 +127,14 @@ describe('HostRepository', () => {
       expect(result).not.toBeNull();
       expect(result!.name).toBe('homeserver');
       expect(result!.id).toBe(1);
+      expect(result!.agentUrl).toBe('http://192.168.1.10:9090');
+    });
+
+    it('getByName delegates to findByName', async () => {
+      mock.pushResult([sampleRow]);
+      const result = await repo.getByName('homeserver');
+      expect(result).not.toBeNull();
+      expect(result!.agentUrl).toBe('http://192.168.1.10:9090');
     });
   });
 
@@ -142,10 +179,10 @@ describe('HostRepository', () => {
       const updated = { ...sampleRow, name: 'renamed-host', agent_url: 'http://192.168.1.20:9090' };
       mock.pushResult([updated]);
 
-      const result = await repo.update(1, { name: 'renamed-host', agent_url: 'http://192.168.1.20:9090' });
+      const result = await repo.update(1, { name: 'renamed-host', agentUrl: 'http://192.168.1.20:9090' });
 
       expect(result.name).toBe('renamed-host');
-      expect(result.agent_url).toBe('http://192.168.1.20:9090');
+      expect(result.agentUrl).toBe('http://192.168.1.20:9090');
       expect(mock.queries[0].sql).toContain('UPDATE managed_hosts');
       expect(mock.queries[0].sql).toContain('RETURNING');
       expect(mock.queries[0].params).toContain('renamed-host');
@@ -161,6 +198,17 @@ describe('HostRepository', () => {
       expect(mock.queries[0].sql).toContain('name = $1');
       expect(mock.queries[0].sql).not.toContain('agent_url');
       expect(mock.queries[0].params).toContain('new-name');
+    });
+
+    it('updates capabilities with updated_at and returns camelCase fields', async () => {
+      mock.pushResult([{ ...sampleRow, capabilities: { docker: true } }]);
+
+      const result = await repo.update(1, { capabilities: { docker: true } });
+
+      expect(result.capabilities).toEqual({ docker: true });
+      expect(mock.queries[0].sql).toContain('capabilities = $1');
+      expect(mock.queries[0].sql).toContain('updated_at = NOW()');
+      expect(mock.queries[0].params).toContain(JSON.stringify({ docker: true }));
     });
 
     it('returns existing host without issuing UPDATE when no fields provided', async () => {

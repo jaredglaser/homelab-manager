@@ -1,7 +1,7 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import { isProxmoxConfigured, loadProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { AgentStatsCollector } from './collectors/agent-stats-collector';
 import { ContainerInventoryCollector } from './collectors/container-inventory-collector';
@@ -76,7 +76,7 @@ export async function createCollectorsForManagedHosts(
   workerConfig: WorkerConfig,
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
-  findAllHosts: () => Promise<ManagedHostRow[]>,
+  findAllHosts: () => Promise<ManagedHost[]>,
   getToken: (hostname: string) => Promise<string | null>,
 ): Promise<CollectorFactoryResult> {
   const collectors: BaseCollector[] = [];
@@ -105,7 +105,7 @@ export async function createCollectorsForManagedHosts(
       continue;
     }
 
-    const resolvedHost = { ...host, agent_url: resolveAgentUrl(host.agent_url) };
+    const resolvedHost = { ...host, agentUrl: resolveAgentUrl(host.agentUrl) };
 
     // Respect per-host capabilities declared in managed_hosts: skip collectors
     // for capabilities the host didn't opt into, even if the global worker
@@ -115,7 +115,7 @@ export async function createCollectorsForManagedHosts(
       if (!host.capabilities?.docker) {
         console.info(`[Worker] Skipping AgentStatsCollector for ${host.name}: Docker capability not enabled`);
       } else {
-        console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${resolvedHost.agent_url})`);
+        console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${resolvedHost.agentUrl})`);
         const dockerCollector = stack.use(
           new AgentStatsCollector(db, workerConfig, resolvedHost, token, shutdownController)
         );
@@ -128,7 +128,7 @@ export async function createCollectorsForManagedHosts(
       if (!host.capabilities?.zfs) {
         console.info(`[Worker] Skipping ZFSCollector for ${host.name}: ZFS capability not enabled`);
       } else {
-        console.info(`[Worker] Starting ZFSCollector for ${host.name} (${resolvedHost.agent_url})`);
+        console.info(`[Worker] Starting ZFSCollector for ${host.name} (${resolvedHost.agentUrl})`);
         const zfsCollector = stack.use(
           new ZFSCollector(db, workerConfig, resolvedHost, token, shutdownController)
         );
@@ -152,7 +152,7 @@ export async function createContainerInventoryCollectors(
   db: DatabaseClient,
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
-  findAllHosts: () => Promise<ManagedHostRow[]>,
+  findAllHosts: () => Promise<ManagedHost[]>,
   getToken: (hostname: string) => Promise<string | null>,
 ): Promise<{ runners: Promise<void>[] }> {
   const runners: Promise<void>[] = [];
@@ -177,7 +177,7 @@ export async function createContainerInventoryCollectors(
       continue;
     }
 
-    const resolvedUrl = resolveAgentUrl(host.agent_url);
+    const resolvedUrl = resolveAgentUrl(host.agentUrl);
     console.info(`[Worker] Starting ContainerInventoryCollector for ${host.name} (${resolvedUrl})`);
     const collector = stack.use(
       new ContainerInventoryCollector(
