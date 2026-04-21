@@ -295,6 +295,18 @@ export async function triggerDeploy(_opts: {
   return { deployId: MOCK_DEPLOY_HISTORY.length + 1 };
 }
 
+export async function resumeDeploy(opts: {
+  data: { deployId: number };
+}): Promise<{ deployId: number }> {
+  return { deployId: opts.data.deployId };
+}
+
+export async function rejectDeploy(opts: {
+  data: { deployId: number };
+}): Promise<{ deployId: number }> {
+  return { deployId: opts.data.deployId };
+}
+
 export async function getDeployHistory(opts: {
   data: { stackName: string; limit?: number };
 }): Promise<StackDeployRecord[]> {
