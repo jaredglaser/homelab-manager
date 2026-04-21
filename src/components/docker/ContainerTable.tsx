@@ -325,6 +325,7 @@ export default function ContainerTable({
           dataPoints={row.dataPoints}
           containerId={containerId}
           host={host}
+          inventory={row.inventory}
         />
       );
     },

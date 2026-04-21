@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
@@ -60,6 +61,21 @@ const sampleDataPoints = [
   },
 ];
 
+const sampleInventory: DockerInventorySnapshotContainer = {
+  host: 'server',
+  containerId: 'abc123',
+  name: 'nginx-proxy',
+  image: 'nginx:latest',
+  state: 'running',
+  composeProject: null,
+  serviceKey: 'nginx-proxy',
+  startedAt: new Date('2024-01-01T00:00:00Z'),
+  finishedAt: null,
+  exitCode: null,
+  labels: {},
+  updatedAt: new Date('2024-01-01T00:00:00Z'),
+};
+
 function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPanel>> = {}) {
   const store = createStore();
   return render(
@@ -68,6 +84,7 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPan
         dataPoints={sampleDataPoints}
         containerId="abc123"
         host="server"
+        inventory={sampleInventory}
         {...overrides}
       />
     </Provider>,
@@ -104,5 +121,23 @@ describe('ContainerDetailPanel', () => {
     renderPanel({ dataPoints: [] });
     screen.getByText('CPU & Memory');
     screen.getByText('Logs');
+  });
+
+  it('shows exit metadata for an exited container', () => {
+    renderPanel({
+      inventory: {
+        ...sampleInventory,
+        state: 'exited',
+        finishedAt: new Date('2024-01-01T01:00:00Z'),
+        exitCode: 137,
+      },
+    });
+
+    screen.getByText('Container Status');
+    screen.getByText('Exited');
+    screen.getByText('Exit code');
+    screen.getByText('137');
+    screen.getByText('Finished');
+    expect(screen.getAllByText(/2024/)).toHaveLength(2);
   });
 });

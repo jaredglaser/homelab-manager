@@ -4,11 +4,13 @@ import { formatAsPercent, formatBitsSIUnits } from '@/formatters/metrics';
 import DualSeriesChart from '@/components/docker/DualSeriesChart';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import type { ChartDataPoint } from '@/hooks/useContainerChartData';
+import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 interface ContainerDetailPanelProps {
   dataPoints: ChartDataPoint[];
   containerId: string;
   host: string;
+  inventory: DockerInventorySnapshotContainer;
 }
 
 const formatPercent = (v: number) => formatAsPercent(v / 100);
@@ -26,6 +28,7 @@ export default memo(function ContainerDetailPanel({
   dataPoints,
   containerId,
   host,
+  inventory,
 }: ContainerDetailPanelProps) {
   const cpuMemSeries = useMemo<DualSeries>(
     () => [
@@ -59,9 +62,44 @@ export default memo(function ContainerDetailPanel({
     [dataPoints],
   );
 
+  const formattedStartedAt = inventory.startedAt?.toLocaleString() ?? 'Unknown';
+  const formattedFinishedAt = inventory.finishedAt?.toLocaleString() ?? null;
+  const stateLabel = inventory.state.charAt(0).toUpperCase() + inventory.state.slice(1);
+
   return (
     <div className="bg-[var(--mui-palette-action-hover)] pb-4 border-b border-[var(--mui-palette-divider)]">
       <Divider />
+      <div className="px-4 pt-4">
+        <div className="rounded-sm border border-[var(--mui-palette-divider)] bg-[var(--mui-palette-background-paper)] px-3 py-2">
+          <div className="text-sm font-medium">Container Status</div>
+          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-sm text-[var(--mui-palette-text-secondary)]">
+            <div>
+              <span className="font-medium text-[var(--mui-palette-text-primary)]">State</span>
+              {': '}
+              <span>{stateLabel}</span>
+            </div>
+            <div>
+              <span className="font-medium text-[var(--mui-palette-text-primary)]">Started</span>
+              {': '}
+              <span>{formattedStartedAt}</span>
+            </div>
+            {formattedFinishedAt && (
+              <div>
+                <span className="font-medium text-[var(--mui-palette-text-primary)]">Finished</span>
+                {': '}
+                <span>{formattedFinishedAt}</span>
+              </div>
+            )}
+            {inventory.exitCode !== null && (
+              <div>
+                <span className="font-medium text-[var(--mui-palette-text-primary)]">Exit code</span>
+                {': '}
+                <span>{inventory.exitCode}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
       <div className="grid grid-cols-1 grid-rows-[10rem_10rem_18rem] lg:grid-cols-2 lg:grid-rows-2 lg:h-[500px] gap-4 px-4 pt-4">
         <div className="min-h-0">
           <DualSeriesChart

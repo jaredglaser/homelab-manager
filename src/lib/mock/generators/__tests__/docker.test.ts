@@ -12,9 +12,9 @@ import { DOCKER_ENTITIES } from '../../entities';
 describe('generateDockerSnapshot', () => {
   const time = new Date('2025-06-15T12:00:00Z');
 
-  it('returns one row per entity', () => {
+  it('returns one row per running demo entity', () => {
     const rows = generateDockerSnapshot(time);
-    expect(rows).toHaveLength(DOCKER_ENTITIES.length);
+    expect(rows).toHaveLength(7);
   });
 
   it('is deterministic', () => {
@@ -51,6 +51,17 @@ describe('generateDockerSnapshot', () => {
     const expectedHosts = new Set(DOCKER_ENTITIES.map((e) => e.host));
     expect(hosts).toEqual(expectedHosts);
   });
+
+  it('omits stats rows for non-running demo containers', () => {
+    const rows = generateDockerSnapshot(time);
+    const rowIds = new Set(rows.map((row) => `${row.host}/${row.container_id}`));
+    const inventory = generateDockerInventorySnapshot(time);
+
+    for (const container of inventory) {
+      const entityId = `${container.host}/${container.containerId}`;
+      expect(rowIds.has(entityId)).toBe(container.state === 'running');
+    }
+  });
 });
 
 describe('generateDockerInventorySnapshot', () => {
@@ -74,13 +85,55 @@ describe('generateDockerInventorySnapshot', () => {
     }
   });
 
-  it('marks every container running with empty labels and no exit info', () => {
+  it('includes demo containers across running, exited, restarting, and paused states', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    const counts = containers.reduce<Record<string, number>>((acc, container) => {
+      acc[container.state] = (acc[container.state] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    expect(counts.running).toBe(7);
+    expect(counts.exited).toBe(1);
+    expect(counts.restarting).toBe(1);
+    expect(counts.paused).toBe(1);
+  });
+
+  it('sets exit metadata only on the exited demo container', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    const exited = containers.filter((container) => container.state === 'exited');
+    const nonExited = containers.filter((container) => container.state !== 'exited');
+
+    expect(exited).toHaveLength(1);
+    expect(exited[0]?.finishedAt).toBeInstanceOf(Date);
+    expect(exited[0]?.exitCode).toBe(137);
+
+    for (const container of nonExited) {
+      expect(container.finishedAt).toBeNull();
+      expect(container.exitCode).toBeNull();
+    }
+  });
+
+  it('keeps one host in a mixed-state aggregate bucket layout for the demo', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    const countsByHost = new Map<string, Record<string, number>>();
+
+    for (const container of containers) {
+      const hostCounts = countsByHost.get(container.host) ?? { running: 0, exited: 0, restarting: 0, paused: 0 };
+      hostCounts[container.state] = (hostCounts[container.state] ?? 0) + 1;
+      countsByHost.set(container.host, hostCounts);
+    }
+
+    expect(
+      Array.from(countsByHost.values()).some(
+        (counts) => counts.running > 0 && counts.exited > 0 && counts.restarting > 0 && counts.paused > 0,
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps common inventory fields stable across all demo containers', () => {
     const containers = generateDockerInventorySnapshot(now);
     for (const c of containers) {
-      expect(c.state).toBe('running');
       expect(c.composeProject).toBeNull();
-      expect(c.finishedAt).toBeNull();
-      expect(c.exitCode).toBeNull();
       expect(c.labels).toEqual({});
     }
   });
@@ -99,8 +152,8 @@ describe('generateDockerHistory', () => {
   it('returns correct number of rows', () => {
     const seconds = 5;
     const rows = generateDockerHistory(seconds);
-    // (seconds + 1) snapshots * entities per snapshot
-    expect(rows).toHaveLength((seconds + 1) * DOCKER_ENTITIES.length);
+    // (seconds + 1) snapshots * running demo entities per snapshot
+    expect(rows).toHaveLength((seconds + 1) * 7);
   });
 
   it('rows are ordered oldest-first', () => {
