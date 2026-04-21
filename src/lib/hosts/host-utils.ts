@@ -7,7 +7,7 @@ export interface DockerodeConfig {
   protocol: 'http' | 'https';
 }
 
-/** Parsed from the managed_hosts DB row for API responses. */
+/** Serialized ManagedHost for API responses (Date -> ISO string). */
 export interface HostListItem {
   id: number;
   name: string;
@@ -24,7 +24,7 @@ export type HealthCheckOutcome =
   | { healthy: false; error: string };
 
 /**
- * Convert a managed_hosts DB row to an API-facing HostListItem.
+ * Convert a ManagedHost to an API-facing HostListItem (stringifies Date fields).
  * Optional overrides allow setting status/version from health check results.
  */
 export function toHostListItem(

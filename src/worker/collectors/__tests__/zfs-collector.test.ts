@@ -151,7 +151,7 @@ describe('ZFSCollector', () => {
       // Should have 4 rows: pool + vdev + 2 disks
       expect(rows.length).toBe(4);
 
-      // Pool row (entity prefixed with host identifier from agent_url)
+      // Pool row (entity prefixed with host identifier from agentUrl)
       expect(rows[0].entity).toBe('192.168.1.50:9090/tank');
       expect(rows[0].entity_type).toBe('pool');
       expect(rows[0].pool).toBe('tank');

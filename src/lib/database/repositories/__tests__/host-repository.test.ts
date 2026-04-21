@@ -99,7 +99,7 @@ describe('HostRepository', () => {
       expect(result[0].agentUrl).toBe('http://192.168.1.10:9090');
     });
 
-    it('getAll returns the canonical camelCase host shape', async () => {
+    it('getAll returns the camelCase host shape', async () => {
       mock.pushResult([sampleRow]);
 
       const result = await repo.getAll();
@@ -130,7 +130,7 @@ describe('HostRepository', () => {
       expect(result!.agentUrl).toBe('http://192.168.1.10:9090');
     });
 
-    it('getByName delegates to the canonical camelCase lookup', async () => {
+    it('getByName delegates to findByName', async () => {
       mock.pushResult([sampleRow]);
       const result = await repo.getByName('homeserver');
       expect(result).not.toBeNull();
