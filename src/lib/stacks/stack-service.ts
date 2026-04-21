@@ -346,5 +346,5 @@ export async function updateStackIconSlug(
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
   const repo = new EntityMetadataRepository(dbClient.getPool());
 
-  await repo.upsertEntityMetadata('docker', `${entry.host}/${stackName}`, 'icon', iconSlug);
+  await repo.upsertEntityMetadata(`${entry.host}/${stackName}`, 'icon', iconSlug);
 }

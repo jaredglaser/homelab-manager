@@ -8,7 +8,7 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 /** Create a mock DatabaseClient that captures insertDockerStats calls */
 function createMockDb() {
   const insertedRows: DockerStatsRow[][] = [];
-  const upsertedMetadata: { source: string; entity: string; key: string; value: string }[] = [];
+  const upsertedMetadata: { entity: string; key: string; value: string }[] = [];
   return {
     db: {
       getPool: () => ({
@@ -19,14 +19,13 @@ function createMockDb() {
     upsertedMetadata,
     /** Patch the repository after construction */
     patchRepository(collector: AgentStatsCollector) {
-      // Access the protected repositories via any cast
       const repo = (collector as any).repository;
       const metaRepo = (collector as any).entityMetadataRepository;
       repo.insertDockerStats = async (rows: DockerStatsRow[]) => {
         insertedRows.push(rows);
       };
-      metaRepo.upsertEntityMetadata = async (source: string, entity: string, key: string, value: string) => {
-        upsertedMetadata.push({ source, entity, key, value });
+      metaRepo.upsertEntityMetadata = async (entity: string, key: string, value: string) => {
+        upsertedMetadata.push({ entity, key, value });
       };
     },
   };

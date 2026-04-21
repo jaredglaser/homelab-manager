@@ -1,11 +1,21 @@
 import type { Pool } from 'pg';
 
+type ValueRow = { value: string };
+type EntityValueRow = { entity: string; value: string };
+type EntityKeyValueRow = { entity: string; key: string; value: string };
+type ContainerIdRow = { container_id: string };
+type ServiceInfoRow = { service_key: string; icon: string | null };
+type ContainerMetadataRow = { container_entity: string; service_key_entity: string; icon_slug: string | null };
+
 /**
  * Repository for the `entity_metadata` table.
  *
  * Stores per-entity key/value attributes such as icons, display names, and
- * service-key groupings. Entity identifiers follow the `source/host/...`
- * convention (e.g. `docker` source, entity `host/container_id`).
+ * service-key groupings. Entity identifiers follow the `host/container_id`
+ * convention (longer slash paths allowed for hierarchical sources). The
+ * `source` column is stored separately and is currently always `'docker'`.
+ *
+ * Known `key` values: `icon`, `service_key`, `name`, `image`, `label`.
  *
  * Split out of the original StatsRepository so time-series concerns stay
  * separate from metadata lookups/migrations.
@@ -14,46 +24,43 @@ export class EntityMetadataRepository {
   constructor(private pool: Pool) {}
 
   async upsertEntityMetadata(
-    source: string,
     entity: string,
     key: string,
     value: string
   ): Promise<void> {
     await this.pool.query(
       `INSERT INTO entity_metadata (source, entity, key, value, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
+       VALUES ('docker', $1, $2, $3, NOW())
        ON CONFLICT (source, entity, key)
        DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [source, entity, key, value]
+      [entity, key, value]
     );
   }
 
-  async getSourceIcons(source: string): Promise<Map<string, string>> {
+  async getSourceIcons(): Promise<Map<string, string>> {
     const result = await this.pool.query(
       `SELECT entity, value
        FROM entity_metadata
-       WHERE source = $1 AND key = 'icon'`,
-      [source]
+       WHERE source = 'docker' AND key = 'icon'`
     );
     const icons = new Map<string, string>();
-    for (const row of result.rows as { entity: string; value: string }[]) {
+    for (const row of result.rows as EntityValueRow[]) {
       icons.set(row.entity, row.value);
     }
     return icons;
   }
 
-  async getEntityIcon(source: string, entityId: string): Promise<string | null> {
+  async getEntityIcon(entityId: string): Promise<string | null> {
     const result = await this.pool.query(
       `SELECT value FROM entity_metadata
-       WHERE source = $1 AND entity = $2 AND key = 'icon'
+       WHERE source = 'docker' AND entity = $1 AND key = 'icon'
        LIMIT 1`,
-      [source, entityId]
+      [entityId]
     );
-    return (result.rows[0] as { value: string } | undefined)?.value ?? null;
+    return (result.rows[0] as ValueRow | undefined)?.value ?? null;
   }
 
   async getEntityMetadata(
-    source: string,
     entities: string[]
   ): Promise<Map<string, Map<string, string>>> {
     if (entities.length === 0) return new Map();
@@ -61,12 +68,12 @@ export class EntityMetadataRepository {
     const result = await this.pool.query(
       `SELECT entity, key, value
        FROM entity_metadata
-       WHERE source = $1 AND entity = ANY($2)`,
-      [source, entities]
+       WHERE source = 'docker' AND entity = ANY($1)`,
+      [entities]
     );
 
     const metadata = new Map<string, Map<string, string>>();
-    for (const row of result.rows as { entity: string; key: string; value: string }[]) {
+    for (const row of result.rows as EntityKeyValueRow[]) {
       if (!metadata.has(row.entity)) {
         metadata.set(row.entity, new Map());
       }
@@ -76,14 +83,14 @@ export class EntityMetadataRepository {
   }
 
   /** Look up the service_key value for a single entity. Returns null if not set. */
-  async getServiceKeyForEntity(source: string, entity: string): Promise<string | null> {
+  async getServiceKeyForEntity(entity: string): Promise<string | null> {
     const result = await this.pool.query(
       `SELECT value FROM entity_metadata
-       WHERE source = $1 AND entity = $2 AND key = 'service_key'
+       WHERE source = 'docker' AND entity = $1 AND key = 'service_key'
        LIMIT 1`,
-      [source, entity]
+      [entity]
     );
-    return (result.rows[0] as { value: string } | undefined)?.value ?? null;
+    return (result.rows[0] as ValueRow | undefined)?.value ?? null;
   }
 
   /**
@@ -92,7 +99,6 @@ export class EntityMetadataRepository {
    * lookups into a single self-join query. Returns an empty array if no service_key is set.
    */
   async getLinkedContainerIds(
-    source: string,
     entity: string,
     host: string,
   ): Promise<string[]> {
@@ -103,11 +109,11 @@ export class EntityMetadataRepository {
          ON  sibling.source = me.source
          AND sibling.key    = 'service_key'
          AND sibling.value  = me.value
-         AND SPLIT_PART(sibling.entity, '/', 1) = $3
-       WHERE me.source = $1 AND me.entity = $2 AND me.key = 'service_key'`,
-      [source, entity, host]
+         AND SPLIT_PART(sibling.entity, '/', 1) = $2
+       WHERE me.source = 'docker' AND me.entity = $1 AND me.key = 'service_key'`,
+      [entity, host]
     );
-    return (result.rows as { container_id: string }[]).map(r => r.container_id);
+    return (result.rows as ContainerIdRow[]).map(r => r.container_id);
   }
 
   /**
@@ -115,63 +121,57 @@ export class EntityMetadataRepository {
    * Entity format is "host/container_id", so we strip the "host/" prefix from results.
    */
   async getContainerIdsByServiceKey(
-    source: string,
     host: string,
     serviceKey: string,
   ): Promise<string[]> {
     const result = await this.pool.query(
       `SELECT SPLIT_PART(entity, '/', 2) AS container_id
        FROM entity_metadata
-       WHERE source = $1 AND key = 'service_key' AND value = $3
-         AND SPLIT_PART(entity, '/', 1) = $2`,
-      [source, host, serviceKey]
+       WHERE source = 'docker' AND key = 'service_key' AND value = $2
+         AND SPLIT_PART(entity, '/', 1) = $1`,
+      [host, serviceKey]
     );
-    return (result.rows as { container_id: string }[]).map(r => r.container_id);
+    return (result.rows as ContainerIdRow[]).map(r => r.container_id);
   }
 
   /**
-   * Migrate all entity_metadata rows on a host where service_key = oldKey to newKey.
+   * Migrate all entity_metadata rows on a host where service_key = `from` to `to`.
    * Used when a container gains Docker Compose labels after previously using a name-only key.
-   * Idempotent - safe to call even if rows don't exist or are already updated.
+   * Idempotent; safe to call even if rows don't exist or are already updated.
    */
   async migrateServiceKeyByName(
-    source: string,
-    host: string,
-    oldKey: string,
-    newKey: string,
+    { host, from, to }: { host: string; from: string; to: string },
   ): Promise<void> {
     await this.pool.query(
       `UPDATE entity_metadata
-       SET value = $4, updated_at = NOW()
-       WHERE source = $1 AND key = 'service_key' AND value = $3
-         AND SPLIT_PART(entity, '/', 1) = $2`,
-      [source, host, oldKey, newKey]
+       SET value = $3, updated_at = NOW()
+       WHERE source = 'docker' AND key = 'service_key' AND value = $2
+         AND SPLIT_PART(entity, '/', 1) = $1`,
+      [host, from, to]
     );
   }
 
   /**
    * Copy the icon from one service_key entity to another.
-   * Used when a container gains Docker Compose labels - the icon stored under the
+   * Used when a container gains Docker Compose labels: the icon stored under the
    * old name-only entity (e.g. "myhost/plex") is copied to the new compose entity
    * (e.g. "myhost/media-stack/plex") so it survives the migration.
    * ON CONFLICT DO NOTHING preserves any icon the user already set on the new entity.
    *
    * NOTE: Removing compose labels from a container does NOT revert the service_key
-   * back to a name-only entry - the container retains the compose-based service_key
+   * back to a name-only entry; the container retains the compose-based service_key
    * and icon until the worker restarts or the container is recreated without labels.
    */
   async migrateServiceIcon(
-    source: string,
-    oldServiceKeyEntity: string,
-    newServiceKeyEntity: string,
+    { from, to }: { from: string; to: string },
   ): Promise<void> {
     await this.pool.query(
       `INSERT INTO entity_metadata (source, entity, key, value, updated_at)
-       SELECT $1, $3, key, value, NOW()
+       SELECT 'docker', $2, key, value, NOW()
        FROM entity_metadata
-       WHERE source = $1 AND entity = $2 AND key = 'icon'
+       WHERE source = 'docker' AND entity = $1 AND key = 'icon'
        ON CONFLICT (source, entity, key) DO NOTHING`,
-      [source, oldServiceKeyEntity, newServiceKeyEntity]
+      [from, to]
     );
   }
 
@@ -181,7 +181,6 @@ export class EntityMetadataRepository {
    * Returns null if the entity has no service_key set.
    */
   async getContainerServiceInfo(
-    source: string,
     entity: string,
   ): Promise<{ serviceKey: string; icon: string | null } | null> {
     const result = await this.pool.query(
@@ -197,10 +196,10 @@ export class EntityMetadataRepository {
          ON  legacy_icon.source = sk.source
          AND legacy_icon.key    = 'icon'
          AND legacy_icon.entity = sk.entity
-       WHERE sk.source = $1 AND sk.entity = $2 AND sk.key = 'service_key'`,
-      [source, entity]
+       WHERE sk.source = 'docker' AND sk.entity = $1 AND sk.key = 'service_key'`,
+      [entity]
     );
-    const row = result.rows[0] as { service_key: string; icon: string | null } | undefined;
+    const row = result.rows[0] as ServiceInfoRow | undefined;
     if (!row) return null;
     return { serviceKey: row.service_key, icon: row.icon ?? null };
   }
@@ -211,9 +210,7 @@ export class EntityMetadataRepository {
    * survive container recreation. The result is keyed by container entity (host/container_id)
    * for easy lookup during hierarchy building.
    */
-  async getDockerContainerMetadata(
-    source: string,
-  ): Promise<Map<string, { serviceKeyEntity: string; iconSlug: string | null }>> {
+  async getDockerContainerMetadata(): Promise<Map<string, { serviceKeyEntity: string; iconSlug: string | null }>> {
     const result = await this.pool.query(
       `SELECT
          sk.entity                                                             AS container_entity,
@@ -228,12 +225,11 @@ export class EntityMetadataRepository {
          ON  legacy_icon.source = sk.source
          AND legacy_icon.key    = 'icon'
          AND legacy_icon.entity = sk.entity
-       WHERE sk.source = $1 AND sk.key = 'service_key'`,
-      [source]
+       WHERE sk.source = 'docker' AND sk.key = 'service_key'`
     );
 
     const meta = new Map<string, { serviceKeyEntity: string; iconSlug: string | null }>();
-    for (const row of result.rows as { container_entity: string; service_key_entity: string; icon_slug: string | null }[]) {
+    for (const row of result.rows as ContainerMetadataRow[]) {
       meta.set(row.container_entity, {
         serviceKeyEntity: row.service_key_entity,
         iconSlug: row.icon_slug ?? null,

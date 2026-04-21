@@ -1,40 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { StatsRepository } from '../stats-repository';
-
-interface QueryCall {
-  sql: string;
-  params: unknown[];
-}
-
-function createMockPool() {
-  const queries: QueryCall[] = [];
-  const resultQueue: { rows: unknown[] }[] = [];
-  let defaultResult: { rows: unknown[] } = { rows: [] };
-  let shouldThrow: Error | null = null;
-
-  return {
-    pool: {
-      query: async (sql: string, params?: unknown[]) => {
-        if (shouldThrow) throw shouldThrow;
-        queries.push({ sql, params: params ?? [] });
-        return resultQueue.length > 0 ? resultQueue.shift()! : defaultResult;
-      },
-    } as any,
-    queries,
-    pushResult(rows: unknown[]) {
-      resultQueue.push({ rows });
-    },
-    setDefault(rows: unknown[]) {
-      defaultResult = { rows };
-    },
-    setError(err: Error) {
-      shouldThrow = err;
-    },
-    clearError() {
-      shouldThrow = null;
-    },
-  };
-}
+import { createMockPool } from '@/lib/test/mock-pool';
 
 describe('StatsRepository', () => {
   let mockPool: ReturnType<typeof createMockPool>;

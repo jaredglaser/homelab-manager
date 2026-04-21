@@ -1,6 +1,5 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
-import { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
 import { StatsRepository } from '@/lib/database/repositories/stats-repository';
 import { abortableSleep, isAbortError } from '@/lib/utils/abortable-sleep';
 import { backoffDelayMs } from '@/lib/utils/backoff';
@@ -19,7 +18,6 @@ const BASE_BACKOFF_MS = 500;
  */
 export abstract class BaseCollector implements AsyncDisposable {
   protected readonly repository: StatsRepository;
-  protected readonly entityMetadataRepository: EntityMetadataRepository;
   protected readonly abortController: AbortController;
   readonly signal: AbortSignal;
 
@@ -32,9 +30,7 @@ export abstract class BaseCollector implements AsyncDisposable {
     protected readonly config: WorkerConfig,
     abortController?: AbortController,
   ) {
-    const pool = db.getPool();
-    this.repository = new StatsRepository(pool);
-    this.entityMetadataRepository = new EntityMetadataRepository(pool);
+    this.repository = new StatsRepository(db.getPool());
     this.abortController = abortController ?? new AbortController();
     this.signal = this.abortController.signal;
   }

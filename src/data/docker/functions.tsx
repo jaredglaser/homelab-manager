@@ -43,7 +43,7 @@ export const getDockerEntityIcons = createServerFn()
       );
       const repo = new EntityMetadataRepository(context.pool);
 
-      const metaMap = await repo.getDockerContainerMetadata('docker');
+      const metaMap = await repo.getDockerContainerMetadata();
       return Object.fromEntries(metaMap);
     } catch (err) {
       console.error('[getDockerEntityIcons] Failed to fetch entity icons:', err);
@@ -71,7 +71,6 @@ export const getContainerHistory = createServerFn()
       let containerIds: string[] = [data.containerId];
       if (data.host) {
         const linked = await metaRepo.getLinkedContainerIds(
-          'docker',
           `${data.host}/${data.containerId}`,
           data.host,
         );
@@ -113,7 +112,7 @@ export const getContainerInfo = createServerFn()
       if (!info) return null;
 
       const containerEntity = `${info.host}/${data.containerId}`;
-      const serviceInfo = await metaRepo.getContainerServiceInfo('docker', containerEntity);
+      const serviceInfo = await metaRepo.getContainerServiceInfo(containerEntity);
 
       return {
         containerName: info.container_name ?? data.containerId.substring(0, 12),
@@ -141,5 +140,5 @@ export const updateContainerIcon = createServerFn()
     );
     const repo = new EntityMetadataRepository(context.pool);
 
-    await repo.upsertEntityMetadata('docker', data.serviceKeyEntity, 'icon', data.iconSlug);
+    await repo.upsertEntityMetadata(data.serviceKeyEntity, 'icon', data.iconSlug);
   });
