@@ -221,7 +221,7 @@ export async function rejectPendingDeploy(deployId: number): Promise<{ deployId:
   // by another client between the getById above and this UPDATE.
   const claimed = await deployRepo.rejectPending(deployId, 'Manually rejected');
   if (!claimed) {
-    throw new Error(`Deploy ${deployId} is no longer pending — it was approved or rejected by another client`);
+    throw new Error(`Deploy ${deployId} is no longer pending (it was approved or rejected by another client)`);
   }
   try {
     await deployRepo.notifyStackChange(deploy.stack, deploy.host);

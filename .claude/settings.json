@@ -10,6 +10,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun $CLAUDE_PROJECT_DIR/.claude/scripts/claudism-check-hook.ts",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

@@ -60,7 +60,7 @@ export const triggerDeploy = createServerFn()
   });
 
 /**
- * Approve a pending deploy — runs it through the pipeline's resumePending path.
+ * Approve a pending deploy: runs it through the pipeline's resumePending path.
  */
 export const resumeDeploy = createServerFn({ method: 'POST' })
   .inputValidator(resumeDeploySchema)
@@ -70,7 +70,7 @@ export const resumeDeploy = createServerFn({ method: 'POST' })
   });
 
 /**
- * Reject a pending deploy — marks it failed with a "Manually rejected" log.
+ * Reject a pending deploy: marks it failed with a "Manually rejected" log.
  */
 export const rejectDeploy = createServerFn({ method: 'POST' })
   .inputValidator(rejectDeploySchema)

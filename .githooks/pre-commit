@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Enable per clone with: bun run hooks:install
+# (sets core.hooksPath to .githooks)
+set -e
+
+repo_root="$(git rev-parse --show-toplevel)"
+exec bun "$repo_root/scripts/claudism-precommit.ts"
