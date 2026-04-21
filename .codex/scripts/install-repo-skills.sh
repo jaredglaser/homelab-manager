@@ -16,6 +16,11 @@ for skill_path in "$repo_skills_dir"/*; do
   target_path="$target_dir/$skill_name"
 
   if [ -L "$target_path" ]; then
+    existing_target="$(readlink "$target_path")"
+    if [ "$existing_target" != "$skill_path" ]; then
+      echo "Skipping $skill_name: $target_path already points to $existing_target" >&2
+      continue
+    fi
     rm "$target_path"
   elif [ -e "$target_path" ]; then
     echo "Skipping $skill_name: $target_path already exists and is not a symlink" >&2

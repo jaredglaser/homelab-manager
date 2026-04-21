@@ -10,7 +10,7 @@ Use this when the user wants a new SQL migration in `migrations/`.
 Before editing:
 
 1. Read `CLAUDE.md` for project constraints and migration guidance.
-2. Inspect existing files in `migrations/` to determine the next zero-padded number.
+2. Inspect existing files in `migrations/` to verify numeric prefixes are unique, then determine the next zero-padded number. If duplicates exist, report the ordering conflict before creating a new migration.
 3. Read nearby migrations that touch the same table or domain so the new file matches local patterns.
 
 ## Required conventions
@@ -31,7 +31,7 @@ For new stats tables, the migration should normally include:
 3. `ALTER TABLE ... SET (timescaledb.compress, ...)`
 4. `SELECT add_compression_policy(..., if_not_exists => TRUE);`
 
-Segment compression by the columns used for typical host/entity filters, and order by `time DESC`.
+Segment compression by the columns used for typical host/entity filters, and order by the hypertable's actual time column descending (for example, `time DESC` or `at DESC`).
 
 ## Delivery
 

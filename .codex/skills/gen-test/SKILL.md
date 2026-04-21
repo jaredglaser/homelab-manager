@@ -17,9 +17,10 @@ Before editing:
 
 - Use `bun:test`, not Jest or Vitest.
 - Put tests in a co-located `__tests__/` directory.
-- Use `@/` imports for source modules; only use relative imports for helpers inside the same test area.
+- Use `@/` imports for shared `src` modules. Tests co-located in `__tests__/` may import the module under test with a relative path; helpers inside the same test area may also use relative imports.
 - Prefer dependency injection, `renderHook`, `spyOn`, and narrow mocks.
 - Do not use `mock.module()` on React, broad shared modules, or `functions.tsx` barrels.
+- When mocking a service module, provide every exported member (use stubs or pass-throughs for exports the current test does not exercise) so concurrent tests do not see `undefined` exports.
 - Cover exported behavior, edge cases, and error paths.
 - Remember PostgreSQL `BIGINT` values arrive as strings.
 
