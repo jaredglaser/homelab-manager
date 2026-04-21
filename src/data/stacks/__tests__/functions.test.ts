@@ -260,6 +260,16 @@ describe('stacks.functions module', () => {
         'Deploy is not pending (status: in_progress)'
       );
     });
+
+    it('propagates service errors when deploy is missing', async () => {
+      mockRejectPendingDeploy.mockImplementationOnce(() =>
+        Promise.reject(new Error('Deploy 999 not found'))
+      );
+      const { rejectDeploy } = await import('../functions');
+      await expect(rejectDeploy({ data: { deployId: 999 } })).rejects.toThrow(
+        'Deploy 999 not found'
+      );
+    });
   });
 
   describe('deleteStack', () => {
