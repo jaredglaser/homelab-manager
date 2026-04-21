@@ -1,7 +1,7 @@
 import type { AgentClient } from '@/lib/clients/agent-client';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
-import type { ManagedHostsRepository } from '@/lib/database/repositories/managed-hosts-repository';
-import type { DeployRequest, DeployStatus, ManagedHost, SecretResolver } from '@/lib/deploy/types';
+import type { HostRepository, ManagedHost } from '@/lib/database/repositories/host-repository';
+import type { DeployRequest, DeployStatus, SecretResolver } from '@/lib/deploy/types';
 import { detectChanges } from '@/lib/deploy/change-detection';
 import { extractVariableReferences } from '@/lib/deploy/secret-resolver';
 
@@ -21,7 +21,7 @@ export interface StackRepoWriter {
 
 interface PipelineDeps {
   deployRepo: DeployRepository;
-  hostsRepo: ManagedHostsRepository;
+  hostsRepo: HostRepository;
   agentClientFactory: (agentUrl: string, agentToken: string) => AgentClient;
   secretResolver: SecretResolver;
   /** Resolve the agent bearer token for a given host. */
@@ -36,7 +36,7 @@ interface PipelineDeps {
  */
 export class DeployPipeline {
   private readonly deployRepo: DeployRepository;
-  private readonly hostsRepo: ManagedHostsRepository;
+  private readonly hostsRepo: HostRepository;
   private readonly agentClientFactory: PipelineDeps['agentClientFactory'];
   private readonly secretResolver: SecretResolver;
   private readonly tokenResolver: PipelineDeps['tokenResolver'];
@@ -53,7 +53,7 @@ export class DeployPipeline {
 
   async execute(request: DeployRequest): Promise<PipelineResult> {
     // 1. Validate: host exists in managed_hosts
-    const host = await this.hostsRepo.getByName(request.host);
+    const host = await this.hostsRepo.findByName(request.host);
     if (!host) {
       throw new Error(`Host "${request.host}" not found in managed_hosts. Add it via the Hosts page first.`);
     }

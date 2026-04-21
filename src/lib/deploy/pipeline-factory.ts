@@ -22,9 +22,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
-  const { ManagedHostsRepository } = await import(
-    '@/lib/database/repositories/managed-hosts-repository'
-  );
+  const { HostRepository } = await import('@/lib/database/repositories/host-repository');
   const { AgentClient } = await import('@/lib/clients/agent-client');
   const { DeployPipeline } = await import('@/lib/deploy/pipeline');
   const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
@@ -39,7 +37,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     baoClient = new OpenBaoClient(loadOpenBaoConfig());
   }
 
-  // DeployRepository and ManagedHostsRepository are lightweight pool wrappers.
+  // DeployRepository and HostRepository are lightweight pool wrappers.
   // The pool itself is cached by databaseConnectionManager, so per-call allocation
   // is negligible, so no singleton is needed here.
   const deployRepo = new DeployRepository(pool);
@@ -49,7 +47,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
 
   const pipeline = new DeployPipeline({
     deployRepo,
-    hostsRepo: new ManagedHostsRepository(pool),
+    hostsRepo: new HostRepository(pool),
     agentClientFactory: (url, token) => new AgentClient({ agentUrl: url, agentToken: token }),
     stackRepoWriter,
     secretResolver: {

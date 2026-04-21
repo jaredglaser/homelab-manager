@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { ZFSCollector } from '../zfs-collector';
-import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { ZFSStatsRow } from '@/types/zfs';
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
@@ -33,15 +33,15 @@ const defaultConfig = {
   collection: { interval: 1000 },
 } as any;
 
-const sampleHost: ManagedHostRow = {
+const sampleHost: ManagedHost = {
   id: 1,
   name: 'test-zfs',
-  agent_url: 'http://192.168.1.50:9090',
+  agentUrl: 'http://192.168.1.50:9090',
   capabilities: { docker: true, zfs: true },
-  agent_version: '0.1.0',
+  agentVersion: '0.1.0',
   status: 'healthy',
-  created_at: new Date('2026-01-01T00:00:00Z'),
-  updated_at: new Date('2026-01-01T00:00:00Z'),
+  createdAt: new Date('2026-01-01T00:00:00Z'),
+  updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
 
 // Simulate zpool iostat -vvv output lines sent as SSE events
@@ -151,7 +151,7 @@ describe('ZFSCollector', () => {
       // Should have 4 rows: pool + vdev + 2 disks
       expect(rows.length).toBe(4);
 
-      // Pool row (entity prefixed with host identifier from agent_url)
+      // Pool row (entity prefixed with host identifier from agentUrl)
       expect(rows[0].entity).toBe('192.168.1.50:9090/tank');
       expect(rows[0].entity_type).toBe('pool');
       expect(rows[0].pool).toBe('tank');

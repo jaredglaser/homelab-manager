@@ -1,7 +1,7 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
-import type { ManagedHostRow } from '@/lib/database/repositories/host-repository';
+import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { DockerStatsRow } from '@/types/docker';
 import { BaseCollector } from './base-collector';
 
@@ -59,7 +59,7 @@ function toDockerStatsRow(event: AgentStatsEvent, hostName: string): DockerStats
 
 export class AgentStatsCollector extends BaseCollector {
   readonly name: string;
-  private readonly host: ManagedHostRow;
+  private readonly host: ManagedHost;
   private readonly token: string;
   private readonly fetchFn: FetchFn;
   private readonly entityMetadataRepository: EntityMetadataRepository;
@@ -68,7 +68,7 @@ export class AgentStatsCollector extends BaseCollector {
   constructor(
     db: DatabaseClient,
     config: WorkerConfig,
-    host: ManagedHostRow,
+    host: ManagedHost,
     token: string,
     abortController?: AbortController,
     fetchFn?: FetchFn,
@@ -130,7 +130,7 @@ export class AgentStatsCollector extends BaseCollector {
   }
 
   protected async collect(): Promise<void> {
-    const url = `${this.host.agent_url}/stats/stream`;
+    const url = `${this.host.agentUrl}/stats/stream`;
     this.debugLog(`[${this.name}] Connecting to ${url}`);
 
     const response = await this.fetchFn(url, {

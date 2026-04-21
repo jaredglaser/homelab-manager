@@ -129,8 +129,7 @@ src/
 │   │   │   ├── stats-repository.ts  # Time-series stats data access
 │   │   │   ├── settings-repository.ts # Settings KV data access
 │   │   │   ├── deploy-repository.ts # Deploy history data access
-│   │   │   ├── host-repository.ts   # Host registration data access
-│   │   │   ├── managed-hosts-repository.ts # Managed hosts data access
+│   │   │   ├── host-repository.ts   # managed_hosts data access (UI + deploy)
 │   │   │   ├── docker-container-event-repository.ts # Docker container inventory events data access
 │   │   │   └── stack-status-repository.ts  # Stack status data access
 │   │   ├── subscription-service.ts  # StatsPollService - shared 1s poll, broadcasts to SSE clients
