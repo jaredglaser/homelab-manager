@@ -4,51 +4,15 @@
  *
  * Scans only newly-added lines (`+` in the staged diff) so a developer editing
  * a file with pre-existing violations elsewhere isn't blocked. Exits 1 if any
- * added line contains a banned dash/entity per CLAUDE.md rule 15.
+ * added line contains a banned dash, entity, vocabulary tell, or phrase per
+ * CLAUDE.md rule 15.
  *
  * Tool-agnostic: runs for Claude, Codex, Cursor, or plain `git commit`.
  * Install once per clone: `bun run hooks:install`.
  */
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { basename, extname } from "node:path";
-import { scanLinesForClaudisms } from "./claudism-patterns";
-
-const ALLOWED_EXTS = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-  ".md", ".mdx", ".txt",
-  ".json", ".jsonc",
-  ".yml", ".yaml", ".toml", ".hcl", ".properties",
-  ".sql",
-  ".sh", ".bash", ".zsh",
-  ".html", ".css", ".scss",
-  ".py", ".rb", ".go", ".rs", ".java",
-]);
-const ALLOWED_BASENAMES = new Set([
-  "Dockerfile", "Makefile", "README", "LICENSE", "CHANGELOG", "CODEOWNERS", "Caddyfile",
-  ".gitignore", ".gitattributes", ".dockerignore", ".editorconfig",
-  ".npmrc", ".nvmrc", ".node-version", ".bun-version",
-  ".env", ".env.example",
-]);
-const SKIP_BASENAMES = new Set([
-  "routeTree.gen.ts", "package-lock.json", "bun.lock", "yarn.lock", "pnpm-lock.yaml",
-]);
-
-function isAllowed(rel: string): boolean {
-  const b = basename(rel);
-  if (SKIP_BASENAMES.has(b)) return false;
-  if (ALLOWED_BASENAMES.has(b)) return true;
-  return ALLOWED_EXTS.has(extname(b).toLowerCase());
-}
-
-function hasDisableMarker(file: string): boolean {
-  try {
-    return readFileSync(file, "utf8").slice(0, 4096).includes("claudism-check:disable-file");
-  } catch {
-    return false;
-  }
-}
+import { hasDisableMarker, isScannablePath, scanLinesForClaudisms } from "./claudism-check";
 
 const diff = spawnSync("git", ["diff", "--cached", "-U0", "--no-color"], { encoding: "utf8" });
 if (diff.status !== 0) {
@@ -65,7 +29,7 @@ for (const line of diff.stdout.split("\n")) {
   if (line.startsWith("+++ ")) {
     const path = line.slice(4);
     currentFile = path === "/dev/null" || !path.startsWith("b/") ? "" : path.slice(2);
-    if (currentFile && !isAllowed(currentFile)) currentFile = "";
+    if (currentFile && !isScannablePath(currentFile)) currentFile = "";
     nextLine = 0;
   } else if (line.startsWith("@@")) {
     const m = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)/);
@@ -91,7 +55,9 @@ for (const [file, added] of perFile) {
 }
 
 if (totalHits > 0) {
-  console.error(`\n${totalHits} banned character(s) in staged lines. See CLAUDE.md rule 15.`);
-  console.error(`Use commas, parens, or colons instead. To override (rare): git commit --no-verify`);
+  console.error(`\n${totalHits} banned pattern(s) in staged lines. See CLAUDE.md rule 15.`);
+  console.error(`Rephrase (use plain words, commas, parens, or colons) or add the`);
+  console.error(`'claudism-check:disable-file' marker if the file legitimately needs the text.`);
+  console.error(`To override (rare): git commit --no-verify`);
   process.exit(1);
 }

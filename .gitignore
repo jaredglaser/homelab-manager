@@ -13,6 +13,7 @@ count.txt
 .output
 .vinxi
 todos.json
+.codex
 .claude
 !/.claude/
 /.claude/*
