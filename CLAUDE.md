@@ -21,9 +21,6 @@
 ## Commands
 
 ```bash
-# One-time setup
-bun run hooks:install         # Enable .githooks/ (blocks commits that add em/en dashes)
-
 # Development (local web + Docker services)
 bun run dev:local:up          # Start postgres + worker + agent + OpenBao in Docker
 bun dev                       # Start web server on port 3000 with HMR
