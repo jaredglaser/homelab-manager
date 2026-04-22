@@ -49,29 +49,32 @@ export function scanLinesForClaudisms(lines: string[], startLine = 1): Hit[] {
   return hits;
 }
 
-/** Extensions known to be source text. Unknown types skip safely. */
+/**
+ * Extensions present in this repo that can contain prose (comments, JSDoc,
+ * docs, user-facing strings). Other extensions skip safely. Add here if a new
+ * text format lands; do not pre-emptively include languages this project
+ * doesn't use.
+ */
 export const ALLOWED_EXTS = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-  ".md", ".mdx", ".txt",
-  ".json", ".jsonc",
-  ".yml", ".yaml", ".toml", ".hcl", ".properties",
-  ".sql",
-  ".sh", ".bash", ".zsh",
-  ".html", ".css", ".scss",
-  ".py", ".rb", ".go", ".rs", ".java",
+  ".ts", ".tsx", ".js",  // source
+  ".md",                 // docs
+  ".sql",                // migrations (comments)
+  ".json",               // config (descriptions, scripts)
+  ".yml", ".yaml",       // compose, GitHub Actions
+  ".toml",               // bunfig
+  ".sh",                 // shell scripts
+  ".css",                // App.css comments
+  ".txt",                // plain text (NOTICE, etc.)
 ]);
 
-/** Extensionless / dot-prefixed basenames that are still plain text source. */
+/** Extensionless basenames that are still plain text source in this repo. */
 export const ALLOWED_BASENAMES = new Set([
-  "Dockerfile", "Makefile", "README", "LICENSE", "CHANGELOG", "CODEOWNERS", "Caddyfile",
-  ".gitignore", ".gitattributes", ".dockerignore", ".editorconfig",
-  ".npmrc", ".nvmrc", ".node-version", ".bun-version",
-  ".env", ".env.example",
+  "Dockerfile",
 ]);
 
-/** Generated files that happen to match an allowed extension. */
+/** Generated or lockfile basenames to skip even when the extension matches. */
 export const SKIP_BASENAMES = new Set([
-  "routeTree.gen.ts", "package-lock.json", "bun.lock", "yarn.lock", "pnpm-lock.yaml",
+  "routeTree.gen.ts", "bun.lock",
 ]);
 
 /** True if the path points to a file we should scan for claudisms. */
