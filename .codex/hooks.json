@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun .codex/scripts/claudism-stop-hook.ts",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

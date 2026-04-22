@@ -3,10 +3,9 @@
  * Claudism check hook.
  *
  * PostToolUse hook that greps the just-edited file for banned "claudism"
- * patterns (em/en dashes, HTML entity encodings, LLM vocabulary tells, and
- * stock phrases) per CLAUDE.md rule 15. When matches are found, emits
- * hookSpecificOutput with additionalContext so the model sees them and can
- * fix before moving on.
+ * patterns (em/en dashes, HTML entity encodings, and the word "canonical")
+ * per CLAUDE.md rule 15. When matches are found, emits hookSpecificOutput
+ * with additionalContext so the model sees them and can fix before moving on.
  *
  * Fails open (silent exit 0 on any error) so a broken check can't block edits.
  *

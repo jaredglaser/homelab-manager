@@ -1,19 +1,17 @@
 // claudism-check:disable-file — this module defines the patterns, so it must
-// legitimately contain every banned character and word. Respected by
-// claudism-check-hook.ts and claudism-precommit.ts via the file-header marker.
+// legitimately contain every banned character and word. Respected by the
+// Claude PostToolUse hook and the Codex Stop hook via the file-header marker.
 
 /**
  * Shared claudism-check logic: banned patterns, allowlist, and scan helper.
- * Single source of truth for the Claude PostToolUse hook and the git pre-commit
+ * Single source of truth for the Claude PostToolUse hook and the Codex Stop
  * hook so they can't drift.
  *
- * Two pattern categories (CLAUDE.md rule 15):
+ * Pattern categories (CLAUDE.md rule 15):
  *   1. Dash-like characters and HTML entity encodings (em/en dash variants).
- *   2. Vocabulary tells - LLM-speak words matched as whole words, case-
- *      insensitively. Word boundaries (\b) keep identifiers like `canonicalUrl`
- *      from matching, and alternation groups deliberately exclude legit
- *      technical forms: `utilize`/`utilized` match, but `utilization` (the
- *      ZFS/CPU percent-of-capacity term used across this codebase) does not.
+ *   2. `canonical` - common LLM flourish in this codebase. Word-boundary
+ *      anchored so `canonicalUrl` (identifier) does not match `canonical`
+ *      (prose).
  */
 
 import { readFileSync } from "node:fs";
@@ -32,24 +30,6 @@ export const CLAUDISM_PATTERNS: ClaudismPattern[] = [
   { label: "&#x2013;", regex: /&#x2013;/gi },
 
   { label: 'vocab: "canonical"', regex: /\bcanonical\b/gi },
-  { label: 'vocab: "delve"', regex: /\bdelv(e|es|ed|ing)\b/gi },
-  { label: 'vocab: "tapestry"', regex: /\btapestr(y|ies)\b/gi },
-  { label: 'vocab: "intricate"', regex: /\bintricate(ly)?\b/gi },
-  { label: 'vocab: "robust"', regex: /\brobust(ly|ness)?\b/gi },
-  { label: 'vocab: "comprehensive"', regex: /\bcomprehensive(ly)?\b/gi },
-  { label: 'vocab: "meticulous"', regex: /\bmeticulous(ly)?\b/gi },
-  { label: 'vocab: "leverage"', regex: /\bleverag(e|es|ed|ing)\b/gi },
-  { label: 'vocab: "utilize"', regex: /\butiliz(e|es|ed|ing)\b/gi },
-  { label: 'vocab: "facilitate"', regex: /\bfacilitat(e|es|ed|ing|or|ion)\b/gi },
-  { label: 'vocab: "essentially"', regex: /\bessentially\b/gi },
-  { label: 'vocab: "fundamentally"', regex: /\bfundamentally\b/gi },
-  { label: 'vocab: "carefully"', regex: /\bcarefully\b/gi },
-  { label: 'vocab: "thoroughly"', regex: /\bthoroughly\b/gi },
-
-  { label: 'phrase: "it\'s worth noting"', regex: /\bit['’]s worth noting\b/gi },
-  { label: 'phrase: "it\'s important to note"', regex: /\bit['’]s important to note\b/gi },
-  { label: 'phrase: "hope this helps"', regex: /\bhope this helps\b/gi },
-  { label: 'phrase: "feel free to reach out"', regex: /\bfeel free to reach out\b/gi },
 ];
 
 export type Hit = { line: number; label: string; text: string };
