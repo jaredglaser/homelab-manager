@@ -79,7 +79,7 @@ html {
   }
 }
 
-/* View transitions for top-nav navigation: fade out then fade in.
+/* View transitions: fade out then fade in.
    Painting the theme background on the root pseudo-elements prevents the
    browser's default white overlay from flashing during the transition. */
 ::view-transition-old(root),
@@ -88,6 +88,7 @@ html {
   background-color: var(--mui-palette-background-default);
 }
 
+/* Disable the browser's default crossfade so only the vt-fade-* keyframes run. */
 ::view-transition-old(page-content),
 ::view-transition-new(page-content) {
   animation: none;

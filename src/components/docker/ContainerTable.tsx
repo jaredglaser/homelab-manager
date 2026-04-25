@@ -334,9 +334,9 @@ export default function ContainerTable({
 
   const rowClassName = useCallback((row: DockerTableRow) => {
     if (row.type === 'host') {
-      return row.isStale
-        ? '!bg-amber-500/10'
-        : '!bg-[var(--mui-palette-background-level1)]';
+      const base = row.isStale ? '!bg-amber-500/10' : '!bg-[var(--mui-palette-background-level1)]';
+      // scroll-mt clears the DataTable's sticky column header (~37px) when scrollIntoView is called
+      return `${base} scroll-mt-10`;
     }
     if (row.isStale) {
       return '!bg-amber-500/10 !opacity-70';
@@ -350,7 +350,7 @@ export default function ContainerTable({
 
   const rowAttributes = useCallback((row: DockerTableRow): Record<`data-${string}`, string> => {
     if (row.type === 'host') {
-      return { 'data-row-variant': row.isStale ? 'stale' : 'host' };
+      return { 'data-row-variant': row.isStale ? 'stale' : 'host', 'data-host-id': row.hostName };
     }
     if (row.isStale) return { 'data-row-variant': 'stale' };
     const { state } = row.inventory;

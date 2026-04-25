@@ -56,7 +56,7 @@ function SettingsContent() {
       <PageTitle title="Settings" />
 
       <div className="flex flex-col gap-4 max-w-2xl px-4 pb-6">
-        <Card id="general" variant="outlined" className="p-4 scroll-mt-4">
+        <Card id="general" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">General</Typography>
           <div className="flex flex-col gap-6">
             <div className="flex justify-between items-center">
@@ -121,7 +121,7 @@ function SettingsContent() {
           </div>
         </Card>
 
-        <Card id="docker-dashboard" variant="outlined" className="p-4 scroll-mt-4">
+        <Card id="docker-dashboard" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">Docker Containers Dashboard</Typography>
           <div className="flex flex-col gap-4">
             <FormControl>
@@ -175,7 +175,7 @@ function SettingsContent() {
           </div>
         </Card>
 
-        <Card id="zfs-dashboard" variant="outlined" className="p-4 scroll-mt-4">
+        <Card id="zfs-dashboard" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">ZFS Dashboard</Typography>
           <div>
             <Typography variant="subtitle2" className="mb-2">Show Decimal Places</Typography>
@@ -191,7 +191,7 @@ function SettingsContent() {
           </div>
         </Card>
 
-        <Card id="data-retention" variant="outlined" className="p-4 scroll-mt-4">
+        <Card id="data-retention" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">Data Retention</Typography>
           <div className="flex flex-col gap-6">
             <div>
@@ -250,11 +250,11 @@ function SettingsContent() {
           </div>
         </Card>
 
-        <div id="managed-hosts" className="scroll-mt-4">
+        <div id="managed-hosts" className="scroll-mt-20">
           <ManagedHostsCard />
         </div>
 
-        <Card id="developer" variant="outlined" className="p-4 scroll-mt-4">
+        <Card id="developer" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">Developer</Typography>
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">

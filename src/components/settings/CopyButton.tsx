@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { IconButton, Tooltip } from '@mui/material'
 import { Copy, Check } from 'lucide-react'
+import { COPY_FEEDBACK_MS } from '@/lib/constants/ui-timing'
 
 export default function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
@@ -8,7 +9,7 @@ export default function CopyButton({ text, label }: { text: string; label: strin
   function handleCopy() {
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      setTimeout(() => setCopied(false), COPY_FEEDBACK_MS)
     })
   }
 

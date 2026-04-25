@@ -18,6 +18,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
+import { MENU_CLOSE_DELAY_MS } from '@/lib/constants/ui-timing'
 import { queryClient } from '@/components/AppShell'
 import {
   DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
@@ -104,7 +105,6 @@ function useCurrentTab(): RouteKey {
   return match?.to ?? '/docker'
 }
 
-const MENU_CLOSE_DELAY_MS = 120
 
 interface MenuController {
   openId: RouteKey | null
@@ -176,7 +176,7 @@ function SettingsMenuContent() {
 
 function StacksMenuContent() {
   const close = useContext(NavMenuCloseContext)
-  const { data: stacks, isLoading } = useQuery({
+  const { data: stacks, isLoading, isError } = useQuery({
     queryKey: STACKS_QUERY_KEY,
     queryFn: () => listStacks(),
     staleTime: 30_000,
@@ -184,6 +184,9 @@ function StacksMenuContent() {
 
   if (isLoading) {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
+  }
+  if (isError) {
+    return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load stacks</div>
   }
   if (!stacks?.length) {
     return <div className="px-3 py-2 text-sm opacity-60">No stacks</div>
@@ -222,7 +225,7 @@ function StacksMenuContent() {
 
 function DockerHostsMenuContent() {
   const close = useContext(NavMenuCloseContext)
-  const { data: hosts, isLoading } = useQuery({
+  const { data: hosts, isLoading, isError } = useQuery({
     queryKey: ['managed-host-names'],
     queryFn: () => listManagedHostNames(),
     staleTime: 60_000,
@@ -230,6 +233,9 @@ function DockerHostsMenuContent() {
 
   if (isLoading) {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
+  }
+  if (isError) {
+    return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load hosts</div>
   }
   if (!hosts?.length) {
     return <div className="px-3 py-2 text-sm opacity-60">No hosts</div>
@@ -288,7 +294,8 @@ export default function Header() {
   const [anchors, setAnchors] = useState<Partial<Record<RouteKey, HTMLElement>>>({})
 
   // Stable callback refs keyed by route, so each Tab keeps the same setter
-  // across renders and React only invokes them on actual mount/unmount.
+  // across renders. The null (unmount) case is ignored because these Tab
+  // elements are persistent; anchors only need to be set once on mount.
   const refSetters = useMemo(() => {
     const setters: Partial<Record<RouteKey, (el: HTMLElement | null) => void>> = {}
     for (const item of NAV_ITEMS) {
@@ -326,12 +333,25 @@ export default function Header() {
                 component={Link}
                 to={item.to}
                 disableRipple
+                aria-haspopup={item.hasMenu ? 'menu' : undefined}
+                aria-expanded={item.hasMenu ? controller.openId === item.to : undefined}
+                aria-controls={item.hasMenu ? `nav-menu-${item.to.slice(1)}` : undefined}
                 onMouseEnter={() => {
                   handlePrefetch(item.to)
                   if (item.hasMenu) controller.requestOpen(item.to)
                 }}
                 onMouseLeave={() => {
                   if (item.hasMenu) controller.requestClose()
+                }}
+                onFocus={() => {
+                  handlePrefetch(item.to)
+                  if (item.hasMenu) controller.requestOpen(item.to)
+                }}
+                onBlur={() => {
+                  if (item.hasMenu) controller.requestClose()
+                }}
+                onKeyDown={(e: React.KeyboardEvent) => {
+                  if (e.key === 'Escape' && item.hasMenu) controller.closeNow()
                 }}
                 className="!min-h-0 !py-2"
               />
@@ -360,8 +380,13 @@ export default function Header() {
               className="!rounded-xl !backdrop-blur-xl !bg-[var(--mui-palette-background-paper)]/95 border border-[var(--mui-palette-divider)]/30 overflow-hidden min-w-56 pointer-events-auto"
               onMouseEnter={() => controller.requestOpen(item.to)}
               onMouseLeave={controller.requestClose}
+              onFocus={() => controller.requestOpen(item.to)}
+              onBlur={() => controller.requestClose()}
+              onKeyDown={(e: React.KeyboardEvent) => {
+                if (e.key === 'Escape') controller.closeNow()
+              }}
             >
-              <div role="menu">
+              <div id={`nav-menu-${item.to.slice(1)}`} role="menu">
                 <NavMenuCloseContext value={controller.closeNow}>
                   <MenuContentFor to={item.to} />
                 </NavMenuCloseContext>
