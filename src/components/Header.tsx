@@ -1,17 +1,32 @@
-import Tabs from '@mui/material/Tabs'
-import Tab from '@mui/material/Tab'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import MuiLink from '@mui/material/Link'
+import Tabs from '@mui/material/Tabs'
+import Tab from '@mui/material/Tab'
+import Popper from '@mui/material/Popper'
+import Paper from '@mui/material/Paper'
 import { Link, useLocation } from '@tanstack/react-router'
-import { HardDrive, Layers, Settings } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import {
+  Archive,
+  ChevronDown,
+  Code,
+  HardDrive,
+  Layers,
+  Server,
+  Settings as SettingsIcon,
+  SlidersHorizontal,
+} from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
+import { MENU_CLOSE_DELAY_MS } from '@/lib/constants/ui-timing'
 import { queryClient } from '@/components/AppShell'
 import {
   DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
 } from '@/lib/constants/preload-queries'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
-import { useState } from 'react'
+import { listManagedHostNames, listStacks } from '@/data/stacks/functions'
+import { getIconUrl } from '@/lib/utils/icon-resolver'
 
 interface IconProps {
   size?: number
@@ -34,21 +49,55 @@ function ProxmoxIcon({ size = 18 }: Readonly<IconProps>) {
   )
 }
 
-type NavIcon = React.ComponentType<{ size?: number }>
+type RouteKey = '/docker' | '/stacks' | '/zfs' | '/proxmox' | '/settings'
 
-const NAV_ITEMS: { to: '/docker' | '/stacks' | '/zfs' | '/proxmox' | '/settings'; label: string; icon: NavIcon }[] = [
-  { to: '/docker', label: 'Docker', icon: DockerIcon },
-  { to: '/stacks', label: 'Stacks', icon: Layers },
-  { to: '/zfs', label: 'ZFS', icon: HardDrive },
-  { to: '/proxmox', label: 'Proxmox', icon: ProxmoxIcon },
-  { to: '/settings', label: 'Settings', icon: Settings },
+interface NavItem {
+  to: RouteKey
+  label: string
+  Icon: React.ComponentType<IconProps>
+  hasMenu: boolean
+}
+
+const NAV_ITEMS: readonly NavItem[] = [
+  { to: '/docker', label: 'Docker', Icon: DockerIcon, hasMenu: true },
+  { to: '/stacks', label: 'Stacks', Icon: Layers, hasMenu: true },
+  { to: '/zfs', label: 'ZFS', Icon: HardDrive, hasMenu: false },
+  { to: '/proxmox', label: 'Proxmox', Icon: ProxmoxIcon, hasMenu: false },
+  { to: '/settings', label: 'Settings', Icon: SettingsIcon, hasMenu: true },
 ]
 
-export const NAV_ORDER: Record<string, number> = Object.fromEntries(
-  NAV_ITEMS.map((item, index) => [item.to, index]),
-)
+export interface SettingsSectionDescriptor {
+  id: string
+  label: string
+  Icon: React.ComponentType<IconProps>
+}
 
-function useCurrentTab(): string {
+export const SETTINGS_SECTIONS: readonly SettingsSectionDescriptor[] = [
+  { id: 'general', label: 'General', Icon: SlidersHorizontal },
+  { id: 'docker-dashboard', label: 'Docker Dashboard', Icon: DockerIcon },
+  { id: 'zfs-dashboard', label: 'ZFS Dashboard', Icon: HardDrive },
+  { id: 'data-retention', label: 'Data Retention', Icon: Archive },
+  { id: 'managed-hosts', label: 'Managed Hosts', Icon: Server },
+  { id: 'developer', label: 'Developer', Icon: Code },
+]
+
+const PREFETCH_CONFIG: Partial<Record<RouteKey, { queryKey: readonly string[]; queryFn: () => Promise<unknown> }>> = {
+  '/docker': { queryKey: [...DOCKER_PRELOAD_KEY], queryFn: () => preloadDockerStats() },
+  '/stacks': { queryKey: [...STACKS_QUERY_KEY], queryFn: () => listStacks() },
+  '/zfs': { queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats },
+  '/proxmox': { queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats },
+}
+
+const PREFETCH_STALE_TIME = 1_000
+
+function handlePrefetch(route: RouteKey) {
+  const config = PREFETCH_CONFIG[route]
+  if (config) {
+    queryClient.prefetchQuery({ ...config, staleTime: PREFETCH_STALE_TIME }).catch(() => {})
+  }
+}
+
+function useCurrentTab(): RouteKey {
   const pathname = useLocation({ select: (l) => l.pathname })
   const match = NAV_ITEMS.find(
     (item) => pathname === item.to || pathname.startsWith(item.to + '/'),
@@ -56,20 +105,166 @@ function useCurrentTab(): string {
   return match?.to ?? '/docker'
 }
 
-const PREFETCH_CONFIG: Partial<Record<string, { queryKey: readonly string[]; queryFn: () => Promise<unknown> }>> = {
-  '/docker': { queryKey: [...DOCKER_PRELOAD_KEY], queryFn: () => preloadDockerStats() },
-  '/stacks': { queryKey: [...STACKS_QUERY_KEY], queryFn: async () => { const { listStacks } = await import('@/data/stacks/functions'); return listStacks(); } },
-  '/zfs': { queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats },
-  '/proxmox': { queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats },
+
+interface MenuController {
+  openId: RouteKey | null
+  requestOpen: (id: RouteKey) => void
+  requestClose: () => void
+  closeNow: () => void
 }
 
-const PREFETCH_STALE_TIME = 1_000
+function useMenuController(): MenuController {
+  const [openId, setOpenId] = useState<RouteKey | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-function handlePrefetch(route: string) {
-  const config = PREFETCH_CONFIG[route]
-  if (config) {
-    queryClient.prefetchQuery({ ...config, staleTime: PREFETCH_STALE_TIME }).catch(() => {})
+  const cancelTimer = () => {
+    if (timer.current) {
+      clearTimeout(timer.current)
+      timer.current = null
+    }
   }
+
+  useEffect(() => () => cancelTimer(), [])
+
+  const requestOpen = useCallback((id: RouteKey) => {
+    cancelTimer()
+    setOpenId(id)
+  }, [])
+
+  const requestClose = useCallback(() => {
+    cancelTimer()
+    timer.current = setTimeout(() => setOpenId(null), MENU_CLOSE_DELAY_MS)
+  }, [])
+
+  const closeNow = useCallback(() => {
+    cancelTimer()
+    setOpenId(null)
+  }, [])
+
+  return { openId, requestOpen, requestClose, closeNow }
+}
+
+const NavMenuCloseContext = createContext<() => void>(() => {})
+
+const MENU_ITEM_CLASSES =
+  'flex items-center gap-2 px-3 py-2 text-sm no-underline text-inherit ' +
+  'hover:bg-[var(--mui-palette-action-hover)] transition-colors'
+
+function SettingsMenuContent() {
+  const close = useContext(NavMenuCloseContext)
+  return (
+    <div role="none">
+      {SETTINGS_SECTIONS.map((section) => {
+        const { Icon } = section
+        return (
+          <Link
+            key={section.id}
+            to="/settings"
+            hash={section.id}
+            className={MENU_ITEM_CLASSES}
+            onClick={close}
+            role="menuitem"
+          >
+            <Icon size={14} />
+            <span>{section.label}</span>
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
+
+function StacksMenuContent() {
+  const close = useContext(NavMenuCloseContext)
+  const { data: stacks, isLoading, isError } = useQuery({
+    queryKey: STACKS_QUERY_KEY,
+    queryFn: () => listStacks(),
+    staleTime: 30_000,
+  })
+
+  if (isLoading) {
+    return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
+  }
+  if (isError) {
+    return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load stacks</div>
+  }
+  if (!stacks?.length) {
+    return <div className="px-3 py-2 text-sm opacity-60">No stacks</div>
+  }
+
+  const sorted = [...stacks].sort((a, b) => a.name.localeCompare(b.name))
+
+  return (
+    <div className="max-h-[60vh] overflow-y-auto themed-scrollbar" role="none">
+      {sorted.map((stack) => {
+        const iconUrl = stack.icon ? getIconUrl(stack.icon, '') : null
+        return (
+          <Link
+            key={`${stack.host}/${stack.name}`}
+            to="/stacks/$stackName"
+            params={{ stackName: stack.name }}
+            className={MENU_ITEM_CLASSES}
+            onClick={close}
+            role="menuitem"
+          >
+            {iconUrl ? (
+              <img src={iconUrl} alt="" className="w-4 h-4 rounded-sm" />
+            ) : (
+              <span className="w-4 h-4 rounded-sm bg-[var(--mui-palette-action-disabledBackground)] flex items-center justify-center text-[10px] font-bold opacity-50">
+                {(stack.name.charAt(0) || '?').toUpperCase()}
+              </span>
+            )}
+            <span className="truncate flex-1">{stack.name}</span>
+            <span className="text-[10px] opacity-50">{stack.host}</span>
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
+
+function DockerHostsMenuContent() {
+  const close = useContext(NavMenuCloseContext)
+  const { data: hosts, isLoading, isError } = useQuery({
+    queryKey: ['managed-host-names'],
+    queryFn: () => listManagedHostNames(),
+    staleTime: 60_000,
+  })
+
+  if (isLoading) {
+    return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
+  }
+  if (isError) {
+    return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load hosts</div>
+  }
+  if (!hosts?.length) {
+    return <div className="px-3 py-2 text-sm opacity-60">No hosts</div>
+  }
+
+  return (
+    <div role="none">
+      {hosts.map((host) => (
+        <Link
+          key={host}
+          to="/docker"
+          hash={`host-${host}`}
+          className={MENU_ITEM_CLASSES}
+          onClick={close}
+          role="menuitem"
+        >
+          <Server size={14} />
+          <span className="truncate">{host}</span>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
+function MenuContentFor({ to }: Readonly<{ to: RouteKey }>) {
+  if (to === '/settings') return <SettingsMenuContent />
+  if (to === '/stacks') return <StacksMenuContent />
+  if (to === '/docker') return <DockerHostsMenuContent />
+  return null
 }
 
 function DemoBanner() {
@@ -95,35 +290,112 @@ function DemoBanner() {
 
 export default function Header() {
   const currentTab = useCurrentTab()
+  const controller = useMenuController()
+  const [anchors, setAnchors] = useState<Partial<Record<RouteKey, HTMLElement>>>({})
+
+  // Stable callback refs keyed by route, so each Tab keeps the same setter
+  // across renders. The null (unmount) case is ignored because these Tab
+  // elements are persistent; anchors only need to be set once on mount.
+  const refSetters = useMemo(() => {
+    const setters: Partial<Record<RouteKey, (el: HTMLElement | null) => void>> = {}
+    for (const item of NAV_ITEMS) {
+      if (!item.hasMenu) continue
+      setters[item.to] = (el) => {
+        if (!el) return
+        setAnchors((prev) => (prev[item.to] === el ? prev : { ...prev, [item.to]: el }))
+      }
+    }
+    return setters
+  }, [])
 
   return (
-    <header className="sticky top-0 z-50 pt-3 pb-2 px-4 pointer-events-none">
-      <nav className="mx-auto max-w-5xl flex items-center rounded-2xl px-6 py-1 pointer-events-auto backdrop-blur-xl bg-[var(--mui-palette-background-paper)]/75 border border-[var(--mui-palette-divider)]/30 shadow-[0_8px_32px_var(--mui-palette-common-black)]/10">
-        <Tabs
-          value={currentTab}
-          aria-label="Main navigation"
-          className="!min-h-0"
-        >
-          {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
-            <Tab
-              key={to}
-              value={to}
-              label={label}
-              icon={<Icon size={18} />}
-              iconPosition="start"
-              component={Link}
-              to={to}
-              disableRipple
-              onMouseEnter={() => handlePrefetch(to)}
-              className="!min-h-0 !py-2"
-            />
-          ))}
+    <header className="sticky top-0 z-50 px-4 pt-3 pb-2 pointer-events-none">
+      <nav
+        aria-label="Main navigation"
+        className="flex items-center rounded-2xl px-3 py-1 pointer-events-auto backdrop-blur-xl bg-[var(--mui-palette-background-paper)]/75 border border-[var(--mui-palette-divider)]/30 shadow-[0_8px_32px_var(--mui-palette-common-black)]/10"
+      >
+        <Tabs value={currentTab} aria-label="Main navigation" className="!min-h-0">
+          {NAV_ITEMS.map((item) => {
+            const { Icon } = item
+            return (
+              <Tab
+                key={item.to}
+                value={item.to}
+                ref={refSetters[item.to]}
+                label={
+                  <span className="inline-flex items-center gap-1">
+                    {item.label}
+                    {item.hasMenu && <ChevronDown size={14} className="opacity-60" />}
+                  </span>
+                }
+                icon={<Icon size={18} />}
+                iconPosition="start"
+                component={Link}
+                to={item.to}
+                disableRipple
+                aria-haspopup={item.hasMenu ? 'menu' : undefined}
+                aria-expanded={item.hasMenu ? controller.openId === item.to : undefined}
+                aria-controls={item.hasMenu ? `nav-menu-${item.to.slice(1)}` : undefined}
+                onMouseEnter={() => {
+                  handlePrefetch(item.to)
+                  if (item.hasMenu) controller.requestOpen(item.to)
+                }}
+                onMouseLeave={() => {
+                  if (item.hasMenu) controller.requestClose()
+                }}
+                onFocus={() => {
+                  handlePrefetch(item.to)
+                  if (item.hasMenu) controller.requestOpen(item.to)
+                }}
+                onBlur={() => {
+                  if (item.hasMenu) controller.requestClose()
+                }}
+                onKeyDown={(e: React.KeyboardEvent) => {
+                  if (e.key === 'Escape' && item.hasMenu) controller.closeNow()
+                }}
+                className="!min-h-0 !py-2"
+              />
+            )
+          })}
         </Tabs>
 
-        <div className="ml-auto border-l border-[var(--mui-palette-divider)]/30 pl-3">
+        <div className="ml-auto pl-3 border-l border-[var(--mui-palette-divider)]/30">
           <ModeToggle />
         </div>
       </nav>
+
+      {NAV_ITEMS.filter((i) => i.hasMenu).map((item) => {
+        const anchor = anchors[item.to]
+        return (
+          <Popper
+            key={item.to}
+            open={controller.openId === item.to && Boolean(anchor)}
+            anchorEl={anchor ?? null}
+            placement="bottom-start"
+            modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}
+            className="!z-50"
+          >
+            <Paper
+              elevation={4}
+              className="!rounded-xl !backdrop-blur-xl !bg-[var(--mui-palette-background-paper)]/95 border border-[var(--mui-palette-divider)]/30 overflow-hidden min-w-56 pointer-events-auto"
+              onMouseEnter={() => controller.requestOpen(item.to)}
+              onMouseLeave={controller.requestClose}
+              onFocus={() => controller.requestOpen(item.to)}
+              onBlur={() => controller.requestClose()}
+              onKeyDown={(e: React.KeyboardEvent) => {
+                if (e.key === 'Escape') controller.closeNow()
+              }}
+            >
+              <div id={`nav-menu-${item.to.slice(1)}`} role="menu">
+                <NavMenuCloseContext value={controller.closeNow}>
+                  <MenuContentFor to={item.to} />
+                </NavMenuCloseContext>
+              </div>
+            </Paper>
+          </Popper>
+        )
+      })}
+
       {import.meta.env.VITE_DEMO_MODE === 'true' && <DemoBanner />}
     </header>
   )

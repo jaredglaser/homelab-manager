@@ -4,6 +4,7 @@ import { Typography, CircularProgress, IconButton, Skeleton } from '@mui/materia
 import { X } from 'lucide-react';
 import { getContainerHistory, getContainerInfo } from '@/data/docker/functions';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
+import { CHART_DEBOUNCE_MS } from '@/lib/constants/ui-timing';
 import MetricCheckboxes, { type MetricType } from '@/components/docker/MetricCheckboxes';
 import HistoricalChartsGrid from '@/components/docker/HistoricalChartsGrid';
 import HistoricalTimeline from '@/components/docker/HistoricalTimeline';
@@ -30,7 +31,6 @@ function parseMetrics(metricsStr: string): Set<MetricType> {
 }
 
 const DEFAULT_RANGE_MS = 3_600_000; // 1 hour
-const CHART_DEBOUNCE_MS = 800;
 
 /**
  * Render a container's historical metrics UI including a timeline, selectable metrics, and detailed charts.

@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react'
-import { createFileRoute, Outlet, useMatchRoute } from '@tanstack/react-router'
+import { useCallback, useEffect, useState } from 'react'
+import { createFileRoute, Outlet, useMatchRoute, useLocation } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryClient } from '@/components/AppShell'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
@@ -40,6 +40,22 @@ const SPARKLINE_BUFFER_SECONDS = 45
 function DockerContainersPage() {
   const { general, developer } = useGeneralSettings()
   const { docker } = useDockerSettings()
+  const hash = useLocation({ select: (l) => l.hash })
+
+  useEffect(() => {
+    if (!hash?.startsWith('host-')) return
+    const hostName = hash.slice(5)
+    const el = document.querySelector<HTMLElement>(`[data-host-id="${hostName}"]`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
+    const raf = requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-host-id="${hostName}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [hash])
   const [historyTarget, setHistoryTarget] = useState<{ containerId: string; host: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
 

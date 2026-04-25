@@ -3,6 +3,7 @@ import { Paper, Skeleton, Typography } from '@mui/material';
 import type { Terminal as TerminalType } from '@xterm/xterm';
 import { useContainerLogs } from '@/hooks/useContainerLogs';
 import { getCssVar } from '@/lib/charts/css-vars';
+import { RESIZE_DEBOUNCE_MS } from '@/lib/constants/ui-timing';
 
 interface ContainerLogViewerProps {
   containerId: string;
@@ -118,7 +119,7 @@ export default memo(function ContainerLogViewer({
         } catch {
           // Ignore fit errors during layout transitions
         }
-      }, 100);
+      }, RESIZE_DEBOUNCE_MS);
     });
 
     observer.observe(containerRef.current);

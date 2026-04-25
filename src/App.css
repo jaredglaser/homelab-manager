@@ -79,66 +79,30 @@ html {
   }
 }
 
-/* View transitions for top-nav navigation.
-   The page-content area slides between routes (forward / back based on
-   NAV_ORDER, see router.tsx); everything else (header, toasts) stays put.
-   We paint background-color on the root view-transition pseudo-elements
-   so the "hole" left by extracting page-content shows the theme background
-   instead of the browser's default white overlay. */
+/* View transitions: fade out then fade in.
+   Painting the theme background on the root pseudo-elements prevents the
+   browser's default white overlay from flashing during the transition. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
   background-color: var(--mui-palette-background-default);
 }
 
-/* page-content has its own animation per type: disable the default crossfade */
+/* Disable the browser's default crossfade so only the vt-fade-* keyframes run. */
 ::view-transition-old(page-content),
 ::view-transition-new(page-content) {
   animation: none;
 }
 
-/* Forward: slide left */
-:active-view-transition-type(slide-forward) {
-  &::view-transition-old(page-content) {
-    animation: slide-out-left 200ms ease-in forwards;
-  }
-  &::view-transition-new(page-content) {
-    animation: slide-in-from-right 200ms ease-out forwards;
-  }
-}
-
-/* Backward: slide right */
-:active-view-transition-type(slide-back) {
-  &::view-transition-old(page-content) {
-    animation: slide-out-right 200ms ease-in forwards;
-  }
-  &::view-transition-new(page-content) {
-    animation: slide-in-from-left 200ms ease-out forwards;
-  }
-}
-
-/* Fallback fade for non-nav routes (same nav index, or unknown routes) */
 :active-view-transition-type(fade) {
   &::view-transition-old(page-content) {
-    animation: vt-fade-out 150ms ease-in forwards;
+    animation: vt-fade-out 120ms ease-in forwards;
   }
   &::view-transition-new(page-content) {
-    animation: vt-fade-in 200ms ease-out forwards;
+    animation: vt-fade-in 160ms ease-out forwards;
   }
 }
 
-@keyframes slide-out-left {
-  to { transform: translateX(-100%); }
-}
-@keyframes slide-in-from-right {
-  from { transform: translateX(100%); }
-}
-@keyframes slide-out-right {
-  to { transform: translateX(100%); }
-}
-@keyframes slide-in-from-left {
-  from { transform: translateX(-100%); }
-}
 @keyframes vt-fade-out {
   to { opacity: 0; }
 }

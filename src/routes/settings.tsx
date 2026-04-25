@@ -1,4 +1,5 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { useEffect } from 'react'
+import { createFileRoute, useLocation } from '@tanstack/react-router'
 import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Switch, Typography } from '@mui/material'
 import {
   useDockerSettings,
@@ -33,13 +34,29 @@ function SettingsContent() {
   } = useGeneralSettings();
   const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
   const { zfs, setZfsDecimal } = useZfsSettings();
+  const hash = useLocation({ select: (l) => l.hash });
+
+  useEffect(() => {
+    if (!hash) return;
+    const scroll = () => {
+      const el = document.getElementById(hash);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return true;
+      }
+      return false;
+    };
+    if (scroll()) return;
+    const raf = requestAnimationFrame(scroll);
+    return () => cancelAnimationFrame(raf);
+  }, [hash]);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
       <PageTitle title="Settings" />
 
       <div className="flex flex-col gap-4 max-w-2xl px-4 pb-6">
-        <Card variant="outlined" className="p-4">
+        <Card id="general" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">General</Typography>
           <div className="flex flex-col gap-6">
             <div className="flex justify-between items-center">
@@ -104,7 +121,7 @@ function SettingsContent() {
           </div>
         </Card>
 
-        <Card variant="outlined" className="p-4">
+        <Card id="docker-dashboard" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">Docker Containers Dashboard</Typography>
           <div className="flex flex-col gap-4">
             <FormControl>
@@ -158,7 +175,7 @@ function SettingsContent() {
           </div>
         </Card>
 
-        <Card variant="outlined" className="p-4">
+        <Card id="zfs-dashboard" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">ZFS Dashboard</Typography>
           <div>
             <Typography variant="subtitle2" className="mb-2">Show Decimal Places</Typography>
@@ -174,7 +191,7 @@ function SettingsContent() {
           </div>
         </Card>
 
-        <Card variant="outlined" className="p-4">
+        <Card id="data-retention" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">Data Retention</Typography>
           <div className="flex flex-col gap-6">
             <div>
@@ -233,9 +250,11 @@ function SettingsContent() {
           </div>
         </Card>
 
-        <ManagedHostsCard />
+        <div id="managed-hosts" className="scroll-mt-20">
+          <ManagedHostsCard />
+        </div>
 
-        <Card variant="outlined" className="p-4">
+        <Card id="developer" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">Developer</Typography>
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
