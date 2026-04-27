@@ -47,8 +47,6 @@
     "@tanstack/react-virtual": "^3.13.23",
     "@tanstack/router-plugin": "^1.167.3",
     "@types/dockerode": "^4.0.1",
-    "@types/ssh2": "^1.15.5",
-    "@types/ssh2-streams": "^0.1.13",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "dayjs": "^1.11.20",
@@ -66,7 +64,6 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "simplex-noise": "^4.0.3",
-    "ssh2": "^1.17.0",
     "tailwindcss": "^4.2.2",
     "vite-tsconfig-paths": "^6.1.1",
     "zod": "^4.3.6"
