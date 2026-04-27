@@ -9,7 +9,7 @@ function createMockDocker() {
   const mockContainer = {
     inspect: mock(() =>
       Promise.resolve({
-        Image: 'ghcr.io/homelab-manager/agent:latest',
+        Image: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
         Config: {
           Env: ['AGENT_TOKEN=abc'],
           ExposedPorts: { '9090/tcp': {} },
@@ -87,13 +87,13 @@ describe('handleAgentUpdate', () => {
     expect(mockDocker.getContainer.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(mockDocker._container.inspect).toHaveBeenCalled();
     expect(mockDocker.pull).toHaveBeenCalledWith(
-      'ghcr.io/homelab-manager/agent:latest',
+      'ghcr.io/jaredglaser/homelab-manager-agent:latest',
       expect.any(Function)
     );
     expect(mockDocker._container.stop).toHaveBeenCalled();
     expect(mockDocker._container.remove).toHaveBeenCalled();
     expect(mockDocker.createContainer).toHaveBeenCalledWith(
-      expect.objectContaining({ Image: 'ghcr.io/homelab-manager/agent:latest' })
+      expect.objectContaining({ Image: 'ghcr.io/jaredglaser/homelab-manager-agent:latest' })
     );
     expect(mockDocker._container.start).toHaveBeenCalled();
   });
@@ -103,7 +103,7 @@ describe('handleAgentUpdate', () => {
     // Override inspect to return multiple networks
     mockDocker._container.inspect = mock(() =>
       Promise.resolve({
-        Image: 'ghcr.io/homelab-manager/agent:latest',
+        Image: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
         Config: {
           Env: ['AGENT_TOKEN=abc'],
           ExposedPorts: { '9090/tcp': {} },

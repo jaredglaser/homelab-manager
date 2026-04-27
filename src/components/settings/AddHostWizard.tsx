@@ -54,7 +54,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
   const agentStackConfig = useMemo(() => ({
     agentToken,
     agentImage: getAgentImage(),
-    agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+    agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
     capabilities: { docker, zfs },
     hlmZfsUid: zfs ? hlmZfsUid === '' ? undefined : Number(hlmZfsUid) : undefined,
     hlmZfsGid: zfs ? hlmZfsGid === '' ? undefined : Number(hlmZfsGid) : undefined,

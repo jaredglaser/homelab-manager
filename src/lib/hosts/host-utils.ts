@@ -67,7 +67,7 @@ export async function retryHealthCheck(
 
 export const HEALTH_CHECK_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 16000] as const;
 
-const AGENT_IMAGE_PROD = 'ghcr.io/homelab-manager/agent:latest';
+const AGENT_IMAGE_PROD = 'ghcr.io/jaredglaser/homelab-manager-agent:latest';
 const AGENT_IMAGE_DEV = 'homelab-manager-agent:dev';
 
 /** Get the agent Docker image based on NODE_ENV. */

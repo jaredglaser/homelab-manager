@@ -152,11 +152,11 @@ describe('getAgentImage', () => {
 
   test('returns prod image in production', () => {
     process.env.NODE_ENV = 'production';
-    expect(getAgentImage()).toBe('ghcr.io/homelab-manager/agent:latest');
+    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
   });
 
   test('returns prod image when NODE_ENV is unset', () => {
     delete process.env.NODE_ENV;
-    expect(getAgentImage()).toBe('ghcr.io/homelab-manager/agent:latest');
+    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
   });
 });

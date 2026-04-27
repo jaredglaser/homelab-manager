@@ -12,15 +12,15 @@ const parseYaml = (input: string) => load(input) as Record<string, any>;
 
 const dockerOnlyConfig: AgentStackConfig = {
   agentToken: 'test-token-abc123',
-  agentImage: 'ghcr.io/homelab-manager/agent:latest',
-  agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+  agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+  agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
   capabilities: { docker: true, zfs: false },
 };
 
 const zfsOnlyConfig: AgentStackConfig = {
   agentToken: 'test-token-zfs456',
-  agentImage: 'ghcr.io/homelab-manager/agent:v1.0.0',
-  agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:v1.0.0',
+  agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:v1.0.0',
+  agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:v1.0.0',
   capabilities: { docker: false, zfs: true },
   hlmZfsUid: 1100,
   hlmZfsGid: 1100,
@@ -28,8 +28,8 @@ const zfsOnlyConfig: AgentStackConfig = {
 
 const dockerZfsConfig: AgentStackConfig = {
   agentToken: 'test-token-both789',
-  agentImage: 'ghcr.io/homelab-manager/agent:latest',
-  agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+  agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+  agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
   capabilities: { docker: true, zfs: true },
   hlmZfsUid: 1100,
   hlmZfsGid: 1100,
@@ -177,8 +177,8 @@ describe('generateAgentStackCompose', () => {
   it('neither docker nor zfs: minimal agent + updater only', () => {
     const noneConfig: AgentStackConfig = {
       agentToken: 'test-token-none',
-      agentImage: 'ghcr.io/homelab-manager/agent:latest',
-      agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+      agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
+      agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
       capabilities: { docker: false, zfs: false },
     };
     const result = generateAgentStackCompose(noneConfig);
