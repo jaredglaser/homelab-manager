@@ -180,6 +180,17 @@ jobs:
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Extract metadata for agent image
+        id: meta-agent
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/jaredglaser/homelab-manager-agent
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build and push web image
         uses: docker/build-push-action@v6
         with:
@@ -201,6 +212,17 @@ jobs:
           labels: ${{ steps.meta-worker.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build and push agent image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./agent
+          target: base
+          push: true
+          tags: ${{ steps.meta-agent.outputs.tags }}
+          labels: ${{ steps.meta-agent.outputs.labels }}
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
 
   deploy-demo:
     name: Deploy Demo to GitHub Pages
