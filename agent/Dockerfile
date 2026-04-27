@@ -1,5 +1,5 @@
 # Toolchain stage: downloads Docker CLI + Compose (cached independently)
-FROM oven/bun:1 AS toolchain
+FROM oven/bun:1.3.6 AS toolchain
 
 # Pin versions for reproducible builds
 ARG DOCKER_CLI_VERSION=27.5.1
@@ -33,7 +33,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Application stage
-FROM oven/bun:1 AS base
+FROM oven/bun:1.3.6 AS base
 
 COPY --from=toolchain /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=toolchain /usr/local/lib/docker /usr/local/lib/docker
@@ -41,8 +41,11 @@ COPY --from=toolchain /usr/local/lib/docker /usr/local/lib/docker
 WORKDIR /app
 
 COPY package.json bun.lock ./
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile --production
+# --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
+# which would fail because oven/bun ships no node binary. cpu-features is an
+# optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
+RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.6 \
+    bun install --frozen-lockfile --production --ignore-scripts
 
 COPY src ./src
 COPY tsconfig.json package.json ./
