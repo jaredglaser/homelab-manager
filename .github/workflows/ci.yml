@@ -191,6 +191,17 @@ jobs:
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Extract metadata for agent-updater image
+        id: meta-agent-updater
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/jaredglaser/homelab-manager-agent-updater
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build and push web image
         uses: docker/build-push-action@v6
         with:
@@ -223,6 +234,16 @@ jobs:
           labels: ${{ steps.meta-agent.outputs.labels }}
           cache-from: type=gha,scope=agent
           cache-to: type=gha,mode=max,scope=agent
+
+      - name: Build and push agent-updater image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./agent-updater
+          push: true
+          tags: ${{ steps.meta-agent-updater.outputs.tags }}
+          labels: ${{ steps.meta-agent-updater.outputs.labels }}
+          cache-from: type=gha,scope=agent-updater
+          cache-to: type=gha,mode=max,scope=agent-updater
 
   deploy-demo:
     name: Deploy Demo to GitHub Pages
