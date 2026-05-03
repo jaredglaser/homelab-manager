@@ -52,16 +52,18 @@ function scanFile(relPath: string, lines: string[], startLine = 1): void {
 }
 
 // 1. Tracked file changes: parse the unified diff and scan added lines.
+// On a fresh repo with no HEAD (or any other diff failure), treat as no tracked
+// changes and fall through to the untracked-files pass below rather than aborting.
 const diff = spawnSync("git", ["diff", "HEAD", "--unified=0", "--no-color"], {
   cwd,
   encoding: "utf8",
 });
-if (diff.status !== 0) emit({ continue: true });
+const diffOutput = diff.status === 0 ? diff.stdout : "";
 
 let currentFile = "";
 let nextLine = 0;
 let currentSkip = false;
-for (const line of diff.stdout.split("\n")) {
+for (const line of diffOutput.split("\n")) {
   if (line.startsWith("+++ ")) {
     const path = line.slice(4);
     currentFile = path === "/dev/null" || !path.startsWith("b/") ? "" : path.slice(2);

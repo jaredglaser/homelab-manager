@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+// claudism-check:disable-file - this hook documents the patterns it scans for,
+// so it must legitimately contain the banned vocabulary as examples.
+
 /**
  * Claudism check hook.
  *
@@ -13,7 +16,7 @@
  */
 
 import { readFileSync, existsSync, statSync, appendFileSync } from "node:fs";
-import { join, resolve as resolvePath, relative, sep } from "node:path";
+import { join, resolve as resolvePath, relative, sep, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import {
   DISABLE_MARKER,
@@ -54,8 +57,9 @@ if (!candidate) exitSilently("no file_path in tool_input");
 
 const filePath = resolvePath(candidate);
 const rel = relative(projectDir, filePath);
-if (rel.startsWith("..") || resolvePath(rel, projectDir) === filePath && rel === filePath) {
-  // Path escapes the project dir; don't scan it.
+// On Windows cross-drive paths, relative() returns an absolute path instead of
+// a "../" walk; isAbsolute(rel) catches that case alongside the Unix "../" form.
+if (rel.startsWith("..") || isAbsolute(rel)) {
   exitSilently(`outside project: ${filePath}`);
 }
 

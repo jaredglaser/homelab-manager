@@ -18,6 +18,7 @@ todos.json
 /.codex/*
 !/.codex/hooks.json
 !/.codex/scripts/
+!/.codex/skills/
 .claude
 !/.claude/
 /.claude/*

@@ -1,4 +1,4 @@
-<!-- claudism-check:disable-file — this file documents rule 15, so it must literally contain the banned vocabulary and phrases as examples. -->
+<!-- claudism-check:disable-file - this file documents rule 15, so it must literally contain the banned vocabulary and phrases as examples. -->
 
 # Project Guidelines for Claude
 
