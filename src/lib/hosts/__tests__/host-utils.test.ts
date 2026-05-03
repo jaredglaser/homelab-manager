@@ -3,6 +3,7 @@ import {
   toHostListItem,
   retryHealthCheck,
   getAgentImage,
+  getAgentUpdaterImage,
 } from '../host-utils';
 import type { HealthCheckOutcome } from '../host-utils';
 import type { ManagedHost } from '../../database/repositories/host-repository';
@@ -145,10 +146,11 @@ describe('getAgentImage', () => {
     }
   });
 
-  test('returns dev image in development', () => {
-    process.env.NODE_ENV = 'development';
-    expect(getAgentImage()).toBe('homelab-manager-agent:dev');
-  });
+  // TODO: restore dev-variant test once CI/local builds publish a :dev tag.
+  // test('returns dev image in development', () => {
+  //   process.env.NODE_ENV = 'development';
+  //   expect(getAgentImage()).toBe('homelab-manager-agent:dev');
+  // });
 
   test('returns prod image in production', () => {
     process.env.NODE_ENV = 'production';
@@ -158,5 +160,37 @@ describe('getAgentImage', () => {
   test('returns prod image when NODE_ENV is unset', () => {
     delete process.env.NODE_ENV;
     expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
+  });
+
+  test('returns prod image even in development (dev variant disabled)', () => {
+    process.env.NODE_ENV = 'development';
+    expect(getAgentImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
+  });
+});
+
+describe('getAgentUpdaterImage', () => {
+  const originalEnv = process.env.NODE_ENV;
+
+  afterEach(() => {
+    if (originalEnv === undefined) {
+      delete process.env.NODE_ENV;
+    } else {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
+
+  test('returns prod image in production', () => {
+    process.env.NODE_ENV = 'production';
+    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
+  });
+
+  test('returns prod image when NODE_ENV is unset', () => {
+    delete process.env.NODE_ENV;
+    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
+  });
+
+  test('returns prod image even in development (dev variant disabled)', () => {
+    process.env.NODE_ENV = 'development';
+    expect(getAgentUpdaterImage()).toBe('ghcr.io/jaredglaser/homelab-manager-agent-updater:latest');
   });
 });
