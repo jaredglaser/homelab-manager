@@ -33,6 +33,9 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
         driver: 'bridge',
         internal: true,
       },
+      'agent-public': {
+        driver: 'bridge',
+      },
     };
   }
 
@@ -140,7 +143,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   }
 
   if (docker) {
-    agent['networks'] = ['agent-internal'];
+    agent['networks'] = ['agent-internal', 'agent-public'];
     agent['depends_on'] = ['socket-proxy'];
   }
 
