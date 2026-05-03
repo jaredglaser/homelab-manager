@@ -29,8 +29,8 @@ describe('pullImage', () => {
       pull: async (image: string) => { pulledImage = image; return 'mock-stream'; },
       modem: { followProgress: (_s: unknown, cb: (err: null) => void) => { cb(null); } },
     } as any;
-    await pullImage(docker, 'ghcr.io/homelab-manager/agent:latest');
-    expect(pulledImage).toBe('ghcr.io/homelab-manager/agent:latest');
+    await pullImage(docker, 'ghcr.io/jaredglaser/homelab-manager-agent:latest');
+    expect(pulledImage).toBe('ghcr.io/jaredglaser/homelab-manager-agent:latest');
   });
 
   it('rejects when docker.pull throws', async () => {

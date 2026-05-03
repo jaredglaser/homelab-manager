@@ -174,15 +174,15 @@ networks:
 `;
 
 exports[`generateAgentStackEnv generates env for Docker-only host 1`] = `
-"AGENT_IMAGE=ghcr.io/homelab-manager/agent:latest
-AGENT_UPDATER_IMAGE=ghcr.io/homelab-manager/agent-updater:latest
+"AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:latest
+AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:latest
 HLM_AGENT_PORT=9090
 "
 `;
 
 exports[`generateAgentStackEnv generates env for ZFS-only host 1`] = `
-"AGENT_IMAGE=ghcr.io/homelab-manager/agent:v1.0.0
-AGENT_UPDATER_IMAGE=ghcr.io/homelab-manager/agent-updater:v1.0.0
+"AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:v1.0.0
+AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:v1.0.0
 HLM_AGENT_PORT=9090
 HLM_ZFS_UID=1100
 HLM_ZFS_GID=1100
@@ -190,8 +190,8 @@ HLM_ZFS_GID=1100
 `;
 
 exports[`generateAgentStackEnv generates env for Docker + ZFS host 1`] = `
-"AGENT_IMAGE=ghcr.io/homelab-manager/agent:latest
-AGENT_UPDATER_IMAGE=ghcr.io/homelab-manager/agent-updater:latest
+"AGENT_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent:latest
+AGENT_UPDATER_IMAGE=ghcr.io/jaredglaser/homelab-manager-agent-updater:latest
 HLM_AGENT_PORT=9090
 HLM_ZFS_UID=1100
 HLM_ZFS_GID=1100

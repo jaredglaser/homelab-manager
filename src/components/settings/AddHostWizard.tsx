@@ -12,7 +12,7 @@ import {
   Alert,
 } from '@mui/material'
 import { Plus } from 'lucide-react'
-import { getAgentImage } from '@/lib/hosts/host-utils'
+import { getAgentImage, getAgentUpdaterImage } from '@/lib/hosts/host-utils'
 import { generateAgentStackCompose, generateAgentStackEnv } from '@/lib/templates/agent-stack-compose'
 import CopyButton from '@/components/settings/CopyButton'
 
@@ -31,6 +31,11 @@ interface AddHostWizardProps {
   isAdding: boolean
   addError: string | null
   onSubmit: (name: string, agentUrl: string, agentToken: string, capabilities: { docker: boolean; zfs: boolean }) => void
+}
+
+function parseGatedId(enabled: boolean, raw: string): number | undefined {
+  if (!enabled || raw === '') return undefined
+  return Number(raw)
 }
 
 export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostWizardProps) {
@@ -54,11 +59,11 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
   const agentStackConfig = useMemo(() => ({
     agentToken,
     agentImage: getAgentImage(),
-    agentUpdaterImage: 'ghcr.io/homelab-manager/agent-updater:latest',
+    agentUpdaterImage: getAgentUpdaterImage(),
     capabilities: { docker, zfs },
-    hlmZfsUid: zfs ? hlmZfsUid === '' ? undefined : Number(hlmZfsUid) : undefined,
-    hlmZfsGid: zfs ? hlmZfsGid === '' ? undefined : Number(hlmZfsGid) : undefined,
-    dockerGid: docker && zfs ? dockerGid === '' ? undefined : Number(dockerGid) : undefined,
+    hlmZfsUid: parseGatedId(zfs, hlmZfsUid),
+    hlmZfsGid: parseGatedId(zfs, hlmZfsGid),
+    dockerGid: parseGatedId(docker && zfs, dockerGid),
   }), [agentToken, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
 
   const composeYaml = useMemo(() => {
@@ -131,7 +136,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 <Checkbox
                   checked={docker}
                   onChange={(e) => setDocker(e.target.checked)}
-                  inputProps={{ 'aria-label': 'Docker capability' }}
+                  slotProps={{ input: { 'aria-label': 'Docker capability' } }}
                 />
               }
               label="Docker"
@@ -141,7 +146,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 <Checkbox
                   checked={zfs}
                   onChange={(e) => setZfs(e.target.checked)}
-                  inputProps={{ 'aria-label': 'ZFS capability' }}
+                  slotProps={{ input: { 'aria-label': 'ZFS capability' } }}
                 />
               }
               label="ZFS"
@@ -173,7 +178,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 size="small"
                 type="number"
                 className="flex-1"
-                inputProps={{ 'aria-label': 'HLM_ZFS_UID', min: 0 }}
+                slotProps={{ htmlInput: { 'aria-label': 'HLM_ZFS_UID', min: 0 } }}
               />
               <TextField
                 label="HLM_ZFS_GID"
@@ -182,7 +187,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 size="small"
                 type="number"
                 className="flex-1"
-                inputProps={{ 'aria-label': 'HLM_ZFS_GID', min: 0 }}
+                slotProps={{ htmlInput: { 'aria-label': 'HLM_ZFS_GID', min: 0 } }}
               />
             </div>
             {docker && (
@@ -193,7 +198,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
                 size="small"
                 type="number"
                 helperText="GID of the docker group on the target host (run: getent group docker)"
-                inputProps={{ 'aria-label': 'DOCKER_GID', min: 0 }}
+                slotProps={{ htmlInput: { 'aria-label': 'DOCKER_GID', min: 0 } }}
               />
             )}
           </div>
@@ -261,7 +266,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
               disabled={isAdding}
               placeholder="dev-machine"
               fullWidth
-              inputProps={{ 'aria-label': 'Host Name' }}
+              slotProps={{ htmlInput: { 'aria-label': 'Host Name' } }}
             />
             <TextField
               label="Agent URL"
@@ -271,7 +276,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit }: AddHostW
               placeholder="https://192.168.1.10:9090"
               disabled={isAdding}
               fullWidth
-              inputProps={{ 'aria-label': 'Agent URL' }}
+              slotProps={{ htmlInput: { 'aria-label': 'Agent URL' } }}
             />
             <Button
               variant="contained"
