@@ -8,15 +8,14 @@ import { SettingsRepository } from '@/lib/database/repositories/settings-reposit
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import type { BaseCollector } from './collectors/base-collector';
 import { ProxmoxCollector } from './collectors/proxmox-collector';
-import {
-  createCollectors,
-  createCollectorsForManagedHosts,
-  createContainerInventoryCollectors,
-} from './collector-factory';
+import { createCollectors } from './collector-factory';
+import { HostCollectorManager, defaultHostCollectorFactory } from './host-collector-manager';
+import { HostsListener } from './hosts-listener';
 import { resolveCollectionInterval } from './resolve-collection-interval';
 import { SettingsListener } from './settings-listener';
 
-function handleSettingChange(collectors: BaseCollector[], key: string, value: string | null): void {
+function handleSettingChange(getCollectors: () => BaseCollector[], key: string, value: string | null): void {
+  const collectors = getCollectors();
   if (key === SETTINGS_KEYS.developer.dockerDebugLogging) {
     const enabled = value === 'true';
     for (const c of collectors) c.dockerDebugLogging = enabled;
@@ -103,9 +102,10 @@ async function main() {
     {
       await using stack = new AsyncDisposableStack();
 
-      const { collectors, runners } = createCollectors(db, workerConfig, shutdownController, stack, proxmoxPollIntervalMs);
+      const { collectors: staticCollectors, runners: staticRunners } = createCollectors(
+        db, workerConfig, shutdownController, stack, proxmoxPollIntervalMs,
+      );
 
-      // Also start AgentStatsCollectors for managed hosts
       const hostRepo = new HostRepository(db.getPool());
       let getToken: ((hostname: string) => Promise<string | null>) = () => {
         throw new Error('OpenBao client is not available: initialization failed at startup');
@@ -127,27 +127,42 @@ async function main() {
         console.error('[Worker] OpenBao initialization failed (non-fatal, deploys will lack token resolution):', err instanceof Error ? err.message : err);
       }
 
-      const { collectors: managedCollectors, runners: managedRunners } = await createCollectorsForManagedHosts(
-        db, workerConfig, shutdownController, stack,
-        () => hostRepo.findAll(),
-        getToken,
+      // Manager owns the per-host collector lifecycle. Reconciles on every
+      // managed_hosts NOTIFY so adding/removing hosts in the UI takes effect
+      // without restarting the worker.
+      const hostManager = stack.use(
+        new HostCollectorManager(
+          workerConfig,
+          shutdownController.signal,
+          () => hostRepo.findAll(),
+          getToken,
+          defaultHostCollectorFactory(db, workerConfig),
+        ),
       );
-      collectors.push(...managedCollectors);
-      runners.push(...managedRunners);
+      await hostManager.reconcile();
 
-      const { runners: inventoryRunners } = await createContainerInventoryCollectors(
-        db, shutdownController, stack,
-        () => hostRepo.findAll(),
-        getToken,
+      const hostsListener = stack.use(
+        new HostsListener(
+          dbConfig,
+          () => hostManager.reconcile(),
+          shutdownController.signal,
+        ),
       );
-      runners.push(...inventoryRunners);
+      await hostsListener.start();
 
-      if (runners.length === 0) {
-        console.info('[Worker] No collectors enabled, exiting');
-        process.exit(0);
+      // Worker stays alive even with zero collectors initially: a host added
+      // through the wizard later will spin up its collectors via the listener.
+      const initialRunners = [...staticRunners, ...hostManager.runners()];
+      const initialCollectors = [...staticCollectors, ...hostManager.collectors()];
+      if (initialRunners.length === 0 && initialCollectors.length === 0 && hostManager.hostNames().length === 0) {
+        console.info('[Worker] No collectors active yet; waiting for managed hosts to be registered');
+      } else {
+        console.info(`[Worker] ${initialRunners.length} collector(s) started, ${hostManager.hostNames().length} managed host(s) online`);
       }
 
-      // Listen for debug logging + proxmox interval setting changes
+      // Listen for debug logging + proxmox interval setting changes. Pulls
+      // the current collector set on each event so dynamically added host
+      // collectors also pick up new settings.
       const settingsListener = stack.use(
         new SettingsListener(
           dbConfig,
@@ -157,14 +172,27 @@ async function main() {
             SETTINGS_KEYS.developer.dbFlushDebugLogging,
             SETTINGS_KEYS.proxmox.updateInterval,
           ],
-          (key, value) => handleSettingChange(collectors, key, value),
+          (key, value) => handleSettingChange(
+            () => [...staticCollectors, ...hostManager.collectors()],
+            key,
+            value,
+          ),
           shutdownController.signal,
         )
       );
       await settingsListener.start();
 
-      console.info(`[Worker] ${runners.length} collector(s) started, running...`);
-      await Promise.all(runners);
+      // Block here until shutdown is signalled, then drain everything that's
+      // running at the time. Drainage is a snapshot: anything spawned later
+      // is bound to the same global signal and will resolve on its own.
+      await new Promise<void>((resolve) => {
+        if (shutdownController.signal.aborted) {
+          resolve();
+          return;
+        }
+        shutdownController.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+      await Promise.allSettled([...staticRunners, ...hostManager.runners()]);
     }
     // AsyncDisposableStack disposes here - cleans up
 

@@ -235,4 +235,86 @@ describe('HostRepository', () => {
       expect(mock.queries[0].params).toContain(1);
     });
   });
+
+  describe('change notifications', () => {
+    function pickNotify(mockObj: ReturnType<typeof createMockPool>) {
+      return mockObj.queries.filter((q) => q.sql.includes('pg_notify'));
+    }
+
+    it('emits add notify on create', async () => {
+      mock.pushResult([sampleRow]);
+      await repo.create({ name: 'homeserver', agentUrl: 'http://x:9090' });
+      const notifies = pickNotify(mock);
+      expect(notifies).toHaveLength(1);
+      expect(notifies[0].params[0]).toBe('managed_hosts_change');
+      expect(JSON.parse(notifies[0].params[1] as string)).toEqual({
+        op: 'add',
+        name: 'homeserver',
+      });
+    });
+
+    it('emits add notify on insert', async () => {
+      mock.pushResult([{ id: '1' }]);
+      await repo.insert({ name: 'host2', agentUrl: 'http://x:9090' });
+      const notifies = pickNotify(mock);
+      expect(notifies).toHaveLength(1);
+      expect(JSON.parse(notifies[0].params[1] as string)).toEqual({
+        op: 'add',
+        name: 'host2',
+      });
+    });
+
+    it('emits update notify on updateAgentUrl when row exists', async () => {
+      mock.pushResult([{ name: 'homeserver' }]);
+      await repo.updateAgentUrl(1, 'http://new:9090');
+      const notifies = pickNotify(mock);
+      expect(notifies).toHaveLength(1);
+      expect(JSON.parse(notifies[0].params[1] as string)).toEqual({
+        op: 'update',
+        name: 'homeserver',
+      });
+    });
+
+    it('skips notify on updateAgentUrl when row does not exist', async () => {
+      mock.pushResult([]);
+      await repo.updateAgentUrl(999, 'http://new:9090');
+      expect(pickNotify(mock)).toHaveLength(0);
+    });
+
+    it('emits update notify on update', async () => {
+      mock.pushResult([sampleRow]);
+      await repo.update(1, { name: 'renamed' });
+      const notifies = pickNotify(mock);
+      expect(notifies).toHaveLength(1);
+      expect(JSON.parse(notifies[0].params[1] as string)).toEqual({
+        op: 'update',
+        name: 'homeserver',
+      });
+    });
+
+    it('emits remove notify on delete when row exists', async () => {
+      mock.pushResult([{ name: 'homeserver' }]);
+      await repo.delete(1);
+      const notifies = pickNotify(mock);
+      expect(notifies).toHaveLength(1);
+      expect(JSON.parse(notifies[0].params[1] as string)).toEqual({
+        op: 'remove',
+        name: 'homeserver',
+      });
+    });
+
+    it('skips notify on delete when row does not exist', async () => {
+      mock.pushResult([]);
+      await repo.delete(999);
+      expect(pickNotify(mock)).toHaveLength(0);
+    });
+
+    it('does not notify on metadata-only updates (status/version)', async () => {
+      mock.pushResult([]);
+      mock.pushResult([]);
+      await repo.updateStatus(1, 'healthy');
+      await repo.updateAgentVersion(1, '0.2.0');
+      expect(pickNotify(mock)).toHaveLength(0);
+    });
+  });
 });
