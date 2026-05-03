@@ -346,4 +346,45 @@ describe('HostCollectorManager', () => {
     expect(manager.hostNames()).toEqual([]);
     for (const c of created) expect(c.stopped).toBe(true);
   });
+
+  it('detaches per-host abort listeners from globalSignal on remove', async () => {
+    const { factory } = makeFactory();
+    let hosts = [makeHost('a'), makeHost('b'), makeHost('c')];
+
+    // Spy on add/removeEventListener to count net listener attachments.
+    let attached = 0;
+    let detached = 0;
+    const realAdd = controller.signal.addEventListener.bind(controller.signal);
+    const realRemove = controller.signal.removeEventListener.bind(controller.signal);
+    controller.signal.addEventListener = ((type: string, listener: any, opts?: any) => {
+      if (type === 'abort') attached++;
+      return realAdd(type, listener, opts);
+    }) as any;
+    controller.signal.removeEventListener = ((type: string, listener: any) => {
+      if (type === 'abort') detached++;
+      return realRemove(type, listener);
+    }) as any;
+
+    const manager = new HostCollectorManager(
+      makeWorkerConfig(),
+      controller.signal,
+      async () => hosts,
+      async () => 'tok',
+      factory,
+    );
+
+    await manager.reconcile();
+    expect(attached).toBe(3);
+
+    // Drop b and c — each remove should detach its abort listener.
+    hosts = [makeHost('a')];
+    await manager.reconcile();
+
+    expect(detached).toBe(2);
+    expect(manager.hostNames()).toEqual(['a']);
+
+    await manager[Symbol.asyncDispose]();
+    // 'a' detaches on dispose
+    expect(detached).toBe(3);
+  });
 });

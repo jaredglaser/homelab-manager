@@ -192,4 +192,50 @@ describe('HostsListener', () => {
     await expect(listener[Symbol.asyncDispose]()).resolves.toBeUndefined();
     controller.abort();
   });
+
+  it('ends the client on dispose even when LISTEN throws after connect', async () => {
+    const controller = new AbortController();
+    const listener = new HostsListener(createMockDbConfig(), () => {}, controller.signal);
+
+    const pgClient = (listener as unknown as { client: any }).client;
+    spyOn(pgClient, 'connect').mockResolvedValue(undefined);
+    // First query (LISTEN) rejects; nothing else should be called
+    spyOn(pgClient, 'query').mockRejectedValue(new Error('LISTEN failed'));
+    spyOn(pgClient, 'on').mockReturnValue(pgClient);
+    const endSpy = spyOn(pgClient, 'end').mockResolvedValue(undefined);
+
+    await expect(listener.start()).rejects.toThrow('LISTEN failed');
+
+    // Despite the LISTEN failure, dispose must close the live socket.
+    await listener[Symbol.asyncDispose]();
+    expect(endSpy).toHaveBeenCalled();
+
+    controller.abort();
+  });
+
+  it('forwards ssl config to the pg.Client constructor', () => {
+    const controller = new AbortController();
+    const dbConfig: DatabaseConfig = {
+      ...createMockDbConfig(),
+      ssl: true,
+      sslRejectUnauthorized: false,
+    };
+    const listener = new HostsListener(dbConfig, () => {}, controller.signal);
+    const pgClient = (listener as unknown as { client: { connectionParameters: any } }).client;
+
+    // pg.Client stores connection params on connectionParameters
+    expect(pgClient.connectionParameters.ssl).toEqual({ rejectUnauthorized: false });
+
+    controller.abort();
+  });
+
+  it('does not request ssl on the pg.Client when ssl is unset', () => {
+    const controller = new AbortController();
+    const listener = new HostsListener(createMockDbConfig(), () => {}, controller.signal);
+    const pgClient = (listener as unknown as { client: { connectionParameters: any } }).client;
+    // pg defaults connection ssl to false (not undefined) when no ssl key is
+    // passed; the important thing is that we don't accidentally enable TLS.
+    expect(pgClient.connectionParameters.ssl).toBeFalsy();
+    controller.abort();
+  });
 });

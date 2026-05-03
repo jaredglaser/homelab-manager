@@ -139,8 +139,12 @@ async function main() {
           defaultHostCollectorFactory(db, workerConfig),
         ),
       );
-      await hostManager.reconcile();
 
+      // Start LISTEN before the initial reconcile. If we reconciled first,
+      // a NOTIFY arriving in the gap between findAll() and listener.start()
+      // would be dropped. With LISTEN active first, any NOTIFY during the
+      // initial reconcile triggers a follow-up reconcile that serialises
+      // through the manager's promise chain.
       const hostsListener = stack.use(
         new HostsListener(
           dbConfig,
@@ -149,6 +153,7 @@ async function main() {
         ),
       );
       await hostsListener.start();
+      await hostManager.reconcile();
 
       // Worker stays alive even with zero collectors initially: a host added
       // through the wizard later will spin up its collectors via the listener.

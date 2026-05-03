@@ -18,7 +18,11 @@ export type HostChangeHandler = (payload: HostChangePayload | null) => void | Pr
  */
 export class HostsListener implements AsyncDisposable {
   private client: Client;
-  private started = false;
+  // Flips true the moment connect() resolves, before LISTEN runs. This lets
+  // dispose() always end the socket if a connect succeeded, even when LISTEN
+  // throws (in which case the previous `started`-based check would skip end()
+  // and leak the socket).
+  private connected = false;
 
   constructor(
     dbConfig: DatabaseConfig,
@@ -31,13 +35,16 @@ export class HostsListener implements AsyncDisposable {
       database: dbConfig.database,
       user: dbConfig.user,
       password: dbConfig.password,
+      // Forward SSL settings so the listener works in TLS-required deployments.
+      // DatabaseClient applies the same shape to its pool config.
+      ...(dbConfig.ssl ? { ssl: { rejectUnauthorized: dbConfig.sslRejectUnauthorized } } : {}),
     });
   }
 
   async start(): Promise<void> {
     await this.client.connect();
+    this.connected = true;
     await this.client.query(`LISTEN ${HOSTS_NOTIFY_CHANNEL}`);
-    this.started = true;
 
     this.client.on('notification', (msg) => {
       void this.dispatch(msg.payload ?? null);
@@ -76,7 +83,10 @@ export class HostsListener implements AsyncDisposable {
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
-    if (this.started) {
+    // End the underlying socket on any path where connect() succeeded.
+    // Without this, a LISTEN failure between connect() and `started=true`
+    // would leak the connection.
+    if (this.connected) {
       await this.client.end().catch(() => {});
     }
   }

@@ -38,6 +38,13 @@ interface HostEntry {
   collectors: BaseCollector[];
   /** Identity hash to detect when reconciliation needs to recreate this host. */
   identity: string;
+  /**
+   * Reference to the listener registered on the global abort signal so
+   * removeHost can detach it. Without this, every add/remove cycle leaks a
+   * closure on the global signal — `{ once: true }` only fires on the
+   * shutdown path, never on dynamic removes.
+   */
+  onGlobalAbort: () => void;
 }
 
 function identityFor(host: ManagedHost): string {
@@ -213,6 +220,7 @@ export class HostCollectorManager implements AsyncDisposable {
 
     if (collectors.length === 0) {
       console.info(`[HostCollectorManager] Factory returned no collectors for ${host.name}, skipping`);
+      this.globalSignal.removeEventListener('abort', onGlobalAbort);
       await stack[Symbol.asyncDispose]();
       return;
     }
@@ -236,6 +244,7 @@ export class HostCollectorManager implements AsyncDisposable {
       runners: wrappedRunners,
       collectors,
       identity: identityFor(host),
+      onGlobalAbort,
     });
   }
 
@@ -244,6 +253,10 @@ export class HostCollectorManager implements AsyncDisposable {
     if (!entry) return;
     this.entries.delete(name);
     console.info(`[HostCollectorManager] Removing collectors for ${name}`);
+    // Detach the per-host abort listener before aborting so the listener
+    // doesn't fire (it's already a no-op since we abort manually next, but
+    // detaching is what frees the closure on the global signal).
+    this.globalSignal.removeEventListener('abort', entry.onGlobalAbort);
     entry.controller.abort(new DOMException('Host removed', 'AbortError'));
     // Await all runners so the per-host stack is genuinely idle before disposal.
     await Promise.allSettled(entry.runners);
