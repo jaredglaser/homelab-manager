@@ -40,6 +40,7 @@ services:
       - ./agent-token:/run/secrets/agent_token:ro
     networks:
       - agent-internal
+      - agent-public
     depends_on:
       - socket-proxy
     labels:
@@ -62,6 +63,8 @@ networks:
   agent-internal:
     driver: bridge
     internal: true
+  agent-public:
+    driver: bridge
 "
 `;
 
@@ -148,6 +151,7 @@ services:
       - \${DOCKER_GID}
     networks:
       - agent-internal
+      - agent-public
     depends_on:
       - socket-proxy
     labels:
@@ -170,6 +174,8 @@ networks:
   agent-internal:
     driver: bridge
     internal: true
+  agent-public:
+    driver: bridge
 "
 `;
 

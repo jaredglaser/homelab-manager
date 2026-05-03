@@ -52,12 +52,17 @@ describe('generateAgentStackCompose', () => {
     expect(result).toMatchSnapshot();
   });
 
-  it('agent-internal network declared only when docker capability is enabled', () => {
+  it('agent networks declared only when docker capability is enabled', () => {
     const dockerResult = generateAgentStackCompose(dockerOnlyConfig);
     const dockerParsed = parseYaml(dockerResult);
     expect(dockerParsed.networks['agent-internal']).toEqual({
       driver: 'bridge',
       internal: true,
+    });
+    // agent-public must be a non-internal bridge: an internal-only network
+    // breaks the published port (host->container DNAT has no path).
+    expect(dockerParsed.networks['agent-public']).toEqual({
+      driver: 'bridge',
     });
 
     const zfsResult = generateAgentStackCompose(zfsOnlyConfig);
@@ -158,7 +163,7 @@ describe('generateAgentStackCompose', () => {
     }
   });
 
-  it('agent-internal network only present when docker capability', () => {
+  it('agent attached to both internal and public networks when docker capability', () => {
     const zfsResult = generateAgentStackCompose(zfsOnlyConfig);
     const zfsParsed = parseYaml(zfsResult);
     expect(zfsParsed.services.agent.networks).toBeUndefined();
@@ -166,6 +171,7 @@ describe('generateAgentStackCompose', () => {
     const dockerResult = generateAgentStackCompose(dockerOnlyConfig);
     const dockerParsed = parseYaml(dockerResult);
     expect(dockerParsed.services.agent.networks).toContain('agent-internal');
+    expect(dockerParsed.services.agent.networks).toContain('agent-public');
   });
 
   it('ZFS-only: top-level networks key is absent', () => {

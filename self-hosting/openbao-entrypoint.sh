@@ -7,7 +7,10 @@ set -e
 
 INIT_FILE="/openbao/data/.init-keys.json"
 ROOT_TOKEN="${OPENBAO_TOKEN:?OPENBAO_TOKEN must be set}"
-BAO_ADDR="http://127.0.0.1:8200"
+# Exported so the `bao` CLI invoked below picks it up; without this it defaults
+# to https://127.0.0.1:8200 and fails the TLS handshake against our HTTP listener,
+# causing `set -e` to kill the script silently mid-init.
+export BAO_ADDR="http://127.0.0.1:8200"
 
 # Start server in background
 bao server -config=/openbao/config/prod.hcl &
@@ -77,7 +80,11 @@ path "secret/metadata/hosts/*" { capabilities = ["read","delete"] }
 path "sys/mounts" { capabilities = ["read"] }
 path "sys/mounts/secret" { capabilities = ["create","update"] }
 POLICY
-  BAO_TOKEN="$BOOTSTRAP_TOKEN" bao policy write "$APP_POLICY_NAME" "$POLICY_FILE" >/dev/null
+  if ! POLICY_OUTPUT=$(BAO_TOKEN="$BOOTSTRAP_TOKEN" bao policy write "$APP_POLICY_NAME" "$POLICY_FILE" 2>&1); then
+    echo "[openbao-init] ERROR: bao policy write failed: $POLICY_OUTPUT"
+    rm -f "$POLICY_FILE"
+    exit 1
+  fi
   rm -f "$POLICY_FILE"
 
   echo "[openbao-init] Creating application token..."

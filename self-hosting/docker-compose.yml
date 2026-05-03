@@ -45,6 +45,7 @@ services:
     container_name: homelab-openbao
     environment:
       OPENBAO_TOKEN: ${OPENBAO_TOKEN}
+      BAO_ADDR: "http://127.0.0.1:8200"
     volumes:
       - openbao-data:/openbao/data
       - ./openbao-entrypoint.sh:/openbao/entrypoint.sh:ro

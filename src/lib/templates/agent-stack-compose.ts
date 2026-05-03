@@ -28,10 +28,18 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
   const doc: Record<string, unknown> = { services };
 
   if (docker) {
+    // agent-internal isolates socket-proxy so the Docker socket is only reachable
+    // from agent containers. agent-public is the bridge that lets the host's
+    // published port actually deliver inbound traffic to the agent: an
+    // internal-only network has no external routing, so port publishing on a
+    // service attached only to it silently fails.
     doc['networks'] = {
       'agent-internal': {
         driver: 'bridge',
         internal: true,
+      },
+      'agent-public': {
+        driver: 'bridge',
       },
     };
   }
@@ -140,7 +148,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   }
 
   if (docker) {
-    agent['networks'] = ['agent-internal'];
+    agent['networks'] = ['agent-internal', 'agent-public'];
     agent['depends_on'] = ['socket-proxy'];
   }
 
