@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
-import type { OpenBaoClient } from '@/lib/clients/openbao-client';
+import type { StackSecretsRepository } from '@/lib/database/repositories/stack-secrets-repository';
 import {
   getStackDetailSchema,
   triggerDeploySchema,
@@ -12,18 +12,14 @@ import {
   rejectDeploySchema,
 } from '@/data/stacks/schemas';
 
-/**
- * Lazy wrapper around the shared OpenBao client factory. The factory owns
- * the single module-scoped cache used by both this file and openBaoMiddleware,
- * so invalidating or initializing the client in one place is reflected in the
- * other. Kept as a dynamic import so nothing from the factory's transitive
- * dependency graph can leak into the client bundle via this barrel file.
- */
-async function getOpenBaoClient(): Promise<OpenBaoClient> {
-  const { getOpenBaoClient: factory } = await import(
-    '@/lib/clients/openbao-client-factory'
-  );
-  return factory();
+async function getStackSecretsRepo(): Promise<StackSecretsRepository> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+  const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  const keyring = await loadMasterKeyring();
+  return new StackSecretsRepository(dbClient.getPool(), keyring);
 }
 
 /**
@@ -91,8 +87,8 @@ export const getDeployHistory = createServerFn()
 
 /**
  * Save compose file content (creates a git commit).
- * After a successful commit, ensures OpenBao entries exist for all detected variables.
- * Returns warnings if OpenBao is unavailable; the save itself still succeeds.
+ * After a successful commit, ensures DB secret entries exist for all detected variables.
+ * Returns warnings if the secrets store is unavailable; the save itself still succeeds.
  */
 export const saveComposeFile = createServerFn()
   .inputValidator(saveComposeFileSchema)
@@ -104,19 +100,12 @@ export const saveComposeFile = createServerFn()
     const variableNames = extractVariableNames(data.content);
     if (variableNames.length > 0) {
       try {
-        const client = await getOpenBaoClient();
-        await Promise.all(
-          variableNames.map(async (name) => {
-            const existing = await client.getSecret(data.stackName, name);
-            if (existing === null) {
-              await client.setSecret(data.stackName, name, '');
-            }
-          }),
-        );
+        const repo = await getStackSecretsRepo();
+        await Promise.all(variableNames.map((name) => repo.ensureExists(data.stackName, name)));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error('OpenBao ensureVariablesExist failed (non-fatal):', msg);
-        return { ...result, warnings: [`OpenBao unavailable: ${msg}`] };
+        console.error('ensureVariablesExist failed (non-fatal):', msg);
+        return { ...result, warnings: [`Could not pre-create stack variables: ${msg}`] };
       }
     }
 
@@ -141,13 +130,13 @@ const stackVariablesSchema = z.object({
 });
 
 /**
- * List all variable names stored in OpenBao for a stack.
+ * List all variable names stored for a stack.
  */
 export const getStackVariables = createServerFn({ method: 'GET' })
   .inputValidator(stackVariablesSchema)
   .handler(async ({ data }): Promise<string[]> => {
-    const client = await getOpenBaoClient();
-    return client.listSecrets(data.stackName);
+    const repo = await getStackSecretsRepo();
+    return repo.list(data.stackName);
   });
 
 const getVariableValueSchema = z.object({
@@ -156,13 +145,13 @@ const getVariableValueSchema = z.object({
 });
 
 /**
- * Fetch a single secret value from OpenBao. Returns null if the key does not exist.
+ * Fetch a single secret value. Returns null if the key does not exist.
  */
 export const getVariableValue = createServerFn({ method: 'GET' })
   .inputValidator(getVariableValueSchema)
   .handler(async ({ data }): Promise<string | null> => {
-    const client = await getOpenBaoClient();
-    return client.getSecret(data.stackName, data.variableName);
+    const repo = await getStackSecretsRepo();
+    return repo.get(data.stackName, data.variableName);
   });
 
 const setVariableValueSchema = z.object({
@@ -172,13 +161,13 @@ const setVariableValueSchema = z.object({
 });
 
 /**
- * Create or update a secret value in OpenBao.
+ * Create or update a secret value.
  */
 export const setVariableValue = createServerFn({ method: 'POST' })
   .inputValidator(setVariableValueSchema)
   .handler(async ({ data }): Promise<void> => {
-    const client = await getOpenBaoClient();
-    await client.setSecret(data.stackName, data.variableName, data.value);
+    const repo = await getStackSecretsRepo();
+    await repo.set(data.stackName, data.variableName, data.value);
   });
 
 const deleteVariableSchema = z.object({
@@ -187,13 +176,13 @@ const deleteVariableSchema = z.object({
 });
 
 /**
- * Delete a secret from OpenBao for a given stack variable.
+ * Delete a secret for a given stack variable.
  */
 export const deleteVariable = createServerFn({ method: 'POST' })
   .inputValidator(deleteVariableSchema)
   .handler(async ({ data }): Promise<void> => {
-    const client = await getOpenBaoClient();
-    await client.deleteSecret(data.stackName, data.variableName);
+    const repo = await getStackSecretsRepo();
+    await repo.delete(data.stackName, data.variableName);
   });
 
 /**
@@ -272,19 +261,14 @@ const ensureVariablesExistSchema = z.object({
 });
 
 /**
- * Ensure all given variable names have an entry in OpenBao.
+ * Ensure all given variable names have an entry in the secrets store.
  * Variables that already exist are left untouched; missing ones are created with an empty value.
  */
 export const ensureVariablesExist = createServerFn({ method: 'POST' })
   .inputValidator(ensureVariablesExistSchema)
   .handler(async ({ data }): Promise<void> => {
-    const client = await getOpenBaoClient();
+    const repo = await getStackSecretsRepo();
     await Promise.all(
-      data.variableNames.map(async (name) => {
-        const existing = await client.getSecret(data.stackName, name);
-        if (existing === null) {
-          await client.setSecret(data.stackName, name, '');
-        }
-      }),
+      data.variableNames.map((name) => repo.ensureExists(data.stackName, name)),
     );
   });
