@@ -1,75 +1,79 @@
-import { describe, expect, test, mock, beforeAll } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
+import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import { authenticateRequest } from '../middleware';
+import { loadTrustedPublicKey } from '../lib/jwt-auth';
 
-beforeAll(() => {
-  console.error = mock(() => {});
-});
+async function makeAuth(): Promise<{ trusted: CryptoKey; sign: (overrides?: { iss?: string }) => Promise<string>; privateKey: CryptoKey }> {
+  const { publicKey, privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
+  const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
+  return {
+    trusted,
+    privateKey,
+    sign: (overrides) =>
+      new SignJWT({})
+        .setProtectedHeader({ alg: 'EdDSA' })
+        .setIssuer(overrides?.iss ?? 'homelab-manager')
+        .setIssuedAt()
+        .setJti(crypto.randomUUID())
+        .setExpirationTime('30s')
+        .sign(privateKey),
+  };
+}
 
-describe('authenticateRequest', () => {
-  const validToken = 'test-token-123';
-
-  test('returns null for valid bearer token', () => {
-    const headers = new Headers({ Authorization: `Bearer ${validToken}` });
-    const result = authenticateRequest(headers, validToken);
+describe('authenticateRequest (JWT)', () => {
+  it('skips auth on /health', async () => {
+    const { trusted } = await makeAuth();
+    const result = await authenticateRequest(new Headers(), trusted, '/health');
     expect(result).toBeNull();
   });
 
-  test('returns 401 response for missing Authorization header', () => {
-    const headers = new Headers();
-    const result = authenticateRequest(headers, validToken);
-    expect(result).toBeInstanceOf(Response);
-    expect(result!.status).toBe(401);
+  it('returns 401 when Authorization missing', async () => {
+    const { trusted } = await makeAuth();
+    const result = await authenticateRequest(new Headers(), trusted, '/stats');
+    expect(result?.status).toBe(401);
   });
 
-  test('returns 401 response for invalid token', () => {
-    const headers = new Headers({ Authorization: 'Bearer wrong-token' });
-    const result = authenticateRequest(headers, validToken);
-    expect(result).toBeInstanceOf(Response);
-    expect(result!.status).toBe(401);
-  });
-
-  test('returns 401 for non-Bearer auth scheme', () => {
-    const headers = new Headers({ Authorization: `Basic ${validToken}` });
-    const result = authenticateRequest(headers, validToken);
-    expect(result).toBeInstanceOf(Response);
-    expect(result!.status).toBe(401);
-  });
-
-  test('handles GET /health without authentication', () => {
-    const headers = new Headers();
-    const result = authenticateRequest(headers, validToken, '/health');
+  it('accepts a valid Bearer JWT', async () => {
+    const { trusted, sign } = await makeAuth();
+    const jwt = await sign();
+    const result = await authenticateRequest(
+      new Headers({ Authorization: `Bearer ${jwt}` }),
+      trusted,
+      '/stats',
+    );
     expect(result).toBeNull();
   });
 
-  test('returns 500 JSON when expectedToken is empty', async () => {
-    const headers = new Headers({ Authorization: 'Bearer ' });
-    const result = authenticateRequest(headers, '');
-    expect(result).toBeInstanceOf(Response);
-    expect(result!.status).toBe(500);
-    const body = await result!.json();
-    expect(body.error).toBe('Server misconfigured');
+  it('rejects malformed Authorization scheme', async () => {
+    const { trusted } = await makeAuth();
+    const result = await authenticateRequest(
+      new Headers({ Authorization: 'Basic xyz' }),
+      trusted,
+      '/stats',
+    );
+    expect(result?.status).toBe(401);
   });
 
-  test('returns 500 JSON when expectedToken is whitespace', async () => {
-    const headers = new Headers({ Authorization: 'Bearer valid' });
-    const result = authenticateRequest(headers, '   ');
-    expect(result).toBeInstanceOf(Response);
-    expect(result!.status).toBe(500);
-    const body = await result!.json();
-    expect(body.error).toBe('Server misconfigured');
+  it('rejects JWT signed by a different key', async () => {
+    const { trusted } = await makeAuth();
+    const other = await makeAuth();
+    const jwt = await other.sign();
+    const result = await authenticateRequest(
+      new Headers({ Authorization: `Bearer ${jwt}` }),
+      trusted,
+      '/stats',
+    );
+    expect(result?.status).toBe(401);
   });
 
-  test('returns 401 for whitespace-only bearer token', () => {
-    const headers = new Headers({ Authorization: 'Bearer    ' });
-    const result = authenticateRequest(headers, validToken);
-    expect(result).toBeInstanceOf(Response);
-    expect(result!.status).toBe(401);
-  });
-
-  test('returns 401 for token with matching prefix but different length', () => {
-    const headers = new Headers({ Authorization: `Bearer ${validToken}-extra` });
-    const result = authenticateRequest(headers, validToken);
-    expect(result).toBeInstanceOf(Response);
-    expect(result!.status).toBe(401);
+  it('rejects JWT with wrong issuer', async () => {
+    const { trusted, sign } = await makeAuth();
+    const jwt = await sign({ iss: 'attacker' });
+    const result = await authenticateRequest(
+      new Headers({ Authorization: `Bearer ${jwt}` }),
+      trusted,
+      '/stats',
+    );
+    expect(result?.status).toBe(401);
   });
 });
