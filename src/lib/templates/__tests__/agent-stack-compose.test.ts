@@ -10,15 +10,17 @@ import {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const parseYaml = (input: string) => load(input) as Record<string, any>;
 
+const MOCK_PUBKEY = '{"kty":"OKP","crv":"Ed25519","x":"test-x-value"}';
+
 const dockerOnlyConfig: AgentStackConfig = {
-  agentToken: 'test-token-abc123',
+  agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
   capabilities: { docker: true, zfs: false },
 };
 
 const zfsOnlyConfig: AgentStackConfig = {
-  agentToken: 'test-token-zfs456',
+  agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:v1.0.0',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:v1.0.0',
   capabilities: { docker: false, zfs: true },
@@ -27,7 +29,7 @@ const zfsOnlyConfig: AgentStackConfig = {
 };
 
 const dockerZfsConfig: AgentStackConfig = {
-  agentToken: 'test-token-both789',
+  agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
   capabilities: { docker: true, zfs: true },
@@ -70,12 +72,12 @@ describe('generateAgentStackCompose', () => {
     expect(zfsParsed.networks).toBeUndefined();
   });
 
-  it('uses file-based token mount in all cases', () => {
+  it('sets AGENT_TRUSTED_PUBKEY env var in all cases', () => {
     for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
       const result = generateAgentStackCompose(config);
       const parsed = parseYaml(result);
-      expect(parsed.services.agent.environment.AGENT_TOKEN_FILE).toBe('/run/secrets/agent_token');
-      expect(parsed.services.agent.volumes).toContain('./agent-token:/run/secrets/agent_token:ro');
+      expect(parsed.services.agent.environment.AGENT_TRUSTED_PUBKEY).toBe(MOCK_PUBKEY);
+      expect(parsed.services.agent.environment.AGENT_TOKEN_FILE).toBeUndefined();
       expect(parsed.services.agent.environment.AGENT_TOKEN).toBeUndefined();
     }
   });
@@ -104,8 +106,8 @@ describe('generateAgentStackCompose', () => {
 
     expect(parsed.services.agent.user).toBeUndefined();
     expect(parsed.services.agent.group_add).toBeUndefined();
-    // volumes only contains the token mount, no ZFS paths
-    expect(parsed.services.agent.volumes).toEqual(['./agent-token:/run/secrets/agent_token:ro']);
+    // no file mounts for docker-only; volumes is empty or absent
+    expect((parsed.services.agent.volumes as string[]).length).toBe(0);
   });
 
   it('ZFS-only: no socket-proxy, no DOCKER_HOST, has ZFS mounts + user', () => {
@@ -117,7 +119,6 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.depends_on).toBeUndefined();
 
     expect(parsed.services.agent.volumes).toEqual([
-      './agent-token:/run/secrets/agent_token:ro',
       '/usr/sbin/zpool:/usr/sbin/zpool:ro',
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
       '/dev/zfs:/dev/zfs',
@@ -136,7 +137,6 @@ describe('generateAgentStackCompose', () => {
     expect(parsed.services.agent.depends_on).toContain('socket-proxy');
 
     expect(parsed.services.agent.volumes).toEqual([
-      './agent-token:/run/secrets/agent_token:ro',
       '/usr/sbin/zpool:/usr/sbin/zpool:ro',
       '/usr/sbin/zfs:/usr/sbin/zfs:ro',
       '/dev/zfs:/dev/zfs',
@@ -182,7 +182,7 @@ describe('generateAgentStackCompose', () => {
 
   it('neither docker nor zfs: minimal agent + updater only', () => {
     const noneConfig: AgentStackConfig = {
-      agentToken: 'test-token-none',
+      agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
       agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
       capabilities: { docker: false, zfs: false },
@@ -226,7 +226,7 @@ describe('generateAgentStackEnv', () => {
 
   it('does not include agent token in env output', () => {
     const result = generateAgentStackEnv(dockerOnlyConfig);
-    expect(result).not.toContain('test-token-abc123');
+    expect(result).not.toContain('AGENT_TOKEN');
   });
 
   it('includes ZFS UIDs only when zfs capability', () => {
@@ -252,7 +252,7 @@ describe('generateAgentStackEnv', () => {
 
   it('throws when zfs is true but hlmZfsUid is missing', () => {
     const bad: AgentStackConfig = {
-      agentToken: 'tok',
+      agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',
       capabilities: { docker: false, zfs: true },
@@ -265,7 +265,7 @@ describe('generateAgentStackEnv', () => {
 
   it('throws when zfs is true but hlmZfsGid is missing', () => {
     const bad: AgentStackConfig = {
-      agentToken: 'tok',
+      agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',
       capabilities: { docker: false, zfs: true },
@@ -278,7 +278,7 @@ describe('generateAgentStackEnv', () => {
 
   it('throws when docker and zfs are true but dockerGid is missing', () => {
     const bad: AgentStackConfig = {
-      agentToken: 'tok',
+      agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',
       capabilities: { docker: true, zfs: true },

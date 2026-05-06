@@ -14,9 +14,10 @@ import AddHostWizard from '@/components/settings/AddHostWizard'
 export interface ManagedHostsCardProps {
   hosts: HostListItem[]
   isLoading: boolean
-  onAdd: (name: string, agentUrl: string, agentToken: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onAdd: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
   isAdding: boolean
   addError: string | null
+  verifyResult: { publicJwk: unknown } | null
   onRemove: (hostId: number) => void
   isRemoving: boolean
   onUpdate: (hostId: number, name: string, agentUrl: string) => void
@@ -33,6 +34,7 @@ export function ManagedHostsCardView({
   onAdd,
   isAdding,
   addError,
+  verifyResult,
   onRemove,
   isRemoving,
   onUpdate,
@@ -89,7 +91,12 @@ export function ManagedHostsCardView({
         )}
 
         <div className="mt-4">
-          <AddHostWizard isAdding={isAdding} addError={addError} onSubmit={onAdd} />
+          <AddHostWizard
+            isAdding={isAdding}
+            addError={addError}
+            onSubmit={onAdd}
+            verifyResult={verifyResult}
+          />
         </div>
       </Card>
 

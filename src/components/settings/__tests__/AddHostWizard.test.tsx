@@ -6,7 +6,8 @@ import AddHostWizard from '@/components/settings/AddHostWizard'
 interface WizardProps {
   isAdding: boolean
   addError: string | null
-  onSubmit: (name: string, agentUrl: string, agentToken: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  onSubmit: (name: string, agentUrl: string, capabilities: { docker: boolean; zfs: boolean }) => void
+  verifyResult: { publicJwk: unknown } | null
 }
 
 function makeProps(overrides?: Partial<WizardProps>): WizardProps {
@@ -14,6 +15,7 @@ function makeProps(overrides?: Partial<WizardProps>): WizardProps {
     isAdding: false,
     addError: null,
     onSubmit: mock(() => {}),
+    verifyResult: null,
     ...overrides,
   }
 }
@@ -175,9 +177,9 @@ describe('AddHostWizard', () => {
       expect(btn.hasAttribute('disabled')).toBe(false)
     })
 
-    it('calls onSubmit with trimmed name, url, token, and capabilities when Verify Connection is clicked', () => {
+    it('calls onSubmit with trimmed name, url, and capabilities when Verify Connection is clicked', () => {
       const onSubmit = mock(() => {})
-      render(<AddHostWizard isAdding={false} addError={null} onSubmit={onSubmit} />)
+      render(<AddHostWizard isAdding={false} addError={null} onSubmit={onSubmit} verifyResult={null} />)
       // Capabilities → Compose → Configuration → Verify
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -186,8 +188,8 @@ describe('AddHostWizard', () => {
       fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://192.168.1.10:9090  ' } })
       fireEvent.click(screen.getByRole('button', { name: 'Verify Connection' }))
       expect(onSubmit).toHaveBeenCalledTimes(1)
-      const callArgs = onSubmit.mock.calls[0] as unknown as [string, string, string, { docker: boolean; zfs: boolean }]
-      const [name, agentUrl, , capabilities] = callArgs
+      const callArgs = onSubmit.mock.calls[0] as unknown as [string, string, { docker: boolean; zfs: boolean }]
+      const [name, agentUrl, capabilities] = callArgs
       expect(name).toBe('dev-machine')
       expect(agentUrl).toBe('http://192.168.1.10:9090')
       expect(capabilities).toEqual({ docker: true, zfs: false })
@@ -195,7 +197,7 @@ describe('AddHostWizard', () => {
 
     it('does not call onSubmit when isAdding is true', () => {
       const onSubmit = mock(() => {})
-      render(<AddHostWizard isAdding={true} addError={null} onSubmit={onSubmit} />)
+      render(<AddHostWizard isAdding={true} addError={null} onSubmit={onSubmit} verifyResult={null} />)
       // Capabilities → Compose → Configuration → Verify
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -208,6 +210,26 @@ describe('AddHostWizard', () => {
       expect(btn.hasAttribute('disabled')).toBe(true)
       fireEvent.click(btn)
       expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('shows public JWK after successful verification', () => {
+      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
+      render(<AddHostWizard {...makeProps({ verifyResult: { publicJwk } })} />)
+      // Navigate to Verify step
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('pubkey-display')).toBeDefined()
+      expect(screen.getByText(/AGENT_TRUSTED_PUBKEY/)).toBeDefined()
+      expect(screen.getByTestId('pubkey-display').textContent).toContain('"kty":"OKP"')
+    })
+
+    it('does not show public JWK when verifyResult is null', () => {
+      render(<AddHostWizard {...makeProps({ verifyResult: null })} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.queryByTestId('pubkey-display')).toBeNull()
     })
   })
 
@@ -261,14 +283,14 @@ describe('AddHostWizard', () => {
       expect(preElements.length).toBe(1)
     })
 
-    it('shows .env and agent-token in the Configuration step', () => {
+    it('shows .env in the Configuration step', () => {
       render(<AddHostWizard {...makeProps()} />)
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       const envStep = screen.getByTestId('step-env')
       expect(envStep).toBeDefined()
       const preElements = envStep.querySelectorAll('pre')
-      expect(preElements.length).toBe(2)
+      expect(preElements.length).toBe(1)
     })
   })
 })

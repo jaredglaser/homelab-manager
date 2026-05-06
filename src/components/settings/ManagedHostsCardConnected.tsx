@@ -14,6 +14,7 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     severity: 'success' | 'error' | 'warning'
   }>({ open: false, message: '', severity: 'success' })
   const [addError, setAddError] = useState<string | null>(null)
+  const [verifyResult, setVerifyResult] = useState<{ publicJwk: unknown } | null>(null)
 
   const { data: hosts = [], isLoading } = useQuery({
     queryKey: HOSTS_QUERY_KEY,
@@ -21,11 +22,14 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   })
 
   const addMutation = useMutation({
-    mutationFn: ({ name, agentUrl, agentToken, capabilities }: { name: string; agentUrl: string; agentToken: string; capabilities: { docker: boolean; zfs: boolean } }) =>
-      verifyHost({ data: { name, agentUrl, agentToken, capabilities } }),
-    onSuccess: () => {
+    mutationFn: ({ name, agentUrl, capabilities }: { name: string; agentUrl: string; capabilities: { docker: boolean; zfs: boolean } }) =>
+      verifyHost({ data: { name, agentUrl, capabilities } }),
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setAddError(null)
+      if (result.publicJwk) {
+        setVerifyResult({ publicJwk: result.publicJwk })
+      }
       setSnackbar({ open: true, message: 'Host added successfully', severity: 'success' })
     },
     onError: (err: unknown) => {
@@ -96,9 +100,10 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     <ManagedHostsCardView
       hosts={filteredHosts}
       isLoading={isLoading}
-      onAdd={(name, agentUrl, agentToken, capabilities) => addMutation.mutate({ name, agentUrl, agentToken, capabilities })}
+      onAdd={(name, agentUrl, capabilities) => addMutation.mutate({ name, agentUrl, capabilities })}
       isAdding={addMutation.isPending}
       addError={addError}
+      verifyResult={verifyResult}
       onRemove={(hostId) => removeMutation.mutate(hostId)}
       isRemoving={removeMutation.isPending}
       onUpdate={(hostId, name, agentUrl) => updateMutation.mutate({ hostId, name, agentUrl })}

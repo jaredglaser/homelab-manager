@@ -1,7 +1,7 @@
 import { dump } from 'js-yaml';
 
 export interface AgentStackConfig {
-  agentToken: string;
+  agentTrustedPubkey: string;
   agentImage: string;
   agentUpdaterImage: string;
   capabilities: {
@@ -109,7 +109,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   const { docker, zfs } = config.capabilities;
 
   const environment: Record<string, string> = {
-    AGENT_TOKEN_FILE: '/run/secrets/agent_token',
+    AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
   };
 
   if (docker) {
@@ -125,7 +125,7 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
     volumes: [] as string[],
   };
 
-  const volumes: string[] = ['./agent-token:/run/secrets/agent_token:ro'];
+  const volumes: string[] = [];
 
   if (zfs) {
     volumes.push(
