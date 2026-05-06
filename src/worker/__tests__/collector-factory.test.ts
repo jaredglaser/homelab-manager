@@ -211,7 +211,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => async () => 'mock-jwt',
     );
 
     expect(result.collectors).toHaveLength(1);
@@ -232,7 +232,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => async () => 'mock-jwt',
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -242,15 +242,15 @@ describe('createCollectorsForManagedHosts', () => {
     shutdownController.abort();
   });
 
-  it('skips managed host and continues when getToken throws', async () => {
+  it('skips managed host and continues when getSigner throws', async () => {
     const host2: ManagedHost = { ...sampleManagedHost, id: 2, name: 'other-host', agentUrl: 'http://192.168.1.11:9090' };
 
     const mockFindAll = mock(async () => [sampleManagedHost, host2]);
     let callCount = 0;
-    const mockGetToken = mock(async (hostname: string) => {
+    const mockGetSigner = mock(async (hostname: string) => {
       callCount++;
-      if (hostname === 'homeserver') throw new Error('OpenBao unreachable');
-      return 'test-token';
+      if (hostname === 'homeserver') throw new Error('keypair lookup failed');
+      return async () => 'mock-jwt';
     });
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
@@ -261,7 +261,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockFindAll, mockGetToken,
+      mockFindAll, mockGetSigner,
     );
 
     expect(result.collectors).toHaveLength(1);
@@ -286,7 +286,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => async () => 'mock-jwt',
     );
 
     expect(result.collectors).toHaveLength(0);
@@ -307,7 +307,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => async () => 'mock-jwt',
     );
 
     expect(result.collectors).toHaveLength(1);
@@ -328,7 +328,7 @@ describe('createCollectorsForManagedHosts', () => {
 
     const result = await createCollectorsForManagedHosts(
       db as unknown as DatabaseClient, workerConfig, shutdownController, stack,
-      mockFindAll, async () => 'mock-token',
+      mockFindAll, async () => async () => 'mock-jwt',
     );
 
     expect(result.collectors).toHaveLength(2);
@@ -340,7 +340,7 @@ describe('createCollectorsForManagedHosts', () => {
     shutdownController.abort();
   });
 
-  it('skips managed hosts when getToken returns null', async () => {
+  it('skips managed hosts when getSigner returns null', async () => {
     const mockFindAll = mock(async () => [sampleManagedHost]);
 
     const { createCollectorsForManagedHosts } = await import('../collector-factory');
@@ -408,7 +408,7 @@ describe('createContainerInventoryCollectors', () => {
       shutdownController,
       stack,
       async () => [dockerHost],
-      async () => 'mock-token',
+      async () => async () => 'mock-jwt',
     );
 
     expect(result.runners).toHaveLength(1);
@@ -428,7 +428,7 @@ describe('createContainerInventoryCollectors', () => {
       shutdownController,
       stack,
       async () => [],
-      async () => 'mock-token',
+      async () => async () => 'mock-jwt',
     );
 
     expect(result.runners).toHaveLength(0);
@@ -447,7 +447,7 @@ describe('createContainerInventoryCollectors', () => {
       shutdownController,
       stack,
       async () => [noDockerHost],
-      async () => 'mock-token',
+      async () => async () => 'mock-jwt',
     );
 
     expect(result.runners).toHaveLength(0);
@@ -457,7 +457,7 @@ describe('createContainerInventoryCollectors', () => {
     shutdownController.abort();
   });
 
-  it('skips hosts whose token lookup returns null and logs info', async () => {
+  it('skips hosts whose signer lookup returns null and logs info', async () => {
     const { createContainerInventoryCollectors } = await import('../collector-factory');
 
     const shutdownController = new AbortController();
@@ -478,7 +478,7 @@ describe('createContainerInventoryCollectors', () => {
     shutdownController.abort();
   });
 
-  it('skips hosts whose token lookup throws, logs error, does not halt other hosts', async () => {
+  it('skips hosts whose signer lookup throws, logs error, does not halt other hosts', async () => {
     const host2: ManagedHost = { ...dockerHost, id: 2, name: 'host2', agentUrl: 'http://192.168.1.11:9090' };
     const { createContainerInventoryCollectors } = await import('../collector-factory');
 
@@ -493,8 +493,8 @@ describe('createContainerInventoryCollectors', () => {
       async () => [dockerHost, host2],
       async (hostname) => {
         call++;
-        if (hostname === 'homeserver') throw new Error('vault down');
-        return 'good-token';
+        if (hostname === 'homeserver') throw new Error('keypair lookup failed');
+        return async () => 'mock-jwt';
       },
     );
 
@@ -518,7 +518,7 @@ describe('createContainerInventoryCollectors', () => {
       shutdownController,
       stack,
       async () => [dockerHost, noDockerHost],
-      async () => 'mock-token',
+      async () => async () => 'mock-jwt',
     );
 
     // dockerHost succeeds, noDockerHost is skipped

@@ -67,9 +67,9 @@ export function createCollectors(
  * without database or env var dependencies.
  *
  * Creates both AgentStatsCollectors (Docker) and ZFSCollectors for each managed host.
- * Hosts whose token cannot be resolved from OpenBao are skipped.
+ * Hosts whose keypair signer cannot be resolved are skipped.
  *
- * @param getToken - Callback to look up a host's agent token from OpenBao (or other secret store)
+ * @param getSigner - Callback that returns a JWT signer for a host, or null if no keypair exists
  */
 export async function createCollectorsForManagedHosts(
   db: DatabaseClient,
@@ -77,7 +77,7 @@ export async function createCollectorsForManagedHosts(
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
   findAllHosts: () => Promise<ManagedHost[]>,
-  getToken: (hostname: string) => Promise<string | null>,
+  getSigner: (hostname: string) => Promise<(() => Promise<string>) | null>,
 ): Promise<CollectorFactoryResult> {
   const collectors: BaseCollector[] = [];
   const runners: Promise<void>[] = [];
@@ -93,14 +93,14 @@ export async function createCollectorsForManagedHosts(
   }
 
   for (const host of hosts) {
-    let token: string | null;
+    let signer: (() => Promise<string>) | null;
     try {
-      token = await getToken(host.name);
+      signer = await getSigner(host.name);
     } catch (err) {
       console.error(`[Worker] Failed to retrieve token for managed host ${host.name}:`, err instanceof Error ? err.message : err);
       continue;
     }
-    if (!token) {
+    if (!signer) {
       console.info(`[Worker] Skipping managed host ${host.name}: no agent token in secret store`);
       continue;
     }
@@ -117,7 +117,7 @@ export async function createCollectorsForManagedHosts(
       } else {
         console.info(`[Worker] Starting AgentStatsCollector for ${host.name} (${resolvedHost.agentUrl})`);
         const dockerCollector = stack.use(
-          new AgentStatsCollector(db, workerConfig, resolvedHost, token, shutdownController)
+          new AgentStatsCollector(db, workerConfig, resolvedHost, signer, shutdownController)
         );
         collectors.push(dockerCollector);
         runners.push(dockerCollector.run());
@@ -130,7 +130,7 @@ export async function createCollectorsForManagedHosts(
       } else {
         console.info(`[Worker] Starting ZFSCollector for ${host.name} (${resolvedHost.agentUrl})`);
         const zfsCollector = stack.use(
-          new ZFSCollector(db, workerConfig, resolvedHost, token, shutdownController)
+          new ZFSCollector(db, workerConfig, resolvedHost, signer, shutdownController)
         );
         collectors.push(zfsCollector);
         runners.push(zfsCollector.run());
@@ -146,14 +146,14 @@ export async function createCollectorsForManagedHosts(
  * Each collector subscribes to the agent's /containers/events SSE endpoint and writes
  * state-change events to docker_container_events (hypertable, append-only).
  *
- * @param getToken - Callback to look up a host's agent token from OpenBao (or other secret store)
+ * @param getSigner - Callback that returns a JWT signer for a host, or null if no keypair exists
  */
 export async function createContainerInventoryCollectors(
   db: DatabaseClient,
   shutdownController: AbortController,
   stack: AsyncDisposableStack,
   findAllHosts: () => Promise<ManagedHost[]>,
-  getToken: (hostname: string) => Promise<string | null>,
+  getSigner: (hostname: string) => Promise<(() => Promise<string>) | null>,
 ): Promise<{ runners: Promise<void>[] }> {
   const runners: Promise<void>[] = [];
 
@@ -165,14 +165,14 @@ export async function createContainerInventoryCollectors(
       console.info(`[Worker] Skipping ContainerInventoryCollector for ${host.name}: Docker capability not enabled`);
       continue;
     }
-    let token: string | null;
+    let signer: (() => Promise<string>) | null;
     try {
-      token = await getToken(host.name);
+      signer = await getSigner(host.name);
     } catch (err) {
       console.error(`[Worker] Failed to retrieve token for ContainerInventoryCollector ${host.name}:`, err instanceof Error ? err.message : err);
       continue;
     }
-    if (!token) {
+    if (!signer) {
       console.info(`[Worker] Skipping ContainerInventoryCollector for ${host.name}: no agent token in secret store`);
       continue;
     }
@@ -182,7 +182,7 @@ export async function createContainerInventoryCollectors(
     const collector = stack.use(
       new ContainerInventoryCollector(
         { name: host.name, agentUrl: resolvedUrl },
-        token,
+        signer,
         repo,
         shutdownController,
       )
