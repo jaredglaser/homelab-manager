@@ -70,17 +70,17 @@ describe('VariablesPanel', () => {
     });
   });
 
-  it('shows error alert when OpenBao is unreachable', async () => {
+  it('shows error alert when secrets store is unreachable', async () => {
     mockListSecrets.mockImplementationOnce(() =>
       Promise.reject(new Error('Connection refused')),
     );
     await renderPanel();
     await waitFor(() => {
-      expect(screen.getByText(/Unable to connect to OpenBao/)).toBeDefined();
+      expect(screen.getByText(/Unable to load secrets/)).toBeDefined();
     });
   });
 
-  it('renders variable rows from OpenBao data', async () => {
+  it('renders variable rows from secrets data', async () => {
     mockListSecrets.mockImplementationOnce(() =>
       Promise.resolve(['DB_URL', 'SECRET_KEY']),
     );
@@ -91,11 +91,11 @@ describe('VariablesPanel', () => {
     });
   });
 
-  it('renders empty state when OpenBao returns no variables', async () => {
+  it('renders empty state when no variables exist', async () => {
     mockListSecrets.mockImplementationOnce(() => Promise.resolve([]));
     await renderPanel();
     await waitFor(() => {
-      expect(screen.getByText('No variables in OpenBao.')).toBeDefined();
+      expect(screen.getByText('No variables yet.')).toBeDefined();
     });
   });
 
@@ -250,8 +250,8 @@ describe('VariablesPanel', () => {
     await waitFor(() => expect((saveBtn as HTMLButtonElement).disabled).toBe(true));
   });
 
-  it('calls ensureVariablesExist when compose variables are missing from OpenBao', async () => {
-    // OpenBao only has DB_URL, but compose references DB_URL and NEW_VAR
+  it('calls ensureVariablesExist when compose variables are missing from the secrets store', async () => {
+    // Secrets store only has DB_URL, but compose references DB_URL and NEW_VAR
     mockListSecrets.mockImplementationOnce(() => Promise.resolve(['DB_URL']));
     mockEnsureVariablesExist.mockImplementationOnce(() => Promise.resolve(undefined));
     // After invalidation, return all variables
@@ -264,7 +264,7 @@ describe('VariablesPanel', () => {
     });
   });
 
-  it('does not call ensureVariablesExist when all compose variables already exist in OpenBao', async () => {
+  it('does not call ensureVariablesExist when all compose variables already exist in the secrets store', async () => {
     mockListSecrets.mockImplementationOnce(() => Promise.resolve(['DB_URL', 'SECRET_KEY']));
 
     await renderPanel('mystack', ['DB_URL', 'SECRET_KEY']);
@@ -275,9 +275,9 @@ describe('VariablesPanel', () => {
   });
 
   it('silently catches error when ensureVariablesExist rejects', async () => {
-    // OpenBao has DB_URL but compose also references NEW_VAR, triggers ensureVariablesExist
+    // Secrets store has DB_URL but compose also references NEW_VAR, triggers ensureVariablesExist
     mockListSecrets.mockImplementationOnce(() => Promise.resolve(['DB_URL']));
-    mockEnsureVariablesExist.mockImplementationOnce(() => Promise.reject(new Error('OpenBao unreachable')));
+    mockEnsureVariablesExist.mockImplementationOnce(() => Promise.reject(new Error('secrets store unreachable')));
 
     await renderPanel('mystack', ['DB_URL', 'NEW_VAR']);
 
@@ -300,7 +300,7 @@ describe('VariablesPanel', () => {
   it('shows inline error when fetchValue mutation fails', async () => {
     mockListSecrets.mockImplementationOnce(() => Promise.resolve(['API_TOKEN']));
     mockGetSecret.mockImplementationOnce(() =>
-      Promise.reject(new Error('OpenBao connection refused')),
+      Promise.reject(new Error('connection refused')),
     );
 
     await renderPanel('mystack', []);
@@ -309,7 +309,7 @@ describe('VariablesPanel', () => {
     fireEvent.click(screen.getByLabelText('Reveal value'));
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to retrieve value from OpenBao.')).toBeDefined();
+      expect(screen.getByText('Failed to retrieve value.')).toBeDefined();
     });
   });
 
@@ -325,14 +325,14 @@ describe('VariablesPanel', () => {
     // First click fails
     fireEvent.click(screen.getByLabelText('Reveal value'));
     await waitFor(() => {
-      expect(screen.getByText('Failed to retrieve value from OpenBao.')).toBeDefined();
+      expect(screen.getByText('Failed to retrieve value.')).toBeDefined();
     });
 
     // Hide then reveal again, retry should clear the error
     fireEvent.click(screen.getByLabelText('Hide value'));
     fireEvent.click(screen.getByLabelText('Reveal value'));
     await waitFor(() => {
-      expect(screen.queryByText('Failed to retrieve value from OpenBao.')).toBeNull();
+      expect(screen.queryByText('Failed to retrieve value.')).toBeNull();
     });
   });
 
@@ -340,7 +340,7 @@ describe('VariablesPanel', () => {
     mockListSecrets.mockImplementationOnce(() => Promise.resolve(['API_KEY']));
     mockGetSecret.mockImplementationOnce(() => Promise.resolve('original'));
     mockSetSecret.mockImplementationOnce(() =>
-      Promise.reject(new Error('OpenBao write failed')),
+      Promise.reject(new Error('write failed')),
     );
 
     await renderPanel('mystack', []);
@@ -357,14 +357,14 @@ describe('VariablesPanel', () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to save value to OpenBao.')).toBeDefined();
+      expect(screen.getByText('Failed to save value.')).toBeDefined();
     });
   });
 
   it('shows error inside delete dialog when delete mutation fails', async () => {
     mockListSecrets.mockImplementationOnce(() => Promise.resolve(['OLD_VAR']));
     mockDeleteSecret.mockImplementationOnce(() =>
-      Promise.reject(new Error('OpenBao delete failed')),
+      Promise.reject(new Error('delete failed')),
     );
 
     await renderPanel('mystack', []);
@@ -376,7 +376,7 @@ describe('VariablesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => {
-      expect(screen.getByText('Failed to delete variable from OpenBao.')).toBeDefined();
+      expect(screen.getByText('Failed to delete variable.')).toBeDefined();
     });
     // Dialog stays open so user can retry
     expect(screen.getByRole('dialog')).toBeDefined();

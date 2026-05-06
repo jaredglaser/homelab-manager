@@ -17,8 +17,8 @@ interface VariablesPanelProps {
 }
 
 /**
- * Side panel showing variables stored in OpenBao for a stack.
- * Source of truth is OpenBao; compose file variables drive initial creation only.
+ * Side panel showing variables stored as encrypted secrets for a stack.
+ * Source of truth is the encrypted secrets store; compose file variables drive initial creation only.
  */
 export default function VariablesPanel({ stackName, composeVariables }: Readonly<VariablesPanelProps>) {
   const queryClient = useQueryClient();
@@ -33,7 +33,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
     queryFn: () => getStackVariables({ data: { stackName } }),
   });
 
-  // Auto-create compose variables missing from OpenBao (e.g., after OpenBao restart)
+  // Auto-create compose variables missing from the secrets store (e.g., after the DB is reset)
   const ensurePending = useRef(false);
   useEffect(() => {
     if (!variables || ensurePending.current) return;
@@ -44,7 +44,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
     ensurePending.current = true;
     ensureVariablesExist({ data: { stackName, variableNames: missing } })
       .then(() => queryClient.invalidateQueries({ queryKey: ['stack-variables', stackName] }))
-      .catch(() => { /* OpenBao unreachable, error already shown by the query */ })
+      .catch(() => { /* Secrets store unreachable, error already shown by the query */ })
       .finally(() => { ensurePending.current = false; });
   }, [variables, composeVariables, stackName, queryClient]);
 
@@ -55,7 +55,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
   if (isError) {
     return (
       <Alert severity="error" className="text-xs">
-        Unable to connect to OpenBao. Secret management is unavailable.
+        Unable to load secrets. Variable management is unavailable.
       </Alert>
     );
   }
@@ -79,7 +79,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
     return (
       <Paper elevation={0} className="p-3 !bg-[var(--mui-palette-background-chartBg)] rounded-sm">
         <Typography variant="body2" className="opacity-50">
-          No variables in OpenBao.
+          No variables yet.
         </Typography>
       </Paper>
     );
