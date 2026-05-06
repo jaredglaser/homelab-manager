@@ -4,7 +4,7 @@ import { pullImage } from '@/lib/services/docker-image-utils';
 export interface ProvisionAgentOptions {
   hostId: number;
   agentPort: number;
-  agentToken: string;
+  publicJwkJson: string;
   agentImage: string;
   socketProxyUrl: string;
 }
@@ -55,7 +55,7 @@ export class AgentProvisioningService {
       name: containerName,
       Image: options.agentImage,
       Env: [
-        `AGENT_TOKEN=${options.agentToken}`,
+        `AGENT_TRUSTED_PUBKEY=${options.publicJwkJson}`,
         `DOCKER_HOST=${options.socketProxyUrl}`,
         `AGENT_PORT=${options.agentPort}`,
       ],
