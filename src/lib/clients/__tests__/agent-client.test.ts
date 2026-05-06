@@ -153,12 +153,12 @@ describe('AgentClient', () => {
         new Response(JSON.stringify({ status: 'healthy', version: '1.0.0', docker: { version: '24' } }), {
           headers: { 'Content-Type': 'application/json' },
         }),
-      );
+      ) as unknown as typeof fetch & { mock: { calls: Array<[string, RequestInit]> } };
       const client = new AgentClient({ agentUrl: 'http://x', signer, fetchFn });
       await client.health();
       await client.health();
-      const headers0 = (fetchFn.mock.calls[0]?.[1] as RequestInit | undefined)?.headers as Record<string, string>;
-      const headers1 = (fetchFn.mock.calls[1]?.[1] as RequestInit | undefined)?.headers as Record<string, string>;
+      const headers0 = fetchFn.mock.calls[0]?.[1]?.headers as Record<string, string>;
+      const headers1 = fetchFn.mock.calls[1]?.[1]?.headers as Record<string, string>;
       expect(headers0?.Authorization).toBe('Bearer jwt-1');
       expect(headers1?.Authorization).toBe('Bearer jwt-2');
     });
