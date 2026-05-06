@@ -22,10 +22,10 @@ export interface StackRepoWriter {
 interface PipelineDeps {
   deployRepo: DeployRepository;
   hostsRepo: HostRepository;
-  agentClientFactory: (agentUrl: string, agentToken: string) => AgentClient;
+  agentClientFactory: (agentUrl: string, signer: () => Promise<string>) => AgentClient;
   secretResolver: SecretResolver;
-  /** Resolve the agent bearer token for a given host. */
-  tokenResolver: (host: ManagedHost) => Promise<string> | string;
+  /** Resolve a JWT signer closure for a given host. */
+  tokenResolver: (host: ManagedHost) => Promise<() => Promise<string>>;
   /** Writes to the stacks git repo for postSuccess hooks. */
   stackRepoWriter: StackRepoWriter;
 }
@@ -225,8 +225,8 @@ export class DeployPipeline {
   ): Promise<PipelineResult> {
     let result;
     try {
-      const token = await this.tokenResolver(host);
-      const agent = this.agentClientFactory(host.agentUrl, token);
+      const signer = await this.tokenResolver(host);
+      const agent = this.agentClientFactory(host.agentUrl, signer);
 
       switch (request.action) {
         case 'deploy':

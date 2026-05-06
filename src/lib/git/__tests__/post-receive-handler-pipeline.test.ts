@@ -15,8 +15,7 @@ import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { AgentClient } from '@/lib/clients/agent-client';
-import { OpenBaoClient } from '@/lib/clients/openbao-client';
-import * as openbaoConfig from '@/lib/config/openbao-config';
+import { AgentKeypairsRepository } from '@/lib/database/repositories/agent-keypairs-repository';
 import { StackSecretsRepository } from '@/lib/database/repositories/stack-secrets-repository';
 import * as masterKey from '@/lib/crypto/master-key';
 import type { ManagedHost } from '@/lib/deploy/types';
@@ -71,7 +70,6 @@ describe('processPostReceive (pipeline paths)', () => {
   let infoSpy: ReturnType<typeof spyOn>;
   let errorSpy: ReturnType<typeof spyOn>;
   let getClientSpy: ReturnType<typeof spyOn>;
-  let isConfiguredSpy: ReturnType<typeof spyOn>;
 
   let insertDeployIfNoActiveSpy: ReturnType<typeof spyOn>;
   let getLatestSuccessfulSpy: ReturnType<typeof spyOn>;
@@ -80,7 +78,7 @@ describe('processPostReceive (pipeline paths)', () => {
   let notifyStackChangeSpy: ReturnType<typeof spyOn>;
   let findByNameSpy: ReturnType<typeof spyOn>;
   let agentDeploySpy: ReturnType<typeof spyOn>;
-  let getHostSecretSpy: ReturnType<typeof spyOn>;
+  let getPrivateKeyForHostSpy: ReturnType<typeof spyOn>;
   let loadMasterKeyringSpy: ReturnType<typeof spyOn>;
 
   const mockPool = {};
@@ -92,11 +90,6 @@ describe('processPostReceive (pipeline paths)', () => {
     await initBareRepo(repoPath);
     infoSpy = spyOn(console, 'info').mockImplementation(() => {});
     errorSpy = spyOn(console, 'error').mockImplementation(() => {});
-
-    // Always override isOpenBaoConfigured to return false by default.
-    // Individual tests that want OpenBao enabled override it with mockReturnValue(true).
-    // This prevents the real env var (OPENBAO_URL) from triggering real HTTP requests.
-    isConfiguredSpy = spyOn(openbaoConfig, 'isOpenBaoConfigured').mockReturnValue(false);
 
     // loadMasterKeyring reads MASTER_KEY/MASTER_KEY_FILE from the environment.
     // Spy on it so tests run without those env vars and without touching the FS.
@@ -141,17 +134,18 @@ describe('processPostReceive (pipeline paths)', () => {
       logs: 'deployed ok',
     } as never);
 
-    // OpenBaoClient.getHostSecret: used by tokenResolver; return a valid token by default
-    getHostSecretSpy = spyOn(
-      OpenBaoClient.prototype,
-      'getHostSecret',
-    ).mockResolvedValue('my-agent-token' as never);
+    // tokenResolver uses AgentKeypairsRepository.getPrivateKeyForHost.
+    // Return a fake CryptoKey object (just needs to be truthy — the signer closure is
+    // only called by AgentClient.request(), which is mocked via agentDeploySpy).
+    getPrivateKeyForHostSpy = spyOn(
+      AgentKeypairsRepository.prototype,
+      'getPrivateKeyForHost',
+    ).mockResolvedValue({} as CryptoKey);
   });
 
   afterEach(() => {
     infoSpy.mockRestore();
     errorSpy.mockRestore();
-    isConfiguredSpy.mockRestore();
     loadMasterKeyringSpy.mockRestore();
     getClientSpy.mockRestore();
     insertDeployIfNoActiveSpy.mockRestore();
@@ -161,7 +155,7 @@ describe('processPostReceive (pipeline paths)', () => {
     notifyStackChangeSpy.mockRestore();
     findByNameSpy.mockRestore();
     agentDeploySpy.mockRestore();
-    getHostSecretSpy.mockRestore();
+    getPrivateKeyForHostSpy.mockRestore();
     rmSync(testDir, { recursive: true, force: true });
   });
 
@@ -207,9 +201,6 @@ describe('processPostReceive (pipeline paths)', () => {
   });
 
   it('executes the pipeline and logs success result', async () => {
-    // With isOpenBaoConfigured=false (default), baoClient=null, tokenResolver throws.
-    // tokenResolver error is caught inside pipeline.dispatch(), which returns {status:'failed'}.
-    // processPostReceive logs console.info with the result.
     const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
 
     await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
@@ -218,9 +209,12 @@ describe('processPostReceive (pipeline paths)', () => {
     expect(getClientSpy).toHaveBeenCalledTimes(1);
     // Execute was called (pipeline ran)
     expect(insertDeployIfNoActiveSpy).toHaveBeenCalledTimes(1);
-    // Result was logged
+    // Keypair was resolved and JWT was signed
+    expect(getPrivateKeyForHostSpy).toHaveBeenCalledWith('homeserver');
+    expect(agentDeploySpy).toHaveBeenCalled();
+    // Result was logged as succeeded
     expect(infoSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[PostReceive] Deploy pipeline result for "plex":'),
+      expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": succeeded'),
     );
   });
 
@@ -275,36 +269,21 @@ describe('processPostReceive (pipeline paths)', () => {
     );
   });
 
-  it('instantiates OpenBaoClient and uses getHostSecret for agent token resolution', async () => {
-    isConfiguredSpy.mockReturnValue(true);
-    const loadConfigSpy = spyOn(openbaoConfig, 'loadOpenBaoConfig').mockReturnValue({
-      url: 'http://openbao:8200',
-      token: 'test',
-    });
+  it('resolves agent keypair for token resolution and completes deploy', async () => {
+    const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
 
-    try {
-      const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
+    await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
 
-      await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
-
-      // tokenResolver invoked OpenBaoClient.getHostSecret
-      expect(getHostSecretSpy).toHaveBeenCalledWith('homeserver', 'agent_token');
-      // Agent deploy was called with the resolved token, meaning the pipeline completed
-      expect(agentDeploySpy).toHaveBeenCalled();
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": succeeded'),
-      );
-    } finally {
-      loadConfigSpy.mockRestore();
-    }
+    // tokenResolver resolved the keypair
+    expect(getPrivateKeyForHostSpy).toHaveBeenCalledWith('homeserver');
+    // Agent deploy was called, meaning the pipeline passed the signer to AgentClient
+    expect(agentDeploySpy).toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": succeeded'),
+    );
   });
 
   it('secretResolver.resolve fetches secrets via StackSecretsRepository when variables are present', async () => {
-    isConfiguredSpy.mockReturnValue(true);
-    const loadConfigSpy = spyOn(openbaoConfig, 'loadOpenBaoConfig').mockReturnValue({
-      url: 'http://openbao:8200',
-      token: 'test',
-    });
     const getSecretSpy = spyOn(StackSecretsRepository.prototype, 'get').mockImplementation(
       async (_stack: string, key: string) => (key === 'API_TOKEN' ? 'secret-value' : null),
     );
@@ -342,16 +321,16 @@ describe('processPostReceive (pipeline paths)', () => {
         expect.objectContaining({ envContent: expect.stringContaining('API_TOKEN') }),
       );
     } finally {
-      loadConfigSpy.mockRestore();
       getSecretSpy.mockRestore();
     }
   });
 
-  it('tokenResolver throws when OpenBao not configured (baoClient is null)', async () => {
-    // isOpenBaoConfigured returns false (default in beforeEach), so baoClient stays null.
-    // tokenResolver throws "OpenBao not configured" inside dispatch(), which is caught by
-    // pipeline.dispatch()'s try/catch and returns { status: 'failed' }.
-    // processPostReceive then logs console.info with the result (not a thrown error).
+  it('tokenResolver throws when no keypair stored for host', async () => {
+    // getPrivateKeyForHost returns null → tokenResolver throws "No agent keypair found".
+    // pipeline.dispatch() catches the error and returns { status: 'failed' }.
+    // processPostReceive logs console.info with the result (not a thrown error).
+    getPrivateKeyForHostSpy.mockResolvedValue(null as never);
+
     const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
 
     await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
@@ -362,33 +341,9 @@ describe('processPostReceive (pipeline paths)', () => {
     );
   });
 
-  it('tokenResolver throws when no agent token found in OpenBao for host', async () => {
-    isConfiguredSpy.mockReturnValue(true);
-    const loadConfigSpy = spyOn(openbaoConfig, 'loadOpenBaoConfig').mockReturnValue({
-      url: 'http://openbao:8200',
-      token: 'test',
-    });
-    // getHostSecret returns null → tokenResolver throws "No agent token found"
-    getHostSecretSpy.mockResolvedValue(null as never);
-
-    try {
-      const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
-
-      await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
-
-      // Result logged as failed (tokenResolver error caught inside dispatch)
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": failed'),
-      );
-    } finally {
-      loadConfigSpy.mockRestore();
-    }
-  });
-
   it('secretResolver.resolve returns empty record when repo has no stored secrets', async () => {
     // StackSecretsRepository.get returns null for all variables (nothing stored).
     // secretResolver.resolve filters out null values and returns {}.
-    // tokenResolver still throws (baoClient is null, default), so the deploy fails.
     const getSecretSpy = spyOn(StackSecretsRepository.prototype, 'get').mockResolvedValue(null);
 
     try {
