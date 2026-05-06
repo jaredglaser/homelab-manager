@@ -347,6 +347,56 @@ describe('HostCollectorManager', () => {
     for (const c of created) expect(c.stopped).toBe(true);
   });
 
+  it('runners() returns promises for all active runners', async () => {
+    const { factory } = makeFactory();
+    const manager = new HostCollectorManager(
+      makeWorkerConfig(),
+      controller.signal,
+      async () => [makeHost('a'), makeHost('b')],
+      async (n) => `tok-${n}`,
+      factory,
+    );
+
+    await manager.reconcile();
+    const runners = manager.runners();
+    expect(runners).toHaveLength(2);
+    expect(runners.every((r) => r instanceof Promise)).toBe(true);
+
+    await manager[Symbol.asyncDispose]();
+  });
+
+  it('logs error when a runner rejects', async () => {
+    let rejectFn!: (err: Error) => void;
+    const factory: HostCollectorFactory = (host, _token, controller, stack) => {
+      const runner = new Promise<void>((_, rej) => { rejectFn = rej; });
+      const collector = {
+        name: `fake-${host.name}`,
+        stopped: false,
+        run: () => runner,
+        stop: function () {},
+        [Symbol.asyncDispose]: async function () {},
+      } as unknown as BaseCollector;
+      stack.use(collector);
+      controller.signal.addEventListener('abort', () => rejectFn(new Error('aborted')), { once: true });
+      return { collectors: [collector], runners: [runner] };
+    };
+
+    const manager = new HostCollectorManager(
+      makeWorkerConfig(),
+      controller.signal,
+      async () => [makeHost('a')],
+      async () => 'tok',
+      factory,
+    );
+
+    await manager.reconcile();
+    rejectFn(new Error('stream died'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(console.error).toHaveBeenCalled();
+
+    await manager[Symbol.asyncDispose]();
+  });
+
   it('detaches per-host abort listeners from globalSignal on remove', async () => {
     const { factory } = makeFactory();
     let hosts = [makeHost('a'), makeHost('b'), makeHost('c')];
