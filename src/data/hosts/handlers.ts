@@ -4,8 +4,14 @@ import type { HostListItem, HealthCheckOutcome } from '@/lib/hosts/host-utils';
 
 export type { HostListItem } from '@/lib/hosts/host-utils';
 
+export interface KeypairsDep {
+  createForHost: (hostName: string) => Promise<{ publicJwk: import('jose').JWK }>;
+  deleteForHost: (hostName: string) => Promise<void>;
+}
+
 export interface AddHostResult {
   host: HostListItem;
+  publicJwk?: import('jose').JWK;
 }
 
 export type HostOperationResult =
@@ -59,20 +65,16 @@ export async function handleCheckHostHealth(
 }
 
 export async function handleRemoveHost(
-  deps: HostHandlerDeps & {
-    deleteToken: (hostname: string) => Promise<void>;
-  },
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { hostId: number },
 ): Promise<{ success: boolean }> {
-
-
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   try {
-    await deps.deleteToken(host.name);
+    await deps.keypairs.deleteForHost(host.name);
   } catch (err) {
-    console.error(`[removeHost] Failed to delete OpenBao token for ${host.name}:`, err instanceof Error ? err.message : err);
+    console.error(`[removeHost] Failed to delete agent keypair for ${host.name}:`, err instanceof Error ? err.message : err);
   }
 
   await deps.repo.delete(data.hostId);
@@ -100,7 +102,7 @@ export async function handleRefreshHostStatus(
 
 export async function handleUpdateAgent(
   deps: HostHandlerDeps & {
-    getToken: (hostname: string) => Promise<string>;
+    getSigner: (hostname: string) => Promise<() => Promise<string>>;
     checkHealth: (url: string) => Promise<HealthCheckOutcome>;
   },
   data: { hostId: number },
@@ -123,21 +125,23 @@ export async function handleUpdateAgent(
   }
   const currentVersion = preCheck.version;
 
-  // 2. Fetch token
-  let token: string;
+  // 2. Retrieve signer and mint a JWT for the request
+  let signer: () => Promise<string>;
   try {
-    token = await deps.getToken(host.name);
+    signer = await deps.getSigner(host.name);
   } catch {
     return {
       hostId: host.id,
       healthy: false,
-      error: 'Could not retrieve agent token',
+      error: 'Could not retrieve agent keypair',
       suggestions: [
-        'Check that the OpenBao container is running',
-        'Verify that OPENBAO_TOKEN is set correctly in your environment',
+        'Check that the master key is configured (MASTER_KEY env var)',
+        'Verify the agent has been enrolled with a generated public JWK',
       ],
     };
   }
+
+  const jwt = await signer();
 
   // 3. Trigger update on agent
   let triggerResponse: Response;
@@ -145,7 +149,7 @@ export async function handleUpdateAgent(
     const agentBaseUrl = host.agentUrl.replace(/\/+$/, '');
     triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${jwt}` },
     });
   } catch (err) {
     return {
@@ -237,92 +241,62 @@ export async function handleUpdateHost(
 
 /**
  * Register an existing agent that's already running. No container provisioning:
- * just creates the DB record, stores the token in OpenBao, and health-checks.
+ * creates the DB record and generates a keypair. Status is pending until the
+ * operator installs the public JWK in the agent's AGENT_TRUSTED_PUBKEY env and
+ * a follow-up health check passes.
  */
 export async function handleRegisterExistingHost(
-  deps: HostHandlerDeps & {
-    storeToken: (hostname: string, token: string) => Promise<void>;
-    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
-  },
-  data: { name: string; agentUrl: string; agentToken: string },
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { name: string; agentUrl: string },
 ): Promise<AddHostResult> {
-
-
   const host = await deps.repo.create({
     name: data.name,
     agentUrl: data.agentUrl,
   });
 
+  let publicJwk;
   try {
-    await deps.storeToken(data.name, data.agentToken);
+    ({ publicJwk } = await deps.keypairs.createForHost(data.name));
   } catch (err) {
     await deps.repo.delete(host.id);
     throw new Error(
-      `Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record has been cleaned up.`
+      `Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`
     );
   }
 
-  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, HEALTH_CHECK_DELAYS_MS.slice(0, 3));
-  const status: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
-  await deps.repo.updateStatus(host.id, status);
-
-  if (healthResult.healthy && healthResult.version) {
-    await deps.repo.updateAgentVersion(host.id, healthResult.version);
-  }
-
   return {
-    host: toHostListItem(host, {
-      agentVersion: (healthResult.healthy && healthResult.version) ? healthResult.version : null,
-      status,
-    }),
+    host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
+    publicJwk,
   };
 }
 
 /**
- * Verify and register a user-managed agent. Health-checks first (before creating
- * any DB record), then creates the host record and stores the token in OpenBao.
+ * Register a user-managed agent. Generates an Ed25519 keypair and returns the
+ * public JWK to the operator, who installs it in the agent's AGENT_TRUSTED_PUBKEY
+ * env. Status is pending until the operator installs the pubkey and a follow-up
+ * health check passes.
  */
 export async function handleVerifyHost(
-  deps: HostHandlerDeps & {
-    storeToken: (hostname: string, token: string) => Promise<void>;
-    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
-    verifyToken: (agentUrl: string, token: string) => Promise<void>;
-  },
-  data: { name: string; agentUrl: string; agentToken: string; capabilities?: { docker?: boolean; zfs?: boolean } },
+  deps: HostHandlerDeps & { keypairs: KeypairsDep },
+  data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
-
-
-  // 1. Health check the agent before creating any records
-  const healthResult = await retryHealthCheck(deps.checkHealth, data.agentUrl, HEALTH_CHECK_DELAYS_MS.slice(0, 3));
-  if (!healthResult.healthy) {
-    throw new Error(`Agent health check failed: ${healthResult.error}`);
-  }
-
-  // 2. Verify the token is accepted by the agent before storing anything
-  await deps.verifyToken(data.agentUrl, data.agentToken);
-
-  // 3. Create DB record
   const host = await deps.repo.create({
     name: data.name,
     agentUrl: data.agentUrl,
     capabilities: data.capabilities,
   });
 
-  // 4. Store token in OpenBao
+  let publicJwk;
   try {
-    await deps.storeToken(data.name, data.agentToken);
+    ({ publicJwk } = await deps.keypairs.createForHost(data.name));
   } catch (err) {
     await deps.repo.delete(host.id);
-    throw new Error(`Failed to store agent token in OpenBao: ${err instanceof Error ? err.message : err}. Host record has been cleaned up.`);
+    throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`);
   }
 
-  // 5. Update status
-  const status: HostStatus = 'healthy';
-  await deps.repo.updateStatus(host.id, status);
-  if (healthResult.version) await deps.repo.updateAgentVersion(host.id, healthResult.version);
-
   return {
-    host: toHostListItem(host, { agentVersion: healthResult.version || null, status }),
+    host: toHostListItem(host, { agentVersion: null, status: 'pending' }),
+    publicJwk,
   };
 }
 
@@ -345,23 +319,21 @@ async function tryRemoveAgent(
   }
 }
 
-async function tryDeleteToken(
-  deleteToken: (hostname: string) => Promise<void>,
+async function tryDeleteKeypair(
+  keypairs: KeypairsDep,
   hostname: string,
   context: string,
 ): Promise<void> {
   try {
-    await deleteToken(hostname);
+    await keypairs.deleteForHost(hostname);
   } catch (err) {
-    console.error(`[addHost] Failed to delete OpenBao token for ${hostname} ${context}:`, errorMessage(err));
+    console.error(`[addHost] Failed to delete agent keypair for ${hostname} ${context}:`, errorMessage(err));
   }
 }
 
 interface AddHostDeps extends HostHandlerDeps {
-  provision: (socketProxyUrl: string, opts: { hostId: number; agentPort: number; agentToken: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
-  generateToken: () => string;
-  storeToken: (hostname: string, token: string) => Promise<void>;
-  deleteToken: (hostname: string) => Promise<void>;
+  provision: (socketProxyUrl: string, opts: { hostId: number; agentPort: number; publicJwkJson: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
+  keypairs: KeypairsDep;
   checkHealth: (url: string) => Promise<HealthCheckOutcome>;
   removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>;
 }
@@ -384,12 +356,12 @@ async function rollbackPostProvision(
 async function rollbackHealthCheckFailure(
   deps: AddHostDeps, hostId: number, data: AddHostInput, healthError: string,
 ): Promise<never> {
-  await tryDeleteToken(deps.deleteToken, data.name, 'during rollback');
+  await tryDeleteKeypair(deps.keypairs, data.name, 'during rollback');
   const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, hostId, `for ${data.name} after health check failure`);
   await deps.repo.delete(hostId);
   const suffix = containerCleaned
-    ? 'Host record, token, and container have been cleaned up.'
-    : 'Host record and token deleted but agent container cleanup failed; manual removal may be required.';
+    ? 'Host record, keypair, and container have been cleaned up.'
+    : 'Host record and keypair deleted but agent container cleanup failed; manual removal may be required.';
   throw new Error(`Agent provisioned but health check failed after 3 attempts: ${healthError}. ${suffix}`);
 }
 
@@ -401,12 +373,12 @@ async function finalizeHostRecord(
     await deps.repo.updateStatus(hostId, 'healthy');
     if (healthResult.version) await deps.repo.updateAgentVersion(hostId, healthResult.version);
   } catch (err) {
-    await tryDeleteToken(deps.deleteToken, data.name, 'during finalization rollback');
+    await tryDeleteKeypair(deps.keypairs, data.name, 'during finalization rollback');
     const containerCleaned = await tryRemoveAgent(deps.removeAgent, data.socketProxyUrl, hostId, `for ${data.name} during finalization rollback`);
     await deps.repo.delete(hostId);
     const suffix = containerCleaned
-      ? 'Host record, token, and container have been cleaned up.'
-      : 'Host record and token deleted but agent container cleanup failed; manual removal may be required.';
+      ? 'Host record, keypair, and container have been cleaned up.'
+      : 'Host record and keypair deleted but agent container cleanup failed; manual removal may be required.';
     console.error(`[addHost] Agent is healthy but failed to finalize host record for ${data.name}:`, errorMessage(err), suffix);
     throw new Error(`Agent is healthy but failed to finalize host record: ${errorMessage(err)}. ${suffix}`);
   }
@@ -416,32 +388,36 @@ export async function handleAddHost(
   deps: AddHostDeps,
   data: AddHostInput,
 ): Promise<AddHostResult> {
-
-
-  const plainToken = deps.generateToken();
-
   const host = await deps.repo.create({
     name: data.name,
     agentUrl: '',
   });
+
+  let publicJwk;
+  try {
+    ({ publicJwk } = await deps.keypairs.createForHost(data.name));
+  } catch (err) {
+    await deps.repo.delete(host.id);
+    throw err;
+  }
 
   let provisionResult;
   try {
     provisionResult = await deps.provision(data.socketProxyUrl, {
       hostId: host.id,
       agentPort: data.agentPort,
-      agentToken: plainToken,
+      publicJwkJson: JSON.stringify(publicJwk),
       agentImage: getAgentImage(),
       socketProxyUrl: data.socketProxyUrl,
     });
   } catch (err) {
+    await tryDeleteKeypair(deps.keypairs, data.name, 'after provision failure');
     await deps.repo.delete(host.id);
     throw err;
   }
 
   try {
     await deps.repo.updateAgentUrl(host.id, provisionResult.agentUrl);
-    await deps.storeToken(data.name, plainToken);
   } catch (err) {
     await rollbackPostProvision(deps, host.id, data, err, `for ${data.name} after post-provision failure`);
   }
@@ -452,13 +428,13 @@ export async function handleAddHost(
     return rollbackHealthCheckFailure(deps, host.id, data, healthResult.error);
   }
 
-  const status: HostStatus = 'healthy';
   await finalizeHostRecord(deps, host.id, data, healthResult);
 
   return {
     host: toHostListItem(
       { ...host, agentUrl: provisionResult.agentUrl },
-      { agentVersion: healthResult.version || null, status },
+      { agentVersion: healthResult.version || null, status: 'healthy' },
     ),
+    publicJwk,
   };
 }
