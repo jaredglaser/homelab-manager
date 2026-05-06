@@ -9,7 +9,7 @@ describe('AgentClient', () => {
     fetchMock = mock();
     client = new AgentClient({
       agentUrl: 'http://agent:9090',
-      agentToken: 'test-token',
+      signer: async () => 'mock-jwt',
       timeoutMs: 5000,
       fetchFn: fetchMock as unknown as typeof fetch,
     });
@@ -37,7 +37,7 @@ describe('AgentClient', () => {
       const [url, options] = fetchMock.mock.calls[0];
       expect(url).toBe('http://agent:9090/stacks/deploy');
       expect(options.method).toBe('POST');
-      expect(options.headers['Authorization']).toBe('Bearer test-token');
+      expect(options.headers['Authorization']).toBe('Bearer mock-jwt');
       expect(options.headers['Content-Type']).toBe('application/json');
 
       const body = JSON.parse(options.body);
@@ -145,6 +145,23 @@ describe('AgentClient', () => {
 
       await expect(client.health()).rejects.toThrow(AgentClientError);
     });
+
+    it('mints a fresh JWT per request via signer', async () => {
+      let counter = 0;
+      const signer = async () => `jwt-${++counter}`;
+      const fetchFn = mock(async () =>
+        new Response(JSON.stringify({ status: 'healthy', version: '1.0.0', docker: { version: '24' } }), {
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+      const client = new AgentClient({ agentUrl: 'http://x', signer, fetchFn });
+      await client.health();
+      await client.health();
+      const headers0 = (fetchFn.mock.calls[0]?.[1] as RequestInit | undefined)?.headers as Record<string, string>;
+      const headers1 = (fetchFn.mock.calls[1]?.[1] as RequestInit | undefined)?.headers as Record<string, string>;
+      expect(headers0?.Authorization).toBe('Bearer jwt-1');
+      expect(headers1?.Authorization).toBe('Bearer jwt-2');
+    });
   });
 
   describe('getZfsPools', () => {
@@ -175,7 +192,7 @@ describe('AgentClient', () => {
       const [url, options] = fetchMock.mock.calls[0];
       expect(url).toBe('http://agent:9090/zfs/pools');
       expect(options.method).toBe('GET');
-      expect(options.headers['Authorization']).toBe('Bearer test-token');
+      expect(options.headers['Authorization']).toBe('Bearer mock-jwt');
     });
 
     it('handles null fragmentation', async () => {

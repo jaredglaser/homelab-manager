@@ -35,7 +35,7 @@ export class AgentClientError extends Error {
 
 interface AgentClientConfig {
   agentUrl: string;
-  agentToken: string;
+  signer: () => Promise<string>;
   /** Deploy timeout in milliseconds. Default: 300_000 (5 minutes). */
   timeoutMs?: number;
   /** Injectable fetch for testing. Defaults to global fetch. */
@@ -53,8 +53,7 @@ export interface AgentHealthResponse {
  * Adapts the raw agent JSON into the internal AgentDeployResponse / AgentHealthResponse shapes.
  *
  * HTTPS is supported natively: use https:// in the agent URL.
- * For self-signed certs (e.g., from OpenBao PKI), set NODE_EXTRA_CA_CERTS
- * env var to the CA certificate path.
+ * For self-signed certs, set NODE_EXTRA_CA_CERTS env var to the CA certificate path.
  *
  * Transient failures (network errors, 502/503/504) are retried up to 3 total
  * attempts with exponential backoff (1s, 2s) via the shared `retry()` helper.
@@ -63,14 +62,14 @@ export interface AgentHealthResponse {
  */
 export class AgentClient {
   private readonly agentUrl: string;
-  private readonly agentToken: string;
+  private readonly signer: () => Promise<string>;
   private readonly timeoutMs: number;
   private readonly fetchFn: typeof fetch;
 
   constructor(config: AgentClientConfig) {
     // Strip trailing slash
     this.agentUrl = config.agentUrl.replace(/\/$/, '');
-    this.agentToken = config.agentToken;
+    this.signer = config.signer;
     this.timeoutMs = config.timeoutMs ?? 300_000;
     this.fetchFn = config.fetchFn ?? fetch;
   }
@@ -105,11 +104,12 @@ export class AgentClient {
 
   async *streamZfsStats(signal: AbortSignal): AsyncGenerator<ZfsStatsEvent> {
     const url = `${this.agentUrl}/zfs/stats/stream`;
+    const jwt = await this.signer();
     let response: Response;
     try {
       response = await this.fetchFn(url, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${this.agentToken}` },
+        headers: { 'Authorization': `Bearer ${jwt}` },
         signal,
       });
     } catch (err) {
@@ -160,10 +160,11 @@ export class AgentClient {
   }
 
   private async postJson<T>(path: string, body: unknown): Promise<T> {
+    const jwt = await this.signer();
     return this.request<T>(path, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${this.agentToken}`,
+        'Authorization': `Bearer ${jwt}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -171,11 +172,10 @@ export class AgentClient {
   }
 
   private async getJson<T>(path: string): Promise<T> {
+    const jwt = await this.signer();
     return this.request<T>(path, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.agentToken}`,
-      },
+      headers: { 'Authorization': `Bearer ${jwt}` },
     });
   }
 
