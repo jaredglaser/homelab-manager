@@ -17,9 +17,22 @@ import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { AgentClient } from '@/lib/clients/agent-client';
 import { OpenBaoClient } from '@/lib/clients/openbao-client';
 import * as openbaoConfig from '@/lib/config/openbao-config';
+import { StackSecretsRepository } from '@/lib/database/repositories/stack-secrets-repository';
+import * as masterKey from '@/lib/crypto/master-key';
 import type { ManagedHost } from '@/lib/deploy/types';
 
 // Helpers
+
+async function makeFakeKeyring(): Promise<masterKey.MasterKeyring> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    Buffer.alloc(32, 7),
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+  return { activeKid: 'v1', keys: new Map([['v1', key]]) };
+}
 
 const MANIFEST_WITH_PLEX = 'stacks:\n  plex:\n    host: homeserver\n    autoDeploy: true\n';
 
@@ -68,6 +81,7 @@ describe('processPostReceive (pipeline paths)', () => {
   let findByNameSpy: ReturnType<typeof spyOn>;
   let agentDeploySpy: ReturnType<typeof spyOn>;
   let getHostSecretSpy: ReturnType<typeof spyOn>;
+  let loadMasterKeyringSpy: ReturnType<typeof spyOn>;
 
   const mockPool = {};
   const mockDbClient = { getPool: () => mockPool };
@@ -83,6 +97,12 @@ describe('processPostReceive (pipeline paths)', () => {
     // Individual tests that want OpenBao enabled override it with mockReturnValue(true).
     // This prevents the real env var (OPENBAO_URL) from triggering real HTTP requests.
     isConfiguredSpy = spyOn(openbaoConfig, 'isOpenBaoConfigured').mockReturnValue(false);
+
+    // loadMasterKeyring reads MASTER_KEY/MASTER_KEY_FILE from the environment.
+    // Spy on it so tests run without those env vars and without touching the FS.
+    loadMasterKeyringSpy = spyOn(masterKey, 'loadMasterKeyring').mockResolvedValue(
+      await makeFakeKeyring(),
+    );
 
     // Database connection: return a mock client with an empty pool object
     getClientSpy = spyOn(databaseConnectionManager, 'getClient').mockResolvedValue(
@@ -132,6 +152,7 @@ describe('processPostReceive (pipeline paths)', () => {
     infoSpy.mockRestore();
     errorSpy.mockRestore();
     isConfiguredSpy.mockRestore();
+    loadMasterKeyringSpy.mockRestore();
     getClientSpy.mockRestore();
     insertDeployIfNoActiveSpy.mockRestore();
     getLatestSuccessfulSpy.mockRestore();
@@ -278,13 +299,13 @@ describe('processPostReceive (pipeline paths)', () => {
     }
   });
 
-  it('secretResolver.resolve fetches secrets via OpenBao when variables are present', async () => {
+  it('secretResolver.resolve fetches secrets via StackSecretsRepository when variables are present', async () => {
     isConfiguredSpy.mockReturnValue(true);
     const loadConfigSpy = spyOn(openbaoConfig, 'loadOpenBaoConfig').mockReturnValue({
       url: 'http://openbao:8200',
       token: 'test',
     });
-    const getSecretSpy = spyOn(OpenBaoClient.prototype, 'getSecret').mockImplementation(
+    const getSecretSpy = spyOn(StackSecretsRepository.prototype, 'get').mockImplementation(
       async (_stack: string, key: string) => (key === 'API_TOKEN' ? 'secret-value' : null),
     );
 
@@ -364,36 +385,43 @@ describe('processPostReceive (pipeline paths)', () => {
     }
   });
 
-  it('secretResolver.resolve returns empty record when baoClient is null', async () => {
-    // isOpenBaoConfigured=false (default), so baoClient=null.
-    // secretResolver.resolve is called with variables but returns {} because baoClient is null.
-    // To trigger secretResolver with variables, use a compose file with env var references.
-    const sha1 = await commitFiles(repoPath, () => ({
-      files: [
-        { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX },
-        {
-          path: 'plex/docker-compose.yml',
-          content: 'services:\n  plex:\n    environment:\n      - TOKEN=${API_TOKEN}\n',
-        },
-      ],
-      message: 'initial',
-      author: { name: 'test', email: 'test@test.com' },
-    }));
-    const sha2 = await commitFiles(repoPath, () => ({
-      files: [
-        {
-          path: 'plex/docker-compose.yml',
-          content:
-            'services:\n  plex:\n    environment:\n      - TOKEN=${API_TOKEN}\n    image: plex:v2\n',
-        },
-      ],
-      message: 'update plex',
-      author: { name: 'test', email: 'test@test.com' },
-    }));
+  it('secretResolver.resolve returns empty record when repo has no stored secrets', async () => {
+    // StackSecretsRepository.get returns null for all variables (nothing stored).
+    // secretResolver.resolve filters out null values and returns {}.
+    // tokenResolver still throws (baoClient is null, default), so the deploy fails.
+    const getSecretSpy = spyOn(StackSecretsRepository.prototype, 'get').mockResolvedValue(null);
 
-    await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
+    try {
+      const sha1 = await commitFiles(repoPath, () => ({
+        files: [
+          { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX },
+          {
+            path: 'plex/docker-compose.yml',
+            content: 'services:\n  plex:\n    environment:\n      - TOKEN=${API_TOKEN}\n',
+          },
+        ],
+        message: 'initial',
+        author: { name: 'test', email: 'test@test.com' },
+      }));
+      const sha2 = await commitFiles(repoPath, () => ({
+        files: [
+          {
+            path: 'plex/docker-compose.yml',
+            content:
+              'services:\n  plex:\n    environment:\n      - TOKEN=${API_TOKEN}\n    image: plex:v2\n',
+          },
+        ],
+        message: 'update plex',
+        author: { name: 'test', email: 'test@test.com' },
+      }));
 
-    // Pipeline ran (resolve was called with variables but returned {} due to null baoClient)
-    expect(insertDeployIfNoActiveSpy).toHaveBeenCalledTimes(1);
+      await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
+
+      // Pipeline ran (resolve was called with variables but returned {} because repo had nothing)
+      expect(insertDeployIfNoActiveSpy).toHaveBeenCalledTimes(1);
+      expect(getSecretSpy).toHaveBeenCalledWith('plex', 'API_TOKEN');
+    } finally {
+      getSecretSpy.mockRestore();
+    }
   });
 });

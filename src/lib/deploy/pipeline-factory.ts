@@ -27,6 +27,8 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   const { DeployPipeline } = await import('@/lib/deploy/pipeline');
   const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
   const { loadOpenBaoConfig, isOpenBaoConfigured } = await import('@/lib/config/openbao-config');
+  const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
 
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
@@ -36,6 +38,9 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
   if (isOpenBaoConfigured()) {
     baoClient = new OpenBaoClient(loadOpenBaoConfig());
   }
+
+  const keyring = await loadMasterKeyring();
+  const stackSecrets = new StackSecretsRepository(pool, keyring);
 
   // DeployRepository and HostRepository are lightweight pool wrappers.
   // The pool itself is cached by databaseConnectionManager, so per-call allocation
@@ -53,19 +58,12 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     secretResolver: {
       async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
         if (variables.length === 0) return {};
-        if (!baoClient) {
-          console.info(`[deploy] OpenBao not configured, skipping secrets for stack "${stack}": ${variables.join(', ')}`);
-          return {};
-        }
         const entries = await Promise.all(
-          variables.map(async (v) => {
-            const val = await baoClient!.getSecret(stack, v);
-            return [v, val] as const;
-          }),
+          variables.map(async (v) => [v, await stackSecrets.get(stack, v)] as const),
         );
         const secrets: Record<string, string> = {};
-        for (const [key, val] of entries) {
-          if (val !== null) secrets[key] = val;
+        for (const [k, v] of entries) {
+          if (v !== null) secrets[k] = v;
         }
         return secrets;
       },
