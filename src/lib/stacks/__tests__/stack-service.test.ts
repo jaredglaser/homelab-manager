@@ -8,7 +8,7 @@ import {
 } from '@/lib/stacks/stack-mappers';
 import type { DeployDeps } from '@/lib/stacks/stack-mappers';
 import type { DeployRecord } from '@/lib/deploy/types';
-import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
+const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 describe('extractVariableNames', () => {
   test('extracts simple variable references', () => {

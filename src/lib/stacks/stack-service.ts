@@ -10,7 +10,8 @@ import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
 import yaml from 'js-yaml';
-import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
+/** Safe segment for stack/variable names: letters, numbers, hyphens, underscores. Prevents path traversal. */
+const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 import {
   manifestEntryToSummary,
   manifestEntryToDetail,
