@@ -129,6 +129,7 @@ export function handleLogStream(
         };
         request.signal.addEventListener('abort', onAbortDuringAwait);
 
+        // @types/dockerode 4.0.1 types logs() stream result as any; cast required to use Readable API
         liveStream = (await container.logs({
           follow: true,
           stdout: true,

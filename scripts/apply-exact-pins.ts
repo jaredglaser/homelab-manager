@@ -47,7 +47,7 @@ function applyExactPins(path: string, deps: DepReport[]) {
     }
   }
   writeFileSync(path, raw);
-  console.error(`[${path}] pinned ${count} entries to exact versions`);
+  console.info(`[${path}] pinned ${count} entries to exact versions`);
 }
 
 applyExactPins('package.json', report.root);

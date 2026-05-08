@@ -122,6 +122,14 @@ async function pickVersion(pkg: string, currentSpec: string): Promise<DepReport>
   return report;
 }
 
+async function batchMap<T, U>(items: T[], limit: number, fn: (item: T) => Promise<U>): Promise<U[]> {
+  const results: U[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    results.push(...await Promise.all(items.slice(i, i + limit).map(fn)));
+  }
+  return results;
+}
+
 async function processPackageJson(path: string): Promise<DepReport[]> {
   const raw = readFileSync(path, 'utf8');
   const pkgJson = JSON.parse(raw) as {
@@ -139,7 +147,7 @@ async function processPackageJson(path: string): Promise<DepReport[]> {
 
   console.error(`[${path}] resolving ${allDeps.length} packages...`);
 
-  const results = await Promise.all(allDeps.map(([n, s]) => pickVersion(n, s)));
+  const results = await batchMap(allDeps, 10, ([n, s]) => pickVersion(n, s));
 
   let updated = raw;
   for (let i = 0; i < allDeps.length; i++) {

@@ -222,6 +222,7 @@ function openContainerStream(
   const container = docker.getContainer(id);
 
   container.stats({ stream: true }).then((statsStream) => {
+    // @types/dockerode 4.0.1 types stats() stream result as any; cast required to use Readable API
     const readable = statsStream as unknown as Readable;
     if (ctx.closed) {
       if (typeof readable.destroy === 'function') readable.destroy();
