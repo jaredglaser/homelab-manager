@@ -20,7 +20,7 @@
 
 ```bash
 # Development (local web + Docker services)
-bun run dev:local:up          # Start postgres + worker + agent + OpenBao in Docker
+bun run dev:local:up          # Start postgres + worker + agent in Docker (requires MASTER_KEY or MASTER_KEY_FILE)
 bun dev                       # Start web server on port 3000 with HMR
 bun run dev:local:down        # Stop Docker services
 bun run dev:local:restart      # Recreate containers (picks up .env changes)
@@ -73,7 +73,8 @@ cd agent && bun run typecheck  # Agent type checking
 - **State:** Jotai (settings atoms) + TanStack Query
 - **Streaming:** SSE via TanStack Router server routes
 - **Charts:** Apache ECharts
-- **Clients:** Dockerode (Docker), pg (PostgreSQL), native fetch (Proxmox), OpenBao (secrets)
+- **Clients:** Dockerode (Docker), pg (PostgreSQL), native fetch (Proxmox)
+- **Crypto:** jose (JWT for agent auth, JWE for at-rest secret encryption)
 - **Database:** TimescaleDB (PostgreSQL 16, wide hypertables, auto-compression after 7 days)
 - **Worker:** Standalone Bun process for continuous data collection
 - **Testing:** `bun:test` with Happy-DOM + Testing Library
@@ -128,7 +129,7 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 
 - **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. MUI theme in `src/theme.ts` uses `cssVariables` mode. Custom backgrounds: `chartBg`, `level1-3`, `popup`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
 - **Settings**: Jotai atoms synced via SSE (`/api/settings`). Domain-scoped hooks (`useDockerSettings`, `useZfsSettings`, `useProxmoxSettings`, `useGeneralSettings`) provide optimistic setters and subscribe via `selectAtom` so each consumer only re-renders when its own slice changes. `useSettings()` remains as a composite wrapper for the settings page. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
-- **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL, token, and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `ContainerInventoryCollector`); it never connects to Docker directly. The agent token is stored in OpenBao (`OPENBAO_URL`/`OPENBAO_TOKEN`) or a permissioned file, not in .env.
+- **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `ContainerInventoryCollector`); it never connects to Docker directly. Agent auth uses per-host Ed25519 keypair JWTs: the web app generates the keypair at enrollment, stores the private JWK encrypted (JWE, master key from `MASTER_KEY_FILE`/`MASTER_KEY`), and returns the public JWK for the operator to install in the agent as `AGENT_TRUSTED_PUBKEY` (or via `AGENT_TRUSTED_PUBKEY_FILE`).
 - **Demo mode**: `VITE_DEMO_MODE=true` swaps server functions via Vite aliases and patches `EventSource`. Zero changes to routes/hooks/components. Mock entities defined in `src/lib/mock/entities.ts`.
 - **Worker**: Collectors extend `BaseCollector` (AsyncDisposable, exponential backoff). Entry point uses `AsyncDisposableStack` for cleanup.
 - **Entity IDs**: Docker=`host/container_id`, ZFS=`host/pool/vdev/disk` (hierarchy via indent: 0=pool, 2=vdev, 4+=disk), Proxmox=varies by type.
@@ -147,7 +148,7 @@ Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/g
 
 ### Database Tables
 
-Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`, `docker_container_events` (append-only state-change log; current snapshot via `DISTINCT ON (host, container_id) ORDER BY at DESC`, broadcast via `NOTIFY docker_container_change`). Plus `entity_metadata` (icons/labels), `settings` (KV with NOTIFY trigger), `managed_hosts` (Docker hosts with agent connection details), and `deploy_history` (deploy records with status tracking). Schema details in `migrations/`.
+Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`, `docker_container_events` (append-only state-change log; current snapshot via `DISTINCT ON (host, container_id) ORDER BY at DESC`, broadcast via `NOTIFY docker_container_change`). Plus `entity_metadata` (icons/labels), `settings` (KV with NOTIFY trigger), `managed_hosts` (Docker hosts with agent connection details), `deploy_history` (deploy records with status tracking), `stack_secrets` (per-stack environment-variable secrets, JWE-encrypted at rest), and `agent_keypairs` (per-host Ed25519 keypair: private JWK encrypted, public JWK as JSONB). Schema details in `migrations/`.
 
 ## Gotchas
 
