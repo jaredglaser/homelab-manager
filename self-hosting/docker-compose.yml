@@ -6,10 +6,6 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
   POSTGRES_SSL: "false"
 
-x-openbao-env: &openbao-env
-  OPENBAO_URL: "http://openbao:8200"
-  OPENBAO_TOKEN: ${OPENBAO_TOKEN}
-
 x-proxmox-env: &proxmox-env
   PROXMOX_HOST: ${PROXMOX_HOST:-}
   PROXMOX_PORT: ${PROXMOX_PORT:-8006}
@@ -39,37 +35,14 @@ services:
     networks:
       - homelab-network
 
-  # OpenBao - secrets storage for managed host agent tokens
-  openbao:
-    image: openbao/openbao
-    container_name: homelab-openbao
-    environment:
-      OPENBAO_TOKEN: ${OPENBAO_TOKEN}
-      BAO_ADDR: "http://127.0.0.1:8200"
-    volumes:
-      - openbao-data:/openbao/data
-      - ./openbao-entrypoint.sh:/openbao/entrypoint.sh:ro
-      - ./openbao.hcl:/openbao/config/prod.hcl:ro
-    entrypoint: ["/bin/sh", "/openbao/entrypoint.sh"]
-    cap_add:
-      - IPC_LOCK
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 15s
-    restart: unless-stopped
-    networks:
-      - homelab-network
-
   # Background worker - collects stats from Docker/ZFS hosts and writes to DB
   worker:
     image: ghcr.io/jaredglaser/homelab-manager-worker:latest
     container_name: homelab-worker
     command: bun src/worker/collector.ts
     environment:
-      <<: [*postgres-env, *openbao-env, *proxmox-env]
+      <<: [*postgres-env, *proxmox-env]
+      MASTER_KEY: ${MASTER_KEY:?Set MASTER_KEY (openssl rand -base64 32)}
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       WORKER_ENABLED: ${WORKER_ENABLED:-true}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED:-true}
@@ -83,8 +56,6 @@ services:
       - homelab-network
     depends_on:
       postgres:
-        condition: service_healthy
-      openbao:
         condition: service_healthy
     deploy:
       resources:
@@ -100,7 +71,8 @@ services:
     volumes:
       - git-repos:/data/repos
     environment:
-      <<: [*postgres-env, *openbao-env]
+      <<: *postgres-env
+      MASTER_KEY: ${MASTER_KEY:?Set MASTER_KEY (openssl rand -base64 32)}
       NODE_ENV: production
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       GIT_REPOS_DIR: "/data/repos"
@@ -114,8 +86,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      openbao:
-        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -123,7 +93,6 @@ services:
 
 volumes:
   pgdata:
-  openbao-data:
   git-repos:
 
 networks:
