@@ -50,17 +50,14 @@ WEB_PORT="3000"
 GIT_REPOS_DIR="./data/repos"
 GIT_SERVER_TOKEN="dev-git-token"
 
-# Dev Agent (auto-seeded when DEV_AGENT_TOKEN is set)
-DEV_AGENT_TOKEN="dev-agent-token"
+# Master encryption key for stack secrets and per-agent keypairs.
+# Generate with: openssl rand -base64 32
+MASTER_KEY="<generated>"
 
-# OpenBao (dev server with fixed root token)
-# Use localhost because the web server runs locally via `bun dev`,
-# outside Docker. The worker (inside Docker) overrides this to
-# "http://openbao:8200" via docker-compose environment.
-OPENBAO_URL="http://localhost:8200"
-OPENBAO_TOKEN="dev-root-token"
+# Local-dev-only seeder: provisions a "localhost" managed host and dev keypair on first run.
+HOMELAB_DEV_SEED="true"
 
-# Start management profile services (agent, socket-proxy, OpenBao)
+# Start management profile services (agent, socket-proxy)
 COMPOSE_PROFILES="management"
 ```
 
@@ -78,10 +75,9 @@ bun dev
 
 This starts:
 - **PostgreSQL**: database
-- **Worker**: background stats collector
-- **OpenBao**: secrets manager (file backend, auto-initializes on first start with root token `dev-root-token`, data persists across restarts)
+- **Worker**: background stats collector (generates a dev Ed25519 keypair for `localhost` on first run via `HOMELAB_DEV_SEED=true`)
 - **Socket proxy**: safe Docker API access
-- **Agent**: sidecar that streams container stats and handles deploys
+- **Agent**: sidecar that streams container stats and handles deploys (reads the public JWK from `data/dev-agent-pubkey.json`)
 
 ### Step 3: Add Sample Containers via the Stacks Repo
 
@@ -147,7 +143,6 @@ docker compose -f ~/stacks/samples/docker-compose.yml up -d
 2. The **Docker** page should show running containers with live CPU/memory stats
 3. The **Stacks** tab should appear in the top navigation (between Docker and ZFS)
 4. The **Stacks** page should list the `samples` stack
-5. OpenBao should be accessible at http://localhost:8200 (token: `dev-root-token`)
 
 If stats aren't flowing, check the worker logs:
 
@@ -177,7 +172,7 @@ bun run dev:local:down
 docker compose -f ~/stacks/samples/docker-compose.yml down
 ```
 
-To wipe all data and start fresh (includes database AND OpenBao secrets):
+To wipe all data and start fresh (includes database and all persisted volumes):
 
 ```bash
 bun run dev:local:wipe
@@ -238,42 +233,9 @@ bun build               # Production build (runs typecheck first)
 
 ## TLS Setup (Agent Communication)
 
-Agent sidecars can optionally serve over HTTPS. This is not required for local network use; agents work over plain HTTP by default. For production or untrusted networks, use OpenBao's PKI secrets engine to issue short-lived certificates.
+Agent sidecars can optionally serve over HTTPS. This is not required for local network use; agents work over plain HTTP by default.
 
-### Enable the PKI secrets engine
+For production or untrusted networks, provision a certificate from your own CA (e.g., step-ca, Let's Encrypt, or a corporate PKI):
 
-```bash
-bao secrets enable pki
-```
-
-### Configure the internal CA (10-year TTL)
-
-```bash
-bao write pki/root/generate/internal \
-  common_name="homelab-manager-ca" \
-  ttl=87600h
-```
-
-### Create a role for agent certificates (30-day max TTL)
-
-```bash
-bao write pki/roles/agent \
-  allowed_domains="*.homelab.local" \
-  allow_subdomains=true \
-  max_ttl=720h
-```
-
-### Issue a certificate for an agent
-
-```bash
-bao write pki/issue/agent \
-  common_name="agent.homelab.local" \
-  ttl=720h
-```
-
-### Usage
-
-- The agent reads the certificate and key from `TLS_CERT_PATH` and `TLS_KEY_PATH` env vars.
-- Set `NODE_EXTRA_CA_CERTS` on the web server and worker to trust the internal CA.
-- Certificates have short TTLs (30 days) and should be renewed before expiry.
-- The PKI engine acts as an internal CA, so no external certificate authority is required.
+- Set `TLS_CERT_PATH` and `TLS_KEY_PATH` on the agent container to point at the certificate and private key.
+- Set `NODE_EXTRA_CA_CERTS` on the web server and worker containers to trust your internal CA.

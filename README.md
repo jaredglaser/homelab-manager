@@ -38,7 +38,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 - **Proxmox Dashboard** - Cluster overview with per-node CPU, memory, and disk metrics via REST API polling
 - **Stack Management** - GitOps-style Docker Compose stack management with in-app editor (Monaco + YAML validation), deploy, teardown, rollback, and deploy history
 - **Host Management** - Add and configure managed Docker hosts via a setup wizard; agent sidecars handle stats streaming, log access, and deployments
-- **Secrets Management** - OpenBao integration for secure storage of agent tokens and deployment variables
+- **Secrets Management** - JWE-encrypted stack secrets and per-agent keypairs stored in TimescaleDB
 - **TimescaleDB Persistence** - 1-second collection interval with automatic compression and indefinite retention
 - **Live-Updating UI** - SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
 - **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated SSE channel
@@ -52,7 +52,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 git clone https://github.com/jaredglaser/homelab-manager.git
 cd homelab-manager
 cp .env.example .env          # Edit with your host details
-docker compose up -d          # Start TimescaleDB, web, worker, and OpenBao
+docker compose up -d          # Start TimescaleDB, web, and worker
 ```
 
 Open http://localhost:3000
@@ -68,7 +68,7 @@ For development setup, see the [Development Guide](docs/development.md).
 - [x] Proxmox API integration
 - [x] Stack management with GitOps deploy pipeline
 - [x] Host management UI with agent sidecar provisioning
-- [x] OpenBao secrets integration
+- [x] Encrypted-at-rest stack secrets and agent keypairs (JWE)
 - [x] Agent-updater sidecar for automatic container updates
 - [x] Pre-built Docker image on a container registry
 - [x] Live demo deployed to GitHub Pages

@@ -17,13 +17,10 @@ A real-time monitoring dashboard for Docker containers, ZFS pools, and Proxmox V
 
 ## Quick Start
 
-**1. Download the compose files**
+**1. Download the compose file**
 
 ```bash
 curl -O https://raw.githubusercontent.com/jaredglaser/homelab-manager/main/self-hosting/docker-compose.yml
-curl -O https://raw.githubusercontent.com/jaredglaser/homelab-manager/main/self-hosting/openbao-entrypoint.sh
-curl -O https://raw.githubusercontent.com/jaredglaser/homelab-manager/main/self-hosting/openbao.hcl
-chmod +x openbao-entrypoint.sh
 ```
 
 **2. Create a `.env` file**
@@ -36,8 +33,9 @@ POSTGRES_DB=homelab
 POSTGRES_USER=homelab
 POSTGRES_PASSWORD=changeme   # change this
 
-# OpenBao (secrets storage for managed host agent tokens)
-OPENBAO_TOKEN=changeme       # change this; use a long random string
+# Master encryption key for stack secrets and per-agent keypairs
+# Generate with: openssl rand -base64 32
+MASTER_KEY=changeme          # replace with a generated key
 ```
 
 See [Configuration](#configuration) for all available options.
@@ -56,7 +54,7 @@ Open `http://<your-server-ip>:3000` (or whichever port you set via `WEB_PORT`).
 docker compose down
 ```
 
-Data is persisted in Docker volumes (`pgdata`, `openbao-data`, `git-repos`) and survives restarts. To wipe everything:
+Data is persisted in Docker volumes (`pgdata`, `git-repos`) and survives restarts. To wipe everything:
 
 ```bash
 docker compose down -v
@@ -69,7 +67,6 @@ docker compose down -v
 | Service | Image | Description |
 |---------|-------|-------------|
 | `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (infinite retention, automatic compression after 7 days). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
-| `openbao` | `openbao/openbao` | Secrets storage for agent tokens used by managed Docker hosts. Auto-initializes and unseals on first start. |
 | `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - connects to agent sidecars (Docker/ZFS) and polls Proxmox, writes stats to TimescaleDB |
 | `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Streams stats from TimescaleDB to connected clients via SSE. |
 
@@ -88,7 +85,7 @@ All configuration is done via environment variables in your `.env` file.
 | `POSTGRES_DB` | Database name |
 | `POSTGRES_USER` | Database user |
 | `POSTGRES_PASSWORD` | Database password |
-| `OPENBAO_TOKEN` | Root token for OpenBao secrets storage (use a long random string) |
+| `MASTER_KEY` | Base64-encoded 256-bit key for at-rest encryption of stack secrets and agent keypairs. Generate with `openssl rand -base64 32`. |
 
 ### Web Server
 
@@ -130,35 +127,15 @@ ZFS monitoring works through agent sidecars (the same agents used for Docker man
 
 ### Docker Stack Management
 
-Stack management lets you deploy and manage Docker Compose stacks on your hosts via the dashboard. Agent tokens are stored in OpenBao, so no `.env` file or token file is distributed to hosts.
+Stack management lets you deploy and manage Docker Compose stacks on your hosts via the dashboard. Authentication uses short-lived JWTs signed by a per-host Ed25519 keypair stored encrypted in the database; no token file is distributed to hosts.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GIT_SERVER_TOKEN` | - | Token for authenticating git pushes to the built-in git server |
 
-> **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. The agent's auth token is stored in OpenBao (the `openbao` service in this compose) and never written to disk outside of it.
+> **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and sends the public JWK to the agent. Each deploy request carries a short-lived signed JWT; the agent verifies it against the trusted public key.
 >
-> **Adding a host:** Deploy the agent on your Docker host, then register it in **Settings → Managed Hosts** by providing the agent's URL and token. The dashboard verifies connectivity before saving.
->
-> **Agent setup:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose file, a `.env`, and a token file (`agent-token`) for the agent host. The same token is stored in OpenBao by the dashboard when you complete the wizard; it is never embedded in the compose environment directly.
->
-> The wizard-generated compose mounts the token from a local file rather than an env var:
->
-> ```yaml
-> agent:
->   image: ghcr.io/jaredglaser/homelab-manager-agent:latest
->   container_name: hlm-agent
->   ports:
->     - "9090:9090"
->   environment:
->     - AGENT_TOKEN_FILE=/run/secrets/agent_token
->     - DOCKER_HOST=tcp://socket-proxy:2375
->   volumes:
->     - ./agent-token:/run/secrets/agent_token:ro   # created by the wizard
->   restart: unless-stopped
-> ```
->
-> Run `chmod 600 agent-token` after creating the token file. Once the agent is running, provide its URL in the wizard's Verify step; the dashboard verifies connectivity and stores the token in OpenBao.
+> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose snippet for the agent and handles key exchange during the Verify step. Once connectivity is confirmed, the keypair is stored and the host is ready.
 
 ### Worker Behavior
 
@@ -181,8 +158,8 @@ POSTGRES_DB=homelab
 POSTGRES_USER=homelab
 POSTGRES_PASSWORD=a-strong-password-here
 
-# OpenBao
-OPENBAO_TOKEN=a-long-random-string-here
+# Master encryption key (generate with: openssl rand -base64 32)
+MASTER_KEY=a-long-base64-string-here
 
 # Web Server
 # WEB_PORT=3000
@@ -233,14 +210,8 @@ docker compose up -d
 - `WORKER_PROXMOX_ENABLED` defaults to `false`. Set it to `true` in your `.env` along with the `PROXMOX_*` connection vars, then restart the worker.
 
 **Managed hosts aren't reachable / Stacks page shows no hosts**
-- Verify the agent is running on the target host: `curl -H "Authorization: Bearer <token>" http://<agent-ip>:9090/health`
-- Check that the agent token was stored in OpenBao: `docker compose logs openbao`
-- If OpenBao was reinitialized (volume deleted), re-register all hosts via the wizard to re-store their tokens.
+- Verify the agent is running on the target host: `curl http://<agent-ip>:9090/health`
+- Re-enroll the host via the wizard if the keypair is missing (e.g., after a fresh database).
 
 **Port conflict on 3000**
 - Set `WEB_PORT` to any available port in your `.env`.
-
-**OpenBao fails to start**
-- Ensure `OPENBAO_TOKEN` is set in your `.env`.
-- Check logs: `docker compose logs openbao`
-- The `openbao-data` volume persists the init keys; do not delete it unless you intend to reinitialize.
