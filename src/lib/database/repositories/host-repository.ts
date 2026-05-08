@@ -44,8 +44,39 @@ function toManagedHost(row: Record<string, unknown>): ManagedHost {
   };
 }
 
+/** Notification channel the worker LISTENs on to react to host adds/updates/removes. */
+export const HOSTS_NOTIFY_CHANNEL = 'managed_hosts_change';
+
+export type HostChangeOp = 'add' | 'update' | 'remove';
+
+export interface HostChangePayload {
+  op: HostChangeOp;
+  name: string;
+}
+
 export class HostRepository {
   constructor(private readonly pool: Pool) {}
+
+  /**
+   * Emit a NOTIFY so the worker's HostsListener can reconcile its collector
+   * set without restarting. Failure to notify is logged but never bubbles up:
+   * the DB write already succeeded and a missed notify only delays pickup
+   * until the next mutation or worker restart, which is preferable to
+   * rolling back the user-visible operation.
+   */
+  private async notifyChange(op: HostChangeOp, name: string): Promise<void> {
+    try {
+      await this.pool.query(`SELECT pg_notify($1, $2)`, [
+        HOSTS_NOTIFY_CHANNEL,
+        JSON.stringify({ op, name } satisfies HostChangePayload),
+      ]);
+    } catch (err) {
+      console.error(
+        `[HostRepository] pg_notify(${HOSTS_NOTIFY_CHANNEL}) failed for ${op} ${name}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
 
   async create(input: CreateHostInput): Promise<ManagedHost> {
     const result = await this.pool.query(
@@ -54,7 +85,9 @@ export class HostRepository {
        RETURNING *`,
       [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
     );
-    return toManagedHost(result.rows[0] as Record<string, unknown>);
+    const host = toManagedHost(result.rows[0] as Record<string, unknown>);
+    await this.notifyChange('add', host.name);
+    return host;
   }
 
   async insert(input: CreateHostInput): Promise<number> {
@@ -64,6 +97,7 @@ export class HostRepository {
        RETURNING id`,
       [input.name, input.agentUrl, JSON.stringify(input.capabilities ?? {})],
     );
+    await this.notifyChange('add', input.name);
     return Number((result.rows[0] as Record<string, unknown>).id);
   }
 
@@ -113,10 +147,14 @@ export class HostRepository {
   }
 
   async updateAgentUrl(id: number, agentUrl: string): Promise<void> {
-    await this.pool.query(
-      'UPDATE managed_hosts SET agent_url = $1, updated_at = NOW() WHERE id = $2',
+    const result = await this.pool.query(
+      `UPDATE managed_hosts SET agent_url = $1, updated_at = NOW()
+       WHERE id = $2 RETURNING name`,
       [agentUrl, id],
     );
+    if (result.rows.length > 0) {
+      await this.notifyChange('update', (result.rows[0] as { name: string }).name);
+    }
   }
 
   async update(id: number, fields: UpdateHostInput): Promise<ManagedHost> {
@@ -151,13 +189,20 @@ export class HostRepository {
     );
 
     if (result.rows.length === 0) throw new Error(`Host with id ${id} not found`);
-    return toManagedHost(result.rows[0] as Record<string, unknown>);
+    const host = toManagedHost(result.rows[0] as Record<string, unknown>);
+    await this.notifyChange('update', host.name);
+    return host;
   }
 
   async delete(id: number): Promise<void> {
-    await this.pool.query(
-      'DELETE FROM managed_hosts WHERE id = $1',
+    // Capture the name before deletion so the NOTIFY payload identifies the
+    // removed host. Skipping if the row isn't present keeps the method idempotent.
+    const result = await this.pool.query(
+      `DELETE FROM managed_hosts WHERE id = $1 RETURNING name`,
       [id],
     );
+    if (result.rows.length > 0) {
+      await this.notifyChange('remove', (result.rows[0] as { name: string }).name);
+    }
   }
 }
