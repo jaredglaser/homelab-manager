@@ -8,9 +8,9 @@ import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
 
 // Pre-load all infrastructure modules that processPostReceive dynamically
 // imports. Because dynamic `await import()` returns the same cached module
-// instance as a static import, spies attached here will intercept the calls
-// inside processPostReceive without using mock.module() (which would contaminate
-// other test files running in the same Bun worker).
+// instance as a static import, spies attached at the static import sites
+// intercept the dynamic-import calls inside processPostReceive, giving
+// finer per-test control than mock.module() would.
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import { HostRepository } from '@/lib/database/repositories/host-repository';

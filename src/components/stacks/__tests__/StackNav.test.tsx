@@ -43,12 +43,6 @@ mock.module('@tanstack/react-router', () => ({
       {children}
     </a>
   ),
-  // Additional exports that leak into concurrent test files via the shared module
-  // registry. `@tanstack/react-start`'s createServerFn imports both at runtime, so
-  // unrelated tests that transitively load a server function crash with a cryptic
-  // "Export not found" error unless we provide no-op stubs here.
-  isRedirect: () => false,
-  useRouter: () => ({ navigate: () => {}, invalidate: () => {} }),
 }));
 
 let StackNav: ComponentType<{ onCreateClick: () => void }>;

@@ -3,7 +3,7 @@ import { render } from '@testing-library/react';
 import SparklineCell from '@/components/shared-table/SparklineCell';
 
 // Set CSS custom properties so resolveChartColors reads real values via getComputedStyle.
-// Using CSS vars instead of mock.module avoids cross-file mock leakage in bun 1.3.x workers.
+// Closer to how the component actually runs than stubbing the resolver.
 function setCssVar(name: string, value: string) {
   document.documentElement.style.setProperty(name, value);
 }
