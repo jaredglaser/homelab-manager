@@ -134,7 +134,7 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 | Git management | `src/lib/git/` | In-app bare git repo with HTTP smart protocol |
 | Crypto helpers | `src/lib/crypto/` | Master key resolution, JWE encrypted-value, Ed25519 agent JWT signing |
 | Stack service | `src/lib/stacks/` | Stack CRUD, mapping, and status broadcast |
-| Host management | `src/data/hosts/` | Host CRUD handlers with agent token generation |
+| Host management | `src/data/hosts/` | Host CRUD handlers with keypair enrollment and JWT signer resolution |
 | Stacks UI | `src/components/stacks/` | Full stack management interface |
 | Settings UI | `src/components/settings/` | Managed hosts card and add-host wizard |
 
@@ -156,7 +156,7 @@ Hosts are registered via the Settings UI and stored in the `managed_hosts` datab
 A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode. Capabilities are auto-detected at startup (Docker via `DOCKER_HOST` env var, ZFS via `zpool` binary presence).
 
 **Architecture:**
-- Bearer token authentication (token from file or env var)
+- Ed25519 JWT authentication (trusted public JWK loaded from `AGENT_TRUSTED_PUBKEY[_FILE]` at startup; per-request JWTs verified against it)
 - Optional TLS via `TLS_CERT_PATH` and `TLS_KEY_PATH`
 - Connects to Docker via `DOCKER_HOST` env var (socket proxy recommended)
 - Subprocess timeout (5 minutes) for `docker compose` operations

@@ -8,7 +8,7 @@ import {
 } from '@/lib/stacks/stack-mappers';
 import type { DeployDeps } from '@/lib/stacks/stack-mappers';
 import type { DeployRecord } from '@/lib/deploy/types';
-const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
+import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/stacks/stack-service';
 
 describe('extractVariableNames', () => {
   test('extracts simple variable references', () => {

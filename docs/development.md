@@ -83,7 +83,7 @@ This starts:
 
 The stacks feature uses an in-app git repo to store Docker Compose files. Clone it and add some sample containers so the dashboard has data to display:
 
-**Docker monitoring:** The local compose file seeds a localhost agent (via `DEV_AGENT_TOKEN`) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams; it does not connect to Docker directly. No host port is needed for the Docker socket.
+**Docker monitoring:** The local compose file seeds a localhost agent (via `HOMELAB_DEV_SEED=true`, which generates a dev Ed25519 keypair and writes the public JWK to `data/dev-agent-pubkey.json` for the agent to read) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams; it does not connect to Docker directly. No host port is needed for the Docker socket.
 
 ```bash
 git clone http://x:dev-git-token@localhost:3000/api/git/stacks ~/stacks

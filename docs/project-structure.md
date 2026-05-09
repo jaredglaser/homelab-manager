@@ -167,7 +167,7 @@ src/
 │   │   ├── agent-health-service.ts  # Agent health check with timeout
 │   │   ├── agent-provisioning-service.ts # Deploy agent containers to hosts (injects public JWK)
 │   │   ├── agent-constants.ts       # Agent configuration constants
-│   │   ├── token-service.ts         # Agent token generation and validation
+│   │   ├── token-service.ts         # generateToken(): random UUID generation
 │   │   └── docker-image-utils.ts    # Docker image version utilities
 │   ├── templates/
 │   │   └── agent-stack-compose.ts   # Generate agent docker-compose.yml for host deployment
@@ -258,7 +258,7 @@ scripts/                             # check-coverage.js, download-icons.ts, dow
 agent/                               # Agent sidecar container (separate Bun package)
 ├── src/
 │   ├── index.ts                     # Bun.serve entry point with route registration
-│   ├── middleware.ts                # Bearer token authentication middleware
+│   ├── middleware.ts                # JWT authentication middleware (verifies EdDSA Bearer tokens)
 │   ├── routes/
 │   │   ├── health.ts               # Docker version check + heartbeat
 │   │   ├── stats.ts                # SSE container stats with pre-computed metrics
@@ -268,6 +268,7 @@ agent/                               # Agent sidecar container (separate Bun pac
 │   │   ├── zfs.ts                  # ZFS pool status and SSE iostat streaming
 │   │   └── agent-update.ts         # Agent self-update endpoint
 │   └── lib/
+│       ├── jwt-auth.ts              # JWT verification (verifyAgentJwt using EdDSA)
 │       └── zfs-capabilities.ts     # ZFS binary detection and capability checking
 ├── Dockerfile
 ├── package.json
