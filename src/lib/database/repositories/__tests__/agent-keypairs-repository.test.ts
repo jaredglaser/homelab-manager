@@ -68,6 +68,11 @@ describe('AgentKeypairsRepository', () => {
     expect(jwk?.kty).toBe('OKP');
   });
 
+  it('getPublicJwkForHost returns null when row missing', async () => {
+    pool.results.push({ rows: [] });
+    expect(await repo.getPublicJwkForHost('absent')).toBeNull();
+  });
+
   it('deleteForHost issues DELETE', async () => {
     pool.results.push({ rows: [] });
     await repo.deleteForHost('h');

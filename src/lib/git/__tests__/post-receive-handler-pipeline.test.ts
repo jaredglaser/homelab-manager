@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
+import { generateKeyPair } from 'jose';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles } from '../repo';
 import { processPostReceive } from '../post-receive-handler';
@@ -14,7 +15,6 @@ import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
-import { AgentClient } from '@/lib/clients/agent-client';
 import { AgentKeypairsRepository } from '@/lib/database/repositories/agent-keypairs-repository';
 import { StackSecretsRepository } from '@/lib/database/repositories/stack-secrets-repository';
 import * as masterKey from '@/lib/crypto/master-key';
@@ -77,7 +77,7 @@ describe('processPostReceive (pipeline paths)', () => {
   let deduplicatePendingSpy: ReturnType<typeof spyOn>;
   let notifyStackChangeSpy: ReturnType<typeof spyOn>;
   let findByNameSpy: ReturnType<typeof spyOn>;
-  let agentDeploySpy: ReturnType<typeof spyOn>;
+  let fetchSpy: ReturnType<typeof spyOn>;
   let getPrivateKeyForHostSpy: ReturnType<typeof spyOn>;
   let loadMasterKeyringSpy: ReturnType<typeof spyOn>;
 
@@ -128,19 +128,21 @@ describe('processPostReceive (pipeline paths)', () => {
       'findByName',
     ).mockResolvedValue(TEST_HOST as never);
 
-    // Agent deploy: returns success by default
-    agentDeploySpy = spyOn(AgentClient.prototype, 'deploy').mockResolvedValue({
-      success: true,
-      logs: 'deployed ok',
-    } as never);
+    // Mock fetch so AgentClient's real deploy path executes and the signer runs.
+    fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ status: 'success', stdout: 'deployed ok', stderr: '' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }) as never,
+    );
 
-    // tokenResolver uses AgentKeypairsRepository.getPrivateKeyForHost.
-    // Return a fake CryptoKey object (just needs to be truthy — the signer closure is
-    // only called by AgentClient.request(), which is mocked via agentDeploySpy).
     getPrivateKeyForHostSpy = spyOn(
       AgentKeypairsRepository.prototype,
       'getPrivateKeyForHost',
-    ).mockResolvedValue({} as CryptoKey);
+    ).mockImplementation(async () => {
+      const { privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+      return privateKey as CryptoKey;
+    });
   });
 
   afterEach(() => {
@@ -154,7 +156,7 @@ describe('processPostReceive (pipeline paths)', () => {
     deduplicatePendingSpy.mockRestore();
     notifyStackChangeSpy.mockRestore();
     findByNameSpy.mockRestore();
-    agentDeploySpy.mockRestore();
+    fetchSpy.mockRestore();
     getPrivateKeyForHostSpy.mockRestore();
     rmSync(testDir, { recursive: true, force: true });
   });
@@ -211,7 +213,7 @@ describe('processPostReceive (pipeline paths)', () => {
     expect(insertDeployIfNoActiveSpy).toHaveBeenCalledTimes(1);
     // Keypair was resolved and JWT was signed
     expect(getPrivateKeyForHostSpy).toHaveBeenCalledWith('homeserver');
-    expect(agentDeploySpy).toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalled();
     // Result was logged as succeeded
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": succeeded'),
@@ -276,8 +278,8 @@ describe('processPostReceive (pipeline paths)', () => {
 
     // tokenResolver resolved the keypair
     expect(getPrivateKeyForHostSpy).toHaveBeenCalledWith('homeserver');
-    // Agent deploy was called, meaning the pipeline passed the signer to AgentClient
-    expect(agentDeploySpy).toHaveBeenCalled();
+    // fetch was called, meaning the pipeline wired up the signer and AgentClient sent the request
+    expect(fetchSpy).toHaveBeenCalled();
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": succeeded'),
     );
@@ -316,10 +318,16 @@ describe('processPostReceive (pipeline paths)', () => {
 
       // secretResolver.resolve was called with the extracted variable names
       expect(getSecretSpy).toHaveBeenCalledWith('plex', 'API_TOKEN');
-      // Agent deploy received env content with the resolved secret
-      expect(agentDeploySpy).toHaveBeenCalledWith(
-        expect.objectContaining({ envContent: expect.stringContaining('API_TOKEN') }),
+      // Agent deploy received env content with the resolved secret substituted
+      const deployCall = fetchSpy.mock.calls.find(
+        ([url]) => typeof url === 'string' && (url as string).includes('/stacks/deploy'),
       );
+      expect(deployCall).toBeDefined();
+      const body = JSON.parse((deployCall![1] as RequestInit).body as string);
+      expect(body.envContent).toContain('API_TOKEN=secret-value');
+      // Verify a JWT Bearer token was sent
+      const headers = (deployCall![1] as RequestInit).headers as Record<string, string>;
+      expect(headers['Authorization']).toMatch(/^Bearer [\w-]+\.[\w-]+\.[\w-]+$/);
     } finally {
       getSecretSpy.mockRestore();
     }

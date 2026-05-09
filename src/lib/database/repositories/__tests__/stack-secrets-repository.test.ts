@@ -80,5 +80,6 @@ describe('StackSecretsRepository', () => {
     pool.results.push({ rows: [] });
     await repo.ensureExists('s', 'V');
     expect(pool.query.mock.calls[0][0]).toContain('ON CONFLICT (stack_name, variable_name) DO NOTHING');
+    expect(pool.query.mock.calls[0][1]).toEqual(['s', 'V']);
   });
 });
