@@ -1,5 +1,5 @@
 import { CompactEncrypt, compactDecrypt } from 'jose';
-import type { MasterKeyring } from './master-key';
+import type { MasterKeyring } from '@/lib/crypto/master-key';
 
 const KEY_ALG = 'dir';
 const ENC_ALG = 'A256GCM';

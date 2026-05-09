@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { generateKeyPair, jwtVerify } from 'jose';
-import { signAgentJwt } from './agent-jwt';
+import { signAgentJwt } from '@/lib/crypto/agent-jwt';
 
 describe('signAgentJwt', () => {
   it('produces a JWT verifiable with the matching public key', async () => {

@@ -24,7 +24,8 @@ export async function authenticateRequest(
   try {
     await verifyAgentJwt(token, trustedPublicKey);
     return null;
-  } catch {
+  } catch (err) {
+    console.error('JWT verification failed:', err);
     return new Response('Unauthorized', { status: 401 });
   }
 }

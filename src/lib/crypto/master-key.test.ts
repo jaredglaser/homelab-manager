@@ -36,14 +36,24 @@ describe('loadMasterKeyring', () => {
   });
 
   it('prefers MASTER_KEY_FILE over MASTER_KEY when both are set', async () => {
-    const fileBytes = Buffer.alloc(32, 0xAA);
     const file = join(tmpDir, 'master.key');
-    writeFileSync(file, fileBytes.toString('base64'));
+    writeFileSync(file, Buffer.alloc(32, 0xAA).toString('base64'));
     process.env.MASTER_KEY_FILE = file;
     process.env.MASTER_KEY = Buffer.alloc(32, 0xBB).toString('base64');
-    const keyring = await loadMasterKeyring();
-    const exported = await crypto.subtle.exportKey('raw', keyring.keys.get('v1')!);
-    expect(Buffer.from(exported).equals(fileBytes)).toBe(true);
+
+    const fileKeyring = await loadMasterKeyring();
+
+    // Load a separate keyring from the env var (different bytes) to confirm priority.
+    delete process.env.MASTER_KEY_FILE;
+    const envKeyring = await loadMasterKeyring();
+
+    const { encryptValue, decryptValue } = await import('@/lib/crypto/encrypted-value');
+
+    const ciphertext = await encryptValue('hello', fileKeyring);
+    // File keyring can round-trip the value.
+    expect(await decryptValue(ciphertext, fileKeyring)).toBe('hello');
+    // Env keyring (different key bytes) cannot decrypt the ciphertext.
+    await expect(decryptValue(ciphertext, envKeyring)).rejects.toThrow();
   });
 
   it('throws when neither env var is set', async () => {

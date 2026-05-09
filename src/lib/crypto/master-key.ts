@@ -22,7 +22,7 @@ export async function loadMasterKeyring(): Promise<MasterKeyring> {
     'raw',
     bytes,
     { name: 'AES-GCM', length: 256 },
-    true,
+    false,
     ['encrypt', 'decrypt'],
   );
   return { activeKid: ACTIVE_KID, keys: new Map<Kid, CryptoKey>([[ACTIVE_KID, key]]) };
