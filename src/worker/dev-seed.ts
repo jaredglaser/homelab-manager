@@ -60,15 +60,18 @@ export async function seedDevAgent(db: DatabaseClient): Promise<void> {
     console.info(`[DevSeed] Re-wrote public JWK file to ${DEFAULT_PUBKEY_FILE}`);
   }
 
+  await hostRepo.updateStatus(host.id, 'pending');
   for (let attempt = 1; attempt <= HEALTH_CHECK_ATTEMPTS; attempt++) {
+    let isHealthy = false;
     try {
       const response = await fetch(`${DEV_HEALTH_CHECK_URL}/health`);
-      if (response.ok) {
-        await hostRepo.updateStatus(host.id, 'healthy');
-        return;
-      }
+      if (response.ok) isHealthy = true;
     } catch {
       // Agent not ready yet
+    }
+    if (isHealthy) {
+      await hostRepo.updateStatus(host.id, 'healthy');
+      return;
     }
     if (attempt < HEALTH_CHECK_ATTEMPTS) {
       await new Promise((resolve) => setTimeout(resolve, HEALTH_CHECK_DELAY_MS));

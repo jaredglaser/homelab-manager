@@ -24,17 +24,23 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
   const addMutation = useMutation({
     mutationFn: ({ name, agentUrl, capabilities }: { name: string; agentUrl: string; capabilities: { docker: boolean; zfs: boolean } }) =>
       verifyHost({ data: { name, agentUrl, capabilities } }),
+    onMutate: () => {
+      setVerifyResult(null)
+    },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       setAddError(null)
       if (result.publicJwk) {
         setVerifyResult({ publicJwk: result.publicJwk })
+      } else {
+        setVerifyResult(null)
       }
       setSnackbar({ open: true, message: 'Host added successfully', severity: 'success' })
     },
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : 'Failed to add host'
       setAddError(message)
+      setVerifyResult(null)
     },
   })
 

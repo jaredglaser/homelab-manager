@@ -288,7 +288,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
             {publicJwkJson && (
               <Alert severity="info" className="mt-2">
                 <Typography variant="body2" className="mb-2">
-                  Set this as <code>AGENT_TRUSTED_PUBKEY</code> in your agent environment, then start the agent:
+                  Set this as <code>AGENT_TRUSTED_PUBKEY</code> in your agent environment, then restart the agent:
                 </Typography>
                 <pre className="text-xs overflow-auto p-2 rounded bg-[var(--mui-palette-background-level1)]" data-testid="pubkey-display">
                   {publicJwkJson}
