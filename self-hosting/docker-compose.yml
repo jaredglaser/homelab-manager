@@ -42,7 +42,8 @@ services:
     command: bun src/worker/collector.ts
     environment:
       <<: [*postgres-env, *proxmox-env]
-      MASTER_KEY: ${MASTER_KEY:?Set MASTER_KEY (openssl rand -base64 32)}
+      MASTER_KEY: ${MASTER_KEY:-}
+      MASTER_KEY_FILE: ${MASTER_KEY_FILE:-}
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       WORKER_ENABLED: ${WORKER_ENABLED:-true}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED:-true}
@@ -72,7 +73,8 @@ services:
       - git-repos:/data/repos
     environment:
       <<: *postgres-env
-      MASTER_KEY: ${MASTER_KEY:?Set MASTER_KEY (openssl rand -base64 32)}
+      MASTER_KEY: ${MASTER_KEY:-}
+      MASTER_KEY_FILE: ${MASTER_KEY_FILE:-}
       NODE_ENV: production
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       GIT_REPOS_DIR: "/data/repos"

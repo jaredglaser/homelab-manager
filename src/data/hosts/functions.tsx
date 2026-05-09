@@ -98,12 +98,21 @@ export const removeHost = createServerFn()
   .inputValidator(removeHostSchema)
   .handler(async ({ data }): Promise<{ success: boolean }> => {
     const baseDeps = await loadDeps();
-    const keypairs = await loadKeypairsRepo();
     return handleRemoveHost({
       ...baseDeps,
       keypairs: {
-        createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
-        deleteForHost: (name) => keypairs.deleteForHost(name),
+        createForHost: async (name) => {
+          const keypairs = await loadKeypairsRepo();
+          return keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk }));
+        },
+        deleteForHost: async (name) => {
+          try {
+            const keypairs = await loadKeypairsRepo();
+            await keypairs.deleteForHost(name);
+          } catch {
+            // best-effort: keypair cleanup is non-fatal for host removal
+          }
+        },
       },
     }, data);
   });

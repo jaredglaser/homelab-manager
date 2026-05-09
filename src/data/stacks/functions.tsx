@@ -105,7 +105,7 @@ export const saveComposeFile = createServerFn()
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('ensureVariablesExist failed (non-fatal):', msg);
-        return { ...result, warnings: [`Could not pre-create stack variables: ${msg}`] };
+        return { ...result, warnings: ['Could not pre-create stack variables.'] };
       }
     }
 
