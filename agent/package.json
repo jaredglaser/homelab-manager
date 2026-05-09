@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
-    "test": "bun test",
-    "test:coverage": "bun test --coverage 2>&1 | node ../scripts/check-coverage.js",
+    "test": "bun test --isolate",
+    "test:coverage": "bun test --isolate --coverage 2>&1 | node ../scripts/check-coverage.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
