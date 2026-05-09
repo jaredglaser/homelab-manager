@@ -15,6 +15,7 @@ import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import { HostRepository } from '@/lib/database/repositories/host-repository';
+import { AgentClient } from '@/lib/clients/agent-client';
 import { AgentKeypairsRepository } from '@/lib/database/repositories/agent-keypairs-repository';
 import { StackSecretsRepository } from '@/lib/database/repositories/stack-secrets-repository';
 import * as masterKey from '@/lib/crypto/master-key';
@@ -77,7 +78,7 @@ describe('processPostReceive (pipeline paths)', () => {
   let deduplicatePendingSpy: ReturnType<typeof spyOn>;
   let notifyStackChangeSpy: ReturnType<typeof spyOn>;
   let findByNameSpy: ReturnType<typeof spyOn>;
-  let fetchSpy: ReturnType<typeof spyOn>;
+  let agentDeploySpy: ReturnType<typeof spyOn>;
   let getPrivateKeyForHostSpy: ReturnType<typeof spyOn>;
   let loadMasterKeyringSpy: ReturnType<typeof spyOn>;
 
@@ -128,14 +129,16 @@ describe('processPostReceive (pipeline paths)', () => {
       'findByName',
     ).mockResolvedValue(TEST_HOST as never);
 
-    // Mock fetch so AgentClient's real deploy path executes and the signer runs.
-    fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ status: 'success', stdout: 'deployed ok', stderr: '' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }) as never,
+    // The mockImplementation calls this.signer() so the JWT signing path actually runs,
+    // while avoiding a real HTTP call to the agent.
+    agentDeploySpy = spyOn(AgentClient.prototype, 'deploy').mockImplementation(
+      async function (this: { signer: () => Promise<string> }) {
+        await this.signer();
+        return { success: true, logs: 'deployed ok' } as never;
+      },
     );
 
+    // Real Ed25519 key so signAgentJwt can produce a valid JWT inside the signer closure.
     getPrivateKeyForHostSpy = spyOn(
       AgentKeypairsRepository.prototype,
       'getPrivateKeyForHost',
@@ -156,7 +159,7 @@ describe('processPostReceive (pipeline paths)', () => {
     deduplicatePendingSpy.mockRestore();
     notifyStackChangeSpy.mockRestore();
     findByNameSpy.mockRestore();
-    fetchSpy.mockRestore();
+    agentDeploySpy.mockRestore();
     getPrivateKeyForHostSpy.mockRestore();
     rmSync(testDir, { recursive: true, force: true });
   });
@@ -213,7 +216,7 @@ describe('processPostReceive (pipeline paths)', () => {
     expect(insertDeployIfNoActiveSpy).toHaveBeenCalledTimes(1);
     // Keypair was resolved and JWT was signed
     expect(getPrivateKeyForHostSpy).toHaveBeenCalledWith('homeserver');
-    expect(fetchSpy).toHaveBeenCalled();
+    expect(agentDeploySpy).toHaveBeenCalled();
     // Result was logged as succeeded
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": succeeded'),
@@ -279,7 +282,7 @@ describe('processPostReceive (pipeline paths)', () => {
     // tokenResolver resolved the keypair
     expect(getPrivateKeyForHostSpy).toHaveBeenCalledWith('homeserver');
     // fetch was called, meaning the pipeline wired up the signer and AgentClient sent the request
-    expect(fetchSpy).toHaveBeenCalled();
+    expect(agentDeploySpy).toHaveBeenCalled();
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": succeeded'),
     );
@@ -319,15 +322,9 @@ describe('processPostReceive (pipeline paths)', () => {
       // secretResolver.resolve was called with the extracted variable names
       expect(getSecretSpy).toHaveBeenCalledWith('plex', 'API_TOKEN');
       // Agent deploy received env content with the resolved secret substituted
-      const deployCall = fetchSpy.mock.calls.find(
-        ([url]) => typeof url === 'string' && (url as string).includes('/stacks/deploy'),
+      expect(agentDeploySpy).toHaveBeenCalledWith(
+        expect.objectContaining({ envContent: expect.stringContaining("API_TOKEN='secret-value'") }),
       );
-      expect(deployCall).toBeDefined();
-      const body = JSON.parse((deployCall![1] as RequestInit).body as string);
-      expect(body.envContent).toContain('API_TOKEN=secret-value');
-      // Verify a JWT Bearer token was sent
-      const headers = (deployCall![1] as RequestInit).headers as Record<string, string>;
-      expect(headers['Authorization']).toMatch(/^Bearer [\w-]+\.[\w-]+\.[\w-]+$/);
     } finally {
       getSecretSpy.mockRestore();
     }

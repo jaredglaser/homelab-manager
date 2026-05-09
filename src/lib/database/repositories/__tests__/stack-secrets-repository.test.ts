@@ -79,7 +79,11 @@ describe('StackSecretsRepository', () => {
   it('ensureExists is no-op on conflict', async () => {
     pool.results.push({ rows: [] });
     await repo.ensureExists('s', 'V');
+    const params = pool.query.mock.calls[0][1] as unknown[];
     expect(pool.query.mock.calls[0][0]).toContain('ON CONFLICT (stack_name, variable_name) DO NOTHING');
-    expect(pool.query.mock.calls[0][1]).toEqual(['s', 'V']);
+    expect(params[0]).toBe('s');
+    expect(params[1]).toBe('V');
+    expect(typeof params[2]).toBe('string');
+    expect((params[2] as string).split('.')).toHaveLength(5);
   });
 });
