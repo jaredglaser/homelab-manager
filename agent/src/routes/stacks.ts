@@ -212,10 +212,12 @@ export async function handleStackDeploy(
       if (configResult.exitCode === 0 && configResult.stdout.trim()) {
         resolvedContent = configResult.stdout;
       }
-    } catch {
-      // Non-fatal: fall back to raw content
+    } catch (err) {
+      console.error(`[forceRecreate] Failed to resolve compose variables for ${parsed.stack}, falling back to raw content:`, err instanceof Error ? err.message : String(err));
     } finally {
-      try { unlinkSync(tmpFile); } catch { /* ignore */ }
+      try { unlinkSync(tmpFile); } catch (unlinkErr) {
+        console.info(`[forceRecreate] Failed to remove tmp file ${tmpFile}:`, unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr));
+      }
     }
     const namedContainers = parseContainerNames(resolvedContent);
     for (const name of namedContainers) {
@@ -227,8 +229,10 @@ export async function handleStackDeploy(
           stderr: 'pipe',
           env: composeEnv,
         }, 10_000);
-      } catch {
-        // Non-fatal: container may not exist
+      } catch (err) {
+        // spawnWithTimeout only throws on spawn failure (binary missing, fork error),
+        // not on non-zero docker exit codes — those are in SpawnResult.exitCode.
+        console.error(`[forceRecreate] Failed to spawn docker rm for '${name}':`, err instanceof Error ? err.message : String(err));
       }
     }
   }
