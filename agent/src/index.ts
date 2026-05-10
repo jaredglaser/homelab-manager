@@ -36,10 +36,18 @@ if (AGENT_TRUSTED_PUBKEY_FILE) {
       console.error(`AGENT_TRUSTED_PUBKEY_FILE not found after ${POLL_TIMEOUT_MS / 1000}s: ${AGENT_TRUSTED_PUBKEY_FILE}`);
       process.exit(1);
     }
+    if (waited > 0 && waited % 10_000 === 0) {
+      console.info(`Still waiting for AGENT_TRUSTED_PUBKEY_FILE (${waited / 1000}s elapsed)...`);
+    }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     waited += POLL_INTERVAL_MS;
   }
-  trustedPubkeyJson = (await file.text()).trim();
+  try {
+    trustedPubkeyJson = (await file.text()).trim();
+  } catch (err) {
+    console.error(`Failed to read AGENT_TRUSTED_PUBKEY_FILE '${AGENT_TRUSTED_PUBKEY_FILE}': ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
 } else if (AGENT_TRUSTED_PUBKEY_ENV) {
   trustedPubkeyJson = AGENT_TRUSTED_PUBKEY_ENV.trim();
 } else {
