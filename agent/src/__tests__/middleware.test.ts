@@ -76,4 +76,14 @@ describe('authenticateRequest (JWT)', () => {
     );
     expect(result?.status).toBe(401);
   });
+
+  it('returns 401 when Bearer token is empty', async () => {
+    const { trusted } = await makeAuth();
+    const result = await authenticateRequest(
+      new Headers({ Authorization: 'Bearer ' }),
+      trusted,
+      '/stats',
+    );
+    expect(result?.status).toBe(401);
+  });
 });

@@ -101,6 +101,17 @@ describe('agent-health-service', () => {
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.error).toContain('timed out');
     });
+
+    it('returns unhealthy when agent returns 200 with non-JSON body', async () => {
+      const fetchFn = mock(async () =>
+        new Response('not valid json', { status: 200 })
+      ) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toContain('non-JSON response');
+    });
   });
 
 });

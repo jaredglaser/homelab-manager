@@ -161,5 +161,20 @@ describe('AgentProvisioningService', () => {
       await service.removeAgent(mockDocker.docker, 1);
       expect(mockDocker.removedContainers).toHaveLength(1);
     });
+
+    it('rethrows non-404 errors from inspect', async () => {
+      const serverError = new Error('Internal server error') as Error & { statusCode: number };
+      serverError.statusCode = 500;
+      const failingDocker = {
+        ...mockDocker.docker,
+        getContainer: () => ({
+          inspect: async () => { throw serverError; },
+          stop: async () => {},
+          remove: async () => {},
+        }),
+      } as any;
+
+      await expect(service.removeAgent(failingDocker, 1)).rejects.toThrow('Internal server error');
+    });
   });
 });

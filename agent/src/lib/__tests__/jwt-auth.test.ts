@@ -57,4 +57,19 @@ describe('verifyAgentJwt', () => {
   it('loadTrustedPublicKey throws on invalid JSON', async () => {
     await expect(loadTrustedPublicKey('not-json')).rejects.toThrow();
   });
+
+  it('loadTrustedPublicKey throws on valid JSON that is not an Ed25519 public JWK', async () => {
+    const rsaLike = JSON.stringify({ kty: 'RSA', n: 'abc', e: 'AQAB' });
+    await expect(loadTrustedPublicKey(rsaLike)).rejects.toThrow(
+      'AGENT_TRUSTED_PUBKEY must be a public Ed25519 JWK',
+    );
+  });
+
+  it('loadTrustedPublicKey throws when JWK contains a private key component', async () => {
+    const { privateKey } = await makePair();
+    const privateJwk = JSON.stringify(await exportJWK(privateKey));
+    await expect(loadTrustedPublicKey(privateJwk)).rejects.toThrow(
+      'AGENT_TRUSTED_PUBKEY must be a public Ed25519 JWK',
+    );
+  });
 });
