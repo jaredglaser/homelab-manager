@@ -1,54 +1,24 @@
-# Toolchain stage: downloads Docker CLI + Compose (cached independently)
-FROM oven/bun:1.3.6 AS toolchain
-
-# Pin versions for reproducible builds
-ARG DOCKER_CLI_VERSION=27.5.1
-ARG DOCKER_COMPOSE_VERSION=2.32.4
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates && \
-    # Docker CLI static binary
-    # TODO: download.docker.com does not publish checksums for static binaries.
-    # Consider pinning by content-hash when upstream signatures become available.
-    curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_CLI_VERSION}.tgz" | \
-    tar xz --strip-components=1 -C /usr/local/bin docker/docker && \
-    docker --version && \
-    # Docker Compose v2 plugin (with SHA-256 integrity verification)
-    mkdir -p /usr/local/lib/docker/cli-plugins && \
-    COMPOSE_ARCH="$(uname -m)" && \
-    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}" \
-    -o /usr/local/lib/docker/cli-plugins/docker-compose && \
-    curl -fsSL "https://github.com/docker/compose/releases/download/v${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${COMPOSE_ARCH}.sha256" \
-    -o /tmp/docker-compose.sha256 && \
-    sed -i "s|docker-compose-linux-${COMPOSE_ARCH}|/usr/local/lib/docker/cli-plugins/docker-compose|" /tmp/docker-compose.sha256 && \
-    grep -q '/usr/local/lib/docker/cli-plugins/docker-compose$' /tmp/docker-compose.sha256 || \
-      { echo "ERROR: sha256 file rewrite failed, expected absolute path in checksum file"; exit 1; } && \
-    sha256sum -c /tmp/docker-compose.sha256 && \
-    rm /tmp/docker-compose.sha256 && \
-    chmod +x /usr/local/lib/docker/cli-plugins/docker-compose && \
-    # Cleanup
-    apt-get purge -y curl && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/*
+# Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
+FROM docker:27.5.1-cli AS toolchain
 
 # Application stage
-FROM oven/bun:1.3.6 AS base
+FROM oven/bun:1.3.13 AS base
 
 COPY --from=toolchain /usr/local/bin/docker /usr/local/bin/docker
-COPY --from=toolchain /usr/local/lib/docker /usr/local/lib/docker
+COPY --from=toolchain /usr/local/libexec/docker/cli-plugins /usr/local/lib/docker/cli-plugins
 
 WORKDIR /app
 
-COPY package.json bun.lock ./
+COPY agent/package.json ./package.json
+COPY agent/bun.lock ./bun.lock
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
-RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.6 \
+RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.13 \
     bun install --frozen-lockfile --production --ignore-scripts
 
-COPY src ./src
-COPY tsconfig.json package.json ./
+COPY agent/src ./src
+COPY agent/tsconfig.json agent/package.json ./
 
 ENV AGENT_PORT=9090
 ENV STACKS_DIR=/opt/homelab-manager/stacks
