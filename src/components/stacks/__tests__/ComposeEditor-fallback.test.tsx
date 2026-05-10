@@ -21,7 +21,6 @@ describe('ComposeEditor monaco load failure', () => {
           <ComposeEditor
             stackName="test-stack"
             content="image: nginx"
-            variables={[]}
             _monacoLoader={() => Promise.reject(new Error('Monaco load failed'))}
           />
         </QueryClientProvider>,

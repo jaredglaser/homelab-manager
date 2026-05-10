@@ -130,6 +130,8 @@ services:
       ALLOW_STOP: 1
       ALLOW_RESTARTS: 1
       EXEC: 1
+      POST: 1
+      DELETE: 1
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:2375/version"]
       interval: 10s

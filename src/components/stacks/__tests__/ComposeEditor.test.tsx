@@ -59,12 +59,11 @@ function createWrapper() {
   };
 }
 
-async function renderComposeEditor(props?: Partial<{ stackName: string; content: string; variables: string[] }>) {
+async function renderComposeEditor(props?: Partial<{ stackName: string; content: string }>) {
   const { default: ComposeEditor } = await import('../ComposeEditor');
   const defaultProps = {
     stackName: 'test-stack',
     content: 'image: nginx:latest',
-    variables: [],
     ...props,
   };
   const result = render(<ComposeEditor {...defaultProps} _saveCompose={saveComposeStub} />, { wrapper: createWrapper() });
@@ -199,7 +198,7 @@ describe('ComposeEditor component', () => {
     const { default: ComposeEditor } = await import('../ComposeEditor');
     render(
       <QueryClientProvider client={queryClient}>
-        <ComposeEditor stackName="test-stack" content="image: nginx" variables={[]} _saveCompose={saveComposeStub} />
+        <ComposeEditor stackName="test-stack" content="image: nginx" _saveCompose={saveComposeStub} />
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());

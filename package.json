@@ -21,7 +21,7 @@
     "dev:local:down": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml down",
     "dev:local:restart": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml up -d --force-recreate",
     "dev:local:rebuild": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml down && docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml build --no-cache && docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml up -d",
-    "dev:local:wipe": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml down -v",
+    "dev:local:wipe": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml down -v && rm -f data/dev-agent-pubkey.json",
     "dev:local:logs": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml logs -f",
     "dev:local:logs:worker": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml logs -f worker",
     "dev:local:logs:db": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml logs -f postgres",

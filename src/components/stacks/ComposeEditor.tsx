@@ -1,38 +1,29 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Paper, Typography, CircularProgress } from '@mui/material';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks/functions';
-import { parseVariables } from '@/lib/stacks/parse-variables';
-import VariablesPanel from '@/components/stacks/VariablesPanel';
-
-const MAX_PANEL_WIDTH = 600;
-const MIN_PANEL_WIDTH = 80;
-const MIN_EDITOR_WIDTH = 200;
 
 interface ComposeEditorProps {
   stackName: string;
   content: string;
-  variables: string[];
   _monacoLoader?: () => Promise<unknown>;
   _saveCompose?: typeof saveComposeFile;
 }
 
-export default function ComposeEditor({ stackName, content, variables: initialVariables, _monacoLoader, _saveCompose }: Readonly<ComposeEditorProps>) {
+export default function ComposeEditor({ stackName, content, _monacoLoader, _saveCompose }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
   const [monacoLoadFailed, setMonacoLoadFailed] = useState(false);
   const [editorContent, setEditorContent] = useState(content);
-  const [detectedVars, setDetectedVars] = useState<string[]>(initialVariables);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const queryClient = useQueryClient();
 
   /** Sync editor state when the parent provides new content (e.g., switching stacks) */
   useEffect(() => {
     setEditorContent(content);
-    setDetectedVars(initialVariables);
-  }, [stackName, content, initialVariables]);
+  }, [stackName, content]);
 
   // Monaco setup (local workers + YAML support) is in a separate file that uses
   // Vite's ?worker imports. Must complete before Editor mounts to avoid
@@ -63,34 +54,6 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
 
   const handleChange = useCallback((newContent = '') => {
     setEditorContent(newContent);
-    setDetectedVars(parseVariables(newContent));
-  }, []);
-
-  const [panelWidth, setPanelWidth] = useState(280);
-  const panelWidthRef = useRef(panelWidth);
-  panelWidthRef.current = panelWidth;
-
-  const handleDragStart = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = panelWidthRef.current;
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-
-    const onMove = (ev: globalThis.PointerEvent) => {
-      const delta = startX - ev.clientX;
-      const containerWidth = target.parentElement?.clientWidth ?? (MAX_PANEL_WIDTH + MIN_EDITOR_WIDTH);
-      const effectiveMinEditorWidth = Math.min(MIN_EDITOR_WIDTH, Math.max(0, containerWidth - MIN_PANEL_WIDTH));
-      setPanelWidth(Math.min(containerWidth - effectiveMinEditorWidth, Math.max(MIN_PANEL_WIDTH, startWidth + delta)));
-    };
-    const onUp = () => {
-      target.removeEventListener('pointermove', onMove);
-      target.removeEventListener('pointerup', onUp);
-      target.removeEventListener('pointercancel', onUp);
-    };
-    target.addEventListener('pointermove', onMove);
-    target.addEventListener('pointerup', onUp);
-    target.addEventListener('pointercancel', onUp);
   }, []);
 
   // Reads the current theme on each render. Theme toggles trigger re-renders
@@ -122,81 +85,45 @@ export default function ComposeEditor({ stackName, content, variables: initialVa
         </Button>
       </div>
 
-      {/* Editor + resizable variables panel: use calc() so Monaco gets an explicit width */}
-      <div className="relative min-h-[400px]">
-        <div
-          className="absolute inset-y-0 left-0 overflow-hidden"
-          style={{ right: panelWidth + 4 }}
-        >
-          {monacoLoadFailed ? (
-            <div className="flex items-center justify-center h-[400px]">
-              <Typography variant="body2" className="opacity-50">
-                Failed to load editor. Please refresh the page.
-              </Typography>
-            </div>
-          ) : monacoReady ? (
-            <Editor
-              height="400px"
-              language="yaml"
-              theme={isDark ? 'vs-dark' : 'light'}
-              value={editorContent}
-              onChange={handleChange}
-              onMount={handleEditorMount}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                tabSize: 2,
-                automaticLayout: true,
-                padding: { top: 8, bottom: 8 },
-                renderLineHighlight: 'line',
-                fixedOverflowWidgets: true,
-              }}
-              loading={
-                <div className="flex items-center justify-center h-full">
-                  <CircularProgress size={24} />
-                </div>
-              }
-            />
-          ) : (
-            <div className="flex items-center justify-center h-[400px]">
-              <CircularProgress size={24} />
-            </div>
-          )}
-        </div>
-
-        {/* Drag handle */}
-        <div
-          className="absolute inset-y-0 w-1 cursor-col-resize hover:bg-[var(--mui-palette-primary-main)]/30 active:bg-[var(--mui-palette-primary-main)]/50 transition-colors z-10 touch-none"
-          style={{ right: panelWidth }}
-          tabIndex={0}
-          role="separator"
-          aria-orientation="vertical"
-          aria-valuemin={MIN_PANEL_WIDTH}
-          aria-valuemax={MAX_PANEL_WIDTH}
-          aria-valuenow={panelWidth}
-          onPointerDown={handleDragStart}
-          onKeyDown={(e) => {
-            const step = 20;
-            if (e.key === 'ArrowLeft') {
-              e.preventDefault();
-              setPanelWidth(w => Math.min(MAX_PANEL_WIDTH, w + step));
-            } else if (e.key === 'ArrowRight') {
-              e.preventDefault();
-              setPanelWidth(w => Math.max(MIN_PANEL_WIDTH, w - step));
+      {/* Editor */}
+      <div className="min-h-[400px]">
+        {monacoLoadFailed ? (
+          <div className="flex items-center justify-center h-[400px]">
+            <Typography variant="body2" className="opacity-50">
+              Failed to load editor. Please refresh the page.
+            </Typography>
+          </div>
+        ) : monacoReady ? (
+          <Editor
+            height="400px"
+            language="yaml"
+            theme={isDark ? 'vs-dark' : 'light'}
+            value={editorContent}
+            onChange={handleChange}
+            onMount={handleEditorMount}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 13,
+              lineNumbers: 'on',
+              scrollBeyondLastLine: false,
+              wordWrap: 'on',
+              tabSize: 2,
+              automaticLayout: true,
+              padding: { top: 8, bottom: 8 },
+              renderLineHighlight: 'line',
+              fixedOverflowWidgets: true,
+            }}
+            loading={
+              <div className="flex items-center justify-center h-full">
+                <CircularProgress size={24} />
+              </div>
             }
-          }}
-        />
-
-        {/* Variables side panel */}
-        <div
-          className="absolute inset-y-0 right-0 border-l border-[var(--mui-palette-divider)] p-3 overflow-y-auto"
-          style={{ width: panelWidth }}
-        >
-          <VariablesPanel stackName={stackName} composeVariables={detectedVars} />
-        </div>
+          />
+        ) : (
+          <div className="flex items-center justify-center h-[400px]">
+            <CircularProgress size={24} />
+          </div>
+        )}
       </div>
     </Paper>
   );
