@@ -12,38 +12,6 @@ export type AgentHealthResult =
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 /**
- * Verify a bearer token authenticates against the agent's `/auth/verify` endpoint.
- * Throws on failure so callers get a clear error before storing an invalid token.
- */
-export async function verifyAgentToken(
-  agentUrl: string,
-  token: string,
-  timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS,
-  fetchFn: typeof fetch = globalThis.fetch,
-): Promise<void> {
-  const url = `${agentUrl.replace(/\/$/, '')}/auth/verify`;
-  let response: Response;
-  try {
-    response = await fetchFn(url, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    throw new Error(
-      `Token verification request failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-
-  if (response.status === 401) {
-    throw new Error('The provided agent token is invalid: the agent rejected authentication');
-  }
-
-  if (!response.ok) {
-    throw new Error(`Token verification failed with status ${response.status}`);
-  }
-}
-
-/**
  * Check the health of an agent by calling its /health endpoint.
  * Returns a result object indicating health status and version info.
  * Never throws: all errors are captured in the result.

@@ -7,10 +7,9 @@ import DeployHistoryList from '../DeployHistoryList';
 
 /**
  * Test-only stub for triggerDeploy. Injected via the `_triggerDeploy` prop
- * on DeployHistoryList to avoid mock.module() on the stack-service module,
- * which would pollute concurrent test files that import the real service.
- * bun's mock() doesn't structurally match the createServerFn fetcher type
- * (extra properties like url/method/__executeServer), so we cast at the seam.
+ * because bun's mock() doesn't structurally match the createServerFn fetcher
+ * type (extra properties like url/method/__executeServer); the cast happens
+ * at the seam.
  */
 const mockTriggerDeploy = mock(() => Promise.resolve({ deployId: 1 }));
 const triggerDeployStub = mockTriggerDeploy as unknown as typeof triggerDeploy;

@@ -119,7 +119,7 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
       new Response(createMockSSEStream([upsertEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
@@ -135,7 +135,7 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
       new Response(createMockSSEStream([upsertEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -150,7 +150,7 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
       new Response(createMockSSEStream([upsertEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -167,7 +167,7 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
       new Response(createMockSSEStream([destroyEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -185,7 +185,7 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
       new Response(createMockSSEStream([destroyEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
@@ -219,7 +219,7 @@ describe('ContainerInventoryCollector: flap dampening', () => {
     const snapshot = [makeRow({ containerId: 'abc123', eventType: 'destroy' })];
     const { repo, inserted } = createMockRepo(snapshot);
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
     await (collector as any).hydrateCache();
 
     (collector as any).scheduleDestroyWrite('abc123');
@@ -253,7 +253,7 @@ describe('ContainerInventoryCollector: flap dampening', () => {
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
     await (collector as any).hydrateCache();
 
     // A→B (exited)
@@ -290,7 +290,7 @@ describe('ContainerInventoryCollector: flap dampening', () => {
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
     await (collector as any).hydrateCache();
 
     (collector as any).scheduleWrite(makeContainer({ state: 'exited' }), 'upsert');
@@ -330,7 +330,7 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
       new Response(createMockSSEStream([initEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -347,7 +347,7 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
       new Response(createMockSSEStream([initEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -364,7 +364,7 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
       new Response(createMockSSEStream([initEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -379,7 +379,7 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
       new Response(createMockSSEStream([initEvent]), { status: 200 })
     );
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -393,7 +393,7 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
     ];
     const { repo } = createMockRepo(snapshot);
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
     await (collector as any).hydrateCache();
 
     const cache: Map<string, unknown> = (collector as any).stateCache;
@@ -427,7 +427,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
       return new Response(createMockSSEStream([]), { status: 200 });
     });
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await collector.run();
 
     expect(callCount).toBeGreaterThanOrEqual(2);
@@ -441,7 +441,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
       return new Response(createNeverEndingStream([]), { status: 200 });
     });
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await collector.run();
 
     expect(fetchFn).toHaveBeenCalledTimes(1);
@@ -460,7 +460,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
       return new Response(createMockSSEStream([]), { status: 200 });
     });
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await collector.run();
 
     expect(callCount).toBeGreaterThanOrEqual(3);
@@ -473,7 +473,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
     const { repo } = createMockRepo();
     const fetchFn: FetchFn = mock(async () => new Response(createMockSSEStream([]), { status: 200 }));
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, controller, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, controller, fetchFn);
     await collector.run();
 
     expect(fetchFn).not.toHaveBeenCalled();
@@ -481,7 +481,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
 
   it('asyncDispose aborts the collector', async () => {
     const { repo } = createMockRepo();
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
     expect(collector.signal.aborted).toBe(false);
 
     await collector[Symbol.asyncDispose]();
@@ -496,7 +496,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
       return new Response(createMockSSEStream([]), { status: 200 });
     });
 
-    const collector = new ContainerInventoryCollector(HOST, 'secret-token', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'secret-token', repo, abortController, fetchFn);
     await (collector as any).collect().catch(() => {});
 
     const mockFn = fetchFn as unknown as { mock: { calls: unknown[][] } };
@@ -519,7 +519,7 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
     });
     const fetchFn: FetchFn = mock(async () => new Response(stream, { status: 200 }));
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
@@ -588,7 +588,7 @@ describe('ContainerInventoryCollector: reconcileInit clears pending writes (Fix 
       return new Response(createMockSSEStream([]), { status: 200 });
     });
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await collector.run();
 
     const flapTimers = capturedTimers.filter((t) => t.delay === 250);
@@ -620,7 +620,7 @@ describe('ContainerInventoryCollector: reconcileInit clears pending writes (Fix 
     });
 
     const { repo, inserted } = createMockRepo();
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
 
     // Schedule a write that should be cancelled by reconcileInit
     (collector as any).scheduleWrite(makeContainer({ state: 'running' }), 'upsert');
@@ -673,7 +673,7 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
       getCurrentSnapshot: mock(async () => snapshot),
     } as unknown as DockerContainerEventRepository;
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
     await (collector as any).hydrateCache();
 
     const cycleAbort = new AbortController();
@@ -750,7 +750,7 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
       );
     });
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
     await collector.run();
 
     expect(fetchCallCount).toBeGreaterThanOrEqual(2);
@@ -789,7 +789,7 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
       getCurrentSnapshot: mock(async () => []),
     } as unknown as DockerContainerEventRepository;
 
-    const collector = new ContainerInventoryCollector(HOST, 'tok', repo, abortController);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
     const cycleAbort = new AbortController();
     (collector as any).collectAbort = cycleAbort;
 

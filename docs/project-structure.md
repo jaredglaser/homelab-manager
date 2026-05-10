@@ -43,7 +43,7 @@ src/
 │   │   ├── StackSettingsDialog.tsx  # Stack settings editor
 │   │   ├── SyncStatusBadge.tsx      # Git sync status badge
 │   │   ├── VariableRow.tsx          # Individual variable editor row
-│   │   ├── VariablesPanel.tsx       # Stack variables editor (OpenBao-backed)
+│   │   ├── VariablesPanel.tsx       # Stack variables editor (JWE-encrypted in stack_secrets)
 │   │   └── stacks-context.ts        # Context providers for stack data
 │   ├── settings/
 │   │   ├── AddHostWizard.tsx        # Multi-step host onboarding wizard
@@ -102,28 +102,29 @@ src/
 │   │   └── schemas.ts              # ZFS validation schemas
 │   └── mock-docker-containers.ts    # Mock container data for testing
 ├── middleware/
-│   └── openbao-middleware.ts        # OpenBao client injection (KV v2 initialization)
+│   └── database-middleware.ts       # Database client injection
 ├── lib/
 │   ├── clients/
-│   │   ├── agent-client.ts          # HTTP client for agent sidecar communication
+│   │   ├── agent-client.ts          # HTTP client for agent sidecar communication (JWT-signed requests)
 │   │   ├── database-client.ts       # PostgreSQL connection pool manager
-│   │   ├── openbao-client.ts        # OpenBao KV v2 HTTP client for secrets
 │   │   └── proxmox-client.ts        # Proxmox VE REST API client
 │   ├── config/
 │   │   ├── database-config.ts       # Database connection configuration
 │   │   ├── git-config.ts            # Git server configuration
-│   │   ├── openbao-config.ts        # OpenBao connection configuration
 │   │   ├── proxmox-config.ts        # Proxmox API configuration
 │   │   └── worker-config.ts         # Worker process configuration
 │   ├── constants/
 │   │   ├── settings-keys.ts         # Canonical DB key definitions used across frontend + backend
 │   │   ├── stacks-keys.ts           # Stack-related React Query key definitions
-│   │   ├── openbao.ts              # OpenBao path constants
 │   │   ├── ui-timing.ts             # UI timing constants
 │   │   └── preload-queries.ts       # Preload query definitions
 │   ├── charts/
 │   │   ├── css-vars.ts              # CSS variable color resolution for charts
 │   │   └── y-axis.ts                # Y-axis scaling utilities
+│   ├── crypto/
+│   │   ├── master-key.ts            # Resolve MASTER_KEY / MASTER_KEY_FILE → AES-GCM CryptoKey
+│   │   ├── encrypted-value.ts       # JWE encrypt/decrypt helpers for at-rest secrets
+│   │   └── agent-jwt.ts             # Ed25519 keypair generation and short-lived JWT signing
 │   ├── database/
 │   │   ├── repositories/
 │   │   │   ├── stats-repository.ts  # Time-series stats data access
@@ -131,6 +132,8 @@ src/
 │   │   │   ├── deploy-repository.ts # Deploy history data access
 │   │   │   ├── host-repository.ts   # managed_hosts data access (UI + deploy)
 │   │   │   ├── docker-container-event-repository.ts # Docker container inventory events data access
+│   │   │   ├── stack-secrets-repository.ts  # JWE-encrypted stack secrets data access
+│   │   │   ├── agent-keypairs-repository.ts # Encrypted per-agent Ed25519 keypairs data access
 │   │   │   └── stack-status-repository.ts  # Stack status data access
 │   │   ├── subscription-service.ts  # StatsPollService - shared 1s poll, broadcasts to SSE clients
 │   │   └── migrate.ts               # Database migration runner
@@ -162,14 +165,10 @@ src/
 │   │   └── stack-status-broadcast-service.ts # PostgreSQL LISTEN + SSE broadcast for stack status
 │   ├── services/
 │   │   ├── agent-health-service.ts  # Agent health check with timeout
-│   │   ├── agent-provisioning-service.ts # Deploy agent containers to hosts
+│   │   ├── agent-provisioning-service.ts # Deploy agent containers to hosts (injects public JWK)
 │   │   ├── agent-constants.ts       # Agent configuration constants
-│   │   ├── token-service.ts         # Agent token generation and validation
-│   │   ├── docker-image-utils.ts    # Docker image version utilities
-│   │   ├── openbao-init.ts          # Initialize OpenBao KV v2 engine
-│   │   ├── openbao-secret-resolver.ts # Resolve secrets from OpenBao
-│   │   ├── secret-resolver-factory.ts # Factory for secret resolvers
-│   │   └── secret-resolver.ts       # Base secret resolver interface
+│   │   ├── token-service.ts         # generateToken(): random UUID generation
+│   │   └── docker-image-utils.ts    # Docker image version utilities
 │   ├── templates/
 │   │   └── agent-stack-compose.ts   # Generate agent docker-compose.yml for host deployment
 │   ├── hosts/
@@ -181,8 +180,6 @@ src/
 │   │   └── create-broadcast-sse-handler.ts  # SSE factory for subscribe-based broadcasts (inventory/status/settings)
 │   ├── docker/
 │   │   └── docker-inventory-broadcast-service.ts # PostgreSQL LISTEN + SSE broadcast for container inventory
-│   ├── server-functions/
-│   │   └── openbao-server-functions.ts # OpenBao server function wrappers
 │   ├── parsers/
 │   │   ├── zfs-iostat-parser.ts     # ZFS iostat output parser
 │   │   └── text-parser.ts           # Generic text line parser
@@ -261,7 +258,7 @@ scripts/                             # check-coverage.js, download-icons.ts, dow
 agent/                               # Agent sidecar container (separate Bun package)
 ├── src/
 │   ├── index.ts                     # Bun.serve entry point with route registration
-│   ├── middleware.ts                # Bearer token authentication middleware
+│   ├── middleware.ts                # JWT authentication middleware (verifies EdDSA Bearer tokens)
 │   ├── routes/
 │   │   ├── health.ts               # Docker version check + heartbeat
 │   │   ├── stats.ts                # SSE container stats with pre-computed metrics
@@ -271,6 +268,7 @@ agent/                               # Agent sidecar container (separate Bun pac
 │   │   ├── zfs.ts                  # ZFS pool status and SSE iostat streaming
 │   │   └── agent-update.ts         # Agent self-update endpoint
 │   └── lib/
+│       ├── jwt-auth.ts              # JWT verification (verifyAgentJwt using EdDSA)
 │       └── zfs-capabilities.ts     # ZFS binary detection and capability checking
 ├── Dockerfile
 ├── package.json

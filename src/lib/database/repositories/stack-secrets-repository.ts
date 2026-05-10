@@ -1,0 +1,55 @@
+import type { Pool } from 'pg';
+import type { MasterKeyring } from '@/lib/crypto/master-key';
+import { encryptValue, decryptValue } from '@/lib/crypto/encrypted-value';
+
+export class StackSecretsRepository {
+  constructor(
+    private readonly pool: Pool,
+    private readonly keyring: MasterKeyring,
+  ) {}
+
+  async list(stackName: string): Promise<string[]> {
+    const result = await this.pool.query(
+      'SELECT variable_name FROM stack_secrets WHERE stack_name = $1 ORDER BY variable_name ASC',
+      [stackName],
+    );
+    return result.rows.map((r) => (r as { variable_name: string }).variable_name);
+  }
+
+  async get(stackName: string, variableName: string): Promise<string | null> {
+    const result = await this.pool.query(
+      'SELECT ciphertext_jwe FROM stack_secrets WHERE stack_name = $1 AND variable_name = $2',
+      [stackName, variableName],
+    );
+    if (result.rows.length === 0) return null;
+    return decryptValue((result.rows[0] as { ciphertext_jwe: string }).ciphertext_jwe, this.keyring);
+  }
+
+  async set(stackName: string, variableName: string, value: string): Promise<void> {
+    const jwe = await encryptValue(value, this.keyring);
+    await this.pool.query(
+      `INSERT INTO stack_secrets (stack_name, variable_name, ciphertext_jwe, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (stack_name, variable_name)
+       DO UPDATE SET ciphertext_jwe = EXCLUDED.ciphertext_jwe, updated_at = now()`,
+      [stackName, variableName, jwe],
+    );
+  }
+
+  async delete(stackName: string, variableName: string): Promise<void> {
+    await this.pool.query(
+      'DELETE FROM stack_secrets WHERE stack_name = $1 AND variable_name = $2',
+      [stackName, variableName],
+    );
+  }
+
+  async ensureExists(stackName: string, variableName: string): Promise<void> {
+    const jwe = await encryptValue('', this.keyring);
+    await this.pool.query(
+      `INSERT INTO stack_secrets (stack_name, variable_name, ciphertext_jwe)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (stack_name, variable_name) DO NOTHING`,
+      [stackName, variableName, jwe],
+    );
+  }
+}

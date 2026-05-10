@@ -60,9 +60,6 @@ x-worker-dev: &worker-dev
   depends_on:
     postgres:
       condition: service_healthy
-    openbao:
-      condition: service_healthy
-      required: false
 
 services:
   # PostgreSQL database
@@ -94,6 +91,10 @@ services:
     container_name: homelab-worker-local
     mem_limit: 512m
     command: bun src/worker/collector.ts
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - ./data:/app/data
     environment:
       <<: [*postgres-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
@@ -102,11 +103,13 @@ services:
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
       WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS}
-      OPENBAO_URL: "http://openbao:8200"
-      OPENBAO_TOKEN: ${OPENBAO_TOKEN:-}
-      DEV_AGENT_TOKEN: ${DEV_AGENT_TOKEN:-}
       DEV_HOST_NAME: ${DEV_HOST_NAME:-}
       WORKER_LOCALHOST_AGENT: "hlm-agent"
+      HOMELAB_DEV_SEED: "true"
+      # Either MASTER_KEY (inline) or MASTER_KEY_FILE (path inside the container) must be set.
+      # MASTER_KEY_FILE requires adding a matching volume mount to expose the file in this container.
+      MASTER_KEY: ${MASTER_KEY:-}
+      MASTER_KEY_FILE: ${MASTER_KEY_FILE:-}
 
   # Socket proxy for secure Docker socket access (management profile)
   socket-proxy:
@@ -141,17 +144,18 @@ services:
   # Agent sidecar for Docker management (management profile)
   agent:
     build:
-      context: ./agent
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: agent/Dockerfile
     container_name: hlm-agent
     restart: unless-stopped
     environment:
       DOCKER_HOST: "tcp://socket-proxy:2375"
-      AGENT_TOKEN: ${DEV_AGENT_TOKEN:?Set DEV_AGENT_TOKEN in .env}
       AGENT_PORT: "9090"
       STACKS_DIR: "/opt/homelab-manager/stacks"
+      AGENT_TRUSTED_PUBKEY_FILE: "/etc/hlm/dev-agent-pubkey.json"
     volumes:
       - agent-stacks-local:/opt/homelab-manager/stacks
+      - ./data:/etc/hlm:ro
     ports:
       - "127.0.0.1:9090:9090"
     networks:
@@ -166,38 +170,9 @@ services:
     profiles:
       - management
 
-  # OpenBao with persistent file storage (management profile)
-  # Auto-initializes and unseals on first start via the entrypoint script.
-  openbao:
-    image: openbao/openbao
-    container_name: homelab-openbao-local
-    command: server -config=/openbao/config/local.hcl
-    environment:
-      BAO_ADDR: "http://127.0.0.1:8200"
-    ports:
-      - "127.0.0.1:8200:8200"
-    cap_add:
-      - IPC_LOCK
-    volumes:
-      - openbao-data-local:/openbao/data
-      - ./dev/openbao/local.hcl:/openbao/config/local.hcl:ro
-      - ./dev/openbao/entrypoint.sh:/openbao/entrypoint.sh:ro
-    entrypoint: ["/bin/sh", "/openbao/entrypoint.sh"]
-    healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8200/v1/sys/health"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
-    networks:
-      - homelab-network
-    profiles:
-      - management
-
 volumes:
   node_modules:
   pgdata-local:
-  openbao-data-local:
   agent-stacks-local:
 
 networks:

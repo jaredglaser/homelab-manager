@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
-import type { HostHandlerDeps, HostRepo } from '../handlers';
+import type { HostHandlerDeps, HostRepo, KeypairsDep } from '../handlers';
 import type { HealthCheckOutcome } from '@/lib/hosts/host-utils';
 import {
   handleListHosts,
@@ -43,6 +43,15 @@ function mockRepo(overrides?: Partial<HostRepo>): HostRepo {
 
 function baseDeps(repo?: Partial<HostRepo>): HostHandlerDeps {
   return { repo: mockRepo(repo) };
+}
+
+function makeKeypairsMock(): KeypairsDep {
+  return {
+    createForHost: mock(async (_name: string) => ({
+      publicJwk: { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' } as import('jose').JWK,
+    })),
+    deleteForHost: mock(async () => undefined),
+  };
 }
 
 describe('handleListHosts', () => {
@@ -90,21 +99,21 @@ describe('handleRemoveHost', () => {
   function removeDeps(repo?: Partial<HostRepo>) {
     return {
       ...baseDeps(repo),
-      deleteToken: mock(() => Promise.resolve()),
+      keypairs: makeKeypairsMock(),
     };
   }
 
-  it('deletes token and record', async () => {
+  it('deletes keypair and record', async () => {
     const deps = removeDeps();
     const result = await handleRemoveHost(deps, { hostId: 1 });
     expect(result.success).toBe(true);
-    expect(deps.deleteToken).toHaveBeenCalledWith('test-host');
+    expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('test-host');
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 
-  it('still deletes record when OpenBao token deletion fails', async () => {
+  it('still deletes record when keypair deletion fails', async () => {
     const deps = removeDeps();
-    deps.deleteToken = mock(() => Promise.reject(new Error('bao unreachable')));
+    deps.keypairs.deleteForHost = mock(() => Promise.reject(new Error('keypair store unreachable')));
     const result = await handleRemoveHost(deps, { hostId: 1 });
     expect(result.success).toBe(true);
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
@@ -148,58 +157,46 @@ describe('handleVerifyHost', () => {
   function verifyDeps(repo?: Partial<HostRepo>) {
     return {
       ...baseDeps(repo),
-      storeToken: mock(() => Promise.resolve()),
-      checkHealth: mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '1.0.0' })),
-      verifyToken: mock(() => Promise.resolve()),
+      keypairs: makeKeypairsMock(),
     };
   }
 
-  it('health checks, creates host, stores token, and returns result', async () => {
+  it('generates keypair and returns public JWK', async () => {
     const deps = verifyDeps();
-    const result = await handleVerifyHost(deps, {
+    const result = await handleVerifyHost(deps, { name: 'newhost', agentUrl: 'http://x:9090' });
+    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('newhost');
+    expect(result.publicJwk).toBeDefined();
+    expect(result.publicJwk?.kty).toBe('OKP');
+  });
+
+  it('creates host record with name, url, and capabilities', async () => {
+    const deps = verifyDeps();
+    await handleVerifyHost(deps, {
       name: 'new-host',
       agentUrl: 'http://192.168.1.10:9090',
-      agentToken: 'test-token',
       capabilities: { docker: true },
     });
-    expect(result.host.name).toBe('test-host'); // from mockRow
-    expect(result.host.status).toBe('healthy');
-    expect(deps.checkHealth).toHaveBeenCalled();
     expect(deps.repo.create).toHaveBeenCalledWith({
       name: 'new-host',
       agentUrl: 'http://192.168.1.10:9090',
       capabilities: { docker: true },
     });
-    expect(deps.storeToken).toHaveBeenCalledWith('new-host', 'test-token');
-    expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
   });
 
-  it('throws on health check failure without creating DB record', async () => {
+  it('returns pending status', async () => {
     const deps = verifyDeps();
-    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
-    await expect(
-      handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'tok' })
-    ).rejects.toThrow(/health check failed/);
-    expect(deps.repo.create).not.toHaveBeenCalled();
-    expect(deps.storeToken).not.toHaveBeenCalled();
+    const result = await handleVerifyHost(deps, { name: 'new-host', agentUrl: 'http://x:9090' });
+    expect(result.host.status).toBe('pending');
+    expect(deps.repo.updateStatus).not.toHaveBeenCalled();
+    expect(deps.repo.updateAgentVersion).not.toHaveBeenCalled();
   });
 
-  it('throws on token verification failure without creating DB record', async () => {
+  it('rolls back DB record on keypair generation failure', async () => {
     const deps = verifyDeps();
-    deps.verifyToken = mock(() => Promise.reject(new Error('agent rejected authentication')));
+    deps.keypairs.createForHost = mock(() => Promise.reject(new Error('keygen failed')));
     await expect(
-      handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'wrong-token' })
-    ).rejects.toThrow(/agent rejected authentication/);
-    expect(deps.repo.create).not.toHaveBeenCalled();
-    expect(deps.storeToken).not.toHaveBeenCalled();
-  });
-
-  it('rolls back DB record on OpenBao write failure', async () => {
-    const deps = verifyDeps();
-    deps.storeToken = mock(() => Promise.reject(new Error('bao unreachable')));
-    await expect(
-      handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'tok' })
-    ).rejects.toThrow(/Failed to store agent token in OpenBao/);
+      handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090' })
+    ).rejects.toThrow(/Failed to generate agent keypair/);
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 
@@ -208,7 +205,6 @@ describe('handleVerifyHost', () => {
     await handleVerifyHost(deps, {
       name: 'zfs-host',
       agentUrl: 'http://x:9090',
-      agentToken: 'tok',
       capabilities: { docker: true, zfs: true },
     });
     expect(deps.repo.create).toHaveBeenCalledWith({
@@ -217,101 +213,47 @@ describe('handleVerifyHost', () => {
       capabilities: { docker: true, zfs: true },
     });
   });
-
-  it('updates agent version when health check returns one', async () => {
-    const deps = verifyDeps();
-    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '2.0.0' }));
-    await handleVerifyHost(deps, { name: 'new', agentUrl: 'http://x:9090', agentToken: 'tok' });
-    expect(deps.repo.updateAgentVersion).toHaveBeenCalledWith(1, '2.0.0');
-  });
 });
 
 describe('handleRegisterExistingHost', () => {
-  let setTimeoutSpy: ReturnType<typeof spyOn>;
-
-  beforeEach(() => {
-    setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
-      ((fn: TimerHandler) => {
-        if (typeof fn === 'function') fn();
-        return 0;
-      }) as unknown as typeof setTimeout
-    );
-  });
-
-  afterEach(() => {
-    setTimeoutSpy.mockRestore();
-  });
-
   function registerDeps(repo?: Partial<HostRepo>) {
     return {
       ...baseDeps(repo),
-      storeToken: mock(() => Promise.resolve()),
-      checkHealth: mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '1.0.0' })),
+      keypairs: makeKeypairsMock(),
     };
   }
 
-  it('creates host, stores token, health checks, and returns healthy host', async () => {
+  it('creates host, generates keypair, and returns pending host with public JWK', async () => {
     const deps = registerDeps();
     const result = await handleRegisterExistingHost(deps, {
       name: 'existing-host',
       agentUrl: 'http://192.168.1.20:9090',
-      agentToken: 'my-token',
     });
 
     expect(result.host.name).toBe('test-host'); // from mockRow
-    expect(result.host.status).toBe('healthy');
+    expect(result.host.status).toBe('pending');
+    expect(result.publicJwk).toBeDefined();
+    expect(result.publicJwk?.kty).toBe('OKP');
     expect(deps.repo.create).toHaveBeenCalledWith({
       name: 'existing-host',
       agentUrl: 'http://192.168.1.20:9090',
     });
-    expect(deps.storeToken).toHaveBeenCalledWith('existing-host', 'my-token');
-    expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
-    expect(deps.checkHealth).toHaveBeenCalled();
+    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('existing-host');
+    expect(deps.repo.updateStatus).not.toHaveBeenCalled();
   });
 
-  it('returns unhealthy host when health check fails', async () => {
+  it('rolls back DB record and throws when keypair generation fails', async () => {
     const deps = registerDeps();
-    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
-
-    const result = await handleRegisterExistingHost(deps, {
-      name: 'existing-host',
-      agentUrl: 'http://192.168.1.20:9090',
-      agentToken: 'my-token',
-    });
-
-    expect(result.host.status).toBe('unhealthy');
-    expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'unhealthy');
-    expect(deps.repo.updateAgentVersion).not.toHaveBeenCalled();
-  });
-
-  it('rolls back DB record and throws when token storage fails', async () => {
-    const deps = registerDeps();
-    deps.storeToken = mock(() => Promise.reject(new Error('bao unreachable')));
+    deps.keypairs.createForHost = mock(() => Promise.reject(new Error('keygen failed')));
 
     await expect(
       handleRegisterExistingHost(deps, {
         name: 'existing-host',
         agentUrl: 'http://192.168.1.20:9090',
-        agentToken: 'my-token',
       })
-    ).rejects.toThrow(/Failed to store agent token in OpenBao/);
+    ).rejects.toThrow(/Failed to generate agent keypair/);
 
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
-    expect(deps.checkHealth).not.toHaveBeenCalled();
-  });
-
-  it('updates agent version when health check returns one', async () => {
-    const deps = registerDeps();
-    deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '2.5.0' }));
-
-    const result = await handleRegisterExistingHost(deps, {
-      name: 'existing-host',
-      agentUrl: 'http://192.168.1.20:9090',
-      agentToken: 'my-token',
-    });
-
-    expect(deps.repo.updateAgentVersion).toHaveBeenCalledWith(1, '2.5.0');
-    expect(result.host.agentVersion).toBe('2.5.0');
   });
 });
 
@@ -335,9 +277,7 @@ describe('handleAddHost', () => {
     return {
       ...baseDeps(repo),
       provision: mock(() => Promise.resolve({ agentUrl: 'http://192.168.1.10:9090' })),
-      generateToken: () => 'mock-token',
-      storeToken: mock(() => Promise.resolve()),
-      deleteToken: mock(() => Promise.resolve()),
+      keypairs: makeKeypairsMock(),
       checkHealth: mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '1.0.0' })),
       removeAgent: mock(() => Promise.resolve()),
     };
@@ -352,8 +292,23 @@ describe('handleAddHost', () => {
       name: 'new',
       agentUrl: '',
     });
-    expect(deps.storeToken).toHaveBeenCalledWith('new', 'mock-token');
+    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('new');
     expect(deps.repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
+  });
+
+  it('returns public JWK on success', async () => {
+    const deps = addDeps();
+    const result = await handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
+    expect(result.publicJwk).toBeDefined();
+    expect(result.publicJwk?.kty).toBe('OKP');
+  });
+
+  it('provisions with publicJwkJson instead of agentToken', async () => {
+    const deps = addDeps();
+    await handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
+    const provisionCall = (deps.provision as ReturnType<typeof mock>).mock.calls[0];
+    expect(provisionCall[1]).toHaveProperty('publicJwkJson');
+    expect(provisionCall[1]).not.toHaveProperty('agentToken');
   });
 
   it('persists the resolved agent URL after provisioning', async () => {
@@ -372,13 +327,13 @@ describe('handleAddHost', () => {
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 
-  it('deletes token from OpenBao on health check failure rollback', async () => {
+  it('deletes keypair on health check failure rollback', async () => {
     const deps = addDeps();
     deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
     await expect(
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow(/health check failed/);
-    expect(deps.deleteToken).toHaveBeenCalledWith('new');
+    expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('new');
   });
 
   it('reports cleanup failure in error message', async () => {
@@ -388,16 +343,6 @@ describe('handleAddHost', () => {
     await expect(
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow(/manual removal/);
-  });
-
-  it('rolls back on OpenBao write failure', async () => {
-    const deps = addDeps();
-    deps.storeToken = mock(() => Promise.reject(new Error('bao unreachable')));
-    await expect(
-      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
-    ).rejects.toThrow(/Failed to finalize host after provisioning/);
-    expect(deps.repo.delete).toHaveBeenCalledWith(1);
-    expect(deps.removeAgent).toHaveBeenCalled();
   });
 
   it('rolls back on updateAgentUrl failure', async () => {
@@ -419,13 +364,14 @@ describe('handleAddHost', () => {
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow(/Agent is healthy but failed to finalize host record/);
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
-    expect(deps.deleteToken).toHaveBeenCalledWith('new');
+    expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('new');
     expect(deps.removeAgent).toHaveBeenCalled();
   });
 
-  it('reports container cleanup failure in OpenBao write rollback', async () => {
-    const deps = addDeps();
-    deps.storeToken = mock(() => Promise.reject(new Error('bao unreachable')));
+  it('reports container cleanup failure in rollback error message', async () => {
+    const deps = addDeps({
+      updateAgentUrl: mock(() => Promise.reject(new Error('DB write failed'))),
+    });
     deps.removeAgent = mock(() => Promise.reject(new Error('docker down')));
     await expect(
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
@@ -441,17 +387,30 @@ describe('handleAddHost', () => {
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow('provision failed');
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
+    // keypair was created before provision, so it should be deleted on provision failure
+    expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('new');
   });
 
-  it('swallows deleteToken error during health check failure rollback', async () => {
+  it('deletes host record and re-throws when keypair generation fails before provision', async () => {
+    const deps = addDeps();
+    deps.keypairs.createForHost = mock(() => Promise.reject(new Error('keygen failed')));
+    await expect(
+      handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
+    ).rejects.toThrow('keygen failed');
+    expect(deps.repo.delete).toHaveBeenCalledWith(1);
+    // provision should not have been called since keypair generation failed
+    expect(deps.provision).not.toHaveBeenCalled();
+  });
+
+  it('swallows deleteForHost error during health check failure rollback', async () => {
     const deps = addDeps();
     deps.checkHealth = mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: false, error: 'refused' }));
-    deps.deleteToken = mock(() => Promise.reject(new Error('bao down')));
+    deps.keypairs.deleteForHost = mock(() => Promise.reject(new Error('keypair store down')));
     await expect(
       handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 })
     ).rejects.toThrow(/health check failed/);
-    // deleteToken threw but the error was caught; the rollback error is the one that propagates
-    expect(deps.deleteToken).toHaveBeenCalledWith('new');
+    // deleteForHost threw but error was swallowed; rollback error is the one that propagates
+    expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('new');
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
   });
 });
@@ -473,17 +432,17 @@ describe('handleUpdateAgent', () => {
   });
 
   function updateDeps(repo?: Partial<HostRepo>, overrides?: {
-    getToken?: ReturnType<typeof mock>;
+    getSigner?: ReturnType<typeof mock>;
     checkHealth?: ReturnType<typeof mock>;
   }) {
     return {
       ...baseDeps(repo),
-      getToken: overrides?.getToken ?? mock(() => Promise.resolve('mock-token')),
+      getSigner: overrides?.getSigner ?? mock(async () => async () => 'mock-jwt'),
       checkHealth: overrides?.checkHealth ?? mock((): Promise<HealthCheckOutcome> => Promise.resolve({ healthy: true, version: '1.0.0' })),
     };
   }
 
-  it('records current version, fetches token, triggers update, polls for version change', async () => {
+  it('records current version, mints JWT, triggers update, polls for version change', async () => {
     let callCount = 0;
     const checkHealth = mock((): Promise<HealthCheckOutcome> => {
       callCount++;
@@ -504,20 +463,37 @@ describe('handleUpdateAgent', () => {
     fetchSpy.mockRestore();
   });
 
-  it('returns unhealthy with OpenBao suggestions when getToken throws', async () => {
+  it('returns unhealthy with keypair suggestions when getSigner throws', async () => {
     const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
     const deps = updateDeps(undefined, {
-      getToken: mock(() => Promise.reject(new Error('bao unreachable'))),
+      getSigner: mock(() => Promise.reject(new Error('master key missing'))),
     });
 
     const result = await handleUpdateAgent(deps, { hostId: 1 });
 
     expect(result.healthy).toBe(false);
     if (!result.healthy) {
-      expect(result.error).toContain('token');
+      expect(result.error).toContain('keypair');
       expect(result.suggestions).toBeDefined();
-      expect(result.suggestions!.some(s => s.toLowerCase().includes('openbao'))).toBe(true);
+      expect(result.suggestions!.some(s => s.toLowerCase().includes('master key'))).toBe(true);
     }
+    fetchSpy.mockRestore();
+  });
+
+  it('uses Bearer JWT when triggering agent update', async () => {
+    let callCount = 0;
+    const checkHealth = mock((): Promise<HealthCheckOutcome> => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ healthy: true, version: '1.0.0' });
+      return Promise.resolve({ healthy: true, version: '2.0.0' });
+    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const deps = updateDeps(undefined, { checkHealth });
+
+    await handleUpdateAgent(deps, { hostId: 1 });
+
+    const fetchCall = fetchSpy.mock.calls[0];
+    expect(fetchCall[1]?.headers).toMatchObject({ Authorization: 'Bearer mock-jwt' });
     fetchSpy.mockRestore();
   });
 
@@ -587,6 +563,36 @@ describe('handleUpdateAgent', () => {
 
     expect(repo.updateStatus).toHaveBeenCalledWith(1, 'healthy');
     expect(repo.updateAgentVersion).toHaveBeenCalledWith(1, '2.0.0');
+    fetchSpy.mockRestore();
+  });
+
+  it('returns unhealthy with "latest version" message when version never changes but agent stays healthy', async () => {
+    const checkHealth = mock((): Promise<HealthCheckOutcome> =>
+      Promise.resolve({ healthy: true, version: '1.0.0' }),
+    );
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const deps = updateDeps(undefined, { checkHealth });
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.error).toContain('latest version already');
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it('returns unhealthy with suggestions when POST to agent update endpoint throws', async () => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+    const deps = updateDeps();
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.error).toContain('ECONNREFUSED');
+      expect(result.suggestions).toBeDefined();
+    }
     fetchSpy.mockRestore();
   });
 });

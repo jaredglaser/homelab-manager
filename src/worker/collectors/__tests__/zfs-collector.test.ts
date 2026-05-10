@@ -99,21 +99,21 @@ describe('ZFSCollector', () => {
   describe('construction', () => {
     it('should set name from host config', () => {
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController,
       );
       expect(collector.name).toBe('ZFSCollector[test-zfs]');
     });
 
     it('should set custom name from host config', () => {
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, { ...sampleHost, name: 'nas-server' }, 'test-token', abortController,
+        mockDb.db, defaultConfig, { ...sampleHost, name: 'nas-server' }, async () => 'test-token', abortController,
       );
       expect(collector.name).toBe('ZFSCollector[nas-server]');
     });
 
     it('should implement AsyncDisposable', async () => {
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController,
       );
       expect(Symbol.asyncDispose in collector).toBe(true);
       await collector[Symbol.asyncDispose]();
@@ -121,7 +121,7 @@ describe('ZFSCollector', () => {
 
     it('should be stoppable', () => {
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token',
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token',
       );
       collector.stop();
       expect((collector as any).signal.aborted).toBe(true);
@@ -138,7 +138,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -190,7 +190,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -212,7 +212,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -237,7 +237,7 @@ describe('ZFSCollector', () => {
       });
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -250,7 +250,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -266,7 +266,7 @@ describe('ZFSCollector', () => {
       });
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -290,7 +290,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -321,7 +321,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -351,7 +351,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -378,7 +378,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -405,7 +405,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -445,7 +445,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -484,7 +484,7 @@ describe('ZFSCollector', () => {
       );
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -527,7 +527,7 @@ describe('ZFSCollector', () => {
       });
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -552,7 +552,7 @@ describe('ZFSCollector', () => {
       });
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
       );
       mockDb.patchRepository(collector);
 
@@ -565,7 +565,7 @@ describe('ZFSCollector', () => {
   describe('debug logging', () => {
     it('should support debug logging toggle', () => {
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController,
       );
       collector.dockerDebugLogging = true;
       collector.dockerDebugLogging = false;
@@ -573,7 +573,7 @@ describe('ZFSCollector', () => {
 
     it('should support db flush debug logging toggle', () => {
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, 'test-token', abortController,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController,
       );
       collector.dbFlushDebugLogging = true;
       collector.dbFlushDebugLogging = false;

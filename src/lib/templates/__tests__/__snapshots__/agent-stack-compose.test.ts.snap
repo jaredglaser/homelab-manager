@@ -34,10 +34,9 @@ services:
     ports:
       - \${HLM_AGENT_PORT:-9090}:9090
     environment:
-      AGENT_TOKEN_FILE: /run/secrets/agent_token
+      AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       DOCKER_HOST: tcp://socket-proxy:2375
-    volumes:
-      - ./agent-token:/run/secrets/agent_token:ro
+    volumes: []
     networks:
       - agent-internal
       - agent-public
@@ -79,9 +78,8 @@ services:
     ports:
       - \${HLM_AGENT_PORT:-9090}:9090
     environment:
-      AGENT_TOKEN_FILE: /run/secrets/agent_token
+      AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
     volumes:
-      - ./agent-token:/run/secrets/agent_token:ro
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
       - /dev/zfs:/dev/zfs
@@ -139,10 +137,9 @@ services:
     ports:
       - \${HLM_AGENT_PORT:-9090}:9090
     environment:
-      AGENT_TOKEN_FILE: /run/secrets/agent_token
+      AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
-      - ./agent-token:/run/secrets/agent_token:ro
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
       - /dev/zfs:/dev/zfs

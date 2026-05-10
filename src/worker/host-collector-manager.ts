@@ -22,7 +22,7 @@ export interface HostCollectorBundle {
  */
 export type HostCollectorFactory = (
   host: ManagedHost,
-  token: string,
+  signer: () => Promise<string>,
   controller: AbortController,
   stack: AsyncDisposableStack,
 ) => HostCollectorBundle;
@@ -68,7 +68,7 @@ export function defaultHostCollectorFactory(
   workerConfig: WorkerConfig,
 ): HostCollectorFactory {
   const inventoryRepo = new DockerContainerEventRepository(db.getPool());
-  return (host, token, controller, stack) => {
+  return (host, signer, controller, stack) => {
     const collectors: BaseCollector[] = [];
     const runners: Promise<void>[] = [];
     const resolved = { ...host, agentUrl: resolveAgentUrl(host.agentUrl) };
@@ -76,14 +76,14 @@ export function defaultHostCollectorFactory(
     const zfsWanted = shouldStartZfs(workerConfig, host.capabilities);
 
     if (dockerWanted) {
-      const stats = stack.use(new AgentStatsCollector(db, workerConfig, resolved, token, controller));
+      const stats = stack.use(new AgentStatsCollector(db, workerConfig, resolved, signer, controller));
       collectors.push(stats);
       runners.push(stats.run());
 
       const inventory = stack.use(
         new ContainerInventoryCollector(
           { name: host.name, agentUrl: resolved.agentUrl },
-          token,
+          signer,
           inventoryRepo,
           controller,
         ),
@@ -93,7 +93,7 @@ export function defaultHostCollectorFactory(
     }
 
     if (zfsWanted) {
-      const zfs = stack.use(new ZFSCollector(db, workerConfig, resolved, token, controller));
+      const zfs = stack.use(new ZFSCollector(db, workerConfig, resolved, signer, controller));
       collectors.push(zfs);
       runners.push(zfs.run());
     }
@@ -117,7 +117,7 @@ export class HostCollectorManager implements AsyncDisposable {
     private readonly workerConfig: WorkerConfig,
     private readonly globalSignal: AbortSignal,
     private readonly findAllHosts: () => Promise<ManagedHost[]>,
-    private readonly getToken: (hostname: string) => Promise<string | null>,
+    private readonly getSigner: (hostname: string) => Promise<(() => Promise<string>) | null>,
     private readonly collectorFactory: HostCollectorFactory,
   ) {}
 
@@ -143,7 +143,7 @@ export class HostCollectorManager implements AsyncDisposable {
    * Synchronise the active collector set with the current `managed_hosts`
    * table contents. Adds collectors for new hosts, disposes them for
    * removed hosts, and recreates them for hosts whose `agentUrl` or
-   * capabilities changed. Token-resolution failures are logged and the
+   * capabilities changed. Signer-resolution failures are logged and the
    * host is skipped (matches startup behavior).
    */
   reconcile(): Promise<void> {
@@ -188,18 +188,18 @@ export class HostCollectorManager implements AsyncDisposable {
   private async addHost(host: ManagedHost): Promise<void> {
     if (this.globalSignal.aborted) return;
 
-    let token: string | null;
+    let signer: (() => Promise<string>) | null;
     try {
-      token = await this.getToken(host.name);
+      signer = await this.getSigner(host.name);
     } catch (err) {
       console.error(
-        `[HostCollectorManager] Token fetch failed for ${host.name}:`,
+        `[HostCollectorManager] Signer fetch failed for ${host.name}:`,
         err instanceof Error ? err.message : err,
       );
       return;
     }
-    if (!token) {
-      console.info(`[HostCollectorManager] No agent token for ${host.name}, skipping`);
+    if (!signer) {
+      console.info(`[HostCollectorManager] No agent keypair for ${host.name}, skipping`);
       return;
     }
 
@@ -216,7 +216,7 @@ export class HostCollectorManager implements AsyncDisposable {
     this.globalSignal.addEventListener('abort', onGlobalAbort, { once: true });
 
     const stack = new AsyncDisposableStack();
-    const { collectors, runners } = this.collectorFactory(host, token, controller, stack);
+    const { collectors, runners } = this.collectorFactory(host, signer, controller, stack);
 
     if (collectors.length === 0) {
       console.info(`[HostCollectorManager] Factory returned no collectors for ${host.name}, skipping`);

@@ -107,25 +107,17 @@ async function main() {
       );
 
       const hostRepo = new HostRepository(db.getPool());
-      let getToken: ((hostname: string) => Promise<string | null>) = () => {
-        throw new Error('OpenBao client is not available: initialization failed at startup');
-      };
 
-      try {
-        const { loadOpenBaoConfig, isOpenBaoConfigured } = await import('@/lib/config/openbao-config');
-        if (isOpenBaoConfigured()) {
-          const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-          const baoConfig = loadOpenBaoConfig();
-          const baoClient = new OpenBaoClient(baoConfig);
-          await baoClient.ensureSecretsEngine();
-          console.info('[Worker] OpenBao client initialized for managed host tokens');
-          getToken = (hostname: string) => baoClient.getHostSecret(hostname, 'agent_token');
-        } else {
-          console.info('[Worker] OpenBao not configured, skipping token resolution');
-        }
-      } catch (err) {
-        console.error('[Worker] OpenBao initialization failed (non-fatal, deploys will lack token resolution):', err instanceof Error ? err.message : err);
-      }
+      const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
+      const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+      const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+      const keyring = await loadMasterKeyring();
+      const keypairs = new AgentKeypairsRepository(db.getPool(), keyring);
+      const getSigner = async (hostname: string): Promise<(() => Promise<string>) | null> => {
+        const privateKey = await keypairs.getPrivateKeyForHost(hostname);
+        if (!privateKey) return null;
+        return () => signAgentJwt(privateKey, hostname);
+      };
 
       // Manager owns the per-host collector lifecycle. Reconciles on every
       // managed_hosts NOTIFY so adding/removing hosts in the UI takes effect
@@ -135,7 +127,7 @@ async function main() {
           workerConfig,
           shutdownController.signal,
           () => hostRepo.findAll(),
-          getToken,
+          getSigner,
           defaultHostCollectorFactory(db, workerConfig),
         ),
       );

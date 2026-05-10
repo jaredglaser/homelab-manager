@@ -64,15 +64,15 @@ function makeFakeCollector(name: string): { collector: FakeCollector; runner: Pr
 
 interface FactoryCall {
   hostName: string;
-  token: string;
+  signer: () => Promise<string>;
   controller: AbortController;
 }
 
 function makeFactory(): { factory: HostCollectorFactory; calls: FactoryCall[]; created: FakeCollector[] } {
   const calls: FactoryCall[] = [];
   const created: FakeCollector[] = [];
-  const factory: HostCollectorFactory = (host, token, controller, stack) => {
-    calls.push({ hostName: host.name, token, controller });
+  const factory: HostCollectorFactory = (host, signer, controller, stack) => {
+    calls.push({ hostName: host.name, signer, controller });
     const { collector, runner } = makeFakeCollector(`fake-${host.name}`);
     stack.use(collector);
     created.push(collector);
@@ -86,6 +86,8 @@ function makeFactory(): { factory: HostCollectorFactory; calls: FactoryCall[]; c
   };
   return { factory, calls, created };
 }
+
+const okSigner = async (_n: string) => async () => 'mock-jwt';
 
 describe('HostCollectorManager', () => {
   let controller: AbortController;
@@ -107,13 +109,13 @@ describe('HostCollectorManager', () => {
   it('adds collectors for hosts present at first reconcile', async () => {
     const { factory, calls } = makeFactory();
     const hosts = [makeHost('a'), makeHost('b')];
-    const getToken = mock(async (n: string) => `token-${n}`);
+    const getSigner = mock(async (n: string) => async () => `jwt-${n}`);
 
     const manager = new HostCollectorManager(
       makeWorkerConfig(),
       controller.signal,
       async () => hosts,
-      getToken,
+      getSigner,
       factory,
     );
 
@@ -133,7 +135,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => hosts,
-      async (n) => `tok-${n}`,
+      async (n) => async () => `jwt-${n}`,
       factory,
     );
 
@@ -158,7 +160,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => hosts,
-      async () => 'tok',
+      okSigner,
       factory,
     );
 
@@ -184,7 +186,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => hosts,
-      async () => 'tok',
+      okSigner,
       factory,
     );
 
@@ -199,16 +201,16 @@ describe('HostCollectorManager', () => {
     await manager[Symbol.asyncDispose]();
   });
 
-  it('skips hosts whose token cannot be resolved', async () => {
+  it('skips hosts whose signer cannot be resolved', async () => {
     const { factory, calls } = makeFactory();
     const hosts = [makeHost('a'), makeHost('b')];
-    const getToken = mock(async (n: string) => (n === 'a' ? null : 'tok-b'));
+    const getSigner = mock(async (n: string) => (n === 'a' ? null : async () => 'jwt-b'));
 
     const manager = new HostCollectorManager(
       makeWorkerConfig(),
       controller.signal,
       async () => hosts,
-      getToken,
+      getSigner,
       factory,
     );
 
@@ -220,19 +222,19 @@ describe('HostCollectorManager', () => {
     await manager[Symbol.asyncDispose]();
   });
 
-  it('logs and skips when getToken throws', async () => {
+  it('logs and skips when getSigner throws', async () => {
     const { factory, calls } = makeFactory();
     const hosts = [makeHost('a'), makeHost('b')];
-    const getToken = mock(async (n: string) => {
-      if (n === 'a') throw new Error('bao down');
-      return 'tok';
+    const getSigner = mock(async (n: string) => {
+      if (n === 'a') throw new Error('keyring missing');
+      return async () => 'jwt-b';
     });
 
     const manager = new HostCollectorManager(
       makeWorkerConfig(),
       controller.signal,
       async () => hosts,
-      getToken,
+      getSigner,
       factory,
     );
 
@@ -250,7 +252,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => { throw new Error('db down'); },
-      async () => 'tok',
+      okSigner,
       factory,
     );
 
@@ -270,7 +272,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig({ docker: { enabled: false }, zfs: { enabled: true } } as Partial<WorkerConfig>),
       controller.signal,
       async () => hosts,
-      async () => 'tok',
+      okSigner,
       factory,
     );
 
@@ -294,7 +296,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       findAll as () => Promise<ManagedHost[]>,
-      async () => 'tok',
+      okSigner,
       factory,
     );
 
@@ -317,7 +319,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => [makeHost('a')],
-      async () => 'tok',
+      okSigner,
       factory,
     );
 
@@ -334,7 +336,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => [makeHost('a'), makeHost('b'), makeHost('c')],
-      async () => 'tok',
+      okSigner,
       factory,
     );
 
@@ -353,7 +355,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => [makeHost('a'), makeHost('b')],
-      async (n) => `tok-${n}`,
+      async (n) => async () => `jwt-${n}`,
       factory,
     );
 
@@ -367,7 +369,7 @@ describe('HostCollectorManager', () => {
 
   it('logs error when a runner rejects', async () => {
     let rejectFn!: (err: Error) => void;
-    const factory: HostCollectorFactory = (host, _token, controller, stack) => {
+    const factory: HostCollectorFactory = (host, _signer, controller, stack) => {
       const runner = new Promise<void>((_, rej) => { rejectFn = rej; });
       const collector = {
         name: `fake-${host.name}`,
@@ -385,7 +387,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => [makeHost('a')],
-      async () => 'tok',
+      okSigner,
       factory,
     );
 
@@ -419,7 +421,7 @@ describe('HostCollectorManager', () => {
       makeWorkerConfig(),
       controller.signal,
       async () => hosts,
-      async () => 'tok',
+      okSigner,
       factory,
     );
 

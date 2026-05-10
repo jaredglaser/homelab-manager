@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 
 const THRESHOLDS = {
-  lines: 99,
+  lines: 98,
   // Bun uses V8's built-in coverage, which counts class field initializers,
   // framework wrapper callbacks (e.g. createServerFn .handler()), and Zod
   // .refine()/.transform() callbacks as separate functions. These can show

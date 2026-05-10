@@ -81,7 +81,7 @@ describe('AgentProvisioningService', () => {
   const defaultOptions: ProvisionAgentOptions = {
     hostId: 1,
     agentPort: 9090,
-    agentToken: 'test-token-uuid',
+    publicJwkJson: '{"kty":"OKP","crv":"Ed25519","x":"test-public-key"}',
     agentImage: 'ghcr.io/org/homelab-manager-agent:latest',
     socketProxyUrl: 'tcp://192.168.1.10:2375',
   };
@@ -103,11 +103,11 @@ describe('AgentProvisioningService', () => {
       expect(mockDocker.createdContainers[0].name).toBe('homelab-agent-1');
     });
 
-    it('passes AGENT_TOKEN and DOCKER_HOST as env vars', async () => {
+    it('passes AGENT_TRUSTED_PUBKEY and DOCKER_HOST as env vars', async () => {
       await service.provision(mockDocker.docker, defaultOptions);
       const config = mockDocker.createdContainers[0].config;
       const env = config.Env as string[];
-      expect(env).toContainEqual('AGENT_TOKEN=test-token-uuid');
+      expect(env).toContainEqual(`AGENT_TRUSTED_PUBKEY=${defaultOptions.publicJwkJson}`);
       expect(env).toContainEqual('DOCKER_HOST=tcp://192.168.1.10:2375');
       expect(env).toContainEqual('AGENT_PORT=9090');
     });
@@ -160,6 +160,21 @@ describe('AgentProvisioningService', () => {
       // stop() will be called but that's fine, Dockerode handles it
       await service.removeAgent(mockDocker.docker, 1);
       expect(mockDocker.removedContainers).toHaveLength(1);
+    });
+
+    it('rethrows non-404 errors from inspect', async () => {
+      const serverError = new Error('Internal server error') as Error & { statusCode: number };
+      serverError.statusCode = 500;
+      const failingDocker = {
+        ...mockDocker.docker,
+        getContainer: () => ({
+          inspect: async () => { throw serverError; },
+          stop: async () => {},
+          remove: async () => {},
+        }),
+      } as any;
+
+      await expect(service.removeAgent(failingDocker, 1)).rejects.toThrow('Internal server error');
     });
   });
 });

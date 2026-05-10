@@ -25,6 +25,7 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     onAdd: mock(() => {}),
     isAdding: false,
     addError: null,
+    verifyResult: null,
     onRemove: mock(() => {}),
     isRemoving: false,
     onUpdate: mock(() => {}),
@@ -288,7 +289,7 @@ describe('ManagedHostsCard', () => {
       expect(btn.hasAttribute('disabled')).toBe(false)
     })
 
-    it('calls onAdd with capabilities when Verify Connection is clicked', () => {
+    it('calls onAdd with name, url, and capabilities when Verify Connection is clicked', () => {
       const onAdd = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ onAdd })} />)
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -301,10 +302,7 @@ describe('ManagedHostsCard', () => {
       const args = (onAdd as ReturnType<typeof mock>).mock.calls[0]
       expect(args[0]).toBe('server1')
       expect(args[1]).toBe('http://localhost:9090')
-      // agentToken is a UUID
-      expect(typeof args[2]).toBe('string')
-      expect(args[2].length).toBeGreaterThan(0)
-      expect(args[3]).toEqual({ docker: true, zfs: false })
+      expect(args[2]).toEqual({ docker: true, zfs: false })
     })
 
     it('Verify Connection button is disabled while isAdding', () => {
@@ -343,6 +341,26 @@ describe('ManagedHostsCard', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
+    })
+
+    it('shows public JWK after enrollment when verifyResult is set', () => {
+      const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
+      render(<ManagedHostsCardView {...makeProps({ verifyResult: { publicJwk } })} />)
+      // Navigate to verify step to see the JWK display
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.getByTestId('pubkey-display')).toBeDefined()
+      expect(screen.getByText(/AGENT_TRUSTED_PUBKEY/)).toBeDefined()
+      expect(screen.getByTestId('pubkey-display').textContent).toContain('"kty":"OKP"')
+    })
+
+    it('does not show JWK display when verifyResult is null', () => {
+      render(<ManagedHostsCardView {...makeProps({ verifyResult: null })} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      expect(screen.queryByTestId('pubkey-display')).toBeNull()
     })
   })
 

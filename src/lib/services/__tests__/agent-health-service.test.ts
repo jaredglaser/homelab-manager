@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { checkAgentHealth, verifyAgentToken } from '../agent-health-service';
+import { checkAgentHealth } from '../agent-health-service';
 
 // Use dependency injection (fetchFn parameter) instead of global fetch mock
 // per CLAUDE.md rule 7: avoid globalThis mocks, use narrow-scope DI instead.
@@ -101,71 +101,17 @@ describe('agent-health-service', () => {
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.error).toContain('timed out');
     });
+
+    it('returns unhealthy when agent returns 200 with non-JSON body', async () => {
+      const fetchFn = mock(async () =>
+        new Response('not valid json', { status: 200 })
+      ) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toContain('non-JSON response');
+    });
   });
 
-  describe('verifyAgentToken', () => {
-    it('resolves when agent returns 200', async () => {
-      const fetchFn = mock(async () =>
-        new Response(JSON.stringify({ status: 'ok' }), { status: 200 })
-      ) as unknown as typeof fetch;
-
-      await expect(verifyAgentToken('http://agent:9090', 'valid-token', undefined, fetchFn)).resolves.toBeUndefined();
-    });
-
-    it('sends Authorization header and calls /auth/verify', async () => {
-      let calledUrl = '';
-      let calledHeaders: Headers | undefined;
-      const fetchFn = mock(async (input: string | URL | Request, init?: RequestInit) => {
-        calledUrl = typeof input === 'string' ? input : input.toString();
-        calledHeaders = new Headers(init?.headers);
-        return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
-      }) as unknown as typeof fetch;
-
-      await verifyAgentToken('http://agent:9090', 'my-token', undefined, fetchFn);
-
-      expect(calledUrl).toBe('http://agent:9090/auth/verify');
-      expect(calledHeaders?.get('Authorization')).toBe('Bearer my-token');
-    });
-
-    it('strips trailing slash from agent URL', async () => {
-      let calledUrl = '';
-      const fetchFn = mock(async (input: string | URL | Request) => {
-        calledUrl = typeof input === 'string' ? input : input.toString();
-        return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
-      }) as unknown as typeof fetch;
-
-      await verifyAgentToken('http://agent:9090/', 'tok', undefined, fetchFn);
-      expect(calledUrl).toBe('http://agent:9090/auth/verify');
-    });
-
-    it('throws on 401 with clear message', async () => {
-      const fetchFn = mock(async () =>
-        new Response('Unauthorized', { status: 401 })
-      ) as unknown as typeof fetch;
-
-      await expect(
-        verifyAgentToken('http://agent:9090', 'wrong-token', undefined, fetchFn)
-      ).rejects.toThrow(/invalid.*agent rejected/i);
-    });
-
-    it('throws on non-200 non-401 response', async () => {
-      const fetchFn = mock(async () =>
-        new Response('Server Error', { status: 500 })
-      ) as unknown as typeof fetch;
-
-      await expect(
-        verifyAgentToken('http://agent:9090', 'tok', undefined, fetchFn)
-      ).rejects.toThrow(/status 500/);
-    });
-
-    it('throws on network error', async () => {
-      const fetchFn = mock(async () => {
-        throw new Error('ECONNREFUSED');
-      }) as unknown as typeof fetch;
-
-      await expect(
-        verifyAgentToken('http://agent:9090', 'tok', undefined, fetchFn)
-      ).rejects.toThrow(/ECONNREFUSED/);
-    });
-  });
 });

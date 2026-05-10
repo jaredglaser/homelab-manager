@@ -30,7 +30,7 @@ interface CachedContainerState {
  * BaseCollector eagerly instantiates StatsRepository from `db.getPool()`. The
  * inventory collector persists via its own DockerContainerEventRepository
  * instead and never touches the base repository, so we hand super() a stub
- * whose pool is never dereferenced. Keeps the (host, token, repo, ...)
+ * whose pool is never dereferenced. Keeps the (host, signer, repo, ...)
  * constructor shape that callers + tests depend on.
  */
 const STUB_DB = { getPool: () => ({} as Pool) } as DatabaseClient;
@@ -50,7 +50,7 @@ export class ContainerInventoryCollector extends BaseCollector {
   // 250ms = typical restart-loop settle window; coalesces A→B→A flap into zero writes
   private static readonly FLAP_WINDOW_MS = 250;
   private readonly host: ManagedHostInfo;
-  private readonly token: string;
+  private readonly signer: () => Promise<string>;
   private readonly eventRepository: DockerContainerEventRepository;
   private readonly fetchFn: FetchFn;
 
@@ -65,7 +65,7 @@ export class ContainerInventoryCollector extends BaseCollector {
 
   constructor(
     host: ManagedHostInfo,
-    token: string,
+    signer: () => Promise<string>,
     repository: DockerContainerEventRepository,
     parentAbortController?: AbortController,
     fetchFn?: FetchFn,
@@ -73,7 +73,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     super(STUB_DB, STUB_CONFIG, parentAbortController);
     this.signal = this.abortController.signal;
     this.host = host;
-    this.token = token;
+    this.signer = signer;
     this.eventRepository = repository;
     this.name = `ContainerInventoryCollector[${host.name}]`;
     this.fetchFn = fetchFn ?? globalThis.fetch;
@@ -109,7 +109,7 @@ export class ContainerInventoryCollector extends BaseCollector {
 
     try {
       const response = await this.fetchFn(url, {
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: { Authorization: `Bearer ${await this.signer()}` },
         signal: cycleAbort.signal,
       });
 

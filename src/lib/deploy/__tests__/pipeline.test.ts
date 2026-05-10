@@ -110,7 +110,7 @@ describe('DeployPipeline', () => {
       hostsRepo: hostsRepo as unknown as HostRepository,
       agentClientFactory,
       secretResolver,
-      tokenResolver: () => 'test-token',
+      tokenResolver: async () => async () => 'mock-jwt',
       stackRepoWriter: createMockStackRepoWriter(),
     });
   });
@@ -154,7 +154,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -169,7 +169,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -185,7 +185,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -212,7 +212,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -252,7 +252,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -278,7 +278,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -308,7 +308,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory: capturedFactory,
         secretResolver: resolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -334,7 +334,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -354,7 +354,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -376,7 +376,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -394,7 +394,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -433,7 +433,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -452,7 +452,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: writer,
       });
 
@@ -499,7 +499,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: writer,
       });
 
@@ -529,7 +529,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: writer,
       });
 
@@ -562,7 +562,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: writer,
       });
 
@@ -588,7 +588,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: writer,
       });
 
@@ -625,7 +625,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -646,7 +646,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver: failResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 
@@ -668,7 +668,7 @@ describe('DeployPipeline', () => {
         hostsRepo: hostsRepo as unknown as HostRepository,
         agentClientFactory,
         secretResolver,
-        tokenResolver: () => 'test-token',
+        tokenResolver: async () => async () => 'mock-jwt',
         stackRepoWriter: createMockStackRepoWriter(),
       });
 

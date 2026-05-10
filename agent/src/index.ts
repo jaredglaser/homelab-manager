@@ -20,27 +20,36 @@ if (portEnv !== undefined && portEnv !== '') {
 }
 const STACKS_DIR = process.env.STACKS_DIR || '/opt/homelab-manager/stacks';
 const AGENT_CONTAINER_NAME = process.env.AGENT_CONTAINER_NAME ?? 'hlm-agent';
-const AGENT_TOKEN_FILE = process.env.AGENT_TOKEN_FILE;
-const AGENT_TOKEN_ENV = process.env.AGENT_TOKEN;
+const AGENT_TRUSTED_PUBKEY_FILE = process.env.AGENT_TRUSTED_PUBKEY_FILE;
+const AGENT_TRUSTED_PUBKEY_ENV = process.env.AGENT_TRUSTED_PUBKEY;
 const DOCKER_HOST = process.env.DOCKER_HOST;
 
-let AGENT_TOKEN: string;
-if (AGENT_TOKEN_FILE) {
-  const file = Bun.file(AGENT_TOKEN_FILE);
+let trustedPubkeyJson: string;
+if (AGENT_TRUSTED_PUBKEY_FILE) {
+  const file = Bun.file(AGENT_TRUSTED_PUBKEY_FILE);
   if (!(await file.exists())) {
-    console.error(`AGENT_TOKEN_FILE not found: ${AGENT_TOKEN_FILE}`);
+    console.error(`AGENT_TRUSTED_PUBKEY_FILE not found: ${AGENT_TRUSTED_PUBKEY_FILE}`);
     process.exit(1);
   }
-  AGENT_TOKEN = (await file.text()).trim();
-} else if (AGENT_TOKEN_ENV) {
-  AGENT_TOKEN = AGENT_TOKEN_ENV.trim();
+  trustedPubkeyJson = (await file.text()).trim();
+} else if (AGENT_TRUSTED_PUBKEY_ENV) {
+  trustedPubkeyJson = AGENT_TRUSTED_PUBKEY_ENV.trim();
 } else {
-  console.error('AGENT_TOKEN or AGENT_TOKEN_FILE environment variable is required');
+  console.error('AGENT_TRUSTED_PUBKEY or AGENT_TRUSTED_PUBKEY_FILE environment variable is required');
   process.exit(1);
 }
 
-if (AGENT_TOKEN === '') {
-  console.error('AGENT_TOKEN is empty after trimming. Provide a non-empty token.');
+if (trustedPubkeyJson === '') {
+  console.error('AGENT_TRUSTED_PUBKEY is empty after trimming');
+  process.exit(1);
+}
+
+const { loadTrustedPublicKey } = await import('./lib/jwt-auth');
+let TRUSTED_PUBKEY: CryptoKey;
+try {
+  TRUSTED_PUBKEY = await loadTrustedPublicKey(trustedPubkeyJson);
+} catch (err) {
+  console.error(`Failed to parse AGENT_TRUSTED_PUBKEY: ${err instanceof Error ? err.message : String(err)}`);
   process.exit(1);
 }
 
@@ -115,7 +124,7 @@ Bun.serve({
     try {
       const url = new URL(request.url);
 
-      const authError = authenticateRequest(request.headers, AGENT_TOKEN, url.pathname);
+      const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname);
       if (authError) return authError;
 
       return (await matchRoute(request, url)) ?? new Response('Not Found', { status: 404 });

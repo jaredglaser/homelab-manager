@@ -10,8 +10,6 @@ const socketProxyUrlSchema = z.string().min(1).refine(
   { message: 'Must be a valid URL with tcp://, http://, or https:// scheme' }
 );
 
-const agentTokenSchema = z.string().min(32);
-
 export const addHostSchema = z.object({
   name: hostNameSchema,
   socketProxyUrl: socketProxyUrlSchema,
@@ -21,13 +19,11 @@ export const addHostSchema = z.object({
 export const registerExistingHostSchema = z.object({
   name: hostNameSchema,
   agentUrl: z.url(),
-  agentToken: agentTokenSchema,
 });
 
 export const verifyHostSchema = z.object({
   name: hostNameSchema,
   agentUrl: z.url(),
-  agentToken: agentTokenSchema,
   capabilities: z.object({
     docker: z.boolean().optional().default(false),
     zfs: z.boolean().optional().default(false),

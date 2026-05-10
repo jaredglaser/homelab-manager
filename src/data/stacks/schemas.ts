@@ -1,8 +1,7 @@
 import { z } from 'zod';
 
-import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
-
-/** Allowed stack name pattern: must match SAFE_PATH_SEGMENT_PATTERN used by OpenBao client. No dots, slashes, or path traversal. */
+/** Allowed stack name pattern. No dots, slashes, or path traversal. */
+const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const stackNameField = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Stack name must contain only letters, numbers, hyphens, and underscores');
 
 export const getStackDetailSchema = z.object({

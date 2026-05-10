@@ -5,10 +5,9 @@ import type { saveComposeFile } from '@/data/stacks/functions';
 
 /**
  * Test-only stub for saveComposeFile. Injected via the `_saveCompose` prop
- * on ComposeEditor to avoid mock.module() on the stack-service module, which
- * would pollute concurrent test files that import the real service.
- * bun's mock() doesn't structurally match the createServerFn fetcher type
- * (extra properties like url/method/__executeServer), so we cast at the seam.
+ * because bun's mock() doesn't structurally match the createServerFn fetcher
+ * type (extra properties like url/method/__executeServer); the cast happens
+ * at the seam.
  */
 const mockSaveCompose = mock(() => Promise.resolve({ commitSha: 'abc123' }));
 const saveComposeStub = mockSaveCompose as unknown as typeof saveComposeFile;

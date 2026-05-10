@@ -10,7 +10,6 @@ import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
 import yaml from 'js-yaml';
-import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
 import {
   manifestEntryToSummary,
   manifestEntryToDetail,
@@ -19,6 +18,9 @@ import {
   computeSyncStatus,
 } from '@/lib/stacks/stack-mappers';
 import { resolveDeleteStack, type DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
+
+/** Safe path segment: allows only alphanumeric, hyphen, and underscore. Used to validate stack names and secret keys. */
+export const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 /** Re-exported alongside service layer for consistent mock.module() targeting in tests. */
 export { resolveDeleteStack } from '@/lib/stacks/delete-stack-resolver';

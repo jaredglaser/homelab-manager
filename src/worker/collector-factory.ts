@@ -55,4 +55,3 @@ export function createCollectors(
 
   return { collectors, runners };
 }
-

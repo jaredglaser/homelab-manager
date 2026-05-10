@@ -2,14 +2,14 @@
 # Multi-stage build: deps (dev), base (worker/cleanup), production (web)
 
 # Dependencies only - used for dev containers (source mounted via volume)
-FROM oven/bun:1.3.6 AS deps
+FROM oven/bun:1.3.13 AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 COPY agent/package.json agent/
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
-RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-1.3.6 \
+RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-1.3.13 \
     bun install --frozen-lockfile --ignore-scripts
 EXPOSE 3000
 

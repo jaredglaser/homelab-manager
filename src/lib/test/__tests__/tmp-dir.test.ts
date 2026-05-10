@@ -13,8 +13,11 @@ describe('getTestTmpDir', () => {
   });
 
   it('returns /dev/shm path when /dev/shm exists', () => {
+    // /dev/shm is Linux-only. Stub existsSync so the assertion runs identically on macOS.
+    existsSyncSpy = spyOn(fs, 'existsSync').mockReturnValue(true);
+    mkdirSyncSpy = spyOn(fs, 'mkdirSync').mockReturnValue(undefined);
+
     const result = getTestTmpDir();
-    // On Linux CI and dev machines, /dev/shm exists
     expect(result).toBe('/dev/shm/homelab-manager-tests');
   });
 

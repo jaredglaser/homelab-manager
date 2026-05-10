@@ -6,7 +6,6 @@ import {
   handleUpdateAgent, handleAddHost, handleUpdateHost, handleRegisterExistingHost, handleVerifyHost,
   type AddHostResult, type HostOperationResult, type HostHandlerDeps,
 } from '@/data/hosts/handlers';
-import type { OpenBaoClient } from '@/lib/clients/openbao-client';
 
 export type { HostListItem, AddHostResult, HostOperationResult, HealthCheckResult, UpdateAgentResult } from '@/data/hosts/handlers';
 
@@ -19,13 +18,14 @@ async function loadDeps(): Promise<HostHandlerDeps> {
   return { repo: new HostRepository(dbClient.getPool()) };
 }
 
-/**
- * Lazy wrapper around the shared OpenBao client factory. Delegates caching and
- * initializeOpenBao to the factory so all call sites share one client instance.
- */
-async function loadBaoClient(): Promise<OpenBaoClient> {
-  const { getOpenBaoClient } = await import('@/lib/clients/openbao-client-factory');
-  return getOpenBaoClient();
+async function loadKeypairsRepo(): Promise<import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
+  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+  const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  const keyring = await loadMasterKeyring();
+  return new AgentKeypairsRepository(dbClient.getPool(), keyring);
 }
 
 async function loadDockerClient(socketProxyUrl: string) {
@@ -44,20 +44,25 @@ export const addHost = createServerFn()
   .inputValidator(addHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
-
-    const { generateToken } = await import('@/lib/services/token-service');
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    const baoClient = await loadBaoClient();
+    const keypairs = await loadKeypairsRepo();
     const provService = new AgentProvisioningService();
     return handleAddHost({
       ...baseDeps,
-      generateToken,
-      storeToken: (hostname, token) => baoClient.setHostSecret(hostname, 'agent_token', token),
-      deleteToken: (hostname) => baoClient.deleteHostSecret(hostname, 'agent_token'),
+      keypairs: {
+        createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
+        deleteForHost: (name) => keypairs.deleteForHost(name),
+      },
       checkHealth: checkAgentHealth,
-      provision: async (url, opts) => { const docker = await loadDockerClient(url); return provService.provision(docker, opts); },
-      removeAgent: async (url, hostId) => { const docker = await loadDockerClient(url); await provService.removeAgent(docker, hostId); },
+      provision: async (url, opts) => {
+        const docker = await loadDockerClient(url);
+        return provService.provision(docker, opts);
+      },
+      removeAgent: async (url, hostId) => {
+        const docker = await loadDockerClient(url);
+        await provService.removeAgent(docker, hostId);
+      },
     }, data);
   });
 
@@ -65,15 +70,13 @@ export const registerExistingHost = createServerFn()
   .inputValidator(registerExistingHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
-
-    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    const { initializeOpenBao } = await import('@/lib/services/openbao-init');
-    const baoClient = await loadBaoClient();
-    await initializeOpenBao(baoClient);
+    const keypairs = await loadKeypairsRepo();
     return handleRegisterExistingHost({
       ...baseDeps,
-      storeToken: (hostname, token) => baoClient.setHostSecret(hostname, 'agent_token', token),
-      checkHealth: checkAgentHealth,
+      keypairs: {
+        createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
+        deleteForHost: (name) => keypairs.deleteForHost(name),
+      },
     }, data);
   });
 
@@ -81,16 +84,13 @@ export const verifyHost = createServerFn()
   .inputValidator(verifyHostSchema)
   .handler(async ({ data }): Promise<AddHostResult> => {
     const baseDeps = await loadDeps();
-
-    const { checkAgentHealth, verifyAgentToken } = await import('@/lib/services/agent-health-service');
-    const { initializeOpenBao } = await import('@/lib/services/openbao-init');
-    const baoClient = await loadBaoClient();
-    await initializeOpenBao(baoClient);
+    const keypairs = await loadKeypairsRepo();
     return handleVerifyHost({
       ...baseDeps,
-      storeToken: (hostname, token) => baoClient.setHostSecret(hostname, 'agent_token', token),
-      checkHealth: checkAgentHealth,
-      verifyToken: verifyAgentToken,
+      keypairs: {
+        createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
+        deleteForHost: (name) => keypairs.deleteForHost(name),
+      },
     }, data);
   });
 
@@ -98,11 +98,22 @@ export const removeHost = createServerFn()
   .inputValidator(removeHostSchema)
   .handler(async ({ data }): Promise<{ success: boolean }> => {
     const baseDeps = await loadDeps();
-
-    const baoClient = await loadBaoClient();
     return handleRemoveHost({
       ...baseDeps,
-      deleteToken: (hostname) => baoClient.deleteHostSecret(hostname, 'agent_token'),
+      keypairs: {
+        createForHost: async (name) => {
+          const keypairs = await loadKeypairsRepo();
+          return keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk }));
+        },
+        deleteForHost: async (name) => {
+          try {
+            const keypairs = await loadKeypairsRepo();
+            await keypairs.deleteForHost(name);
+          } catch {
+            // best-effort: keypair cleanup is non-fatal for host removal
+          }
+        },
+      },
     }, data);
   });
 
@@ -116,14 +127,15 @@ export const updateAgent = createServerFn()
   .inputValidator(updateAgentSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
-    const baoClient = await loadBaoClient();
+    const keypairs = await loadKeypairsRepo();
     const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
     return handleUpdateAgent({
       ...baseDeps,
-      getToken: async (hostname) => {
-        const token = await baoClient.getHostSecret(hostname, 'agent_token');
-        if (!token) throw new Error(`No agent token found for host ${hostname}`);
-        return token;
+      getSigner: async (hostname) => {
+        const privateKey = await keypairs.getPrivateKeyForHost(hostname);
+        if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
+        return () => signAgentJwt(privateKey, hostname);
       },
       checkHealth: checkAgentHealth,
     }, data);

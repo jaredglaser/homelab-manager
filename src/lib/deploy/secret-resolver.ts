@@ -4,15 +4,15 @@ import type { SecretResolver } from '@/lib/deploy/types';
 
 /**
  * No-op secret resolver. Returns an empty record.
- * Used when OpenBao is not configured. The OpenBao plan
- * provides a real implementation that replaces this.
+ * Throws if any variables are requested, since callers should always
+ * wire a real resolver (StackSecretsRepository) for stacks that need secrets.
  */
 export class NoOpSecretResolver implements SecretResolver {
   async resolve(_stack: string, variables: string[]): Promise<Record<string, string>> {
     if (variables.length > 0) {
       throw new Error(
         `${variables.length} secret(s) requested (${variables.join(', ')}) ` +
-        `but no secret backend is configured. Set up OpenBao or remove secret references from the compose file.`
+        `but no secret backend is configured. Configure stack secrets or remove the references from the compose file.`
       );
     }
     return {};

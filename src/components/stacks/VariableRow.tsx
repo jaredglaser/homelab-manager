@@ -43,7 +43,7 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
       setFetchError(null);
     },
     onError: () => {
-      setFetchError('Failed to retrieve value from OpenBao.');
+      setFetchError('Failed to retrieve value.');
     },
   });
 
@@ -60,7 +60,7 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
       setSaveError(null);
     },
     onError: () => {
-      setSaveError('Failed to save value to OpenBao.');
+      setSaveError('Failed to save value.');
     },
   });
 
@@ -72,7 +72,7 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
       onDeleted();
     },
     onError: () => {
-      setDeleteError('Failed to delete variable from OpenBao.');
+      setDeleteError('Failed to delete variable.');
     },
   });
 
@@ -160,7 +160,7 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
         <DialogTitle>Delete variable</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Delete variable <strong>{varName}</strong> from OpenBao? This cannot be undone.
+            Delete variable <strong>{varName}</strong>? This cannot be undone.
           </DialogContentText>
           {deleteError && (
             <Alert severity="error" className="!text-xs mt-2">

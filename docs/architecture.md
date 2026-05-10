@@ -132,9 +132,9 @@ User's Browser --UI edit--> homelab-manager commits ----------------> Deploy Pip
 | Agent-updater | `agent-updater/` | Sidecar for automatic agent container updates |
 | Deploy pipeline | `src/lib/deploy/` | Trigger-agnostic deploy orchestration |
 | Git management | `src/lib/git/` | In-app bare git repo with HTTP smart protocol |
-| OpenBao secrets | `src/lib/clients/openbao-client.ts` | KV v2 client for agent tokens and deploy variables |
+| Crypto helpers | `src/lib/crypto/` | Master key resolution, JWE encrypted-value, Ed25519 agent JWT signing |
 | Stack service | `src/lib/stacks/` | Stack CRUD, mapping, and status broadcast |
-| Host management | `src/data/hosts/` | Host CRUD handlers with agent token generation |
+| Host management | `src/data/hosts/` | Host CRUD handlers with keypair enrollment and JWT signer resolution |
 | Stacks UI | `src/components/stacks/` | Full stack management interface |
 | Settings UI | `src/components/settings/` | Managed hosts card and add-host wizard |
 
@@ -147,7 +147,7 @@ Hosts are registered via the Settings UI and stored in the `managed_hosts` datab
 - `createCollectorsForManagedHosts()`: agent-based collectors for registered hosts (Docker stats + ZFS)
 - `createContainerInventoryCollectors()`: container inventory from agent `/containers/events` SSE, writing to `docker_container_events`
 
-**Token resolution**: Agent tokens are stored in OpenBao and resolved via a `getToken(hostname)` callback. Hosts with missing tokens are skipped with a logged warning.
+**JWT signing**: Per-agent Ed25519 keypairs are stored encrypted in `agent_keypairs`. The deploy pipeline signs a short-lived JWT for each request; the agent verifies it against its trusted public JWK. Hosts with no keypair are skipped with a logged warning.
 
 **URL remapping**: `resolveAgentUrl()` rewrites localhost agent URLs to Docker-internal hostnames via `WORKER_LOCALHOST_AGENT` env var, enabling the worker container to reach agents on the same Docker network.
 
@@ -156,7 +156,7 @@ Hosts are registered via the Settings UI and stored in the `managed_hosts` datab
 A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode. Capabilities are auto-detected at startup (Docker via `DOCKER_HOST` env var, ZFS via `zpool` binary presence).
 
 **Architecture:**
-- Bearer token authentication (token from file or env var)
+- Ed25519 JWT authentication (trusted public JWK loaded from `AGENT_TRUSTED_PUBKEY[_FILE]` at startup; per-request JWTs verified against it)
 - Optional TLS via `TLS_CERT_PATH` and `TLS_KEY_PATH`
 - Connects to Docker via `DOCKER_HOST` env var (socket proxy recommended)
 - Subprocess timeout (5 minutes) for `docker compose` operations
@@ -166,7 +166,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Docker version + ZFS capability check + heartbeat |
-| GET | `/auth/verify` | Token verification |
+| GET | `/auth/verify` | JWT verification |
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
 | GET | `/containers/events` | SSE container inventory stream |
@@ -203,7 +203,7 @@ DeployRequest -> Validate -> Resolve Secrets -> Dispatch to Agent -> Record Resu
 ```
 
 - **Change detection:** Content hashing to skip no-op deploys
-- **Secret resolution:** Pluggable interface (no-op by default, OpenBao when configured). Resolves `${SECRET:path/key}` variable references in compose files
+- **Secret resolution:** Pluggable `SecretResolver` interface. Resolves `${SECRET:name}` variable references in compose files; values are stored JWE-encrypted in the `stack_secrets` table
 - **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host
 - **Agent client:** HTTP wrapper for communicating with agents (deploy/teardown/restart)
 
@@ -322,15 +322,13 @@ stacks:
 | `editor-operations.ts` | In-app file save/commit and manifest updates |
 | `git-server-functions.ts` | File tree builder for UI |
 
-### OpenBao Secrets
+### Secrets and Keypairs
 
-Secret management via [OpenBao](https://openbao.org/) (open-source Vault fork).
+At-rest encryption uses a symmetric `MASTER_KEY` (base64, 256-bit) resolved at startup from the `MASTER_KEY` env var or `MASTER_KEY_FILE`.
 
-- KV v2 HTTP client for secret CRUD (`src/lib/clients/openbao-client.ts`)
-- Pluggable `SecretResolver` interface: auto-detects OpenBao when `OPENBAO_URL` is set, falls back to no-op
-- Deploy pipeline resolves `${SECRET:path/key}` variable references in compose files before dispatching to agents
-- Agent tokens stored and retrieved from OpenBao KV v2
-- OpenBao dev server in docker-compose for local development (management profile)
+- **Stack secrets** (`stack_secrets` table): name/value pairs stored as JWE-encrypted blobs. The deploy pipeline resolves `${SECRET:name}` references in compose files before dispatching to agents (`src/lib/crypto/encrypted-value.ts`)
+- **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted; the public JWK is sent to the agent at enrollment and written to `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)
+- `src/lib/crypto/master-key.ts` handles key resolution and exports the AES-GCM key object used by the JWE helpers
 
 ### Stacks UI
 
@@ -343,7 +341,7 @@ Full stack management interface at `/stacks` (top-level navigation).
 | `ComposeEditor` | Monaco YAML editor with Compose schema validation |
 | `ContainerList` | Running containers for a stack with status |
 | `DeployHistoryList` / `DeployHistoryRow` | Deploy history timeline with rollback |
-| `VariablesPanel` / `VariableRow` | Stack variables editor (OpenBao-backed) |
+| `VariablesPanel` / `VariableRow` | Stack variables editor (JWE-encrypted in `stack_secrets`) |
 | `CreateStackDialog` | Create new stack |
 | `DeleteStackDialog` | Stack deletion confirmation |
 | `RollbackDialog` | Rollback to previous deployment |

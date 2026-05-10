@@ -23,18 +23,22 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
           return new Response(`Unknown host: ${hostName}`, { status: 404 });
         }
 
-        const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-        const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-        const baoClient = new OpenBaoClient(loadOpenBaoConfig());
-        const token = await baoClient.getHostSecret(hostName, 'agent_token');
+        const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
+        const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+        const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+        const keyring = await loadMasterKeyring();
+        const keypairs = new AgentKeypairsRepository(dbClient.getPool(), keyring);
+        const privateKey = await keypairs.getPrivateKeyForHost(hostName);
 
-        if (!token) {
-          return new Response(`No agent token for host: ${hostName}`, { status: 503 });
+        if (!privateKey) {
+          return new Response(`No agent keypair for host: ${hostName}`, { status: 503 });
         }
+
+        const jwt = await signAgentJwt(privateKey, hostName);
 
         const agentUrl = `${managedHost.agentUrl}/logs/${encodeURIComponent(containerId)}`;
         const agentResponse = await fetch(agentUrl, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${jwt}` },
           signal: request.signal,
         });
 

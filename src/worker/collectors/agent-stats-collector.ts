@@ -60,7 +60,7 @@ function toDockerStatsRow(event: AgentStatsEvent, hostName: string): DockerStats
 export class AgentStatsCollector extends BaseCollector {
   readonly name: string;
   private readonly host: ManagedHost;
-  private readonly token: string;
+  private readonly signer: () => Promise<string>;
   private readonly fetchFn: FetchFn;
   private readonly entityMetadataRepository: EntityMetadataRepository;
   private readonly knownContainers = new Set<string>();
@@ -69,13 +69,13 @@ export class AgentStatsCollector extends BaseCollector {
     db: DatabaseClient,
     config: WorkerConfig,
     host: ManagedHost,
-    token: string,
+    signer: () => Promise<string>,
     abortController?: AbortController,
     fetchFn?: FetchFn,
   ) {
     super(db, config, abortController);
     this.host = host;
-    this.token = token;
+    this.signer = signer;
     this.name = `AgentStatsCollector[${host.name}]`;
     this.fetchFn = fetchFn ?? globalThis.fetch;
     this.entityMetadataRepository = new EntityMetadataRepository(db.getPool());
@@ -134,7 +134,7 @@ export class AgentStatsCollector extends BaseCollector {
     this.debugLog(`[${this.name}] Connecting to ${url}`);
 
     const response = await this.fetchFn(url, {
-      headers: { Authorization: `Bearer ${this.token}` },
+      headers: { Authorization: `Bearer ${await this.signer()}` },
       signal: this.signal,
     });
 
