@@ -86,4 +86,17 @@ describe('authenticateRequest (JWT)', () => {
     );
     expect(result?.status).toBe(401);
   });
+
+  it('requires auth on /auth/verify (not bypassed like /health)', async () => {
+    const { trusted, sign } = await makeAuth();
+    const noAuth = await authenticateRequest(new Headers(), trusted, '/auth/verify');
+    expect(noAuth?.status).toBe(401);
+    const jwt = await sign();
+    const withAuth = await authenticateRequest(
+      new Headers({ Authorization: `Bearer ${jwt}` }),
+      trusted,
+      '/auth/verify',
+    );
+    expect(withAuth).toBeNull();
+  });
 });

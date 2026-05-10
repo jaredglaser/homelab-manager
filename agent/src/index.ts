@@ -27,11 +27,27 @@ const DOCKER_HOST = process.env.DOCKER_HOST;
 let trustedPubkeyJson: string;
 if (AGENT_TRUSTED_PUBKEY_FILE) {
   const file = Bun.file(AGENT_TRUSTED_PUBKEY_FILE);
-  if (!(await file.exists())) {
-    console.error(`AGENT_TRUSTED_PUBKEY_FILE not found: ${AGENT_TRUSTED_PUBKEY_FILE}`);
+  const POLL_INTERVAL_MS = 1000;
+  const POLL_TIMEOUT_MS = 60_000;
+  let waited = 0;
+  while (!(await file.exists())) {
+    if (waited === 0) console.info(`Waiting for AGENT_TRUSTED_PUBKEY_FILE: ${AGENT_TRUSTED_PUBKEY_FILE}`);
+    if (waited >= POLL_TIMEOUT_MS) {
+      console.error(`AGENT_TRUSTED_PUBKEY_FILE not found after ${POLL_TIMEOUT_MS / 1000}s: ${AGENT_TRUSTED_PUBKEY_FILE}`);
+      process.exit(1);
+    }
+    if (waited > 0 && waited % 10_000 === 0) {
+      console.info(`Still waiting for AGENT_TRUSTED_PUBKEY_FILE (${waited / 1000}s elapsed)...`);
+    }
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    waited += POLL_INTERVAL_MS;
+  }
+  try {
+    trustedPubkeyJson = (await file.text()).trim();
+  } catch (err) {
+    console.error(`Failed to read AGENT_TRUSTED_PUBKEY_FILE '${AGENT_TRUSTED_PUBKEY_FILE}': ${err instanceof Error ? err.message : String(err)}`);
     process.exit(1);
   }
-  trustedPubkeyJson = (await file.text()).trim();
 } else if (AGENT_TRUSTED_PUBKEY_ENV) {
   trustedPubkeyJson = AGENT_TRUSTED_PUBKEY_ENV.trim();
 } else {

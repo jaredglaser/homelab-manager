@@ -16,7 +16,7 @@ const saveComposeStub = mockSaveCompose as unknown as typeof saveComposeFile;
  * Monaco Editor cannot render in Happy-DOM (CDN script loading is blocked).
  * We mock only @monaco-editor/react (a narrow, component-specific dependency)
  * to provide a simple textarea stand-in. This lets us test the toolbar,
- * save button, VariablesPanel integration, and dirty-state logic.
+ * save button and dirty-state logic.
  *
  * monaco-setup uses Vite ?worker imports that Bun can't resolve, so it must be
  * mocked before ComposeEditor is imported.
@@ -59,12 +59,11 @@ function createWrapper() {
   };
 }
 
-async function renderComposeEditor(props?: Partial<{ stackName: string; content: string; variables: string[] }>) {
+async function renderComposeEditor(props?: Partial<{ stackName: string; content: string }>) {
   const { default: ComposeEditor } = await import('../ComposeEditor');
   const defaultProps = {
     stackName: 'test-stack',
     content: 'image: nginx:latest',
-    variables: [],
     ...props,
   };
   const result = render(<ComposeEditor {...defaultProps} _saveCompose={saveComposeStub} />, { wrapper: createWrapper() });
@@ -199,7 +198,7 @@ describe('ComposeEditor component', () => {
     const { default: ComposeEditor } = await import('../ComposeEditor');
     render(
       <QueryClientProvider client={queryClient}>
-        <ComposeEditor stackName="test-stack" content="image: nginx" variables={[]} _saveCompose={saveComposeStub} />
+        <ComposeEditor stackName="test-stack" content="image: nginx" _saveCompose={saveComposeStub} />
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());

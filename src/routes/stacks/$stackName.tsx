@@ -203,7 +203,6 @@ function StackEditorView() {
           <ComposeEditorLoader
             stackName={stackName}
             content={detail.composeContent}
-            variables={composeVars}
           />
 
           {/* Panel Toggle */}
