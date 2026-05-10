@@ -565,6 +565,36 @@ describe('handleUpdateAgent', () => {
     expect(repo.updateAgentVersion).toHaveBeenCalledWith(1, '2.0.0');
     fetchSpy.mockRestore();
   });
+
+  it('returns unhealthy with "latest version" message when version never changes but agent stays healthy', async () => {
+    const checkHealth = mock((): Promise<HealthCheckOutcome> =>
+      Promise.resolve({ healthy: true, version: '1.0.0' }),
+    );
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const deps = updateDeps(undefined, { checkHealth });
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.error).toContain('latest version already');
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it('returns unhealthy with suggestions when POST to agent update endpoint throws', async () => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+    const deps = updateDeps();
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.error).toContain('ECONNREFUSED');
+      expect(result.suggestions).toBeDefined();
+    }
+    fetchSpy.mockRestore();
+  });
 });
 
 describe('handleUpdateHost', () => {
