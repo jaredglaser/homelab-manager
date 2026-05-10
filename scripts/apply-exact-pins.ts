@@ -22,31 +22,27 @@ interface FullReport {
 const report: FullReport = JSON.parse(readFileSync('quarantine-update-report.json', 'utf8'));
 
 function applyExactPins(path: string, deps: DepReport[]) {
-  let raw = readFileSync(path, 'utf8');
+  const pkg = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
   let count = 0;
   for (const d of deps) {
     if (!d.chosen) continue;
-    const candidates = [
-      `"${d.pkg}": "^${d.chosen}"`,
-      `"${d.pkg}": "~${d.chosen}"`,
-      `"${d.pkg}": "${d.current}"`,
-    ];
     let replaced = false;
-    for (const search of candidates) {
-      if (raw.includes(search)) {
-        const replace = `"${d.pkg}": "${d.chosen}"`;
-        if (search === replace) { replaced = true; break; }
-        raw = raw.replace(search, replace);
-        replaced = true;
+    for (const section of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const) {
+      const bag = pkg[section];
+      if (!bag || typeof bag !== 'object' || !(d.pkg in (bag as Record<string, unknown>))) continue;
+      const bagTyped = bag as Record<string, string>;
+      if (bagTyped[d.pkg] !== d.chosen) {
+        bagTyped[d.pkg] = d.chosen;
         count++;
-        break;
       }
+      replaced = true;
+      break;
     }
     if (!replaced) {
       console.error(`  WARN: could not find ${d.pkg} entry in ${path}`);
     }
   }
-  writeFileSync(path, raw);
+  writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
   console.info(`[${path}] pinned ${count} entries to exact versions`);
 }
 

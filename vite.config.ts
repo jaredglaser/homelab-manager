@@ -72,7 +72,7 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
       onwarn(warning, warn) {
         // Suppress "use client" directive warnings from MUI and other libraries
