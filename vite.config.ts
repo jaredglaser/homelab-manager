@@ -2,7 +2,7 @@ import { defineConfig, createLogger } from 'vite'
 import { devtools } from '@tanstack/devtools-vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
-import { fileURLToPath, URL } from 'url'
+import { fileURLToPath, URL } from 'node:url'
 import { nitro } from 'nitro/vite'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -72,7 +72,7 @@ export default defineConfig({
     },
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
       onwarn(warning, warn) {
         // Suppress "use client" directive warnings from MUI and other libraries

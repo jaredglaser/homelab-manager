@@ -209,6 +209,7 @@ async function startEventsSubscription(docker: Dockerode, isReconnect = false): 
   state.reconnecting = true;
 
   try {
+    // @types/dockerode 4.0.1 types getEvents() result as any; cast required to use Readable API
     const stream = await docker.getEvents({
       filters: { type: ['container'] },
     }) as unknown as Readable;

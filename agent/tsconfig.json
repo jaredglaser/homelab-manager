@@ -11,9 +11,8 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "types": ["bun"],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src", "package.json"]
