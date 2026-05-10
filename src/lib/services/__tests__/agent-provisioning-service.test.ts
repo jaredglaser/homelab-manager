@@ -107,7 +107,7 @@ describe('AgentProvisioningService', () => {
       await service.provision(mockDocker.docker, defaultOptions);
       const config = mockDocker.createdContainers[0].config;
       const env = config.Env as string[];
-      expect(env).toContainEqual('AGENT_TRUSTED_PUBKEY={"kty":"OKP","crv":"Ed25519","x":"test-public-key"}');
+      expect(env).toContainEqual(`AGENT_TRUSTED_PUBKEY=${defaultOptions.publicJwkJson}`);
       expect(env).toContainEqual('DOCKER_HOST=tcp://192.168.1.10:2375');
       expect(env).toContainEqual('AGENT_PORT=9090');
     });
