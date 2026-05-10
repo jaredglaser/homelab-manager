@@ -3,7 +3,7 @@
 ## Workflow
 
 **End of every task:**
-- Run `bun run typecheck` and `bun test` after code changes.
+- Run `bun run typecheck` and `bun test --isolate` after code changes.
 - Check if `README.md` and `CLAUDE.md` need updates.
 
 **After editing files:**
@@ -32,8 +32,9 @@ bun run dev:local:logs:agent  # Agent logs only
 
 # Testing & Build
 bun run typecheck             # TypeScript type checking
-bun test                      # Run all tests (enforces 95%/99% coverage)
-bun test --watch              # Run tests in watch mode
+bun test --isolate            # Run all tests (--isolate required: module mocks leak across files without it)
+bun run test                  # Same as above + coverage enforcement (95%/99%)
+bun test --isolate --watch    # Run tests in watch mode
 bun build                     # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)
 bun worker                    # Run background collector locally
