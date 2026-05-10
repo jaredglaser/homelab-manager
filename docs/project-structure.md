@@ -39,7 +39,6 @@ src/
 │   │   ├── DeployHistoryRow.tsx     # Individual deploy history entry
 │   │   ├── RollbackDialog.tsx       # Rollback to previous deployment
 │   │   ├── StackActionBar.tsx       # Deploy, teardown, restart action buttons
-│   │   ├── StackNav.tsx             # Stack navigation sidebar
 │   │   ├── StackSettingsDialog.tsx  # Stack settings editor
 │   │   ├── SyncStatusBadge.tsx      # Git sync status badge
 │   │   ├── VariableRow.tsx          # Individual variable editor row
