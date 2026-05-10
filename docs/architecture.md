@@ -166,7 +166,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Docker version + ZFS capability check + heartbeat |
-| GET | `/auth/verify` | Token verification |
+| GET | `/auth/verify` | JWT verification |
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
 | GET | `/containers/events` | SSE container inventory stream |

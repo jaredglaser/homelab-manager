@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
-import type { StackSecretsRepository } from '@/lib/database/repositories/stack-secrets-repository';
+import { stackSecretsMiddleware } from '@/middleware/stack-secrets-middleware';
 import {
   getStackDetailSchema,
   triggerDeploySchema,
@@ -11,16 +11,6 @@ import {
   resumeDeploySchema,
   rejectDeploySchema,
 } from '@/data/stacks/schemas';
-
-async function getStackSecretsRepo(): Promise<StackSecretsRepository> {
-  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
-  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
-  const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
-  const keyring = await loadMasterKeyring();
-  return new StackSecretsRepository(dbClient.getPool(), keyring);
-}
 
 /**
  * List all stacks from the manifest with their current sync status.
@@ -100,7 +90,13 @@ export const saveComposeFile = createServerFn()
     const variableNames = extractVariableNames(data.content);
     if (variableNames.length > 0) {
       try {
-        const repo = await getStackSecretsRepo();
+        const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+        const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+        const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+        const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+        const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+        const keyring = await loadMasterKeyring();
+        const repo = new StackSecretsRepository(dbClient.getPool(), keyring);
         await Promise.all(variableNames.map((name) => repo.ensureExists(data.stackName, name)));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -133,9 +129,11 @@ const stackVariablesSchema = z.object({
  * List all variable names stored for a stack.
  */
 export const getStackVariables = createServerFn({ method: 'GET' })
+  .middleware([stackSecretsMiddleware])
   .inputValidator(stackVariablesSchema)
-  .handler(async ({ data }): Promise<string[]> => {
-    const repo = await getStackSecretsRepo();
+  .handler(async ({ context, data }): Promise<string[]> => {
+    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+    const repo = new StackSecretsRepository(context.pool, context.keyring);
     return repo.list(data.stackName);
   });
 
@@ -148,9 +146,11 @@ const getVariableValueSchema = z.object({
  * Fetch a single secret value. Returns null if the key does not exist.
  */
 export const getVariableValue = createServerFn({ method: 'GET' })
+  .middleware([stackSecretsMiddleware])
   .inputValidator(getVariableValueSchema)
-  .handler(async ({ data }): Promise<string | null> => {
-    const repo = await getStackSecretsRepo();
+  .handler(async ({ context, data }): Promise<string | null> => {
+    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+    const repo = new StackSecretsRepository(context.pool, context.keyring);
     return repo.get(data.stackName, data.variableName);
   });
 
@@ -164,9 +164,11 @@ const setVariableValueSchema = z.object({
  * Create or update a secret value.
  */
 export const setVariableValue = createServerFn({ method: 'POST' })
+  .middleware([stackSecretsMiddleware])
   .inputValidator(setVariableValueSchema)
-  .handler(async ({ data }): Promise<void> => {
-    const repo = await getStackSecretsRepo();
+  .handler(async ({ context, data }): Promise<void> => {
+    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+    const repo = new StackSecretsRepository(context.pool, context.keyring);
     await repo.set(data.stackName, data.variableName, data.value);
   });
 
@@ -179,9 +181,11 @@ const deleteVariableSchema = z.object({
  * Delete a secret for a given stack variable.
  */
 export const deleteVariable = createServerFn({ method: 'POST' })
+  .middleware([stackSecretsMiddleware])
   .inputValidator(deleteVariableSchema)
-  .handler(async ({ data }): Promise<void> => {
-    const repo = await getStackSecretsRepo();
+  .handler(async ({ context, data }): Promise<void> => {
+    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+    const repo = new StackSecretsRepository(context.pool, context.keyring);
     await repo.delete(data.stackName, data.variableName);
   });
 
@@ -265,9 +269,11 @@ const ensureVariablesExistSchema = z.object({
  * Variables that already exist are left untouched; missing ones are created with an empty value.
  */
 export const ensureVariablesExist = createServerFn({ method: 'POST' })
+  .middleware([stackSecretsMiddleware])
   .inputValidator(ensureVariablesExistSchema)
-  .handler(async ({ data }): Promise<void> => {
-    const repo = await getStackSecretsRepo();
+  .handler(async ({ context, data }): Promise<void> => {
+    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+    const repo = new StackSecretsRepository(context.pool, context.keyring);
     await Promise.all(
       data.variableNames.map((name) => repo.ensureExists(data.stackName, name)),
     );

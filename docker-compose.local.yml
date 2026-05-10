@@ -106,7 +106,10 @@ services:
       DEV_HOST_NAME: ${DEV_HOST_NAME:-}
       WORKER_LOCALHOST_AGENT: "hlm-agent"
       HOMELAB_DEV_SEED: "true"
-      MASTER_KEY: ${MASTER_KEY:?Set MASTER_KEY in .env (openssl rand -base64 32)}
+      # Either MASTER_KEY (inline) or MASTER_KEY_FILE (path inside the container) must be set.
+      # MASTER_KEY_FILE requires adding a matching volume mount to expose the file in this container.
+      MASTER_KEY: ${MASTER_KEY:-}
+      MASTER_KEY_FILE: ${MASTER_KEY_FILE:-}
 
   # Socket proxy for secure Docker socket access (management profile)
   socket-proxy:

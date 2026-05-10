@@ -35,7 +35,15 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       } else {
         setVerifyResult(null)
       }
-      setSnackbar({ open: true, message: 'Host added successfully', severity: 'success' })
+      if (result.publicJwk) {
+        setSnackbar({
+          open: true,
+          message: 'Host added. Set AGENT_TRUSTED_PUBKEY on the agent and run Verify Connection.',
+          severity: 'warning',
+        })
+      } else {
+        setSnackbar({ open: true, message: 'Host added successfully', severity: 'success' })
+      }
     },
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : 'Failed to add host'

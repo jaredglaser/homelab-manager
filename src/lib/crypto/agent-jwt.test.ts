@@ -17,9 +17,11 @@ describe('signAgentJwt', () => {
   });
 
   it('different jti per call', async () => {
-    const { privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const { privateKey, publicKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
     const a = await signAgentJwt(privateKey, 'h');
     const b = await signAgentJwt(privateKey, 'h');
-    expect(a).not.toBe(b);
+    const { payload: payloadA } = await jwtVerify(a, publicKey, { issuer: 'homelab-manager' });
+    const { payload: payloadB } = await jwtVerify(b, publicKey, { issuer: 'homelab-manager' });
+    expect(payloadA.jti).not.toBe(payloadB.jti);
   });
 });
