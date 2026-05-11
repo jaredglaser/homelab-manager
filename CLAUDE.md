@@ -32,6 +32,7 @@ bun run dev:local:wipe        # Stop Docker services and delete volumes
 bun run dev:local:logs        # Tail all Docker service logs
 bun run dev:local:logs:worker # Worker logs only
 bun run dev:local:logs:agent  # Agent logs only
+bun run dev:local:logs:db     # Postgres logs only
 
 # Setup
 bun run setup                 # Install homelab-manager and agent
@@ -39,7 +40,7 @@ bun run setup                 # Install homelab-manager and agent
 # Testing & Build (homelab-manager only)
 bun run typecheck             # TypeScript type checking
 bun test --isolate            # Run all tests (--isolate required: module mocks leak across files without it)
-bun run test                  # Same as above + coverage enforcement (95%/99%)
+bun run test                  # Same as above + coverage enforcement (95%/98%)
 bun test --isolate --watch    # Run tests in watch mode
 bun build                     # Production build (runs typecheck first)
 bun run build:demo            # Demo build (no server required, mock data)
@@ -49,7 +50,7 @@ bun icons:download            # Download dashboard icons from homarr-labs/dashbo
 # Agent-only
 bun run typecheck:agent       # Agent type checking
 bun run test:agent            # Agent tests (no coverage)
-bun run test:coverage:agent   # Agent tests + coverage enforcement (95%/99%)
+bun run test:coverage:agent   # Agent tests + coverage enforcement (95%/98%)
 
 # Combined (homelab-manager + agent)
 bun run typecheck:all         # Typecheck both
@@ -60,12 +61,12 @@ bun run test:coverage:all     # Run tests in both with coverage enforcement
 ## Critical Rules
 
 1. **Styling**: TailwindCSS ONLY. Never use MUI `sx` props or create `.css` files (exceptions: `App.css`, `theme.ts`). Inline `style` only when Tailwind cannot express the value (virtualizer positioning, dynamic indent, computed transforms). Never use hardcoded hex colors - use theme CSS variables. To override MUI defaults, use Tailwind's `!` prefix: `!bg-[var(--mui-palette-background-chartBg)]`. Prefer MUI's built-in component behavior (hover effects, transitions) over custom overrides unless there's a specific design requirement.
-2. **Imports**: Always use `@/` for src files. Relative paths only within `__tests__/`. Never mix both in one file (except tests).
+2. **Imports**: Always use `@/` for src files. In test files: use `@/` for imports from outside `__tests__/`, relative paths for imports within the same `__tests__/` directory. Never mix `@/` and relative paths in non-test files.
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly in server functions.
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app with `node:async_hooks` errors.
 5. **SSE Pattern**: TanStack Router server routes (`src/routes/api/`) → `useTimeSeriesStream` hook → shared `DataTable` (CSS Grid + conditional `useVirtualizer`). Use div-based rows (not `<table>/<tr>/<td>`). Server handles client disconnect via `request.signal`. Never use TanStack Start streaming server functions for real-time data.
 6. **File Creation**: PREFER editing existing files over creating new ones.
-7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 95% functions / 99% lines coverage enforced. Test scripts run with `bun test --isolate`, so each file gets a fresh global object and `mock.module()` calls do not leak across files. Within a single file, mocks still affect every sibling test, so prefer `renderHook`, dependency injection, or narrow-scope `spyOn` when only some tests need the override. For server functions that use dynamic `await import()` inside `createServerFn` handlers, prefer mocking the underlying service module (e.g. `@/lib/stacks/stack-service`) over the barrel (`@/data/stacks/functions`) - fewer mocked exports to keep in sync as the barrel grows. When tests need `setTimeout` to fire immediately (retry loops, health checks), spy on `globalThis.setTimeout` in `beforeEach`/`afterEach` at the appropriate `describe` scope.
+7. **Testing**: Tests in `__tests__/` folders co-located with source. Test utilities in `src/lib/test/` (NOT in `__tests__/`). Use `bun:test` imports. 95% functions / 98% lines coverage enforced. Test scripts run with `bun test --isolate`, so each file gets a fresh global object and `mock.module()` calls do not leak across files. Within a single file, mocks still affect every sibling test, so prefer `renderHook`, dependency injection, or narrow-scope `spyOn` when only some tests need the override. For server functions that use dynamic `await import()` inside `createServerFn` handlers, prefer mocking the underlying service module (e.g. `@/lib/stacks/stack-service`) over the barrel (`@/data/stacks/functions`) - fewer mocked exports to keep in sync as the barrel grows. When tests need `setTimeout` to fire immediately (retry loops, health checks), spy on `globalThis.setTimeout` in `beforeEach`/`afterEach` at the appropriate `describe` scope.
 8. **Logging**: Be purposeful with console methods. Use `console.error` for actual errors, `console.info` for operational messages (startup, shutdown), and `console.log` sparingly for temporary debugging only (do not commit). No drive-by `console.log` statements in committed code.
 9. **Routing**: Never edit `routeTree.gen.ts` (auto-generated). `AppShell` renders in root layout (`__root.tsx`) - never wrap individual routes with it. All routes use `ssr: false`. QueryClient is a singleton in `AppShell.tsx` - never create per-route.
 10. **Entity IDs**: Always use entity IDs with host prefix (e.g., `server1/tank`, `192.168.1.10/abc123`) for state keys and uniqueness checks. Never use display names - they collide across hosts.
@@ -108,7 +109,7 @@ Browser → Server (SSE) ← StatsPollService (1s poll) → Query DB → Broadca
 
 Two factories in `src/lib/sse/` own the shared boilerplate (`ReadableStream`, heartbeat, `closed` flag, abort/teardown):
 
-- **`createStatsSseHandler(source)`**: for `docker-stats`, `zfs-stats`, `proxmox-stats`. Wraps the three-arg `statsPollService.subscribe(source, sendData, sendError)` and emits an `event: stats_error` frame when the subscribe path fails.
+- **`createStatsSseHandler(source)`**: source values are `'docker'`, `'zfs'`, `'proxmox'` (type `StatsSource`; the corresponding route files are `/api/docker-stats`, `/api/zfs-stats`, `/api/proxmox-stats`). Wraps the three-arg `statsPollService.subscribe(source, sendData, sendError)` and emits an `event: stats_error` frame when the subscribe path fails.
 - **`createBroadcastSseHandler({ loadSubscribe, serialize })`**: for single-arg subscribe-based services (`docker-inventory`, `stack-status`, `settings`). Caller owns the full SSE frame via `serialize`, so named events (`event: foo`) are possible when needed.
 
 Server-only imports must happen inside the factory callbacks:
@@ -134,7 +135,7 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 
 **Mobile**: `ResizeObserver` on DataTable container detects <1024px (not media queries). Sticky toolbar shows metric group toggles (CPU/RAM, Disk I/O, Net I/O), one group at a time.
 
-**Scroll**: Table fills remaining viewport height (`flex-1 min-h-0`). `scrollbar-gutter: stable` on the DataTable scroll container (not `html`). Sticky header inside scroll container tracks horizontal scroll.
+**Scroll**: Table fills remaining viewport height (`flex-1 min-h-0`). `scrollbar-gutter: stable` on the DataTable scroll container when virtualized or `maxHeight` is set (not applied unconditionally; `html` has `scrollbar-gutter: auto`). Sticky header inside scroll container tracks horizontal scroll.
 
 ### Key Patterns
 
@@ -153,7 +154,7 @@ The agent is intentionally NOT a workspace member of the homelab-manager `packag
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index. Stuck deploys recovered on startup and via `DeployWatchdog` (default 10-min threshold) so a crashed process can't leave `in_flight` rows stranded.
+Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index. Stuck deploys recovered on startup and via `DeployWatchdog` (default 10-min threshold) so a crashed process can't leave `in_progress` rows stranded.
 
 ### Git Management (`src/lib/git/`)
 
@@ -173,7 +174,7 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 4. **PostgreSQL extended query protocol**: Parameterized queries use extended protocol which doesn't support multi-statement. INSERT and NOTIFY must be separate `client.query()` calls.
 5. **React.memo with streaming data**: Incorrect memoization freezes streaming updates. Be cautious with `React.memo` on components receiving `latestByEntity` or `rows`.
 6. **Conditional rendering belongs in the parent**: When a component only renders for a subset of rows/items (e.g., container rows but not host rows), guard at the call site (`if (!row.container) return null` in the column `cell` function) rather than adding an early return inside the component. This makes it immediately clear from reading the parent what is always rendered vs. conditionally rendered, and avoids calling hooks conditionally inside the child.
-7. **Layout shift in metric columns**: Dynamic number formatting (KB→MB, varying decimals) causes width instability. Use minimum widths with `ch` units in MetricValue.
+7. **Layout shift in metric columns**: Dynamic number formatting (KB→MB, varying decimals) causes width instability. Use minimum widths with `ch` units in `MetricCell`.
 8. **Fix root causes, not symptoms**: Investigate actual bugs rather than adding caching/memoization workarounds. Past band-aid fixes were frequently reverted.
 9. **Icon attribution**: Dashboard icons from `homarr-labs/dashboard-icons` (NOT the old `walkxcode` name).
 10. **Parallel agent worktree isolation**: When dispatching multiple agents into git worktrees, each agent must `cd "$WORKTREE_PATH"` before any file writes and use relative paths only. Never run `git stash` inside a worktree while other worktrees are active: `.git/refs/stash` is shared across all worktrees, so a stash created in one worktree can be popped (and destroyed) by an agent in another.

@@ -2,10 +2,10 @@
 
 | Layer | Technology | Role |
 |-------|-----------|------|
-| **Framework** | [TanStack Start](https://tanstack.com/start) | Full-stack React framework - server functions, SSR, and file-based routing |
+| **Framework** | [TanStack Start](https://tanstack.com/start) | Full-stack React framework - server functions, file-based routing (SPA mode, SSR disabled) |
 | **Routing** | [TanStack Router](https://tanstack.com/router) | Type-safe, file-based routing with built-in devtools |
 | **Async State** | [TanStack Query](https://tanstack.com/query) | Server state management - caching, refetching, and stale data detection |
-| **Virtualization** | [TanStack Virtual](https://tanstack.com/virtual) | Virtualized rendering for large lists (page-scroll mode) |
+| **Virtualization** | [TanStack Virtual](https://tanstack.com/virtual) | Virtualized rendering for large lists (container-scroll mode) |
 | **Runtime** | [Bun](https://bun.sh) | Package manager, test runner, and JavaScript runtime |
 | **Build** | [Vite](https://vite.dev) | Dev server and production bundler |
 | **UI** | [MUI Material UI](https://mui.com/material-ui/getting-started/) + [TailwindCSS](https://tailwindcss.com) | Component library and utility-first styling |

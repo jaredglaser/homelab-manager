@@ -11,14 +11,14 @@ src/
 │   ├── ThemeProvider.tsx            # MUI Material theme wrapper
 │   ├── Toasts.tsx                   # Toast notification display
 │   ├── docker/
-│   │   ├── ContainerTable.tsx       # Docker table (wraps shared DataTable, includes HostRow)
-│   │   ├── ContainerRow.tsx         # Container row with icon, metrics, and sparklines
-│   │   ├── ContainerStateChip.tsx   # Container state indicator chip (running/stopped/etc.)
-│   │   ├── ContainerChartsCard.tsx  # Expanded container detail (dual-series charts + log viewer)
+│   │   ├── ContainerDetailPanel.tsx # Expanded container detail (dual-series charts + log viewer)
 │   │   ├── ContainerHistoryPage.tsx # Historical data page for a container
 │   │   ├── ContainerHistoryPanel.tsx # History panel drawer wrapper
 │   │   ├── ContainerLogViewer.tsx   # Live xterm.js log viewer with SSE streaming
 │   │   ├── ContainerMetricChart.tsx # Individual metric chart component
+│   │   ├── ContainerStateChip.tsx   # Container state indicator chip (running/stopped/etc.)
+│   │   ├── ContainerTable.tsx       # Docker table (wraps shared DataTable, includes HostRow)
+│   │   ├── DockerStatusSummary.tsx  # Docker status summary display
 │   │   ├── DualSeriesChart.tsx      # Dual-series ECharts component (CPU/Mem, Network I/O)
 │   │   ├── DualSeriesChartRenderer.tsx # Renders dual-series chart from shared data/config
 │   │   ├── HistoricalChartsGrid.tsx # Grid layout for historical charts
@@ -26,9 +26,7 @@ src/
 │   │   ├── HistoricalTimeline.tsx   # Timeline navigation for history
 │   │   ├── IconGrid.tsx             # Grid of selectable container icons
 │   │   ├── IconPickerDialog.tsx     # Container icon picker with search
-│   │   ├── MetricCheckboxes.tsx     # Metric toggle controls
-│   │   ├── MetricSparkline.tsx      # Inline sparkline for metric values
-│   │   └── SparklineChart.tsx       # Inline SVG sparkline for real-time metrics
+│   │   └── MetricCheckboxes.tsx     # Metric toggle controls
 │   ├── stacks/
 │   │   ├── ComposeEditor.tsx        # Monaco YAML editor for docker-compose files
 │   │   ├── ComposeEditorLoader.tsx  # Dynamic loader for compose editor
@@ -61,24 +59,43 @@ src/
 │   │   ├── GuestSection.tsx         # VM/LXC guest list within a node
 │   │   └── StorageSection.tsx       # Storage list within a node
 │   ├── shared-table/
-│   │   ├── index.tsx                # Barrel exports
-│   │   ├── MetricValue.tsx          # Formatted metric display (value + unit + optional sparkline)
-│   │   ├── MetricHeader.tsx         # Sortable column header for metric tables
-│   │   └── StaleDataAlert.tsx       # Stale data warning indicator
+│   │   ├── DataTable.tsx            # Unified table (TanStack Table + CSS Grid rows, virtualizer at 150+ rows)
+│   │   ├── DataTableToolbar.tsx     # Table toolbar with search, filters, and metric group toggles
+│   │   ├── MetricCell.tsx           # Metric value cell with formatted display
+│   │   ├── MetricHeaderCell.tsx     # Sortable column header for metric tables
+│   │   ├── SparklineCanvas.tsx      # Canvas-based sparkline renderer
+│   │   ├── SparklineCell.tsx        # Sparkline cell wrapper for DataTable
+│   │   ├── StaleDataAlert.tsx       # Stale data warning indicator
+│   │   ├── columns.tsx              # Column factories (metricColumn, nameColumn, statusColumn, progressColumn)
+│   │   └── index.tsx                # Barrel exports
 │   └── shared/
 │       └── BottomDrawer.tsx         # Reusable bottom drawer component
 ├── hooks/
 │   ├── settingsAtom.ts              # Jotai atoms (rawSettings → derived settings), types, parsing
+│   ├── timeSeriesStream/            # Modular time-series stream internals
+│   │   ├── timeWindowTrim.ts        # Trims data to configured time window
+│   │   ├── types.ts                 # Shared types for stream hooks
+│   │   ├── useLatestByEntity.ts     # Latest snapshot per entity ID
+│   │   ├── useSSEBuffer.ts          # SSE event buffering and deduplication
+│   │   └── useVisibilityRefresh.ts  # Refresh on tab visibility change
+│   ├── toastAtom.ts                 # Toast notification atom + useToast hook
+│   ├── useContainerChartData.ts     # Derived chart data from container time-series
+│   ├── useContainerLogs.ts          # SSE-based container log stream → xterm.js with reconnection
+│   ├── useDockerInventory.ts        # Docker container inventory SSE subscription
+│   ├── useDockerSettings.ts         # Docker settings slice with optimistic setters
+│   ├── useEChartTimeScroll.ts       # ECharts time-axis scroll interaction
+│   ├── useEventSource.ts            # EventSource-based SSE consumer with exponential backoff
+│   ├── useGeneralSettings.ts        # General settings slice with optimistic setters
+│   ├── useLightPaletteEffect.ts     # Light mode palette adjustment
+│   ├── useOptimisticSetting.ts      # Generic optimistic setting updater with rollback
+│   ├── useProxmoxSettings.ts        # Proxmox settings slice with optimistic setters
+│   ├── usePulseIndicator.ts         # Pulse animation indicator for live data
 │   ├── useSettings.tsx              # Consumer hook - settings + optimistic setters with rollback
 │   ├── useSettingsSync.ts           # SSE-to-atom bridge (syncs /api/settings → rawSettingsAtom)
-│   ├── useEventSource.ts            # EventSource-based SSE consumer with exponential backoff
-│   ├── useContainerLogs.ts          # SSE-based container log stream → xterm.js with reconnection
-│   ├── useTimeSeriesStream.ts       # Preload + SSE merge + time-windowed buffer + stale detection
 │   ├── useStackStatus.ts            # Stack status SSE subscription with shallow equality
-│   ├── useDockerInventory.ts        # Docker container inventory SSE subscription
-│   ├── useEChartTimeScroll.ts       # ECharts time-axis scroll interaction
-│   ├── useLightPaletteEffect.ts     # Light mode palette adjustment
-│   └── toastAtom.ts                 # Toast notification atom + useToast hook
+│   ├── useTimeSeriesStream.ts       # Preload + SSE merge + time-windowed buffer + stale detection
+│   ├── useVisibleRAF.ts             # requestAnimationFrame gated on tab visibility
+│   └── useZfsSettings.ts            # ZFS settings slice with optimistic setters
 ├── data/
 │   ├── docker/
 │   │   ├── functions.tsx            # Docker server functions (active containers, icon updates)
@@ -131,9 +148,9 @@ src/
 │   │   │   ├── deploy-repository.ts # Deploy history data access
 │   │   │   ├── host-repository.ts   # managed_hosts data access (UI + deploy)
 │   │   │   ├── docker-container-event-repository.ts # Docker container inventory events data access
+│   │   │   ├── entity-metadata-repository.ts    # Entity metadata (icons/labels) data access
 │   │   │   ├── stack-secrets-repository.ts  # JWE-encrypted stack secrets data access
-│   │   │   ├── agent-keypairs-repository.ts # Encrypted per-agent Ed25519 keypairs data access
-│   │   │   └── stack-status-repository.ts  # Stack status data access
+│   │   │   └── agent-keypairs-repository.ts # Encrypted per-agent Ed25519 keypairs data access
 │   │   ├── subscription-service.ts  # StatsPollService - shared 1s poll, broadcasts to SSE clients
 │   │   └── migrate.ts               # Database migration runner
 │   ├── deploy/
@@ -141,9 +158,13 @@ src/
 │   │   │   ├── git-trigger-builder.ts  # Builds DeployRequest from git post-receive
 │   │   │   ├── ui-trigger-builder.ts   # Builds DeployRequest from UI actions
 │   │   │   └── index.ts               # Barrel exports
-│   │   ├── pipeline.ts              # Deploy pipeline orchestrator (validate → resolve secrets → dispatch)
 │   │   ├── change-detection.ts      # Content hashing to skip no-op deploys
+│   │   ├── deploy-watchdog.ts       # Recovers stuck in_flight deploys (default 10-min threshold)
+│   │   ├── pipeline.ts              # Deploy pipeline orchestrator (validate → resolve secrets → dispatch)
+│   │   ├── pipeline-factory.ts      # Factory for building configured pipeline instances
 │   │   ├── secret-resolver.ts       # Pluggable secret resolution interface
+│   │   ├── stack-repo-writer.ts     # Writes compose files to the git-backed stack repository
+│   │   ├── startup-recovery.ts      # Recovers stuck deploys on process startup
 │   │   ├── types.ts                 # Deploy domain types
 │   │   └── index.ts                 # Barrel exports
 │   ├── git/
@@ -157,10 +178,10 @@ src/
 │   │   ├── init-repo.ts             # Startup initialization with seed manifest
 │   │   └── editor-operations.ts     # In-app file save/commit and manifest updates
 │   ├── stacks/
-│   │   ├── stack-service.ts         # Stack CRUD and orchestration
-│   │   ├── stack-mappers.ts         # Map domain to/from storage models
+│   │   ├── delete-stack-resolver.ts # Resolve and execute stack deletion
 │   │   ├── parse-variables.ts       # Parse compose variable references
-│   │   ├── teardown-poller.ts       # Poll agent for teardown completion
+│   │   ├── stack-mappers.ts         # Map domain to/from storage models
+│   │   ├── stack-service.ts         # Stack CRUD and orchestration
 │   │   └── stack-status-broadcast-service.ts # PostgreSQL LISTEN + SSE broadcast for stack status
 │   ├── services/
 │   │   ├── agent-health-service.ts  # Agent health check with timeout
