@@ -3,8 +3,11 @@
 ## Workflow
 
 **End of every task:**
-- Run `bun run typecheck` and `bun test --isolate` after code changes.
+- Run `bun run typecheck:all` and `bun run test:all` after code changes (covers homelab-manager + agent).
 - Check if `README.md` and `CLAUDE.md` need updates.
+
+**First-time setup / dependency changes:**
+- Run `bun run setup` (installs homelab-manager and agent). The agent is NOT a workspace member; its lockfile is independent so the docker build (`context: ./agent`) stays self-consistent.
 
 **After editing files:**
 - When `<new-diagnostics>` appear with SonarQube issues on files you just edited, fix them before moving on. Only fix issues on files you modified, do not touch unrelated files.
@@ -30,7 +33,10 @@ bun run dev:local:logs        # Tail all Docker service logs
 bun run dev:local:logs:worker # Worker logs only
 bun run dev:local:logs:agent  # Agent logs only
 
-# Testing & Build
+# Setup
+bun run setup                 # Install homelab-manager and agent
+
+# Testing & Build (homelab-manager only)
 bun run typecheck             # TypeScript type checking
 bun test --isolate            # Run all tests (--isolate required: module mocks leak across files without it)
 bun run test                  # Same as above + coverage enforcement (95%/99%)
@@ -40,11 +46,15 @@ bun run build:demo            # Demo build (no server required, mock data)
 bun worker                    # Run background collector locally
 bun icons:download            # Download dashboard icons from homarr-labs/dashboard-icons
 
-# Agent (separate package in agent/)
-cd agent && bun dev            # Run agent with --watch
-cd agent && bun test           # Run agent tests
-cd agent && bun run test:coverage  # Agent tests with coverage enforcement (95%/99%)
-cd agent && bun run typecheck  # Agent type checking
+# Agent-only
+bun run typecheck:agent       # Agent type checking
+bun run test:agent            # Agent tests (no coverage)
+bun run test:coverage:agent   # Agent tests + coverage enforcement (95%/99%)
+
+# Combined (homelab-manager + agent)
+bun run typecheck:all         # Typecheck both
+bun run test:all              # Run tests in both (no coverage)
+bun run test:coverage:all     # Run tests in both with coverage enforcement
 ```
 
 ## Critical Rules
@@ -138,6 +148,8 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 ### Agent (`agent/`)
 
 Separate Bun package that runs as a sidecar container alongside Docker hosts. Provides a REST/SSE API for Docker management operations (deploy, logs, stats streaming). Uses raw `Bun.serve()` with manual route matching and timing-safe auth middleware (zero framework dependencies beyond Dockerode). The agent replaces direct Docker API calls from the worker; the main app communicates with agents rather than Docker hosts directly.
+
+The agent is intentionally NOT a workspace member of the homelab-manager `package.json`: its `agent/bun.lock` is the only lockfile the docker build (`context: ./agent`) sees, and workspace membership would mask drift by routing local `bun install` to the homelab-manager lockfile. Web/worker import only types from the agent via the TS path alias `@homelab-manager/agent/*` (resolved at compile time, no runtime dependency). Run `bun run setup` for a full install.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
