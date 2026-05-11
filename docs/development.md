@@ -64,7 +64,7 @@ COMPOSE_PROFILES="management"
 ### Step 2: Start the Dev Stack
 
 ```bash
-bun run setup              # Installs root and agent (agent is not a workspace member)
+bun run setup              # Installs homelab-manager and agent
 
 # Terminal 1: Start all Docker services
 bun run dev:local:up
@@ -193,7 +193,7 @@ Stack compose files are stored in an in-app bare git repo served at `http://loca
 Requires an external TimescaleDB instance:
 
 ```bash
-bun run setup           # Installs root and agent
+bun run setup           # Installs homelab-manager and agent
 bun dev                 # Start dev server (port 3000)
 bun worker              # Start background worker (separate terminal)
 ```
@@ -205,12 +205,12 @@ bun worker              # Start background worker (separate terminal)
 Tests use [Bun's built-in test runner](https://bun.sh/docs/cli/test), organized in `__tests__/` folders alongside source code.
 
 ```bash
-# Root only
-bun test                    # Run root tests (enforces coverage thresholds)
+# homelab-manager only
+bun test                    # Run homelab-manager tests (enforces coverage thresholds)
 bun test --watch            # Watch mode (no coverage enforcement)
 bun run test:coverage       # Coverage report only
 
-# Agent only (no cd required)
+# Agent only
 bun run test:agent          # Run agent tests
 bun run test:coverage:agent # Agent tests with coverage thresholds
 
@@ -230,7 +230,7 @@ Test files use `*.test.ts` naming in `__tests__/` directories co-located with so
 ## Type Checking
 
 ```bash
-bun run typecheck           # Root only
+bun run typecheck           # homelab-manager only
 bun run typecheck:agent     # Agent only
 bun run typecheck:all       # Both
 ```
