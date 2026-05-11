@@ -5,6 +5,7 @@
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
 import type { DeployRecord, DeployRequest } from '@/lib/deploy/types';
+import type { StackControlRequest } from '@/lib/clients/agent-client';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
@@ -463,4 +464,40 @@ export async function updateStackIconSlug(
   const repo = new EntityMetadataRepository(dbClient.getPool());
 
   await repo.upsertEntityMetadata(`${entry.host}/${stackName}`, 'icon', iconSlug);
+}
+
+export async function controlStackForHost(
+  host: string,
+  action: 'start' | 'stop' | 'restart',
+  req: StackControlRequest,
+): Promise<void> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { HostRepository } = await import('@/lib/database/repositories/host-repository');
+  const { AgentClient } = await import('@/lib/clients/agent-client');
+  const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
+  const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const pool = dbClient.getPool();
+
+  const hostsRepo = new HostRepository(pool);
+  const managedHost = await hostsRepo.findByName(host);
+  if (!managedHost) throw new Error(`Host "${host}" not found in managed_hosts`);
+
+  const keyring = await loadMasterKeyring();
+  const agentKeypairs = new AgentKeypairsRepository(pool, keyring);
+  const privateKey = await agentKeypairs.getPrivateKeyForHost(managedHost.name);
+  if (!privateKey) throw new Error(`No agent keypair for host "${managedHost.name}". Re-enroll the agent.`);
+
+  const signer = () => signAgentJwt(privateKey, managedHost.name);
+  const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer });
+
+  switch (action) {
+    case 'start': await agent.start(req); break;
+    case 'stop': await agent.stop(req); break;
+    case 'restart': await agent.restart(req); break;
+  }
 }

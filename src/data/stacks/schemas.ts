@@ -38,3 +38,19 @@ export const resumeDeploySchema = z.object({
 export const rejectDeploySchema = z.object({
   deployId: z.number().int().positive(),
 });
+
+export const controlStackSchema = z.discriminatedUnion('scope', [
+  z.object({
+    stack: stackNameField,
+    host: z.string().min(1),
+    action: z.enum(['start', 'stop', 'restart']),
+    scope: z.literal('stack'),
+  }),
+  z.object({
+    stack: stackNameField,
+    host: z.string().min(1),
+    action: z.enum(['start', 'stop', 'restart']),
+    scope: z.literal('service'),
+    service: z.string().min(1),
+  }),
+]);
