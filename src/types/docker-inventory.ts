@@ -4,10 +4,14 @@
  * Agent → worker → `docker_container_events` hypertable → NOTIFY →
  * web broadcast service → `/api/docker-inventory` SSE → `useDockerInventory()` hook.
  *
- * Discriminated union note: only the `init` snapshot carries the full label
- * map. Streaming `upsert` frames omit labels because the PostgreSQL NOTIFY
- * payload excludes them (8 kB cap; labels are unbounded). Consumers that need
- * labels must narrow on the event discriminator and fetch from init/DB.
+ * Discriminated union note: on this web-broadcast layer the `init` frame
+ * (`DockerInventorySnapshotContainer`) carries the full label map sourced from
+ * the DB snapshot, while the `upsert` frame (`DockerInventoryUpdateContainer`)
+ * intentionally omits labels because the PostgreSQL NOTIFY payload excludes
+ * them (8 kB cap). Consumers that need labels must narrow on `type: 'init'` or
+ * fetch from the DB. The agent→worker streaming layer (see `protocol.ts`) does
+ * include labels in upsert frames so that `compose_project` is correctly stored
+ * at insert time.
  *
  * Schemas and types live together: types are inferred via `z.infer<...>` so a
  * change to a schema cannot drift from its type. The schemas validate the

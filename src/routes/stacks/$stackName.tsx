@@ -6,8 +6,8 @@ import {
   CircularProgress,
   IconButton,
   Snackbar,
-  ToggleButton,
-  ToggleButtonGroup,
+  Tab,
+  Tabs,
   Tooltip,
   Typography,
 } from '@mui/material'
@@ -46,7 +46,7 @@ function StackEditorView() {
   const { statusMap, deployVersion } = useStackStatusContext()
   const { showToast } = useToast()
 
-  const [panel, setPanel] = useState<'secrets' | 'deploys'>('secrets')
+  const [panel, setPanel] = useState<'compose' | 'secrets' | 'deploys'>('compose')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [forceRecreate, setForceRecreate] = useState(false)
@@ -175,56 +175,56 @@ function StackEditorView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Scrollable content */}
+      {/* Header */}
+      <div className="flex items-center justify-between pb-3">
+        <div className="flex items-center gap-3">
+          <Typography variant="h6">{stackName}</Typography>
+          <Typography variant="caption" className="opacity-50">
+            {detail.host}
+          </Typography>
+          <Typography variant="caption" className="opacity-50">
+            &middot;
+          </Typography>
+          <Typography variant="caption" className="opacity-50">
+            {detail.deployMode === 'auto' ? 'Auto Deploy' : 'Manual Deploy'}
+          </Typography>
+        </div>
+        <Tooltip title="Stack settings">
+          <IconButton size="small" onClick={() => setSettingsDialogOpen(true)} aria-label="stack settings">
+            <Settings2 size={16} />
+          </IconButton>
+        </Tooltip>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex items-center gap-3 border-b border-[var(--mui-palette-divider)]">
+        <Tabs
+          value={panel}
+          onChange={(_e, value: 'compose' | 'secrets' | 'deploys') => setPanel(value)}
+          className="!min-h-0"
+        >
+          <Tab value="compose" label="Compose" disableRipple className="!min-h-0 !py-2 !normal-case" />
+          <Tab value="secrets" label="Secrets" disableRipple className="!min-h-0 !py-2 !normal-case" />
+          <Tab value="deploys" label="Deploys" disableRipple className="!min-h-0 !py-2 !normal-case" />
+        </Tabs>
+        {panel === 'deploys' && (
+          <ContainerList containers={containers} />
+        )}
+      </div>
+
+      {/* Tab content — scrollable */}
       <div className="flex-1 overflow-y-auto themed-scrollbar">
-        <div className="flex flex-col gap-4 pb-4">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Typography variant="h6">{stackName}</Typography>
-              <Typography variant="caption" className="opacity-50">
-                {detail.host}
-              </Typography>
-              <Typography variant="caption" className="opacity-50">
-                &middot;
-              </Typography>
-              <Typography variant="caption" className="opacity-50">
-                {detail.deployMode === 'auto' ? 'Auto Deploy' : 'Manual Deploy'}
-              </Typography>
-            </div>
-            <Tooltip title="Stack settings">
-              <IconButton size="small" onClick={() => setSettingsDialogOpen(true)} aria-label="stack settings">
-                <Settings2 size={16} />
-              </IconButton>
-            </Tooltip>
-          </div>
-
-          {/* Compose Editor */}
-          <ComposeEditorLoader
-            stackName={stackName}
-            content={detail.composeContent}
-          />
-
-          {/* Panel Toggle */}
-          <div className="flex items-center gap-3">
-            <ToggleButtonGroup
-              value={panel}
-              exclusive
-              onChange={(_e, value) => { if (value) setPanel(value) }}
-              size="small"
-            >
-              <ToggleButton value="secrets" className="!normal-case !px-4">Secrets</ToggleButton>
-              <ToggleButton value="deploys" className="!normal-case !px-4">Deploys</ToggleButton>
-            </ToggleButtonGroup>
-            {panel === 'deploys' && (
-              <ContainerList containers={containers} />
-            )}
-          </div>
-
-          {/* Panel Content */}
-          {panel === 'secrets' ? (
+        <div className="flex flex-col gap-4 py-4">
+          {panel === 'compose' && (
+            <ComposeEditorLoader
+              stackName={stackName}
+              content={detail.composeContent}
+            />
+          )}
+          {panel === 'secrets' && (
             <VariablesPanel stackName={stackName} composeVariables={composeVars} />
-          ) : (
+          )}
+          {panel === 'deploys' && (
             <DeployHistoryList
               records={history ?? []}
               isLoading={historyLoading}

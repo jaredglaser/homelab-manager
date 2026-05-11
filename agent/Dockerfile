@@ -10,6 +10,7 @@ COPY --from=toolchain /usr/local/libexec/docker/cli-plugins /usr/local/lib/docke
 WORKDIR /app
 
 COPY package.json ./package.json
+COPY agent/package.json ./agent/package.json
 COPY bun.lock ./bun.lock
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
@@ -17,8 +18,8 @@ COPY bun.lock ./bun.lock
 RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.13 \
     bun install --frozen-lockfile --production --ignore-scripts
 
-COPY src ./src
-COPY tsconfig.json package.json ./
+COPY agent/src ./src
+COPY agent/tsconfig.json ./tsconfig.json
 
 ENV AGENT_PORT=9090
 ENV STACKS_DIR=/opt/homelab-manager/stacks

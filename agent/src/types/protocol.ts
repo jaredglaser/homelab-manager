@@ -6,11 +6,11 @@
  * Schemas and types live together: types are inferred via `z.infer<...>` so a
  * change to a schema cannot drift from its type.
  *
- * Discriminated union note: `InventorySnapshotContainer` (from `init`) carries
- * the full container `labels` map; `InventoryUpdateContainer` (from `upsert`)
- * omits labels because the upsert-generating paths (NOTIFY trigger, Docker
- * event stream) do not carry them. Consumers that need labels must narrow to
- * the snapshot shape via the event discriminator (`op: 'init'`).
+ * Discriminated union note: both `InventorySnapshotContainer` (from `init`)
+ * and `InventoryUpdateContainer` (from `upsert`) carry the full `labels` map.
+ * `zInventoryUpdateContainer` is an alias for `zInventorySnapshotContainer` —
+ * the agent enriches every Docker event with a full inspect() call so labels
+ * are always available at the agent→worker streaming layer.
  */
 
 import { z } from 'zod';
@@ -47,12 +47,13 @@ export const zInventorySnapshotContainer = z.object({
 export type InventorySnapshotContainer = z.infer<typeof zInventorySnapshotContainer>;
 
 /**
- * Update shape: emitted on `op: 'upsert'`. Labels are intentionally absent:
- * the Docker event stream does not deliver them, and the NOTIFY payload
- * downstream omits them (8 kB cap). Callers that need labels must fetch from
- * the snapshot path (init / DB).
+ * Update shape: emitted on `op: 'upsert'`. Includes labels because the agent
+ * augments each Docker event with a full inspect(), which has the label map.
+ * The downstream NOTIFY omits labels (8 kB cap), but that path uses the
+ * generated `compose_project` column derived from labels in the DB row, so
+ * labels only need to be correct at the time of the DB insert.
  */
-export const zInventoryUpdateContainer = zInventorySnapshotContainer.omit({ labels: true });
+export const zInventoryUpdateContainer = zInventorySnapshotContainer;
 export type InventoryUpdateContainer = z.infer<typeof zInventoryUpdateContainer>;
 
 export const zAgentContainerEvent = z.discriminatedUnion('op', [

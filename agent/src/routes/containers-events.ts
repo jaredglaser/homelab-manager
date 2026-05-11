@@ -33,11 +33,6 @@ function toSnapshotContainer(c: MinimalContainerInfo): InventorySnapshotContaine
   };
 }
 
-/**
- * Update shape: labels intentionally omitted. The downstream NOTIFY trigger
- * strips labels (8 kB cap), so making that explicit at the wire level keeps
- * consumers honest about where label data is authoritative (the `init` path).
- */
 function toUpdateContainer(c: MinimalContainerInfo): InventoryUpdateContainer {
   const rawName = c.Names?.[0] ?? c.Id;
   return {
@@ -45,6 +40,7 @@ function toUpdateContainer(c: MinimalContainerInfo): InventoryUpdateContainer {
     name: rawName.replace(/^\//, ''),
     image: c.Image,
     state: toContainerState(c.State),
+    labels: c.Labels ?? {},
     startedAt: c.StartedAt,
     finishedAt: c.FinishedAt,
     exitCode: c.ExitCode,
