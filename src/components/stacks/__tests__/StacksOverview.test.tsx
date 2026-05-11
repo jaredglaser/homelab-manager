@@ -1,7 +1,6 @@
-import { describe, it, expect, mock, beforeAll, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ComponentType } from 'react';
 
 const mockNavigate = mock(() => {});
 const mockCreateStack = mock(() => Promise.resolve({}));
@@ -19,15 +18,12 @@ mock.module('@/components/stacks/stacks-context', () => ({
 }));
 
 mock.module('@tanstack/react-router', () => ({
-  createFileRoute: () => (opts: any) => opts,
   useNavigate: () => mockNavigate,
 }));
 
 mock.module('@/data/stacks/functions', () => ({
   createStack: mockCreateStack,
 }));
-
-let StacksOverview: ComponentType;
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -38,10 +34,7 @@ function createWrapper() {
   };
 }
 
-beforeAll(async () => {
-  const mod = await import('../index');
-  StacksOverview = (mod.Route as any).component;
-});
+const { default: StacksOverview } = await import('@/components/stacks/StacksOverview');
 
 beforeEach(() => {
   mockNavigate.mockClear();
