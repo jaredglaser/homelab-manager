@@ -6,7 +6,7 @@ import {
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
 } from '@/lib/constants/preload-queries'
 import ThemeProvider from '@/components/ThemeProvider'
-import Header from '@/components/Header'
+import Header from '@/components/header'
 import Toasts from '@/components/Toasts'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
