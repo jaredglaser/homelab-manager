@@ -8,6 +8,7 @@ import { handleContainerEvents } from './routes/containers-events';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { handleAgentUpdate } from './routes/agent-update';
+import { handleExecSocket, handleExecMessage } from './routes/exec';
 
 const portEnv = process.env.AGENT_PORT;
 let PORT = 9090;
@@ -133,15 +134,55 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
   return null;
 }
 
-Bun.serve({
+interface ExecWebSocketData {
+  containerId: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  execStream?: import('node:stream').Duplex;
+  execInstance?: { resize(opts: { h: number; w: number }): Promise<void> };
+}
+
+Bun.serve<ExecWebSocketData>({
   port: PORT,
   tls: tlsConfig,
-  async fetch(request: Request): Promise<Response> {
+  websocket: {
+    async open(ws) {
+      if (!docker) { ws.close(1011, 'Docker not available'); return; }
+      await handleExecSocket(docker, ws.data.containerId, ws as Parameters<typeof handleExecSocket>[2]);
+    },
+    async message(ws, message) {
+      if (!ws.data.execStream || !ws.data.execInstance) return;
+      await handleExecMessage(
+        message as string | Buffer,
+        ws.data.execStream,
+        ws.data.execInstance,
+      );
+    },
+    close(ws) {
+      ws.data.execStream?.destroy();
+    },
+  },
+  async fetch(request: Request, server): Promise<Response> {
     try {
       const url = new URL(request.url);
 
       const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname);
       if (authError) return authError;
+
+      // WebSocket upgrade for exec sessions — must happen before matchRoute since server.upgrade() is Bun-specific
+      if (docker && request.headers.get('upgrade') === 'websocket') {
+        const execMatch = /^\/exec\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)$/.exec(url.pathname);
+        if (execMatch) {
+          const containerId = execMatch[1];
+          const shell = url.searchParams.get('shell') ?? 'auto';
+          const cols = Number(url.searchParams.get('cols') ?? 80);
+          const rows = Number(url.searchParams.get('rows') ?? 24);
+          const upgraded = server.upgrade(request, { data: { containerId, shell, cols, rows } });
+          if (upgraded) return undefined as unknown as Response;
+          return new Response('WebSocket upgrade failed', { status: 426 });
+        }
+      }
 
       return (await matchRoute(request, url)) ?? new Response('Not Found', { status: 404 });
     } catch (error) {
