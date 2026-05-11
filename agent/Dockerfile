@@ -10,6 +10,7 @@ COPY --from=toolchain /usr/local/libexec/docker/cli-plugins /usr/local/lib/docke
 WORKDIR /app
 
 COPY package.json ./package.json
+COPY agent/package.json ./agent/package.json
 COPY bun.lock ./bun.lock
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
