@@ -27,7 +27,7 @@ import {
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
 import DeployHistoryList from '@/components/stacks/DeployHistoryList'
-import ContainerList from '@/components/stacks/ContainerList'
+import StackContainersPanel from '@/components/stacks/StackContainersPanel'
 import StackActionBar from '@/components/stacks/StackActionBar'
 import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
@@ -46,7 +46,7 @@ function StackEditorView() {
   const { statusMap, deployVersion } = useStackStatusContext()
   const { showToast } = useToast()
 
-  const [panel, setPanel] = useState<'compose' | 'secrets' | 'deploys'>('compose')
+  const [panel, setPanel] = useState<'compose' | 'secrets' | 'containers' | 'deploys'>('compose')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [forceRecreate, setForceRecreate] = useState(false)
@@ -200,16 +200,14 @@ function StackEditorView() {
       <div className="flex items-center gap-3 border-b border-(--mui-palette-divider)">
         <Tabs
           value={panel}
-          onChange={(_e, value: 'compose' | 'secrets' | 'deploys') => setPanel(value)}
+          onChange={(_e, value: 'compose' | 'secrets' | 'containers' | 'deploys') => setPanel(value)}
           className="min-h-0!"
         >
           <Tab value="compose" label="Compose" disableRipple className="min-h-0! py-2! normal-case!" />
           <Tab value="secrets" label="Secrets" disableRipple className="min-h-0! py-2! normal-case!" />
+          <Tab value="containers" label="Containers" disableRipple className="min-h-0! py-2! normal-case!" />
           <Tab value="deploys" label="Deploys" disableRipple className="min-h-0! py-2! normal-case!" />
         </Tabs>
-        {panel === 'deploys' && (
-          <ContainerList containers={containers} />
-        )}
       </div>
 
       {/* Tab content — scrollable */}
@@ -223,6 +221,13 @@ function StackEditorView() {
           )}
           {panel === 'secrets' && (
             <VariablesPanel stackName={stackName} composeVariables={composeVars} />
+          )}
+          {panel === 'containers' && (
+            <StackContainersPanel
+              containers={containers}
+              stackName={stackName}
+              host={detail.host}
+            />
           )}
           {panel === 'deploys' && (
             <DeployHistoryList
