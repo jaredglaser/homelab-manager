@@ -207,7 +207,7 @@ function StackEditorView() {
           <Tab value="secrets" label="Secrets" disableRipple className="!min-h-0 !py-2 !normal-case" />
           <Tab value="deploys" label="Deploys" disableRipple className="!min-h-0 !py-2 !normal-case" />
         </Tabs>
-        {panel === 'deploys' && containers.length > 0 && (
+        {panel === 'deploys' && (
           <ContainerList containers={containers} />
         )}
       </div>
