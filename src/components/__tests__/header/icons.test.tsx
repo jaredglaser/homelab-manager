@@ -6,7 +6,7 @@ describe('DockerIcon', () => {
   it('renders an svg with aria-hidden', () => {
     const { container } = render(<DockerIcon />)
     const svg = container.querySelector('svg')
-    expect(svg).toBeDefined()
+    expect(svg).not.toBeNull()
     expect(svg?.getAttribute('aria-hidden')).toBe('true')
   })
 
@@ -35,7 +35,7 @@ describe('ProxmoxIcon', () => {
   it('renders an svg with aria-hidden', () => {
     const { container } = render(<ProxmoxIcon />)
     const svg = container.querySelector('svg')
-    expect(svg).toBeDefined()
+    expect(svg).not.toBeNull()
     expect(svg?.getAttribute('aria-hidden')).toBe('true')
   })
 

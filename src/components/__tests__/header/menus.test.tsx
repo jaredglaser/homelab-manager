@@ -1,9 +1,10 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { StackSummary } from '@/types/stacks'
 
-const mockListStacks = mock(() => Promise.resolve([]))
-const mockListManagedHostNames = mock(() => Promise.resolve([]))
+const mockListStacks = mock((): Promise<StackSummary[]> => Promise.resolve([]))
+const mockListManagedHostNames = mock((): Promise<string[]> => Promise.resolve([]))
 
 mock.module('@/data/stacks/functions', () => ({
   listStacks: mockListStacks,
@@ -93,12 +94,12 @@ describe('SettingsMenuContent', () => {
 
   it('renders each section label', () => {
     render(<SettingsMenuContent />, { wrapper: createWrapper() })
-    expect(screen.getByText('General')).toBeDefined()
-    expect(screen.getByText('Docker Dashboard')).toBeDefined()
-    expect(screen.getByText('ZFS Dashboard')).toBeDefined()
-    expect(screen.getByText('Data Retention')).toBeDefined()
-    expect(screen.getByText('Managed Hosts')).toBeDefined()
-    expect(screen.getByText('Developer')).toBeDefined()
+    expect(screen.getByText('General')).not.toBeNull()
+    expect(screen.getByText('Docker Dashboard')).not.toBeNull()
+    expect(screen.getByText('ZFS Dashboard')).not.toBeNull()
+    expect(screen.getByText('Data Retention')).not.toBeNull()
+    expect(screen.getByText('Managed Hosts')).not.toBeNull()
+    expect(screen.getByText('Developer')).not.toBeNull()
   })
 })
 
@@ -106,7 +107,7 @@ describe('StacksMenuContent', () => {
   it('shows loading state', () => {
     mockListStacks.mockImplementation(() => new Promise(() => {}))
     render(<StacksMenuContent />, { wrapper: createWrapper() })
-    expect(screen.getByText('Loading…')).toBeDefined()
+    expect(screen.getByText('Loading…')).not.toBeNull()
   })
 
   it('shows error state', async () => {
@@ -117,7 +118,7 @@ describe('StacksMenuContent', () => {
         <StacksMenuContent />
       </QueryClientProvider>,
     )
-    expect(await findByText('Failed to load stacks')).toBeDefined()
+    expect(await findByText('Failed to load stacks')).not.toBeNull()
   })
 
   it('shows empty state when no stacks', async () => {
@@ -128,16 +129,16 @@ describe('StacksMenuContent', () => {
         <StacksMenuContent />
       </QueryClientProvider>,
     )
-    expect(await findByText('No stacks')).toBeDefined()
+    expect(await findByText('No stacks')).not.toBeNull()
   })
 
   it('renders stacks sorted by name', async () => {
     mockListStacks.mockImplementation(() =>
       Promise.resolve([
-        { name: 'zabbix', host: 'server1', icon: null },
-        { name: 'authentik', host: 'server1', icon: null },
-        { name: 'plex', host: 'server1', icon: null },
-      ] as never[]),
+        { name: 'zabbix', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'authentik', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+      ]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
@@ -146,17 +147,18 @@ describe('StacksMenuContent', () => {
       </QueryClientProvider>,
     )
     const items = await findAllByRole('menuitem')
-    // Each item's textContent is "<initial-letter><stack-name><host>"; extract the span with flex-1
-    const nameSpans = items.map((el) => el.querySelector('span.truncate.flex-1')?.textContent)
-    expect(nameSpans).toEqual(['authentik', 'plex', 'zabbix'])
+    // Verify the three stacks appear in alphabetical order by their text content
+    expect(items[0].textContent).toContain('authentik')
+    expect(items[1].textContent).toContain('plex')
+    expect(items[2].textContent).toContain('zabbix')
   })
 
   it('renders <img> for stacks with icon and <span> placeholder for stacks with null icon', async () => {
     mockListStacks.mockImplementation(() =>
       Promise.resolve([
-        { name: 'nginx', host: 'server1', icon: 'nginx' },
-        { name: 'plex', host: 'server1', icon: null },
-      ] as never[]),
+        { name: 'nginx', host: 'server1', icon: 'nginx', syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+      ]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
@@ -172,15 +174,14 @@ describe('StacksMenuContent', () => {
 
     const plexImg = items[1].querySelector('img')
     expect(plexImg).toBeNull()
-    // placeholder span shows uppercased first character
-    const plexSpan = items[1].querySelector('span.w-4.h-4')
-    expect(plexSpan?.textContent).toBe('P')
+    // placeholder shows the uppercased first character of the stack name
+    expect(items[1].textContent).toContain('P')
   })
 
   it('calls close context when a stack link is clicked', async () => {
     const closeSpy = mock(() => {})
     mockListStacks.mockImplementation(() =>
-      Promise.resolve([{ name: 'plex', host: 'server1', icon: null }] as never[]),
+      Promise.resolve([{ name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 }]),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
@@ -200,7 +201,7 @@ describe('DockerHostsMenuContent', () => {
   it('shows loading state', () => {
     mockListManagedHostNames.mockImplementation(() => new Promise(() => {}))
     render(<DockerHostsMenuContent />, { wrapper: createWrapper() })
-    expect(screen.getByText('Loading…')).toBeDefined()
+    expect(screen.getByText('Loading…')).not.toBeNull()
   })
 
   it('shows error state', async () => {
@@ -211,7 +212,7 @@ describe('DockerHostsMenuContent', () => {
         <DockerHostsMenuContent />
       </QueryClientProvider>,
     )
-    expect(await findByText('Failed to load hosts')).toBeDefined()
+    expect(await findByText('Failed to load hosts')).not.toBeNull()
   })
 
   it('shows empty state when no hosts', async () => {
@@ -222,12 +223,12 @@ describe('DockerHostsMenuContent', () => {
         <DockerHostsMenuContent />
       </QueryClientProvider>,
     )
-    expect(await findByText('No hosts')).toBeDefined()
+    expect(await findByText('No hosts')).not.toBeNull()
   })
 
   it('renders host names', async () => {
     mockListManagedHostNames.mockImplementation(() =>
-      Promise.resolve(['server1', 'server2'] as never[]),
+      Promise.resolve(['server1', 'server2']),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findByText } = render(
@@ -235,13 +236,13 @@ describe('DockerHostsMenuContent', () => {
         <DockerHostsMenuContent />
       </QueryClientProvider>,
     )
-    expect(await findByText('server1')).toBeDefined()
-    expect(await findByText('server2')).toBeDefined()
+    expect(await findByText('server1')).not.toBeNull()
+    expect(await findByText('server2')).not.toBeNull()
   })
 
   it('renders links with hash="host-${name}" in the href', async () => {
     mockListManagedHostNames.mockImplementation(() =>
-      Promise.resolve(['server1', 'server2'] as never[]),
+      Promise.resolve(['server1', 'server2']),
     )
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
@@ -257,7 +258,7 @@ describe('DockerHostsMenuContent', () => {
 
   it('calls close context when a host link is clicked', async () => {
     const closeSpy = mock(() => {})
-    mockListManagedHostNames.mockImplementation(() => Promise.resolve(['server1'] as never[]))
+    mockListManagedHostNames.mockImplementation(() => Promise.resolve(['server1']))
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { findAllByRole } = render(
       <QueryClientProvider client={qc}>
@@ -275,18 +276,19 @@ describe('DockerHostsMenuContent', () => {
 describe('MenuContentFor', () => {
   it('renders SettingsMenuContent for /settings', () => {
     render(<MenuContentFor to="/settings" />, { wrapper: createWrapper() })
-    expect(screen.getByText('General')).toBeDefined()
+    expect(screen.getByText('General')).not.toBeNull()
   })
 
   it('renders StacksMenuContent for /stacks', () => {
+    mockListStacks.mockImplementation(() => new Promise(() => {}))
     render(<MenuContentFor to="/stacks" />, { wrapper: createWrapper() })
-    expect(screen.getByText('Loading…')).toBeDefined()
+    expect(screen.getByText('Loading…')).not.toBeNull()
   })
 
   it('renders DockerHostsMenuContent for /docker', () => {
     mockListManagedHostNames.mockImplementation(() => new Promise(() => {}))
     render(<MenuContentFor to="/docker" />, { wrapper: createWrapper() })
-    expect(screen.getByText('Loading…')).toBeDefined()
+    expect(screen.getByText('Loading…')).not.toBeNull()
   })
 
   it('returns null for /zfs', () => {

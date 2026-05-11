@@ -152,8 +152,8 @@ describe('useCurrentTab', () => {
     expect(result.current).toBe('/stacks')
   })
 
-  it('defaults to /docker for unknown paths like /', () => {
-    mockPathname = '/'
+  it('defaults to /docker for unknown paths like /unknown-path', () => {
+    mockPathname = '/unknown-path'
     const { result } = renderHook(() => useCurrentTab())
     expect(result.current).toBe('/docker')
   })

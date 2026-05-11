@@ -20,13 +20,13 @@ describe('DemoBanner', () => {
   it('hides the banner when the close button is clicked', () => {
     render(<DemoBanner />)
     const closeButton = screen.getByRole('button')
-    expect(screen.getByText('Self-host guide')).toBeDefined()
+    expect(screen.getByText('Self-host guide')).not.toBeNull()
     fireEvent.click(closeButton)
     expect(screen.queryByText('Self-host guide')).toBeNull()
   })
 
   it('renders demo mode text', () => {
     render(<DemoBanner />)
-    expect(screen.getByText('Demo mode')).toBeDefined()
+    expect(screen.getByText('Demo mode')).not.toBeNull()
   })
 })
