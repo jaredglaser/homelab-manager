@@ -47,12 +47,13 @@ export const zInventorySnapshotContainer = z.object({
 export type InventorySnapshotContainer = z.infer<typeof zInventorySnapshotContainer>;
 
 /**
- * Update shape: emitted on `op: 'upsert'`. Labels are intentionally absent:
- * the Docker event stream does not deliver them, and the NOTIFY payload
- * downstream omits them (8 kB cap). Callers that need labels must fetch from
- * the snapshot path (init / DB).
+ * Update shape: emitted on `op: 'upsert'`. Includes labels because the agent
+ * augments each Docker event with a full inspect(), which has the label map.
+ * The downstream NOTIFY omits labels (8 kB cap), but that path uses the
+ * generated `compose_project` column derived from labels in the DB row, so
+ * labels only need to be correct at the time of the DB insert.
  */
-export const zInventoryUpdateContainer = zInventorySnapshotContainer.omit({ labels: true });
+export const zInventoryUpdateContainer = zInventorySnapshotContainer;
 export type InventoryUpdateContainer = z.infer<typeof zInventoryUpdateContainer>;
 
 export const zAgentContainerEvent = z.discriminatedUnion('op', [
