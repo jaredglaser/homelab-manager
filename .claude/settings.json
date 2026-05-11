@@ -12,5 +12,15 @@
         ]
       }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(bun test *)",
+      "Bash(bun run typecheck)",
+      "Bash(bun run typecheck:all)",
+      "Bash(bun run typecheck:agent)",
+      "mcp__plugin_context7_context7__query-docs",
+      "mcp__plugin_context7_context7__resolve-library-id"
+    ]
   }
 }

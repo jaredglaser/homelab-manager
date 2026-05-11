@@ -9,22 +9,29 @@ import ModeToggle from '@/components/ModeToggle'
 import {
   NAV_ITEMS,
   type RouteKey,
+  type MenuRouteKey,
   handlePrefetch,
 } from '@/components/header/nav-config'
 import { useCurrentTab, useMenuController } from '@/components/header/useMenuController'
 import { MenuContentFor, NavMenuCloseContext } from '@/components/header/menus'
 import { DemoBanner } from '@/components/header/DemoBanner'
 
+// Brand SVGs (Docker, Proxmox) lack the small transparent padding that lucide icons
+// bake into their viewBoxes, so they sit too close to the tab label. This set marks
+// which routes need extra right margin in tab contexts without affecting dropdown
+// contexts that already use flex gap-* for spacing.
+const SPACED_ICON_ROUTES = new Set<RouteKey>(['/docker', '/proxmox'])
+
 export default function Header() {
   const currentTab = useCurrentTab()
   const controller = useMenuController()
-  const [anchors, setAnchors] = useState<Partial<Record<RouteKey, HTMLElement>>>({})
+  const [anchors, setAnchors] = useState<Partial<Record<MenuRouteKey, HTMLElement>>>({})
 
   // Stable callback refs keyed by route, so each Tab keeps the same setter
   // across renders. The null (unmount) case is ignored because these Tab
   // elements are persistent; anchors only need to be set once on mount.
   const refSetters = useMemo(() => {
-    const setters: Partial<Record<RouteKey, (el: HTMLElement | null) => void>> = {}
+    const setters: Partial<Record<MenuRouteKey, (el: HTMLElement | null) => void>> = {}
     for (const item of NAV_ITEMS) {
       if (!item.hasMenu) continue
       setters[item.to] = (el) => {
@@ -41,14 +48,14 @@ export default function Header() {
         aria-label="Main navigation"
         className="flex items-center rounded-2xl px-3 py-1 pointer-events-auto backdrop-blur-xl bg-[var(--mui-palette-background-paper)]/75 border border-[var(--mui-palette-divider)]/30 shadow-[0_8px_32px_var(--mui-palette-common-black)]/10"
       >
-        <Tabs value={currentTab} aria-label="Main navigation" className="!min-h-0">
+        <Tabs value={currentTab ?? false} aria-label="Main navigation" className="!min-h-0">
           {NAV_ITEMS.map((item) => {
             const { Icon } = item
             return (
               <Tab
                 key={item.to}
                 value={item.to}
-                ref={refSetters[item.to]}
+                ref={refSetters[item.to as MenuRouteKey]}
                 label={
                   <span className="inline-flex items-center gap-1">
                     {item.label}
@@ -56,7 +63,7 @@ export default function Header() {
                   </span>
                 }
                 icon={
-                  item.customIcon
+                  SPACED_ICON_ROUTES.has(item.to)
                     ? <span className="inline-flex mr-1"><Icon size={18} /></span>
                     : <Icon size={18} />
                 }

@@ -28,11 +28,12 @@ mock.module('@/lib/constants/preload-queries', () => ({
 }))
 
 const { useMenuController, useCurrentTab } = await import('../../header/useMenuController')
+const { MENU_CLOSE_DELAY_MS } = await import('@/lib/constants/ui-timing')
 
 describe('useMenuController', () => {
   let originalSetTimeout: typeof globalThis.setTimeout
   let originalClearTimeout: typeof globalThis.clearTimeout
-  let pendingCallbacks: Array<{ fn: () => void; id: number }> = []
+  let pendingCallbacks: Array<{ fn: () => void; id: number; delay: number | undefined }> = []
   let nextTimerId = 1
 
   beforeEach(() => {
@@ -44,7 +45,7 @@ describe('useMenuController', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ;(globalThis as any).setTimeout = (fn: () => void, _delay?: number) => {
       const id = nextTimerId++
-      pendingCallbacks.push({ fn, id })
+      pendingCallbacks.push({ fn, id, delay: _delay ?? undefined })
       return id
     }
 
@@ -88,6 +89,7 @@ describe('useMenuController', () => {
       result.current.requestClose()
     })
     expect(result.current.openId).toBe('/docker')
+    expect(pendingCallbacks[0].delay).toBe(MENU_CLOSE_DELAY_MS)
     act(() => {
       flushTimers()
     })
@@ -152,10 +154,10 @@ describe('useCurrentTab', () => {
     expect(result.current).toBe('/stacks')
   })
 
-  it('defaults to /docker for unknown paths like /unknown-path', () => {
+  it('returns null for unknown paths like /unknown-path', () => {
     mockPathname = '/unknown-path'
     const { result } = renderHook(() => useCurrentTab())
-    expect(result.current).toBe('/docker')
+    expect(result.current).toBeNull()
   })
 
   it('returns /settings for /settings path', () => {
@@ -168,5 +170,29 @@ describe('useCurrentTab', () => {
     mockPathname = '/zfs'
     const { result } = renderHook(() => useCurrentTab())
     expect(result.current).toBe('/zfs')
+  })
+
+  it('returns /settings for /settings/general path', () => {
+    mockPathname = '/settings/general'
+    const { result } = renderHook(() => useCurrentTab())
+    expect(result.current).toBe('/settings')
+  })
+
+  it('returns /proxmox for /proxmox/node1 path', () => {
+    mockPathname = '/proxmox/node1'
+    const { result } = renderHook(() => useCurrentTab())
+    expect(result.current).toBe('/proxmox')
+  })
+
+  it('returns /docker for /docker/containers path', () => {
+    mockPathname = '/docker/containers'
+    const { result } = renderHook(() => useCurrentTab())
+    expect(result.current).toBe('/docker')
+  })
+
+  it('returns null for unknown paths', () => {
+    mockPathname = '/unknown/nested/path'
+    const { result } = renderHook(() => useCurrentTab())
+    expect(result.current).toBeNull()
   })
 })

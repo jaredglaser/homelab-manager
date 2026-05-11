@@ -85,22 +85,25 @@ describe('handlePrefetch', () => {
   it('calls prefetchQuery for /zfs', () => {
     handlePrefetch('/zfs')
     expect(mockPrefetchQuery).toHaveBeenCalledTimes(1)
-    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[] }])[0]
+    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
     expect(args.queryKey).toEqual(['preload', 'zfs-stats'])
+    expect(args.staleTime).toBe(PREFETCH_STALE_TIME)
   })
 
   it('calls prefetchQuery for /proxmox', () => {
     handlePrefetch('/proxmox')
     expect(mockPrefetchQuery).toHaveBeenCalledTimes(1)
-    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[] }])[0]
+    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
     expect(args.queryKey).toEqual(['preload', 'proxmox-stats'])
+    expect(args.staleTime).toBe(PREFETCH_STALE_TIME)
   })
 
   it('calls prefetchQuery for /stacks', () => {
     handlePrefetch('/stacks')
     expect(mockPrefetchQuery).toHaveBeenCalledTimes(1)
-    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[] }])[0]
+    const args = (mockPrefetchQuery.mock.calls[0] as unknown as [{ queryKey: string[]; staleTime: number }])[0]
     expect(args.queryKey).toEqual(['stacks-list'])
+    expect(args.staleTime).toBe(PREFETCH_STALE_TIME)
   })
 
   it('is a no-op for /settings', () => {
@@ -111,7 +114,13 @@ describe('handlePrefetch', () => {
   it('swallows rejected promises from prefetchQuery', async () => {
     mockPrefetchQuery.mockImplementationOnce(() => Promise.reject(new Error('network error')))
     expect(() => handlePrefetch('/docker')).not.toThrow()
-    // give the rejection a tick to propagate so the test doesn't end before it resolves
-    await Promise.resolve()
+    let unhandledRejection = false
+    const handler = () => { unhandledRejection = true }
+    process.on('unhandledRejection', handler)
+    handlePrefetch('/docker')
+    // Flush the microtask queue thoroughly
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    process.off('unhandledRejection', handler)
+    expect(unhandledRejection).toBe(false)
   })
 })

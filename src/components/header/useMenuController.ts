@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from '@tanstack/react-router'
 import { MENU_CLOSE_DELAY_MS } from '@/lib/constants/ui-timing'
-import type { RouteKey } from '@/components/header/nav-config'
+import type { MenuRouteKey, RouteKey } from '@/components/header/nav-config'
 import { NAV_ITEMS } from '@/components/header/nav-config'
 
 export interface MenuController {
-  openId: RouteKey | null
-  requestOpen: (id: RouteKey) => void
+  openId: MenuRouteKey | null
+  requestOpen: (id: MenuRouteKey) => void
   requestClose: () => void
   closeNow: () => void
 }
 
 export function useMenuController(): MenuController {
-  const [openId, setOpenId] = useState<RouteKey | null>(null)
+  const [openId, setOpenId] = useState<MenuRouteKey | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const cancelTimer = () => {
@@ -24,7 +24,7 @@ export function useMenuController(): MenuController {
 
   useEffect(() => () => cancelTimer(), [])
 
-  const requestOpen = useCallback((id: RouteKey) => {
+  const requestOpen = useCallback((id: MenuRouteKey) => {
     cancelTimer()
     setOpenId(id)
   }, [])
@@ -42,10 +42,10 @@ export function useMenuController(): MenuController {
   return { openId, requestOpen, requestClose, closeNow }
 }
 
-export function useCurrentTab(): RouteKey {
+export function useCurrentTab(): RouteKey | null {
   const pathname = useLocation({ select: (l) => l.pathname })
   const match = NAV_ITEMS.find(
     (item) => pathname === item.to || pathname.startsWith(item.to + '/'),
   )
-  return match?.to ?? '/docker'
+  return match?.to ?? null
 }

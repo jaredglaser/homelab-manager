@@ -8,32 +8,39 @@ import {
 } from '@/lib/constants/preload-queries'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { listStacks } from '@/data/stacks/functions'
+import type { SettingsSectionId } from '@/lib/constants/settings-sections'
 
-export type RouteKey = '/docker' | '/stacks' | '/zfs' | '/proxmox' | '/settings'
+export type { SettingsSectionId }
 
-export interface NavItem {
+export type MenuRouteKey = '/docker' | '/stacks' | '/settings'
+export type RouteKey = MenuRouteKey | '/zfs' | '/proxmox'
+
+export type NoMenuNavItem = {
   to: RouteKey
   label: string
   Icon: React.ComponentType<IconProps>
-  hasMenu: boolean
-  // Brand SVGs (Docker, Proxmox) lack the small transparent padding lucide
-  // icons bake into their viewBoxes, so they read as too close to the tab
-  // label even with MUI's iconWrapper margin. This flag lets the Tab strip
-  // add a touch of extra right margin without affecting dropdown contexts
-  // that already use flex `gap-*` for spacing.
-  customIcon?: boolean
+  hasMenu: false
 }
 
+export type MenuNavItem = {
+  to: MenuRouteKey
+  label: string
+  Icon: React.ComponentType<IconProps>
+  hasMenu: true
+}
+
+export type NavItem = NoMenuNavItem | MenuNavItem
+
 export const NAV_ITEMS: readonly NavItem[] = [
-  { to: '/docker', label: 'Docker', Icon: DockerIcon, hasMenu: true, customIcon: true },
+  { to: '/docker', label: 'Docker', Icon: DockerIcon, hasMenu: true },
   { to: '/stacks', label: 'Stacks', Icon: Layers, hasMenu: true },
   { to: '/zfs', label: 'ZFS', Icon: HardDrive, hasMenu: false },
-  { to: '/proxmox', label: 'Proxmox', Icon: ProxmoxIcon, hasMenu: false, customIcon: true },
+  { to: '/proxmox', label: 'Proxmox', Icon: ProxmoxIcon, hasMenu: false },
   { to: '/settings', label: 'Settings', Icon: SettingsIcon, hasMenu: true },
 ]
 
 export interface SettingsSectionDescriptor {
-  id: string
+  id: SettingsSectionId
   label: string
   Icon: React.ComponentType<IconProps>
 }

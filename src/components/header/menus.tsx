@@ -6,7 +6,7 @@ import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { listManagedHostNames, listStacks } from '@/data/stacks/functions'
 import { getIconUrl } from '@/lib/utils/icon-resolver'
 import { SETTINGS_SECTIONS } from '@/components/header/nav-config'
-import type { RouteKey } from '@/components/header/nav-config'
+import type { MenuRouteKey } from '@/components/header/nav-config'
 
 export const NavMenuCloseContext = createContext<() => void>(() => {})
 
@@ -124,7 +124,7 @@ export function DockerHostsMenuContent() {
   )
 }
 
-export function MenuContentFor({ to }: Readonly<{ to: RouteKey }>) {
+export function MenuContentFor({ to }: Readonly<{ to: MenuRouteKey }>) {
   if (to === '/settings') return <SettingsMenuContent />
   if (to === '/stacks') return <StacksMenuContent />
   if (to === '/docker') return <DockerHostsMenuContent />

@@ -31,16 +31,24 @@ mock.module('@/lib/constants/preload-queries', () => ({
   preloadProxmoxStats: mock(() => Promise.resolve([])),
 }))
 
-// Render Link as a plain anchor so tests don't need a full router context
+// Render Link as a plain anchor so tests don't need a full router context.
+// params substitutes $key placeholders so hrefs reflect the actual resolved path.
 mock.module('@tanstack/react-router', () => ({
-  Link: ({ children, to, hash, onClick, ...rest }: {
+  Link: ({ children, to, hash, params, onClick, ...rest }: {
     children: React.ReactNode
     to: string
     hash?: string
+    params?: Record<string, string>
     onClick?: () => void
     [key: string]: unknown
   }) => {
-    const href = hash ? `${to}#${hash}` : to
+    let resolvedTo = to
+    if (params) {
+      for (const [key, val] of Object.entries(params)) {
+        resolvedTo = resolvedTo.replace(`$${key}`, val)
+      }
+    }
+    const href = hash ? `${resolvedTo}#${hash}` : resolvedTo
     return <a href={href} onClick={onClick} {...rest}>{children}</a>
   },
   useLocation: ({ select }: { select: (l: { pathname: string }) => string }) =>
@@ -101,6 +109,15 @@ describe('SettingsMenuContent', () => {
     expect(screen.getByText('Managed Hosts')).not.toBeNull()
     expect(screen.getByText('Developer')).not.toBeNull()
   })
+
+  it('renders links with hash matching each section id', () => {
+    const { container } = render(<SettingsMenuContent />, { wrapper: createWrapper() })
+    const links = Array.from(container.querySelectorAll('a'))
+    const expectedHashes = ['general', 'docker-dashboard', 'zfs-dashboard', 'data-retention', 'managed-hosts', 'developer']
+    expectedHashes.forEach((hash, i) => {
+      expect(links[i].getAttribute('href')).toBe(`/settings#${hash}`)
+    })
+  })
 })
 
 describe('StacksMenuContent', () => {
@@ -112,23 +129,13 @@ describe('StacksMenuContent', () => {
 
   it('shows error state', async () => {
     mockListStacks.mockImplementation(() => Promise.reject(new Error('fail')))
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const { findByText } = render(
-      <QueryClientProvider client={qc}>
-        <StacksMenuContent />
-      </QueryClientProvider>,
-    )
+    const { findByText } = render(<StacksMenuContent />, { wrapper: createWrapper() })
     expect(await findByText('Failed to load stacks')).not.toBeNull()
   })
 
   it('shows empty state when no stacks', async () => {
     mockListStacks.mockImplementation(() => Promise.resolve([]))
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const { findByText } = render(
-      <QueryClientProvider client={qc}>
-        <StacksMenuContent />
-      </QueryClientProvider>,
-    )
+    const { findByText } = render(<StacksMenuContent />, { wrapper: createWrapper() })
     expect(await findByText('No stacks')).not.toBeNull()
   })
 
@@ -195,6 +202,22 @@ describe('StacksMenuContent', () => {
     fireEvent.click(items[0])
     expect(closeSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('renders links with the stack name resolved in the href', async () => {
+    mockListStacks.mockImplementation(() =>
+      Promise.resolve([
+        { name: 'plex', host: 'server1', icon: null, syncStatus: 'unknown', deployMode: 'auto', lastDeployAt: null, lastDeployStatus: null, containerCount: 0 },
+      ]),
+    )
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { findAllByRole } = render(
+      <QueryClientProvider client={qc}>
+        <StacksMenuContent />
+      </QueryClientProvider>,
+    )
+    const items = await findAllByRole('menuitem')
+    expect(items[0].getAttribute('href')).toBe('/stacks/plex')
+  })
 })
 
 describe('DockerHostsMenuContent', () => {
@@ -206,23 +229,13 @@ describe('DockerHostsMenuContent', () => {
 
   it('shows error state', async () => {
     mockListManagedHostNames.mockImplementation(() => Promise.reject(new Error('fail')))
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const { findByText } = render(
-      <QueryClientProvider client={qc}>
-        <DockerHostsMenuContent />
-      </QueryClientProvider>,
-    )
+    const { findByText } = render(<DockerHostsMenuContent />, { wrapper: createWrapper() })
     expect(await findByText('Failed to load hosts')).not.toBeNull()
   })
 
   it('shows empty state when no hosts', async () => {
     mockListManagedHostNames.mockImplementation(() => Promise.resolve([]))
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    const { findByText } = render(
-      <QueryClientProvider client={qc}>
-        <DockerHostsMenuContent />
-      </QueryClientProvider>,
-    )
+    const { findByText } = render(<DockerHostsMenuContent />, { wrapper: createWrapper() })
     expect(await findByText('No hosts')).not.toBeNull()
   })
 
@@ -289,15 +302,5 @@ describe('MenuContentFor', () => {
     mockListManagedHostNames.mockImplementation(() => new Promise(() => {}))
     render(<MenuContentFor to="/docker" />, { wrapper: createWrapper() })
     expect(screen.getByText('Loading…')).not.toBeNull()
-  })
-
-  it('returns null for /zfs', () => {
-    const { container } = render(<MenuContentFor to="/zfs" />, { wrapper: createWrapper() })
-    expect(container.firstChild).toBeNull()
-  })
-
-  it('returns null for /proxmox', () => {
-    const { container } = render(<MenuContentFor to="/proxmox" />, { wrapper: createWrapper() })
-    expect(container.firstChild).toBeNull()
   })
 })
