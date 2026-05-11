@@ -18,8 +18,8 @@ COPY bun.lock ./bun.lock
 RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.13 \
     bun install --frozen-lockfile --production --ignore-scripts
 
-COPY src ./src
-COPY tsconfig.json package.json ./
+COPY agent/src ./src
+COPY agent/tsconfig.json ./tsconfig.json
 
 ENV AGENT_PORT=9090
 ENV STACKS_DIR=/opt/homelab-manager/stacks
