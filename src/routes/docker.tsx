@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createFileRoute, Outlet, useMatchRoute, useLocation } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { queryClient } from '@/components/AppShell'
+import { queryClient } from '@/lib/query-client'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
 import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
 import PageStatusBar from '@/components/PageStatusBar'
