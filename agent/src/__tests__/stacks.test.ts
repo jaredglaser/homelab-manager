@@ -3,6 +3,8 @@ import {
   handleStackDeploy,
   handleStackTeardown,
   handleStackRestart,
+  handleStackStart,
+  handleStackStop,
   handleStackStatus,
   parseContainerNames,
 } from '../routes/stacks';
@@ -506,7 +508,7 @@ describe('handleStackRestart', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'nonexistent' }),
+      body: JSON.stringify({ stack: 'nonexistent', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
@@ -520,7 +522,7 @@ describe('handleStackRestart', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'traefik' }),
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
@@ -555,7 +557,7 @@ describe('handleStackRestart', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'traefik' }),
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, failSpawn as any);
@@ -564,6 +566,40 @@ describe('handleStackRestart', () => {
     expect(result.status).toBe('failed');
     expect(result.exitCode).toBe(1);
   });
+
+  test('appends service name when scope is service', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: 'web' }),
+    });
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    expect(cmd).toContain('restart');
+    expect(cmd).toContain('web');
+  });
+
+  test('runs on whole stack when scope is stack', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'stack' }),
+    });
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    expect(cmd).toContain('restart');
+    expect(cmd).not.toContain('web');
+  });
 });
 
 describe('handleStackRestart: path traversal', () => {
@@ -571,7 +607,7 @@ describe('handleStackRestart: path traversal', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'mystack' }),
+      body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR + '/', successSpawn as any);
@@ -597,7 +633,7 @@ describe('handleStackRestart: subprocess timeout', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'traefik' }),
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
@@ -619,7 +655,7 @@ describe('handleStackRestart: spawn failure', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'traefik' }),
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, throwSpawn as any);
@@ -1137,5 +1173,117 @@ describe('handleStackDeploy: force recreate', () => {
     const upCall = spawnCalls.find(c => c.cmd.includes('up'));
     expect(upCall).toBeDefined();
     expect(upCall!.cmd).not.toContain('--force-recreate');
+  });
+});
+
+describe('handleStackStart', () => {
+  test('returns 404 when compose file does not exist', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'nostack', scope: 'stack' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(404);
+  });
+
+  test('runs docker compose start for whole stack when scope is stack', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'stack' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    expect(cmd).toContain('start');
+    expect(cmd).not.toContain('web');
+  });
+
+  test('appends service name when scope is service', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: 'web' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    expect(cmd).toContain('start');
+    expect(cmd).toContain('web');
+  });
+
+  test('returns 400 when scope is service but service field is missing', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+
+  test('returns 400 for invalid scope', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'container' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+});
+
+describe('handleStackStop', () => {
+  test('returns 404 when compose file does not exist', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'nostack', scope: 'stack' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(404);
+  });
+
+  test('runs docker compose stop for whole stack', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'stack' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    expect(cmd).toContain('stop');
+    expect(cmd).not.toContain('web');
+  });
+
+  test('appends service name when scope is service', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: 'db' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    expect(cmd).toContain('stop');
+    expect(cmd).toContain('db');
   });
 });

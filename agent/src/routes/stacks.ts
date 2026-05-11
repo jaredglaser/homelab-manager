@@ -33,6 +33,41 @@ function validateStackName(name: string): Response | null {
   return null;
 }
 
+type StackControlBody =
+  | { stack: string; scope: 'stack' }
+  | { stack: string; scope: 'service'; service: string };
+
+async function parseStackControlBody(request: Request): Promise<StackControlBody | Response> {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return Response.json({ error: 'Request body must be a JSON object' }, { status: 400 });
+  }
+  const b = body as Record<string, unknown>;
+
+  if (typeof b.stack !== 'string' || !b.stack) {
+    return Response.json({ error: 'Missing required field: stack' }, { status: 400 });
+  }
+  const nameError = validateStackName(b.stack);
+  if (nameError) return nameError;
+
+  if (b.scope === 'stack') {
+    return { stack: b.stack, scope: 'stack' };
+  }
+  if (b.scope === 'service') {
+    if (typeof b.service !== 'string' || !b.service) {
+      return Response.json({ error: 'scope "service" requires a non-empty service field' }, { status: 400 });
+    }
+    return { stack: b.stack, scope: 'service', service: b.service };
+  }
+  return Response.json({ error: 'scope must be "stack" or "service"' }, { status: 400 });
+}
+
 type SpawnFn = typeof Bun.spawn;
 
 interface SpawnResult {
@@ -64,6 +99,43 @@ async function spawnWithTimeout(
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function runComposeControl(
+  subcommand: 'start' | 'stop' | 'restart',
+  parsed: StackControlBody,
+  stacksDir: string,
+  spawn: SpawnFn,
+  timeoutMs: number = COMPOSE_TIMEOUT_MS,
+): Promise<Response> {
+  const stackDir = join(stacksDir, parsed.stack);
+  if (!stackDir.startsWith(stacksDir + '/')) {
+    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+  }
+  const composePath = join(stackDir, 'docker-compose.yml');
+  if (!existsSync(composePath)) {
+    return Response.json({ error: `Stack '${parsed.stack}' not found` }, { status: 404 });
+  }
+
+  const cmd = ['docker', 'compose', '-f', composePath, subcommand];
+  if (parsed.scope === 'service') cmd.push(parsed.service);
+
+  let result: SpawnResult;
+  try {
+    result = await spawnWithTimeout(spawn, {
+      cmd,
+      cwd: stackDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack },
+    }, timeoutMs);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to execute docker compose ${subcommand} for ${parsed.stack}:`, error);
+    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+  }
+
+  return composeResultToResponse(result);
 }
 
 /**
@@ -322,76 +394,37 @@ export async function handleStackTeardown(
   return composeResultToResponse(result);
 }
 
-/**
- * Restart the Docker Compose stack specified in the request body.
- *
- * Parses JSON from the request expecting a `stack` name, validates the name,
- * ensures the stack's docker-compose.yml exists under `stacksDir`, and runs
- * `docker compose -f <composePath> restart` with `COMPOSE_PROJECT_NAME` set to
- * the stack name.
- *
- * @param request - HTTP request whose JSON body must include `stack`
- * @param stacksDir - Path to the directory containing stack subdirectories
- * @param spawn - Optional process spawn function used to run Docker commands
- * @returns On success, a 200 Response with `{ status: "success", stdout, stderr }`.
- *          If the Docker command exits non-zero, a 500 Response with
- *          `{ status: "failed", exitCode, stdout, stderr }`.
- *          Returns 400 with `{ error: ... }` for invalid JSON or missing `stack`,
- *          and 404 with `{ error: ... }` if the stack's compose file is not found.
- */
 export async function handleStackRestart(
   request: Request,
   stacksDir: string,
   spawn: SpawnFn = Bun.spawn,
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
 ): Promise<Response> {
-  let body: { stack?: string };
-  try {
-    body = await request.json();
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    return Response.json({ error: `Invalid JSON: ${detail}` }, { status: 400 });
-  }
+  const parsed = await parseStackControlBody(request);
+  if (parsed instanceof Response) return parsed;
+  return runComposeControl('restart', parsed, stacksDir, spawn, timeoutMs);
+}
 
-  if (!body.stack) {
-    return Response.json(
-      { error: 'Missing required field: stack' },
-      { status: 400 }
-    );
-  }
+export async function handleStackStart(
+  request: Request,
+  stacksDir: string,
+  spawn: SpawnFn = Bun.spawn,
+  timeoutMs: number = COMPOSE_TIMEOUT_MS,
+): Promise<Response> {
+  const parsed = await parseStackControlBody(request);
+  if (parsed instanceof Response) return parsed;
+  return runComposeControl('start', parsed, stacksDir, spawn, timeoutMs);
+}
 
-  const nameError = validateStackName(body.stack);
-  if (nameError) return nameError;
-
-  const stackDir = join(stacksDir, body.stack);
-  if (!stackDir.startsWith(stacksDir + '/')) {
-    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
-  }
-  const composePath = join(stackDir, 'docker-compose.yml');
-
-  if (!existsSync(composePath)) {
-    return Response.json(
-      { error: `Stack '${body.stack}' not found` },
-      { status: 404 }
-    );
-  }
-
-  let result: SpawnResult;
-  try {
-    result = await spawnWithTimeout(spawn, {
-      cmd: ['docker', 'compose', '-f', composePath, 'restart'],
-      cwd: stackDir,
-      stdout: 'pipe',
-      stderr: 'pipe',
-      env: { ...process.env, COMPOSE_PROJECT_NAME: body.stack },
-    }, timeoutMs);
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to execute docker compose for ${body.stack}:`, error);
-    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
-  }
-
-  return composeResultToResponse(result);
+export async function handleStackStop(
+  request: Request,
+  stacksDir: string,
+  spawn: SpawnFn = Bun.spawn,
+  timeoutMs: number = COMPOSE_TIMEOUT_MS,
+): Promise<Response> {
+  const parsed = await parseStackControlBody(request);
+  if (parsed instanceof Response) return parsed;
+  return runComposeControl('stop', parsed, stacksDir, spawn, timeoutMs);
 }
 
 /**
