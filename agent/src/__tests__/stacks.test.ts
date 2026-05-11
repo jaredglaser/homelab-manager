@@ -579,7 +579,7 @@ describe('handleStackRestart', () => {
     });
     const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(200);
-    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
     expect(cmd).toContain('restart');
     expect(cmd).toContain('web');
   });
@@ -596,7 +596,7 @@ describe('handleStackRestart', () => {
     });
     const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(200);
-    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
     expect(cmd).toContain('restart');
     expect(cmd).not.toContain('web');
   });
@@ -1199,7 +1199,7 @@ describe('handleStackStart', () => {
     });
     const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(200);
-    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
     expect(cmd).toContain('start');
     expect(cmd).not.toContain('web');
   });
@@ -1216,7 +1216,7 @@ describe('handleStackStart', () => {
     });
     const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(200);
-    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
     expect(cmd).toContain('start');
     expect(cmd).toContain('web');
   });
@@ -1265,7 +1265,7 @@ describe('handleStackStop', () => {
     });
     const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(200);
-    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
     expect(cmd).toContain('stop');
     expect(cmd).not.toContain('web');
   });
@@ -1282,7 +1282,7 @@ describe('handleStackStop', () => {
     });
     const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(200);
-    const cmd = successSpawn.mock.calls[0][0].cmd as string[];
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
     expect(cmd).toContain('stop');
     expect(cmd).toContain('db');
   });
