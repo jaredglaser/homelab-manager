@@ -137,6 +137,14 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 >
 > **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose snippet for the agent and handles key exchange during the Verify step. Once connectivity is confirmed, the keypair is stored and the host is ready.
 
+### PostgreSQL Connection
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `POSTGRES_SSL` | `false` | Enable TLS for the PostgreSQL connection |
+| `POSTGRES_SSL_REJECT_UNAUTHORIZED` | `true` | Verify the server's TLS certificate. Set to `false` only for self-signed certificates -- this disables chain validation and exposes the connection to MITM attacks. |
+| `POSTGRES_POOL_SIZE` | `10` | Database connection pool size |
+
 ### Worker Behavior
 
 | Variable | Default | Description |
@@ -146,7 +154,7 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 | `WORKER_ZFS_ENABLED` | `false` | Enable ZFS stats collection |
 | `WORKER_PROXMOX_ENABLED` | `false` | Enable Proxmox stats collection |
 | `WORKER_COLLECTION_INTERVAL_MS` | `1000` | Collection interval in milliseconds |
-| `POSTGRES_POOL_SIZE` | `10` | Database connection pool size |
+| `WORKER_LOCALHOST_AGENT` | - | Docker-internal hostname to substitute for `localhost` agent URLs (e.g. `hlm-agent`). Set this when the worker and an agent container run on the same Docker host; without it, `localhost` agent URLs resolve to the worker container itself rather than the agent container. |
 
 ---
 

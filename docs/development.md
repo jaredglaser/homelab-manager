@@ -206,8 +206,8 @@ Tests use [Bun's built-in test runner](https://bun.sh/docs/cli/test), organized 
 
 ```bash
 # homelab-manager only
-bun test                    # Run homelab-manager tests (enforces coverage thresholds)
-bun test --watch            # Watch mode (no coverage enforcement)
+bun test --isolate          # Run homelab-manager tests (enforces coverage thresholds)
+bun test --isolate --watch  # Watch mode (no coverage enforcement)
 bun run test:coverage       # Coverage report only
 
 # Agent only
@@ -222,7 +222,7 @@ bun run test:coverage:all   # Run tests in both with coverage thresholds
 ### Coverage Requirements
 
 - Minimum **95% function coverage**
-- Minimum **99% line coverage**
+- Minimum **98% line coverage**
 - Automatically enforced by `bun test` and CI
 
 Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).

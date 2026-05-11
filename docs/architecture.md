@@ -19,6 +19,9 @@ graph TD
         ContainerEvents["docker_container_events hypertable"]
         DeployHistory["deploy_history"]
         ManagedHosts["managed_hosts"]
+        EntityMetadata["entity_metadata"]
+        StackSecrets["stack_secrets"]
+        AgentKeypairs["agent_keypairs"]
     end
 
     subgraph Worker["Background Worker"]
@@ -144,8 +147,10 @@ Hosts are registered via the Settings UI and stored in the `managed_hosts` datab
 
 **Collector creation** (`src/worker/collector-factory.ts`):
 - `createCollectors()`: env-configured collectors (Proxmox only; Docker and ZFS always go through managed hosts)
-- `createCollectorsForManagedHosts()`: agent-based collectors for registered hosts (Docker stats + ZFS)
-- `createContainerInventoryCollectors()`: container inventory from agent `/containers/events` SSE, writing to `docker_container_events`
+- `resolveAgentUrl()`: rewrites localhost agent URLs to Docker-internal hostnames via `WORKER_LOCALHOST_AGENT` env var
+
+**Managed-host collector lifecycle** (`src/worker/host-collector-manager.ts`):
+- `HostCollectorManager`: owns one `AsyncDisposableStack` per registered host, each containing `AgentStatsCollector`, `ContainerInventoryCollector`, and/or `ZFSCollector` depending on the host's capabilities. `reconcile()` is the sole mutator -- it adds collectors for new hosts, disposes them for removed hosts, and recreates them when a host's `agentUrl` or capabilities change. Reconcile calls are serialised through an internal promise chain so back-to-back notifications don't race.
 
 **JWT signing**: Per-agent Ed25519 keypairs are stored encrypted in `agent_keypairs`. The deploy pipeline signs a short-lived JWT for each request; the agent verifies it against its trusted public JWK. Hosts with no keypair are skipped with a logged warning.
 

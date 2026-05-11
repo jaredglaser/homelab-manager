@@ -17,7 +17,7 @@
     "test": "cross-env-shell \"bun test --isolate --coverage 2>&1 | node scripts/check-coverage.js\"",
     "test:agent": "cd agent && bun test --isolate",
     "test:all": "bun test --isolate && bun run test:agent",
-    "test:watch": "bun test --watch",
+    "test:watch": "bun test --isolate --watch",
     "test:coverage": "bun test --isolate --coverage --coverage-reporter=text --coverage-reporter=lcov",
     "test:coverage:agent": "cd agent && bun run test:coverage",
     "test:coverage:all": "bun run test && bun run test:coverage:agent",
