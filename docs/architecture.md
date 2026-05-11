@@ -336,7 +336,6 @@ Full stack management interface at `/stacks` (top-level navigation).
 
 | Component | Purpose |
 |-----------|---------|
-| `StackNav` | Sidebar navigation listing all stacks with status indicators |
 | `StackActionBar` | Deploy, teardown, restart action buttons |
 | `ComposeEditor` | Monaco YAML editor with Compose schema validation |
 | `ContainerList` | Running containers for a stack with status |

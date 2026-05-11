@@ -1,11 +1,9 @@
-import { useState, useEffect } from 'react'
-import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { createFileRoute, Outlet } from '@tanstack/react-router'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CircularProgress, Typography } from '@mui/material'
-import { listStacks, createStack, listManagedHostNames } from '@/data/stacks/functions'
+import { listStacks, listManagedHostNames } from '@/data/stacks/functions'
 import { useStackStatus } from '@/hooks/useStackStatus'
-import CreateStackDialog from '@/components/stacks/CreateStackDialog'
-import StackNav from '@/components/stacks/StackNav'
 import { StackListContext, StackStatusContext } from '@/components/stacks/stacks-context'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
@@ -18,9 +16,6 @@ const HOST_NAMES_QUERY_KEY = ['managed-host-names']
 
 function StacksLayout() {
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
 
   const { data: stacks, isLoading: stacksLoading, error: stacksError } = useQuery({
     queryKey: STACKS_QUERY_KEY,
@@ -42,20 +37,6 @@ function StacksLayout() {
     if (deployVersion === 0) return;
     queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY });
   }, [deployVersion, queryClient]);
-
-  const createMutation = useMutation({
-    mutationFn: (input: { stackName: string; host: string; autoDeploy: boolean }) =>
-      createStack({ data: input }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
-      setDialogOpen(false)
-      setCreateError(null)
-      navigate({ to: '/stacks/$stackName', params: { stackName: variables.stackName } })
-    },
-    onError: (err) => {
-      setCreateError(err instanceof Error ? err.message : String(err))
-    },
-  })
 
   if (error) {
     return (
@@ -79,20 +60,9 @@ function StacksLayout() {
   return (
     <StackListContext value={{ stacks: stacks ?? [], hosts: hosts ?? [], isLoading }}>
       <StackStatusContext value={{ statusMap, deployVersion }}>
-        <div className="flex w-full flex-1 min-h-0">
-          <StackNav onCreateClick={() => { setCreateError(null); setDialogOpen(true) }} />
-          <div className="flex-1 min-h-0 flex flex-col p-6">
-            <Outlet />
-          </div>
+        <div className="flex-1 min-h-0 flex flex-col p-6">
+          <Outlet />
         </div>
-        <CreateStackDialog
-          open={dialogOpen}
-          onClose={() => setDialogOpen(false)}
-          onSubmit={(input) => createMutation.mutate(input)}
-          hosts={hosts ?? []}
-          isLoading={createMutation.isPending}
-          error={createError}
-        />
       </StackStatusContext>
     </StackListContext>
   )
