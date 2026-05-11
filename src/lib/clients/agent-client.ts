@@ -47,6 +47,10 @@ export interface AgentHealthResponse {
   version: string;
 }
 
+export type StackControlRequest =
+  | { stack: string; scope: 'stack' }
+  | { stack: string; scope: 'service'; service: string };
+
 /**
  * Thin HTTP client for communicating with the homelab-manager agent.
  * All requests include the bearer token and a timeout via AbortSignal.
@@ -84,8 +88,18 @@ export class AgentClient {
     return adaptDeployResponse(raw);
   }
 
-  async restart(stack: string): Promise<AgentDeployResponse> {
-    const raw = await this.postJson<AgentStackResponse>('/stacks/restart', { stack });
+  async restart(req: StackControlRequest): Promise<AgentDeployResponse> {
+    const raw = await this.postJson<AgentStackResponse>('/stacks/restart', req);
+    return adaptDeployResponse(raw);
+  }
+
+  async start(req: StackControlRequest): Promise<AgentDeployResponse> {
+    const raw = await this.postJson<AgentStackResponse>('/stacks/start', req);
+    return adaptDeployResponse(raw);
+  }
+
+  async stop(req: StackControlRequest): Promise<AgentDeployResponse> {
+    const raw = await this.postJson<AgentStackResponse>('/stacks/stop', req);
     return adaptDeployResponse(raw);
   }
 

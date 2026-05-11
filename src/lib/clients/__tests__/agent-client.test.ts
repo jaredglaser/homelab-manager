@@ -129,7 +129,7 @@ describe('AgentClient', () => {
   });
 
   describe('restart', () => {
-    it('sends POST to /stacks/restart', async () => {
+    it('sends POST to /stacks/restart with scope:stack body', async () => {
       fetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify({ status: 'success', stdout: 'restarted', stderr: '' }), {
           status: 200,
@@ -137,11 +137,95 @@ describe('AgentClient', () => {
         })
       );
 
-      const result = await client.restart('plex');
+      const result = await client.restart({ stack: 'plex', scope: 'stack' });
+      expect(result.success).toBe(true);
+      expect(result.logs).toBe('restarted');
+
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/stacks/restart');
+      const body = JSON.parse(options.body);
+      expect(body.stack).toBe('plex');
+      expect(body.scope).toBe('stack');
+    });
+
+    it('sends service name when scope is service', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: '', stderr: '' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      await client.restart({ stack: 'plex', scope: 'service', service: 'web' });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.scope).toBe('service');
+      expect(body.service).toBe('web');
+    });
+  });
+
+  describe('start', () => {
+    it('sends POST to /stacks/start with scope:stack body', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: '', stderr: '' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const result = await client.start({ stack: 'plex', scope: 'stack' });
+      expect(result.success).toBe(true);
+
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/stacks/start');
+      expect(options.method).toBe('POST');
+      const body = JSON.parse(options.body);
+      expect(body.stack).toBe('plex');
+      expect(body.scope).toBe('stack');
+      expect(body.service).toBeUndefined();
+    });
+
+    it('sends service name when scope is service', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: '', stderr: '' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      await client.start({ stack: 'plex', scope: 'service', service: 'web' });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.scope).toBe('service');
+      expect(body.service).toBe('web');
+    });
+  });
+
+  describe('stop', () => {
+    it('sends POST to /stacks/stop with scope:stack body', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: '', stderr: '' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const result = await client.stop({ stack: 'plex', scope: 'stack' });
       expect(result.success).toBe(true);
 
       const [url] = fetchMock.mock.calls[0];
-      expect(url).toBe('http://agent:9090/stacks/restart');
+      expect(url).toBe('http://agent:9090/stacks/stop');
+    });
+
+    it('sends service name when scope is service', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: '', stderr: '' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      await client.stop({ stack: 'plex', scope: 'service', service: 'db' });
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.service).toBe('db');
     });
   });
 
