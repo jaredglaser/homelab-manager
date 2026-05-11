@@ -29,6 +29,7 @@ function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer
     name: inv.name,
     status: inv.state,
     image: inv.image,
+    service: inv.serviceKey ?? null,
   };
 }
 

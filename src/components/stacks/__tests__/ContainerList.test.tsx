@@ -9,18 +9,21 @@ const mockContainers: StackContainer[] = [
     name: 'plex',
     status: 'running',
     image: 'plexinc/pms-docker:latest',
+    service: 'plex',
   },
   {
     id: 'def456',
     name: 'radarr',
     status: 'exited',
     image: 'linuxserver/radarr:latest',
+    service: 'radarr',
   },
   {
     id: 'ghi789',
     name: 'sonarr',
     status: 'stopped',
     image: 'linuxserver/sonarr:latest',
+    service: 'sonarr',
   },
 ];
 

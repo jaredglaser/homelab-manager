@@ -55,6 +55,7 @@ export interface StackContainer {
   name: string;
   status: string;
   image: string;
+  service: string | null;
 }
 
 /** Live status entry for a stack as received from the SSE endpoint. */
