@@ -142,7 +142,7 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGRES_SSL` | `false` | Enable TLS for the PostgreSQL connection |
-| `POSTGRES_SSL_REJECT_UNAUTHORIZED` | `true` | Verify the server's TLS certificate. Set to `false` only for self-signed certificates -- this disables chain validation and exposes the connection to MITM attacks. |
+| `POSTGRES_SSL_REJECT_UNAUTHORIZED` | `true` | Verify the server's TLS certificate. Set to `false` only for self-signed certificates. This disables chain validation and exposes the connection to MITM attacks. |
 | `POSTGRES_POOL_SIZE` | `10` | Database connection pool size |
 
 ### Worker Behavior
