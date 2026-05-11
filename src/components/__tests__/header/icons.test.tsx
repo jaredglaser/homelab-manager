@@ -13,7 +13,7 @@ describe('DockerIcon', () => {
   it('uses the correct viewBox', () => {
     const { container } = render(<DockerIcon />)
     const svg = container.querySelector('svg')
-    expect(svg?.getAttribute('viewBox')).toBe('-87 -87 687 687')
+    expect(svg?.getAttribute('viewBox')).toBe('-23 -23 558 558')
   })
 
   it('uses default size of 18', () => {
@@ -42,7 +42,7 @@ describe('ProxmoxIcon', () => {
   it('uses the correct viewBox', () => {
     const { container } = render(<ProxmoxIcon />)
     const svg = container.querySelector('svg')
-    expect(svg?.getAttribute('viewBox')).toBe('-85 -85 683 683')
+    expect(svg?.getAttribute('viewBox')).toBe('-22 -22 557 557')
   })
 
   it('uses default size of 18', () => {

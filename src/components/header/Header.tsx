@@ -55,7 +55,11 @@ export default function Header() {
                     {item.hasMenu && <ChevronDown size={14} className="opacity-60" />}
                   </span>
                 }
-                icon={<Icon size={18} />}
+                icon={
+                  item.customIcon
+                    ? <span className="inline-flex mr-1"><Icon size={18} /></span>
+                    : <Icon size={18} />
+                }
                 iconPosition="start"
                 component={Link}
                 to={item.to}

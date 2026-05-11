@@ -16,13 +16,19 @@ export interface NavItem {
   label: string
   Icon: React.ComponentType<IconProps>
   hasMenu: boolean
+  // Brand SVGs (Docker, Proxmox) lack the small transparent padding lucide
+  // icons bake into their viewBoxes, so they read as too close to the tab
+  // label even with MUI's iconWrapper margin. This flag lets the Tab strip
+  // add a touch of extra right margin without affecting dropdown contexts
+  // that already use flex `gap-*` for spacing.
+  customIcon?: boolean
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { to: '/docker', label: 'Docker', Icon: DockerIcon, hasMenu: true },
+  { to: '/docker', label: 'Docker', Icon: DockerIcon, hasMenu: true, customIcon: true },
   { to: '/stacks', label: 'Stacks', Icon: Layers, hasMenu: true },
   { to: '/zfs', label: 'ZFS', Icon: HardDrive, hasMenu: false },
-  { to: '/proxmox', label: 'Proxmox', Icon: ProxmoxIcon, hasMenu: false },
+  { to: '/proxmox', label: 'Proxmox', Icon: ProxmoxIcon, hasMenu: false, customIcon: true },
   { to: '/settings', label: 'Settings', Icon: SettingsIcon, hasMenu: true },
 ]
 
