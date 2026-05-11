@@ -16,6 +16,7 @@ export const SETTINGS_KEYS = {
     chartWindowSeconds: 'docker/chartWindowSeconds',
     expandedHosts: 'docker/expandedHosts',
     expandedContainers: 'docker/expandedContainers',
+    containerShells: 'docker/containerShells',
     decimals: {
       cpu: 'docker/decimals/cpu',
       memory: 'docker/decimals/memory',
