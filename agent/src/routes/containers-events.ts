@@ -40,7 +40,7 @@ function toUpdateContainer(c: MinimalContainerInfo): InventoryUpdateContainer {
     name: rawName.replace(/^\//, ''),
     image: c.Image,
     state: toContainerState(c.State),
-    labels: c.Labels,
+    labels: c.Labels ?? {},
     startedAt: c.StartedAt,
     finishedAt: c.FinishedAt,
     exitCode: c.ExitCode,

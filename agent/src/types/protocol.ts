@@ -6,11 +6,11 @@
  * Schemas and types live together: types are inferred via `z.infer<...>` so a
  * change to a schema cannot drift from its type.
  *
- * Discriminated union note: `InventorySnapshotContainer` (from `init`) carries
- * the full container `labels` map; `InventoryUpdateContainer` (from `upsert`)
- * omits labels because the upsert-generating paths (NOTIFY trigger, Docker
- * event stream) do not carry them. Consumers that need labels must narrow to
- * the snapshot shape via the event discriminator (`op: 'init'`).
+ * Discriminated union note: both `InventorySnapshotContainer` (from `init`)
+ * and `InventoryUpdateContainer` (from `upsert`) carry the full `labels` map.
+ * `zInventoryUpdateContainer` is an alias for `zInventorySnapshotContainer` —
+ * the agent enriches every Docker event with a full inspect() call so labels
+ * are always available at the agent→worker streaming layer.
  */
 
 import { z } from 'zod';

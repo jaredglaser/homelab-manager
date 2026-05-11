@@ -53,6 +53,17 @@ export default function StacksOverview() {
     setDialogOpen(true)
   }
 
+  const dialog = (
+    <CreateStackDialog
+      open={dialogOpen}
+      onClose={() => setDialogOpen(false)}
+      onSubmit={(input) => createMutation.mutate(input)}
+      hosts={hosts}
+      isLoading={createMutation.isPending}
+      error={createError}
+    />
+  )
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 opacity-50">
@@ -71,14 +82,7 @@ export default function StacksOverview() {
             New stack
           </Button>
         </div>
-        <CreateStackDialog
-          open={dialogOpen}
-          onClose={() => setDialogOpen(false)}
-          onSubmit={(input) => createMutation.mutate(input)}
-          hosts={hosts}
-          isLoading={createMutation.isPending}
-          error={createError}
-        />
+        {dialog}
       </>
     )
   }
@@ -110,14 +114,7 @@ export default function StacksOverview() {
           ))}
         </div>
       </div>
-      <CreateStackDialog
-        open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        onSubmit={(input) => createMutation.mutate(input)}
-        hosts={hosts}
-        isLoading={createMutation.isPending}
-        error={createError}
-      />
+      {dialog}
     </>
   )
 }
