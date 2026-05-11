@@ -15,7 +15,6 @@ mock.module('@tanstack/react-router', () => ({
   },
   useLocation: ({ select }: { select: (l: { pathname: string }) => string }) =>
     select({ pathname: '/docker' }),
-  useNavigate: () => mock(() => {}),
 }))
 
 mock.module('@/components/AppShell', () => ({
