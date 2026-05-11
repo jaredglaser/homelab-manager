@@ -151,6 +151,32 @@ describe('StacksMenuContent', () => {
     expect(nameSpans).toEqual(['authentik', 'plex', 'zabbix'])
   })
 
+  it('renders <img> for stacks with icon and <span> placeholder for stacks with null icon', async () => {
+    mockListStacks.mockImplementation(() =>
+      Promise.resolve([
+        { name: 'nginx', host: 'server1', icon: 'nginx' },
+        { name: 'plex', host: 'server1', icon: null },
+      ] as never[]),
+    )
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { findAllByRole } = render(
+      <QueryClientProvider client={qc}>
+        <StacksMenuContent />
+      </QueryClientProvider>,
+    )
+    const items = await findAllByRole('menuitem')
+    // nginx comes before plex alphabetically, so items[0] = nginx (has icon), items[1] = plex (no icon)
+    const nginxImg = items[0].querySelector('img')
+    expect(nginxImg).not.toBeNull()
+    expect(nginxImg?.getAttribute('src')).toBeTruthy()
+
+    const plexImg = items[1].querySelector('img')
+    expect(plexImg).toBeNull()
+    // placeholder span shows uppercased first character
+    const plexSpan = items[1].querySelector('span.w-4.h-4')
+    expect(plexSpan?.textContent).toBe('P')
+  })
+
   it('calls close context when a stack link is clicked', async () => {
     const closeSpy = mock(() => {})
     mockListStacks.mockImplementation(() =>
@@ -211,6 +237,22 @@ describe('DockerHostsMenuContent', () => {
     )
     expect(await findByText('server1')).toBeDefined()
     expect(await findByText('server2')).toBeDefined()
+  })
+
+  it('renders links with hash="host-${name}" in the href', async () => {
+    mockListManagedHostNames.mockImplementation(() =>
+      Promise.resolve(['server1', 'server2'] as never[]),
+    )
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { findAllByRole } = render(
+      <QueryClientProvider client={qc}>
+        <DockerHostsMenuContent />
+      </QueryClientProvider>,
+    )
+    const items = await findAllByRole('menuitem')
+    // The Link mock renders <a href="${to}#${hash}">; verify the fragment is present
+    expect(items[0].getAttribute('href')).toContain('host-server1')
+    expect(items[1].getAttribute('href')).toContain('host-server2')
   })
 
   it('calls close context when a host link is clicked', async () => {
