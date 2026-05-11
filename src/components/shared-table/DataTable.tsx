@@ -77,17 +77,33 @@ const DEFAULT_OVERSCAN = 20;
  * to avoid layout conflicts with `contain: layout style`. */
 const VIRTUALIZATION_THRESHOLD = 150;
 
+/** Viewport width at which sparklines become visible (matches the min-[1428px] CSS breakpoint). */
+const SPARKLINE_MIN_WIDTH = 1428;
+
 /**
  * Build a CSS grid-template-columns string from visible TanStack Table columns.
- * Uses column meta.flex if available, otherwise minmax(meta.minWidth, size).
+ * Uses column meta.flex if available (name column: 'minmax(200px, 1fr)').
+ * Metric columns store two sizes in meta: sizeFull (with sparklines) and sizeCompact
+ * (without). containerWidth selects between them so the column stays tight regardless
+ * of whether sparklines are enabled in settings.
  */
-function buildGridTemplate<TRow>(columns: ReturnType<ReturnType<typeof useReactTable<TRow>>['getVisibleLeafColumns']>): string {
+function buildGridTemplate<TRow>(
+  columns: ReturnType<ReturnType<typeof useReactTable<TRow>>['getVisibleLeafColumns']>,
+  containerWidth: number,
+): string {
+  const sparklinesVisible = containerWidth >= SPARKLINE_MIN_WIDTH;
   return columns
     .map((col) => {
-      const meta = col.columnDef.meta as { flex?: string; minWidth?: number } | undefined;
+      const meta = col.columnDef.meta as {
+        flex?: string;
+        sizeCompact?: number;
+        sizeFull?: number;
+      } | undefined;
       if (meta?.flex) return meta.flex;
-      const minW = meta?.minWidth ?? 80;
-      return `minmax(${minW}px, 1fr)`;
+      if (meta?.sizeCompact !== undefined && meta?.sizeFull !== undefined) {
+        return `${sparklinesVisible ? meta.sizeFull : meta.sizeCompact}px`;
+      }
+      return `${col.getSize()}px`;
     })
     .join(' ');
 }
@@ -126,6 +142,7 @@ export function DataTable<TRow>({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [isMobile, setIsMobile] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(0);
   const [activeMetricGroupIndex, setActiveMetricGroupIndex] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
@@ -139,7 +156,9 @@ export function DataTable<TRow>({
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
       if (entry) {
-        setIsMobile(entry.contentRect.width < MOBILE_BREAKPOINT);
+        const width = entry.contentRect.width;
+        setIsMobile(width < MOBILE_BREAKPOINT);
+        setContainerWidth(width);
       }
     });
 
@@ -213,7 +232,7 @@ export function DataTable<TRow>({
   const { rows } = table.getRowModel();
   const isVirtualized = rows.length > VIRTUALIZATION_THRESHOLD;
   const visibleColumns = table.getVisibleLeafColumns();
-  const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns), [visibleColumns]);
+  const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns, containerWidth), [visibleColumns, containerWidth]);
 
   const defaultEstimateSize = useCallback(() => DEFAULT_ROW_HEIGHT, []);
 

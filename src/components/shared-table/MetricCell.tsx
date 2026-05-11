@@ -64,7 +64,7 @@ export const MetricCell = memo(function MetricCell({
   const staleClass = isStale ? 'opacity-50 saturate-50' : '';
 
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex items-center gap-2">
       {sparklineElement || sparklinePlaceholder}
 
       <span className={`${valueWidth} flex-shrink-0 text-right tabular-nums transition-opacity duration-200 ${staleClass}`}>

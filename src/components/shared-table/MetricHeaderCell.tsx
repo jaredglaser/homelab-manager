@@ -14,7 +14,7 @@ export const MetricHeaderCell = memo(function MetricHeaderCell({ children }: { c
   const unitWidth = useAbbreviatedUnits ? 'w-[2.5rem]' : 'w-[3.5rem]';
 
   return (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex items-center gap-2">
       {showSparklines && (
         <div className="hidden min-[1428px]:block flex-shrink-0" style={{ width: 60 }} />
       )}

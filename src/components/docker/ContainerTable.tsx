@@ -15,10 +15,9 @@ import type {
   DockerHostTableRow,
   DockerContainerTableRow,
   DockerTableRow,
-  HostAggregatedStats,
 } from '@/types/docker';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
-import { buildDockerTableHierarchy, rowToDockerStats, totalContainers } from '@/lib/utils/docker-hierarchy-builder';
+import { buildDockerTableHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import ContainerDetailPanel from '@/components/docker/ContainerDetailPanel';
@@ -510,8 +509,6 @@ const HostNameCell = memo(function HostNameCell({
   const hasContainers = children.length > 0;
   const canToggle = hasContainers && totalHosts > 1;
 
-  const countLabel = buildCountLabel(a);
-
   return (
     <div className="flex items-center gap-2">
       {canToggle && (
@@ -525,7 +522,6 @@ const HostNameCell = memo(function HostNameCell({
         <WifiOff size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
       )}
       <span className="font-bold">{row.hostName}</span>
-      <Chip size="small" variant="filled" label={countLabel} />
       {a.staleContainerCount > 0 && !row.isStale && (
         <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
       )}
@@ -533,27 +529,6 @@ const HostNameCell = memo(function HostNameCell({
   );
 });
 
-/**
- * Build a human-readable container count label for the host chip.
- * Shows a breakdown when containers are in mixed states.
- */
-function buildCountLabel(a: HostAggregatedStats): string {
-  const total = totalContainers(a);
-  const nonRunning = total - a.runningCount;
-
-  if (nonRunning === 0) {
-    return `${total} container${total === 1 ? '' : 's'}`;
-  }
-
-  const parts: string[] = [];
-  if (a.runningCount > 0) parts.push(`${a.runningCount} running`);
-  if (a.stoppedCount > 0) parts.push(`${a.stoppedCount} stopped`);
-  if (a.restartingCount > 0) parts.push(`${a.restartingCount} restarting`);
-  if (a.pausedCount > 0) parts.push(`${a.pausedCount} paused`);
-  if (a.otherCount > 0) parts.push(`${a.otherCount} other`);
-
-  return parts.join(' · ');
-}
 
 /**
  * Name cell for container rows: shows icon, pulse indicator, state chip, name,

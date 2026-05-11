@@ -115,15 +115,16 @@ describe('metricColumn', () => {
     expect(col.meta).toBeUndefined();
   });
 
-  it('sets size when provided', () => {
+  it('exposes sizeCompact and sizeFull in meta for viewport-aware grid sizing', () => {
     const col = metricColumn<TestRow>({
       id: 'speed',
       header: 'Speed',
       getValue: (r) => ({ value: String(r.value), unit: r.unit }),
-      size: 120,
     });
 
-    expect(col.size).toBe(120);
+    const meta = col.meta as { sizeCompact: number; sizeFull: number };
+    expect(meta.sizeCompact).toBe(115);
+    expect(meta.sizeFull).toBe(180);
   });
 });
 
