@@ -48,6 +48,7 @@ function StacksOverview() {
       navigate({ to: '/stacks/$stackName', params: { stackName: variables.stackName } })
     },
     onError: (err) => {
+      console.error('Stack creation failed:', err)
       setCreateError(err instanceof Error ? err.message : String(err))
     },
   })
