@@ -1,4 +1,4 @@
-export type DeployAction = 'deploy' | 'teardown' | 'restart';
+export type DeployAction = 'deploy' | 'teardown';
 
 export type DeployStatus =
   | 'pending'
@@ -38,11 +38,7 @@ export interface TeardownRequest extends BaseDeployRequest {
   action: 'teardown';
 }
 
-export interface RestartRequest extends BaseDeployRequest {
-  action: 'restart';
-}
-
-export type DeployRequest = DeployActionRequest | TeardownRequest | RestartRequest;
+export type DeployRequest = DeployActionRequest | TeardownRequest;
 
 export interface DeployRecord {
   id: number;

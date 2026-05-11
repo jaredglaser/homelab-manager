@@ -89,14 +89,14 @@ export function toStackDeployRecord(record: DeployRecord): StackDeployRecord {
 export interface DeployDeps {
   readCompose: (stack: string) => Promise<string>;
   getCommitSha: () => Promise<string>;
-  buildRequest: (input: { stack: string; host: string; composeContent: string; commitSha: string; action: 'deploy' | 'teardown' | 'restart'; forceRecreate?: boolean }) => DeployRequest;
+  buildRequest: (input: { stack: string; host: string; composeContent: string; commitSha: string; action: 'deploy' | 'teardown'; forceRecreate?: boolean }) => DeployRequest;
   executePipeline: (request: DeployRequest) => Promise<{ deployId?: number; logs?: string }>;
 }
 
 /** Testable deploy handler: takes deps instead of importing them. */
 export async function handleTriggerDeploy(
   deps: DeployDeps,
-  params: { stack: string; host: string; action: 'deploy' | 'teardown' | 'restart'; forceRecreate?: boolean },
+  params: { stack: string; host: string; action: 'deploy' | 'teardown'; forceRecreate?: boolean },
 ): Promise<{ deployId: number }> {
   let composeContent = '';
   try {

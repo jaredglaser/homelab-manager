@@ -154,17 +154,6 @@ describe('stacks.functions module', () => {
       });
     });
 
-    it('delegates with restart action', async () => {
-      const { triggerDeploy } = await import('../functions');
-      await triggerDeploy({
-        data: { stack: 'nginx', host: 'server1', action: 'restart' },
-      });
-      expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
-        stack: 'nginx',
-        host: 'server1',
-        action: 'restart',
-      });
-    });
   });
 
   describe('getDeployHistory', () => {

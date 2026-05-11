@@ -229,15 +229,6 @@ describe('DeployPipeline', () => {
       expect(agent.teardown).toHaveBeenCalled();
     });
 
-    it('handles restart action', async () => {
-      const restartRequest = { ...testRequest, action: 'restart' as const };
-      const result = await pipeline.execute(restartRequest);
-
-      expect(result.status).toBe('succeeded');
-      const agent = agentClientFactory.mock.results[0].value;
-      expect(agent.restart).toHaveBeenCalled();
-    });
-
     it('resolves secrets and builds env content', async () => {
       const composeWithVars = 'services:\n  app:\n    environment:\n      - TOKEN=${API_TOKEN}';
       const requestWithVars = { ...testRequest, composeContent: composeWithVars };

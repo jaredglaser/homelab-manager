@@ -113,7 +113,7 @@ export async function getStackDetailByName(
 export async function triggerStackDeploy(params: {
   stack: string;
   host: string;
-  action: 'deploy' | 'teardown' | 'restart';
+  action: 'deploy' | 'teardown';
   commitSha?: string;
   forceRecreate?: boolean;
   postSuccess?: 'removeFromManifest';

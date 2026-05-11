@@ -35,7 +35,7 @@ export const getStackDetail = createServerFn()
 
 
 /**
- * Trigger a deploy, teardown, or restart for a stack.
+ * Trigger a deploy or teardown for a stack.
  * Pass an optional commitSha to perform a rollback to that specific commit.
  */
 export const triggerDeploy = createServerFn()

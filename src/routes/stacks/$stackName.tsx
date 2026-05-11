@@ -80,7 +80,7 @@ function StackEditorView() {
   const containers = statusMap.get(statusKey)?.containers ?? []
 
   const deployMutation = useMutation({
-    mutationFn: (action: 'deploy' | 'restart' | 'teardown') =>
+    mutationFn: (action: 'deploy' | 'teardown') =>
       triggerDeploy({ data: { stack: stackName, host: detail!.host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
     onSuccess: (_data, action) => {
       setDeployMessage({ type: 'success', text: `${action} triggered successfully` })
@@ -251,7 +251,6 @@ function StackEditorView() {
       <div className="shrink-0 border-t border-(--mui-palette-divider) bg-(--mui-palette-background-default) px-1 py-3">
         <StackActionBar
           onDeploy={() => deployMutation.mutate('deploy')}
-          onRestart={() => deployMutation.mutate('restart')}
           onTeardown={() => deployMutation.mutate('teardown')}
           onDelete={() => setDeleteDialogOpen(true)}
           isDeploying={deployMutation.isPending}

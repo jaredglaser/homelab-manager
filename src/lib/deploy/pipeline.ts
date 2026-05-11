@@ -58,7 +58,7 @@ export class DeployPipeline {
       throw new Error(`Host "${request.host}" not found in managed_hosts. Add it via the Hosts page first.`);
     }
 
-    // 2. Change detection (skip for teardown/restart -- always execute those)
+    // 2. Change detection (skip for teardown -- always execute those)
     let composeHash = '';
     let envHash = '';
     const resolvedEnvContent = await this.resolveEnv(request);
@@ -240,9 +240,6 @@ export class DeployPipeline {
           break;
         case 'teardown':
           result = await agent.teardown(request.stack);
-          break;
-        case 'restart':
-          result = await agent.restart(request.stack);
           break;
       }
     } catch (err) {

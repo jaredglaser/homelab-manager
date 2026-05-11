@@ -43,7 +43,7 @@ describe('triggerDeploySchema', () => {
   });
 
   it('accepts all action types', () => {
-    for (const action of ['deploy', 'teardown', 'restart'] as const) {
+    for (const action of ['deploy', 'teardown'] as const) {
       expect(triggerDeploySchema.parse({ stack: 's', host: 'h', action }).action).toBe(action);
     }
   });

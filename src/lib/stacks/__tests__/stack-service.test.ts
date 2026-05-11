@@ -169,11 +169,11 @@ describe('handleTriggerDeploy', () => {
     expect(result.deployId).toBe(42);
   });
 
-  test('allows missing compose for restart action', async () => {
+  test('allows missing compose for teardown action', async () => {
     const deps = mockDeps({
       readCompose: mock(() => Promise.reject(new Error('not found'))),
     });
-    const result = await handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'restart' });
+    const result = await handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'teardown' });
     expect(result.deployId).toBe(42);
   });
 
