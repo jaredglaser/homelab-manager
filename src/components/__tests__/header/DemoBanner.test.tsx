@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { DemoBanner } from '../../header/DemoBanner'
+import { DemoBanner } from '@/components/header/DemoBanner'
 
 describe('DemoBanner', () => {
   it('renders the Self-host guide link with correct attributes', () => {

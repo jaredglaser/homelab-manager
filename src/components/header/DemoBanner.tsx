@@ -8,7 +8,7 @@ export function DemoBanner() {
   return (
     <div className="absolute left-1/2 -translate-x-1/2 top-full pt-2 pointer-events-auto w-fit">
       <Alert severity="info" onClose={() => setVisible(false)}>
-        <strong>Demo mode</strong> &mdash; all data is generated in the browser.
+        <strong>Demo mode</strong> - all data is generated in the browser.
         {' '}Self-host to connect to your own infrastructure.
         {' '}
         <MuiLink href="https://github.com/jaredglaser/homelab-manager/blob/main/self-hosting/README.md" target="_blank" rel="noopener noreferrer">

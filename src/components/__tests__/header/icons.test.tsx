@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { render } from '@testing-library/react'
-import { DockerIcon, ProxmoxIcon } from '../../header/icons'
+import { DockerIcon, ProxmoxIcon } from '@/components/header/icons'
 
 describe('DockerIcon', () => {
   it('renders an svg with aria-hidden', () => {

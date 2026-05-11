@@ -1,7 +1,7 @@
 import { Archive, Code, HardDrive, Layers, Server, Settings as SettingsIcon, SlidersHorizontal } from 'lucide-react'
 import { DockerIcon, ProxmoxIcon } from '@/components/header/icons'
 import type { IconProps } from '@/components/header/icons'
-import { queryClient } from '@/components/AppShell'
+import { queryClient } from '@/lib/query-client'
 import {
   DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
@@ -16,7 +16,7 @@ export type MenuRouteKey = '/docker' | '/stacks' | '/settings'
 export type RouteKey = MenuRouteKey | '/zfs' | '/proxmox'
 
 export type NoMenuNavItem = {
-  to: RouteKey
+  to: Exclude<RouteKey, MenuRouteKey>
   label: string
   Icon: React.ComponentType<IconProps>
   hasMenu: false

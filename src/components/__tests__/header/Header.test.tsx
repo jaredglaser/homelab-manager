@@ -17,7 +17,7 @@ mock.module('@tanstack/react-router', () => ({
     select({ pathname: '/docker' }),
 }))
 
-mock.module('@/components/AppShell', () => ({
+mock.module('@/lib/query-client', () => ({
   queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
 }))
 
@@ -48,7 +48,7 @@ mock.module('@/components/ModeToggle', () => ({
   default: () => <button aria-label="Toggle dark mode" />,
 }))
 
-const Header = (await import('../../header/Header')).default
+const Header = (await import('@/components/header/Header')).default
 
 function createWrapper() {
   const qc = new QueryClient({

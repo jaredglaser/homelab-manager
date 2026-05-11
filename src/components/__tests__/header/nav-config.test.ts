@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test'
 
 const mockPrefetchQuery = mock(() => Promise.resolve())
 
-mock.module('@/components/AppShell', () => ({
+mock.module('@/lib/query-client', () => ({
   queryClient: {
     prefetchQuery: mockPrefetchQuery,
   },
@@ -23,7 +23,7 @@ mock.module('@/lib/constants/preload-queries', () => ({
   preloadProxmoxStats: mock(() => Promise.resolve([])),
 }))
 
-const { NAV_ITEMS, SETTINGS_SECTIONS, PREFETCH_STALE_TIME, handlePrefetch } = await import('../../header/nav-config')
+const { NAV_ITEMS, SETTINGS_SECTIONS, PREFETCH_STALE_TIME, handlePrefetch } = await import('@/components/header/nav-config')
 
 beforeEach(() => {
   mockPrefetchQuery.mockClear()

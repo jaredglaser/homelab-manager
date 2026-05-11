@@ -8,7 +8,7 @@ mock.module('@tanstack/react-router', () => ({
     select({ pathname: mockPathname }),
 }))
 
-mock.module('@/components/AppShell', () => ({
+mock.module('@/lib/query-client', () => ({
   queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
 }))
 
@@ -27,7 +27,7 @@ mock.module('@/lib/constants/preload-queries', () => ({
   preloadProxmoxStats: mock(() => Promise.resolve([])),
 }))
 
-const { useMenuController, useCurrentTab } = await import('../../header/useMenuController')
+const { useMenuController, useCurrentTab } = await import('@/components/header/useMenuController')
 const { MENU_CLOSE_DELAY_MS } = await import('@/lib/constants/ui-timing')
 
 describe('useMenuController', () => {

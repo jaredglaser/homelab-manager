@@ -18,7 +18,7 @@ mock.module('@/lib/utils/icon-resolver', () => ({
   AVAILABLE_ICONS: [],
 }))
 
-mock.module('@/components/AppShell', () => ({
+mock.module('@/lib/query-client', () => ({
   queryClient: { prefetchQuery: mock(() => Promise.resolve()) },
 }))
 
@@ -62,7 +62,7 @@ const {
   StacksMenuContent,
   DockerHostsMenuContent,
   MenuContentFor,
-} = await import('../../header/menus')
+} = await import('@/components/header/menus')
 
 function createWrapper() {
   const queryClient = new QueryClient({
