@@ -33,7 +33,8 @@
     "dev:local:logs:db": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml logs -f postgres",
     "dev:local:logs:agent": "docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml logs -f agent",
     "icons:download": "bun scripts/download-icons.ts",
-    "schema:download": "bun scripts/download-compose-schema.ts"
+    "schema:download": "bun scripts/download-compose-schema.ts",
+    "migrate-secrets": "bun run scripts/migrate-master-key.ts"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
