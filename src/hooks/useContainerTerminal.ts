@@ -46,10 +46,9 @@ export function useContainerTerminal({
     const cols = terminal.cols;
     const rows = terminal.rows;
 
-    const httpBase = apiUrl(`/api/docker-exec/${encodeURIComponent(containerId)}`);
-    // Replace http(s) scheme with ws(s) to build the WebSocket URL.
-    const wsBase = httpBase.replace(/^http/, 'ws');
-    const url = `${window.location.protocol === 'https:' ? wsBase.replace(/^ws:/, 'wss:') : wsBase}?host=${encodeURIComponent(host)}&shell=${encodeURIComponent(shell)}&cols=${cols}&rows=${rows}`;
+    const wsScheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const path = apiUrl(`/api/docker-exec/${encodeURIComponent(containerId)}`);
+    const url = `${wsScheme}//${window.location.host}${path}?host=${encodeURIComponent(host)}&shell=${encodeURIComponent(shell)}&cols=${cols}&rows=${rows}`;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;

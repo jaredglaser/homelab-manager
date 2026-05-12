@@ -53,9 +53,7 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
         fitAddonRef.current = fitAddon;
         term.loadAddon(fitAddon);
 
-        // containerRef.current is null in test environments (renderHook renders no DOM),
-        // but the mock terminal's open() is a no-op so this is safe to call either way
-        term.open(containerRef.current!);
+        if (containerRef.current) term.open(containerRef.current);
 
         if (containerRef.current) {
           requestAnimationFrame(() => {

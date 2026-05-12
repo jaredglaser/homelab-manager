@@ -35,7 +35,8 @@ export default memo(function ContainerLogsTerminalPanel({
   // same as how settings keys are scoped for per-container preferences.
   const shellKey = `${host}/${inventory.name}`;
   const savedShell = getContainerShell(shellKey);
-  const effectiveShell = savedShell ?? 'auto';
+  // Treat undefined (never set) and '' (explicitly reset to auto) the same way
+  const effectiveShell = (savedShell === undefined || savedShell === '' || savedShell === 'auto') ? 'auto' : savedShell;
 
   const handleTabChange = (_: React.SyntheticEvent, value: 'logs' | 'terminal') => {
     setActiveTab(value);
@@ -81,6 +82,7 @@ export default memo(function ContainerLogsTerminalPanel({
               renderValue={(v) => (v as string) || 'auto'}
               className="!text-xs"
             >
+              <MenuItem value="" className="text-xs">auto</MenuItem>
               {SHELL_OPTIONS.map((s) => (
                 <MenuItem key={s} value={s} className="text-xs">{s}</MenuItem>
               ))}

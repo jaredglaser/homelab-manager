@@ -142,7 +142,12 @@ export async function handleExecSocket(
   containerId: string,
   ws: WsHandle,
 ): Promise<void> {
-  const { shell: preferredShell, cols, rows } = ws.data;
+  // Messages arriving before execStream is set on ws.data are silently dropped by
+  // the Bun.serve message handler. This window is short (shell probe + exec start),
+  // and the client's xterm skeleton hides input until the connection is established.
+  const { shell: preferredShell } = ws.data;
+  const cols = Math.max(1, Math.min(ws.data.cols, 500));
+  const rows = Math.max(1, Math.min(ws.data.rows, 500));
 
   const container = docker.getContainer(containerId);
   const shell = await probeShell(container, preferredShell);

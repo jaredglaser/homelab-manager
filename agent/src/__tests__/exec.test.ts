@@ -152,4 +152,64 @@ describe('handleExecSocket', () => {
 
     expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('hello'));
   });
+
+  test('closes WebSocket with 1000 when exec stream ends', async () => {
+    const execEmitter = Object.assign(new EventEmitter(), { destroy: mock(() => {}) });
+    const mockContainer = {
+      exec: mock(async (opts: { Cmd: string[]; Tty?: boolean }) => {
+        if (!opts.Tty) {
+          const probe = new EventEmitter();
+          return {
+            start: mock(async () => { setTimeout(() => probe.emit('end'), 5); return probe; }),
+            inspect: mock(async () => ({ ExitCode: 0 })),
+            resize: mock(async () => {}),
+          };
+        }
+        return {
+          start: mock(async () => execEmitter),
+          inspect: mock(async () => ({ ExitCode: 0 })),
+          resize: mock(async () => {}),
+        };
+      }),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+    const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+
+    await handleExecSocket(mockDocker as any, 'abc123', mockWs as any);
+
+    execEmitter.emit('end');
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockWs.close).toHaveBeenCalledWith(1000, 'Shell exited');
+  });
+
+  test('closes WebSocket with 1011 when exec stream errors', async () => {
+    const execEmitter = Object.assign(new EventEmitter(), { destroy: mock(() => {}) });
+    const mockContainer = {
+      exec: mock(async (opts: { Cmd: string[]; Tty?: boolean }) => {
+        if (!opts.Tty) {
+          const probe = new EventEmitter();
+          return {
+            start: mock(async () => { setTimeout(() => probe.emit('end'), 5); return probe; }),
+            inspect: mock(async () => ({ ExitCode: 0 })),
+            resize: mock(async () => {}),
+          };
+        }
+        return {
+          start: mock(async () => execEmitter),
+          inspect: mock(async () => ({ ExitCode: 0 })),
+          resize: mock(async () => {}),
+        };
+      }),
+    };
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+    const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+
+    await handleExecSocket(mockDocker as any, 'abc123', mockWs as any);
+
+    execEmitter.emit('error', new Error('pipe broken'));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockWs.close).toHaveBeenCalledWith(1011, 'Exec stream error');
+  });
 });

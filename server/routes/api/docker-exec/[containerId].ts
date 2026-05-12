@@ -14,6 +14,9 @@ export default defineWebSocketHandler({
   },
 
   async open(peer: Peer) {
+    // Messages arriving before agentConnections.set() completes are dropped by the
+    // message handler's readyState check. The async window here is the DB lookup +
+    // JWT sign + agent WS handshake; client input before that is discarded.
     const url = new URL(peer.request.url);
     const pathParts = url.pathname.split('/').filter(Boolean);
     const containerId = pathParts.at(-1)!;
