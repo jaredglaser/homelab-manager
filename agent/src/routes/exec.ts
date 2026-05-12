@@ -178,24 +178,38 @@ export async function handleExecSocket(
 
     let closed = false;
 
-    stream.on('data', (chunk: Buffer) => {
-      if (closed) return;
-      try { ws.send(chunk); } catch { closed = true; }
-    });
-
     // Fire-and-forget the initial resize — PTY starts at Docker's default (80x24)
     // and jumps to the client's reported size once this resolves.
     void exec.resize({ h: rows, w: cols }).catch((e: Error) => {
       console.error(`Exec resize failed for ${containerId}:`, e.message);
     });
 
-    stream.on('end', () => {
-      if (closed) return;
-      closed = true;
-      try { ws.close(1000, 'Shell exited'); } catch { /* already closed */ }
-      stream.destroy();
-    });
+    // Use async iteration rather than the 'data' event listener. Bun's Node.js
+    // compat layer doesn't reliably emit 'data' events on the raw TCP socket
+    // obtained via docker-modem's HTTP upgrade hijack, but it does implement
+    // Symbol.asyncIterator on the same stream object.
+    void (async () => {
+      try {
+        for await (const chunk of stream as AsyncIterable<Buffer>) {
+          if (closed) break;
+          try { ws.send(chunk as Buffer); } catch { closed = true; break; }
+        }
+      } catch (err) {
+        if (!closed) {
+          closed = true;
+          console.error(`Exec stream error for container ${containerId}:`, err instanceof Error ? err.message : String(err));
+          try { ws.close(1011, 'Exec stream error'); } catch { /* already closed */ }
+        }
+        return;
+      }
+      if (!closed) {
+        closed = true;
+        try { ws.close(1000, 'Shell exited'); } catch { /* already closed */ }
+      }
+    })();
 
+    // Keep the old event-listener stubs so ws.data.execStream.destroy() in the
+    // close handler still terminates the loop above via the stream error path.
     stream.on('error', (err: Error) => {
       if (closed) return;
       closed = true;
