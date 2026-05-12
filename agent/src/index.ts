@@ -83,6 +83,8 @@ const tlsConfig = TLS_CERT_PATH && TLS_KEY_PATH
   : undefined;
 
 let docker: Dockerode | null = null;
+let dockerHostname = '';
+let dockerPortNum = 0;
 if (DOCKER_HOST) {
   let dockerUrl: URL;
   try {
@@ -92,10 +94,11 @@ if (DOCKER_HOST) {
     process.exit(1);
   }
   const isHttps = dockerUrl.protocol === 'https:';
-  const dockerPort = Number(dockerUrl.port) || (isHttps ? 2376 : 2375);
+  dockerPortNum = Number(dockerUrl.port) || (isHttps ? 2376 : 2375);
+  dockerHostname = dockerUrl.hostname;
   docker = new Dockerode({
-    host: dockerUrl.hostname,
-    port: dockerPort,
+    host: dockerHostname,
+    port: dockerPortNum,
     protocol: isHttps ? 'https' : 'http',
   });
 }
@@ -149,7 +152,7 @@ Bun.serve<ExecWebSocketData>({
   websocket: {
     async open(ws) {
       if (!docker) { ws.close(1011, 'Docker not available'); return; }
-      await handleExecSocket(docker, ws.data.containerId, ws as Parameters<typeof handleExecSocket>[2]);
+      await handleExecSocket(docker, dockerHostname, dockerPortNum, ws.data.containerId, ws as Parameters<typeof handleExecSocket>[4]);
     },
     async message(ws, message) {
       if (!ws.data.execStream || !ws.data.execInstance) return;

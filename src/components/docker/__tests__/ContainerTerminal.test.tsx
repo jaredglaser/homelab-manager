@@ -25,7 +25,7 @@ mock.module('@xterm/addon-fit', () => ({
 mock.module('@xterm/xterm/css/xterm.css', () => ({}));
 
 mock.module('@/hooks/useContainerTerminal', () => ({
-  useContainerTerminal: () => ({ isConnected: false, error: null }),
+  useContainerTerminal: () => ({ isConnected: false, error: null, sessionEnded: false, reconnect: () => {} }),
 }));
 
 class MockResizeObserver {
@@ -68,10 +68,20 @@ describe('ContainerTerminal', () => {
 
   it('shows error overlay when error occurs and not frozen', async () => {
     mock.module('@/hooks/useContainerTerminal', () => ({
-      useContainerTerminal: () => ({ isConnected: false, error: new Error('Connection refused') }),
+      useContainerTerminal: () => ({ isConnected: false, error: new Error('Connection refused'), sessionEnded: false, reconnect: () => {} }),
     }));
     const { default: CT } = await import('../ContainerTerminal');
     render(<CT containerId="abc123" host="server1" shell="bash" frozen={false} />);
     expect(screen.getByText('Connection refused')).toBeTruthy();
+  });
+
+  it('shows Session ended overlay with Reconnect button when the WS closes cleanly', async () => {
+    mock.module('@/hooks/useContainerTerminal', () => ({
+      useContainerTerminal: () => ({ isConnected: false, error: null, sessionEnded: true, reconnect: () => {} }),
+    }));
+    const { default: CT } = await import('../ContainerTerminal');
+    render(<CT containerId="abc123" host="server1" shell="bash" frozen={false} />);
+    expect(screen.getByText('Session ended')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeTruthy();
   });
 });

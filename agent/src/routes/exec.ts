@@ -1,13 +1,88 @@
 import type Dockerode from 'dockerode';
 import type { Duplex } from 'node:stream';
+import net from 'node:net';
 
 /** Candidate shells probed in order when preferred is 'auto'. */
 const PROBE_SHELLS = ['bash', 'sh', 'ash'] as const;
 
 interface ExecInstance {
+  id?: string;
   start(opts: { hijack: boolean; stdin: boolean }): Promise<Duplex>;
   resize(opts: { h: number; w: number }): Promise<void>;
   inspect(): Promise<{ ExitCode: number }>;
+}
+
+/**
+ * Start a Docker exec with an HTTP Upgrade and return the hijacked socket.
+ *
+ * dockerode's `exec.start({ hijack: true })` listens for `req.on('upgrade')`,
+ * but Bun's `node:http` polyfill fires `req.on('response')` with statusCode
+ * 101 instead, so the upgrade callback never resolves. We do the upgrade by
+ * hand over a raw TCP socket so the returned Duplex works in Bun.
+ */
+export interface ExecRawTcpResult {
+  /** The hijacked TCP socket. Use directly as a Duplex for stdin/stdout. */
+  socket: net.Socket;
+  /** Bytes already received past the HTTP response (e.g. shell prompt). Empty if none. */
+  initialBytes: Buffer;
+}
+
+export async function startExecRawTcp(
+  host: string,
+  port: number,
+  execId: string,
+): Promise<ExecRawTcpResult> {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ Detach: false, Tty: true });
+    const httpReq =
+      `POST /exec/${execId}/start HTTP/1.1\r\n` +
+      `Host: ${host}:${port}\r\n` +
+      `Content-Type: application/json\r\n` +
+      `Content-Length: ${Buffer.byteLength(body)}\r\n` +
+      `Connection: Upgrade\r\n` +
+      `Upgrade: tcp\r\n` +
+      `\r\n` +
+      body;
+
+    const sock = net.connect({ host, port });
+    let buffer = Buffer.alloc(0);
+    let resolved = false;
+
+    const onError = (err: Error) => {
+      if (resolved) return;
+      resolved = true;
+      sock.destroy();
+      reject(err);
+    };
+
+    const onData = (chunk: Buffer) => {
+      if (resolved) return;
+      buffer = Buffer.concat([buffer, chunk]);
+      const idx = buffer.indexOf(Buffer.from('\r\n\r\n'));
+      if (idx === -1) return;
+      const headerStr = buffer.subarray(0, idx).toString('utf8');
+      const remainder = buffer.subarray(idx + 4);
+      const statusLine = headerStr.split('\r\n')[0];
+      const match = /^HTTP\/1\.\d (\d+)/.exec(statusLine);
+      if (!match) {
+        onError(new Error(`Bad HTTP response: ${statusLine}`));
+        return;
+      }
+      const status = Number(match[1]);
+      if (status !== 101) {
+        onError(new Error(`Expected 101 Switching Protocols, got ${status}: ${headerStr}`));
+        return;
+      }
+      resolved = true;
+      sock.removeListener('data', onData);
+      sock.removeListener('error', onError);
+      resolve({ socket: sock, initialBytes: remainder });
+    };
+
+    sock.once('connect', () => sock.write(httpReq));
+    sock.on('data', onData);
+    sock.on('error', onError);
+  });
 }
 
 interface ResizeMessage {
@@ -139,8 +214,12 @@ interface WsHandle {
  */
 export async function handleExecSocket(
   docker: Pick<Dockerode, 'getContainer'>,
+  dockerHost: string,
+  dockerPort: number,
   containerId: string,
   ws: WsHandle,
+  startStream: (host: string, port: number, execId: string) => Promise<ExecRawTcpResult> =
+    startExecRawTcp,
 ): Promise<void> {
   // Messages arriving before execStream is set on ws.data are silently dropped by
   // the Bun.serve message handler. This window is short (shell probe + exec start),
@@ -166,8 +245,18 @@ export async function handleExecSocket(
       Tty: true,
       Env: ['TERM=xterm-256color'],
     }) as unknown as ExecInstance;
+    if (!exec.id) throw new Error('container.exec returned exec without id');
 
-    const stream = await exec.start({ hijack: true, stdin: true });
+    // Use raw TCP HTTP upgrade rather than `exec.start({ hijack: true })`
+    // because Bun's node:http fires 'response' for 101 instead of 'upgrade',
+    // causing dockerode's hijack callback to hang forever.
+    const { socket, initialBytes } = await startStream(dockerHost, dockerPort, exec.id);
+    const stream: Duplex = socket;
+
+    // Announce the resolved shell as a JSON text control frame so the client
+    // can show e.g. `auto (sh)` in the shell picker. Sent before any binary
+    // output; binary frames are terminal stdout/stderr.
+    try { ws.send(JSON.stringify({ type: 'shell', name: shell })); } catch { /* socket gone */ }
 
     // Wire up listeners before resize so exec output is never buffered without
     // a consumer. resize() is a separate HTTP round-trip that can be slow or
@@ -178,16 +267,20 @@ export async function handleExecSocket(
 
     let closed = false;
 
-    // Fire-and-forget the initial resize — PTY starts at Docker's default (80x24)
+    // Forward bytes that arrived past the HTTP response (typical: shell prompt).
+    if (initialBytes.length > 0) {
+      try { ws.send(initialBytes); } catch { closed = true; }
+    }
+
+    // Fire-and-forget the initial resize. PTY starts at Docker's default (80x24)
     // and jumps to the client's reported size once this resolves.
     void exec.resize({ h: rows, w: cols }).catch((e: Error) => {
       console.error(`Exec resize failed for ${containerId}:`, e.message);
     });
 
     // Use async iteration rather than the 'data' event listener. Bun's Node.js
-    // compat layer doesn't reliably emit 'data' events on the raw TCP socket
-    // obtained via docker-modem's HTTP upgrade hijack, but it does implement
-    // Symbol.asyncIterator on the same stream object.
+    // compat layer doesn't reliably emit 'data' events on the raw TCP socket,
+    // but Symbol.asyncIterator works on the same stream object.
     void (async () => {
       try {
         for await (const chunk of stream as AsyncIterable<Buffer>) {

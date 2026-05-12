@@ -1,6 +1,7 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
+import net from 'node:net';
 
 /** Readable stream whose data/end/error can be driven from outside. */
 function makeControllableStream() {
@@ -48,7 +49,7 @@ function makeMockContainer(opts: {
   return container;
 }
 
-const { probeShell, handleExecSocket, handleExecMessage } = await import('../routes/exec');
+const { probeShell, handleExecSocket, handleExecMessage, startExecRawTcp } = await import('../routes/exec');
 
 describe('probeShell', () => {
   test('returns bash when bash exits 0', async () => {
@@ -80,6 +81,59 @@ describe('probeShell', () => {
     const shell = await probeShell(container as any, 'zsh');
     expect(shell).toBe('zsh');
     expect(container.exec).not.toHaveBeenCalled();
+  });
+});
+
+describe('startExecRawTcp', () => {
+  /** Spin up a fake TCP "Docker" server that responds to /exec/{id}/start with a 101 upgrade. */
+  async function withFakeDocker<T>(
+    behavior: (sock: net.Socket) => void,
+    run: (host: string, port: number) => Promise<T>,
+  ): Promise<T> {
+    const server = net.createServer((sock) => behavior(sock));
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as net.AddressInfo;
+    try {
+      return await run('127.0.0.1', port);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }
+
+  test('resolves with socket and trailing bytes after a 101 upgrade', async () => {
+    const result = await withFakeDocker(
+      (sock) => {
+        sock.once('data', () => {
+          sock.write(
+            'HTTP/1.1 101 UPGRADED\r\n' +
+            'Content-Type: application/vnd.docker.raw-stream\r\n' +
+            'Connection: Upgrade\r\n' +
+            'Upgrade: tcp\r\n' +
+            '\r\n' +
+            'hello-payload'
+          );
+        });
+      },
+      async (host, port) => {
+        const { socket, initialBytes } = await startExecRawTcp(host, port, 'execid');
+        socket.destroy();
+        return initialBytes.toString();
+      },
+    );
+    expect(result).toBe('hello-payload');
+  });
+
+  test('rejects on non-101 response', async () => {
+    await expect(
+      withFakeDocker(
+        (sock) => {
+          sock.once('data', () => {
+            sock.write('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n');
+          });
+        },
+        (host, port) => startExecRawTcp(host, port, 'execid'),
+      ),
+    ).rejects.toThrow(/404/);
   });
 });
 
@@ -123,15 +177,14 @@ describe('handleExecSocket', () => {
     const mockDocker = { getContainer: mock(() => container) };
     const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'auto', cols: 80, rows: 24 } };
 
-    await handleExecSocket(mockDocker as any, 'abc123', mockWs as any);
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any);
 
     expect(mockWs.close).toHaveBeenCalledWith(1011, 'No supported shell found in container');
   });
 
-  test('sends exec output to WebSocket', async () => {
-    const { stream: execStream, push } = makeControllableStream();
-
-    const mockContainer = {
+  /** Build a TTY-mode container whose exec returns the supplied stream from startStream. */
+  function makeTtyContainer() {
+    return {
       exec: mock(async (opts: { Cmd: string[]; Tty?: boolean }) => {
         if (!opts.Tty) {
           return {
@@ -141,47 +194,75 @@ describe('handleExecSocket', () => {
           };
         }
         return {
-          start: mock(async () => execStream),
+          id: 'exec-id-xyz',
+          start: mock(async () => { throw new Error('start should not be called'); }),
           inspect: mock(async () => ({ ExitCode: 0 })),
           resize: mock(async () => {}),
         };
       }),
     };
+  }
 
+  test('sends exec output to WebSocket', async () => {
+    const { stream: execStream, push } = makeControllableStream();
+    const mockContainer = makeTtyContainer();
     const mockDocker = { getContainer: mock(() => mockContainer) };
     const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+    const startStream = mock(async () => ({
+      socket: execStream as unknown as import('node:net').Socket,
+      initialBytes: Buffer.alloc(0),
+    }));
 
-    await handleExecSocket(mockDocker as any, 'abc123', mockWs as any);
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
 
     push(Buffer.from('hello'));
     await new Promise((r) => setTimeout(r, 20));
 
+    expect(startStream).toHaveBeenCalledWith('docker', 2375, 'exec-id-xyz');
     expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('hello'));
+  });
+
+  test('sends resolved shell as JSON control frame before any output', async () => {
+    const { stream: execStream } = makeControllableStream();
+    const mockContainer = makeTtyContainer();
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+    const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+    const startStream = mock(async () => ({
+      socket: execStream as unknown as import('node:net').Socket,
+      initialBytes: Buffer.alloc(0),
+    }));
+
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
+
+    expect(mockWs.send).toHaveBeenCalledWith(JSON.stringify({ type: 'shell', name: 'bash' }));
+  });
+
+  test('forwards initialBytes from the upgrade as the first binary frame', async () => {
+    const { stream: execStream } = makeControllableStream();
+    const mockContainer = makeTtyContainer();
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+    const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+    const startStream = mock(async () => ({
+      socket: execStream as unknown as import('node:net').Socket,
+      initialBytes: Buffer.from('prompt$ '),
+    }));
+
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
+
+    expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('prompt$ '));
   });
 
   test('closes WebSocket with 1000 when exec stream ends', async () => {
     const { stream: execStream, push } = makeControllableStream();
-
-    const mockContainer = {
-      exec: mock(async (opts: { Cmd: string[]; Tty?: boolean }) => {
-        if (!opts.Tty) {
-          return {
-            start: mock(async () => {}),
-            inspect: mock(async () => ({ ExitCode: 0 })),
-            resize: mock(async () => {}),
-          };
-        }
-        return {
-          start: mock(async () => execStream),
-          inspect: mock(async () => ({ ExitCode: 0 })),
-          resize: mock(async () => {}),
-        };
-      }),
-    };
+    const mockContainer = makeTtyContainer();
     const mockDocker = { getContainer: mock(() => mockContainer) };
     const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+    const startStream = mock(async () => ({
+      socket: execStream as unknown as import('node:net').Socket,
+      initialBytes: Buffer.alloc(0),
+    }));
 
-    await handleExecSocket(mockDocker as any, 'abc123', mockWs as any);
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
 
     push(null); // end the stream
     await new Promise((r) => setTimeout(r, 20));
@@ -191,27 +272,15 @@ describe('handleExecSocket', () => {
 
   test('closes WebSocket with 1011 when exec stream errors', async () => {
     const { stream: execStream, error: errorStream } = makeControllableStream();
-
-    const mockContainer = {
-      exec: mock(async (opts: { Cmd: string[]; Tty?: boolean }) => {
-        if (!opts.Tty) {
-          return {
-            start: mock(async () => {}),
-            inspect: mock(async () => ({ ExitCode: 0 })),
-            resize: mock(async () => {}),
-          };
-        }
-        return {
-          start: mock(async () => execStream),
-          inspect: mock(async () => ({ ExitCode: 0 })),
-          resize: mock(async () => {}),
-        };
-      }),
-    };
+    const mockContainer = makeTtyContainer();
     const mockDocker = { getContainer: mock(() => mockContainer) };
     const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+    const startStream = mock(async () => ({
+      socket: execStream as unknown as import('node:net').Socket,
+      initialBytes: Buffer.alloc(0),
+    }));
 
-    await handleExecSocket(mockDocker as any, 'abc123', mockWs as any);
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
 
     errorStream(new Error('pipe broken'));
     await new Promise((r) => setTimeout(r, 20));

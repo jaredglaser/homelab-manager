@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react';
-import { Paper, Skeleton, Typography } from '@mui/material';
+import { Button, Paper, Skeleton, Typography } from '@mui/material';
 import { useXtermSetup } from '@/hooks/useXtermSetup';
 import { useContainerTerminal } from '@/hooks/useContainerTerminal';
 
@@ -8,6 +8,8 @@ interface ContainerTerminalProps {
   host: string;
   shell: string;
   frozen: boolean;
+  /** Called when the agent reports which shell it actually spawned (for `auto`). */
+  onShellResolved?: (shell: string) => void;
 }
 
 export default memo(function ContainerTerminal({
@@ -15,6 +17,7 @@ export default memo(function ContainerTerminal({
   host,
   shell,
   frozen,
+  onShellResolved,
 }: ContainerTerminalProps) {
   const { containerRef, terminal } = useXtermSetup({
     disableStdin: false,
@@ -23,13 +26,17 @@ export default memo(function ContainerTerminal({
   });
   const [ready, setReady] = useState(false);
 
-  const { isConnected, error } = useContainerTerminal({
+  const { isConnected, error, resolvedShell, sessionEnded, reconnect } = useContainerTerminal({
     containerId,
     host,
     shell,
     terminal,
     enabled: !frozen,
   });
+
+  useEffect(() => {
+    if (resolvedShell && onShellResolved) onShellResolved(resolvedShell);
+  }, [resolvedShell, onShellResolved]);
 
   // Mark ready once connected so xterm has painted its first content
   useEffect(() => {
@@ -77,6 +84,16 @@ export default memo(function ContainerTerminal({
           <Typography variant="body2" color="error">
             {error.message}
           </Typography>
+        </div>
+      )}
+      {sessionEnded && !frozen && !error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-sm gap-3">
+          <Typography variant="body2" className="text-[var(--mui-palette-text-disabled)]">
+            Session ended
+          </Typography>
+          <Button size="small" variant="outlined" onClick={reconnect}>
+            Reconnect
+          </Button>
         </div>
       )}
     </Paper>

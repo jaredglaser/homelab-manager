@@ -1,10 +1,11 @@
-import { memo, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import FormControl from '@mui/material/FormControl';
 import InputLabel from '@mui/material/InputLabel';
+import CircularProgress from '@mui/material/CircularProgress';
 import type { SelectChangeEvent } from '@mui/material/Select';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
@@ -26,6 +27,7 @@ export default memo(function ContainerLogsTerminalPanel({
 }: ContainerLogsTerminalPanelProps) {
   const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>('logs');
   const [terminalMounted, setTerminalMounted] = useState(false);
+  const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
 
   const { getContainerShell, setContainerShell } = useDockerSettings();
 
@@ -47,7 +49,10 @@ export default memo(function ContainerLogsTerminalPanel({
 
   const handleShellChange = (e: SelectChangeEvent) => {
     setContainerShell(shellKey, e.target.value);
+    setResolvedShell(undefined);
   };
+
+  const handleShellResolved = useCallback((s: string) => setResolvedShell(s), []);
 
   // Terminal is frozen (stdin disabled, overlay shown) when the container stops
   // after a session is already active. The terminal stays mounted so the output
@@ -79,7 +84,19 @@ export default memo(function ContainerLogsTerminalPanel({
               value={effectiveShell === 'auto' ? '' : effectiveShell}
               onChange={handleShellChange}
               displayEmpty
-              renderValue={(v) => (v as string) || 'auto'}
+              renderValue={(v) => {
+                const setting = (v as string) || 'auto';
+                if (setting !== 'auto') return setting;
+                if (resolvedShell) return `auto (${resolvedShell})`;
+                // Probe in flight: show spinner alongside `auto` until the
+                // agent's `{type:'shell'}` control frame resolves.
+                return (
+                  <span className="inline-flex items-center gap-1.5">
+                    auto
+                    <CircularProgress size={10} thickness={6} className="!text-[var(--mui-palette-text-secondary)]" />
+                  </span>
+                );
+              }}
               className="!text-xs"
             >
               <MenuItem value="" className="text-xs">auto</MenuItem>
@@ -101,6 +118,7 @@ export default memo(function ContainerLogsTerminalPanel({
               host={host}
               shell={effectiveShell}
               frozen={frozen}
+              onShellResolved={handleShellResolved}
             />
           </div>
         )}

@@ -76,6 +76,40 @@ describe('useContainerTerminal', () => {
     expect(mockWsInstances[0]?.url).toContain('shell=bash');
   });
 
+  it('updates resolvedShell when receiving the shell control frame', async () => {
+    const { result } = renderHook(() =>
+      useContainerTerminal({
+        containerId: 'abc123',
+        host: 'server1',
+        shell: 'auto',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    const ws = mockWsInstances[0]!;
+    act(() => {
+      ws.onmessage?.({ data: JSON.stringify({ type: 'shell', name: 'sh' }) } as MessageEvent);
+    });
+    expect(result.current.resolvedShell).toBe('sh');
+    expect(mockTerminal.write).not.toHaveBeenCalled();
+  });
+
+  it('ignores non-JSON text frames without writing to the terminal', async () => {
+    const { result } = renderHook(() =>
+      useContainerTerminal({
+        containerId: 'abc123',
+        host: 'server1',
+        shell: 'auto',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    const ws = mockWsInstances[0]!;
+    act(() => { ws.onmessage?.({ data: 'not-json-at-all' } as MessageEvent); });
+    expect(result.current.resolvedShell).toBeUndefined();
+    expect(mockTerminal.write).not.toHaveBeenCalled();
+  });
+
   it('writes incoming ArrayBuffer messages to terminal', async () => {
     renderHook(() =>
       useContainerTerminal({
@@ -122,6 +156,41 @@ describe('useContainerTerminal', () => {
     );
     expect(call).toBeTruthy();
     expect(JSON.parse(call![0] as string)).toEqual({ type: 'resize', cols: 120, rows: 40 });
+  });
+
+  it('marks sessionEnded (not error) on a clean close', async () => {
+    const { result } = renderHook(() =>
+      useContainerTerminal({
+        containerId: 'abc123',
+        host: 'server1',
+        shell: 'bash',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    const ws = mockWsInstances[0]!;
+    act(() => { ws.onclose?.({ code: 1000, reason: 'Shell exited' } as CloseEvent); });
+    expect(result.current.sessionEnded).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(result.current.isConnected).toBe(false);
+  });
+
+  it('reconnect() opens a new WebSocket and clears sessionEnded', async () => {
+    const { result } = renderHook(() =>
+      useContainerTerminal({
+        containerId: 'abc123',
+        host: 'server1',
+        shell: 'bash',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    expect(mockWsInstances.length).toBe(1);
+    act(() => { mockWsInstances[0]!.onclose?.({ code: 1000, reason: '' } as CloseEvent); });
+    expect(result.current.sessionEnded).toBe(true);
+    await act(async () => { result.current.reconnect(); await new Promise((r) => setTimeout(r, 10)); });
+    expect(mockWsInstances.length).toBe(2);
+    expect(result.current.sessionEnded).toBe(false);
   });
 
   it('sets error on non-normal close code', async () => {
