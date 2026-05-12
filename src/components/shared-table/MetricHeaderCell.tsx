@@ -3,10 +3,9 @@ import { useGeneralSettings } from '@/hooks/useSettings';
 
 /**
  * Column header that aligns with MetricCell's value portion.
- * Uses the same flex justify-end + gap-2 layout with a matching unit-width spacer.
- * With justify-end, the header text right-edge always aligns with MetricCell's
- * value right-edge (both sit at: cell_right - unitWidth - gap) regardless of
- * text width. Tables use overflow-x-auto so nothing needs to shrink.
+ * Renders left-to-right: optional sparkline spacer, label, then a unit-width spacer.
+ * The unit-width spacer mirrors MetricCell's unit span so column text aligns
+ * even when abbreviated and full unit labels differ in width.
  */
 export const MetricHeaderCell = memo(function MetricHeaderCell({ children }: { children: ReactNode }) {
   const { general } = useGeneralSettings();

@@ -105,16 +105,6 @@ describe('metricColumn', () => {
     expect(container.querySelector('.opacity-50')).toBeTruthy();
   });
 
-  it('sets meta to undefined (minBreakpoint was removed)', () => {
-    const col = metricColumn<TestRow>({
-      id: 'speed',
-      header: 'Speed',
-      getValue: (r) => ({ value: String(r.value), unit: r.unit }),
-    });
-
-    expect(col.meta).toBeUndefined();
-  });
-
   it('exposes sizeCompact and sizeFull in meta for viewport-aware grid sizing', () => {
     const col = metricColumn<TestRow>({
       id: 'speed',

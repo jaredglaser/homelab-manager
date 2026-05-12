@@ -18,6 +18,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Collapse } from '@mui/material';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 import { DataTableToolbar } from '@/components/shared-table/DataTableToolbar';
+import { useGeneralSettings } from '@/hooks/useSettings';
 
 export interface MetricGroup {
   label: string;
@@ -90,8 +91,9 @@ const SPARKLINE_MIN_WIDTH = 1428;
 function buildGridTemplate<TRow>(
   columns: ReturnType<ReturnType<typeof useReactTable<TRow>>['getVisibleLeafColumns']>,
   containerWidth: number,
+  sparklineEnabled: boolean,
 ): string {
-  const sparklinesVisible = containerWidth >= SPARKLINE_MIN_WIDTH;
+  const sparklinesVisible = containerWidth >= SPARKLINE_MIN_WIDTH && sparklineEnabled;
   return columns
     .map((col) => {
       const meta = col.columnDef.meta as {
@@ -148,6 +150,7 @@ export function DataTable<TRow>({
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [internalExpanded, setInternalExpanded] = useState<ExpandedState>({});
+  const { general: { showSparklines } } = useGeneralSettings();
 
   useEffect(() => {
     const el = containerRef.current;
@@ -232,7 +235,7 @@ export function DataTable<TRow>({
   const { rows } = table.getRowModel();
   const isVirtualized = rows.length > VIRTUALIZATION_THRESHOLD;
   const visibleColumns = table.getVisibleLeafColumns();
-  const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns, containerWidth), [visibleColumns, containerWidth]);
+  const gridTemplate = useMemo(() => buildGridTemplate(visibleColumns, containerWidth, showSparklines), [visibleColumns, containerWidth, showSparklines]);
 
   const defaultEstimateSize = useCallback(() => DEFAULT_ROW_HEIGHT, []);
 
