@@ -40,7 +40,7 @@ export function SettingsMenuContent() {
 
 export function StacksMenuContent() {
   const close = useContext(NavMenuCloseContext)
-  const { data: stacks, isLoading, isError } = useQuery({
+  const { data: stacks, isLoading, isError, error } = useQuery({
     queryKey: STACKS_QUERY_KEY,
     queryFn: () => listStacks(),
     staleTime: 30_000,
@@ -50,6 +50,7 @@ export function StacksMenuContent() {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
   }
   if (isError) {
+    console.error('[StacksMenuContent] failed to load stacks:', error)
     return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load stacks</div>
   }
   if (!stacks?.length) {
@@ -89,7 +90,7 @@ export function StacksMenuContent() {
 
 export function DockerHostsMenuContent() {
   const close = useContext(NavMenuCloseContext)
-  const { data: hosts, isLoading, isError } = useQuery({
+  const { data: hosts, isLoading, isError, error } = useQuery({
     queryKey: ['managed-host-names'],
     queryFn: () => listManagedHostNames(),
     staleTime: 60_000,
@@ -99,6 +100,7 @@ export function DockerHostsMenuContent() {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
   }
   if (isError) {
+    console.error('[DockerHostsMenuContent] failed to load hosts:', error)
     return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load hosts</div>
   }
   if (!hosts?.length) {
@@ -128,5 +130,8 @@ export function MenuContentFor({ to }: Readonly<{ to: MenuRouteKey }>) {
   if (to === '/settings') return <SettingsMenuContent />
   if (to === '/stacks') return <StacksMenuContent />
   if (to === '/docker') return <DockerHostsMenuContent />
+  if (import.meta.env.DEV) {
+    console.error(`[MenuContentFor] No menu content defined for route "${to}"`)
+  }
   return null
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, mock, afterEach } from 'bun:test'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 mock.module('@tanstack/react-router', () => ({
@@ -60,6 +60,11 @@ function createWrapper() {
 }
 
 describe('Header', () => {
+  afterEach(() => {
+    // Reset VITE_DEMO_MODE after each test so demo-mode tests don't leak.
+    delete (import.meta.env as Record<string, unknown>).VITE_DEMO_MODE
+  })
+
   it('renders all five nav tab labels', () => {
     render(<Header />, { wrapper: createWrapper() })
     expect(screen.getByText('Docker')).not.toBeNull()
@@ -84,5 +89,26 @@ describe('Header', () => {
     // The banner only mounts when import.meta.env.VITE_DEMO_MODE === 'true'.
     // In tests that env var is not set, so the banner should be absent.
     expect(screen.queryByText('Demo mode')).toBeNull()
+  })
+
+  it('renders the demo banner when VITE_DEMO_MODE is "true"', () => {
+    ;(import.meta.env as Record<string, unknown>).VITE_DEMO_MODE = 'true'
+    render(<Header />, { wrapper: createWrapper() })
+    expect(screen.queryByText('Demo mode')).not.toBeNull()
+  })
+
+  it('closes the open menu when Escape is pressed on a menu tab', () => {
+    render(<Header />, { wrapper: createWrapper() })
+    const tabs = screen.getAllByRole('tab')
+    // Find the Docker tab (has a menu) and open it via mouseEnter, then Escape.
+    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
+    expect(dockerTab).not.toBeNull()
+    fireEvent.mouseEnter(dockerTab!)
+    fireEvent.keyDown(dockerTab!, { key: 'Escape' })
+    // After Escape, the menu Popper should not be open. The Docker popper is
+    // keyed off controller.openId === '/docker'; after closeNow it is null so
+    // the Popper's open prop is false and its content is not in the DOM.
+    // Verify by checking that no element with role="menu" is visible.
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 })

@@ -303,4 +303,13 @@ describe('MenuContentFor', () => {
     render(<MenuContentFor to="/docker" />, { wrapper: createWrapper() })
     expect(screen.getByText('Loading…')).not.toBeNull()
   })
+
+  it('renders nothing for an unknown route key', () => {
+    // Cast to bypass TypeScript so we can reach the null fallback branch.
+    const { container } = render(
+      <MenuContentFor to={'/proxmox' as MenuRouteKey} />,
+      { wrapper: createWrapper() },
+    )
+    expect(container.firstChild).toBeNull()
+  })
 })
