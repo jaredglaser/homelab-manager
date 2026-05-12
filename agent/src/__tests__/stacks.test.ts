@@ -1200,7 +1200,8 @@ describe('handleStackStart', () => {
     const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(200);
     const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
-    expect(cmd).toContain('start');
+    expect(cmd).toContain('up');
+    expect(cmd).toContain('-d');
     expect(cmd).not.toContain('web');
   });
 
@@ -1217,7 +1218,7 @@ describe('handleStackStart', () => {
     const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(200);
     const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
-    expect(cmd).toContain('start');
+    expect(cmd).toContain('up');
     expect(cmd).toContain('web');
   });
 
@@ -1285,5 +1286,151 @@ describe('handleStackStop', () => {
     const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
     expect(cmd).toContain('stop');
     expect(cmd).toContain('db');
+  });
+});
+
+describe('handleStackStart: path traversal', () => {
+  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR + '/', successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Invalid stack path');
+  });
+});
+
+describe('handleStackStart: subprocess timeout', () => {
+  test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
+    });
+
+    const response = await handleStackStart(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stderr).toContain('timed out');
+  });
+});
+
+describe('handleStackStart: spawn failure', () => {
+  test('returns 500 with detail when spawn throws', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    const throwSpawn = mock(() => { throw new Error('EACCES'); });
+
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
+    });
+
+    const response = await handleStackStart(request, TEST_STACKS_DIR, throwSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to execute docker compose');
+  });
+});
+
+describe('handleStackStart: invalid service name', () => {
+  test('returns 400 when service name contains invalid characters', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: '--help' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+});
+
+describe('handleStackStop: path traversal', () => {
+  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR + '/', successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toBe('Invalid stack path');
+  });
+});
+
+describe('handleStackStop: subprocess timeout', () => {
+  test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
+    });
+
+    const response = await handleStackStop(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stderr).toContain('timed out');
+  });
+});
+
+describe('handleStackStop: spawn failure', () => {
+  test('returns 500 with detail when spawn throws', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    const throwSpawn = mock(() => { throw new Error('EACCES'); });
+
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
+    });
+
+    const response = await handleStackStop(request, TEST_STACKS_DIR, throwSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to execute docker compose');
+  });
+});
+
+describe('handleStackStop: invalid service name', () => {
+  test('returns 400 when service name contains invalid characters', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: '--timeout' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
   });
 });

@@ -283,7 +283,7 @@ export const ensureVariablesExist = createServerFn({ method: 'POST' })
 
 /**
  * Directly start, stop, or restart a stack or individual service on its agent host.
- * Bypasses the deploy pipeline — no deploy history record is created.
+ * Bypasses the deploy pipeline; no deploy history record is created.
  */
 export const controlStack = createServerFn({ method: 'POST' })
   .inputValidator(controlStackSchema)
@@ -292,5 +292,14 @@ export const controlStack = createServerFn({ method: 'POST' })
     const req: StackControlRequest = data.scope === 'service'
       ? { stack: data.stack, scope: 'service', service: data.service }
       : { stack: data.stack, scope: 'stack' };
-    return controlStackForHost(data.host, data.action, req);
+    try {
+      return await controlStackForHost(data.host, data.action, req);
+    } catch (err) {
+      console.error(
+        `[controlStack] ${data.action} failed for "${data.stack}" on "${data.host}"` +
+        (data.scope === 'service' ? ` (service: ${data.service})` : '') + ':',
+        err,
+      );
+      throw err;
+    }
   });

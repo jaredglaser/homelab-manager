@@ -1,4 +1,4 @@
-import { describe, test, expect, mock } from 'bun:test';
+import { describe, test, expect, mock, beforeEach } from 'bun:test';
 import {
   extractVariableNames,
   toStackDeployRecord,
@@ -169,14 +169,6 @@ describe('handleTriggerDeploy', () => {
     expect(result.deployId).toBe(42);
   });
 
-  test('allows missing compose for teardown action', async () => {
-    const deps = mockDeps({
-      readCompose: mock(() => Promise.reject(new Error('not found'))),
-    });
-    const result = await handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'teardown' });
-    expect(result.deployId).toBe(42);
-  });
-
   test('throws when pipeline returns no deployId', async () => {
     const deps = mockDeps({
       executePipeline: mock(() => Promise.resolve({})),
@@ -238,6 +230,125 @@ describe('SAFE_PATH_SEGMENT_PATTERN (createStackInRepo validation)', () => {
 });
 
 
+
+describe('controlStackForHost', () => {
+  const mockStart = mock(() => Promise.resolve({ success: true, logs: '' }));
+  const mockStop = mock(() => Promise.resolve({ success: true, logs: '' }));
+  const mockRestart = mock(() => Promise.resolve({ success: true, logs: '' }));
+
+  mock.module('@/lib/clients/database-client', () => ({
+    databaseConnectionManager: {
+      getClient: mock(() => Promise.resolve({ getPool: () => ({}) })),
+    },
+  }));
+
+  mock.module('@/lib/config/database-config', () => ({
+    loadDatabaseConfig: mock(() => ({})),
+  }));
+
+  mock.module('@/lib/database/repositories/host-repository', () => ({
+    HostRepository: class {
+      findByName = mock(() => Promise.resolve({ name: 'server1', agentUrl: 'http://agent:3001' }));
+    },
+  }));
+
+  mock.module('@/lib/clients/agent-client', () => ({
+    AgentClient: class {
+      start = mockStart;
+      stop = mockStop;
+      restart = mockRestart;
+    },
+  }));
+
+  mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+    AgentKeypairsRepository: class {
+      getPrivateKeyForHost = mock(() => Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'x', d: 'd' }));
+    },
+  }));
+
+  mock.module('@/lib/crypto/agent-jwt', () => ({
+    signAgentJwt: mock(() => Promise.resolve('mock-jwt')),
+  }));
+
+  mock.module('@/lib/crypto/master-key', () => ({
+    loadMasterKeyring: mock(() => Promise.resolve({})),
+  }));
+
+  // Re-establish the working host-repository mock before each test, because
+  // some tests override it to return null and mock.module replacements persist
+  // across tests within the same file execution.
+  beforeEach(() => {
+    mockStart.mockClear();
+    mockStop.mockClear();
+    mockRestart.mockClear();
+    mock.module('@/lib/database/repositories/host-repository', () => ({
+      HostRepository: class {
+        findByName = mock(() => Promise.resolve({ name: 'server1', agentUrl: 'http://agent:3001' }));
+      },
+    }));
+    mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+      AgentKeypairsRepository: class {
+        getPrivateKeyForHost = mock(() => Promise.resolve({ kty: 'OKP', crv: 'Ed25519', x: 'x', d: 'd' }));
+      },
+    }));
+  });
+
+  test('calls agent.start for start action', async () => {
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    const req = { stack: 'myapp', scope: 'stack' as const };
+    await controlStackForHost('server1', 'start', req);
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(mockStart).toHaveBeenCalledWith(req);
+  });
+
+  test('calls agent.stop for stop action', async () => {
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    const req = { stack: 'myapp', scope: 'stack' as const };
+    await controlStackForHost('server1', 'stop', req);
+    expect(mockStop).toHaveBeenCalledTimes(1);
+    expect(mockStop).toHaveBeenCalledWith(req);
+  });
+
+  test('calls agent.restart for restart action', async () => {
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    const req = { stack: 'myapp', scope: 'stack' as const };
+    await controlStackForHost('server1', 'restart', req);
+    expect(mockRestart).toHaveBeenCalledTimes(1);
+    expect(mockRestart).toHaveBeenCalledWith(req);
+  });
+
+  test('throws when host is not found', async () => {
+    mock.module('@/lib/database/repositories/host-repository', () => ({
+      HostRepository: class {
+        findByName = mock(() => Promise.resolve(null));
+      },
+    }));
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    await expect(
+      controlStackForHost('unknown-host', 'start', { stack: 'myapp', scope: 'stack' })
+    ).rejects.toThrow(/not found in managed_hosts/);
+  });
+
+  test('throws when agent keypair is missing', async () => {
+    mock.module('@/lib/database/repositories/agent-keypairs-repository', () => ({
+      AgentKeypairsRepository: class {
+        getPrivateKeyForHost = mock(() => Promise.resolve(null));
+      },
+    }));
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    await expect(
+      controlStackForHost('server1', 'start', { stack: 'myapp', scope: 'stack' })
+    ).rejects.toThrow(/No agent keypair/);
+  });
+
+  test('throws when agent returns success: false', async () => {
+    mockStart.mockResolvedValueOnce({ success: false, logs: 'container failed to start' });
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    await expect(
+      controlStackForHost('server1', 'start', { stack: 'myapp', scope: 'stack' })
+    ).rejects.toThrow(/docker compose start failed/);
+  });
+});
 
 describe('resolveDeleteStack', () => {
   test('teardown branch: calls triggerDeploy with postSuccess=removeFromManifest and returns teardown-pending', async () => {

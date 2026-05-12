@@ -41,12 +41,14 @@ export default function StackContainersPanel({ containers, stackName, host }: St
         : { stack: stackName, host, action, scope: 'service' as const, service: scope };
       return controlStack({ data });
     },
-    onSuccess: (_, { action }) => {
-      setToast({ type: 'success', text: `${action} succeeded` });
+    onSuccess: (_, { action, scope }) => {
+      const target = scope === 'stack' ? stackName : `${scope} (in ${stackName})`;
+      setToast({ type: 'success', text: `${action} succeeded for ${target}` });
       setActiveKey(null);
     },
-    onError: (err, { action }) => {
-      setToast({ type: 'error', text: `${action} failed: ${err instanceof Error ? err.message : String(err)}` });
+    onError: (err, { action, scope }) => {
+      const target = scope === 'stack' ? stackName : `${scope} (in ${stackName})`;
+      setToast({ type: 'error', text: `${action} failed for ${target}: ${err instanceof Error ? err.message : String(err)}` });
       setActiveKey(null);
     },
   });
@@ -175,7 +177,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
       >
         <DialogTitle className="flex items-center justify-between !py-2">
           <span className="text-sm font-medium">
-            Logs — {logsContainer?.name}
+            Logs: {logsContainer?.name}
           </span>
           <IconButton size="small" onClick={() => setLogsContainer(null)} aria-label="Close">
             <X size={16} />

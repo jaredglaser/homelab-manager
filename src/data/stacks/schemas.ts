@@ -4,6 +4,12 @@ import { z } from 'zod';
 const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const stackNameField = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Stack name must contain only letters, numbers, hyphens, and underscores');
 
+/** Allowed service name pattern. Matches Docker Compose service name conventions: alphanumeric start, then alphanumeric/dots/hyphens/underscores. */
+const serviceNameField = z.string().min(1).regex(
+  /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/,
+  'Service name must start with alphanumeric and contain only alphanumeric, dots, hyphens, and underscores',
+);
+
 export const getStackDetailSchema = z.object({
   stackName: stackNameField,
 });
@@ -51,6 +57,6 @@ export const controlStackSchema = z.discriminatedUnion('scope', [
     host: z.string().min(1),
     action: z.enum(['start', 'stop', 'restart']),
     scope: z.literal('service'),
-    service: z.string().min(1),
+    service: serviceNameField,
   }),
 ]);

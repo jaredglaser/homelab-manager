@@ -102,4 +102,45 @@ describe('StackContainersPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /close/i }));
     expect(screen.queryByTestId('log-viewer')).toBeNull();
   });
+
+  it('shows error toast when controlStack rejects', async () => {
+    mockControlStack.mockRejectedValueOnce(new Error('agent unreachable'));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /^start$/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toBeDefined()
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('start');
+    expect(alert.textContent).toContain('failed');
+  });
+
+  it('disables all buttons while mutation is pending', async () => {
+    let resolveControl!: () => void;
+    mockControlStack.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveControl = resolve; })
+    );
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /^start$/i }));
+
+    await waitFor(() => {
+      const buttons = screen.getAllByRole('button');
+      const controlButtons = buttons.filter(
+        (b) => b.getAttribute('aria-label') !== 'Logs' && b.getAttribute('aria-label') !== 'Close'
+      );
+      expect(controlButtons.every((b) => b.hasAttribute('disabled'))).toBe(true);
+    });
+
+    resolveControl();
+  });
+
+  it('hides per-service control buttons when service is null', () => {
+    const containersWithNullService: StackContainer[] = [
+      { id: 'xyz789', name: 'orphan-1', status: 'running', image: 'alpine', service: null },
+    ];
+    renderPanel({ ...defaultProps, containers: containersWithNullService });
+    expect(screen.queryByRole('button', { name: /^start orphan/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^stop orphan/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^restart orphan/i })).toBeNull();
+  });
 });

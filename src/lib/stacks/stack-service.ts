@@ -495,9 +495,21 @@ export async function controlStackForHost(
   const signer = () => signAgentJwt(privateKey, managedHost.name);
   const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer });
 
-  switch (action) {
-    case 'start': await agent.start(req); break;
-    case 'stop': await agent.stop(req); break;
-    case 'restart': await agent.restart(req); break;
+  let result: { success: boolean; logs: string };
+  try {
+    switch (action) {
+      case 'start': result = await agent.start(req); break;
+      case 'stop': result = await agent.stop(req); break;
+      case 'restart': result = await agent.restart(req); break;
+      default: throw new Error(`Unknown action: ${action}`);
+    }
+  } catch (err) {
+    console.error(`[StackService] controlStack ${action} failed for "${req.stack}" on "${host}":`, err);
+    throw err;
+  }
+  if (!result!.success) {
+    const msg = `docker compose ${action} failed: ${result!.logs}`;
+    console.error(`[StackService] ${msg} (host: ${host})`);
+    throw new Error(msg);
   }
 }

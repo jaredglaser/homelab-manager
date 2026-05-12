@@ -63,6 +63,8 @@ async function parseStackControlBody(request: Request): Promise<StackControlBody
     if (typeof b.service !== 'string' || !b.service) {
       return Response.json({ error: 'scope "service" requires a non-empty service field' }, { status: 400 });
     }
+    const serviceError = validateStackName(b.service);
+    if (serviceError) return serviceError;
     return { stack: b.stack, scope: 'service', service: b.service };
   }
   return Response.json({ error: 'scope must be "stack" or "service"' }, { status: 400 });
@@ -117,7 +119,8 @@ async function runComposeControl(
     return Response.json({ error: `Stack '${parsed.stack}' not found` }, { status: 404 });
   }
 
-  const cmd = ['docker', 'compose', '-f', composePath, subcommand];
+  const cmdArgs = subcommand === 'start' ? ['up', '-d'] : [subcommand];
+  const cmd = ['docker', 'compose', '-f', composePath, ...cmdArgs];
   if (parsed.scope === 'service') cmd.push(parsed.service);
 
   let result: SpawnResult;
