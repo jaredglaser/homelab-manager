@@ -18,8 +18,9 @@ export function IntervalToggle({
       }}
       size="small"
       exclusive
+      aria-label="Update interval"
     >
-      <ToggleButton value="1000">
+      <ToggleButton value="1000" aria-label="1 second (fast)">
         <Tooltip
           title={
             <div className="flex flex-col gap-1">
@@ -32,7 +33,7 @@ export function IntervalToggle({
           <Zap size={16} />
         </Tooltip>
       </ToggleButton>
-      <ToggleButton value="10000">
+      <ToggleButton value="10000" aria-label="10 seconds (relaxed)">
         <Tooltip
           title={
             <div className="flex flex-col gap-1">

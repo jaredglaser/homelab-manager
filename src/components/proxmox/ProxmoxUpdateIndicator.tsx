@@ -9,10 +9,14 @@ export function UpdateIndicator({ expectedInterval }: { expectedInterval: number
   const pingRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (lastUpdate === 0) return
-
     const dot = dotRef.current
     const ping = pingRef.current
+
+    if (lastUpdate === 0) {
+      if (dot) { dot.className = 'absolute w-2 h-2 rounded-full transition-all duration-300 bg-neutral-400 opacity-40' }
+      if (ping) { ping.className = 'absolute w-2 h-2 bg-neutral-400 rounded-full opacity-0' }
+      return
+    }
 
     // Reset to active state
     if (dot) { dot.className = 'absolute w-2 h-2 rounded-full transition-all duration-300 bg-green-500 opacity-100' }
@@ -45,7 +49,7 @@ export function UpdateIndicator({ expectedInterval }: { expectedInterval: number
       <div className="relative inline-flex items-center justify-center w-2 h-2">
         <div
           ref={dotRef}
-          className="absolute w-2 h-2 rounded-full transition-all duration-300 bg-green-500 opacity-100"
+          className="absolute w-2 h-2 rounded-full transition-all duration-300 bg-neutral-400 opacity-40"
         />
         <div
           ref={pingRef}
