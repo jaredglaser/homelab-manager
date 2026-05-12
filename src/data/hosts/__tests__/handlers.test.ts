@@ -595,6 +595,22 @@ describe('handleUpdateAgent', () => {
     }
     fetchSpy.mockRestore();
   });
+
+  it('returns unhealthy when agent update endpoint returns a redirect (3xx)', async () => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, { status: 301, headers: { Location: 'http://169.254.169.254/metadata' } })
+    );
+    const deps = updateDeps();
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.error).toContain('redirect');
+      expect(result.suggestions).toBeDefined();
+    }
+    fetchSpy.mockRestore();
+  });
 });
 
 describe('handleUpdateHost', () => {

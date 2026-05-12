@@ -89,4 +89,29 @@ describe('HealthReporter', () => {
 
     expect(fetchMock.mock.calls[0][0]).toBe('http://agent.local:8080/health');
   });
+
+  test('returns false when agent URL returns a redirect (3xx)', async () => {
+    mockFetch(() =>
+      Promise.resolve(new Response(null, { status: 301, headers: { Location: 'http://169.254.169.254/metadata' } }))
+    );
+
+    const reporter = new HealthReporter('http://localhost:9090');
+    const result = await reporter.checkAgentHealth();
+
+    expect(result).toBe(false);
+  });
+
+  test('passes redirect: manual to fetch', async () => {
+    let capturedInit: RequestInit | undefined;
+    const fn = mock((_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedInit = init;
+      return Promise.resolve(new Response('OK', { status: 200 }));
+    }) as unknown as Mock<typeof fetch>;
+    globalThis.fetch = fn as unknown as typeof fetch;
+
+    const reporter = new HealthReporter('http://localhost:9090');
+    await reporter.checkAgentHealth();
+
+    expect(capturedInit?.redirect).toBe('manual');
+  });
 });

@@ -85,6 +85,30 @@ describe('AgentClient', () => {
         action: 'deploy',
       })).rejects.toThrow(AgentClientError);
     });
+
+    it('throws AgentClientError when agent URL returns a redirect (3xx)', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(null, { status: 301, headers: { Location: 'http://169.254.169.254/metadata' } })
+      );
+
+      await expect(client.deploy({
+        stack: 'plex',
+        composeContent: 'version: "3"',
+        envContent: '',
+        action: 'deploy',
+      })).rejects.toThrow(/redirect/);
+    });
+
+    it('passes redirect: manual to fetch', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: 'ok', stderr: '' }), { status: 200 })
+      );
+
+      await client.deploy({ stack: 'plex', composeContent: 'version: "3"', envContent: '', action: 'deploy' });
+
+      const [, options] = fetchMock.mock.calls[0];
+      expect(options.redirect).toBe('manual');
+    });
   });
 
   describe('teardown', () => {
@@ -276,6 +300,16 @@ describe('AgentClient', () => {
       const controller = new AbortController();
       const gen = client.streamZfsStats(controller.signal);
       await expect(gen.next()).rejects.toThrow(AgentClientError);
+    });
+
+    it('throws AgentClientError when agent URL returns a redirect (3xx)', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(null, { status: 302, headers: { Location: 'http://169.254.169.254/metadata' } })
+      );
+
+      const controller = new AbortController();
+      const gen = client.streamZfsStats(controller.signal);
+      await expect(gen.next()).rejects.toThrow(/redirect/);
     });
 
     it('throws AgentClientError when response has no body', async () => {

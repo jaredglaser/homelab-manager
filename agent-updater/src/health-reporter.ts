@@ -11,7 +11,12 @@ export class HealthReporter {
     try {
       const response = await fetch(`${this.agentUrl}/health`, {
         signal: AbortSignal.timeout(timeoutMs),
+        redirect: 'manual',
       });
+
+      if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        return false;
+      }
 
       return response.ok;
     } catch {
