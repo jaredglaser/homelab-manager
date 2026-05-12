@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { parseSettings } from '@/hooks/settingsAtom';
 
-describe('parseSettings — containerShells', () => {
+describe('parseSettings: containerShells', () => {
   it('defaults containerShells to empty object when key absent', () => {
     const settings = parseSettings({});
     expect(settings.docker.containerShells).toEqual({});

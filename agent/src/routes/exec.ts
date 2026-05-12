@@ -5,6 +5,9 @@ import net from 'node:net';
 /** Candidate shells probed in order when preferred is 'auto'. */
 const PROBE_SHELLS = ['bash', 'sh', 'ash'] as const;
 
+/** Shells the client is allowed to request explicitly. Anything else is rejected. */
+const ALLOWED_EXPLICIT_SHELLS = new Set(['bash', 'sh', 'ash', 'zsh']);
+
 interface ExecInstance {
   id?: string;
   start(opts: { hijack: boolean; stdin: boolean }): Promise<Duplex>;
@@ -98,15 +101,19 @@ interface ResizeMessage {
  * running `<shell> -c 'exit 0'` with Tty:false and checking ExitCode. The
  * first shell that exits 0 is returned. Returns `''` when none succeed.
  *
- * When `preferred` is any other string, it is returned directly without
- * probing — the caller is responsible for choosing a valid shell name.
+ * When `preferred` is any other string, it must exactly match one of the
+ * shells in `ALLOWED_EXPLICIT_SHELLS`; otherwise `''` is returned. The
+ * whitelist prevents the query-string-provided `shell` from being a vehicle
+ * for command injection via `container.exec({ Cmd: [shell] })`.
  *
  * @param container - Dockerode container instance
  * @param preferred - Shell name to use, or 'auto' to probe
  * @returns Resolved shell name, or '' if no supported shell found
  */
 export async function probeShell(container: Dockerode.Container, preferred: string): Promise<string> {
-  if (preferred !== 'auto') return preferred;
+  if (preferred !== 'auto') {
+    return ALLOWED_EXPLICIT_SHELLS.has(preferred) ? preferred : '';
+  }
 
   for (const shell of PROBE_SHELLS) {
     try {
@@ -120,14 +127,15 @@ export async function probeShell(container: Dockerode.Container, preferred: stri
 
       // Detach:true starts the process without attaching any stream and
       // returns immediately. hijack:true (the interactive mode) keeps the TCP
-      // connection open waiting for muxed output — with no outputs attached
+      // connection open waiting for muxed output, and with no outputs attached
       // the stream never emits 'end', so every probe hit the 5s timeout and
       // then received ExitCode -1 (process already exited but socket still open).
       await (exec as unknown as { start(o: { Detach: boolean }): Promise<void> }).start({ Detach: true });
 
       // Poll until Docker sets ExitCode; it returns -1 while the process is
-      // still running. 'exit 0' completes in <50ms; 2s is a generous bound.
-      const deadline = Date.now() + 2_000;
+      // still running. 'exit 0' completes in <50ms but slower hosts or proxies
+      // can add overhead; 5s avoids false "no shell found" failures.
+      const deadline = Date.now() + 5_000;
       let { ExitCode } = await exec.inspect();
       while (ExitCode === -1 && Date.now() < deadline) {
         await new Promise<void>((r) => setTimeout(r, 50));
@@ -158,25 +166,44 @@ export async function handleExecMessage(
   stream: Pick<Duplex, 'write'>,
   exec: Pick<ExecInstance, 'resize'>,
 ): Promise<void> {
-  if (typeof message === 'string') {
-    try {
-      const parsed = JSON.parse(message) as unknown;
-      if (
-        parsed !== null &&
-        typeof parsed === 'object' &&
-        (parsed as ResizeMessage).type === 'resize'
-      ) {
-        const { cols, rows } = parsed as ResizeMessage;
-        await exec.resize({ h: rows, w: cols });
-        return;
-      }
-    } catch {
-      // Not JSON — treat as raw stdin.
-    }
+  if (typeof message !== 'string') {
     stream.write(message);
-  } else {
-    stream.write(message);
+    return;
   }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(message);
+  } catch {
+    // Not JSON; treat as raw stdin.
+    stream.write(message);
+    return;
+  }
+
+  if (
+    parsed !== null &&
+    typeof parsed === 'object' &&
+    (parsed as Partial<ResizeMessage>).type === 'resize'
+  ) {
+    const { cols, rows } = parsed as Partial<ResizeMessage>;
+    if (Number.isFinite(cols) && Number.isFinite(rows)) {
+      // Swallow resize failures: a transient Docker error must not cause the
+      // resize JSON payload to be typed into the user's shell.
+      try {
+        await exec.resize({
+          h: Math.max(1, Math.min(rows as number, 500)),
+          w: Math.max(1, Math.min(cols as number, 500)),
+        });
+      } catch {
+        // resize is best-effort; the PTY keeps its previous size
+      }
+    }
+    return;
+  }
+
+  // Valid JSON but not a resize message: forward as raw stdin (rare; user
+  // could legitimately type JSON in their shell).
+  stream.write(message);
 }
 
 interface ExecSocketData {
@@ -225,8 +252,10 @@ export async function handleExecSocket(
   // the Bun.serve message handler. This window is short (shell probe + exec start),
   // and the client's xterm skeleton hides input until the connection is established.
   const { shell: preferredShell } = ws.data;
-  const cols = Math.max(1, Math.min(ws.data.cols, 500));
-  const rows = Math.max(1, Math.min(ws.data.rows, 500));
+  // Math.min(NaN, 500) is NaN, which Docker rejects. Guard with isFinite and
+  // fall back to xterm defaults so malformed cols/rows don't break the session.
+  const cols = Number.isFinite(ws.data.cols) ? Math.max(1, Math.min(ws.data.cols, 500)) : 80;
+  const rows = Number.isFinite(ws.data.rows) ? Math.max(1, Math.min(ws.data.rows, 500)) : 24;
 
   const container = docker.getContainer(containerId);
   const shell = await probeShell(container, preferredShell);
@@ -272,8 +301,8 @@ export async function handleExecSocket(
       try { ws.send(initialBytes); } catch { closed = true; }
     }
 
-    // Fire-and-forget the initial resize. PTY starts at Docker's default (80x24)
-    // and jumps to the client's reported size once this resolves.
+    // Fire-and-forget the initial resize: PTY starts at Docker's default
+    // (80x24) and jumps to the client's reported size once this resolves.
     void exec.resize({ h: rows, w: cols }).catch((e: Error) => {
       console.error(`Exec resize failed for ${containerId}:`, e.message);
     });

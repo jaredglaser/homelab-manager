@@ -74,15 +74,17 @@ describe('useXtermSetup', () => {
     expect(term.dispose).toHaveBeenCalled();
   });
 
-  it('sets up ResizeObserver after terminal init when container exists', async () => {
+  it('does not register ResizeObserver when container ref is not attached', async () => {
+    // In renderHook with no DOM, containerRef.current stays null, the observer
+    // effect returns early, and observe is never called. The component path
+    // (where <div ref={containerRef}> populates the ref) is exercised indirectly
+    // by the ContainerTerminal tests.
     mockTerminalInstances.length = 0;
     mockObserve.mockClear();
     const { result } = renderHook(() => useXtermSetup({}));
     await waitFor(() => expect(result.current.terminal).not.toBeNull());
-    // In real use, containerRef.current is populated by <div ref={containerRef}>
-    // In renderHook test environments with no DOM, containerRef.current is null
-    // and the effect returns early, so observe is not called. This is correct behavior.
     expect(result.current.containerRef).toBeTruthy();
+    expect(mockObserve).not.toHaveBeenCalled();
   });
 
   it('passes provided options to Terminal constructor', async () => {

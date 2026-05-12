@@ -74,7 +74,7 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
       terminalRef.current?.dispose();
       terminalRef.current = null;
     };
-  // options captured once at mount — changing options mid-session would require recreating the xterm instance
+  // options captured once at mount; changing options mid-session would require recreating the xterm instance
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

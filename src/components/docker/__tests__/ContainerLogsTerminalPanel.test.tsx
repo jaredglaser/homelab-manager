@@ -94,11 +94,19 @@ describe('ContainerLogsTerminalPanel', () => {
   });
 
   it('frozen=true passed to terminal when container stops mid-session', () => {
-    const { rerender } = renderPanel(runningInventory);
+    // Must reuse the same store on rerender; a new <Provider store={...}>
+    // would remount the panel and lose the `terminalMounted` local state
+    // set by the click, defeating the test.
+    const store = createStore();
+    const { rerender } = render(
+      <Provider store={store}>
+        <ContainerLogsTerminalPanel containerId="abc123" host="server1" inventory={runningInventory} />
+      </Provider>,
+    );
     fireEvent.click(screen.getByRole('tab', { name: /terminal/i }));
 
     rerender(
-      <Provider store={createStore()}>
+      <Provider store={store}>
         <ContainerLogsTerminalPanel containerId="abc123" host="server1" inventory={stoppedInventory} />
       </Provider>,
     );
