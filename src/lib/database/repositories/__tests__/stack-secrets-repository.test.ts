@@ -56,6 +56,11 @@ describe('StackSecretsRepository', () => {
     expect(await repo.get('s', 'V')).toBe('secret-value');
   });
 
+  it('get throws controlled error when decryption fails', async () => {
+    pool.results.push({ rows: [{ ciphertext_jwe: 'not.a.valid.jwe.token' }] });
+    await expect(repo.get('s', 'V')).rejects.toThrow('Secret decryption failed');
+  });
+
   it('set encrypts and upserts', async () => {
     pool.results.push({ rows: [] });
     await repo.set('s', 'V', 'plaintext');

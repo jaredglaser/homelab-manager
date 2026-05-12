@@ -54,9 +54,16 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     secretResolver: {
       async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
         if (variables.length === 0) return {};
-        const entries = await Promise.all(
+        const results = await Promise.allSettled(
           variables.map(async (v) => [v, await stackSecrets.get(stack, v)] as const),
         );
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        if (failed > 0) {
+          throw new Error(`Failed to decrypt ${failed} secret(s) for stack "${stack}". Check that MASTER_KEY is correct.`);
+        }
+        const entries = results
+          .filter((r): r is PromiseFulfilledResult<readonly [string, string | null]> => r.status === 'fulfilled')
+          .map((r) => r.value);
         const secrets: Record<string, string> = {};
         for (const [k, v] of entries) {
           if (v !== null) secrets[k] = v;

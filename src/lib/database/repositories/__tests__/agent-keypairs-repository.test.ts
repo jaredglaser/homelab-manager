@@ -57,6 +57,11 @@ describe('AgentKeypairsRepository', () => {
     expect(key).not.toBeNull();
   });
 
+  it('getPrivateKeyForHost throws controlled error when decryption fails', async () => {
+    pool.results.push({ rows: [{ private_jwk_jwe: 'not.a.valid.jwe.token' }] });
+    await expect(repo.getPrivateKeyForHost('h')).rejects.toThrow('Agent keypair decryption failed');
+  });
+
   it('getPrivateKeyForHost returns null when row missing', async () => {
     pool.results.push({ rows: [] });
     expect(await repo.getPrivateKeyForHost('absent')).toBeNull();
