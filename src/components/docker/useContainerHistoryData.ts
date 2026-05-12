@@ -85,10 +85,16 @@ export function useContainerHistoryData({
   // Presets compute { from: now - ms, to: now }; custom dates set arbitrary values.
   const [timelineRange, setTimelineRange] = useState(initialRange);
 
-  // Track which preset is active (null = custom range)
+  // Track which preset is active (null = custom range).
+  // Only match a preset when the range also ends near now - a historical custom range
+  // with the same duration as a preset (e.g. exactly 1h but anchored in the past)
+  // must not be treated as an active preset.
   const [activePresetMs, setActivePresetMs] = useState<number | null>(() => {
     const span = initialRange.to - initialRange.from;
-    return PRESETS.find((p) => Math.abs(span - p) / p < 0.05) ?? null;
+    const endsNearNow = Math.abs(initialRange.to - Date.now()) <= 30_000;
+    return endsNearNow
+      ? (PRESETS.find((p) => Math.abs(span - p) / p < 0.05) ?? null)
+      : null;
   });
 
   // Debounced range drives chart query - updated after 800ms of slider idle

@@ -83,7 +83,7 @@ export default function ContainerHistoryPage({
               {showServiceKey && (
                 <Typography variant="caption" className="text-(--mui-palette-text-secondary) block" noWrap>Service: {serviceKey}</Typography>
               )}
-              <Typography variant="caption" className="text-neutral-500 block" noWrap>{containerImage || ' '}</Typography>
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary) block" noWrap>{containerImage || ' '}</Typography>
             </div>
             {onClose && (
               <IconButton onClick={onClose} aria-label="Close history panel" className="shrink-0!">
@@ -110,7 +110,7 @@ export default function ContainerHistoryPage({
         {/* Charts area */}
         <div className="px-6 py-4">
           {isChartDataEmpty ? (
-            <div className="flex items-center justify-center h-64 text-neutral-500">
+            <div className="flex items-center justify-center h-64 text-(--mui-palette-text-secondary)">
               <Typography variant="body1">No data available for this time range.</Typography>
             </div>
           ) : (
