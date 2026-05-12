@@ -67,32 +67,32 @@ export default memo(function ContainerDetailPanel({
   const stateLabel = inventory.state.charAt(0).toUpperCase() + inventory.state.slice(1);
 
   return (
-    <div className="bg-[var(--mui-palette-action-hover)] pb-4 border-b border-[var(--mui-palette-divider)]">
+    <div className="bg-(--mui-palette-action-hover) pb-4 border-b border-(--mui-palette-divider)">
       <Divider />
       <div className="px-4 pt-4">
-        <div className="rounded-sm border border-[var(--mui-palette-divider)] bg-[var(--mui-palette-background-paper)] px-3 py-2">
+        <div className="rounded-sm border border-(--mui-palette-divider) bg-(--mui-palette-background-paper) px-3 py-2">
           <div className="text-sm font-medium">Container Status</div>
-          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-sm text-[var(--mui-palette-text-secondary)]">
+          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-sm text-(--mui-palette-text-secondary)">
             <div>
-              <span className="font-medium text-[var(--mui-palette-text-primary)]">State</span>
+              <span className="font-medium text-(--mui-palette-text-primary)">State</span>
               {': '}
               <span>{stateLabel}</span>
             </div>
             <div>
-              <span className="font-medium text-[var(--mui-palette-text-primary)]">Started</span>
+              <span className="font-medium text-(--mui-palette-text-primary)">Started</span>
               {': '}
               <span>{formattedStartedAt}</span>
             </div>
             {formattedFinishedAt && (
               <div>
-                <span className="font-medium text-[var(--mui-palette-text-primary)]">Finished</span>
+                <span className="font-medium text-(--mui-palette-text-primary)">Finished</span>
                 {': '}
                 <span>{formattedFinishedAt}</span>
               </div>
             )}
             {inventory.exitCode !== null && (
               <div>
-                <span className="font-medium text-[var(--mui-palette-text-primary)]">Exit code</span>
+                <span className="font-medium text-(--mui-palette-text-primary)">Exit code</span>
                 {': '}
                 <span>{inventory.exitCode}</span>
               </div>

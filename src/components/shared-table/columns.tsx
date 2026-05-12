@@ -77,7 +77,7 @@ export function nameColumn<TRow>(opts: {
         >
           {statusColor && (
             <span
-              className="flex-shrink-0 w-2 h-2 rounded-full"
+              className="shrink-0 w-2 h-2 rounded-full"
               style={{ backgroundColor: statusColor }}
             />
           )}
@@ -85,7 +85,7 @@ export function nameColumn<TRow>(opts: {
             <img
               src={icon}
               alt=""
-              className="flex-shrink-0 w-4 h-4 object-contain"
+              className="shrink-0 w-4 h-4 object-contain"
             />
           )}
           <span className="truncate">{label}</span>
@@ -149,7 +149,7 @@ export function progressColumn<TRow>(opts: {
               color={color}
             />
           </div>
-          <span className="flex-shrink-0 min-w-[5ch] text-right text-xs tabular-nums text-neutral-600 dark:text-neutral-300">
+          <span className="shrink-0 min-w-[5ch] text-right text-xs tabular-nums text-neutral-600 dark:text-neutral-300">
             {label}
           </span>
         </div>

@@ -12,7 +12,7 @@ export const NavMenuCloseContext = createContext<() => void>(() => {})
 
 const MENU_ITEM_CLASSES =
   'flex items-center gap-2 px-3 py-2 text-sm no-underline text-inherit ' +
-  'hover:bg-[var(--mui-palette-action-hover)] transition-colors'
+  'hover:bg-(--mui-palette-action-hover) transition-colors'
 
 export function SettingsMenuContent() {
   const close = useContext(NavMenuCloseContext)
@@ -40,7 +40,7 @@ export function SettingsMenuContent() {
 
 export function StacksMenuContent() {
   const close = useContext(NavMenuCloseContext)
-  const { data: stacks, isLoading, isError, error } = useQuery({
+  const { data: stacks, isLoading, isError } = useQuery({
     queryKey: STACKS_QUERY_KEY,
     queryFn: () => listStacks(),
     staleTime: 30_000,
@@ -50,8 +50,7 @@ export function StacksMenuContent() {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
   }
   if (isError) {
-    console.error('[StacksMenuContent] failed to load stacks:', error)
-    return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load stacks</div>
+    return <div className="px-3 py-2 text-sm text-(--mui-palette-error-main)">Failed to load stacks</div>
   }
   if (!stacks?.length) {
     return <div className="px-3 py-2 text-sm opacity-60">No stacks</div>
@@ -75,7 +74,7 @@ export function StacksMenuContent() {
             {iconUrl ? (
               <img src={iconUrl} alt="" className="w-4 h-4 rounded-sm" />
             ) : (
-              <span className="w-4 h-4 rounded-sm bg-[var(--mui-palette-action-disabledBackground)] flex items-center justify-center text-[10px] font-bold opacity-50">
+              <span className="w-4 h-4 rounded-sm bg-(--mui-palette-action-disabledBackground) flex items-center justify-center text-[10px] font-bold opacity-50">
                 {(stack.name.charAt(0) || '?').toUpperCase()}
               </span>
             )}
@@ -90,7 +89,7 @@ export function StacksMenuContent() {
 
 export function DockerHostsMenuContent() {
   const close = useContext(NavMenuCloseContext)
-  const { data: hosts, isLoading, isError, error } = useQuery({
+  const { data: hosts, isLoading, isError } = useQuery({
     queryKey: ['managed-host-names'],
     queryFn: () => listManagedHostNames(),
     staleTime: 60_000,
@@ -100,8 +99,7 @@ export function DockerHostsMenuContent() {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
   }
   if (isError) {
-    console.error('[DockerHostsMenuContent] failed to load hosts:', error)
-    return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load hosts</div>
+    return <div className="px-3 py-2 text-sm text-(--mui-palette-error-main)">Failed to load hosts</div>
   }
   if (!hosts?.length) {
     return <div className="px-3 py-2 text-sm opacity-60">No hosts</div>
@@ -130,8 +128,5 @@ export function MenuContentFor({ to }: Readonly<{ to: MenuRouteKey }>) {
   if (to === '/settings') return <SettingsMenuContent />
   if (to === '/stacks') return <StacksMenuContent />
   if (to === '/docker') return <DockerHostsMenuContent />
-  if (import.meta.env.DEV) {
-    console.error(`[MenuContentFor] No menu content defined for route "${to}"`)
-  }
   return null
 }

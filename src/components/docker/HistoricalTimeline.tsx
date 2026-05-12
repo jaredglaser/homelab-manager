@@ -231,7 +231,7 @@ export default memo(function HistoricalTimeline({
   const dateTimeFormat = general.use12HourTime ? 'MM/DD/YYYY hh:mm A' : 'MM/DD/YYYY HH:mm';
 
   return (
-    <div className="sticky bottom-0 z-10 border-t border-neutral-200 dark:border-neutral-700 bg-[var(--mui-palette-background-paper)] px-4 py-3">
+    <div className="sticky bottom-0 z-10 border-t border-neutral-200 dark:border-neutral-700 bg-(--mui-palette-background-paper) px-4 py-3">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
         <div className="flex items-center gap-2">
           <Typography variant="caption" className="text-neutral-500">Range:</Typography>

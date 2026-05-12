@@ -44,7 +44,7 @@ export const MetricCell = memo(function MetricCell({
 
   const displayUnit = useAbbreviatedUnits ? abbreviateUnit(unit) : unit;
   // Abbreviated units are narrower, adjust width accordingly
-  const unitWidth = useAbbreviatedUnits ? 'w-[2.5rem]' : 'w-[3.5rem]';
+  const unitWidth = useAbbreviatedUnits ? 'w-10' : 'w-14';
 
   // Render sparkline: prefer data+color props (memo-friendly), fall back to ReactNode
   // Check length to avoid creating sparklines for host/aggregate rows with empty arrays
@@ -56,10 +56,9 @@ export const MetricCell = memo(function MetricCell({
     : null;
 
   // Reserve space for sparkline when enabled (even if not passed) to keep columns aligned
-  // SparklineCanvas dimensions: width=60px, height=24px, hidden on smaller screens via min-[1428px]:block
-  // (1428px matches SPARKLINE_MIN_WIDTH in DataTable.tsx)
+  // SparklineCanvas dimensions: width=60px, height=24px, hidden on smaller screens via lg:block
   const sparklinePlaceholder = showSparklines && !sparklineElement ? (
-    <div className="hidden min-[1428px]:block flex-shrink-0" style={{ width: 60, height: 24 }} />
+    <div className="hidden min-[1428px]:block shrink-0" style={{ width: 60, height: 24 }} />
   ) : null;
 
   const staleClass = isStale ? 'opacity-50 saturate-50' : '';
@@ -68,7 +67,7 @@ export const MetricCell = memo(function MetricCell({
     <div className="flex items-center gap-2">
       {sparklineElement || sparklinePlaceholder}
 
-      <span className={`${valueWidth} flex-shrink-0 text-right tabular-nums transition-opacity duration-200 ${staleClass}`}>
+      <span className={`${valueWidth} shrink-0 text-right tabular-nums transition-opacity duration-200 ${staleClass}`}>
         {value}
       </span>
 

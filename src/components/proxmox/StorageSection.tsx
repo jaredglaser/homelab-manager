@@ -82,11 +82,11 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-[var(--mui-palette-background-level1)]`}
+        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-(--mui-palette-background-level1)`}
       >
         <ChevronRight
           size={16}
-          className={`transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
+          className={`transition-transform duration-200 shrink-0 ${expanded ? 'rotate-90' : ''}`}
         />
         <span className="font-semibold text-sm">
           Storage ({storages.length})
@@ -94,7 +94,7 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
       </button>
 
       <Collapse in={expanded} unmountOnExit>
-        <div className="bg-[var(--mui-palette-action-hover)] border-b border-[var(--mui-palette-divider)]">
+        <div className="bg-(--mui-palette-action-hover) border-b border-(--mui-palette-divider)">
           <DataTable
             data={sorted}
             columns={columns}

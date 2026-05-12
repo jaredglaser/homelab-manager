@@ -95,13 +95,13 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
                 nodeIdx > 0 ? 'border-t border-neutral-200 dark:border-neutral-700' : ''
-              } ${hostExpanded ? 'bg-[var(--mui-palette-action-hover)]' : 'bg-[var(--mui-palette-background-level2)]'}`}
+              } ${hostExpanded ? 'bg-(--mui-palette-action-hover)' : 'bg-(--mui-palette-background-level2)'}`}
             >
               <ChevronRight
                 size={18}
-                className={`transition-transform duration-200 flex-shrink-0 ${hostExpanded ? 'rotate-90' : ''}`}
+                className={`transition-transform duration-200 shrink-0 ${hostExpanded ? 'rotate-90' : ''}`}
               />
-              <Server size={18} className="flex-shrink-0" />
+              <Server size={18} className="shrink-0" />
               <span className="font-bold">{node.node}</span>
               <Chip
                 size="small"

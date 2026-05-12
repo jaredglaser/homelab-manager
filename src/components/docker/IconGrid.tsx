@@ -24,13 +24,13 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
   return (
     <ButtonBase
       onClick={() => onSelect(slug)}
-      className={`!flex !flex-col !items-center !p-2 !rounded-md hover:!bg-blue-500/10 ${
-        selected ? '!bg-blue-500/20 !ring-1 !ring-blue-500' : ''
+      className={`!flex flex-col! items-center! p-2! rounded-md! hover:bg-blue-500/10! ${
+        selected ? 'bg-blue-500/20! ring-1! ring-blue-500!' : ''
       }`}
     >
       <div className="relative w-8 h-8">
         {!loaded && (
-          <Skeleton variant="rounded" width={32} height={32} className="!absolute inset-0" />
+          <Skeleton variant="rounded" width={32} height={32} className="absolute! inset-0" />
         )}
         <img
           ref={imgRef}
@@ -106,7 +106,7 @@ export default function IconGrid({
   return (
     <div
       ref={scrollRef}
-      className="overflow-y-auto h-[50vh] ml-4 mr-2 mb-4 pl-2 pr-2 py-2 rounded-l-xl rounded-r-none !bg-[var(--mui-palette-background-level1)] themed-scrollbar"
+      className="overflow-y-auto h-[50vh] ml-4 mr-2 mb-4 pl-2 pr-2 py-2 rounded-l-xl rounded-r-none bg-(--mui-palette-background-level1)! themed-scrollbar"
     >
       {filteredIcons.length === 0 ? (
         <p className="text-center py-4 text-sm opacity-70">{emptyMessage}</p>

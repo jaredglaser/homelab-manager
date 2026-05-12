@@ -12,7 +12,7 @@ export default function ContainerStateChip({ state }: Readonly<Props>) {
       data-state={state}
     >
       <StateIndicator state={state} />
-      <span className="text-[var(--mui-palette-text-secondary)]">{state}</span>
+      <span className="text-(--mui-palette-text-secondary)">{state}</span>
     </span>
   );
 }
@@ -48,7 +48,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'exited' || state === 'dead') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-[var(--mui-palette-action-disabled)]"
+        className="inline-block w-2 h-2 rounded-full bg-(--mui-palette-action-disabled)"
         aria-label={state}
       />
     );
@@ -57,7 +57,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   // created, removing, unknown: outlined dot
   return (
     <span
-      className="inline-block w-2 h-2 rounded-full border border-[var(--mui-palette-action-disabled)]"
+      className="inline-block w-2 h-2 rounded-full border border-(--mui-palette-action-disabled)"
       aria-label={state}
     />
   );

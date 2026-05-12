@@ -42,7 +42,7 @@ export type DataTableProps<TRow> = {
 
   /** Estimated height of each row in pixels (default: 41) */
   estimateRowHeight?: (index: number) => number;
-  /** Number of rows to render beyond the visible area (default: 20) */
+  /** Number of rows to render beyond the visible area (default: 10) */
   overscan?: number;
 
   /** Show column headers (default: true). Set false for nested tables that share parent headers. */
@@ -68,11 +68,6 @@ export type DataTableProps<TRow> = {
   rowAttributes?: (row: TRow) => Record<`data-${string}` | `aria-${string}`, string>;
   /** Toolbar actions rendered above the table */
   toolbarActions?: ReactNode;
-  /**
-   * Whether sparklines are enabled. When true and containerWidth >= SPARKLINE_MIN_WIDTH,
-   * metric columns expand to their full (sparkline-inclusive) width.
-   */
-  showSparklines?: boolean;
 } & ExpansionControl;
 
 const DEFAULT_ROW_HEIGHT = 41;
@@ -83,39 +78,32 @@ const DEFAULT_OVERSCAN = 20;
  * to avoid layout conflicts with `contain: layout style`. */
 const VIRTUALIZATION_THRESHOLD = 150;
 
-/**
- * Table container width (measured by ResizeObserver on the DataTable div) at which metric
- * columns expand to show sparklines. The CSS class min-[1428px]:block in MetricCell and
- * MetricHeaderCell mirrors this threshold but responds to viewport width instead -- both
- * must stay in sync.
- */
+/** Viewport width at which sparklines become visible (matches the min-[1428px] CSS breakpoint). */
 export const SPARKLINE_MIN_WIDTH = 1428;
 
 /**
  * Build a CSS grid-template-columns string from visible TanStack Table columns.
- *
- * Column meta shapes handled:
- *   - meta.flex: returned verbatim (e.g., "minmax(200px, 1fr)"). Use for name/label columns.
- *   - meta.sizeCompact / meta.sizeFull: fixed-px metric columns. sizeFull is used when
- *     containerWidth >= SPARKLINE_MIN_WIDTH and showSparklines is true; sizeCompact otherwise.
- *   - (none): falls through to `${col.getSize()}px` (TanStack Table default).
- *
- * Note: meta.minWidth is no longer supported. Callers should use meta.flex for flexible
- * columns or meta.{sizeCompact, sizeFull} for metric columns.
+ * Uses column meta.flex if available (name column: 'minmax(200px, 1fr)').
+ * Metric columns store two sizes in meta: sizeFull (with sparklines) and sizeCompact
+ * (without). containerWidth selects between them so the column stays tight regardless
+ * of whether sparklines are enabled in settings.
  */
 function buildGridTemplate<TRow>(
   columns: ReturnType<ReturnType<typeof useReactTable<TRow>>['getVisibleLeafColumns']>,
   containerWidth: number,
-  showSparklines: boolean,
+  sparklineEnabled: boolean,
 ): string {
+  const sparklinesVisible = containerWidth >= SPARKLINE_MIN_WIDTH && sparklineEnabled;
   return columns
     .map((col) => {
-      const meta = col.columnDef.meta as { flex?: string; sizeCompact?: number; sizeFull?: number } | undefined;
+      const meta = col.columnDef.meta as {
+        flex?: string;
+        sizeCompact?: number;
+        sizeFull?: number;
+      } | undefined;
       if (meta?.flex) return meta.flex;
-      if (meta?.sizeCompact !== undefined || meta?.sizeFull !== undefined) {
-        const useFull = showSparklines && containerWidth >= SPARKLINE_MIN_WIDTH;
-        const size = useFull ? (meta.sizeFull ?? meta.sizeCompact ?? col.getSize()) : (meta.sizeCompact ?? col.getSize());
-        return `${size}px`;
+      if (meta?.sizeCompact !== undefined && meta?.sizeFull !== undefined) {
+        return `${sparklinesVisible ? meta.sizeFull : meta.sizeCompact}px`;
       }
       return `${col.getSize()}px`;
     })
@@ -151,23 +139,18 @@ export function DataTable<TRow>({
   rowClassName,
   rowAttributes,
   toolbarActions,
-  showSparklines: showSparklinesFromProp,
 }: Readonly<DataTableProps<TRow>>) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // All routes use ssr: false, so window is always available. Initialize to window.innerWidth
-  // rather than 0 to avoid a layout shift on first render -- ResizeObserver fires after paint.
-  const [containerWidth, setContainerWidth] = useState(() => window.innerWidth);
   const [isMobile, setIsMobile] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(0);
   const [activeMetricGroupIndex, setActiveMetricGroupIndex] = useState(0);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [internalExpanded, setInternalExpanded] = useState<ExpandedState>({});
-  const { general: { showSparklines: settingsSparklines } } = useGeneralSettings();
-  // Prop overrides settings when explicitly passed; callers that omit it inherit the setting.
-  const showSparklines = showSparklinesFromProp ?? settingsSparklines;
+  const { general: { showSparklines } } = useGeneralSettings();
 
   useEffect(() => {
     const el = containerRef.current;
@@ -177,8 +160,8 @@ export function DataTable<TRow>({
       const entry = entries[0];
       if (entry) {
         const width = entry.contentRect.width;
-        setContainerWidth(width);
         setIsMobile(width < MOBILE_BREAKPOINT);
+        setContainerWidth(width);
       }
     });
 
@@ -298,7 +281,7 @@ export function DataTable<TRow>({
         {/* Sticky header: inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div
-            className="grid border-b border-neutral-200 dark:border-neutral-700 bg-[var(--mui-palette-background-default)] sticky top-0 z-10"
+            className="grid border-b border-neutral-200 dark:border-neutral-700 bg-(--mui-palette-background-default) sticky top-0 z-10"
             style={{ gridTemplateColumns: gridTemplate }}
           >
             {table.getHeaderGroups().map((headerGroup) =>

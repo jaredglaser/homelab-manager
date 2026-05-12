@@ -210,7 +210,7 @@ export default function ZFSPoolsTable({
 
   const rowClassName = useCallback((row: ZFSTableRow) => {
     if (row.type === 'host') {
-      return '!bg-[var(--mui-palette-background-level1)]';
+      return 'bg-(--mui-palette-background-level1)!';
     }
     return '';
   }, []);

@@ -256,10 +256,10 @@ describe('SparklineCanvas', () => {
     expect(canvas.style.display).toBe('block');
   });
 
-  it('wrapper div includes flex-shrink-0 class', () => {
+  it('wrapper div includes shrink-0 class', () => {
     const { container } = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
     const wrapper = container.firstElementChild as HTMLElement;
-    expect(wrapper.className).toContain('flex-shrink-0');
+    expect(wrapper.className).toContain('shrink-0');
   });
 
   it('rebuilds gradient when color prop changes after mount', () => {

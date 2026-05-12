@@ -75,30 +75,30 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
     <>
       <Paper
         elevation={0}
-        className="!bg-[var(--mui-palette-background-chartBg)] rounded-sm overflow-hidden"
+        className="bg-(--mui-palette-background-chartBg)! rounded-sm overflow-hidden"
       >
         <div
           role={record.logs ? 'button' : undefined}
           tabIndex={record.logs ? 0 : undefined}
           onClick={() => record.logs && setExpanded(!expanded)}
           onKeyDown={record.logs ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } } : undefined}
-          className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-[var(--mui-palette-action-hover)]' : ''}`}
+          className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-(--mui-palette-action-hover)' : ''}`}
         >
           {record.logs && (
             <ChevronRight
               size={14}
-              className={`transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-90' : ''}`}
+              className={`transition-transform duration-200 shrink-0 ${expanded ? 'rotate-90' : ''}`}
             />
           )}
           {!record.logs && <div className="w-3.5" />}
 
-          <GitCommit size={14} className="opacity-60 flex-shrink-0" />
+          <GitCommit size={14} className="opacity-60 shrink-0" />
           <code className="font-mono text-xs">{record.commitSha.substring(0, 7)}</code>
 
           <Chip
             size="small"
             label={getActionLabel(record)}
-            className="!text-xs !h-5"
+            className="text-xs! h-5!"
             variant="filled"
           />
 
@@ -107,14 +107,14 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
               size="small"
               color="warning"
               label={PENDING_APPROVAL_LABEL}
-              className="!text-xs !h-5"
+              className="text-xs! h-5!"
               variant="outlined"
             />
           ) : (
             <Chip
               size="small"
               label={STATUS_LABEL[record.status]}
-              className="!text-xs !h-5"
+              className="text-xs! h-5!"
               style={{ color: statusColor, borderColor: statusColor }}
               variant="outlined"
             />
@@ -129,7 +129,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
               size="small"
               variant="contained"
               color="primary"
-              className="!text-xs !h-6 !min-w-0 !px-2 !ml-1"
+              className="text-xs! h-6! min-w-0! px-2! ml-1!"
               onClick={(e) => {
                 e.stopPropagation();
                 onApprove(record.id);
@@ -145,7 +145,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
               size="small"
               variant="outlined"
               color="error"
-              className="!text-xs !h-6 !min-w-0 !px-2 !ml-1"
+              className="text-xs! h-6! min-w-0! px-2! ml-1!"
               onClick={(e) => {
                 e.stopPropagation();
                 onReject(record.id);
@@ -161,7 +161,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
             <Button
               size="small"
               variant="outlined"
-              className="!text-xs !h-6 !min-w-0 !px-2 !ml-1 !border-red-600 !text-red-500 hover:!bg-red-600/10"
+              className="text-xs! h-6! min-w-0! px-2! ml-1! border-red-600! text-red-500! hover:bg-red-600/10!"
               onClick={(e) => {
                 e.stopPropagation();
                 setRollbackOpen(true);
@@ -175,7 +175,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
         {record.logs && (
           <Collapse in={expanded} unmountOnExit>
-            <pre className="px-4 py-2 text-xs font-mono whitespace-pre-wrap opacity-80 border-t border-[var(--mui-palette-divider)] max-h-[200px] overflow-y-auto">
+            <pre className="px-4 py-2 text-xs font-mono whitespace-pre-wrap opacity-80 border-t border-(--mui-palette-divider) max-h-[200px] overflow-y-auto">
               {record.logs}
             </pre>
           </Collapse>

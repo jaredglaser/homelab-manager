@@ -29,7 +29,7 @@ export default function StackActionBar({
         onClick={onDeploy}
         startIcon={
           isDeploying ? (
-            <CircularProgress size={14} className="!text-inherit" />
+            <CircularProgress size={14} className="text-inherit!" />
           ) : (
             <Play size={14} />
           )
@@ -49,27 +49,27 @@ export default function StackActionBar({
             />
           }
           label={<Typography variant="caption" className="select-none">Force</Typography>}
-          className="!mr-0"
+          className="mr-0!"
         />
         <Tooltip
           title={
             <div className="p-1">
-              <Typography variant="subtitle2" className="!text-inherit mb-1">Force Recreate</Typography>
-              <Typography variant="caption" className="!text-inherit block opacity-90">
+              <Typography variant="subtitle2" className="text-inherit! mb-1">Force Recreate</Typography>
+              <Typography variant="caption" className="text-inherit! block opacity-90">
                 By default, Docker Compose only recreates containers whose configuration has changed.
                 Enable this to forcefully recreate all containers in the stack, even if their
                 config is unchanged. This also removes any containers with conflicting names
                 from other projects before deploying.
               </Typography>
-              <Typography variant="caption" className="!text-inherit block opacity-70 mt-1">
+              <Typography variant="caption" className="text-inherit! block opacity-70 mt-1">
                 Use this when you encounter name conflicts or need a clean restart of all services.
               </Typography>
             </div>
           }
           placement="top-start"
-          slotProps={{ tooltip: { className: '!max-w-xs' } }}
+          slotProps={{ tooltip: { className: 'max-w-xs!' } }}
         >
-          <IconButton size="small" aria-label="Force recreate help" className="!p-0.5 !opacity-40 hover:!opacity-80">
+          <IconButton size="small" aria-label="Force recreate help" className="p-0.5! opacity-40! hover:opacity-80!">
             <HelpCircle size={14} />
           </IconButton>
         </Tooltip>
@@ -91,7 +91,7 @@ export default function StackActionBar({
         disabled={isDeploying}
         onClick={onTeardown}
         startIcon={<Square size={14} />}
-        className="!text-[var(--mui-palette-error-main)] !border-[var(--mui-palette-error-main)]"
+        className="text-(--mui-palette-error-main)! border-(--mui-palette-error-main)!"
       >
         Teardown
       </Button>
@@ -103,7 +103,7 @@ export default function StackActionBar({
           disabled={isDeploying}
           onClick={onDelete}
           startIcon={<Trash2 size={14} />}
-          className="!text-[var(--mui-palette-error-main)] !border-[var(--mui-palette-error-main)]"
+          className="text-(--mui-palette-error-main)! border-(--mui-palette-error-main)!"
         >
           Delete Stack
         </Button>

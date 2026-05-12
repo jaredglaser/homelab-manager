@@ -75,7 +75,7 @@ export default function DeleteStackDialog({
                 <div className="py-1">
                   <Typography
                     variant="body2"
-                    className="font-medium !text-[var(--mui-palette-error-main)]"
+                    className="font-medium text-(--mui-palette-error-main)!"
                   >
                     Tear down &amp; remove
                   </Typography>

@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           : fallback;
       }
       return (
-        <div className="flex items-center justify-center p-4 text-[var(--mui-palette-text-secondary)]">
+        <div className="flex items-center justify-center p-4 text-(--mui-palette-text-secondary)">
           <div className="text-center">
             <p className="text-sm font-medium mb-1">Something went wrong</p>
             <p className="text-xs opacity-70">{this.state.error?.message || 'Unknown error'}</p>

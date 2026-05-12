@@ -47,7 +47,7 @@ export default function DeployHistoryList({
     return (
       <div className="space-y-2">
         {Array.from({ length: 3 }, (_, i) => (
-          <Skeleton key={i} variant="rounded" height={40} className="!bg-[var(--mui-palette-action-hover)]" />
+          <Skeleton key={i} variant="rounded" height={40} className="bg-(--mui-palette-action-hover)!" />
         ))}
       </div>
     );
@@ -71,12 +71,12 @@ export default function DeployHistoryList({
             onChange={(_e, v) => { if (v) setStatusFilter(v) }}
             size="small"
           >
-            <ToggleButton value="all" className="!normal-case !px-3 !text-xs">All</ToggleButton>
-            <ToggleButton value="succeeded" className="!normal-case !px-3 !text-xs">Succeeded</ToggleButton>
-            <ToggleButton value="failed" className="!normal-case !px-3 !text-xs">Failed</ToggleButton>
-            <ToggleButton value="pending" className="!normal-case !px-3 !text-xs">Pending</ToggleButton>
-            <ToggleButton value="in_progress" className="!normal-case !px-3 !text-xs">In Progress</ToggleButton>
-            <ToggleButton value="no_change" className="!normal-case !px-3 !text-xs">No Changes</ToggleButton>
+            <ToggleButton value="all" className="normal-case! px-3! text-xs!">All</ToggleButton>
+            <ToggleButton value="succeeded" className="normal-case! px-3! text-xs!">Succeeded</ToggleButton>
+            <ToggleButton value="failed" className="normal-case! px-3! text-xs!">Failed</ToggleButton>
+            <ToggleButton value="pending" className="normal-case! px-3! text-xs!">Pending</ToggleButton>
+            <ToggleButton value="in_progress" className="normal-case! px-3! text-xs!">In Progress</ToggleButton>
+            <ToggleButton value="no_change" className="normal-case! px-3! text-xs!">No Changes</ToggleButton>
           </ToggleButtonGroup>
           {filtered.length !== records.length && (
             <Typography variant="caption" className="opacity-50">
@@ -86,18 +86,18 @@ export default function DeployHistoryList({
           <Tooltip
             title={
               <div className="p-1">
-                <Typography variant="subtitle2" className="!text-inherit mb-1">Deploy History</Typography>
-                <Typography variant="caption" className="!text-inherit block opacity-90">
+                <Typography variant="subtitle2" className="text-inherit! mb-1">Deploy History</Typography>
+                <Typography variant="caption" className="text-inherit! block opacity-90">
                   Showing the most recent 100 deployments for this stack. Use the filters
                   to narrow by status. Expand a row to view its deploy logs.
                 </Typography>
-                <Typography variant="caption" className="!text-inherit block opacity-70 mt-1">
+                <Typography variant="caption" className="text-inherit! block opacity-70 mt-1">
                   Eligible deployments can be rolled back to recreate containers from a previous compose configuration.
                 </Typography>
               </div>
             }
             placement="top-start"
-            slotProps={{ tooltip: { className: '!max-w-xs' } }}
+            slotProps={{ tooltip: { className: 'max-w-xs!' } }}
           >
             <span className="p-0.5 opacity-40 hover:opacity-80 transition-opacity cursor-help">
               <HelpCircle size={14} />

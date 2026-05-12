@@ -67,7 +67,7 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Edit Host</DialogTitle>
-      <DialogContent className="flex flex-col gap-4 !pt-4">
+      <DialogContent className="flex flex-col gap-4 pt-4!">
         <TextField
           label="Host Name"
           value={name}

@@ -38,7 +38,7 @@ function IntervalToggle({
         <Tooltip
           title={
             <div className="flex flex-col gap-1">
-              <Typography variant="body2" className="!text-white">Fast updates (1 second)</Typography>
+              <Typography variant="body2" className="text-white!">Fast updates (1 second)</Typography>
               <Chip size="small" color="warning" variant="filled" label="Increases API load on Proxmox" />
             </div>
           }
@@ -51,7 +51,7 @@ function IntervalToggle({
         <Tooltip
           title={
             <div className="flex flex-col gap-1">
-              <Typography variant="body2" className="!text-white">Relaxed updates (10 seconds)</Typography>
+              <Typography variant="body2" className="text-white!">Relaxed updates (10 seconds)</Typography>
               <Chip size="small" color="success" variant="filled" label="Recommended for most users" />
             </div>
           }
@@ -251,7 +251,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
           <Typography variant="body2" className="text-neutral-500">
             Set the following environment variables to connect to your Proxmox cluster:
           </Typography>
-          <pre className="mt-3 p-4 bg-[var(--mui-palette-background-level1)] rounded-lg text-sm font-mono">
+          <pre className="mt-3 p-4 bg-(--mui-palette-background-level1) rounded-lg text-sm font-mono">
 {`PROXMOX_HOST=your-proxmox-host
 PROXMOX_TOKEN_ID=user@realm!tokenid
 PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx

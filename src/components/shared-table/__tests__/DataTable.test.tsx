@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { DataTable, SPARKLINE_MIN_WIDTH, type DataTableProps } from '../DataTable';
 import type { ColumnDef } from '@tanstack/react-table';
+import * as useSettingsModule from '@/hooks/useSettings';
 
 interface TestRow {
   id: string;
@@ -504,6 +505,31 @@ describe('DataTable', () => {
     const SIZE_COMPACT = 115;
     const SIZE_FULL = 180;
 
+    let sparklines = true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let settingsSpy: any;
+
+    beforeEach(() => {
+      settingsSpy = spyOn(useSettingsModule, 'useGeneralSettings').mockImplementation(() => ({
+        general: { showSparklines: sparklines, useAbbreviatedUnits: false } as never,
+        retention: {} as never,
+        developer: {} as never,
+        setUse12HourTime: () => {},
+        setUpdateInterval: () => {},
+        setShowSparklines: () => {},
+        setUseAbbreviatedUnits: () => {},
+        setLightPalette: () => {},
+        setRetention: () => {},
+        setDockerDebugLogging: () => {},
+        setDbFlushDebugLogging: () => {},
+        setSseDebugLogging: () => {},
+      }));
+    });
+
+    afterEach(() => {
+      settingsSpy.mockRestore();
+    });
+
     const metricColumns: ColumnDef<TestRow, unknown>[] = [
       {
         id: 'name',
@@ -526,6 +552,7 @@ describe('DataTable', () => {
     }
 
     it('uses sizeCompact when containerWidth < SPARKLINE_MIN_WIDTH (even with showSparklines=true)', () => {
+      sparklines = true;
       const originalResizeObserver = globalThis.ResizeObserver;
       let resizeCallback: ResizeObserverCallback | null = null;
 
@@ -551,7 +578,6 @@ describe('DataTable', () => {
             data={testData}
             columns={metricColumns}
             getRowId={(row) => row.id}
-            showSparklines={true}
           />,
         );
 
@@ -564,6 +590,7 @@ describe('DataTable', () => {
     });
 
     it('uses sizeFull when containerWidth >= SPARKLINE_MIN_WIDTH and showSparklines=true', () => {
+      sparklines = true;
       const originalResizeObserver = globalThis.ResizeObserver;
       let resizeCallback: ResizeObserverCallback | null = null;
 
@@ -589,7 +616,6 @@ describe('DataTable', () => {
             data={testData}
             columns={metricColumns}
             getRowId={(row) => row.id}
-            showSparklines={true}
           />,
         );
 
@@ -602,6 +628,7 @@ describe('DataTable', () => {
     });
 
     it('forces sizeCompact when showSparklines=false even at wide containerWidth', () => {
+      sparklines = false;
       const originalResizeObserver = globalThis.ResizeObserver;
       let resizeCallback: ResizeObserverCallback | null = null;
 
@@ -627,7 +654,6 @@ describe('DataTable', () => {
             data={testData}
             columns={metricColumns}
             getRowId={(row) => row.id}
-            showSparklines={false}
           />,
         );
 

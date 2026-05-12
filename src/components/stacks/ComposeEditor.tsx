@@ -62,9 +62,9 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
     && document.documentElement.dataset.colorScheme === 'dark';
 
   return (
-    <Paper elevation={0} className="mb-4 !bg-[var(--mui-palette-background-chartBg)] rounded-sm overflow-hidden">
+    <Paper elevation={0} className="mb-4 bg-(--mui-palette-background-chartBg)! rounded-sm overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-3 py-2 border-b border-[var(--mui-palette-divider)]">
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-(--mui-palette-divider)">
         <Typography variant="subtitle2" className="flex-1">
           docker-compose.yml
         </Typography>
@@ -79,7 +79,7 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
           startIcon={saveMutation.isPending ? <CircularProgress size={14} /> : <Save size={14} />}
           onClick={() => saveMutation.mutate()}
           disabled={!isDirty || saveMutation.isPending}
-          className="!normal-case"
+          className="normal-case!"
         >
           Save &amp; Commit
         </Button>

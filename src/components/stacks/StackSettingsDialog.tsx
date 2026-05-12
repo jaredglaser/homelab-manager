@@ -54,9 +54,9 @@ export default function StackSettingsDialog({
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Stack Settings</DialogTitle>
-      <DialogContent className="flex flex-col gap-4 !pt-4">
+      <DialogContent className="flex flex-col gap-4 pt-4!">
         <FormControl fullWidth disabled={isLoading}>
-          <FormLabel className="!text-sm !mb-1">Target Host</FormLabel>
+          <FormLabel className="text-sm! mb-1!">Target Host</FormLabel>
           <Select
             value={host}
             onChange={(e) => setHost(e.target.value)}
