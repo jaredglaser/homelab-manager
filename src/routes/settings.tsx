@@ -11,6 +11,18 @@ import {
 } from '@/hooks/useSettings'
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
+import {
+  CHART_WINDOW_MARKS,
+  UPDATE_INTERVAL_MARKS,
+  RAW_DATA_MARKS,
+  MINUTE_AGG_MARKS,
+  HOUR_AGG_MARKS,
+  formatChartWindow,
+  formatUpdateInterval,
+  formatHours,
+  formatDays,
+  formatDecimalLabel,
+} from '@/lib/constants/settings-ui'
 
 export const Route = createFileRoute('/settings')({
   ssr: false,
@@ -300,60 +312,3 @@ function SettingsContent() {
   )
 }
 
-function formatDecimalLabel(key: keyof DecimalSettings): string {
-  const labels: Record<keyof DecimalSettings, string> = {
-    cpu: 'CPU',
-    memory: 'Memory',
-    diskSpeed: 'Disk Speed',
-    networkSpeed: 'Network Speed',
-  };
-  return labels[key];
-}
-
-// --- Chart window slider marks and formatter ---
-
-const CHART_WINDOW_MARKS = [60, 120, 300, 600, 900, 1800].map(v => ({ value: v }));
-
-function formatChartWindow(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = seconds / 60;
-  return `${minutes} min`;
-}
-
-// --- Update interval slider marks and formatter ---
-
-const UPDATE_INTERVAL_MARKS = [100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000].map(v => ({ value: v }));
-
-function formatUpdateInterval(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = seconds / 60;
-  return `${minutes}min`;
-}
-
-// --- Retention slider marks and formatters ---
-
-const RAW_DATA_MARKS = [1, 2, 4, 8, 12, 24, 48, 72, 120, 168].map(v => ({ value: v }));
-const MINUTE_AGG_MARKS = [1, 2, 3, 5, 7, 14, 21, 30].map(v => ({ value: v }));
-const HOUR_AGG_MARKS = [1, 7, 14, 30, 60, 90, 180, 365].map(v => ({ value: v }));
-
-function formatHours(hours: number): string {
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'}`;
-  const days = hours / 24;
-  if (Number.isInteger(days)) return `${days} day${days === 1 ? '' : 's'}`;
-  return `${hours} hours`;
-}
-
-function formatDays(days: number): string {
-  if (days < 7) return `${days} day${days === 1 ? '' : 's'}`;
-  if (days % 30 === 0 && days >= 30) {
-    const months = days / 30;
-    return `${months} month${months === 1 ? '' : 's'}`;
-  }
-  if (days % 7 === 0 && days < 30) {
-    const weeks = days / 7;
-    return `${weeks} week${weeks === 1 ? '' : 's'}`;
-  }
-  return `${days} days`;
-}
