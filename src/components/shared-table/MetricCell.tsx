@@ -56,7 +56,8 @@ export const MetricCell = memo(function MetricCell({
     : null;
 
   // Reserve space for sparkline when enabled (even if not passed) to keep columns aligned
-  // SparklineCanvas dimensions: width=60px, height=24px, hidden on smaller screens via lg:block
+  // SparklineCanvas dimensions: width=60px, height=24px, hidden on smaller screens via min-[1428px]:block
+  // (1428px matches SPARKLINE_MIN_WIDTH in DataTable.tsx)
   const sparklinePlaceholder = showSparklines && !sparklineElement ? (
     <div className="hidden min-[1428px]:block flex-shrink-0" style={{ width: 60, height: 24 }} />
   ) : null;
