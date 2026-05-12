@@ -609,6 +609,7 @@ describe('handleUpdateAgent', () => {
       expect(result.error).toContain('redirect');
       expect(result.suggestions).toBeDefined();
     }
+    expect(fetchSpy.mock.calls[0][1]?.redirect).toBe('manual');
     fetchSpy.mockRestore();
   });
 });

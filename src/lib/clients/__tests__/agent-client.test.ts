@@ -310,6 +310,8 @@ describe('AgentClient', () => {
       const controller = new AbortController();
       const gen = client.streamZfsStats(controller.signal);
       await expect(gen.next()).rejects.toThrow(/redirect/);
+      const [, options] = fetchMock.mock.calls[0];
+      expect(options.redirect).toBe('manual');
     });
 
     it('throws AgentClientError when response has no body', async () => {
