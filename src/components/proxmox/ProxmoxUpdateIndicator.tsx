@@ -46,7 +46,12 @@ export function UpdateIndicator({ expectedInterval }: { expectedInterval: number
 
   return (
     <Tooltip title={tooltipTitle} placement="bottom">
-      <div className="relative inline-flex items-center justify-center w-2 h-2">
+      <div
+        className="relative inline-flex items-center justify-center w-2 h-2"
+        role="status"
+        aria-label={tooltipTitle}
+        tabIndex={0}
+      >
         <div
           ref={dotRef}
           className="absolute w-2 h-2 rounded-full transition-all duration-300 bg-neutral-400 opacity-40"
