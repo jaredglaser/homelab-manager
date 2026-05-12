@@ -234,7 +234,7 @@ export default memo(function SparklineCanvas({
   });
 
   return (
-    <div ref={wrapperRef} className={`flex-shrink-0 ${className ?? ''}`} style={{ contain: 'strict', height, width }}>
+    <div ref={wrapperRef} className={`shrink-0 ${className ?? ''}`} style={{ contain: 'strict', height, width }}>
       <canvas ref={canvasRef} style={{ width, height, display: 'block' }} />
     </div>
   );

@@ -26,8 +26,8 @@ interface HostRowProps {
 
 export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
   return (
-    <div className="flex items-center gap-3 py-2 border-b border-[var(--mui-palette-divider)] last:border-0">
-      <Server size={16} className="text-[var(--mui-palette-text-secondary)] shrink-0" />
+    <div className="flex items-center gap-3 py-2 border-b border-(--mui-palette-divider) last:border-0">
+      <Server size={16} className="text-(--mui-palette-text-secondary) shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <Typography variant="body2" className="font-semibold truncate">
@@ -35,21 +35,21 @@ export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, o
           </Typography>
           <StatusDot status={host.status} />
           {host.agentVersion && (
-            <Typography variant="caption" className="text-[var(--mui-palette-text-secondary)]">
+            <Typography variant="caption" className="text-(--mui-palette-text-secondary)">
               v{host.agentVersion}
             </Typography>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Typography variant="caption" className="font-mono text-[var(--mui-palette-text-secondary)] block truncate">
+          <Typography variant="caption" className="font-mono text-(--mui-palette-text-secondary) block truncate">
             {host.agentUrl}
           </Typography>
           <div className="flex items-center gap-1">
             {host.capabilities?.docker && (
-              <Chip label="Docker" size="small" variant="outlined" className="!h-4 !text-[10px]" />
+              <Chip label="Docker" size="small" variant="outlined" className="h-4! text-[10px]!" />
             )}
             {host.capabilities?.zfs && (
-              <Chip label="ZFS" size="small" variant="outlined" className="!h-4 !text-[10px]" />
+              <Chip label="ZFS" size="small" variant="outlined" className="h-4! text-[10px]!" />
             )}
           </div>
         </div>

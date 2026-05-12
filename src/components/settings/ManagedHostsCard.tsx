@@ -66,12 +66,12 @@ export function ManagedHostsCardView({
         {isLoading ? (
           <div className="flex items-center gap-2 py-4">
             <CircularProgress size={16} />
-            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+            <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
               Loading hosts…
             </Typography>
           </div>
         ) : hosts.length === 0 ? (
-          <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)] py-2">
+          <Typography variant="body2" className="text-(--mui-palette-text-secondary) py-2">
             No hosts configured. Add a host below to get started.
           </Typography>
         ) : (

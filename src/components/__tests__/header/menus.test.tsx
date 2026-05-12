@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { StackSummary } from '@/types/stacks'
+import type { MenuRouteKey } from '@/components/header/nav-config'
 
 const mockListStacks = mock((): Promise<StackSummary[]> => Promise.resolve([]))
 const mockListManagedHostNames = mock((): Promise<string[]> => Promise.resolve([]))
@@ -302,5 +303,14 @@ describe('MenuContentFor', () => {
     mockListManagedHostNames.mockImplementation(() => new Promise(() => {}))
     render(<MenuContentFor to="/docker" />, { wrapper: createWrapper() })
     expect(screen.getByText('Loading…')).not.toBeNull()
+  })
+
+  it('renders nothing for an unknown route key', () => {
+    // Cast to bypass TypeScript so we can reach the null fallback branch.
+    const { container } = render(
+      <MenuContentFor to={'/proxmox' as MenuRouteKey} />,
+      { wrapper: createWrapper() },
+    )
+    expect(container.firstChild).toBeNull()
   })
 })

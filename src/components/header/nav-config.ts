@@ -66,6 +66,6 @@ export const PREFETCH_STALE_TIME = 1_000
 export function handlePrefetch(route: RouteKey) {
   const config = PREFETCH_CONFIG[route]
   if (config) {
-    queryClient.prefetchQuery({ ...config, staleTime: PREFETCH_STALE_TIME }).catch(() => {})
+    queryClient.prefetchQuery({ ...config, staleTime: PREFETCH_STALE_TIME }).catch((err) => console.error('[nav-config] prefetch failed:', err))
   }
 }

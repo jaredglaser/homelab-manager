@@ -9,8 +9,8 @@ export default function PageStatusBar({ left, right }: Readonly<PageStatusBarPro
   if (!left && !right) return null;
 
   return (
-    <div className="py-2 px-4 flex items-center justify-between flex-shrink-0 border-b border-[var(--mui-palette-divider)]/30">
-      <div className="flex items-center gap-3 text-sm text-[var(--mui-palette-text-secondary)]">
+    <div className="py-2 px-4 flex items-center justify-between shrink-0 border-b border-(--mui-palette-divider)/30">
+      <div className="flex items-center gap-3 text-sm text-(--mui-palette-text-secondary)">
         {left}
       </div>
       <div className="flex items-center gap-3">

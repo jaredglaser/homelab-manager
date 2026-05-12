@@ -118,7 +118,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
   const publicJwkJson = verifyResult ? JSON.stringify(verifyResult.publicJwk) : null
 
   return (
-    <div className="flex flex-col gap-4 pt-4 border-t border-[var(--mui-palette-divider)]">
+    <div className="flex flex-col gap-4 pt-4 border-t border-(--mui-palette-divider)">
       <Typography variant="subtitle2">Add Host</Typography>
 
       <Stepper activeStep={activeStep} alternativeLabel>
@@ -132,7 +132,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
       <div className="min-h-[200px]">
         {currentStepName === 'Capabilities' && (
           <div className="flex flex-col gap-3" data-testid="step-capabilities">
-            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+            <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
               Select the capabilities this host will provide:
             </Typography>
             <FormControlLabel
@@ -160,18 +160,18 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
 
         {currentStepName === 'ZFS Setup' && (
           <div className="flex flex-col gap-3" data-testid="step-zfs-setup">
-            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+            <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
               Run these commands on the target host to create the ZFS user:
             </Typography>
             <div className="relative">
-              <pre className="p-3 rounded text-xs overflow-x-auto bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
+              <pre className="p-3 rounded text-xs overflow-x-auto bg-(--mui-palette-background-level1) text-(--mui-palette-text-primary)">
                 {ZFS_SETUP_COMMANDS}
               </pre>
               <div className="absolute top-1 right-1">
                 <CopyButton text={ZFS_SETUP_COMMANDS} label="ZFS setup commands" />
               </div>
             </div>
-            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)] mt-2">
+            <Typography variant="body2" className="text-(--mui-palette-text-secondary) mt-2">
               From the output above: copy the number after <code>uid=</code> into HLM_ZFS_UID, and the number after <code>gid=</code> in the <code>(zfs)</code> supplementary group into HLM_ZFS_GID.
             </Typography>
             <div className="flex gap-2">
@@ -210,7 +210,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
 
         {currentStepName === 'Compose File' && (
           <div className="flex flex-col gap-3" data-testid="step-compose">
-            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+            <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
               Create this file on the target host:
             </Typography>
 
@@ -219,7 +219,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
                 <Typography variant="caption" className="font-semibold">docker-compose.yml</Typography>
                 <CopyButton text={composeYaml} label="docker-compose.yml" />
               </div>
-              <pre className="p-3 rounded text-xs overflow-x-auto max-h-[300px] bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
+              <pre className="p-3 rounded text-xs overflow-x-auto max-h-[300px] bg-(--mui-palette-background-level1) text-(--mui-palette-text-primary)">
                 {composeYaml}
               </pre>
             </div>
@@ -228,7 +228,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
 
         {currentStepName === 'Configuration' && (
           <div className="flex flex-col gap-3" data-testid="step-env">
-            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+            <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
               Create this file alongside the compose file, then run <code>docker compose up -d</code>:
             </Typography>
 
@@ -237,7 +237,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
                 <Typography variant="caption" className="font-semibold">.env</Typography>
                 <CopyButton text={envFile} label=".env" />
               </div>
-              <pre className="p-3 rounded text-xs overflow-x-auto max-h-[300px] bg-[var(--mui-palette-background-level1)] text-[var(--mui-palette-text-primary)]">
+              <pre className="p-3 rounded text-xs overflow-x-auto max-h-[300px] bg-(--mui-palette-background-level1) text-(--mui-palette-text-primary)">
                 {envFile}
               </pre>
             </div>
@@ -251,7 +251,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
 
         {currentStepName === 'Verify Connection' && (
           <div className="flex flex-col gap-3" data-testid="step-verify">
-            <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">
+            <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
               Enter the agent connection details and verify:
             </Typography>
             <TextField
@@ -290,7 +290,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
                 <Typography variant="body2" className="mb-2">
                   Set this as <code>AGENT_TRUSTED_PUBKEY</code> in your agent environment, then restart the agent:
                 </Typography>
-                <pre className="text-xs overflow-auto p-2 rounded bg-[var(--mui-palette-background-level1)]" data-testid="pubkey-display">
+                <pre className="text-xs overflow-auto p-2 rounded bg-(--mui-palette-background-level1)" data-testid="pubkey-display">
                   {publicJwkJson}
                 </pre>
                 <CopyButton text={publicJwkJson} label="public key" />

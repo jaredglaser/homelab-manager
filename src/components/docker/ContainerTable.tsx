@@ -15,10 +15,9 @@ import type {
   DockerHostTableRow,
   DockerContainerTableRow,
   DockerTableRow,
-  HostAggregatedStats,
 } from '@/types/docker';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
-import { buildDockerTableHierarchy, rowToDockerStats, totalContainers } from '@/lib/utils/docker-hierarchy-builder';
+import { buildDockerTableHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
 import ContainerDetailPanel from '@/components/docker/ContainerDetailPanel';
@@ -334,16 +333,16 @@ export default function ContainerTable({
 
   const rowClassName = useCallback((row: DockerTableRow) => {
     if (row.type === 'host') {
-      const base = row.isStale ? '!bg-amber-500/10' : '!bg-[var(--mui-palette-background-level1)]';
+      const base = row.isStale ? 'bg-amber-500/10!' : 'bg-(--mui-palette-background-level1)!';
       // scroll-mt clears the DataTable's sticky column header (~37px) when scrollIntoView is called
       return `${base} scroll-mt-10`;
     }
     if (row.isStale) {
-      return '!bg-amber-500/10 !opacity-70';
+      return 'bg-amber-500/10! opacity-70!';
     }
     const { state } = row.inventory;
     if (state !== 'running' && state !== 'restarting') {
-      return '!opacity-60';
+      return 'opacity-60!';
     }
     return '';
   }, []);
@@ -510,22 +509,19 @@ const HostNameCell = memo(function HostNameCell({
   const hasContainers = children.length > 0;
   const canToggle = hasContainers && totalHosts > 1;
 
-  const countLabel = buildCountLabel(a);
-
   return (
     <div className="flex items-center gap-2">
       {canToggle && (
         <ChevronRight
           size={18}
-          className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          className={`shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
       )}
-      <Server size={18} className="flex-shrink-0" />
+      <Server size={18} className="shrink-0" />
       {row.isStale && (
-        <WifiOff size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
+        <WifiOff size={16} className="text-amber-600 dark:text-amber-400 shrink-0" />
       )}
       <span className="font-bold">{row.hostName}</span>
-      <Chip size="small" variant="filled" label={countLabel} />
       {a.staleContainerCount > 0 && !row.isStale && (
         <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
       )}
@@ -533,27 +529,6 @@ const HostNameCell = memo(function HostNameCell({
   );
 });
 
-/**
- * Build a human-readable container count label for the host chip.
- * Shows a breakdown when containers are in mixed states.
- */
-function buildCountLabel(a: HostAggregatedStats): string {
-  const total = totalContainers(a);
-  const nonRunning = total - a.runningCount;
-
-  if (nonRunning === 0) {
-    return `${total} container${total === 1 ? '' : 's'}`;
-  }
-
-  const parts: string[] = [];
-  if (a.runningCount > 0) parts.push(`${a.runningCount} running`);
-  if (a.stoppedCount > 0) parts.push(`${a.stoppedCount} stopped`);
-  if (a.restartingCount > 0) parts.push(`${a.restartingCount} restarting`);
-  if (a.pausedCount > 0) parts.push(`${a.pausedCount} paused`);
-  if (a.otherCount > 0) parts.push(`${a.otherCount} other`);
-
-  return parts.join(' · ');
-}
 
 /**
  * Name cell for container rows: shows icon, pulse indicator, state chip, name,
@@ -608,14 +583,14 @@ function ContainerNameCell({
       <div className="flex items-center gap-2">
         <ChevronRight
           size={16}
-          className={`flex-shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          className={`shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
         />
 
         {/* Pulse indicator: for running and restarting containers with data */}
         {(inventory.state === 'running' || inventory.state === 'restarting') && (
           <div
             ref={indicatorRef}
-            className="relative w-2 h-2 flex-shrink-0"
+            className="relative w-2 h-2 shrink-0"
             title={lastUpdated ? `Last updated: ${lastUpdated.toLocaleTimeString()}` : 'No data yet'}
           >
             <div
@@ -637,7 +612,7 @@ function ContainerNameCell({
         <img
           src={iconError ? FALLBACK_ICON_URL : iconUrl}
           alt=""
-          className="w-5 h-5 flex-shrink-0"
+          className="w-5 h-5 shrink-0"
           onError={() => setIconError(true)}
         />
         <span className="truncate">{inventory.name}</span>
@@ -647,7 +622,7 @@ function ContainerNameCell({
             e.stopPropagation();
             setIconPickerOpen(true);
           }}
-          className={`!p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+          className={`p-1! transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
           aria-label="Change container icon"
           tabIndex={expanded ? 0 : -1}
           aria-hidden={!expanded}
@@ -658,7 +633,7 @@ function ContainerNameCell({
           <IconButton
             size="small"
             onClick={handleHistoryClick}
-            className={`!p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+            className={`p-1! transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
             aria-label="View container history"
             tabIndex={expanded ? 0 : -1}
             aria-hidden={!expanded}

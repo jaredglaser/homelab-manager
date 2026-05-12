@@ -26,7 +26,7 @@ export default function BottomDrawer({ open, onClose, onExited, children }: Read
         },
         paper: {
           className:
-            '!rounded-t-2xl !rounded-b-none !bg-[var(--mui-palette-background-default)] !max-h-[calc(100vh-60px)]',
+            'rounded-t-2xl! rounded-b-none! bg-(--mui-palette-background-default)! max-h-[calc(100vh-60px)]!',
         },
         transition: {
           onExited,
@@ -39,7 +39,7 @@ export default function BottomDrawer({ open, onClose, onExited, children }: Read
     >
       {/* Drag handle */}
       <div className="flex justify-center pt-3 pb-1 select-none">
-        <div className="w-10 h-1 rounded-full bg-[var(--mui-palette-divider)]" />
+        <div className="w-10 h-1 rounded-full bg-(--mui-palette-divider)" />
       </div>
       {children}
     </SwipeableDrawer>

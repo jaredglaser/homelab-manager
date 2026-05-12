@@ -197,15 +197,15 @@ function StackEditorView() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-center gap-3 border-b border-[var(--mui-palette-divider)]">
+      <div className="flex items-center gap-3 border-b border-(--mui-palette-divider)">
         <Tabs
           value={panel}
           onChange={(_e, value: 'compose' | 'secrets' | 'deploys') => setPanel(value)}
-          className="!min-h-0"
+          className="min-h-0!"
         >
-          <Tab value="compose" label="Compose" disableRipple className="!min-h-0 !py-2 !normal-case" />
-          <Tab value="secrets" label="Secrets" disableRipple className="!min-h-0 !py-2 !normal-case" />
-          <Tab value="deploys" label="Deploys" disableRipple className="!min-h-0 !py-2 !normal-case" />
+          <Tab value="compose" label="Compose" disableRipple className="min-h-0! py-2! normal-case!" />
+          <Tab value="secrets" label="Secrets" disableRipple className="min-h-0! py-2! normal-case!" />
+          <Tab value="deploys" label="Deploys" disableRipple className="min-h-0! py-2! normal-case!" />
         </Tabs>
         {panel === 'deploys' && (
           <ContainerList containers={containers} />
@@ -248,7 +248,7 @@ function StackEditorView() {
       </div>
 
       {/* Sticky Action Bar */}
-      <div className="flex-shrink-0 border-t border-[var(--mui-palette-divider)] bg-[var(--mui-palette-background-default)] px-1 py-3">
+      <div className="shrink-0 border-t border-(--mui-palette-divider) bg-(--mui-palette-background-default) px-1 py-3">
         <StackActionBar
           onDeploy={() => deployMutation.mutate('deploy')}
           onRestart={() => deployMutation.mutate('restart')}
@@ -288,7 +288,7 @@ function StackEditorView() {
             severity={deployMessage.type}
             onClose={() => setDeployMessage(null)}
             variant="filled"
-            className="!text-sm"
+            className="text-sm!"
           >
             {deployMessage.text}
           </Alert>

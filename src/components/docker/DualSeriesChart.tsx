@@ -185,7 +185,7 @@ export default memo(function DualSeriesChart({
   useEChartTimeScroll(chartRef, windowMs, wrapperRef);
 
   return (
-    <Paper elevation={0} className="h-full flex flex-col rounded-sm p-2 !bg-[var(--mui-palette-background-chartBg)]">
+    <Paper elevation={0} className="h-full flex flex-col rounded-sm p-2 bg-(--mui-palette-background-chartBg)!">
       <div className="flex items-center justify-between mb-0.5 shrink-0">
         <Typography variant="body2" className="font-medium">{title}</Typography>
         <div className="flex gap-3">

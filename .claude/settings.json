@@ -15,7 +15,8 @@
   },
   "permissions": {
     "allow": [
-      "Bash(bun test *)",
+      "Bash(bun test --isolate)",
+      "Bash(bun test --isolate --watch)",
       "Bash(bun run typecheck)",
       "Bash(bun run typecheck:all)",
       "Bash(bun run typecheck:agent)",

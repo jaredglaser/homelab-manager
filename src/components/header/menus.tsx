@@ -12,7 +12,7 @@ export const NavMenuCloseContext = createContext<() => void>(() => {})
 
 const MENU_ITEM_CLASSES =
   'flex items-center gap-2 px-3 py-2 text-sm no-underline text-inherit ' +
-  'hover:bg-[var(--mui-palette-action-hover)] transition-colors'
+  'hover:bg-(--mui-palette-action-hover) transition-colors'
 
 export function SettingsMenuContent() {
   const close = useContext(NavMenuCloseContext)
@@ -50,7 +50,7 @@ export function StacksMenuContent() {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
   }
   if (isError) {
-    return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load stacks</div>
+    return <div className="px-3 py-2 text-sm text-(--mui-palette-error-main)">Failed to load stacks</div>
   }
   if (!stacks?.length) {
     return <div className="px-3 py-2 text-sm opacity-60">No stacks</div>
@@ -74,7 +74,7 @@ export function StacksMenuContent() {
             {iconUrl ? (
               <img src={iconUrl} alt="" className="w-4 h-4 rounded-sm" />
             ) : (
-              <span className="w-4 h-4 rounded-sm bg-[var(--mui-palette-action-disabledBackground)] flex items-center justify-center text-[10px] font-bold opacity-50">
+              <span className="w-4 h-4 rounded-sm bg-(--mui-palette-action-disabledBackground) flex items-center justify-center text-[10px] font-bold opacity-50">
                 {(stack.name.charAt(0) || '?').toUpperCase()}
               </span>
             )}
@@ -99,7 +99,7 @@ export function DockerHostsMenuContent() {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
   }
   if (isError) {
-    return <div className="px-3 py-2 text-sm text-[var(--mui-palette-error-main)]">Failed to load hosts</div>
+    return <div className="px-3 py-2 text-sm text-(--mui-palette-error-main)">Failed to load hosts</div>
   }
   if (!hosts?.length) {
     return <div className="px-3 py-2 text-sm opacity-60">No hosts</div>

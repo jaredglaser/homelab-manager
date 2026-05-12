@@ -166,32 +166,6 @@ describe('ContainerTable', () => {
     expect(chips[0].getAttribute('data-state')).toBe('exited');
   });
 
-  it('shows "N running · M stopped" chip label when mixed state', () => {
-    const inventory = new Map([
-      ['host1/c1', makeInventory('host1', 'c1', 'app1', 'running')],
-      ['host1/c2', makeInventory('host1', 'c2', 'app2', 'exited')],
-    ]);
-    renderTable({ inventory });
-    expect(screen.getByText('1 running · 1 stopped')).toBeDefined();
-  });
-
-  it('shows "N containers" chip label when all running', () => {
-    const inventory = new Map([
-      ['host1/c1', makeInventory('host1', 'c1', 'app1', 'running')],
-      ['host1/c2', makeInventory('host1', 'c2', 'app2', 'running')],
-    ]);
-    renderTable({ inventory });
-    expect(screen.getByText('2 containers')).toBeDefined();
-  });
-
-  it('shows "1 container" (singular) when only one container', () => {
-    const inventory = new Map([
-      ['host1/c1', makeInventory('host1', 'c1', 'solo', 'running')],
-    ]);
-    renderTable({ inventory });
-    expect(screen.getByText('1 container')).toBeDefined();
-  });
-
   it('does not render state chip for running container (uses pulse indicator instead)', () => {
     const inventory = new Map([
       ['host1/c1', makeInventory('host1', 'c1', 'live-app', 'running')],

@@ -15,7 +15,7 @@ export default function DualSeriesChartRenderer({ option, ref }: DualSeriesChart
       opts={{ renderer: 'canvas' }}
       notMerge={false}
       lazyUpdate={true}
-      className="!h-full !w-full"
+      className="h-full! w-full!"
     />
   );
 }

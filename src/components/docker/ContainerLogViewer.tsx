@@ -142,7 +142,7 @@ export default memo(function ContainerLogViewer({
   return (
     <Paper
       elevation={0}
-      className="relative rounded-sm !bg-[var(--mui-palette-background-chartBg)] h-full min-h-0 flex flex-col overflow-hidden"
+      className="relative rounded-sm bg-(--mui-palette-background-chartBg)! h-full min-h-0 flex flex-col overflow-hidden"
     >
       <Typography variant="body2" className="p-3 pb-0 font-medium">
         Logs
@@ -158,7 +158,7 @@ export default memo(function ContainerLogViewer({
               key={i}
               variant="text"
               width={`${45 + ((i * 37) % 50)}%`}
-              className="!bg-[var(--mui-palette-action-hover)] !text-xs"
+              className="bg-(--mui-palette-action-hover)! text-xs!"
             />
           ))}
         </div>

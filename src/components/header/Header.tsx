@@ -46,9 +46,9 @@ export default function Header() {
     <header className="sticky top-0 z-50 px-4 pt-3 pb-2 pointer-events-none">
       <nav
         aria-label="Main navigation"
-        className="flex items-center rounded-2xl px-3 py-1 pointer-events-auto backdrop-blur-xl bg-[var(--mui-palette-background-paper)]/75 border border-[var(--mui-palette-divider)]/30 shadow-[0_8px_32px_var(--mui-palette-common-black)]/10"
+        className="flex items-center rounded-2xl px-3 py-1 pointer-events-auto backdrop-blur-xl bg-(--mui-palette-background-paper)/75 border border-(--mui-palette-divider)/30 shadow-[0_8px_32px_var(--mui-palette-common-black)]/10"
       >
-        <Tabs value={currentTab ?? false} aria-label="Main navigation" className="!min-h-0">
+        <Tabs value={currentTab ?? false} aria-label="Main navigation" className="min-h-0!">
           {NAV_ITEMS.map((item) => {
             const { Icon } = item
             return (
@@ -91,13 +91,13 @@ export default function Header() {
                 onKeyDown={(e: React.KeyboardEvent) => {
                   if (e.key === 'Escape' && item.hasMenu) controller.closeNow()
                 }}
-                className="!min-h-0 !py-2"
+                className="min-h-0! py-2!"
               />
             )
           })}
         </Tabs>
 
-        <div className="ml-auto pl-3 border-l border-[var(--mui-palette-divider)]/30">
+        <div className="ml-auto pl-3 border-l border-(--mui-palette-divider)/30">
           <ModeToggle />
         </div>
       </nav>
@@ -111,11 +111,11 @@ export default function Header() {
             anchorEl={anchor ?? null}
             placement="bottom-start"
             modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}
-            className="!z-50"
+            className="z-50!"
           >
             <Paper
               elevation={4}
-              className="!rounded-xl !backdrop-blur-xl !bg-[var(--mui-palette-background-paper)]/95 border border-[var(--mui-palette-divider)]/30 overflow-hidden min-w-56 pointer-events-auto"
+              className="rounded-xl! backdrop-blur-xl! bg-(--mui-palette-background-paper)/95! border border-(--mui-palette-divider)/30 overflow-hidden min-w-56 pointer-events-auto"
               onMouseEnter={() => controller.requestOpen(item.to)}
               onMouseLeave={controller.requestClose}
               onFocus={() => controller.requestOpen(item.to)}

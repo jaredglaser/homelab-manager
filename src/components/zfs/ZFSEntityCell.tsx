@@ -37,7 +37,7 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
       {canExpand && (
         <ChevronRight
           size={entityType === 'host' ? 18 : 16}
-          className={`flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+          className={`shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
         />
       )}
       {entityType === 'host' && <Server size={18} />}

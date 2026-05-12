@@ -45,7 +45,7 @@ describe('ContainerStateChip', () => {
     expect(dot.className).not.toContain('bg-green-500');
     expect(dot.className).not.toContain('bg-yellow-400');
     // Filled grey: uses background color class, not border (outlined variant)
-    expect(dot.className).toContain('bg-[var(--mui-palette-action-disabled)]');
+    expect(dot.className).toContain('bg-(--mui-palette-action-disabled)');
     expect(dot.className).not.toContain('border');
   });
 
@@ -55,7 +55,7 @@ describe('ContainerStateChip', () => {
     expect(dot.className).not.toContain('bg-green-500');
     expect(dot.className).not.toContain('bg-yellow-400');
     // Filled grey: uses background color class, not border (outlined variant)
-    expect(dot.className).toContain('bg-[var(--mui-palette-action-disabled)]');
+    expect(dot.className).toContain('bg-(--mui-palette-action-disabled)');
     expect(dot.className).not.toContain('border');
   });
 

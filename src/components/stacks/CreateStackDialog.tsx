@@ -85,7 +85,7 @@ export default function CreateStackDialog({
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>Create Stack</DialogTitle>
-      <DialogContent className="flex flex-col gap-4 !pt-4">
+      <DialogContent className="flex flex-col gap-4 pt-4!">
         {error && <Alert severity="error">{error}</Alert>}
         <TextField
           label="Stack Name"
@@ -99,7 +99,7 @@ export default function CreateStackDialog({
         />
         {hosts.length > 1 && (
           <FormControl fullWidth disabled={isLoading}>
-            <FormLabel className="!text-sm !mb-1">Target Host</FormLabel>
+            <FormLabel className="text-sm! mb-1!">Target Host</FormLabel>
             <Select
               value={host}
               onChange={(e) => setHost(e.target.value)}
@@ -114,7 +114,7 @@ export default function CreateStackDialog({
           </FormControl>
         )}
         <FormControl disabled={isLoading}>
-          <FormLabel className="!text-sm !mb-1">Deploy Mode</FormLabel>
+          <FormLabel className="text-sm! mb-1!">Deploy Mode</FormLabel>
           <RadioGroup
             value={autoDeploy ? 'auto' : 'manual'}
             onChange={(e) => setAutoDeploy(e.target.value === 'auto')}

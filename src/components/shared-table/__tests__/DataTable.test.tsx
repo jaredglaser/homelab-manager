@@ -1,7 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { render, screen, fireEvent, act } from '@testing-library/react';
-import { DataTable, type DataTableProps } from '../DataTable';
+import { DataTable, SPARKLINE_MIN_WIDTH, type DataTableProps } from '../DataTable';
 import type { ColumnDef } from '@tanstack/react-table';
+import * as useSettingsModule from '@/hooks/useSettings';
 
 interface TestRow {
   id: string;
@@ -16,14 +17,13 @@ const columns: ColumnDef<TestRow, unknown>[] = [
     accessorKey: 'name',
     header: 'Name',
     size: 200,
-    meta: { minWidth: 100 },
+    meta: { flex: 'minmax(200px, 1fr)' },
   },
   {
     id: 'value',
     accessorKey: 'value',
     header: 'Value',
     size: 100,
-    meta: { minWidth: 60 },
   },
 ];
 
@@ -386,9 +386,9 @@ describe('DataTable', () => {
     } as unknown as typeof ResizeObserver;
 
     const columnsWithGroups: typeof columns = [
-      { id: 'name', accessorKey: 'name', header: 'Name', size: 200, meta: { minWidth: 100 } },
-      { id: 'cpu', accessorFn: () => 1, header: 'CPU', size: 100, meta: { minWidth: 60 } },
-      { id: 'memory', accessorFn: () => 2, header: 'Memory', size: 100, meta: { minWidth: 60 } },
+      { id: 'name', accessorKey: 'name', header: 'Name', size: 200, meta: { flex: 'minmax(200px, 1fr)' } },
+      { id: 'cpu', accessorFn: () => 1, header: 'CPU', size: 100 },
+      { id: 'memory', accessorFn: () => 2, header: 'Memory', size: 100 },
     ];
 
     const metricGroups = [
@@ -461,7 +461,8 @@ describe('DataTable', () => {
         id: 'value',
         header: 'Value',
         cell: ({ row }) => String(row.original.value),
-        meta: { minWidth: 100 },
+        // No meta.flex or meta.sizeCompact/sizeFull: falls through to col.getSize()px
+        size: 100,
       },
     ];
 
@@ -478,7 +479,8 @@ describe('DataTable', () => {
     expect(headers.length).toBeGreaterThan(0);
     const style = (headers[0] as HTMLElement).style.gridTemplateColumns;
     expect(style).toContain('minmax(200px, 1fr)');
-    expect(style).toContain('minmax(100px, 1fr)');
+    // No meta on value column: falls through to col.getSize()px = 100px
+    expect(style).toContain('100px');
   });
 
   it('hides header when showHeader is false', () => {
@@ -494,5 +496,173 @@ describe('DataTable', () => {
     // Verify no grid header row is present by checking that column headers are absent from role="button" elements
     const headerTexts = headerButtons.map((el) => el.textContent);
     expect(headerTexts.some((t) => t?.includes('Name') || t?.includes('Value'))).toBe(false);
+  });
+
+  describe('buildGridTemplate sparkline-aware column sizing', () => {
+    // Compact and full sizes mirror what metric columns use in production.
+    // Keep in sync with METRIC_COL_SIZE_COMPACT / METRIC_COL_SIZE_FULL in columns.tsx
+    // if those constants are ever extracted.
+    const SIZE_COMPACT = 115;
+    const SIZE_FULL = 180;
+
+    let sparklines = true;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let settingsSpy: any;
+
+    beforeEach(() => {
+      settingsSpy = spyOn(useSettingsModule, 'useGeneralSettings').mockImplementation(() => ({
+        general: { showSparklines: sparklines, useAbbreviatedUnits: false } as never,
+        retention: {} as never,
+        developer: {} as never,
+        setUse12HourTime: () => {},
+        setUpdateInterval: () => {},
+        setShowSparklines: () => {},
+        setUseAbbreviatedUnits: () => {},
+        setLightPalette: () => {},
+        setRetention: () => {},
+        setDockerDebugLogging: () => {},
+        setDbFlushDebugLogging: () => {},
+        setSseDebugLogging: () => {},
+      }));
+    });
+
+    afterEach(() => {
+      settingsSpy.mockRestore();
+    });
+
+    const metricColumns: ColumnDef<TestRow, unknown>[] = [
+      {
+        id: 'name',
+        accessorKey: 'name',
+        header: 'Name',
+        meta: { flex: 'minmax(200px, 1fr)' },
+      },
+      {
+        id: 'metric',
+        header: 'Metric',
+        cell: ({ row }) => String(row.original.value),
+        meta: { sizeCompact: SIZE_COMPACT, sizeFull: SIZE_FULL },
+      },
+    ];
+
+    function getGridTemplate(container: HTMLElement): string {
+      const grids = container.querySelectorAll('[style*="grid-template-columns"]');
+      expect(grids.length).toBeGreaterThan(0);
+      return (grids[0] as HTMLElement).style.gridTemplateColumns;
+    }
+
+    it('uses sizeCompact when containerWidth < SPARKLINE_MIN_WIDTH (even with showSparklines=true)', () => {
+      sparklines = true;
+      const originalResizeObserver = globalThis.ResizeObserver;
+      let resizeCallback: ResizeObserverCallback | null = null;
+
+      globalThis.ResizeObserver = class MockResizeObserver {
+        constructor(cb: ResizeObserverCallback) {
+          resizeCallback = cb;
+        }
+        observe() {
+          if (resizeCallback) {
+            resizeCallback(
+              [{ contentRect: { width: SPARKLINE_MIN_WIDTH - 1 } } as unknown as ResizeObserverEntry],
+              this as unknown as ResizeObserver,
+            );
+          }
+        }
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+
+      try {
+        const { container } = render(
+          <DataTable
+            data={testData}
+            columns={metricColumns}
+            getRowId={(row) => row.id}
+          />,
+        );
+
+        const style = getGridTemplate(container);
+        expect(style).toContain(`${SIZE_COMPACT}px`);
+        expect(style).not.toContain(`${SIZE_FULL}px`);
+      } finally {
+        globalThis.ResizeObserver = originalResizeObserver;
+      }
+    });
+
+    it('uses sizeFull when containerWidth >= SPARKLINE_MIN_WIDTH and showSparklines=true', () => {
+      sparklines = true;
+      const originalResizeObserver = globalThis.ResizeObserver;
+      let resizeCallback: ResizeObserverCallback | null = null;
+
+      globalThis.ResizeObserver = class MockResizeObserver {
+        constructor(cb: ResizeObserverCallback) {
+          resizeCallback = cb;
+        }
+        observe() {
+          if (resizeCallback) {
+            resizeCallback(
+              [{ contentRect: { width: SPARKLINE_MIN_WIDTH } } as unknown as ResizeObserverEntry],
+              this as unknown as ResizeObserver,
+            );
+          }
+        }
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+
+      try {
+        const { container } = render(
+          <DataTable
+            data={testData}
+            columns={metricColumns}
+            getRowId={(row) => row.id}
+          />,
+        );
+
+        const style = getGridTemplate(container);
+        expect(style).toContain(`${SIZE_FULL}px`);
+        expect(style).not.toContain(`${SIZE_COMPACT}px`);
+      } finally {
+        globalThis.ResizeObserver = originalResizeObserver;
+      }
+    });
+
+    it('forces sizeCompact when showSparklines=false even at wide containerWidth', () => {
+      sparklines = false;
+      const originalResizeObserver = globalThis.ResizeObserver;
+      let resizeCallback: ResizeObserverCallback | null = null;
+
+      globalThis.ResizeObserver = class MockResizeObserver {
+        constructor(cb: ResizeObserverCallback) {
+          resizeCallback = cb;
+        }
+        observe() {
+          if (resizeCallback) {
+            resizeCallback(
+              [{ contentRect: { width: SPARKLINE_MIN_WIDTH + 500 } } as unknown as ResizeObserverEntry],
+              this as unknown as ResizeObserver,
+            );
+          }
+        }
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver;
+
+      try {
+        const { container } = render(
+          <DataTable
+            data={testData}
+            columns={metricColumns}
+            getRowId={(row) => row.id}
+          />,
+        );
+
+        const style = getGridTemplate(container);
+        expect(style).toContain(`${SIZE_COMPACT}px`);
+        expect(style).not.toContain(`${SIZE_FULL}px`);
+      } finally {
+        globalThis.ResizeObserver = originalResizeObserver;
+      }
+    });
   });
 });

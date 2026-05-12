@@ -1,5 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, mock, afterEach } from 'bun:test'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 mock.module('@tanstack/react-router', () => ({
@@ -60,6 +60,11 @@ function createWrapper() {
 }
 
 describe('Header', () => {
+  afterEach(() => {
+    // Reset VITE_DEMO_MODE after each test so demo-mode tests don't leak.
+    delete (import.meta.env as Record<string, unknown>).VITE_DEMO_MODE
+  })
+
   it('renders all five nav tab labels', () => {
     render(<Header />, { wrapper: createWrapper() })
     expect(screen.getByText('Docker')).not.toBeNull()
@@ -84,5 +89,24 @@ describe('Header', () => {
     // The banner only mounts when import.meta.env.VITE_DEMO_MODE === 'true'.
     // In tests that env var is not set, so the banner should be absent.
     expect(screen.queryByText('Demo mode')).toBeNull()
+  })
+
+  it('renders the demo banner when VITE_DEMO_MODE is "true"', () => {
+    ;(import.meta.env as Record<string, unknown>).VITE_DEMO_MODE = 'true'
+    render(<Header />, { wrapper: createWrapper() })
+    expect(screen.queryByText('Demo mode')).not.toBeNull()
+  })
+
+  it('closes the open menu when Escape is pressed on a menu tab', () => {
+    render(<Header />, { wrapper: createWrapper() })
+    const tabs = screen.getAllByRole('tab')
+    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
+    expect(dockerTab).not.toBeNull()
+    fireEvent.mouseEnter(dockerTab!)
+    // Assert the menu is actually open before pressing Escape, so the test
+    // verifies the open → close transition rather than passing vacuously.
+    expect(screen.getByRole('menu')).not.toBeNull()
+    fireEvent.keyDown(dockerTab!, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 })

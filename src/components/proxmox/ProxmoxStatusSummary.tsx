@@ -16,7 +16,7 @@ function StatusSegment({ label, count }: Readonly<Segment>) {
       <Typography
         component="span"
         variant="inherit"
-        className="font-mono tabular-nums text-[var(--mui-palette-text-primary)]"
+        className="font-mono tabular-nums text-(--mui-palette-text-primary)"
       >
         {count}
       </Typography>
@@ -24,7 +24,7 @@ function StatusSegment({ label, count }: Readonly<Segment>) {
       <Typography
         component="span"
         variant="inherit"
-        className="text-[var(--mui-palette-text-secondary)]"
+        className="text-(--mui-palette-text-secondary)"
       >
         {label}
       </Typography>
@@ -55,7 +55,7 @@ export default function ProxmoxStatusSummary({ overview }: Readonly<ProxmoxStatu
             <Typography
               component="span"
               variant="inherit"
-              className="text-[var(--mui-palette-text-disabled)] select-none"
+              className="text-(--mui-palette-text-disabled) select-none"
             >
               ·
             </Typography>

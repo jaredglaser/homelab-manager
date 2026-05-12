@@ -21,7 +21,7 @@ export default function RollbackDialog({
       <DialogContent>
         <Typography variant="body2">
           This will redeploy commit{' '}
-          <code className="font-mono text-xs bg-[var(--mui-palette-action-hover)] px-1 py-0.5 rounded">
+          <code className="font-mono text-xs bg-(--mui-palette-action-hover) px-1 py-0.5 rounded">
             {commitSha}
           </code>
           . Containers will be recreated with the previous compose configuration.
@@ -34,7 +34,7 @@ export default function RollbackDialog({
         <Button
           onClick={onConfirm}
           variant="contained"
-          className="!bg-red-600 hover:!bg-red-700 !text-white"
+          className="bg-red-600! hover:bg-red-700! text-white!"
         >
           Confirm Rollback
         </Button>

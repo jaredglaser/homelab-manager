@@ -185,14 +185,14 @@ export default function ContainerHistoryPage({
   return (
     <div className="flex flex-col min-h-0">
       {/* Sticky panel header */}
-      <div className="sticky top-0 z-10 !bg-[var(--mui-palette-background-level1)] border-b border-[var(--mui-palette-divider)] px-6 pt-4 pb-3 select-none">
+      <div className="sticky top-0 z-10 bg-(--mui-palette-background-level1)! border-b border-(--mui-palette-divider) px-6 pt-4 pb-3 select-none">
         <div className="relative">
           {/* Real content: always in flow, determines height */}
           <div className={`flex items-center gap-3 transition-opacity duration-300 ${infoQuery.isLoading ? 'opacity-0' : 'opacity-100'}`}>
             <img
               src={iconError ? FALLBACK_ICON_URL : iconUrl}
               alt=""
-              className="w-8 h-8 flex-shrink-0"
+              className="w-8 h-8 shrink-0"
               onError={() => setIconError(true)}
             />
             <div className="min-w-0 flex-1">
@@ -203,19 +203,19 @@ export default function ContainerHistoryPage({
                 )}
               </div>
               {showServiceKey && (
-                <Typography variant="caption" className="text-[var(--mui-palette-text-secondary)] block" noWrap>Service: {serviceKey}</Typography>
+                <Typography variant="caption" className="text-(--mui-palette-text-secondary) block" noWrap>Service: {serviceKey}</Typography>
               )}
               <Typography variant="caption" className="text-neutral-500 block" noWrap>{containerImage || '\u00A0'}</Typography>
             </div>
             {onClose && (
-              <IconButton onClick={onClose} aria-label="Close history panel" className="!flex-shrink-0">
+              <IconButton onClick={onClose} aria-label="Close history panel" className="shrink-0!">
                 <X size={20} />
               </IconButton>
             )}
           </div>
           {/* Skeleton overlay: always absolute, fades out */}
           <div className={`absolute inset-0 flex items-center gap-3 transition-opacity duration-300 ${infoQuery.isLoading ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-            <Skeleton variant="rounded" width={32} height={32} className="flex-shrink-0" />
+            <Skeleton variant="rounded" width={32} height={32} className="shrink-0" />
             <div className="min-w-0 flex-1">
               <Typography variant="h5"><Skeleton width={180} /></Typography>
               <Typography variant="caption"><Skeleton width={120} /></Typography>

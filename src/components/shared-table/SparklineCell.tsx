@@ -83,7 +83,7 @@ const PulseLine = memo(function PulseLine({ color }: { color: string }) {
 
   return (
     <div
-      className="hidden min-[1428px]:flex items-end flex-shrink-0 overflow-hidden"
+      className="hidden min-[1428px]:flex items-end shrink-0 overflow-hidden"
       style={{ width: 60, height: 24 }}
     >
       <div className="relative w-full" style={{ height: 2 }}>

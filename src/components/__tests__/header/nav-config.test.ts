@@ -111,14 +111,16 @@ describe('handlePrefetch', () => {
     expect(mockPrefetchQuery).not.toHaveBeenCalled()
   })
 
-  it('swallows rejected promises from prefetchQuery', async () => {
+  it('does not throw or produce an unhandled rejection when prefetchQuery rejects', async () => {
+    // First call: resolved mock so the .not.toThrow() check doesn't consume the rejection.
+    mockPrefetchQuery.mockResolvedValueOnce(undefined)
+    // Second call: rejects — this is the one tested for unhandled rejection.
     mockPrefetchQuery.mockImplementationOnce(() => Promise.reject(new Error('network error')))
     expect(() => handlePrefetch('/docker')).not.toThrow()
     let unhandledRejection = false
     const handler = () => { unhandledRejection = true }
     process.on('unhandledRejection', handler)
     handlePrefetch('/docker')
-    // Flush the microtask queue thoroughly
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
     process.off('unhandledRejection', handler)
     expect(unhandledRejection).toBe(false)
