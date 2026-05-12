@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { StackSummary } from '@/types/stacks'
+import type { MenuRouteKey } from '@/components/header/nav-config'
 
 const mockListStacks = mock((): Promise<StackSummary[]> => Promise.resolve([]))
 const mockListManagedHostNames = mock((): Promise<string[]> => Promise.resolve([]))
