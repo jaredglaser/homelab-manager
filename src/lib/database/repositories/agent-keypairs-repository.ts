@@ -39,7 +39,12 @@ export class AgentKeypairsRepository {
     );
     if (result.rows.length === 0) return null;
     const jwe = (result.rows[0] as { private_jwk_jwe: string }).private_jwk_jwe;
-    const json = await decryptValue(jwe, this.keyring);
+    let json: string;
+    try {
+      json = await decryptValue(jwe, this.keyring);
+    } catch {
+      throw new Error('Agent keypair decryption failed');
+    }
     const jwk = JSON.parse(json) as JWK;
     return (await importJWK(jwk, 'EdDSA')) as CryptoKey;
   }

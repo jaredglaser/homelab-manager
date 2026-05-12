@@ -22,7 +22,11 @@ export class StackSecretsRepository {
       [stackName, variableName],
     );
     if (result.rows.length === 0) return null;
-    return decryptValue((result.rows[0] as { ciphertext_jwe: string }).ciphertext_jwe, this.keyring);
+    try {
+      return await decryptValue((result.rows[0] as { ciphertext_jwe: string }).ciphertext_jwe, this.keyring);
+    } catch {
+      throw new Error('Secret decryption failed');
+    }
   }
 
   async set(stackName: string, variableName: string, value: string): Promise<void> {
