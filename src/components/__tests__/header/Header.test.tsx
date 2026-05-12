@@ -100,15 +100,13 @@ describe('Header', () => {
   it('closes the open menu when Escape is pressed on a menu tab', () => {
     render(<Header />, { wrapper: createWrapper() })
     const tabs = screen.getAllByRole('tab')
-    // Find the Docker tab (has a menu) and open it via mouseEnter, then Escape.
     const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
     expect(dockerTab).not.toBeNull()
     fireEvent.mouseEnter(dockerTab!)
+    // Assert the menu is actually open before pressing Escape, so the test
+    // verifies the open → close transition rather than passing vacuously.
+    expect(screen.getByRole('menu')).not.toBeNull()
     fireEvent.keyDown(dockerTab!, { key: 'Escape' })
-    // After Escape, the menu Popper should not be open. The Docker popper is
-    // keyed off controller.openId === '/docker'; after closeNow it is null so
-    // the Popper's open prop is false and its content is not in the DOM.
-    // Verify by checking that no element with role="menu" is visible.
     expect(screen.queryByRole('menu')).toBeNull()
   })
 })
