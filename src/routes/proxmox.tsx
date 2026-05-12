@@ -1,120 +1,22 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Typography, CircularProgress, Tooltip, Chip, ToggleButtonGroup, ToggleButton } from '@mui/material'
-import { Zap, Waves } from 'lucide-react'
-import type { MouseEvent } from 'react'
-import { useAtomValue, useSetAtom } from 'jotai'
+import { Typography, CircularProgress } from '@mui/material'
+import { useSetAtom } from 'jotai'
 import PageStatusBar from '@/components/PageStatusBar'
 import ProxmoxStatusSummary from '@/components/proxmox/ProxmoxStatusSummary'
 import ClusterSummaryCards from '@/components/proxmox/ClusterSummaryCards'
 import ProxmoxHostView from '@/components/proxmox/ProxmoxHostView'
+import { IntervalToggle } from '@/components/proxmox/ProxmoxIntervalToggle'
+import { UpdateIndicator } from '@/components/proxmox/ProxmoxUpdateIndicator'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { testProxmoxConnection } from '@/data/proxmox/functions'
 import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/lib/constants/preload-queries'
 import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
 import { apiUrl } from '@/lib/utils/api-url'
 import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
-import { useProxmoxSettings, type ProxmoxUpdateInterval } from '@/hooks/useSettings'
+import { useProxmoxSettings } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
-
-function IntervalToggle({
-  interval,
-  onIntervalChange
-}: {
-  interval: ProxmoxUpdateInterval
-  onIntervalChange: (interval: ProxmoxUpdateInterval) => void
-}) {
-  return (
-    <ToggleButtonGroup
-      value={String(interval)}
-      onChange={(_e: MouseEvent<HTMLElement>, newValue: string | null) => {
-        if (newValue !== null) onIntervalChange(Number(newValue) as ProxmoxUpdateInterval)
-      }}
-      size="small"
-      exclusive
-    >
-      <ToggleButton value="1000">
-        <Tooltip
-          title={
-            <div className="flex flex-col gap-1">
-              <Typography variant="body2" className="text-white!">Fast updates (1 second)</Typography>
-              <Chip size="small" color="warning" variant="filled" label="Increases API load on Proxmox" />
-            </div>
-          }
-          placement="bottom"
-        >
-          <Zap size={16} />
-        </Tooltip>
-      </ToggleButton>
-      <ToggleButton value="10000">
-        <Tooltip
-          title={
-            <div className="flex flex-col gap-1">
-              <Typography variant="body2" className="text-white!">Relaxed updates (10 seconds)</Typography>
-              <Chip size="small" color="success" variant="filled" label="Recommended for most users" />
-            </div>
-          }
-          placement="bottom"
-        >
-          <Waves size={16} />
-        </Tooltip>
-      </ToggleButton>
-    </ToggleButtonGroup>
-  )
-}
-
-function UpdateIndicator({ expectedInterval }: { expectedInterval: number }) {
-  const lastUpdate = useAtomValue(proxmoxLastUpdateAtom)
-  const dotRef = useRef<HTMLDivElement>(null)
-  const pingRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (lastUpdate === 0) return
-
-    const dot = dotRef.current
-    const ping = pingRef.current
-
-    // Reset to active state
-    if (dot) { dot.className = 'absolute w-2 h-2 rounded-full transition-all duration-300 bg-green-500 opacity-100' }
-    if (ping) { ping.className = 'absolute w-2 h-2 bg-green-500 rounded-full animate-ping opacity-75' }
-
-    const pulseTimer = setTimeout(() => {
-      if (ping) { ping.className = 'absolute w-2 h-2 bg-green-500 rounded-full opacity-0' }
-    }, 1000)
-
-    const lateThreshold = expectedInterval * 2 + 5000
-    const lateCheckTimer = setTimeout(() => {
-      if (dot) { dot.className = 'absolute w-2 h-2 rounded-full transition-all duration-300 bg-orange-500 opacity-30' }
-      if (ping) { ping.className = 'absolute w-2 h-2 bg-green-500 rounded-full opacity-0' }
-    }, lateThreshold)
-
-    return () => {
-      clearTimeout(pulseTimer)
-      clearTimeout(lateCheckTimer)
-    }
-  }, [lastUpdate, expectedInterval])
-
-  const lastUpdatedDate = lastUpdate > 0 ? new Date(lastUpdate) : null
-  const tooltipTitle = lastUpdatedDate
-    ? `Last updated: ${lastUpdatedDate.toLocaleTimeString()}`
-    : 'No data yet'
-
-  return (
-    <Tooltip title={tooltipTitle} placement="bottom">
-      <div className="relative inline-flex items-center justify-center w-2 h-2">
-        <div
-          ref={dotRef}
-          className="absolute w-2 h-2 rounded-full transition-all duration-300 bg-green-500 opacity-100"
-        />
-        <div
-          ref={pingRef}
-          className="absolute w-2 h-2 bg-green-500 rounded-full opacity-0"
-        />
-      </div>
-    </Tooltip>
-  )
-}
 
 export const Route = createFileRoute('/proxmox')({
   ssr: false,
