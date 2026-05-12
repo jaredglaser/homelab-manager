@@ -29,7 +29,7 @@ export async function loadMasterKeyring(): Promise<MasterKeyring> {
 
   if (entries.length === 0) {
     throw new Error(
-      'MASTER_KEY_FILE or MASTER_KEY environment variable must be set. ' +
+      'MASTER_KEY(_<KID>) or MASTER_KEY_FILE(_<KID>) environment variable must be set. ' +
         'Generate a key with: openssl rand -base64 32',
     );
   }

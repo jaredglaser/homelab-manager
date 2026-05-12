@@ -162,6 +162,9 @@ describe('loadMasterKeyring', () => {
     await expect(loadMasterKeyring()).rejects.toThrow(/32 bytes/);
   });
 
+  // KIDs are sorted lexicographically: 'v9' > 'v10' because '9' > '1'.
+  // Operators needing more than 9 versions should use zero-padded names
+  // (v01, v02, ..., v10) to preserve natural ordering.
   it('lexicographic ordering picks v9 over v10 (natural vs lex sort awareness)', async () => {
     // Lex sort: "v10" < "v9" because "1" < "9" char comparison.
     // The active key should be "v9" (lexicographically last).

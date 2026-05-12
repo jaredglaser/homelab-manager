@@ -179,9 +179,11 @@ The lexicographically last KID is used for new encryptions; all loaded keys are 
 2. Add it alongside the old key: set `MASTER_KEY_v2=<new-base64>` (keep `MASTER_KEY`/`MASTER_KEY_v1` in place).
 3. Restart the app — new secrets encrypt under `v2`, old secrets still decrypt via `v1`.
 4. Run the migration CLI to re-encrypt existing rows:
+
    ```bash
    bun run migrate-secrets --from v1 --to v2
    ```
+
 5. Remove the old key env var (`MASTER_KEY` or `MASTER_KEY_v1`) and restart.
 
 The migration script exits non-zero on any failure. Partially migrated rows are safe because both keys remain in the keyring during the rotation window.
