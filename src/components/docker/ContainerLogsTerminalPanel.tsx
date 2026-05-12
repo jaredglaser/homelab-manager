@@ -72,7 +72,7 @@ export default memo(function ContainerLogsTerminalPanel({
         </Tabs>
         {activeTab === 'terminal' && (
           <FormControl size="small" className="ml-auto min-w-[90px]">
-            <InputLabel id="shell-select-label" className="!text-xs">Shell</InputLabel>
+            <InputLabel id="shell-select-label" shrink className="!text-xs">Shell</InputLabel>
             <Select
               labelId="shell-select-label"
               label="Shell"

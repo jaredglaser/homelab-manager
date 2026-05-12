@@ -43,7 +43,7 @@ export default defineConfig({
   },
   plugins: [
     isDev && devtools(),
-    nitro({ serverDir: 'server' }),
+    nitro({ serverDir: 'server', features: { websocket: true } }),
     tailwindcss(),
     tanstackStart({
       spa: {
