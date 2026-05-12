@@ -150,12 +150,26 @@ export async function handleUpdateAgent(
     triggerResponse = await fetch(`${agentBaseUrl}/agent/update`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${jwt}` },
+      redirect: 'manual',
     });
   } catch (err) {
     return {
       hostId: host.id,
       healthy: false,
       error: err instanceof Error ? err.message : String(err),
+      suggestions: [
+        'Check that the agent is reachable at its configured URL',
+        'Run `docker logs hlm-agent` to inspect agent errors',
+        'Verify that Docker capability is enabled for this host',
+      ],
+    };
+  }
+
+  if (triggerResponse.type === 'opaqueredirect' || (triggerResponse.status >= 300 && triggerResponse.status < 400)) {
+    return {
+      hostId: host.id,
+      healthy: false,
+      error: 'Agent URL returned an unexpected redirect',
       suggestions: [
         'Check that the agent is reachable at its configured URL',
         'Run `docker logs hlm-agent` to inspect agent errors',

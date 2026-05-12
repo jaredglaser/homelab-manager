@@ -112,6 +112,31 @@ describe('agent-health-service', () => {
       expect(result.healthy).toBe(false);
       if (!result.healthy) expect(result.error).toContain('non-JSON response');
     });
+
+    it('returns unhealthy when agent URL returns a redirect (3xx)', async () => {
+      const fetchFn = mock(async () =>
+        new Response(null, { status: 301, headers: { Location: 'http://169.254.169.254/metadata' } })
+      ) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toContain('redirect');
+    });
+
+    it('passes redirect: manual to fetch', async () => {
+      let capturedInit: RequestInit | undefined;
+      const fetchFn = mock(async (_input: string | URL | Request, init?: RequestInit) => {
+        capturedInit = init;
+        return new Response(
+          JSON.stringify({ status: 'ok', version: '0.1.0' }),
+          { status: 200 }
+        );
+      }) as unknown as typeof fetch;
+
+      await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+      expect(capturedInit?.redirect).toBe('manual');
+    });
   });
 
 });

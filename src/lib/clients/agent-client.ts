@@ -111,6 +111,7 @@ export class AgentClient {
         method: 'GET',
         headers: { 'Authorization': `Bearer ${jwt}` },
         signal,
+        redirect: 'manual',
       });
     } catch (err) {
       throw new AgentClientError(
@@ -119,6 +120,10 @@ export class AgentClient {
         url,
         false,
       );
+    }
+
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+      throw new AgentClientError('Agent URL returned an unexpected redirect', response.status, url, false);
     }
 
     if (!response.ok) {
@@ -217,6 +222,7 @@ export class AgentClient {
       response = await this.fetchFn(url, {
         ...init,
         signal: AbortSignal.timeout(this.timeoutMs),
+        redirect: 'manual',
       });
     } catch (err) {
       // Distinguish our own per-attempt timeout from a genuine network failure.
@@ -231,6 +237,10 @@ export class AgentClient {
         url,
         wasTimeout,
       );
+    }
+
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+      throw new AgentClientError('Agent URL returned an unexpected redirect', response.status, url, false);
     }
 
     if (!response.ok) {
