@@ -146,8 +146,8 @@ services:
   # Agent sidecar for Docker management (management profile)
   agent:
     build:
-      context: .
-      dockerfile: agent/Dockerfile
+      context: ./agent
+      dockerfile: Dockerfile
     container_name: hlm-agent
     restart: unless-stopped
     environment:
