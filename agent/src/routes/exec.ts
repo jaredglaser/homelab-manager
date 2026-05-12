@@ -164,14 +164,15 @@ export async function handleExecSocket(
       AttachStdout: true,
       AttachStderr: true,
       Tty: true,
+      Env: ['TERM=xterm-256color'],
     }) as unknown as ExecInstance;
 
     const stream = await exec.start({ hijack: true, stdin: true });
 
-    // Set the initial PTY size to match what the client reported.
-    await exec.resize({ h: rows, w: cols });
-
-    // Expose stream and exec instance for the WS message/close handlers.
+    // Wire up listeners before resize so exec output is never buffered without
+    // a consumer. resize() is a separate HTTP round-trip that can be slow or
+    // hang through a socket proxy; blocking on it would leave the stream
+    // producing data with no listener attached.
     ws.data.execStream = stream;
     ws.data.execInstance = exec;
 
@@ -180,6 +181,12 @@ export async function handleExecSocket(
     stream.on('data', (chunk: Buffer) => {
       if (closed) return;
       try { ws.send(chunk); } catch { closed = true; }
+    });
+
+    // Fire-and-forget the initial resize — PTY starts at Docker's default (80x24)
+    // and jumps to the client's reported size once this resolves.
+    void exec.resize({ h: rows, w: cols }).catch((e: Error) => {
+      console.error(`Exec resize failed for ${containerId}:`, e.message);
     });
 
     stream.on('end', () => {

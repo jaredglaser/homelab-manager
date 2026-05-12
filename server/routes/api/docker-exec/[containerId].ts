@@ -68,7 +68,9 @@ export default defineWebSocketHandler({
 
       agentWs.onmessage = (event) => {
         try {
-          peer.send(event.data instanceof ArrayBuffer ? Buffer.from(event.data) : event.data);
+          // crossws peer.send expects BufferSource for binary; Uint8Array is more
+          // portable than Buffer across adapters (some stringify Buffer via .toString()).
+          peer.send(event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : event.data);
         } catch {
           // peer already closed
         }
