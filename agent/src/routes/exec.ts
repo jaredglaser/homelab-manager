@@ -1,5 +1,4 @@
 import type Dockerode from 'dockerode';
-import type { EventEmitter } from 'node:events';
 import type { Duplex } from 'node:stream';
 
 /** Candidate shells probed in order when preferred is 'auto'. */
@@ -44,20 +43,21 @@ export async function probeShell(container: Dockerode.Container, preferred: stri
         Tty: false,
       }) as unknown as ExecInstance;
 
-      // Start the probe process and wait for it to exit before inspecting.
-      // inspect() returns ExitCode -1 while the process is still running, so
-      // reading it before the stream ends is a race that produces false negatives.
-      // The 5s timeout prevents an indefinite hang if the container is paused
-      // or the exec process never exits; inspect() will return -1 in that case
-      // and the probe correctly falls through to the next candidate.
-      const stream = await exec.start({ hijack: true, stdin: false });
-      await Promise.race([
-        new Promise<void>((resolve) => {
-          (stream as unknown as EventEmitter).once('end', resolve);
-        }),
-        new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-      ]);
-      const { ExitCode } = await exec.inspect();
+      // Detach:true starts the process without attaching any stream and
+      // returns immediately. hijack:true (the interactive mode) keeps the TCP
+      // connection open waiting for muxed output — with no outputs attached
+      // the stream never emits 'end', so every probe hit the 5s timeout and
+      // then received ExitCode -1 (process already exited but socket still open).
+      await (exec as unknown as { start(o: { Detach: boolean }): Promise<void> }).start({ Detach: true });
+
+      // Poll until Docker sets ExitCode; it returns -1 while the process is
+      // still running. 'exit 0' completes in <50ms; 2s is a generous bound.
+      const deadline = Date.now() + 2_000;
+      let { ExitCode } = await exec.inspect();
+      while (ExitCode === -1 && Date.now() < deadline) {
+        await new Promise<void>((r) => setTimeout(r, 50));
+        ({ ExitCode } = await exec.inspect());
+      }
       if (ExitCode === 0) return shell;
     } catch {
       // Shell not found or exec failed; try next candidate.
