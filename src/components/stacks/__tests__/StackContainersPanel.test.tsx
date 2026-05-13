@@ -9,7 +9,7 @@ mock.module('@/data/stacks/functions', () => ({
   controlStack: mockControlStack,
 }));
 
-mock.module('@/components/docker/ContainerLogViewer', () => ({
+mock.module('@/components/docker/ContainerLogsTerminalPanel', () => ({
   default: ({ containerId }: { containerId: string }) => (
     <div data-testid="log-viewer">{containerId}</div>
   ),
@@ -126,7 +126,9 @@ describe('StackContainersPanel', () => {
     await waitFor(() => {
       const buttons = screen.getAllByRole('button');
       const controlButtons = buttons.filter(
-        (b) => b.getAttribute('aria-label') !== 'Logs' && b.getAttribute('aria-label') !== 'Close'
+        (b) => b.getAttribute('aria-label') !== 'Logs' &&
+               b.getAttribute('aria-label') !== 'Terminal' &&
+               b.getAttribute('aria-label') !== 'Close'
       );
       expect(controlButtons.every((b) => b.hasAttribute('disabled'))).toBe(true);
     });

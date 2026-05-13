@@ -212,7 +212,7 @@ describe('handleStackDeploy: payload size limits', () => {
   });
 });
 
-describe('handleStackDeploy: path traversal', () => {
+describe('handleStackDeploy: path containment', () => {
   test('rejects stack names with path traversal', async () => {
     const request = new Request('http://localhost/stacks/deploy', {
       method: 'POST',
@@ -235,9 +235,9 @@ describe('handleStackDeploy: path traversal', () => {
     expect(response.status).toBe(400);
   });
 
-  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
-    // Passing stacksDir with a trailing slash causes join() to normalize it, so
-    // join('/dir/', 'stack') = '/dir/stack' which does not start with '/dir//'
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
+    // resolve()/relative() normalizes trailing slashes, so a trailing slash
+    // on stacksDir must not produce a false "Invalid stack path" 400.
     const request = new Request('http://localhost/stacks/deploy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -245,9 +245,7 @@ describe('handleStackDeploy: path traversal', () => {
     });
 
     const response = await handleStackDeploy(request, TEST_STACKS_DIR + '/', successSpawn as any);
-    expect(response.status).toBe(400);
-    const result = await response.json();
-    expect(result.error).toBe('Invalid stack path');
+    expect(response.status).toBe(200);
   });
 });
 
@@ -416,18 +414,17 @@ describe('handleStackTeardown', () => {
   });
 });
 
-describe('handleStackTeardown: path traversal', () => {
-  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+describe('handleStackTeardown: path containment', () => {
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
     const request = new Request('http://localhost/stacks/teardown', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stack: 'mystack' }),
     });
 
+    // Stack does not exist — expect 404 rather than a false 400 from path check.
     const response = await handleStackTeardown(request, TEST_STACKS_DIR + '/', successSpawn as any);
-    expect(response.status).toBe(400);
-    const result = await response.json();
-    expect(result.error).toBe('Invalid stack path');
+    expect(response.status).toBe(404);
   });
 });
 
@@ -602,18 +599,17 @@ describe('handleStackRestart', () => {
   });
 });
 
-describe('handleStackRestart: path traversal', () => {
-  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+describe('handleStackRestart: path containment', () => {
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
     });
 
+    // Stack does not exist — expect 404 rather than a false 400 from path check.
     const response = await handleStackRestart(request, TEST_STACKS_DIR + '/', successSpawn as any);
-    expect(response.status).toBe(400);
-    const result = await response.json();
-    expect(result.error).toBe('Invalid stack path');
+    expect(response.status).toBe(404);
   });
 });
 
@@ -1289,17 +1285,16 @@ describe('handleStackStop', () => {
   });
 });
 
-describe('handleStackStart: path traversal', () => {
-  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+describe('handleStackStart: path containment', () => {
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
     const request = new Request('http://localhost/stacks/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
     });
+    // Stack does not exist — expect 404 rather than a false 400 from path check.
     const response = await handleStackStart(request, TEST_STACKS_DIR + '/', successSpawn as any);
-    expect(response.status).toBe(400);
-    const result = await response.json();
-    expect(result.error).toBe('Invalid stack path');
+    expect(response.status).toBe(404);
   });
 });
 
@@ -1362,17 +1357,16 @@ describe('handleStackStart: invalid service name', () => {
   });
 });
 
-describe('handleStackStop: path traversal', () => {
-  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+describe('handleStackStop: path containment', () => {
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
     const request = new Request('http://localhost/stacks/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
     });
+    // Stack does not exist — expect 404 rather than a false 400 from path check.
     const response = await handleStackStop(request, TEST_STACKS_DIR + '/', successSpawn as any);
-    expect(response.status).toBe(400);
-    const result = await response.json();
-    expect(result.error).toBe('Invalid stack path');
+    expect(response.status).toBe(404);
   });
 });
 

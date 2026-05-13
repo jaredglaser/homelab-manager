@@ -10,13 +10,18 @@ import type { SelectChangeEvent } from '@mui/material/Select';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
-import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import { IS_DEMO_MODE } from '@/lib/constants/demo';
+
+interface ContainerInventoryInfo {
+  name: string;
+  state: string;
+}
 
 interface ContainerLogsTerminalPanelProps {
   containerId: string;
   host: string;
-  inventory: DockerInventorySnapshotContainer;
+  inventory: ContainerInventoryInfo;
+  defaultTab?: 'logs' | 'terminal';
 }
 
 const SHELL_OPTIONS = ['bash', 'sh', 'ash', 'zsh'] as const;
@@ -25,8 +30,9 @@ export default memo(function ContainerLogsTerminalPanel({
   containerId,
   host,
   inventory,
+  defaultTab,
 }: ContainerLogsTerminalPanelProps) {
-  const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>('logs');
+  const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>(defaultTab ?? 'logs');
   const [terminalMounted, setTerminalMounted] = useState(false);
   const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
 

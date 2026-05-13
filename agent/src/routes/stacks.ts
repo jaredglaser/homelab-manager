@@ -1,7 +1,8 @@
 import { mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, relative } from 'node:path';
 
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+const VALID_SERVICE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const MAX_COMPOSE_SIZE_BYTES = 1_048_576; // 1 MB
 const MAX_ENV_SIZE_BYTES = 65_536; // 64 KB
 const COMPOSE_TIMEOUT_MS = 300_000; // 5 minutes
@@ -31,6 +32,23 @@ function validateStackName(name: string): Response | null {
     );
   }
   return null;
+}
+
+function validateServiceName(name: string): Response | null {
+  if (!name || !VALID_SERVICE_NAME.test(name)) {
+    return Response.json(
+      { error: 'Invalid service name. Must start with alphanumeric and contain only alphanumeric, dots, hyphens, and underscores.' },
+      { status: 400 }
+    );
+  }
+  return null;
+}
+
+function isContainedInDir(baseDir: string, targetDir: string): boolean {
+  const base = resolve(baseDir);
+  const target = resolve(targetDir);
+  const rel = relative(base, target);
+  return rel !== '' && !rel.startsWith('..') && !rel.startsWith('/');
 }
 
 type StackControlBody =
@@ -63,7 +81,7 @@ async function parseStackControlBody(request: Request): Promise<StackControlBody
     if (typeof b.service !== 'string' || !b.service) {
       return Response.json({ error: 'scope "service" requires a non-empty service field' }, { status: 400 });
     }
-    const serviceError = validateStackName(b.service);
+    const serviceError = validateServiceName(b.service);
     if (serviceError) return serviceError;
     return { stack: b.stack, scope: 'service', service: b.service };
   }
@@ -111,7 +129,7 @@ async function runComposeControl(
   timeoutMs: number = COMPOSE_TIMEOUT_MS,
 ): Promise<Response> {
   const stackDir = join(stacksDir, parsed.stack);
-  if (!stackDir.startsWith(stacksDir + '/')) {
+  if (!isContainedInDir(stacksDir, stackDir)) {
     return Response.json({ error: 'Invalid stack path' }, { status: 400 });
   }
   const composePath = join(stackDir, 'docker-compose.yml');
@@ -250,7 +268,7 @@ export async function handleStackDeploy(
   if (parsed instanceof Response) return parsed;
 
   const stackDir = join(stacksDir, parsed.stack);
-  if (!stackDir.startsWith(stacksDir + '/')) {
+  if (!isContainedInDir(stacksDir, stackDir)) {
     return Response.json({ error: 'Invalid stack path' }, { status: 400 });
   }
 
@@ -367,7 +385,7 @@ export async function handleStackTeardown(
   if (nameError) return nameError;
 
   const stackDir = join(stacksDir, body.stack);
-  if (!stackDir.startsWith(stacksDir + '/')) {
+  if (!isContainedInDir(stacksDir, stackDir)) {
     return Response.json({ error: 'Invalid stack path' }, { status: 400 });
   }
   const composePath = join(stackDir, 'docker-compose.yml');
