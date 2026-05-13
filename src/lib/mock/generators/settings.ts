@@ -19,6 +19,7 @@ export function generateDefaultSettings(): Record<string, string> {
     [SETTINGS_KEYS.docker.chartWindowSeconds]: '60',
     [SETTINGS_KEYS.docker.expandedHosts]: '[]',
     [SETTINGS_KEYS.docker.expandedContainers]: JSON.stringify([`${homeassistant.host}/${homeassistant.containerId}`]),
+    [SETTINGS_KEYS.docker.containerShells]: '{}',
     [SETTINGS_KEYS.docker.decimals.cpu]: '1',
     [SETTINGS_KEYS.docker.decimals.memory]: '1',
     [SETTINGS_KEYS.docker.decimals.diskSpeed]: '1',
