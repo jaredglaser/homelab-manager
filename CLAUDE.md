@@ -8,6 +8,7 @@
 
 **First-time setup / dependency changes:**
 - Run `bun run setup` (installs homelab-manager and agent). The agent is NOT a workspace member; its lockfile is independent so the docker build (`context: ./agent`) stays self-consistent.
+- Always pin dependencies to an exact version (no `^` or `~`). All existing entries in `package.json` are pinned; new additions must follow the same pattern.
 
 **After editing files:**
 - When `<new-diagnostics>` appear with SonarQube issues on files you just edited, fix them before moving on. Only fix issues on files you modified, do not touch unrelated files.

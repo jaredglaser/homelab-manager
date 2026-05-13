@@ -15,6 +15,7 @@ import {
 import { useCurrentTab, useMenuController } from '@/components/header/useMenuController'
 import { MenuContentFor, NavMenuCloseContext } from '@/components/header/menus'
 import { DemoBanner } from '@/components/header/DemoBanner'
+import { IS_DEMO_MODE } from '@/lib/constants/demo'
 
 // Brand SVGs (Docker, Proxmox) lack the small transparent padding that lucide icons
 // bake into their viewBoxes, so they sit too close to the tab label. This set marks
@@ -134,7 +135,7 @@ export default function Header() {
         )
       })}
 
-      {import.meta.env.VITE_DEMO_MODE === 'true' && <DemoBanner />}
+      {IS_DEMO_MODE && <DemoBanner />}
     </header>
   )
 }
