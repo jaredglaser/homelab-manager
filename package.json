@@ -46,7 +46,7 @@
     "@tailwindcss/vite": "4.3.0",
     "@tanstack/react-devtools": "0.10.2",
     "@tanstack/react-query": "5.100.6",
-    "@tanstack/react-router": "1.168.26",
+    "@tanstack/react-router": "1.169.2",
     "@tanstack/react-router-devtools": "1.166.13",
     "@tanstack/react-router-ssr-query": "1.166.12",
     "@tanstack/react-start": "1.167.64",
@@ -92,7 +92,7 @@
     "cross-env": "10.1.0",
     "typescript": "6.0.3",
     "undici": "8.1.0",
-    "vite": "8.0.10",
+    "vite": "8.0.5",
     "web-vitals": "5.2.0"
   }
 }
