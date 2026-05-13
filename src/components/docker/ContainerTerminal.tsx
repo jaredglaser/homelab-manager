@@ -19,14 +19,14 @@ export default memo(function ContainerTerminal({
   frozen,
   onShellResolved,
 }: ContainerTerminalProps) {
-  const { containerRef, terminal } = useXtermSetup({
+  const { containerRef, terminal, error: setupError } = useXtermSetup({
     disableStdin: false,
     cursorBlink: true,
     convertEol: true,
   });
   const [ready, setReady] = useState(false);
 
-  const { isConnected, error, resolvedShell, sessionEnded, reconnect } = useContainerTerminal({
+  const { isConnected, error: wsError, resolvedShell, sessionEnded, reconnect } = useContainerTerminal({
     containerId,
     host,
     shell,
@@ -34,16 +34,18 @@ export default memo(function ContainerTerminal({
     enabled: !frozen,
   });
 
+  // Surface either failure path: xterm bootstrap (dynamic import) or WS lifecycle.
+  const error = setupError ?? wsError;
+
   useEffect(() => {
     if (resolvedShell && onShellResolved) onShellResolved(resolvedShell);
   }, [resolvedShell, onShellResolved]);
 
-  // Mark ready once connected so xterm has painted its first content
   useEffect(() => {
     if (isConnected && terminal) setReady(true);
   }, [isConnected, terminal]);
 
-  // Disable stdin when frozen so keystrokes don't queue up while container is stopped
+  // Block input while the container is stopped
   useEffect(() => {
     if (!terminal) return;
     terminal.options.disableStdin = frozen;

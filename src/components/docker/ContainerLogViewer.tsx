@@ -12,14 +12,17 @@ export default memo(function ContainerLogViewer({
   containerId,
   host,
 }: ContainerLogViewerProps) {
-  const { containerRef, terminal } = useXtermSetup({ disableStdin: true, convertEol: true });
+  const { containerRef, terminal, error: setupError } = useXtermSetup({ disableStdin: true, convertEol: true });
   const [ready, setReady] = useState(false);
 
-  const { isConnected, error } = useContainerLogs({
+  const { isConnected, error: logsError } = useContainerLogs({
     containerId,
     host,
     terminal,
   });
+
+  // Surface either failure path: xterm bootstrap (dynamic import) or logs stream.
+  const error = setupError ?? logsError;
 
   // Mark ready once connected so xterm has painted its first content
   useEffect(() => {

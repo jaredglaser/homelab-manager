@@ -31,7 +31,7 @@ export interface Settings {
     expandedHosts: Set<string>;
     expandedContainers: Set<string>;
     decimals: DecimalSettings;
-    /** Per-container preferred shell, keyed by entity ID (host/container_id). */
+    /** Per-container preferred shell, keyed by host/container_name (stable across container recreation; container IDs change on restart). */
     containerShells: Record<string, string>;
   };
   stacks: {

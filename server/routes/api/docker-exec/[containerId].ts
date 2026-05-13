@@ -5,6 +5,24 @@ import type { Peer } from 'crossws';
 // Keyed by peer.id (string) because Nitro's crossws Peer has no typed connection object.
 const agentConnections = new Map<string, WebSocket>();
 
+// xterm default geometry; used as fallback when the client supplies missing/invalid cols/rows.
+const DEFAULT_COLS = 80;
+const DEFAULT_ROWS = 24;
+// Matches the agent's clamp at agent/src/routes/exec.ts so the proxy can never
+// forward a value the agent would reject.
+const MIN_DIM = 1;
+const MAX_DIM = 500;
+
+function clampDim(raw: string | null, fallback: number): number {
+  if (raw === null) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  const i = Math.trunc(n);
+  if (i < MIN_DIM) return MIN_DIM;
+  if (i > MAX_DIM) return MAX_DIM;
+  return i;
+}
+
 export default defineWebSocketHandler({
   upgrade(request) {
     const url = new URL(request.url);
@@ -22,8 +40,12 @@ export default defineWebSocketHandler({
     const containerId = pathParts.at(-1)!;
     const host = url.searchParams.get('host')!;
     const shell = url.searchParams.get('shell') ?? 'auto';
-    const cols = url.searchParams.get('cols') ?? '80';
-    const rows = url.searchParams.get('rows') ?? '24';
+    // Defense-in-depth: clamp to integers in [1, 500] before interpolating into the
+    // agent URL. Without this, a client could inject extra query params via
+    // ?cols=80%26evil=x even though the agent regex-validates containerId and
+    // ignores unknown params today.
+    const cols = clampDim(url.searchParams.get('cols'), DEFAULT_COLS);
+    const rows = clampDim(url.searchParams.get('rows'), DEFAULT_ROWS);
 
     try {
       // Dynamic imports required: static imports break the client bundle with node:async_hooks errors.
@@ -72,7 +94,10 @@ export default defineWebSocketHandler({
           // portable than Buffer across adapters (some stringify Buffer via .toString()).
           peer.send(event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : event.data);
         } catch {
-          // peer already closed
+          // Peer is gone but the agent stream is still running with nowhere to
+          // deliver to. Close it (1001 going-away) so the upstream exec session
+          // stops producing output and the agent can free resources.
+          try { agentWs.close(1001); } catch { /* already closed */ }
         }
       };
 
@@ -81,11 +106,19 @@ export default defineWebSocketHandler({
         try { peer.close(event.code || 1000, event.reason || ''); } catch { /* already closed */ }
       };
 
-      agentWs.onerror = () => {
+      agentWs.onerror = (ev: Event & { message?: string }) => {
+        // Without this log the operator sees nothing for upstream failures
+        // (DNS, connection refused, expired JWT, TLS handshake, agent crash);
+        // the browser only sees a generic 1011 close.
+        console.error('[docker-exec-ws] agent ws error:', { host, containerId, message: ev?.message });
         agentConnections.delete(peer.id);
         try { peer.close(1011, 'Agent connection error'); } catch { /* already closed */ }
       };
     } catch (err) {
+      // If open() threw between agentConnections.set() and a later teardown,
+      // the map entry would leak. Delete here so retries on the same peer.id
+      // don't hit a stale WebSocket reference.
+      agentConnections.delete(peer.id);
       console.error('[docker-exec-ws] open error:', err instanceof Error ? err.message : String(err));
       try { peer.close(1011, 'Internal error'); } catch { /* already closed */ }
     }

@@ -99,8 +99,14 @@ export function useContainerTerminal({
       }
     };
 
-    ws.onerror = () => {
+    ws.onerror = (e) => {
+      // Without surfacing an error here, the UI would wait forever on the close
+      // handler, which may not fire (or may fire with an empty reason) when the
+      // browser cannot reach the server at all. A subsequent close handler with
+      // a specific reason will overwrite this generic message.
+      console.error('[useContainerTerminal] ws error', e);
       setIsConnected(false);
+      setError(new Error('Terminal WebSocket error'));
     };
 
     const dataListener = terminal.onData((data) => {

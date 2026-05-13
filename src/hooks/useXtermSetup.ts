@@ -7,11 +7,14 @@ import { RESIZE_DEBOUNCE_MS } from '@/lib/constants/ui-timing';
 interface UseXtermSetupResult {
   containerRef: RefObject<HTMLDivElement | null>;
   terminal: TerminalType | null;
+  /** Set when the dynamic `@xterm/xterm` import or terminal construction fails (CSP, chunk hash mismatch after deploy, network blip). Lets the parent show an error instead of spinning on the skeleton forever. */
+  error: Error | null;
 }
 
 export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
   const containerRef = useRef<HTMLDivElement>(null);
   const [terminal, setTerminal] = useState<TerminalType | null>(null);
+  const [error, setError] = useState<Error | null>(null);
   const terminalRef = useRef<TerminalType | null>(null);
   const fitAddonRef = useRef<{ fit(): void } | null>(null);
 
@@ -65,6 +68,9 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
         setTerminal(term);
       } catch (err) {
         console.error('Failed to initialize terminal:', err);
+        if (!disposed) {
+          setError(err instanceof Error ? err : new Error(String(err)));
+        }
       }
     })();
 
@@ -103,10 +109,29 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
     if (!fitAddonRef.current) return;
     if (!containerRef.current) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Log the first fit() failure once instead of silently swallowing every tick
+    // forever. A persistently throwing fit() (renderer disposed, canvas detached)
+    // would otherwise drop ResizeObserver fires into a black hole. After 3
+    // consecutive failures we disconnect the observer: the terminal is in a
+    // permanently broken state and continuing to call fit() can't recover it.
+    let loggedFitError = false;
+    let consecutiveFitErrors = 0;
     const observer = new ResizeObserver(() => {
       if (timer !== undefined) clearTimeout(timer);
       timer = setTimeout(() => {
-        try { fitAddonRef.current?.fit(); } catch { /* layout transition */ }
+        try {
+          fitAddonRef.current?.fit();
+          consecutiveFitErrors = 0;
+        } catch (err) {
+          consecutiveFitErrors += 1;
+          if (!loggedFitError) {
+            loggedFitError = true;
+            console.error('[useXtermSetup] fit() failed:', err);
+          }
+          if (consecutiveFitErrors >= 3) {
+            observer.disconnect();
+          }
+        }
       }, RESIZE_DEBOUNCE_MS);
     });
     observer.observe(containerRef.current);
@@ -116,5 +141,5 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
     };
   }, [terminal]);
 
-  return { containerRef, terminal };
+  return { containerRef, terminal, error };
 }
