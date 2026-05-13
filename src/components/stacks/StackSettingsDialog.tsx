@@ -61,7 +61,7 @@ export default function StackSettingsDialog({
             value={host}
             onChange={(e) => setHost(e.target.value)}
             displayEmpty
-            inputProps={{ 'aria-label': 'Target Host' }}
+            slotProps={{ input: { 'aria-label': 'Target Host' } }}
           >
             {availableHosts.map((h) => (
               <MenuItem key={h} value={h}>{h}</MenuItem>
@@ -73,7 +73,7 @@ export default function StackSettingsDialog({
             checked={autoDeploy}
             onChange={(e) => setAutoDeploy(e.target.checked)}
             disabled={isLoading}
-            inputProps={{ 'aria-label': 'Auto Deploy' }}
+            slotProps={{ input: { 'aria-label': 'Auto Deploy' } }}
           />
           <div>
             <Typography variant="body2" className="font-medium">Auto Deploy</Typography>
