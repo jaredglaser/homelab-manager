@@ -2,6 +2,10 @@ import { memo, useEffect, useState } from 'react';
 import { Button, Paper, Skeleton, Typography } from '@mui/material';
 import { useXtermSetup } from '@/hooks/useXtermSetup';
 import { useContainerTerminal } from '@/hooks/useContainerTerminal';
+import { useContainerTerminal as useDemoContainerTerminal } from '@/hooks/useDemoContainerTerminal';
+import { IS_DEMO_MODE } from '@/lib/constants/demo';
+
+const useTerminalSession = IS_DEMO_MODE ? useDemoContainerTerminal : useContainerTerminal;
 
 interface ContainerTerminalProps {
   containerId: string;
@@ -26,7 +30,7 @@ export default memo(function ContainerTerminal({
   });
   const [ready, setReady] = useState(false);
 
-  const { isConnected, error: wsError, resolvedShell, sessionEnded, reconnect } = useContainerTerminal({
+  const { isConnected, error: wsError, resolvedShell, sessionEnded, reconnect } = useTerminalSession({
     containerId,
     host,
     shell,

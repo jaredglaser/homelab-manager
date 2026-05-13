@@ -11,8 +11,9 @@ import Toasts from '@/components/Toasts'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
 import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
 import { queryClient } from '@/lib/query-client'
+import { IS_DEMO_MODE } from '@/lib/constants/demo'
 
-if (import.meta.env.VITE_DEMO_MODE === 'true' && typeof window !== 'undefined') {
+if (IS_DEMO_MODE && typeof window !== 'undefined') {
   // Use .then() instead of top-level await to avoid circular dependency deadlock.
   // The main chunk imports install-demo, which statically imports back from the main
   // chunk (for mock generators). TLA pauses main mid-evaluation, causing deadlock.

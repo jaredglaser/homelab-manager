@@ -11,6 +11,7 @@ import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
+import { IS_DEMO_MODE } from '@/lib/constants/demo';
 
 interface ContainerLogsTerminalPanelProps {
   containerId: string;
@@ -84,7 +85,9 @@ export default memo(function ContainerLogsTerminalPanel({
               value={effectiveShell === 'auto' ? '' : effectiveShell}
               onChange={handleShellChange}
               displayEmpty
+              disabled={IS_DEMO_MODE}
               renderValue={(v) => {
+                if (IS_DEMO_MODE) return 'auto (demo)';
                 const setting = (v as string) || 'auto';
                 if (setting !== 'auto') return setting;
                 if (resolvedShell) return `auto (${resolvedShell})`;
