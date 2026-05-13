@@ -298,6 +298,23 @@ describe('useContainerTerminal', () => {
     expect(result.current.error!.message).toContain('No supported shell found in container');
   });
 
+  it('sets error on ws.onerror and clears isConnected', async () => {
+    const { result } = renderHook(() =>
+      useContainerTerminal({
+        containerId: 'abc123',
+        host: 'server1',
+        shell: 'bash',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+    await settleAndOpen();
+    expect(result.current.isConnected).toBe(true);
+    const ws = mockWsInstances[0]!;
+    act(() => { ws.onerror?.(new Event('error')); });
+    expect(result.current.error?.message).toContain('Terminal WebSocket error');
+    expect(result.current.isConnected).toBe(false);
+  });
+
   it('preserves exact byte sequence (ANSI SGR + control chars) when writing to terminal', async () => {
     renderHook(() =>
       useContainerTerminal({

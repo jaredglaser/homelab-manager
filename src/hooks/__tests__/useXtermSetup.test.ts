@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, afterAll } from 'bun:test';
+import { describe, it, expect, mock, afterAll, beforeEach, afterEach } from 'bun:test';
 import { renderHook, waitFor } from '@testing-library/react';
 
 interface MockTerminalInstance {
@@ -56,6 +56,49 @@ afterAll(() => {
 });
 
 const { useXtermSetup } = await import('@/hooks/useXtermSetup');
+
+describe('useXtermSetup – dynamic import failure', () => {
+  // Override the top-level @xterm/xterm mock with one that throws so we can
+  // verify useXtermSetup surfaces the failure in the `error` state.
+  // mock.module() takes effect at the point of the next dynamic import() call,
+  // so the hook's own `import('@xterm/xterm')` inside the async effect will
+  // pick up the throwing factory.
+  let useXtermSetupWithBrokenImport: typeof import('@/hooks/useXtermSetup').useXtermSetup;
+
+  beforeEach(async () => {
+    mock.module('@xterm/xterm', () => {
+      throw new Error('CSP violation');
+    });
+    const mod = await import('@/hooks/useXtermSetup');
+    useXtermSetupWithBrokenImport = mod.useXtermSetup;
+  });
+
+  afterEach(() => {
+    // Restore the working mock. Must push instances to the shared array so the
+    // subsequent 'useXtermSetup' describe block still tracks new terminals.
+    mock.module('@xterm/xterm', () => ({
+      default: {
+        Terminal: class MockTerminal {
+          options: Record<string, unknown> = {};
+          loadAddon = mock(() => {});
+          open = mock(() => {});
+          dispose = mock(() => {});
+          constructor(opts: Record<string, unknown>) {
+            this.options = opts ?? {};
+            mockTerminalInstances.push(this as unknown as MockTerminalInstance);
+          }
+        },
+      },
+    }));
+  });
+
+  it('sets error state when the xterm dynamic import throws', async () => {
+    const { result } = renderHook(() => useXtermSetupWithBrokenImport({}));
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.terminal).toBeNull();
+    expect(result.current.error).toBeInstanceOf(Error);
+  });
+});
 
 describe('useXtermSetup', () => {
   it('initializes terminal and returns it after mount', async () => {

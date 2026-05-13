@@ -1,7 +1,7 @@
 import { describe, expect, test, mock, beforeAll, beforeEach, afterEach, spyOn } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
-import net from 'node:net';
+import type net from 'node:net';
 
 /** Readable stream whose data/end/error can be driven from outside. */
 function makeControllableStream() {
@@ -90,6 +90,21 @@ describe('probeShell', () => {
     expect(container.exec).not.toHaveBeenCalled();
   });
 
+  test('falls back to sh when container.exec throws for bash', async () => {
+    const container = {
+      exec: mock(async (opts: { Cmd: string[] }) => {
+        if (opts.Cmd[0] === 'bash') throw new Error('exec create failed');
+        return {
+          start: mock(async () => {}),
+          inspect: mock(async () => ({ ExitCode: 0 })),
+          resize: mock(async () => {}),
+        };
+      }),
+    };
+    const shell = await probeShell(container as any, 'auto');
+    expect(shell).toBe('sh');
+  });
+
   describe('Detach+inspect polling loop', () => {
     // The poll loop (exec.ts lines ~140-143) only runs when inspect()'s first
     // response is ExitCode -1 (still running). The default makeMockContainer
@@ -171,55 +186,116 @@ describe('probeShell', () => {
 });
 
 describe('startExecRawTcp', () => {
-  /** Spin up a fake TCP "Docker" server that responds to /exec/{id}/start with a 101 upgrade. */
-  async function withFakeDocker<T>(
-    behavior: (sock: net.Socket) => void,
-    run: (host: string, port: number) => Promise<T>,
-  ): Promise<T> {
-    const server = net.createServer((sock) => behavior(sock));
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const { port } = server.address() as net.AddressInfo;
-    try {
-      return await run('127.0.0.1', port);
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
+  // connectFn injection avoids real TCP connections — fake socket driven by events.
+  function makeFakeSocket() {
+    const sock = new EventEmitter() as EventEmitter & {
+      write: ReturnType<typeof mock>;
+      destroy: ReturnType<typeof mock>;
+      destroyed: boolean;
+    };
+    sock.destroyed = false;
+    sock.write = mock(() => true);
+    sock.destroy = mock(() => {
+      if (!sock.destroyed) {
+        sock.destroyed = true;
+        sock.emit('close');
+      }
+    });
+    return sock;
   }
 
   test('resolves with socket and trailing bytes after a 101 upgrade', async () => {
-    const result = await withFakeDocker(
-      (sock) => {
-        sock.once('data', () => {
-          sock.write(
-            'HTTP/1.1 101 UPGRADED\r\n' +
-            'Content-Type: application/vnd.docker.raw-stream\r\n' +
-            'Connection: Upgrade\r\n' +
-            'Upgrade: tcp\r\n' +
-            '\r\n' +
-            'hello-payload'
-          );
-        });
-      },
-      async (host, port) => {
-        const { socket, initialBytes } = await startExecRawTcp(host, port, 'execid');
-        socket.destroy();
-        return initialBytes.toString();
-      },
-    );
-    expect(result).toBe('hello-payload');
+    const fakeSocket = makeFakeSocket();
+    const connectFn = mock(() => fakeSocket as unknown as net.Socket);
+
+    const promise = startExecRawTcp('localhost', 2375, 'execid', connectFn);
+
+    fakeSocket.emit('connect');
+    fakeSocket.emit('data', Buffer.from(
+      'HTTP/1.1 101 UPGRADED\r\n' +
+      'Content-Type: application/vnd.docker.raw-stream\r\n' +
+      '\r\n' +
+      'hello-payload',
+    ));
+
+    const { socket, initialBytes } = await promise;
+    socket.destroy();
+    expect(initialBytes.toString()).toBe('hello-payload');
   });
 
   test('rejects on non-101 response', async () => {
-    await expect(
-      withFakeDocker(
-        (sock) => {
-          sock.once('data', () => {
-            sock.write('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n');
-          });
-        },
-        (host, port) => startExecRawTcp(host, port, 'execid'),
-      ),
-    ).rejects.toThrow(/404/);
+    const fakeSocket = makeFakeSocket();
+    const connectFn = mock(() => fakeSocket as unknown as net.Socket);
+
+    const promise = startExecRawTcp('localhost', 2375, 'execid', connectFn);
+
+    fakeSocket.emit('connect');
+    fakeSocket.emit('data', Buffer.from('HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n'));
+
+    await expect(promise).rejects.toThrow(/404/);
+  });
+
+  test('rejects when server closes connection before sending 101', async () => {
+    const fakeSocket = makeFakeSocket();
+    const connectFn = mock(() => fakeSocket as unknown as net.Socket);
+
+    const promise = startExecRawTcp('localhost', 2375, 'execid', connectFn);
+
+    fakeSocket.emit('connect');
+    fakeSocket.emit('close');
+
+    await expect(promise).rejects.toThrow(/closed before HTTP upgrade/);
+  });
+
+  test('rejects when server sends EOF before 101', async () => {
+    const fakeSocket = makeFakeSocket();
+    const connectFn = mock(() => fakeSocket as unknown as net.Socket);
+
+    const promise = startExecRawTcp('localhost', 2375, 'execid', connectFn);
+
+    fakeSocket.emit('connect');
+    fakeSocket.emit('end');
+
+    await expect(promise).rejects.toThrow(/closed connection before sending 101/);
+    expect(fakeSocket.destroy).toHaveBeenCalled();
+  });
+
+  test('rejects on socket error', async () => {
+    const fakeSocket = makeFakeSocket();
+    const connectFn = mock(() => fakeSocket as unknown as net.Socket);
+
+    const promise = startExecRawTcp('localhost', 2375, 'execid', connectFn);
+
+    fakeSocket.emit('error', new Error('ECONNREFUSED'));
+
+    await expect(promise).rejects.toThrow(/ECONNREFUSED/);
+  });
+
+  describe('timeout', () => {
+    let capturedCb: (() => void) | null;
+    let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      capturedCb = null;
+      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void) => {
+        capturedCb = cb;
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout);
+    });
+    afterEach(() => { setTimeoutSpy.mockRestore(); });
+
+    test('rejects and destroys socket when upgrade takes too long', async () => {
+      const fakeSocket = makeFakeSocket();
+      const connectFn = mock(() => fakeSocket as unknown as net.Socket);
+
+      const promise = startExecRawTcp('localhost', 2375, 'execid', connectFn);
+
+      fakeSocket.emit('connect');
+      capturedCb?.();
+
+      await expect(promise).rejects.toThrow(/Timeout/);
+      expect(fakeSocket.destroy).toHaveBeenCalled();
+    });
   });
 });
 
@@ -465,5 +541,44 @@ describe('handleExecSocket', () => {
     expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('still-flowing'));
     // The session must NOT have been closed by the resize rejection.
     expect(mockWs.close).not.toHaveBeenCalled();
+  });
+
+  test('closes ws with 1011 when startStream rejects', async () => {
+    const mockContainer = makeTtyContainer();
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+    const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+    const failingStartStream = mock(async () => { throw new Error('connection refused'); });
+
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'container1', mockWs as any, failingStartStream);
+
+    expect(mockWs.close).toHaveBeenCalledWith(1011, 'Failed to start exec session');
+  });
+
+  test('destroys exec socket and returns early when ws.send throws on shell announcement', async () => {
+    const { stream: execStream } = makeControllableStream();
+    const destroySpy = spyOn(execStream, 'destroy');
+    const mockContainer = makeTtyContainer();
+    const mockDocker = { getContainer: mock(() => mockContainer) };
+    let sendCallCount = 0;
+    const mockWs = {
+      send: mock((..._args: unknown[]) => {
+        sendCallCount += 1;
+        // Throw only on the first call (the shell announcement JSON).
+        if (sendCallCount === 1) throw new Error('WebSocket already closed');
+      }),
+      close: mock(() => {}),
+      data: { shell: 'bash', cols: 80, rows: 24 },
+    };
+    const startStream = mock(async () => ({
+      socket: execStream as unknown as import('node:net').Socket,
+      initialBytes: Buffer.alloc(0),
+    }));
+
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
+
+    // Socket must be torn down so the Docker connection doesn't leak.
+    expect(destroySpy).toHaveBeenCalled();
+    // Function returns early; no 1011 close on this path.
+    expect(mockWs.close).not.toHaveBeenCalledWith(1011, 'Failed to start exec session');
   });
 });

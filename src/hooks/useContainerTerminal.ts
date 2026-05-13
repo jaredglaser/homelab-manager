@@ -83,6 +83,8 @@ export function useContainerTerminal({
         const msg = JSON.parse(event.data as string) as { type?: string; name?: string };
         if (msg.type === 'shell' && typeof msg.name === 'string') {
           setResolvedShell(msg.name);
+        } else if (msg.type) {
+          console.warn('[useContainerTerminal] unknown control frame type:', msg.type);
         }
       } catch {
         // Non-JSON text frame; ignore.

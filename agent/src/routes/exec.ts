@@ -41,6 +41,7 @@ export async function startExecRawTcp(
   host: string,
   port: number,
   execId: string,
+  connectFn: (opts: { host: string; port: number }) => net.Socket = net.connect,
 ): Promise<ExecRawTcpResult> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({ Detach: false, Tty: true });
@@ -54,13 +55,26 @@ export async function startExecRawTcp(
       `\r\n` +
       body;
 
-    const sock = net.connect({ host, port });
+    const sock = connectFn({ host, port });
     let buffer = Buffer.alloc(0);
     let resolved = false;
+
+    // Use a plain timer rather than sock.setTimeout: sock.setTimeout is an idle
+    // timer that resets on each chunk and is harder to clear reliably across
+    // Node/Bun versions. clearTimeout(id) always wins.
+    const upgradeTimer = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      sock.destroy();
+      reject(new Error('Timeout waiting for Docker HTTP upgrade response'));
+    }, 10_000);
+
+    const settle = () => clearTimeout(upgradeTimer);
 
     const onError = (err: Error) => {
       if (resolved) return;
       resolved = true;
+      settle();
       sock.destroy();
       reject(err);
     };
@@ -84,6 +98,7 @@ export async function startExecRawTcp(
         return;
       }
       resolved = true;
+      settle();
       sock.removeListener('data', onData);
       sock.removeListener('error', onError);
       resolve({ socket: sock, initialBytes: remainder });
@@ -92,6 +107,19 @@ export async function startExecRawTcp(
     sock.once('connect', () => sock.write(httpReq));
     sock.on('data', onData);
     sock.on('error', onError);
+    sock.once('close', () => {
+      if (resolved) return;
+      resolved = true;
+      settle();
+      reject(new Error('Docker TCP connection closed before HTTP upgrade completed'));
+    });
+    sock.once('end', () => {
+      if (resolved) return;
+      resolved = true;
+      settle();
+      sock.destroy();
+      reject(new Error('Docker daemon closed connection before sending 101'));
+    });
   });
 }
 
@@ -192,7 +220,11 @@ export async function handleExecMessage(
   exec: Pick<ExecInstance, 'resize'>,
 ): Promise<void> {
   if (typeof message !== 'string') {
-    stream.write(message);
+    try {
+      stream.write(message);
+    } catch (err) {
+      console.error('Failed to write binary to exec stream:', err instanceof Error ? err.message : String(err));
+    }
     return;
   }
 
@@ -201,7 +233,11 @@ export async function handleExecMessage(
     parsed = JSON.parse(message);
   } catch {
     // Not JSON; treat as raw stdin.
-    stream.write(message);
+    try {
+      stream.write(message);
+    } catch (err) {
+      console.error('Failed to write stdin to exec stream:', err instanceof Error ? err.message : String(err));
+    }
     return;
   }
 
@@ -219,8 +255,9 @@ export async function handleExecMessage(
           h: Math.max(1, Math.min(rows as number, 500)),
           w: Math.max(1, Math.min(cols as number, 500)),
         });
-      } catch {
+      } catch (err) {
         // resize is best-effort; the PTY keeps its previous size
+        console.error(`Exec resize failed:`, err instanceof Error ? err.message : String(err));
       }
     }
     return;
@@ -228,7 +265,11 @@ export async function handleExecMessage(
 
   // Valid JSON but not a resize message: forward as raw stdin (rare; user
   // could legitimately type JSON in their shell).
-  stream.write(message);
+  try {
+    stream.write(message);
+  } catch (err) {
+    console.error('Failed to write JSON stdin to exec stream:', err instanceof Error ? err.message : String(err));
+  }
 }
 
 interface ExecSocketData {

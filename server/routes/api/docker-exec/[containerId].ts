@@ -1,5 +1,5 @@
 import { defineWebSocketHandler } from 'h3';
-import type { Peer } from 'crossws';
+import type { Peer, WSError } from 'crossws';
 
 // Maps peer.id to the upstream agent WebSocket so message/close can reach it.
 // Keyed by peer.id (string) because Nitro's crossws Peer has no typed connection object.
@@ -93,10 +93,11 @@ export default defineWebSocketHandler({
           // crossws peer.send expects BufferSource for binary; Uint8Array is more
           // portable than Buffer across adapters (some stringify Buffer via .toString()).
           peer.send(event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : event.data);
-        } catch {
+        } catch (err) {
           // Peer is gone but the agent stream is still running with nowhere to
           // deliver to. Close it (1001 going-away) so the upstream exec session
           // stops producing output and the agent can free resources.
+          console.error('[docker-exec-ws] peer.send failed, closing agent ws:', err instanceof Error ? err.message : String(err), { host, containerId });
           try { agentWs.close(1001); } catch { /* already closed */ }
         }
       };
@@ -106,11 +107,16 @@ export default defineWebSocketHandler({
         try { peer.close(event.code || 1000, event.reason || ''); } catch { /* already closed */ }
       };
 
-      agentWs.onerror = (ev: Event & { message?: string }) => {
+      agentWs.onerror = (ev: Event) => {
         // Without this log the operator sees nothing for upstream failures
         // (DNS, connection refused, expired JWT, TLS handshake, agent crash);
         // the browser only sees a generic 1011 close.
-        console.error('[docker-exec-ws] agent ws error:', { host, containerId, message: ev?.message });
+        const detail = (ev as ErrorEvent).error;
+        console.error('[docker-exec-ws] agent ws error:', {
+          host,
+          containerId,
+          error: detail instanceof Error ? detail.message : String(detail ?? 'unknown'),
+        });
         agentConnections.delete(peer.id);
         try { peer.close(1011, 'Agent connection error'); } catch { /* already closed */ }
       };
@@ -147,7 +153,8 @@ export default defineWebSocketHandler({
     }
   },
 
-  error(peer: Peer) {
+  error(peer: Peer, err?: WSError) {
+    console.error('[docker-exec-ws] peer error:', { peerId: peer.id, error: err?.message ?? '(no error)' });
     const agentWs = agentConnections.get(peer.id);
     if (agentWs) {
       agentConnections.delete(peer.id);

@@ -43,12 +43,14 @@ mock.module('@xterm/xterm/css/xterm.css', () => ({}));
 interface MockHookReturn {
   isConnected: boolean;
   error: Error | null;
+  resolvedShell?: string;
   sessionEnded: boolean;
   reconnect: () => void;
 }
 const defaultHookReturn: MockHookReturn = {
   isConnected: false,
   error: null,
+  resolvedShell: undefined,
   sessionEnded: false,
   reconnect: () => {},
 };
@@ -111,6 +113,37 @@ describe('ContainerTerminal', () => {
     render(<ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={false} />);
     expect(screen.getByText('Session ended')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Reconnect' })).toBeTruthy();
+  });
+
+  it('shows frozen overlay and suppresses error overlay when both frozen and error are set', () => {
+    mockUseContainerTerminal.mockReturnValue({
+      ...defaultHookReturn,
+      error: new Error('test error'),
+    });
+    render(
+      <ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={true} />,
+    );
+    // frozen overlay must be visible
+    expect(screen.getByText('Container stopped')).toBeTruthy();
+    // error overlay is gated on !frozen, so it must not appear
+    expect(screen.queryByText('test error')).toBeNull();
+  });
+
+  it('calls onShellResolved with the resolved shell name', async () => {
+    const onShellResolved = mock(() => {});
+    mockUseContainerTerminal.mockReturnValue({ ...defaultHookReturn, resolvedShell: 'bash' });
+    render(
+      <ContainerTerminal
+        containerId="abc123"
+        host="server1"
+        shell="auto"
+        frozen={false}
+        onShellResolved={onShellResolved}
+      />,
+    );
+    // The useEffect that calls onShellResolved runs after render; flush with act.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(onShellResolved).toHaveBeenCalledWith('bash');
   });
 
   it('flips terminal.options.disableStdin to match the frozen prop on rerender', async () => {

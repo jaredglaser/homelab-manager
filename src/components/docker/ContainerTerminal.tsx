@@ -56,7 +56,7 @@ export default memo(function ContainerTerminal({
   return (
     <Paper
       elevation={0}
-      className="relative rounded-sm !bg-[var(--mui-palette-background-chartBg)] h-full min-h-0 flex flex-col overflow-hidden"
+      className="relative rounded-sm bg-(--mui-palette-background-chartBg)! h-full min-h-0 flex flex-col overflow-hidden"
     >
       <div
         ref={containerRef}
@@ -69,7 +69,7 @@ export default memo(function ContainerTerminal({
               key={i}
               variant="text"
               width={`${45 + ((i * 37) % 50)}%`}
-              className="!bg-[var(--mui-palette-action-hover)] !text-xs"
+              className="bg-(--mui-palette-action-hover)! text-xs!"
             />
           ))}
         </div>

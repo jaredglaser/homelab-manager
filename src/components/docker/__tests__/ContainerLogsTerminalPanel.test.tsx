@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { createStore, Provider } from 'jotai';
@@ -15,14 +15,21 @@ mock.module('@/components/docker/ContainerLogViewer', () => ({
 // across tab switches.
 let __nextTerminalInstanceId = 0;
 mock.module('@/components/docker/ContainerTerminal', () => {
-  function MockContainerTerminal({ frozen }: { frozen: boolean }) {
+  function MockContainerTerminal({ frozen, shell }: { frozen: boolean; shell: string }) {
     // useState seed runs once per mounted component instance; if the panel
     // remounts ContainerTerminal on tab switch, this id will change.
     const [id] = useState(() => {
       __nextTerminalInstanceId += 1;
       return `term-${__nextTerminalInstanceId}`;
     });
-    return <div data-testid="terminal" data-frozen={String(frozen)} data-instance-id={id} />;
+    return (
+      <div
+        data-testid="terminal"
+        data-frozen={String(frozen)}
+        data-shell={shell}
+        data-instance-id={id}
+      />
+    );
   }
   return { default: MockContainerTerminal };
 });
@@ -69,6 +76,12 @@ function renderPanel(inventory = runningInventory) {
 const { default: ContainerLogsTerminalPanel } = await import('../ContainerLogsTerminalPanel');
 
 describe('ContainerLogsTerminalPanel', () => {
+  beforeEach(() => {
+    mockGetContainerShell.mockReturnValue(undefined);
+    mockSetContainerShell.mockClear();
+    __nextTerminalInstanceId = 0;
+  });
+
   it('shows Logs tab active by default', () => {
     renderPanel();
     const logsTab = screen.getByRole('tab', { name: /logs/i });
@@ -123,6 +136,24 @@ describe('ContainerLogsTerminalPanel', () => {
 
     const finalId = screen.getByTestId('terminal').getAttribute('data-instance-id');
     expect(finalId).toBe(firstId);
+  });
+
+  it('calls setContainerShell with the correct key when shell selector changes', () => {
+    renderPanel(runningInventory);
+    fireEvent.click(screen.getByRole('tab', { name: /terminal/i }));
+    // Open the Select and pick 'bash'
+    fireEvent.mouseDown(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByRole('option', { name: 'bash' }));
+    // shellKey is `${host}/${inventory.name}` = 'server1/nginx'
+    expect(mockSetContainerShell).toHaveBeenCalledWith('server1/nginx', 'bash');
+  });
+
+  it('passes saved shell preference as effectiveShell to ContainerTerminal', () => {
+    mockGetContainerShell.mockReturnValue('bash');
+    renderPanel(runningInventory);
+    fireEvent.click(screen.getByRole('tab', { name: /terminal/i }));
+    const terminal = screen.getByTestId('terminal');
+    expect(terminal.getAttribute('data-shell')).toBe('bash');
   });
 
   it('frozen=true passed to terminal when container stops mid-session', () => {
