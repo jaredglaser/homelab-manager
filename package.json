@@ -41,7 +41,7 @@
     "@emotion/styled": "11.14.1",
     "@fontsource/inter": "5.2.8",
     "@monaco-editor/react": "4.7.0",
-    "@mui/material": "7.3.9",
+    "@mui/material": "9.0.0",
     "@mui/x-date-pickers": "9.0.0",
     "@tailwindcss/vite": "4.3.0",
     "@tanstack/react-devtools": "0.10.1",
