@@ -40,7 +40,12 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
         const agentResponse = await fetch(agentUrl, {
           headers: { Authorization: `Bearer ${jwt}` },
           signal: request.signal,
+          redirect: 'manual',
         });
+
+        if (agentResponse.type === 'opaqueredirect' || (agentResponse.status >= 300 && agentResponse.status < 400)) {
+          return new Response('Agent URL returned an unexpected redirect', { status: 502 });
+        }
 
         if (!agentResponse.ok || !agentResponse.body) {
           const msg = await agentResponse.text().catch(() => 'Agent request failed');

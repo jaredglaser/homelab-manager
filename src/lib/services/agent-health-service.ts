@@ -26,7 +26,12 @@ export async function checkAgentHealth(
   try {
     const response = await fetchFn(`${agentUrl}/health`, {
       signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'manual',
     });
+
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+      return { healthy: false, error: 'Agent URL returned an unexpected redirect' };
+    }
 
     if (!response.ok) {
       return {
