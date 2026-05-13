@@ -1,4 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
+import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { createStore, Provider } from 'jotai';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
@@ -9,11 +10,22 @@ mock.module('@/components/docker/ContainerLogViewer', () => ({
   ),
 }));
 
-mock.module('@/components/docker/ContainerTerminal', () => ({
-  default: ({ frozen }: { frozen: boolean }) => (
-    <div data-testid="terminal" data-frozen={String(frozen)} />
-  ),
-}));
+// Each render of the mocked ContainerTerminal stamps a unique instance id so
+// tests can prove the same React node persisted (not unmounted/remounted)
+// across tab switches.
+let __nextTerminalInstanceId = 0;
+mock.module('@/components/docker/ContainerTerminal', () => {
+  function MockContainerTerminal({ frozen }: { frozen: boolean }) {
+    // useState seed runs once per mounted component instance; if the panel
+    // remounts ContainerTerminal on tab switch, this id will change.
+    const [id] = useState(() => {
+      __nextTerminalInstanceId += 1;
+      return `term-${__nextTerminalInstanceId}`;
+    });
+    return <div data-testid="terminal" data-frozen={String(frozen)} data-instance-id={id} />;
+  }
+  return { default: MockContainerTerminal };
+});
 
 const mockGetContainerShell = mock(() => undefined as string | undefined);
 const mockSetContainerShell = mock(() => {});
@@ -91,6 +103,26 @@ describe('ContainerLogsTerminalPanel', () => {
     expect(screen.queryByLabelText(/shell/i)).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /terminal/i }));
     expect(screen.getByLabelText(/shell/i)).toBeTruthy();
+  });
+
+  it('keeps ContainerTerminal mounted across Logs<->Terminal tab switches', () => {
+    // The panel uses CSS hiding (className 'hidden') rather than conditional
+    // mounting so xterm's scrollback survives tab switches. A regression to
+    // {tab === 'terminal' && <ContainerTerminal/>} would unmount the terminal,
+    // dropping its instance id between visits.
+    renderPanel(runningInventory);
+    fireEvent.click(screen.getByRole('tab', { name: /terminal/i }));
+    const firstId = screen.getByTestId('terminal').getAttribute('data-instance-id');
+    expect(firstId).toBeTruthy();
+
+    // Logs -> Terminal -> Logs -> Terminal: instance id must remain constant.
+    fireEvent.click(screen.getByRole('tab', { name: /logs/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /terminal/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /logs/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /terminal/i }));
+
+    const finalId = screen.getByTestId('terminal').getAttribute('data-instance-id');
+    expect(finalId).toBe(firstId);
   });
 
   it('frozen=true passed to terminal when container stops mid-session', () => {

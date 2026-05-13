@@ -1,9 +1,22 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+
+interface MockTerminalShape {
+  options: Record<string, unknown>;
+  loadAddon: ReturnType<typeof mock>;
+  open: ReturnType<typeof mock>;
+  dispose: ReturnType<typeof mock>;
+  writeln: ReturnType<typeof mock>;
+  onData: ReturnType<typeof mock>;
+  onResize: ReturnType<typeof mock>;
+  cols: number;
+  rows: number;
+}
+const mockTerminalInstances: MockTerminalShape[] = [];
 
 mock.module('@xterm/xterm', () => ({
   default: {
-    Terminal: class MockTerminal {
+    Terminal: class MockTerminal implements MockTerminalShape {
       options: Record<string, unknown> = {};
       loadAddon = mock(() => {});
       open = mock(() => {});
@@ -13,7 +26,10 @@ mock.module('@xterm/xterm', () => ({
       onResize = mock(() => ({ dispose: mock(() => {}) }));
       cols = 80;
       rows = 24;
-      constructor(opts: Record<string, unknown>) { this.options = { ...opts }; }
+      constructor(opts: Record<string, unknown>) {
+        this.options = { ...opts };
+        mockTerminalInstances.push(this);
+      }
     },
   },
 }));
@@ -53,6 +69,7 @@ const { default: ContainerTerminal } = await import('../ContainerTerminal');
 describe('ContainerTerminal', () => {
   beforeEach(() => {
     mockUseContainerTerminal.mockReturnValue(defaultHookReturn);
+    mockTerminalInstances.length = 0;
   });
 
   it('renders without crashing', () => {
@@ -94,5 +111,27 @@ describe('ContainerTerminal', () => {
     render(<ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={false} />);
     expect(screen.getByText('Session ended')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Reconnect' })).toBeTruthy();
+  });
+
+  it('flips terminal.options.disableStdin to match the frozen prop on rerender', async () => {
+    // useXtermSetup creates the Terminal inside an async useEffect; wait a tick
+    // inside act() so React state updates are committed before assertions.
+    const { rerender } = render(
+      <ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={false} />,
+    );
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    const term = mockTerminalInstances.at(-1);
+    if (!term) throw new Error('expected mock Terminal to be constructed');
+    expect(term.options.disableStdin).toBe(false);
+
+    await act(async () => {
+      rerender(<ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={true} />);
+    });
+    expect(term.options.disableStdin).toBe(true);
+
+    await act(async () => {
+      rerender(<ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={false} />);
+    });
+    expect(term.options.disableStdin).toBe(false);
   });
 });

