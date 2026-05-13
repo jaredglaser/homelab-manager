@@ -2,7 +2,14 @@ import type Dockerode from 'dockerode';
 import type { Duplex } from 'node:stream';
 import net from 'node:net';
 
-/** Candidate shells probed in order when preferred is 'auto'. */
+/**
+ * Candidate shells probed in order when preferred is 'auto'.
+ *
+ * zsh is intentionally absent here even though it appears in
+ * ALLOWED_EXPLICIT_SHELLS: zsh has a slow startup and is rare in containers,
+ * so probing for it on every auto session would add latency for the common
+ * case. A user who specifically wants zsh can request it by name.
+ */
 const PROBE_SHELLS = ['bash', 'sh', 'ash'] as const;
 
 /** Shells the client is allowed to request explicitly. Anything else is rejected. */
@@ -142,8 +149,26 @@ export async function probeShell(container: Dockerode.Container, preferred: stri
         ({ ExitCode } = await exec.inspect());
       }
       if (ExitCode === 0) return shell;
-    } catch {
-      // Shell not found or exec failed; try next candidate.
+      if (ExitCode === -1) {
+        // Distinguish a slow/stuck Docker from "shell does not exist": a clean
+        // failure sets a non-zero exit code, but -1 after 5s means the probe
+        // process never reported back. Operator needs to know this is not a
+        // missing-shell scenario before the user sees 1011 "No supported shell".
+        console.warn('exec probe deadline expired (still running after 5s)', {
+          shell,
+          containerId: container.id,
+          exitCode: -1,
+        });
+      }
+    } catch (err) {
+      // Surface the actual error so an operator can diagnose Docker daemon
+      // problems (ECONNREFUSED, EPIPE, broken socket) instead of seeing
+      // "No supported shell found in container" 3 swallowed failures later.
+      console.error('exec probe failed', {
+        shell,
+        containerId: container.id,
+        err: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -250,7 +275,7 @@ export async function handleExecSocket(
 ): Promise<void> {
   // Messages arriving before execStream is set on ws.data are silently dropped by
   // the Bun.serve message handler. This window is short (shell probe + exec start),
-  // and the client's xterm skeleton hides input until the connection is established.
+  // and the client typically isn't typing yet because the terminal is still painting.
   const { shell: preferredShell } = ws.data;
   // Math.min(NaN, 500) is NaN, which Docker rejects. Guard with isFinite and
   // fall back to xterm defaults so malformed cols/rows don't break the session.
@@ -284,8 +309,16 @@ export async function handleExecSocket(
 
     // Announce the resolved shell as a JSON text control frame so the client
     // can show e.g. `auto (sh)` in the shell picker. Sent before any binary
-    // output; binary frames are terminal stdout/stderr.
-    try { ws.send(JSON.stringify({ type: 'shell', name: shell })); } catch { /* socket gone */ }
+    // output; binary frames are terminal stdout/stderr. If this throws the
+    // WS is already dead, so tear down the Docker socket and bail rather than
+    // attaching listeners and starting the async iterator on an orphan exec.
+    try {
+      ws.send(JSON.stringify({ type: 'shell', name: shell }));
+    } catch (err) {
+      console.error(`Failed to announce shell for container ${containerId}:`, err instanceof Error ? err.message : String(err));
+      socket.destroy();
+      return;
+    }
 
     // Wire up listeners before resize so exec output is never buffered without
     // a consumer. resize() is a separate HTTP round-trip that can be slow or
@@ -297,8 +330,18 @@ export async function handleExecSocket(
     let closed = false;
 
     // Forward bytes that arrived past the HTTP response (typical: shell prompt).
+    // If the send throws, the WS is dead: destroy the Docker socket now rather
+    // than relying on the async-iter loop to notice on its first chunk (which
+    // may never arrive on a quiet shell), and skip the resize.
     if (initialBytes.length > 0) {
-      try { ws.send(initialBytes); } catch { closed = true; }
+      try {
+        ws.send(initialBytes);
+      } catch (err) {
+        console.error(`Failed to send initial bytes for container ${containerId}:`, err instanceof Error ? err.message : String(err));
+        closed = true;
+        socket.destroy();
+        return;
+      }
     }
 
     // Fire-and-forget the initial resize: PTY starts at Docker's default
@@ -314,7 +357,16 @@ export async function handleExecSocket(
       try {
         for await (const chunk of stream as AsyncIterable<Buffer>) {
           if (closed) break;
-          try { ws.send(chunk as Buffer); } catch { closed = true; break; }
+          try {
+            ws.send(chunk as Buffer);
+          } catch (err) {
+            // WS gone: stop iterating and destroy the Docker socket so the
+            // upstream TCP connection doesn't leak waiting for the next chunk.
+            console.error(`Failed to forward exec chunk for container ${containerId}:`, err instanceof Error ? err.message : String(err));
+            closed = true;
+            socket.destroy();
+            break;
+          }
         }
       } catch (err) {
         if (!closed) {

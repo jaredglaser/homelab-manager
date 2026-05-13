@@ -150,6 +150,10 @@ Bun.serve<ExecWebSocketData>({
   port: PORT,
   tls: tlsConfig,
   websocket: {
+    // An interactive TTY exec session must not time out on idle: the user can
+    // sit at a prompt for many minutes without typing. Bun's default 120s
+    // would close the socket from under them. 0 disables the timeout.
+    idleTimeout: 0,
     async open(ws) {
       if (!docker) { ws.close(1011, 'Docker not available'); return; }
       await handleExecSocket(docker, dockerHostname, dockerPortNum, ws.data.containerId, ws as Parameters<typeof handleExecSocket>[4]);
@@ -173,7 +177,7 @@ Bun.serve<ExecWebSocketData>({
       const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname);
       if (authError) return authError;
 
-      // WebSocket upgrade for exec sessions — must happen before matchRoute since server.upgrade() is Bun-specific
+      // WebSocket upgrade for exec sessions: must happen before matchRoute since server.upgrade() is Bun-specific
       if (docker && request.headers.get('upgrade') === 'websocket') {
         const execMatch = /^\/exec\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)$/.exec(url.pathname);
         if (execMatch) {
