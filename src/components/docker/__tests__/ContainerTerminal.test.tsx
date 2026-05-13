@@ -66,7 +66,7 @@ class MockResizeObserver {
 }
 (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = MockResizeObserver;
 
-const { default: ContainerTerminal } = await import('../ContainerTerminal');
+const { default: ContainerTerminal } = await import('@/components/docker/ContainerTerminal');
 
 describe('ContainerTerminal', () => {
   beforeEach(() => {

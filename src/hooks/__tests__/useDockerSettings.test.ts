@@ -25,7 +25,7 @@ function makeWrapper() {
   return { Wrapper, store };
 }
 
-describe('useDockerSettings — containerShells', () => {
+describe('useDockerSettings: containerShells', () => {
   it('getContainerShell returns undefined when no preference saved', () => {
     const { Wrapper } = makeWrapper();
     const { result } = renderHook(() => useDockerSettings(), { wrapper: Wrapper });

@@ -73,7 +73,7 @@ function renderPanel(inventory = runningInventory) {
   );
 }
 
-const { default: ContainerLogsTerminalPanel } = await import('../ContainerLogsTerminalPanel');
+const { default: ContainerLogsTerminalPanel } = await import('@/components/docker/ContainerLogsTerminalPanel');
 
 describe('ContainerLogsTerminalPanel', () => {
   beforeEach(() => {

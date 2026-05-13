@@ -17,7 +17,7 @@ mock.module('@/components/docker/ContainerLogsTerminalPanel', () => ({
   default: () => <div data-testid="logs-terminal-panel" />,
 }));
 
-const { default: ContainerDetailPanel } = await import('../ContainerDetailPanel');
+const { default: ContainerDetailPanel } = await import('@/components/docker/ContainerDetailPanel');
 const { createStore, Provider } = await import('jotai');
 
 const sampleDataPoints = [

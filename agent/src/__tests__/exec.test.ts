@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeAll, beforeEach, afterEach, spyOn } from 'bun:test';
+import { describe, expect, test, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import type net from 'node:net';
@@ -13,8 +13,12 @@ function makeControllableStream() {
   };
 }
 
-beforeAll(() => {
-  console.error = mock(() => {});
+let consoleErrorSpy: ReturnType<typeof spyOn>;
+beforeEach(() => {
+  consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
+});
+afterEach(() => {
+  consoleErrorSpy.mockRestore();
 });
 
 /** Build a mock Dockerode container with controllable exec behavior. */

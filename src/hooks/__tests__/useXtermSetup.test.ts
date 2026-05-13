@@ -57,7 +57,7 @@ afterAll(() => {
 
 const { useXtermSetup } = await import('@/hooks/useXtermSetup');
 
-describe('useXtermSetup – dynamic import failure', () => {
+describe('useXtermSetup: dynamic import failure', () => {
   // Override the top-level @xterm/xterm mock with one that throws so we can
   // verify useXtermSetup surfaces the failure in the `error` state.
   // mock.module() takes effect at the point of the next dynamic import() call,
