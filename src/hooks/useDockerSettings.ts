@@ -22,6 +22,8 @@ export interface DockerSettingsValue {
   isContainerExpanded: (containerId: string) => boolean;
   toggleStackExpanded: (stackEntityId: string) => void;
   isStackExpanded: (stackEntityId: string) => boolean;
+  setContainerShell: (containerKey: string, shell: string) => void;
+  getContainerShell: (containerKey: string) => string | undefined;
 }
 
 /**
@@ -76,6 +78,25 @@ export function useDockerSettings(): DockerSettingsValue {
     [stacks.expandedStacks],
   );
 
+  const setContainerShell = useCallback((containerKey: string, shell: string) => {
+    optimisticSet(SETTINGS_KEYS.docker.containerShells, (prev) => {
+      const current: Record<string, string> = (() => {
+        try {
+          const p = JSON.parse(prev ?? '{}') as unknown;
+          return (typeof p === 'object' && p !== null && !Array.isArray(p))
+            ? (p as Record<string, string>)
+            : {};
+        } catch { return {}; }
+      })();
+      return JSON.stringify({ ...current, [containerKey]: shell });
+    });
+  }, [optimisticSet]);
+
+  const getContainerShell = useCallback(
+    (containerKey: string): string | undefined => docker.containerShells[containerKey],
+    [docker.containerShells],
+  );
+
   return useMemo<DockerSettingsValue>(() => ({
     docker,
     stacks,
@@ -88,6 +109,8 @@ export function useDockerSettings(): DockerSettingsValue {
     isContainerExpanded,
     toggleStackExpanded,
     isStackExpanded,
+    setContainerShell,
+    getContainerShell,
   }), [
     docker,
     stacks,
@@ -100,5 +123,7 @@ export function useDockerSettings(): DockerSettingsValue {
     isContainerExpanded,
     toggleStackExpanded,
     isStackExpanded,
+    setContainerShell,
+    getContainerShell,
   ]);
 }

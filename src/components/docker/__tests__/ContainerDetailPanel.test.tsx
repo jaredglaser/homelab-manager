@@ -13,31 +13,11 @@ mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
   ),
 }));
 
-mock.module('@xterm/xterm', () => ({
-  default: {
-    Terminal: class MockTerminal {
-      loadAddon = mock(() => {});
-      open = mock(() => {});
-      dispose = mock(() => {});
-      writeln = mock(() => {});
-    },
-  },
-}));
-mock.module('@xterm/addon-fit', () => ({
-  default: {
-    FitAddon: class MockFitAddon {
-      fit = mock(() => {});
-      dispose = mock(() => {});
-    },
-  },
-}));
-mock.module('@xterm/xterm/css/xterm.css', () => ({}));
-
-mock.module('@/hooks/useContainerLogs', () => ({
-  useContainerLogs: () => ({ isConnected: true, error: null }),
+mock.module('@/components/docker/ContainerLogsTerminalPanel', () => ({
+  default: () => <div data-testid="logs-terminal-panel" />,
 }));
 
-const { default: ContainerDetailPanel } = await import('../ContainerDetailPanel');
+const { default: ContainerDetailPanel } = await import('@/components/docker/ContainerDetailPanel');
 const { createStore, Provider } = await import('jotai');
 
 const sampleDataPoints = [
@@ -98,9 +78,9 @@ describe('ContainerDetailPanel', () => {
     screen.getByText('Network I/O');
   });
 
-  it('renders the log viewer', () => {
+  it('renders the logs/terminal panel', () => {
     renderPanel();
-    screen.getByText('Logs');
+    screen.getByTestId('logs-terminal-panel');
   });
 
   it('renders two chart instances', () => {
@@ -120,7 +100,7 @@ describe('ContainerDetailPanel', () => {
   it('renders with empty data points', () => {
     renderPanel({ dataPoints: [] });
     screen.getByText('CPU & Memory');
-    screen.getByText('Logs');
+    screen.getByTestId('logs-terminal-panel');
   });
 
   it('shows exit metadata for an exited container', () => {

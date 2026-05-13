@@ -2,7 +2,7 @@ import { memo, useMemo } from 'react';
 import { Divider } from '@mui/material';
 import { formatAsPercent, formatBitsSIUnits } from '@/formatters/metrics';
 import DualSeriesChart from '@/components/docker/DualSeriesChart';
-import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
+import ContainerLogsTerminalPanel from '@/components/docker/ContainerLogsTerminalPanel';
 import type { ChartDataPoint } from '@/hooks/useContainerChartData';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
@@ -118,7 +118,7 @@ export default memo(function ContainerDetailPanel({
           />
         </div>
         <div className="min-h-0 lg:col-start-2 lg:row-start-1 lg:row-span-2">
-          <ContainerLogViewer containerId={containerId} host={host} />
+          <ContainerLogsTerminalPanel containerId={containerId} host={host} inventory={inventory} />
         </div>
       </div>
     </div>

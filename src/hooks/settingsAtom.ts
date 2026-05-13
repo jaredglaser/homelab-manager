@@ -31,6 +31,8 @@ export interface Settings {
     expandedHosts: Set<string>;
     expandedContainers: Set<string>;
     decimals: DecimalSettings;
+    /** Per-container preferred shell, keyed by host/container_name (stable across container recreation; container IDs change on restart). */
+    containerShells: Record<string, string>;
   };
   stacks: {
     expandedStacks: Set<string>;
@@ -81,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
     expandedHosts: new Set(),
     expandedContainers: new Set(),
     decimals: { ...DEFAULT_DECIMAL_SETTINGS },
+    containerShells: {},
   },
   stacks: {
     expandedStacks: new Set(),
@@ -166,6 +169,21 @@ export function parseSettings(raw: Record<string, string>): Settings {
       ))),
       expandedHosts: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedHosts]),
       expandedContainers: parseExpandedSet(raw[SETTINGS_KEYS.docker.expandedContainers]),
+      containerShells: (() => {
+        try {
+          const v = raw[SETTINGS_KEYS.docker.containerShells];
+          if (!v) return {};
+          const parsed = JSON.parse(v) as unknown;
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            const result: Record<string, string> = {};
+            for (const [k, val] of Object.entries(parsed)) {
+              if (typeof k === 'string' && typeof val === 'string') result[k] = val;
+            }
+            return result;
+          }
+          return {};
+        } catch { return {}; }
+      })(),
       decimals: {
         cpu: parseBool(raw[SETTINGS_KEYS.docker.decimals.cpu], DEFAULT_DECIMAL_SETTINGS.cpu),
         memory: parseBool(raw[SETTINGS_KEYS.docker.decimals.memory], DEFAULT_DECIMAL_SETTINGS.memory),
@@ -240,6 +258,17 @@ function generalEqual(a: Settings['general'], b: Settings['general']): boolean {
   );
 }
 
+function shellsEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  if (a === b) return true;
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
 function dockerEqual(a: Settings['docker'], b: Settings['docker']): boolean {
   return (
     a === b ||
@@ -250,7 +279,8 @@ function dockerEqual(a: Settings['docker'], b: Settings['docker']): boolean {
       a.decimals.diskSpeed === b.decimals.diskSpeed &&
       a.decimals.networkSpeed === b.decimals.networkSpeed &&
       setsEqual(a.expandedHosts, b.expandedHosts) &&
-      setsEqual(a.expandedContainers, b.expandedContainers))
+      setsEqual(a.expandedContainers, b.expandedContainers) &&
+      shellsEqual(a.containerShells, b.containerShells))
   );
 }
 
