@@ -17,7 +17,7 @@ const THRESHOLDS = {
   // .refine()/.transform() callbacks as separate functions. These can show
   // as "uncovered" even when every line is hit, because V8 distinguishes
   // defining a callable (line hit) from entering it (function hit).
-  // A 95% floor accounts for this instrumentation noise.
+  // A 94% floor accounts for this instrumentation noise.
   functions: 94,
   // Note: Bun doesn't report branch coverage yet
 };
