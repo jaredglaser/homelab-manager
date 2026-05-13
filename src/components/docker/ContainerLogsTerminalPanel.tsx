@@ -32,8 +32,9 @@ export default memo(function ContainerLogsTerminalPanel({
   inventory,
   defaultTab,
 }: ContainerLogsTerminalPanelProps) {
-  const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>(defaultTab ?? 'logs');
-  const [terminalMounted, setTerminalMounted] = useState(false);
+  const initialTab: 'logs' | 'terminal' = defaultTab ?? 'logs';
+  const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>(initialTab);
+  const [terminalMounted, setTerminalMounted] = useState(initialTab === 'terminal');
   const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
 
   const { getContainerShell, setContainerShell } = useDockerSettings();

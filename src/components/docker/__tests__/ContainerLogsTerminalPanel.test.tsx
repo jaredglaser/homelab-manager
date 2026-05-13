@@ -156,6 +156,21 @@ describe('ContainerLogsTerminalPanel', () => {
     expect(terminal.getAttribute('data-shell')).toBe('bash');
   });
 
+  it('renders terminal immediately when defaultTab is "terminal"', () => {
+    const store = createStore();
+    render(
+      <Provider store={store}>
+        <ContainerLogsTerminalPanel
+          containerId="abc123"
+          host="server1"
+          inventory={runningInventory}
+          defaultTab="terminal"
+        />
+      </Provider>,
+    );
+    expect(screen.getByTestId('terminal')).toBeTruthy();
+  });
+
   it('frozen=true passed to terminal when container stops mid-session', () => {
     // Must reuse the same store on rerender; a new <Provider store={...}>
     // would remount the panel and lose the `terminalMounted` local state
