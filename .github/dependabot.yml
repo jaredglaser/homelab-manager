@@ -68,6 +68,13 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    groups:
+      root-docker-patch-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "docker"
     directory: "/agent"
@@ -75,6 +82,13 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    groups:
+      agent-docker-patch-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "docker"
     directory: "/agent-updater"
@@ -82,3 +96,10 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+    groups:
+      agent-updater-docker-patch-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
