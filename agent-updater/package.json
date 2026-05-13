@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "dockerode": "^4.0.9"
+    "dockerode": "^5.0.0"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.38",
