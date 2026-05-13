@@ -75,7 +75,7 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
           size="small"
           disabled={isUpdating}
           fullWidth
-          inputProps={{ 'aria-label': 'Edit Host Name' }}
+          slotProps={{ htmlInput: { 'aria-label': 'Edit Host Name' } }}
         />
         <TextField
           label="Agent URL"
@@ -84,7 +84,7 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
           size="small"
           disabled={isUpdating}
           fullWidth
-          inputProps={{ 'aria-label': 'Edit Agent URL' }}
+          slotProps={{ htmlInput: { 'aria-label': 'Edit Agent URL' } }}
         />
       </DialogContent>
       <DialogActions>
