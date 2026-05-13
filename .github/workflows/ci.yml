@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 2
 
       - name: Detect dependency changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: changes
         with:
           filters: |
@@ -74,7 +74,7 @@ jobs:
           fetch-depth: 2
 
       - name: Detect dependency changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: changes
         with:
           filters: |
