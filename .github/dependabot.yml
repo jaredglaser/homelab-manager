@@ -32,6 +32,22 @@ updates:
           - "minor"
           - "patch"
 
+  - package-ecosystem: "npm"
+    directory: "/agent-updater"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      semver-patch-days: 7
+      semver-minor-days: 14
+      semver-major-days: 30
+    groups:
+      agent-updater-npm-patch-minor:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
