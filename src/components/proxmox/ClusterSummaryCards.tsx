@@ -15,7 +15,7 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
   return (
     <div className="grid grid-cols-2 gap-4 mb-6 lg:grid-cols-4">
       <Card variant="outlined" className="p-4">
-        <Typography variant="caption" className="uppercase tracking-wide text-neutral-500">
+        <Typography variant="caption" className="uppercase tracking-wide text-(--mui-palette-text-secondary)">
           Cluster
         </Typography>
         <Typography variant="h5">{clusterName}</Typography>
@@ -25,7 +25,7 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
       </Card>
 
       <Card variant="outlined" className="p-4">
-        <Typography variant="caption" className="uppercase tracking-wide text-neutral-500">
+        <Typography variant="caption" className="uppercase tracking-wide text-(--mui-palette-text-secondary)">
           CPU
         </Typography>
         <Typography variant="h5">{cpuPercent.toFixed(1)}%</Typography>
@@ -35,7 +35,7 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
       </Card>
 
       <Card variant="outlined" className="p-4">
-        <Typography variant="caption" className="uppercase tracking-wide text-neutral-500">
+        <Typography variant="caption" className="uppercase tracking-wide text-(--mui-palette-text-secondary)">
           Memory
         </Typography>
         <Typography variant="h5">{memPercent.toFixed(1)}%</Typography>
@@ -45,7 +45,7 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
       </Card>
 
       <Card variant="outlined" className="p-4">
-        <Typography variant="caption" className="uppercase tracking-wide text-neutral-500">
+        <Typography variant="caption" className="uppercase tracking-wide text-(--mui-palette-text-secondary)">
           Guests
         </Typography>
         <Typography variant="h5">

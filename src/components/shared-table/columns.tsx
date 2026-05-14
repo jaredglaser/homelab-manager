@@ -149,7 +149,7 @@ export function progressColumn<TRow>(opts: {
               color={color}
             />
           </div>
-          <span className="shrink-0 min-w-[5ch] text-right text-xs tabular-nums text-neutral-600 dark:text-neutral-300">
+          <span className="shrink-0 min-w-[5ch] text-right text-xs tabular-nums text-(--mui-palette-text-secondary)">
             {label}
           </span>
         </div>

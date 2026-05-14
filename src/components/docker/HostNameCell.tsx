@@ -24,7 +24,7 @@ const HostNameCell = memo(function HostNameCell({
       )}
       <Server size={18} className="shrink-0" />
       {row.isStale && (
-        <WifiOff size={16} className="text-amber-600 dark:text-amber-400 shrink-0" />
+        <WifiOff size={16} className="text-(--indicator-late) shrink-0" />
       )}
       <span className="font-bold">{row.hostName}</span>
       {a.staleContainerCount > 0 && !row.isStale && (

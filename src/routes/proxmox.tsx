@@ -150,7 +150,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
           <Typography variant="body1" className="mb-2">
             Proxmox is not configured.
           </Typography>
-          <Typography variant="body2" className="text-neutral-500">
+          <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
             Set the following environment variables to connect to your Proxmox cluster:
           </Typography>
           <pre className="mt-3 p-4 bg-(--mui-palette-background-level1) rounded-lg text-sm font-mono">

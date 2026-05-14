@@ -71,7 +71,7 @@ export const MetricCell = memo(function MetricCell({
         {value}
       </span>
 
-      <span className={`${unitWidth} min-w-0 text-left text-xs font-mono text-neutral-500 dark:text-neutral-400 transition-opacity duration-200 ${staleClass}`}>
+      <span className={`${unitWidth} min-w-0 text-left text-xs font-mono text-(--mui-palette-text-secondary) transition-opacity duration-200 ${staleClass}`}>
         {displayUnit}
       </span>
     </div>

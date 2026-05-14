@@ -9,7 +9,7 @@ export const StorageCell = memo(function StorageCell({ name, type }: StorageCell
   return (
     <div className="flex items-center gap-2 truncate">
       <span className="truncate">{name}</span>
-      <span className="text-xs text-neutral-500">({type})</span>
+      <span className="text-xs text-(--mui-palette-text-secondary)">({type})</span>
     </div>
   );
 });
