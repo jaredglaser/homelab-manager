@@ -22,8 +22,8 @@ const sessionReadMiddleware = createMiddleware().server(async ({ next, context }
     return next({ context: { ...ctx, sessionUser: SYNTHETIC_ADMIN as AuthUser | null } });
   }
 
-  const request = ctx.request as Request | undefined;
-  const cookieHeader = request?.headers.get('cookie') ?? null;
+  const { getRequest } = await import('@tanstack/start-server-core');
+  const cookieHeader = getRequest().headers.get('cookie') ?? null;
 
   const { parseCookie } = await import('@/middleware/auth-middleware');
   const sessionToken = parseCookie(cookieHeader, 'session');

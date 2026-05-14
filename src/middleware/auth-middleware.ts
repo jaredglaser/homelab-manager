@@ -22,8 +22,8 @@ export const authMiddleware = createMiddleware().server(
 
     // Extract the session token from the cookie before building the session manager
     // to avoid unnecessary DB/OpenBao connections on unauthenticated requests.
-    const request = (ctx.request as Request | undefined);
-    const cookieHeader = request?.headers.get('cookie') ?? null;
+    const { getRequest } = await import('@tanstack/start-server-core');
+    const cookieHeader = getRequest().headers.get('cookie') ?? null;
     const sessionToken = parseCookie(cookieHeader, 'session');
 
     if (!sessionToken) {
