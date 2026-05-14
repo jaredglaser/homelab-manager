@@ -6,6 +6,7 @@ import Paper from '@mui/material/Paper'
 import { Link } from '@tanstack/react-router'
 import { ChevronDown } from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
+import { IS_DEMO_MODE } from '@/lib/constants/demo'
 import {
   NAV_ITEMS,
   type RouteKey,
@@ -15,7 +16,6 @@ import {
 import { useCurrentTab, useMenuController } from '@/components/header/useMenuController'
 import { MenuContentFor, NavMenuCloseContext } from '@/components/header/menus'
 import { DemoBanner } from '@/components/header/DemoBanner'
-import { IS_DEMO_MODE } from '@/lib/constants/demo'
 
 // Brand SVGs (Docker, Proxmox) lack the small transparent padding that lucide icons
 // bake into their viewBoxes, so they sit too close to the tab label. This set marks
