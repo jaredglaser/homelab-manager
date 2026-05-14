@@ -526,6 +526,72 @@ describe('StackStatusBroadcastService', () => {
     }
   });
 
+  it('toStackContainer: serviceKey without slash maps service to the bare key', async () => {
+    const noPrefixService = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [
+        {
+          ...composeContainer1,
+          serviceKey: 'plex', // no slash: already the bare service name
+        },
+      ],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    noPrefixService.subscribe((e) => received.push(e));
+    await flush();
+
+    const init = received[0];
+    if (init.type === 'status') {
+      expect(init.entries[0].containers[0].service).toBe('plex');
+    }
+    await noPrefixService.stop();
+  });
+
+  it('toStackContainer: null serviceKey maps service to null', async () => {
+    const nullKeyService = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [
+        {
+          ...composeContainer1,
+          serviceKey: null,
+        },
+      ],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    nullKeyService.subscribe((e) => received.push(e));
+    await flush();
+
+    const init = received[0];
+    if (init.type === 'status') {
+      expect(init.entries[0].containers[0].service).toBeNull();
+    }
+    await nullKeyService.stop();
+  });
+
+  it('toStackContainer: empty string serviceKey is normalized to null', async () => {
+    const emptyKeyService = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [
+        {
+          ...composeContainer1,
+          serviceKey: '',
+        },
+      ],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    emptyKeyService.subscribe((e) => received.push(e));
+    await flush();
+
+    const init = received[0];
+    if (init.type === 'status') {
+      expect(init.entries[0].containers[0].service).toBeNull();
+    }
+    await emptyKeyService.stop();
+  });
+
   it('updated_at is an ISO string', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));

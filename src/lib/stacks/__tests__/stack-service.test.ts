@@ -317,6 +317,30 @@ describe('controlStackForHost', () => {
     expect(mockRestart).toHaveBeenCalledWith(req);
   });
 
+  test('calls agent.start for service-scope start action', async () => {
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    const req = { stack: 'myapp', scope: 'service' as const, service: 'web' };
+    await controlStackForHost('server1', 'start', req);
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(mockStart).toHaveBeenCalledWith(req);
+  });
+
+  test('calls agent.stop for service-scope stop action', async () => {
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    const req = { stack: 'myapp', scope: 'service' as const, service: 'web' };
+    await controlStackForHost('server1', 'stop', req);
+    expect(mockStop).toHaveBeenCalledTimes(1);
+    expect(mockStop).toHaveBeenCalledWith(req);
+  });
+
+  test('calls agent.restart for service-scope restart action', async () => {
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    const req = { stack: 'myapp', scope: 'service' as const, service: 'web' };
+    await controlStackForHost('server1', 'restart', req);
+    expect(mockRestart).toHaveBeenCalledTimes(1);
+    expect(mockRestart).toHaveBeenCalledWith(req);
+  });
+
   test('throws when host is not found', async () => {
     mock.module('@/lib/database/repositories/host-repository', () => ({
       HostRepository: class {
