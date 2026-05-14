@@ -1,6 +1,11 @@
 import { describe, it, expect, mock, afterEach } from 'bun:test';
-import { handleCallback, buildSessionCookie, CLEAR_STATE_COOKIE, Route } from '../callback';
-import type { CallbackHandlerDeps } from '../callback';
+import {
+  handleCallback,
+  buildSessionCookie,
+  CLEAR_STATE_COOKIE,
+  callbackGetHandler,
+} from '@/lib/auth/callback-handler';
+import type { CallbackHandlerDeps } from '@/lib/auth/callback-handler';
 import type { OidcTokens, Role } from '@/lib/auth/types';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
 
@@ -243,11 +248,9 @@ describe('handleCallback', () => {
         null,
         null,
       );
-      // Verify the response was constructed with the clear-state cookie constant
       expect(CLEAR_STATE_COOKIE).toContain('oidc_state=');
       expect(CLEAR_STATE_COOKIE).toContain('Max-Age=0');
       expect(CLEAR_STATE_COOKIE).toContain('Path=/api/auth');
-      // Response status confirms the redirect happened
       expect(response.status).toBe(302);
     });
   });
@@ -326,7 +329,6 @@ describe('handleCallback', () => {
           makeIdTokenClaims({ groups: ['group-b', 'group-c'] }),
         ),
         mapGroupsToRole: mock((groups: string[]) => {
-          // Verify we see the merged, deduplicated groups
           if (
             groups.includes('group-a') &&
             groups.includes('group-b') &&
@@ -348,7 +350,6 @@ describe('handleCallback', () => {
         null,
       );
 
-      // mapGroupsToRole should have been called with merged groups
       expect(deps.mapGroupsToRole).toHaveBeenCalledTimes(1);
       const calledGroups = (deps.mapGroupsToRole as ReturnType<typeof mock>).mock
         .calls[0][0] as string[];
@@ -427,16 +428,11 @@ describe('handleCallback', () => {
   });
 });
 
-// Access the route's server handler directly to test the wiring layer.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const routeGetHandler = (Route as any).options?.server?.handlers?.GET as
-  ((args: { request: Request }) => Promise<Response>) | undefined;
-
 function makeRouteRequest(url: string): Request {
   return new Request(url);
 }
 
-describe('Route GET handler', () => {
+describe('callbackGetHandler', () => {
   const originalEnv = { ...process.env };
 
   afterEach(() => {
@@ -445,7 +441,7 @@ describe('Route GET handler', () => {
 
   it('redirects to / when auth is disabled', async () => {
     delete process.env.AUTH_ENABLED;
-    const response = await routeGetHandler!({ request: makeRouteRequest('http://localhost/api/auth/callback') });
+    const response = await callbackGetHandler({ request: makeRouteRequest('http://localhost/api/auth/callback') });
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('/');
   });
@@ -455,7 +451,7 @@ describe('Route GET handler', () => {
     process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
     process.env.OIDC_CLIENT_ID = 'homelab-manager';
     process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
-    const response = await routeGetHandler!({ request: makeRouteRequest('http://localhost/api/auth/callback?state=xyz') });
+    const response = await callbackGetHandler({ request: makeRouteRequest('http://localhost/api/auth/callback?state=xyz') });
     expect(response.status).toBe(400);
   });
 
@@ -464,21 +460,20 @@ describe('Route GET handler', () => {
     process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
     process.env.OIDC_CLIENT_ID = 'homelab-manager';
     process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
-    const response = await routeGetHandler!({ request: makeRouteRequest('http://localhost/api/auth/callback?code=abc') });
+    const response = await callbackGetHandler({ request: makeRouteRequest('http://localhost/api/auth/callback?code=abc') });
     expect(response.status).toBe(400);
   });
 
   it('redirects to /login?error=callback_failed when an unhandled error occurs', async () => {
-    // AUTH_ENABLED=true, code+state present, but OIDC vars missing → loadAuthConfig throws → caught
+    // AUTH_ENABLED=true, code+state present, but OIDC vars missing -> loadAuthConfig throws -> caught
     process.env.AUTH_ENABLED = 'true';
     delete process.env.OIDC_ISSUER_URL;
     delete process.env.OIDC_CLIENT_ID;
     delete process.env.OIDC_REDIRECT_URI;
-    // Suppress expected console.error from the catch block so bun doesn't treat it as an unhandled error
     const originalConsoleError = console.error;
     console.error = () => {};
     try {
-      const response = await routeGetHandler!({ request: makeRouteRequest('http://localhost/api/auth/callback?code=abc&state=xyz') });
+      const response = await callbackGetHandler({ request: makeRouteRequest('http://localhost/api/auth/callback?code=abc&state=xyz') });
       expect(response.status).toBe(302);
       expect(response.headers.get('Location')).toBe('/login?error=callback_failed');
     } finally {
