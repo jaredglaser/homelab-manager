@@ -94,7 +94,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               onClick={() => toggleProxmoxHostExpanded(node.node)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
-                nodeIdx > 0 ? 'border-t border-neutral-200 dark:border-neutral-700' : ''
+                nodeIdx > 0 ? 'border-t border-(--mui-palette-divider)' : ''
               } ${hostExpanded ? 'bg-(--mui-palette-action-hover)' : 'bg-(--mui-palette-background-level2)'}`}
             >
               <ChevronRight
@@ -113,7 +113,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
                 <span>CPU: {cpuPercent}%</span>
                 <span>Mem: {memPercent}%</span>
                 <span>Disk: {diskPercent}%</span>
-                <span className="text-neutral-500">
+                <span className="text-(--mui-palette-text-secondary)">
                   {node.status === 'online' ? formatUptime(node.uptime) : EMPTY_METRIC}
                 </span>
               </div>

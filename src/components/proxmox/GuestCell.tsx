@@ -8,7 +8,7 @@ interface GuestCellProps {
 export const GuestCell = memo(function GuestCell({ vmid, name }: GuestCellProps) {
   return (
     <div className="flex items-center gap-2 truncate">
-      <span className="text-neutral-500 tabular-nums">{vmid}</span>
+      <span className="text-(--mui-palette-text-secondary) tabular-nums">{vmid}</span>
       <span className="truncate">{name}</span>
     </div>
   );

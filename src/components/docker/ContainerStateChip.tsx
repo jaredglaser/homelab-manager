@@ -21,7 +21,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'running') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-green-500"
+        className="inline-block w-2 h-2 rounded-full bg-(--indicator-active)"
         aria-label="running"
       />
     );
@@ -30,7 +30,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'restarting') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-yellow-400 animate-pulse"
+        className="inline-block w-2 h-2 rounded-full bg-(--mui-palette-warning-main) animate-pulse"
         aria-label="restarting"
       />
     );
@@ -39,7 +39,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'paused') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-yellow-400"
+        className="inline-block w-2 h-2 rounded-full bg-(--mui-palette-info-main)"
         aria-label="paused"
       />
     );
@@ -48,7 +48,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'exited' || state === 'dead') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-(--mui-palette-action-disabled)"
+        className="inline-block w-2 h-2 rounded-full bg-(--mui-palette-text-disabled)"
         aria-label={state}
       />
     );

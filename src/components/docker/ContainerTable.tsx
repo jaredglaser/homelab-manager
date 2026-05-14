@@ -329,12 +329,12 @@ export default function ContainerTable({
 
   const rowClassName = useCallback((row: DockerTableRow) => {
     if (row.type === 'host') {
-      const base = row.isStale ? 'bg-amber-500/10!' : 'bg-(--mui-palette-background-level1)!';
+      const base = row.isStale ? 'bg-[var(--row-stale-tint)]!' : 'bg-(--mui-palette-background-level1)!';
       // scroll-mt clears the DataTable's sticky column header (~37px) when scrollIntoView is called
       return `${base} scroll-mt-10`;
     }
     if (row.isStale) {
-      return 'bg-amber-500/10! opacity-70!';
+      return 'bg-[var(--row-stale-tint)]! opacity-70!';
     }
     const { state } = row.inventory;
     if (state !== 'running' && state !== 'restarting') {
