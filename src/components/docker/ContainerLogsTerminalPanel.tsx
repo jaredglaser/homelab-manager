@@ -21,7 +21,6 @@ interface ContainerLogsTerminalPanelProps {
   containerId: string;
   host: string;
   inventory: ContainerInventoryInfo;
-  defaultTab?: 'logs' | 'terminal';
 }
 
 const SHELL_OPTIONS = ['bash', 'sh', 'ash', 'zsh'] as const;
@@ -30,11 +29,9 @@ export default memo(function ContainerLogsTerminalPanel({
   containerId,
   host,
   inventory,
-  defaultTab,
 }: ContainerLogsTerminalPanelProps) {
-  const initialTab: 'logs' | 'terminal' = defaultTab ?? 'logs';
-  const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>(initialTab);
-  const [terminalMounted, setTerminalMounted] = useState(initialTab === 'terminal');
+  const [activeTab, setActiveTab] = useState<'logs' | 'terminal'>('logs');
+  const [terminalMounted, setTerminalMounted] = useState(false);
   const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
 
   const { getContainerShell, setContainerShell } = useDockerSettings();
