@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
 import { stackSecretsMiddleware } from '@/middleware/stack-secrets-middleware';
+import type { StackControlRequest } from '@/lib/clients/agent-client';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 import {
@@ -12,6 +13,7 @@ import {
   updateStackIconSchema,
   resumeDeploySchema,
   rejectDeploySchema,
+  controlStackSchema,
 } from '@/data/stacks/schemas';
 
 /**
@@ -39,7 +41,7 @@ export const getStackDetail = createServerFn()
 
 
 /**
- * Trigger a deploy, teardown, or restart for a stack.
+ * Trigger a deploy or teardown for a stack.
  * Pass an optional commitSha to perform a rollback to that specific commit.
  */
 export const triggerDeploy = createServerFn()
@@ -298,4 +300,18 @@ export const ensureVariablesExist = createServerFn({ method: 'POST' })
     await Promise.all(
       data.variableNames.map((name) => repo.ensureExists(data.stackName, name)),
     );
+  });
+
+/**
+ * Directly start, stop, or restart a stack or individual service on its agent host.
+ * Bypasses the deploy pipeline; no deploy history record is created.
+ */
+export const controlStack = createServerFn({ method: 'POST' })
+  .inputValidator(controlStackSchema)
+  .handler(async ({ data }): Promise<void> => {
+    const { controlStackForHost } = await import('@/lib/stacks/stack-service');
+    const req: StackControlRequest = data.scope === 'service'
+      ? { stack: data.stack, scope: 'service', service: data.service }
+      : { stack: data.stack, scope: 'stack' };
+    await controlStackForHost(data.host, data.action, req);
   });

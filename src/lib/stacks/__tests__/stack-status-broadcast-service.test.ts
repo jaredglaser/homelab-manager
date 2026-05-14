@@ -521,7 +521,76 @@ describe('StackStatusBroadcastService', () => {
       expect(container.name).toBe('plex');
       expect(container.status).toBe('running');
       expect(container.image).toBe('plexinc/pms-docker:latest');
+      // serviceKey is "media/plex"; service should be the bare service name for docker compose
+      expect(container.service).toBe('plex');
     }
+  });
+
+  it('toStackContainer: serviceKey without slash maps service to the bare key', async () => {
+    const noPrefixService = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [
+        {
+          ...composeContainer1,
+          serviceKey: 'plex', // no slash: already the bare service name
+        },
+      ],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    noPrefixService.subscribe((e) => received.push(e));
+    await flush();
+
+    const init = received[0];
+    if (init.type === 'status') {
+      expect(init.entries[0].containers[0].service).toBe('plex');
+    }
+    await noPrefixService.stop();
+  });
+
+  it('toStackContainer: empty string serviceKey is normalized to null', async () => {
+    const emptyKeyService = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [
+        {
+          ...composeContainer1,
+          serviceKey: '',
+        },
+      ],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    emptyKeyService.subscribe((e) => received.push(e));
+    await flush();
+
+    const init = received[0];
+    if (init.type === 'status') {
+      expect(init.entries[0].containers[0].service).toBeNull();
+    }
+    await emptyKeyService.stop();
+  });
+
+  it('toStackContainer: trailing-slash serviceKey ("media/") normalizes service to null', async () => {
+    // "media/" splits to ["media", ""], and "" is falsy — must normalize to null, not "".
+    const trailingSlashService = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [
+        {
+          ...composeContainer1,
+          serviceKey: 'media/',
+        },
+      ],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    trailingSlashService.subscribe((e) => received.push(e));
+    await flush();
+
+    const init = received[0];
+    if (init.type === 'status') {
+      expect(init.entries[0].containers[0].service).toBeNull();
+    }
+    await trailingSlashService.stop();
   });
 
   it('updated_at is an ISO string', async () => {

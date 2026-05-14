@@ -64,7 +64,7 @@ export default memo(function ContainerTerminal({
     >
       <div
         ref={containerRef}
-        className={`flex-1 px-2 pb-2 min-h-0 transition-opacity duration-300 ${showSkeleton ? 'opacity-0' : 'opacity-100'}`}
+        className={`flex-1 p-2 min-h-0 transition-opacity duration-300 ${showSkeleton ? 'opacity-0' : 'opacity-100'}`}
       />
       {showSkeleton && (
         <div className="absolute inset-0 px-3 pb-3 flex flex-col gap-1 pt-2">

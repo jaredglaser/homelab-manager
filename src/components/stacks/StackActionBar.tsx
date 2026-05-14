@@ -1,9 +1,8 @@
 import { Button, Checkbox, CircularProgress, FormControlLabel, IconButton, Tooltip, Typography } from '@mui/material';
-import { HelpCircle, Play, RotateCcw, Square, Trash2 } from 'lucide-react';
+import { HelpCircle, Play, Square, Trash2 } from 'lucide-react';
 
 interface StackActionBarProps {
   onDeploy: () => void;
-  onRestart: () => void;
   onTeardown: () => void;
   onDelete: () => void;
   isDeploying: boolean;
@@ -13,7 +12,6 @@ interface StackActionBarProps {
 
 export default function StackActionBar({
   onDeploy,
-  onRestart,
   onTeardown,
   onDelete,
   isDeploying,
@@ -74,16 +72,6 @@ export default function StackActionBar({
           </IconButton>
         </Tooltip>
       </div>
-
-      <Button
-        variant="outlined"
-        size="small"
-        disabled={isDeploying}
-        onClick={onRestart}
-        startIcon={<RotateCcw size={14} />}
-      >
-        Restart
-      </Button>
 
       <Button
         variant="outlined"

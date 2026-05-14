@@ -3,6 +3,8 @@ import {
   handleStackDeploy,
   handleStackTeardown,
   handleStackRestart,
+  handleStackStart,
+  handleStackStop,
   handleStackStatus,
   parseContainerNames,
 } from '../routes/stacks';
@@ -210,7 +212,7 @@ describe('handleStackDeploy: payload size limits', () => {
   });
 });
 
-describe('handleStackDeploy: path traversal', () => {
+describe('handleStackDeploy: path containment', () => {
   test('rejects stack names with path traversal', async () => {
     const request = new Request('http://localhost/stacks/deploy', {
       method: 'POST',
@@ -233,9 +235,9 @@ describe('handleStackDeploy: path traversal', () => {
     expect(response.status).toBe(400);
   });
 
-  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
-    // Passing stacksDir with a trailing slash causes join() to normalize it, so
-    // join('/dir/', 'stack') = '/dir/stack' which does not start with '/dir//'
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
+    // resolve()/relative() normalizes trailing slashes, so a trailing slash
+    // on stacksDir must not produce a false "Invalid stack path" 400.
     const request = new Request('http://localhost/stacks/deploy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -243,9 +245,7 @@ describe('handleStackDeploy: path traversal', () => {
     });
 
     const response = await handleStackDeploy(request, TEST_STACKS_DIR + '/', successSpawn as any);
-    expect(response.status).toBe(400);
-    const result = await response.json();
-    expect(result.error).toBe('Invalid stack path');
+    expect(response.status).toBe(200);
   });
 });
 
@@ -414,18 +414,17 @@ describe('handleStackTeardown', () => {
   });
 });
 
-describe('handleStackTeardown: path traversal', () => {
-  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+describe('handleStackTeardown: path containment', () => {
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
     const request = new Request('http://localhost/stacks/teardown', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stack: 'mystack' }),
     });
 
+    // Stack does not exist — expect 404 rather than a false 400 from path check.
     const response = await handleStackTeardown(request, TEST_STACKS_DIR + '/', successSpawn as any);
-    expect(response.status).toBe(400);
-    const result = await response.json();
-    expect(result.error).toBe('Invalid stack path');
+    expect(response.status).toBe(404);
   });
 });
 
@@ -506,7 +505,7 @@ describe('handleStackRestart', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'nonexistent' }),
+      body: JSON.stringify({ stack: 'nonexistent', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
@@ -520,7 +519,7 @@ describe('handleStackRestart', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'traefik' }),
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
@@ -555,7 +554,7 @@ describe('handleStackRestart', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'traefik' }),
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, failSpawn as any);
@@ -564,20 +563,53 @@ describe('handleStackRestart', () => {
     expect(result.status).toBe('failed');
     expect(result.exitCode).toBe(1);
   });
-});
 
-describe('handleStackRestart: path traversal', () => {
-  test('returns 400 with "Invalid stack path" when resolved path escapes stacksDir', async () => {
+  test('appends service name when scope is service', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'mystack' }),
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: 'web' }),
+    });
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
+    expect(cmd).toContain('restart');
+    expect(cmd).toContain('web');
+  });
+
+  test('runs on whole stack when scope is stack', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'stack' }),
+    });
+    const response = await handleStackRestart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
+    expect(cmd).toContain('restart');
+    expect(cmd).not.toContain('web');
+  });
+});
+
+describe('handleStackRestart: path containment', () => {
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
+    const request = new Request('http://localhost/stacks/restart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
     });
 
+    // Stack does not exist — expect 404 rather than a false 400 from path check.
     const response = await handleStackRestart(request, TEST_STACKS_DIR + '/', successSpawn as any);
-    expect(response.status).toBe(400);
-    const result = await response.json();
-    expect(result.error).toBe('Invalid stack path');
+    expect(response.status).toBe(404);
   });
 });
 
@@ -597,7 +629,7 @@ describe('handleStackRestart: subprocess timeout', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'traefik' }),
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
@@ -619,7 +651,7 @@ describe('handleStackRestart: spawn failure', () => {
     const request = new Request('http://localhost/stacks/restart', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stack: 'traefik' }),
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
     });
 
     const response = await handleStackRestart(request, TEST_STACKS_DIR, throwSpawn as any);
@@ -1137,5 +1169,304 @@ describe('handleStackDeploy: force recreate', () => {
     const upCall = spawnCalls.find(c => c.cmd.includes('up'));
     expect(upCall).toBeDefined();
     expect(upCall!.cmd).not.toContain('--force-recreate');
+  });
+});
+
+describe('handleStackStart', () => {
+  test('returns 404 when compose file does not exist', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'nostack', scope: 'stack' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(404);
+  });
+
+  test('runs docker compose start for whole stack when scope is stack', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'stack' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
+    expect(cmd).toContain('up');
+    expect(cmd).toContain('-d');
+    expect(cmd).not.toContain('web');
+    // start maps to `up -d`, NOT `up -d --remove-orphans` (which is deploy-only)
+    expect(cmd).not.toContain('--remove-orphans');
+  });
+
+  test('appends service name when scope is service', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: 'web' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
+    expect(cmd).toContain('up');
+    expect(cmd).toContain('web');
+  });
+
+  test('returns 400 when scope is service but service field is missing', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+
+  test('returns 400 for invalid scope', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'container' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+});
+
+describe('handleStackStop', () => {
+  test('returns 404 when compose file does not exist', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'nostack', scope: 'stack' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(404);
+  });
+
+  test('runs docker compose stop for whole stack', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'stack' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
+    expect(cmd).toContain('stop');
+    expect(cmd).not.toContain('web');
+  });
+
+  test('appends service name when scope is service', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'myapp');
+    mkdirSync(stackDir, { recursive: true });
+    await Bun.write(join(stackDir, 'docker-compose.yml'), 'services:\n  web:\n    image: nginx\n');
+
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: 'db' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+    const cmd = (successSpawn.mock.calls[0] as any)[0].cmd as string[];
+    expect(cmd).toContain('stop');
+    expect(cmd).toContain('db');
+  });
+});
+
+describe('handleStackStart: path containment', () => {
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
+    });
+    // Stack does not exist — expect 404 rather than a false 400 from path check.
+    const response = await handleStackStart(request, TEST_STACKS_DIR + '/', successSpawn as any);
+    expect(response.status).toBe(404);
+  });
+});
+
+describe('handleStackStart: subprocess timeout', () => {
+  test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
+    });
+
+    const response = await handleStackStart(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stderr).toContain('timed out');
+  });
+});
+
+describe('handleStackStart: spawn failure', () => {
+  test('returns 500 with detail when spawn throws', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    const throwSpawn = mock(() => { throw new Error('EACCES'); });
+
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
+    });
+
+    const response = await handleStackStart(request, TEST_STACKS_DIR, throwSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to execute docker compose');
+  });
+});
+
+describe('handleStackStart: invalid service name', () => {
+  test('returns 400 when service name contains invalid characters', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: '--help' }),
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+});
+
+describe('handleStackStop: path containment', () => {
+  test('accepts a valid stack when stacksDir has a trailing slash', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'mystack', scope: 'stack' }),
+    });
+    // Stack does not exist — expect 404 rather than a false 400 from path check.
+    const response = await handleStackStop(request, TEST_STACKS_DIR + '/', successSpawn as any);
+    expect(response.status).toBe(404);
+  });
+});
+
+describe('handleStackStop: subprocess timeout', () => {
+  test('returns 500 with timeout message when subprocess exceeds deadline', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
+    });
+
+    const response = await handleStackStop(request, TEST_STACKS_DIR, hangingSpawn as any, 10);
+    const result = await response.json();
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stderr).toContain('timed out');
+  });
+});
+
+describe('handleStackStop: spawn failure', () => {
+  test('returns 500 with detail when spawn throws', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'traefik'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'traefik', 'docker-compose.yml'), 'services: {}');
+
+    const throwSpawn = mock(() => { throw new Error('EACCES'); });
+
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'traefik', scope: 'stack' }),
+    });
+
+    const response = await handleStackStop(request, TEST_STACKS_DIR, throwSpawn as any);
+    expect(response.status).toBe(500);
+    const result = await response.json();
+    expect(result.error).toContain('Failed to execute docker compose');
+  });
+});
+
+describe('handleStackStop: invalid service name', () => {
+  test('returns 400 when service name contains invalid characters', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'service', service: '--timeout' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+});
+
+describe('handleStackStop: invalid scope', () => {
+  test('returns 400 for invalid scope value', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'container' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+});
+
+describe('handleStackStart: invalid JSON body', () => {
+  test('returns 400 for malformed JSON', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toStartWith('Invalid JSON:');
+  });
+});
+
+describe('handleStackStop: invalid JSON body', () => {
+  test('returns 400 for malformed JSON', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toStartWith('Invalid JSON:');
   });
 });

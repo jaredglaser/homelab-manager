@@ -59,7 +59,6 @@ function createMockAgentClient(success = true): AgentClient {
   return {
     deploy: mock().mockResolvedValue({ success, logs: success ? 'deployed ok' : 'deploy failed' }),
     teardown: mock().mockResolvedValue({ success, logs: 'torn down' }),
-    restart: mock().mockResolvedValue({ success, logs: 'restarted' }),
     health: mock().mockResolvedValue({ status: 'healthy', version: '0.1.0' }),
   } as unknown as AgentClient;
 }
@@ -229,15 +228,6 @@ describe('DeployPipeline', () => {
       expect(agent.teardown).toHaveBeenCalled();
     });
 
-    it('handles restart action', async () => {
-      const restartRequest = { ...testRequest, action: 'restart' as const };
-      const result = await pipeline.execute(restartRequest);
-
-      expect(result.status).toBe('succeeded');
-      const agent = agentClientFactory.mock.results[0].value;
-      expect(agent.restart).toHaveBeenCalled();
-    });
-
     it('resolves secrets and builds env content', async () => {
       const composeWithVars = 'services:\n  app:\n    environment:\n      - TOKEN=${API_TOKEN}';
       const requestWithVars = { ...testRequest, composeContent: composeWithVars };
@@ -346,7 +336,6 @@ describe('DeployPipeline', () => {
       agentClientFactory = mock().mockReturnValue({
         deploy: mock().mockRejectedValue(new Error('connection refused')),
         teardown: mock(),
-        restart: mock(),
         health: mock(),
       });
       pipeline = new DeployPipeline({
@@ -368,7 +357,6 @@ describe('DeployPipeline', () => {
       agentClientFactory = mock().mockReturnValue({
         deploy: mock().mockRejectedValue('string error'),
         teardown: mock(),
-        restart: mock(),
         health: mock(),
       });
       pipeline = new DeployPipeline({
@@ -660,7 +648,6 @@ describe('DeployPipeline', () => {
       agentClientFactory = mock().mockReturnValue({
         deploy: mock().mockRejectedValue(new Error('agent down')),
         teardown: mock(),
-        restart: mock(),
         health: mock(),
       });
       pipeline = new DeployPipeline({

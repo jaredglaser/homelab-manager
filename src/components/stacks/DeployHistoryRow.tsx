@@ -27,7 +27,6 @@ const STATUS_LABEL: Record<DeployStatus, string> = {
 const ACTION_LABEL: Record<DeployAction, string> = {
   deploy: 'Deploy',
   teardown: 'Teardown',
-  restart: 'Restart',
 };
 
 function getActionLabel(record: StackDeployRecord): string {

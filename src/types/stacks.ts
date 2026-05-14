@@ -55,6 +55,8 @@ export interface StackContainer {
   name: string;
   status: string;
   image: string;
+  /** Docker Compose service name from the container label, or null if the container has no compose service association. */
+  service: string | null;
 }
 
 /** Live status entry for a stack as received from the SSE endpoint. */

@@ -10,7 +10,6 @@ export type {
   DeployRequest,
   DeployActionRequest,
   TeardownRequest,
-  RestartRequest,
   DeployRecord,
   ManagedHost,
   ManagedHostStatus,

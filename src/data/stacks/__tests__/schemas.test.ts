@@ -5,6 +5,7 @@ import {
   getDeployHistorySchema,
   saveComposeFileSchema,
   updateStackIconSchema,
+  controlStackSchema,
 } from '../schemas';
 
 describe('getStackDetailSchema', () => {
@@ -43,7 +44,7 @@ describe('triggerDeploySchema', () => {
   });
 
   it('accepts all action types', () => {
-    for (const action of ['deploy', 'teardown', 'restart'] as const) {
+    for (const action of ['deploy', 'teardown'] as const) {
       expect(triggerDeploySchema.parse({ stack: 's', host: 'h', action }).action).toBe(action);
     }
   });
@@ -96,5 +97,90 @@ describe('updateStackIconSchema', () => {
   it('rejects empty fields', () => {
     expect(() => updateStackIconSchema.parse({ stackName: '', iconSlug: 'x' })).toThrow();
     expect(() => updateStackIconSchema.parse({ stackName: 'x', iconSlug: '' })).toThrow();
+  });
+});
+
+describe('controlStackSchema', () => {
+  it('accepts valid stack-scope input', () => {
+    const result = controlStackSchema.parse({
+      stack: 'nginx',
+      host: 'server1',
+      action: 'start',
+      scope: 'stack',
+    });
+    expect(result.scope).toBe('stack');
+    expect(result.action).toBe('start');
+  });
+
+  it('accepts all three actions', () => {
+    for (const action of ['start', 'stop', 'restart'] as const) {
+      const result = controlStackSchema.parse({ stack: 's', host: 'h', action, scope: 'stack' });
+      expect(result.action).toBe(action);
+    }
+  });
+
+  it('rejects unknown action', () => {
+    expect(() =>
+      controlStackSchema.parse({ stack: 's', host: 'h', action: 'deploy', scope: 'stack' })
+    ).toThrow();
+  });
+
+  it('accepts valid service-scope input', () => {
+    const result = controlStackSchema.parse({
+      stack: 'nginx',
+      host: 'server1',
+      action: 'restart',
+      scope: 'service',
+      service: 'web',
+    });
+    expect(result.scope).toBe('service');
+    if (result.scope === 'service') {
+      expect(result.service).toBe('web');
+    }
+  });
+
+  it('rejects service-scope without service field', () => {
+    expect(() =>
+      controlStackSchema.parse({ stack: 's', host: 'h', action: 'start', scope: 'service' })
+    ).toThrow();
+  });
+
+  it('rejects invalid scope', () => {
+    expect(() =>
+      controlStackSchema.parse({ stack: 's', host: 'h', action: 'start', scope: 'container' })
+    ).toThrow();
+  });
+
+  it('rejects stack name with path traversal characters', () => {
+    expect(() =>
+      controlStackSchema.parse({ stack: '../etc', host: 'h', action: 'start', scope: 'stack' })
+    ).toThrow();
+    expect(() =>
+      controlStackSchema.parse({ stack: 'foo/bar', host: 'h', action: 'start', scope: 'stack' })
+    ).toThrow();
+  });
+
+  it('rejects stack name starting with underscore or hyphen', () => {
+    expect(() =>
+      controlStackSchema.parse({ stack: '_mystack', host: 'h', action: 'start', scope: 'stack' })
+    ).toThrow();
+    expect(() =>
+      controlStackSchema.parse({ stack: '-mystack', host: 'h', action: 'start', scope: 'stack' })
+    ).toThrow();
+  });
+
+  it('rejects invalid service name', () => {
+    expect(() =>
+      controlStackSchema.parse({ stack: 's', host: 'h', action: 'start', scope: 'service', service: '--help' })
+    ).toThrow();
+    expect(() =>
+      controlStackSchema.parse({ stack: 's', host: 'h', action: 'start', scope: 'service', service: '' })
+    ).toThrow();
+  });
+
+  it('rejects empty host', () => {
+    expect(() =>
+      controlStackSchema.parse({ stack: 's', host: '', action: 'start', scope: 'stack' })
+    ).toThrow();
   });
 });

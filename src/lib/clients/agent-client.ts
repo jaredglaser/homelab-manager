@@ -36,8 +36,10 @@ export class AgentClientError extends Error {
 interface AgentClientConfig {
   agentUrl: string;
   signer: () => Promise<string>;
-  /** Deploy timeout in milliseconds. Default: 300_000 (5 minutes). */
+  /** Deploy/teardown timeout in milliseconds. Default: 300_000 (5 minutes). */
   timeoutMs?: number;
+  /** Start/stop/restart timeout in milliseconds. Default: 60_000 (1 minute). */
+  controlTimeoutMs?: number;
   /** Injectable fetch for testing. Defaults to global fetch. */
   fetchFn?: typeof fetch;
 }
@@ -46,6 +48,15 @@ export interface AgentHealthResponse {
   status: 'healthy' | 'unhealthy';
   version: string;
 }
+
+/**
+ * Request body for stack control operations (start, stop, restart).
+ * `action` is absent because it maps to the HTTP endpoint path
+ * (/stacks/start, /stacks/stop, /stacks/restart), not the request body.
+ */
+export type StackControlRequest =
+  | { stack: string; scope: 'stack' }
+  | { stack: string; scope: 'service'; service: string };
 
 /**
  * Thin HTTP client for communicating with the homelab-manager agent.
@@ -64,6 +75,7 @@ export class AgentClient {
   private readonly agentUrl: string;
   private readonly signer: () => Promise<string>;
   private readonly timeoutMs: number;
+  private readonly controlTimeoutMs: number;
   private readonly fetchFn: typeof fetch;
 
   constructor(config: AgentClientConfig) {
@@ -71,6 +83,7 @@ export class AgentClient {
     this.agentUrl = config.agentUrl.replace(/\/$/, '');
     this.signer = config.signer;
     this.timeoutMs = config.timeoutMs ?? 300_000;
+    this.controlTimeoutMs = config.controlTimeoutMs ?? 60_000;
     this.fetchFn = config.fetchFn ?? fetch;
   }
 
@@ -84,8 +97,18 @@ export class AgentClient {
     return adaptDeployResponse(raw);
   }
 
-  async restart(stack: string): Promise<AgentDeployResponse> {
-    const raw = await this.postJson<AgentStackResponse>('/stacks/restart', { stack });
+  async restart(req: StackControlRequest): Promise<AgentDeployResponse> {
+    const raw = await this.postJson<AgentStackResponse>('/stacks/restart', req, this.controlTimeoutMs);
+    return adaptDeployResponse(raw);
+  }
+
+  async start(req: StackControlRequest): Promise<AgentDeployResponse> {
+    const raw = await this.postJson<AgentStackResponse>('/stacks/start', req, this.controlTimeoutMs);
+    return adaptDeployResponse(raw);
+  }
+
+  async stop(req: StackControlRequest): Promise<AgentDeployResponse> {
+    const raw = await this.postJson<AgentStackResponse>('/stacks/stop', req, this.controlTimeoutMs);
     return adaptDeployResponse(raw);
   }
 
@@ -164,7 +187,7 @@ export class AgentClient {
     }
   }
 
-  private async postJson<T>(path: string, body: unknown): Promise<T> {
+  private async postJson<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
     const jwt = await this.signer();
     return this.request<T>(path, {
       method: 'POST',
@@ -173,7 +196,7 @@ export class AgentClient {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
-    });
+    }, timeoutMs);
   }
 
   private async getJson<T>(path: string): Promise<T> {
@@ -197,10 +220,10 @@ export class AgentClient {
     return err.statusCode === 502 || err.statusCode === 503 || err.statusCode === 504;
   }
 
-  private async request<T>(path: string, init: RequestInit): Promise<T> {
+  private async request<T>(path: string, init: RequestInit, timeoutMs?: number): Promise<T> {
     const MAX_RETRIES = 2; // maxAttempts - 1
     const url = `${this.agentUrl}${path}`;
-    return retry(() => this.attempt<T>(url, init), {
+    return retry(() => this.attempt<T>(url, init, timeoutMs), {
       maxAttempts: MAX_RETRIES + 1,
       baseMs: 1000,
       maxExponent: 2,
@@ -216,12 +239,12 @@ export class AgentClient {
     });
   }
 
-  private async attempt<T>(url: string, init: RequestInit): Promise<T> {
+  private async attempt<T>(url: string, init: RequestInit, timeoutMs?: number): Promise<T> {
     let response: Response;
     try {
       response = await this.fetchFn(url, {
         ...init,
-        signal: AbortSignal.timeout(this.timeoutMs),
+        signal: AbortSignal.timeout(timeoutMs ?? this.timeoutMs),
         redirect: 'manual',
       });
     } catch (err) {

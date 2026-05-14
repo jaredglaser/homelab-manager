@@ -7,7 +7,7 @@ export interface DeployRequest {
   composePath: string;
   commitSha: string;
   secrets: Record<string, string>;
-  action: 'deploy' | 'teardown' | 'restart';
+  action: 'deploy' | 'teardown';
   autoApproved: boolean;
 }
 

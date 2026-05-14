@@ -77,6 +77,7 @@ const mockResolveDeleteStack = mock(() =>
 );
 const mockResumePendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
 const mockRejectPendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
+const mockControlStackForHost = mock(() => Promise.resolve(undefined));
 
 mock.module('@/lib/stacks/stack-service', () => ({
   getStackSummaries: mockGetStackSummaries,
@@ -91,6 +92,7 @@ mock.module('@/lib/stacks/stack-service', () => ({
   resolveDeleteStack: mockResolveDeleteStack,
   resumePendingDeploy: mockResumePendingDeploy,
   rejectPendingDeploy: mockRejectPendingDeploy,
+  controlStackForHost: mockControlStackForHost,
 }));
 
 /**
@@ -118,6 +120,7 @@ describe('stacks.functions module', () => {
     mockResolveDeleteStack.mockClear();
     mockResumePendingDeploy.mockClear();
     mockRejectPendingDeploy.mockClear();
+    mockControlStackForHost.mockClear();
   });
 
   describe('exports', () => {
@@ -155,6 +158,12 @@ describe('stacks.functions module', () => {
       const mod = await import('../functions');
       expect(mod.updateStackIcon).toBeDefined();
       expect(typeof mod.updateStackIcon).toBe('function');
+    });
+
+    it('exports controlStack server function', async () => {
+      const mod = await import('../functions');
+      expect(mod.controlStack).toBeDefined();
+      expect(typeof mod.controlStack).toBe('function');
     });
   });
 
@@ -207,16 +216,52 @@ describe('stacks.functions module', () => {
       });
     });
 
-    it('delegates with restart action', async () => {
-      const { triggerDeploy } = await import('../functions');
-      await triggerDeploy({
-        data: { stack: 'nginx', host: 'server1', action: 'restart' },
+  });
+
+  describe('controlStack', () => {
+    it('delegates start action for stack scope', async () => {
+      const { controlStack } = await import('../functions');
+      await controlStack({
+        data: { stack: 'nginx', host: 'server1', action: 'start', scope: 'stack' },
       });
-      expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
-        stack: 'nginx',
-        host: 'server1',
-        action: 'restart',
+      expect(mockControlStackForHost).toHaveBeenCalledTimes(1);
+      expect(mockControlStackForHost).toHaveBeenCalledWith(
+        'server1',
+        'start',
+        { stack: 'nginx', scope: 'stack' },
+      );
+    });
+
+    it('delegates stop action for service scope', async () => {
+      const { controlStack } = await import('../functions');
+      await controlStack({
+        data: { stack: 'nginx', host: 'server1', action: 'stop', scope: 'service', service: 'web' },
       });
+      expect(mockControlStackForHost).toHaveBeenCalledWith(
+        'server1',
+        'stop',
+        { stack: 'nginx', scope: 'service', service: 'web' },
+      );
+    });
+
+    it('delegates restart action for stack scope', async () => {
+      const { controlStack } = await import('../functions');
+      await controlStack({
+        data: { stack: 'myapp', host: 'host2', action: 'restart', scope: 'stack' },
+      });
+      expect(mockControlStackForHost).toHaveBeenCalledWith(
+        'host2',
+        'restart',
+        { stack: 'myapp', scope: 'stack' },
+      );
+    });
+
+    it('propagates error from controlStackForHost', async () => {
+      mockControlStackForHost.mockRejectedValueOnce(new Error('agent unreachable'));
+      const { controlStack } = await import('../functions');
+      await expect(
+        controlStack({ data: { stack: 'nginx', host: 'server1', action: 'start', scope: 'stack' } })
+      ).rejects.toThrow('agent unreachable');
     });
   });
 

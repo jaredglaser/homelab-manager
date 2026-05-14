@@ -10,13 +10,17 @@ import type { SelectChangeEvent } from '@mui/material/Select';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
-import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import { IS_DEMO_MODE } from '@/lib/constants/demo';
+
+interface ContainerInventoryInfo {
+  name: string;
+  state: string;
+}
 
 interface ContainerLogsTerminalPanelProps {
   containerId: string;
   host: string;
-  inventory: DockerInventorySnapshotContainer;
+  inventory: ContainerInventoryInfo;
 }
 
 const SHELL_OPTIONS = ['bash', 'sh', 'ash', 'zsh'] as const;
