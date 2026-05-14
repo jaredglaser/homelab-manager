@@ -206,9 +206,10 @@ Tests use [Bun's built-in test runner](https://bun.sh/docs/cli/test), organized 
 
 ```bash
 # homelab-manager only
-bun test --isolate          # Run homelab-manager tests (enforces coverage thresholds)
+bun test --isolate          # Run homelab-manager tests (no coverage enforcement)
 bun test --isolate --watch  # Watch mode (no coverage enforcement)
-bun run test:coverage       # Coverage report only
+bun run test                # Tests + coverage enforcement (95% functions / 98% lines)
+bun run test:coverage       # Coverage report only (no enforcement)
 
 # Agent only
 bun run test:agent          # Run agent tests
@@ -223,7 +224,7 @@ bun run test:coverage:all   # Run tests in both with coverage thresholds
 
 - Minimum **95% function coverage**
 - Minimum **98% line coverage**
-- Automatically enforced by `bun test` and CI
+- Enforced by `bun run test` (which pipes `--coverage` to `scripts/check-coverage.js`) and CI. Bare `bun test --isolate` does NOT enforce the thresholds.
 
 Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).
 
