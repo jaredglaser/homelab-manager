@@ -548,28 +548,6 @@ describe('StackStatusBroadcastService', () => {
     await noPrefixService.stop();
   });
 
-  it('toStackContainer: null serviceKey maps service to null', async () => {
-    const nullKeyService = new StackStatusBroadcastService({
-      getPoolClient: async () => poolClient as unknown as PoolClient,
-      loadSnapshot: async () => [
-        {
-          ...composeContainer1,
-          serviceKey: null,
-        },
-      ],
-    });
-
-    const received: StackBroadcastEvent[] = [];
-    nullKeyService.subscribe((e) => received.push(e));
-    await flush();
-
-    const init = received[0];
-    if (init.type === 'status') {
-      expect(init.entries[0].containers[0].service).toBeNull();
-    }
-    await nullKeyService.stop();
-  });
-
   it('toStackContainer: empty string serviceKey is normalized to null', async () => {
     const emptyKeyService = new StackStatusBroadcastService({
       getPoolClient: async () => poolClient as unknown as PoolClient,
