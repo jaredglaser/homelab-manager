@@ -15,15 +15,25 @@ export function loadAuthConfig(): AuthConfig {
     );
   }
 
+  const sessionTtlHours = Number.parseInt(process.env.SESSION_TTL_HOURS ?? '8', 10);
+  if (!Number.isFinite(sessionTtlHours) || sessionTtlHours <= 0) {
+    throw new Error('SESSION_TTL_HOURS must be a positive integer');
+  }
+
+  const roleMapping = {
+    admin: (process.env.OIDC_ROLE_ADMIN ?? 'homelab-admins').trim(),
+    operator: (process.env.OIDC_ROLE_OPERATOR ?? 'homelab-operators').trim(),
+    viewer: (process.env.OIDC_ROLE_VIEWER ?? 'homelab-viewers').trim(),
+  };
+  if (!roleMapping.admin || !roleMapping.operator || !roleMapping.viewer) {
+    throw new Error('OIDC_ROLE_ADMIN, OIDC_ROLE_OPERATOR, and OIDC_ROLE_VIEWER must be non-empty');
+  }
+
   return {
     issuerUrl,
     clientId,
     redirectUri,
-    sessionTtlHours: Number(process.env.SESSION_TTL_HOURS) || 8,
-    roleMapping: {
-      admin: process.env.OIDC_ROLE_ADMIN ?? 'homelab-admins',
-      operator: process.env.OIDC_ROLE_OPERATOR ?? 'homelab-operators',
-      viewer: process.env.OIDC_ROLE_VIEWER ?? 'homelab-viewers',
-    },
+    sessionTtlHours,
+    roleMapping,
   };
 }

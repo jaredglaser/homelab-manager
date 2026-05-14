@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
-import DeniedPage from '../DeniedPage';
+import DeniedPage from '@/components/auth/DeniedPage';
 
 describe('DeniedPage', () => {
   it('renders the access denied heading', () => {

@@ -6,14 +6,17 @@ export const Route = createFileRoute('/api/auth/logout')({
     handlers: {
       GET: async ({ request }) => {
         const { isAuthDisabled, loadAuthConfig } = await import('@/lib/config/auth-config');
+        let isSecure = false;
         if (!isAuthDisabled()) {
+          const config = loadAuthConfig();
+          isSecure = config.redirectUri.startsWith('https://');
+
           // Extract session, delete from DB
           const cookieHeader = request.headers.get('cookie') ?? '';
           const match = cookieHeader.match(/(?:^|;\s*)session=([^;]*)/);
           const token = match ? decodeURIComponent(match[1]) : null;
 
           if (token) {
-            // Issue 8: Wrap revocation in try-catch so logout always clears the cookie
             try {
               const hashedId = createHash('sha256').update(token).digest('hex');
               const { buildSessionManager } = await import('@/lib/auth/session-manager');
@@ -25,9 +28,6 @@ export const Route = createFileRoute('/api/auth/logout')({
           }
         }
 
-        // Issue 9: Apply same Secure flag logic to the clear cookie
-        const config = loadAuthConfig();
-        const isSecure = config.redirectUri.startsWith('https://');
         const securePart = isSecure ? ' Secure;' : '';
 
         // Clear session cookie, redirect to login page

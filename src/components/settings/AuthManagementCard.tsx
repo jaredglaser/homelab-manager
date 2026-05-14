@@ -80,7 +80,7 @@ function RoleMappingPanel() {
 // ----- Users Table -----
 
 function UsersTable() {
-  const { data: users = [], isLoading } = useQuery({
+  const { data: users = [], isLoading, isError, error } = useQuery({
     queryKey: ['auth-users'],
     queryFn: () => listUsers(),
   })
@@ -88,6 +88,11 @@ function UsersTable() {
   return (
     <div>
       <Typography variant="subtitle2" className="mb-2">Users</Typography>
+      {isError ? (
+        <Alert severity="error" className="mb-2">
+          Failed to load users: {error instanceof Error ? error.message : 'Unknown error'}
+        </Alert>
+      ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
           <CircularProgress size={16} />
@@ -132,7 +137,7 @@ function UsersTable() {
 function SessionsTable() {
   const queryClient = useQueryClient()
 
-  const { data: sessions = [], isLoading } = useQuery({
+  const { data: sessions = [], isLoading, isError, error } = useQuery({
     queryKey: ['auth-sessions'],
     queryFn: () => listSessions(),
   })
@@ -156,6 +161,11 @@ function SessionsTable() {
       <Alert severity="info" className="mb-2">
         Role changes in your OIDC provider take effect on next login. To apply immediately, revoke the user&apos;s sessions.
       </Alert>
+      {isError ? (
+        <Alert severity="error" className="mb-2">
+          Failed to load sessions: {error instanceof Error ? error.message : 'Unknown error'}
+        </Alert>
+      ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
           <CircularProgress size={16} />
@@ -315,7 +325,7 @@ function GitTokensTable() {
   const [generateDialogOpen, setGenerateDialogOpen] = useState(false)
   const [newToken, setNewToken] = useState<string | null>(null)
 
-  const { data: tokens = [], isLoading } = useQuery({
+  const { data: tokens = [], isLoading, isError, error } = useQuery({
     queryKey: ['git-tokens'],
     queryFn: () => listGitTokens(),
   })
@@ -350,6 +360,11 @@ function GitTokensTable() {
           Generate Token
         </Button>
       </div>
+      {isError ? (
+        <Alert severity="error" className="mb-2">
+          Failed to load tokens: {error instanceof Error ? error.message : 'Unknown error'}
+        </Alert>
+      ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
           <CircularProgress size={16} />

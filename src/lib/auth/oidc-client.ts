@@ -24,11 +24,25 @@ export class OidcClient {
     this.fetchFn = fetchFn;
   }
 
+  private async fetchWithTimeout(
+    input: string,
+    init?: RequestInit,
+    timeoutMs = 10_000,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await this.fetchFn(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   async discoverEndpoints(): Promise<OidcEndpoints> {
     if (this.endpoints) return this.endpoints;
 
     const url = `${this.config.issuerUrl}/.well-known/openid-configuration`;
-    const response = await this.fetchFn(url);
+    const response = await this.fetchWithTimeout(url);
     if (!response.ok) {
       throw new Error(`OIDC discovery failed (HTTP ${response.status})`);
     }
@@ -61,7 +75,7 @@ export class OidcClient {
   async exchangeCode(code: string): Promise<OidcTokens> {
     const endpoints = await this.discoverEndpoints();
 
-    const response = await this.fetchFn(endpoints.tokenEndpoint, {
+    const response = await this.fetchWithTimeout(endpoints.tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -92,7 +106,7 @@ export class OidcClient {
   async getUserGroups(accessToken: string): Promise<string[]> {
     const endpoints = await this.discoverEndpoints();
 
-    const response = await this.fetchFn(endpoints.userinfoEndpoint, {
+    const response = await this.fetchWithTimeout(endpoints.userinfoEndpoint, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 
@@ -109,6 +123,9 @@ export class OidcClient {
   static extractIdTokenClaims(idToken: string): Record<string, unknown> {
     const parts = idToken.split('.');
     if (parts.length !== 3) throw new Error('Invalid ID token format');
-    return JSON.parse(atob(parts[1]));
+    // JWT payloads are base64url-encoded (RFC 7519): replace - and _ then pad to 4-char boundary
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+    return JSON.parse(atob(padded));
   }
 }

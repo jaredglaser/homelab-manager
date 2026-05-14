@@ -110,7 +110,7 @@ export async function handleCallback(
       status: 302,
       headers: {
         Location: '/denied',
-        'Set-Cookie': 'oidc_state=; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=0',
+        'Set-Cookie': CLEAR_STATE_COOKIE,
       },
     });
   }

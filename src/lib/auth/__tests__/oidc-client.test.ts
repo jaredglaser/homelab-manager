@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { OidcClient } from '../oidc-client';
-import type { OidcConfig } from '../oidc-client';
+import { OidcClient } from '@/lib/auth/oidc-client';
+import type { OidcConfig } from '@/lib/auth/oidc-client';
 
 // Bun's `typeof fetch` includes a `preconnect` property that arrow functions lack.
 // Cast helpers through `unknown` to satisfy the type constraint.

@@ -12,6 +12,7 @@ export interface TransitConfig {
  * Key name convention: matches SAFE_PATH_SEGMENT_PATTERN ([a-zA-Z0-9_-]+)
  */
 export class TransitClient {
+  private static readonly REQUEST_TIMEOUT_MS = 5_000;
   private readonly url: string;
   private readonly token: string;
   private readonly fetchFn: typeof fetch;
@@ -47,6 +48,31 @@ export class TransitClient {
   }
 
   /**
+   * POST JSON payload to a Transit API path with a 5s timeout.
+   * Wraps transport-level errors with path context.
+   */
+  private async post(path: string, payload: Record<string, string>): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TransitClient.REQUEST_TIMEOUT_MS);
+    try {
+      return await this.fetchFn(`${this.url}${path}`, {
+        method: 'POST',
+        headers: {
+          'X-Vault-Token': this.token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Transit request failed for path "${path}": ${message}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
    * Encrypt plaintext using the named Transit key.
    * The plaintext is base64-encoded before transmission as required by the API.
    * Returns the ciphertext string (e.g. "vault:v1:...").
@@ -55,14 +81,7 @@ export class TransitClient {
     this.validateKeyName(keyName);
     const encoded = Buffer.from(plaintext).toString('base64');
 
-    const response = await this.fetchFn(`${this.url}/v1/transit/encrypt/${keyName}`, {
-      method: 'POST',
-      headers: {
-        'X-Vault-Token': this.token,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ plaintext: encoded }),
-    });
+    const response = await this.post(`/v1/transit/encrypt/${keyName}`, { plaintext: encoded });
 
     if (!response.ok) {
       const detail = await this.extractError(response);
@@ -85,14 +104,7 @@ export class TransitClient {
   async decrypt(keyName: string, ciphertext: string): Promise<string> {
     this.validateKeyName(keyName);
 
-    const response = await this.fetchFn(`${this.url}/v1/transit/decrypt/${keyName}`, {
-      method: 'POST',
-      headers: {
-        'X-Vault-Token': this.token,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ ciphertext }),
-    });
+    const response = await this.post(`/v1/transit/decrypt/${keyName}`, { ciphertext });
 
     if (!response.ok) {
       const detail = await this.extractError(response);

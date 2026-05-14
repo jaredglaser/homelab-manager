@@ -1,4 +1,4 @@
--- migrations/017_auth_tables.sql
+-- migrations/023_auth_tables.sql
 -- OIDC authentication: users, sessions, and git tokens
 
 CREATE TABLE IF NOT EXISTS users (
