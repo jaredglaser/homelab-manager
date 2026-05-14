@@ -89,23 +89,23 @@ describe('isAuthDisabled', () => {
     process.env = { ...originalEnv };
   });
 
-  it('returns true when DISABLE_AUTH is "true"', () => {
-    process.env.DISABLE_AUTH = 'true';
+  it('returns true when AUTH_ENABLED is not set', () => {
+    delete process.env.AUTH_ENABLED;
     expect(isAuthDisabled()).toBe(true);
   });
 
-  it('returns false when DISABLE_AUTH is not set', () => {
-    delete process.env.DISABLE_AUTH;
-    expect(isAuthDisabled()).toBe(false);
+  it('returns true when AUTH_ENABLED is "false"', () => {
+    process.env.AUTH_ENABLED = 'false';
+    expect(isAuthDisabled()).toBe(true);
   });
 
-  it('returns false when DISABLE_AUTH is "false"', () => {
-    process.env.DISABLE_AUTH = 'false';
-    expect(isAuthDisabled()).toBe(false);
+  it('returns true when AUTH_ENABLED is an empty string', () => {
+    process.env.AUTH_ENABLED = '';
+    expect(isAuthDisabled()).toBe(true);
   });
 
-  it('returns false when DISABLE_AUTH is an empty string', () => {
-    process.env.DISABLE_AUTH = '';
+  it('returns false when AUTH_ENABLED is "true"', () => {
+    process.env.AUTH_ENABLED = 'true';
     expect(isAuthDisabled()).toBe(false);
   });
 });

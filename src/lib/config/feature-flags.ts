@@ -11,5 +11,5 @@ export function isDockerManagementEnabled(): boolean {
  * Auth state reaches the client through the getSession() server function.
  */
 export function isAuthEnabled(): boolean {
-  return process.env.DISABLE_AUTH !== 'true';
+  return process.env.AUTH_ENABLED === 'true';
 }

@@ -79,7 +79,7 @@ describe('authMiddleware', () => {
   });
 
   test('injects SYNTHETIC_ADMIN when auth is disabled', async () => {
-    process.env.DISABLE_AUTH = 'true';
+    delete process.env.AUTH_ENABLED;
 
     const { authMiddleware } = await import('@/middleware/auth-middleware');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,6 +105,7 @@ describe('authMiddleware', () => {
     // Happy-DOM (used in bun test preload) strips "cookie" from Request headers
     // (browser forbidden-header behavior). We test via the serverHandler with a
     // mock request object that has no cookie header.
+    process.env.AUTH_ENABLED = 'true';
     const { authMiddleware } = await import('@/middleware/auth-middleware');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const serverHandler = (authMiddleware as any).options.server as (args: unknown) => Promise<unknown>;
@@ -120,6 +121,7 @@ describe('authMiddleware', () => {
   });
 
   test('throws AuthError 401 with status 401 for missing session', async () => {
+    process.env.AUTH_ENABLED = 'true';
     const { authMiddleware } = await import('@/middleware/auth-middleware');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const serverHandler = (authMiddleware as any).options.server as (args: unknown) => Promise<unknown>;

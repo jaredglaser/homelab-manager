@@ -29,7 +29,7 @@ function makeMockRequest(cookieHeader?: string): Request {
 }
 
 // Since authenticateSSE uses dynamic imports for both auth-config and
-// session-manager, we test it by controlling the DISABLE_AUTH env var
+// session-manager, we test it by controlling the AUTH_ENABLED env var
 // and by extracting the core logic for session-manager injection.
 
 describe('authenticateSSE', () => {
@@ -45,7 +45,7 @@ describe('authenticateSSE', () => {
   });
 
   it('returns SYNTHETIC_ADMIN when auth is disabled', async () => {
-    process.env.DISABLE_AUTH = 'true';
+    delete process.env.AUTH_ENABLED;
 
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const result = await authenticateSSE(makeMockRequest());
@@ -58,7 +58,7 @@ describe('authenticateSSE', () => {
   });
 
   it('returns null when no cookie header and auth enabled', async () => {
-    delete process.env.DISABLE_AUTH;
+    process.env.AUTH_ENABLED = 'true';
 
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const result = await authenticateSSE(makeMockRequest());
@@ -67,7 +67,7 @@ describe('authenticateSSE', () => {
   });
 
   it('returns null when cookie header has no session cookie', async () => {
-    delete process.env.DISABLE_AUTH;
+    process.env.AUTH_ENABLED = 'true';
 
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const result = await authenticateSSE(makeMockRequest('other=abc; foo=bar'));

@@ -6,7 +6,7 @@ let cachedSessionManager: SessionManager | null = null;
 /**
  * Authenticates an SSE request by extracting and validating the session cookie.
  * Returns the AuthUser on success, or null if unauthenticated.
- * When auth is disabled (DISABLE_AUTH=true), returns the synthetic admin user.
+ * When auth is disabled (AUTH_ENABLED not set to "true"), returns the synthetic admin user.
  */
 export async function authenticateSSE(request: Request): Promise<AuthUser | null> {
   const { isAuthDisabled } = await import('@/lib/config/auth-config');

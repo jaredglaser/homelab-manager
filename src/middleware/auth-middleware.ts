@@ -6,7 +6,7 @@ let cachedSessionManager: import('@/lib/auth/session-manager').SessionManager | 
 
 /**
  * Auth middleware — validates session cookies and injects AuthUser into server function context.
- * When auth is disabled (DISABLE_AUTH=true), injects a synthetic admin user.
+ * When auth is disabled (AUTH_ENABLED not set to "true"), injects a synthetic admin user.
  * Dynamically imports server-only modules to avoid leaking into the client bundle.
  */
 export const authMiddleware = createMiddleware().server(

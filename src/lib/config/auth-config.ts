@@ -1,7 +1,7 @@
 import type { AuthConfig } from '@/lib/auth/types';
 
 export function isAuthDisabled(): boolean {
-  return process.env.DISABLE_AUTH === 'true';
+  return process.env.AUTH_ENABLED !== 'true';
 }
 
 export function loadAuthConfig(): AuthConfig {
