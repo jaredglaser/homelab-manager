@@ -85,7 +85,7 @@ All configuration is done via environment variables in your `.env` file.
 | `POSTGRES_DB` | Database name |
 | `POSTGRES_USER` | Database user |
 | `POSTGRES_PASSWORD` | Database password |
-| `MASTER_KEY` | Base64-encoded 256-bit key for at-rest encryption of stack secrets and agent keypairs. Generate with `openssl rand -base64 32`. Use `MASTER_KEY_FILE` (path to a file containing the base64 string) as an alternative for secrets-managed deployments. For key rotation, add `MASTER_KEY_<KID>` (e.g. `MASTER_KEY_v2`) alongside the old key and re-encrypt with `bun run migrate-secrets --from v1 --to v2`. |
+| `MASTER_KEY` or `MASTER_KEY_FILE` | Base64-encoded 256-bit key for at-rest encryption of stack secrets and agent keypairs. Set exactly one: `MASTER_KEY` inline, or `MASTER_KEY_FILE` pointing at a file containing the base64 string. Generate with `openssl rand -base64 32`. For key rotation, add `MASTER_KEY_<KID>` (e.g. `MASTER_KEY_v2`) alongside the old key and re-encrypt with `bun run migrate-secrets --from v1 --to v2`. |
 
 ### Web Server
 
