@@ -4,7 +4,7 @@
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
-import type { DeployRecord, DeployRequest } from '@/lib/deploy/types';
+import type { DeployAction, DeployRecord, DeployRequest } from '@/lib/deploy/types';
 import type { StackControlRequest } from '@/lib/clients/agent-client';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
@@ -114,7 +114,7 @@ export async function getStackDetailByName(
 export async function triggerStackDeploy(params: {
   stack: string;
   host: string;
-  action: 'deploy' | 'teardown';
+  action: DeployAction;
   commitSha?: string;
   forceRecreate?: boolean;
   postSuccess?: 'removeFromManifest';
@@ -510,7 +510,6 @@ export async function controlStackForHost(
     console.error(`[StackService] controlStack ${action} failed for "${req.stack}" on "${host}":`, err);
     throw err;
   }
-  if (!result) throw new Error(`Unknown action: ${action}`);
   if (!result.success) {
     const msg = `docker compose ${action} failed: ${result.logs}`;
     console.error(`[StackService] ${msg} (host: ${host})`);

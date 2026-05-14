@@ -59,6 +59,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
     },
     onError: (err, { action, target }) => {
       const targetName = target.scope === 'stack' ? stackName : `${target.service} (in ${stackName})`;
+      console.error(`[StackContainersPanel] ${action} failed for ${targetName}:`, err);
       setToast({ type: 'error', text: `${action} failed for ${targetName}: ${err instanceof Error ? err.message : String(err)}` });
       setActiveKey(null);
     },

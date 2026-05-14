@@ -295,11 +295,6 @@ export const controlStack = createServerFn({ method: 'POST' })
     try {
       return await controlStackForHost(data.host, data.action, req);
     } catch (err) {
-      console.error(
-        `[controlStack] ${data.action} failed for "${data.stack}" on "${data.host}"` +
-        (data.scope === 'service' ? ` (service: ${data.service})` : '') + ':',
-        err,
-      );
       throw err;
     }
   });
