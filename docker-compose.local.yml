@@ -176,6 +176,7 @@ services:
   pocket-id:
     image: ghcr.io/pocket-id/pocket-id:v2
     container_name: hlm-pocket-id
+    restart: unless-stopped
     ports:
       - "127.0.0.1:1411:1411"
     volumes:
