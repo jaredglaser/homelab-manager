@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // ----- Module mocks -----
@@ -12,6 +12,7 @@ mock.module('@/data/auth.functions', () => ({
   revokeAllUserSessions: mock(() => Promise.resolve()),
   getSession: mock(() => Promise.resolve(null)),
   resetAuthFunctionsState: mock(() => {}),
+  getRoleMapping: mock(() => Promise.resolve({ admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' })),
 }))
 
 mock.module('@/data/git-tokens.functions', () => ({
@@ -21,7 +22,7 @@ mock.module('@/data/git-tokens.functions', () => ({
 }))
 
 // eslint-disable-next-line import/first
-import { AuthManagementCard } from '../AuthManagementCard'
+import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
 
 // ----- Test helpers -----
 
@@ -101,6 +102,7 @@ describe('AuthManagementCard', () => {
     const authFns = require('@/data/auth.functions') as {
       listUsers: ReturnType<typeof mock>
       listSessions: ReturnType<typeof mock>
+      getRoleMapping: ReturnType<typeof mock>
     }
     const gitFns = require('@/data/git-tokens.functions') as {
       listGitTokens: ReturnType<typeof mock>
@@ -109,6 +111,7 @@ describe('AuthManagementCard', () => {
     }
     authFns.listUsers.mockImplementation(() => Promise.resolve([]))
     authFns.listSessions.mockImplementation(() => Promise.resolve([]))
+    authFns.getRoleMapping.mockImplementation(() => Promise.resolve({ admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' }))
     gitFns.listGitTokens.mockImplementation(() => Promise.resolve([]))
     gitFns.createGitToken.mockImplementation(() => Promise.resolve({ token: 'test-token-abc123' }))
     gitFns.revokeGitToken.mockImplementation(() => Promise.resolve())
@@ -147,11 +150,13 @@ describe('AuthManagementCard', () => {
       expect(btn).toBeDefined()
     })
 
-    it('renders default group names when env vars not set', () => {
+    it('renders default group names when env vars not set', async () => {
       renderCard()
-      expect(screen.getByText('homelab-admins')).toBeDefined()
-      expect(screen.getByText('homelab-operators')).toBeDefined()
-      expect(screen.getByText('homelab-viewers')).toBeDefined()
+      await waitFor(() => {
+        expect(screen.getByText('homelab-admins')).toBeDefined()
+        expect(screen.getByText('homelab-operators')).toBeDefined()
+        expect(screen.getByText('homelab-viewers')).toBeDefined()
+      })
     })
   })
 
@@ -163,11 +168,11 @@ describe('AuthManagementCard', () => {
 
     it('renders users table column headers after load', async () => {
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('Name')).toBeDefined()
-      expect(screen.getByText('Email')).toBeDefined()
-      expect(screen.getByText('Last Login')).toBeDefined()
+      await waitFor(() => {
+        expect(screen.getByText('Name')).toBeDefined()
+        expect(screen.getByText('Email')).toBeDefined()
+        expect(screen.getByText('Last Login')).toBeDefined()
+      })
     })
 
     it('renders user rows when data is loaded', async () => {
@@ -175,10 +180,10 @@ describe('AuthManagementCard', () => {
       authFns.listUsers.mockImplementation(() => Promise.resolve(mockUsers))
 
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('Alice')).toBeDefined()
-      expect(screen.getByText('alice@example.com')).toBeDefined()
+      await waitFor(() => {
+        expect(screen.getByText('Alice')).toBeDefined()
+        expect(screen.getByText('alice@example.com')).toBeDefined()
+      })
     })
 
     it('renders lastLogin date for users (not the fallback dash)', async () => {
@@ -186,20 +191,18 @@ describe('AuthManagementCard', () => {
       authFns.listUsers.mockImplementation(() => Promise.resolve(mockUsers))
 
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      const emailCell = screen.getByText('alice@example.com')
-      const row = emailCell.closest('tr')
-      const lastLoginCell = row?.querySelectorAll('td')[3]
-      expect(lastLoginCell?.textContent).not.toBe('—')
-      expect(lastLoginCell?.textContent?.length).toBeGreaterThan(0)
+      await waitFor(() => {
+        const emailCell = screen.getByText('alice@example.com')
+        const row = emailCell.closest('tr')
+        const lastLoginCell = row?.querySelectorAll('td')[3]
+        expect(lastLoginCell?.textContent).not.toBe('—')
+        expect(lastLoginCell?.textContent?.length).toBeGreaterThan(0)
+      })
     })
 
     it('shows empty state when no users', async () => {
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('No users found.')).toBeDefined()
+      await waitFor(() => expect(screen.getByText('No users found.')).toBeDefined())
     })
   })
 
@@ -219,10 +222,10 @@ describe('AuthManagementCard', () => {
       authFns.listSessions.mockImplementation(() => Promise.resolve(mockSessions))
 
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      const revokeButtons = screen.getAllByLabelText('Revoke session')
-      expect(revokeButtons.length).toBeGreaterThanOrEqual(1)
+      await waitFor(() => {
+        const revokeButtons = screen.getAllByLabelText('Revoke session')
+        expect(revokeButtons.length).toBeGreaterThanOrEqual(1)
+      })
     })
 
     it('renders Revoke All Sessions button per user group', async () => {
@@ -230,9 +233,7 @@ describe('AuthManagementCard', () => {
       authFns.listSessions.mockImplementation(() => Promise.resolve(mockSessions))
 
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('Revoke All Sessions')).toBeDefined()
+      await waitFor(() => expect(screen.getByText('Revoke All Sessions')).toBeDefined())
     })
 
     it('renders IP Address column header', async () => {
@@ -240,16 +241,12 @@ describe('AuthManagementCard', () => {
       authFns.listSessions.mockImplementation(() => Promise.resolve(mockSessions))
 
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('IP Address')).toBeDefined()
+      await waitFor(() => expect(screen.getByText('IP Address')).toBeDefined())
     })
 
     it('shows empty state when no sessions', async () => {
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('No active sessions.')).toBeDefined()
+      await waitFor(() => expect(screen.getByText('No active sessions.')).toBeDefined())
     })
   })
 
@@ -261,10 +258,10 @@ describe('AuthManagementCard', () => {
 
     it('renders git tokens table column headers', async () => {
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('Label')).toBeDefined()
-      expect(screen.getByText('Last Used')).toBeDefined()
+      await waitFor(() => {
+        expect(screen.getByText('Label')).toBeDefined()
+        expect(screen.getByText('Last Used')).toBeDefined()
+      })
     })
 
     it('renders Generate Token button', () => {
@@ -277,9 +274,7 @@ describe('AuthManagementCard', () => {
       gitFns.listGitTokens.mockImplementation(() => Promise.resolve(mockTokens))
 
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('CI deploy key')).toBeDefined()
+      await waitFor(() => expect(screen.getByText('CI deploy key')).toBeDefined())
     })
 
     it('renders revoke token button for each token', async () => {
@@ -287,10 +282,10 @@ describe('AuthManagementCard', () => {
       gitFns.listGitTokens.mockImplementation(() => Promise.resolve(mockTokens))
 
       renderCard()
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      const revokeButtons = screen.getAllByLabelText('Revoke token')
-      expect(revokeButtons.length).toBeGreaterThanOrEqual(1)
+      await waitFor(() => {
+        const revokeButtons = screen.getAllByLabelText('Revoke token')
+        expect(revokeButtons.length).toBeGreaterThanOrEqual(1)
+      })
     })
 
     it('opens generate token dialog when Generate Token is clicked', () => {
@@ -312,10 +307,10 @@ describe('AuthManagementCard', () => {
       fireEvent.change(labelInput, { target: { value: 'My token' } })
       fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
 
-      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
-
-      expect(screen.getByText('Copy this token now — it will not be shown again.')).toBeDefined()
-      expect(screen.getByText('test-token-abc123')).toBeDefined()
+      await waitFor(() => {
+        expect(screen.getByText('Copy this token now — it will not be shown again.')).toBeDefined()
+        expect(screen.getByText('test-token-abc123')).toBeDefined()
+      })
     })
   })
 })

@@ -21,21 +21,21 @@ import {
 } from '@mui/material'
 import { HelpCircle, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listUsers, listSessions, revokeSession, revokeAllUserSessions } from '@/data/auth.functions'
+import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
 
 // ----- Role Mapping Panel -----
 
-/**
- * Reads the role-to-OIDC-group mappings from Vite env vars.
- * These are set at build time via VITE_OIDC_ROLE_ADMIN, VITE_OIDC_ROLE_OPERATOR, VITE_OIDC_ROLE_VIEWER.
- * Falls back to the server-side defaults if not set.
- */
 function RoleMappingPanel() {
+  const { data: roleMapping } = useQuery({
+    queryKey: ['role-mapping'],
+    queryFn: () => getRoleMapping(),
+  })
+
   const roleMappings: { role: string; group: string }[] = [
-    { role: 'Admin', group: import.meta.env.VITE_OIDC_ROLE_ADMIN ?? 'homelab-admins' },
-    { role: 'Operator', group: import.meta.env.VITE_OIDC_ROLE_OPERATOR ?? 'homelab-operators' },
-    { role: 'Viewer', group: import.meta.env.VITE_OIDC_ROLE_VIEWER ?? 'homelab-viewers' },
+    { role: 'Admin', group: roleMapping?.admin ?? 'homelab-admins' },
+    { role: 'Operator', group: roleMapping?.operator ?? 'homelab-operators' },
+    { role: 'Viewer', group: roleMapping?.viewer ?? 'homelab-viewers' },
   ]
 
   const tooltipContent = (
@@ -451,11 +451,9 @@ export function AuthManagementCard() {
 
 function formatDate(date: Date | string | null | undefined): string {
   if (!date) return '—'
-  try {
-    return new Date(date).toLocaleString()
-  } catch {
-    return '—'
-  }
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return '—'
+  return parsed.toLocaleString()
 }
 
 function truncate(str: string, maxLen: number): string {

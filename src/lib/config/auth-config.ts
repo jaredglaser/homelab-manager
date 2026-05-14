@@ -15,7 +15,11 @@ export function loadAuthConfig(): AuthConfig {
     );
   }
 
-  const sessionTtlHours = Number.parseInt(process.env.SESSION_TTL_HOURS ?? '8', 10);
+  const sessionTtlRaw = process.env.SESSION_TTL_HOURS ?? '8';
+  if (!/^\d+$/.test(sessionTtlRaw)) {
+    throw new Error('SESSION_TTL_HOURS must be a positive integer');
+  }
+  const sessionTtlHours = Number.parseInt(sessionTtlRaw, 10);
   if (!Number.isFinite(sessionTtlHours) || sessionTtlHours <= 0) {
     throw new Error('SESSION_TTL_HOURS must be a positive integer');
   }

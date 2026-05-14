@@ -116,7 +116,7 @@ export async function handleCallback(
   }
 
   // Extract user info from id_token
-  const name = (idTokenClaims.name as string) ?? null;
+  const name = typeof idTokenClaims.name === 'string' ? idTokenClaims.name : null;
 
   // Upsert user
   const user = await deps.userRepo.upsertFromOidc({

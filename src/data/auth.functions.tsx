@@ -133,6 +133,23 @@ export const revokeAllUserSessions = createServerFn()
   });
 
 /**
+ * Returns the OIDC group names mapped to each role (admin only).
+ * Reads server-side OIDC_ROLE_* env vars so the UI shows the actual deployed values.
+ */
+export const getRoleMapping = createServerFn()
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<{ admin: string; operator: string; viewer: string }> => {
+    requireRole('admin')(context.user);
+
+    const { isAuthDisabled, loadAuthConfig } = await import('@/lib/config/auth-config');
+    if (isAuthDisabled()) {
+      return { admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' };
+    }
+    const config = loadAuthConfig();
+    return config.roleMapping;
+  });
+
+/**
  * Reset cached session manager (for testing only).
  */
 export function resetAuthFunctionsState(): void {

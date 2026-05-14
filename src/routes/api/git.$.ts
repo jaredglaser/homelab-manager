@@ -106,7 +106,11 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
   }
 
   if (matchedTokenId === null || matchedUserId === null) {
-    return new Response('Forbidden', { status: 403 });
+    // 401 lets git CLI re-prompt for credentials on token mismatch
+    return new Response('Unauthorized', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Basic realm="git"' },
+    });
   }
 
   const userRow = await userRepo.findById(matchedUserId);

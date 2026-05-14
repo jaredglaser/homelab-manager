@@ -52,7 +52,12 @@ export function parseCookie(header: string | null, name: string): string | null 
   if (!header) return null;
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = header.match(new RegExp(`(?:^|;\\s*)${escapedName}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
 }
 
 export class AuthError extends Error {
