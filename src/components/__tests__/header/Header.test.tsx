@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, afterEach } from 'bun:test'
+import { describe, it, expect, mock } from 'bun:test'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -48,6 +48,10 @@ mock.module('@/components/ModeToggle', () => ({
   default: () => <button aria-label="Toggle dark mode" />,
 }))
 
+// IS_DEMO_MODE is a module-level const captured at import time. Tests that need
+// it true must import Header in a separate file (see Header.demo.test.tsx).
+mock.module('@/lib/constants/demo', () => ({ IS_DEMO_MODE: false }))
+
 const Header = (await import('@/components/header/Header')).default
 
 function createWrapper() {
@@ -60,11 +64,6 @@ function createWrapper() {
 }
 
 describe('Header', () => {
-  afterEach(() => {
-    // Reset VITE_DEMO_MODE after each test so demo-mode tests don't leak.
-    delete (import.meta.env as Record<string, unknown>).VITE_DEMO_MODE
-  })
-
   it('renders all five nav tab labels', () => {
     render(<Header />, { wrapper: createWrapper() })
     expect(screen.getByText('Docker')).not.toBeNull()
@@ -84,17 +83,9 @@ describe('Header', () => {
     expect(dockerTab?.getAttribute('aria-selected')).toBe('true')
   })
 
-  it('does not render the demo banner when VITE_DEMO_MODE is unset', () => {
+  it('does not render the demo banner when IS_DEMO_MODE is false', () => {
     render(<Header />, { wrapper: createWrapper() })
-    // The banner only mounts when import.meta.env.VITE_DEMO_MODE === 'true'.
-    // In tests that env var is not set, so the banner should be absent.
     expect(screen.queryByText('Demo mode')).toBeNull()
-  })
-
-  it('renders the demo banner when VITE_DEMO_MODE is "true"', () => {
-    ;(import.meta.env as Record<string, unknown>).VITE_DEMO_MODE = 'true'
-    render(<Header />, { wrapper: createWrapper() })
-    expect(screen.queryByText('Demo mode')).not.toBeNull()
   })
 
   it('closes the open menu when Escape is pressed on a menu tab', () => {
