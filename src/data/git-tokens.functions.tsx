@@ -16,17 +16,16 @@ export const createGitToken = createServerFn()
     const { randomBytes } = await import('crypto');
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { TransitClient } = await import('@/lib/clients/transit-client');
-    const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+    const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+    const { encryptValue } = await import('@/lib/crypto/encrypted-value');
     const { GitTokenRepository } = await import(
       '@/lib/database/repositories/git-token-repository'
     );
 
     const rawToken = randomBytes(32).toString('hex');
 
-    const baoConfig = loadOpenBaoConfig();
-    const transit = new TransitClient(baoConfig);
-    const encryptedToken = await transit.encrypt('git-tokens', rawToken);
+    const keyring = await loadMasterKeyring();
+    const encryptedToken = await encryptValue(rawToken, keyring);
 
     const dbConfig = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(dbConfig);

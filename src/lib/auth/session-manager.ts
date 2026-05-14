@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from 'crypto';
 import type { AuthUser, OidcTokens } from '@/lib/auth/types';
 import type { SessionRepository } from '@/lib/database/repositories/session-repository';
-import type { TransitClient } from '@/lib/clients/transit-client';
+import type { MasterKeyring } from '@/lib/crypto/master-key';
 
 export interface SessionManagerDeps {
   sessionRepo: SessionRepository;
-  transitClient: TransitClient;
+  keyring: MasterKeyring;
   sessionTtlHours: number;
 }
 
@@ -21,10 +21,8 @@ export class SessionManager {
     const rawToken = randomBytes(32).toString('hex');
     const hashedId = createHash('sha256').update(rawToken).digest('hex');
 
-    const encryptedOidc = await this.deps.transitClient.encrypt(
-      'session-tokens',
-      JSON.stringify(tokens),
-    );
+    const { encryptValue } = await import('@/lib/crypto/encrypted-value');
+    const encryptedOidc = await encryptValue(JSON.stringify(tokens), this.deps.keyring);
 
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + this.deps.sessionTtlHours);
@@ -67,19 +65,18 @@ export async function buildSessionManager(): Promise<SessionManager> {
 
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-  const { TransitClient } = await import('@/lib/clients/transit-client');
-  const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
+  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
   const { loadAuthConfig } = await import('@/lib/config/auth-config');
   const { SessionRepository } = await import('@/lib/database/repositories/session-repository');
 
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
-  const baoConfig = loadOpenBaoConfig();
+  const keyring = await loadMasterKeyring();
   const authConfig = loadAuthConfig();
 
   cachedManager = new SessionManager({
     sessionRepo: new SessionRepository(dbClient.getPool()),
-    transitClient: new TransitClient(baoConfig),
+    keyring,
     sessionTtlHours: authConfig.sessionTtlHours,
   });
   return cachedManager;

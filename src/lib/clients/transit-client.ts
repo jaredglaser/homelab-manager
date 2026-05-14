@@ -1,4 +1,4 @@
-import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/constants/openbao';
+const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 export interface TransitConfig {
   url: string;

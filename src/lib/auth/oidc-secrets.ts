@@ -1,24 +1,15 @@
-let cachedClientSecret: string | null = null;
-
+/**
+ * Load the OIDC client secret from the environment.
+ * Reads OIDC_CLIENT_SECRET at startup.
+ */
 export async function getOidcClientSecret(): Promise<string> {
-  if (cachedClientSecret) return cachedClientSecret;
-
-  const { OpenBaoClient } = await import('@/lib/clients/openbao-client');
-  const { loadOpenBaoConfig } = await import('@/lib/config/openbao-config');
-  const { initializeOpenBao } = await import('@/lib/services/openbao-init');
-
-  const client = new OpenBaoClient(loadOpenBaoConfig());
-  await initializeOpenBao(client);
-
-  const secret = await client.getSecret('oidc', 'client-secret');
-  if (!secret) {
-    throw new Error('OIDC client secret not found in OpenBao at secret/stacks/oidc/client-secret');
+  const secret = process.env.OIDC_CLIENT_SECRET;
+  if (!secret || secret.trim().length === 0) {
+    throw new Error('OIDC_CLIENT_SECRET environment variable must be set when auth is enabled');
   }
-
-  cachedClientSecret = secret;
-  return secret;
+  return secret.trim();
 }
 
 export function resetOidcSecretsCache(): void {
-  cachedClientSecret = null;
+  // No-op: env var reading is stateless
 }

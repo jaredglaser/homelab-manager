@@ -4,6 +4,17 @@ import { SessionManager, resetSessionManagerState } from '../session-manager';
 import type { SessionManagerDeps } from '../session-manager';
 import type { AuthUser, OidcTokens } from '@/lib/auth/types';
 
+// Mock the JWE encryption module so tests don't need real crypto keys
+const mockEncryptValue = mock(async (_plaintext: string, _keyring: unknown) => 'jwe:mock:encrypted');
+const mockDecryptValue = mock(async (ciphertext: string, _keyring: unknown) =>
+  ciphertext.replace('jwe:mock:', ''),
+);
+
+mock.module('@/lib/crypto/encrypted-value', () => ({
+  encryptValue: mockEncryptValue,
+  decryptValue: mockDecryptValue,
+}));
+
 function makeUser(overrides?: Partial<AuthUser>): AuthUser {
   return {
     id: 1,
@@ -23,6 +34,8 @@ function makeTokens(overrides?: Partial<OidcTokens>): OidcTokens {
   };
 }
 
+const mockKeyring = { activeKid: 'v1', keys: new Map() } as unknown as SessionManagerDeps['keyring'];
+
 function makeDeps(overrides?: Partial<SessionManagerDeps>): SessionManagerDeps {
   return {
     sessionRepo: {
@@ -33,10 +46,7 @@ function makeDeps(overrides?: Partial<SessionManagerDeps>): SessionManagerDeps {
       deleteByUserId: mock(async () => {}),
       deleteExpired: mock(async () => {}),
     } as unknown as SessionManagerDeps['sessionRepo'],
-    transitClient: {
-      encrypt: mock(async (_key: string, plaintext: string) => `vault:v1:${btoa(plaintext)}`),
-      decrypt: mock(async (_key: string, ciphertext: string) => atob(ciphertext.replace('vault:v1:', ''))),
-    } as unknown as SessionManagerDeps['transitClient'],
+    keyring: mockKeyring,
     sessionTtlHours: 8,
     ...overrides,
   };
@@ -45,6 +55,8 @@ function makeDeps(overrides?: Partial<SessionManagerDeps>): SessionManagerDeps {
 describe('SessionManager', () => {
   beforeEach(() => {
     resetSessionManagerState();
+    mockEncryptValue.mockClear();
+    mockDecryptValue.mockClear();
   });
 
   describe('createSession', () => {
@@ -86,20 +98,19 @@ describe('SessionManager', () => {
       expect(callArg.userAgent).toBe('TestAgent/1.0');
     });
 
-    it('encrypts OIDC tokens via Transit before storing', async () => {
+    it('encrypts OIDC tokens via JWE before storing', async () => {
       const deps = makeDeps();
       const manager = new SessionManager(deps);
       const tokens = makeTokens();
 
       await manager.createSession(1, tokens, null, null);
 
-      expect(deps.transitClient.encrypt).toHaveBeenCalledTimes(1);
-      const [keyName, plaintext] = (deps.transitClient.encrypt as ReturnType<typeof mock>).mock.calls[0] as [string, string];
-      expect(keyName).toBe('session-tokens');
+      expect(mockEncryptValue).toHaveBeenCalledTimes(1);
+      const [plaintext] = mockEncryptValue.mock.calls[0] as [string, unknown];
       expect(JSON.parse(plaintext)).toEqual(tokens);
 
       const createArg = (deps.sessionRepo.create as ReturnType<typeof mock>).mock.calls[0][0] as { encryptedOidc: string };
-      expect(createArg.encryptedOidc).toMatch(/^vault:v1:/);
+      expect(createArg.encryptedOidc).toBe('jwe:mock:encrypted');
     });
 
     it('sets expiresAt based on sessionTtlHours', async () => {
