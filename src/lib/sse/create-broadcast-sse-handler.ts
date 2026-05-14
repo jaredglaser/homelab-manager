@@ -39,6 +39,12 @@ export function createBroadcastSseHandler<Event>(
   options: BroadcastSseHandlerOptions<Event>,
 ) {
   return async ({ request }: { request: Request }): Promise<Response> => {
+    const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+    const user = await authenticateSSE(request);
+    if (!user) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
     const encoder = new TextEncoder();
     let closed = false;
 

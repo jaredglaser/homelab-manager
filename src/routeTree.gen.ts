@@ -27,6 +27,11 @@ import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inve
 import { Route as StacksHostHostNameRouteImport } from './routes/stacks/host.$hostName'
 import { Route as ApiGitSplatRouteImport } from './routes/api/git.$'
 import { Route as ApiDockerLogsContainerIdRouteImport } from './routes/api/docker-logs.$containerId'
+import { Route as ApiAuthLoginRouteImport } from './routes/api/auth/login'
+import { Route as ApiAuthCallbackRouteImport } from './routes/api/auth/callback'
+import { Route as ApiAuthLogoutRouteImport } from './routes/api/auth/logout'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as DeniedRouteImport } from './routes/denied'
 
 const ZfsRoute = ZfsRouteImport.update({
   id: '/zfs',
@@ -119,6 +124,31 @@ const ApiDockerLogsContainerIdRoute =
     path: '/api/docker-logs/$containerId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAuthLoginRoute = ApiAuthLoginRouteImport.update({
+  id: '/api/auth/login',
+  path: '/api/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthCallbackRoute = ApiAuthCallbackRouteImport.update({
+  id: '/api/auth/callback',
+  path: '/api/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAuthLogoutRoute = ApiAuthLogoutRouteImport.update({
+  id: '/api/auth/logout',
+  path: '/api/auth/logout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeniedRoute = DeniedRouteImport.update({
+  id: '/denied',
+  path: '/denied',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -139,6 +169,11 @@ export interface FileRoutesByFullPath {
   '/api/docker-logs/$containerId': typeof ApiDockerLogsContainerIdRoute
   '/api/git/$': typeof ApiGitSplatRoute
   '/stacks/host/$hostName': typeof StacksHostHostNameRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/callback': typeof ApiAuthCallbackRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/login': typeof LoginRoute
+  '/denied': typeof DeniedRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -158,6 +193,11 @@ export interface FileRoutesByTo {
   '/api/docker-logs/$containerId': typeof ApiDockerLogsContainerIdRoute
   '/api/git/$': typeof ApiGitSplatRoute
   '/stacks/host/$hostName': typeof StacksHostHostNameRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/callback': typeof ApiAuthCallbackRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/login': typeof LoginRoute
+  '/denied': typeof DeniedRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -179,6 +219,11 @@ export interface FileRoutesById {
   '/api/docker-logs/$containerId': typeof ApiDockerLogsContainerIdRoute
   '/api/git/$': typeof ApiGitSplatRoute
   '/stacks/host/$hostName': typeof StacksHostHostNameRoute
+  '/api/auth/login': typeof ApiAuthLoginRoute
+  '/api/auth/callback': typeof ApiAuthCallbackRoute
+  '/api/auth/logout': typeof ApiAuthLogoutRoute
+  '/login': typeof LoginRoute
+  '/denied': typeof DeniedRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -201,6 +246,11 @@ export interface FileRouteTypes {
     | '/api/docker-logs/$containerId'
     | '/api/git/$'
     | '/stacks/host/$hostName'
+    | '/api/auth/login'
+    | '/api/auth/callback'
+    | '/api/auth/logout'
+    | '/login'
+    | '/denied'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -220,6 +270,11 @@ export interface FileRouteTypes {
     | '/api/docker-logs/$containerId'
     | '/api/git/$'
     | '/stacks/host/$hostName'
+    | '/api/auth/login'
+    | '/api/auth/callback'
+    | '/api/auth/logout'
+    | '/login'
+    | '/denied'
   id:
     | '__root__'
     | '/'
@@ -240,6 +295,11 @@ export interface FileRouteTypes {
     | '/api/docker-logs/$containerId'
     | '/api/git/$'
     | '/stacks/host/$hostName'
+    | '/api/auth/login'
+    | '/api/auth/callback'
+    | '/api/auth/logout'
+    | '/login'
+    | '/denied'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -257,6 +317,11 @@ export interface RootRouteChildren {
   ApiZfsStatsRoute: typeof ApiZfsStatsRoute
   ApiDockerLogsContainerIdRoute: typeof ApiDockerLogsContainerIdRoute
   ApiGitSplatRoute: typeof ApiGitSplatRoute
+  ApiAuthLoginRoute: typeof ApiAuthLoginRoute
+  ApiAuthCallbackRoute: typeof ApiAuthCallbackRoute
+  ApiAuthLogoutRoute: typeof ApiAuthLogoutRoute
+  LoginRoute: typeof LoginRoute
+  DeniedRoute: typeof DeniedRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -387,6 +452,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDockerLogsContainerIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/auth/login': {
+      id: '/api/auth/login'
+      path: '/api/auth/login'
+      fullPath: '/api/auth/login'
+      preLoaderRoute: typeof ApiAuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/callback': {
+      id: '/api/auth/callback'
+      path: '/api/auth/callback'
+      fullPath: '/api/auth/callback'
+      preLoaderRoute: typeof ApiAuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/auth/logout': {
+      id: '/api/auth/logout'
+      path: '/api/auth/logout'
+      fullPath: '/api/auth/logout'
+      preLoaderRoute: typeof ApiAuthLogoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/denied': {
+      id: '/denied'
+      path: '/denied'
+      fullPath: '/denied'
+      preLoaderRoute: typeof DeniedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -431,6 +531,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiZfsStatsRoute: ApiZfsStatsRoute,
   ApiDockerLogsContainerIdRoute: ApiDockerLogsContainerIdRoute,
   ApiGitSplatRoute: ApiGitSplatRoute,
+  ApiAuthLoginRoute: ApiAuthLoginRoute,
+  ApiAuthCallbackRoute: ApiAuthCallbackRoute,
+  ApiAuthLogoutRoute: ApiAuthLogoutRoute,
+  LoginRoute: LoginRoute,
+  DeniedRoute: DeniedRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

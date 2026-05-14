@@ -4,6 +4,12 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
   server: {
     handlers: {
       GET: async ({ request, params }) => {
+        const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+        const user = await authenticateSSE(request);
+        if (!user) {
+          return new Response('Unauthorized', { status: 401 });
+        }
+
         const { containerId } = params;
         const url = new URL(request.url);
         const hostName = url.searchParams.get('host');

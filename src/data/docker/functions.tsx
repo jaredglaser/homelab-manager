@@ -1,6 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { DockerStatsRow } from '@/types/docker';
 import { databaseMiddleware } from '@/middleware/database-middleware';
+import { authMiddleware } from '@/middleware/auth-middleware';
 import {
   getHistoricalDockerStatsSchema,
   getContainerHistorySchema,
@@ -12,7 +13,7 @@ import {
  * Get historical Docker stats (wide rows) for preloading.
  */
 export const getHistoricalDockerStats = createServerFn()
-  .middleware([databaseMiddleware])
+  .middleware([authMiddleware, databaseMiddleware])
   .inputValidator(getHistoricalDockerStatsSchema)
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
@@ -35,7 +36,7 @@ export const getHistoricalDockerStats = createServerFn()
  * Icons are stored under the service_key entity so they survive container recreation.
  */
 export const getDockerEntityIcons = createServerFn()
-  .middleware([databaseMiddleware])
+  .middleware([authMiddleware, databaseMiddleware])
   .handler(async ({ context }): Promise<Record<string, { iconSlug: string | null; serviceKeyEntity: string }>> => {
     try {
       const { EntityMetadataRepository } = await import(
@@ -52,7 +53,7 @@ export const getDockerEntityIcons = createServerFn()
   });
 
 export const getContainerHistory = createServerFn()
-  .middleware([databaseMiddleware])
+  .middleware([authMiddleware, databaseMiddleware])
   .inputValidator(getContainerHistorySchema)
   .handler(async ({ context, data }): Promise<DockerStatsRow[]> => {
     try {
@@ -91,7 +92,7 @@ export const getContainerHistory = createServerFn()
   });
 
 export const getContainerInfo = createServerFn()
-  .middleware([databaseMiddleware])
+  .middleware([authMiddleware, databaseMiddleware])
   .inputValidator(getContainerInfoSchema)
   .handler(async ({ context, data }): Promise<{
     containerName: string;
@@ -132,7 +133,7 @@ export const getContainerInfo = createServerFn()
  * Stores the icon slug under the service_key entity so it persists across container recreations.
  */
 export const updateContainerIcon = createServerFn()
-  .middleware([databaseMiddleware])
+  .middleware([authMiddleware, databaseMiddleware])
   .inputValidator(updateContainerIconSchema)
   .handler(async ({ context, data }): Promise<void> => {
     const { EntityMetadataRepository } = await import(

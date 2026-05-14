@@ -1,4 +1,4 @@
-import { HeadContent, Outlet, Scripts, createRootRoute } from '@tanstack/react-router'
+import { HeadContent, Outlet, Scripts, createRootRoute, useRouterState } from '@tanstack/react-router'
 import { lazy } from 'react'
 import AppShell from '@/components/AppShell'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
@@ -52,13 +52,20 @@ export const Route = createRootRoute({
 })
 
 function RootLayout() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isAuthPage = pathname === '/login' || pathname === '/denied';
+
+  if (isAuthPage) {
+    return <Outlet />;
+  }
+
   return (
     <AppShell>
       <ErrorBoundary name="root">
         <Outlet />
       </ErrorBoundary>
     </AppShell>
-  )
+  );
 }
 
 function RootDocument({ children }: { children: React.ReactNode }) {

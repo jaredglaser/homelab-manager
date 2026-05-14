@@ -11,6 +11,8 @@ import {
 } from '@/hooks/useSettings'
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
+import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
+import { useAuth } from '@/hooks/useAuth'
 import {
   CHART_WINDOW_MARKS,
   UPDATE_INTERVAL_MARKS,
@@ -46,6 +48,7 @@ function SettingsContent() {
   } = useGeneralSettings();
   const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
   const { zfs, setZfsDecimal } = useZfsSettings();
+  const { user } = useAuth();
   const hash = useLocation({ select: (l) => l.hash });
 
   useEffect(() => {
@@ -266,6 +269,8 @@ function SettingsContent() {
           <ManagedHostsCard />
         </div>
 
+        {user?.role === 'admin' && <AuthManagementCard />}
+
         <Card id="developer" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">Developer</Typography>
           <div className="flex flex-col gap-4">
@@ -311,4 +316,3 @@ function SettingsContent() {
     </div>
   )
 }
-
