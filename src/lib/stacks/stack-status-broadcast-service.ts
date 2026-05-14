@@ -26,7 +26,7 @@ const BACKOFF_CAP_MS = 30_000;
 function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer {
   const sk = inv.serviceKey && inv.serviceKey.length > 0 ? inv.serviceKey : null;
   // serviceKey is "project/service" from compose labels; docker compose needs only the service part.
-  const service = sk?.includes('/') ? (sk.split('/')[1] ?? null) : sk;
+  const service = sk?.includes('/') ? (sk.split('/')[1] || null) : sk;
   return {
     id: inv.containerId,
     name: inv.name,

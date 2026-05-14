@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-/** Allowed stack name pattern. No dots, slashes, or path traversal. */
-const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
-const stackNameField = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Stack name must contain only letters, numbers, hyphens, and underscores');
+/** Allowed stack name pattern. First char must be alphanumeric; mirrors the agent's VALID_STACK_NAME. */
+const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+const stackNameField = z.string().min(1).regex(SAFE_PATH_SEGMENT_PATTERN, 'Stack name must start with a letter or digit and contain only letters, digits, hyphens, and underscores');
 
 /** Allowed service name pattern. Matches Docker Compose service name conventions: alphanumeric start, then alphanumeric/dots/hyphens/underscores. */
 const serviceNameField = z.string().min(1).regex(

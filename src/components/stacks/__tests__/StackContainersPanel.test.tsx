@@ -16,8 +16,8 @@ mock.module('@/components/docker/ContainerLogViewer', () => ({
 }));
 
 mock.module('@/components/docker/ContainerTerminal', () => ({
-  default: ({ containerId }: { containerId: string }) => (
-    <div data-testid="terminal-viewer">{containerId}</div>
+  default: ({ containerId, frozen }: { containerId: string; frozen: boolean }) => (
+    <div data-testid="terminal-viewer" data-frozen={String(frozen)}>{containerId}</div>
   ),
 }));
 
@@ -134,11 +134,22 @@ describe('StackContainersPanel', () => {
       expect(screen.getByRole('alert')).toBeDefined()
     );
     const alert = screen.getByRole('alert');
-    expect(alert.textContent).toContain('start');
-    expect(alert.textContent).toContain('failed');
+    expect(alert.textContent).toContain('Failed to start');
+    expect(alert.textContent).toContain('agent unreachable');
   });
 
-  it('disables all buttons while mutation is pending', async () => {
+  it('shows success toast with past-tense message when controlStack resolves', async () => {
+    mockControlStack.mockResolvedValueOnce(undefined);
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /^start$/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeDefined());
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('plex');
+    expect(alert.textContent).toContain('started');
+    expect(alert.textContent).toContain('successfully');
+  });
+
+  it('disables all control buttons while mutation is pending', async () => {
     let resolveControl!: () => void;
     mockControlStack.mockImplementationOnce(
       () => new Promise<void>((resolve) => { resolveControl = resolve; })
@@ -147,16 +158,34 @@ describe('StackContainersPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /^start$/i }));
 
     await waitFor(() => {
-      const buttons = screen.getAllByRole('button');
-      const controlButtons = buttons.filter(
-        (b) => b.getAttribute('aria-label') !== 'Logs' &&
-               b.getAttribute('aria-label') !== 'Terminal' &&
-               b.getAttribute('aria-label') !== 'Close'
-      );
-      expect(controlButtons.every((b) => b.hasAttribute('disabled'))).toBe(true);
+      ['Start', 'Stop', 'Restart',
+        'Start web', 'Stop web', 'Restart web',
+        'Start db', 'Stop db', 'Restart db',
+      ].forEach((label) => {
+        expect(screen.getByRole('button', { name: label })).toHaveProperty('disabled', true);
+      });
     });
 
     resolveControl();
+  });
+
+  it('disables stack-level buttons when containers list is empty', () => {
+    renderPanel({ ...defaultProps, containers: [] });
+    expect(screen.getByRole('button', { name: 'Start' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Stop' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Restart' })).toHaveProperty('disabled', true);
+  });
+
+  it('passes frozen=false to ContainerTerminal for a running container', () => {
+    renderPanel();
+    fireEvent.click(screen.getAllByRole('button', { name: /^terminal$/i })[0]);
+    expect(screen.getByTestId('terminal-viewer').getAttribute('data-frozen')).toBe('false');
+  });
+
+  it('passes frozen=true to ContainerTerminal for a stopped container', () => {
+    renderPanel();
+    fireEvent.click(screen.getAllByRole('button', { name: /^terminal$/i })[1]);
+    expect(screen.getByTestId('terminal-viewer').getAttribute('data-frozen')).toBe('true');
   });
 
   it('hides per-service control buttons when service is null', () => {

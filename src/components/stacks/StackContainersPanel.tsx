@@ -54,13 +54,13 @@ export default function StackContainersPanel({ containers, stackName, host }: St
     },
     onSuccess: (_, { action, target }) => {
       const targetName = target.scope === 'stack' ? stackName : `${target.service} (in ${stackName})`;
-      setToast({ type: 'success', text: `${action} succeeded for ${targetName}` });
+      setToast({ type: 'success', text: `${targetName} ${ACTION_PAST[action]} successfully` });
       setActiveKey(null);
     },
     onError: (err, { action, target }) => {
       const targetName = target.scope === 'stack' ? stackName : `${target.service} (in ${stackName})`;
       console.error(`[StackContainersPanel] ${action} failed for ${targetName}:`, err);
-      setToast({ type: 'error', text: `${action} failed for ${targetName}: ${err instanceof Error ? err.message : String(err)}` });
+      setToast({ type: 'error', text: `Failed to ${action} ${targetName}: ${err instanceof Error ? err.message : String(err)}` });
       setActiveKey(null);
     },
   });
@@ -79,7 +79,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
           size="small"
           variant="outlined"
           startIcon={activeKey === 'stack:start' ? <CircularProgress size={12} className="!text-inherit" /> : <Play size={13} />}
-          disabled={controlMutation.isPending}
+          disabled={controlMutation.isPending || containers.length === 0}
           onClick={() => trigger('start', { scope: 'stack' })}
           aria-label="Start"
         >
@@ -89,7 +89,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
           size="small"
           variant="outlined"
           startIcon={activeKey === 'stack:stop' ? <CircularProgress size={12} className="!text-inherit" /> : <Square size={13} />}
-          disabled={controlMutation.isPending}
+          disabled={controlMutation.isPending || containers.length === 0}
           onClick={() => trigger('stop', { scope: 'stack' })}
           aria-label="Stop"
         >
@@ -99,7 +99,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
           size="small"
           variant="outlined"
           startIcon={activeKey === 'stack:restart' ? <CircularProgress size={12} className="!text-inherit" /> : <RotateCcw size={13} />}
-          disabled={controlMutation.isPending}
+          disabled={controlMutation.isPending || containers.length === 0}
           onClick={() => trigger('restart', { scope: 'stack' })}
           aria-label="Restart"
         >
@@ -127,62 +127,13 @@ export default function StackContainersPanel({ containers, stackName, host }: St
               <span className="opacity-30 text-xs truncate hidden sm:block">{container.image}</span>
 
               {container.service && (
-                <div className="ml-auto flex items-center gap-0.5">
-                  <Tooltip title={`Start ${container.service}`}>
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={controlMutation.isPending}
-                        onClick={() => trigger('start', { scope: 'service', service: container.service! })}
-                        aria-label={`Start ${container.service}`}
-                      >
-                        <Play size={13} />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title={`Stop ${container.service}`}>
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={controlMutation.isPending}
-                        onClick={() => trigger('stop', { scope: 'service', service: container.service! })}
-                        aria-label={`Stop ${container.service}`}
-                      >
-                        <Square size={13} />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title={`Restart ${container.service}`}>
-                    <span>
-                      <IconButton
-                        size="small"
-                        disabled={controlMutation.isPending}
-                        onClick={() => trigger('restart', { scope: 'service', service: container.service! })}
-                        aria-label={`Restart ${container.service}`}
-                      >
-                        <RotateCcw size={13} />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="Logs">
-                    <IconButton
-                      size="small"
-                      onClick={() => setModalState({ container, view: 'logs' })}
-                      aria-label="Logs"
-                    >
-                      <ScrollText size={13} />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Terminal">
-                    <IconButton
-                      size="small"
-                      onClick={() => setModalState({ container, view: 'terminal' })}
-                      aria-label="Terminal"
-                    >
-                      <Terminal size={13} />
-                    </IconButton>
-                  </Tooltip>
-                </div>
+                <ServiceControls
+                  service={container.service}
+                  isPending={controlMutation.isPending}
+                  trigger={trigger}
+                  onOpenLogs={() => setModalState({ container, view: 'logs' })}
+                  onOpenTerminal={() => setModalState({ container, view: 'terminal' })}
+                />
               )}
             </div>
           ))}
@@ -226,6 +177,77 @@ export default function StackContainersPanel({ containers, stackName, host }: St
           </Alert>
         </Snackbar>
       )}
+    </div>
+  );
+}
+
+const ACTION_PAST: Record<ControlAction, string> = {
+  start: 'started',
+  stop: 'stopped',
+  restart: 'restarted',
+};
+
+function ServiceControls({
+  service,
+  isPending,
+  trigger,
+  onOpenLogs,
+  onOpenTerminal,
+}: {
+  service: string;
+  isPending: boolean;
+  trigger: (action: ControlAction, target: ControlTarget) => void;
+  onOpenLogs: () => void;
+  onOpenTerminal: () => void;
+}) {
+  return (
+    <div className="ml-auto flex items-center gap-0.5">
+      <Tooltip title={`Start ${service}`}>
+        <span>
+          <IconButton
+            size="small"
+            disabled={isPending}
+            onClick={() => trigger('start', { scope: 'service', service })}
+            aria-label={`Start ${service}`}
+          >
+            <Play size={13} />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title={`Stop ${service}`}>
+        <span>
+          <IconButton
+            size="small"
+            disabled={isPending}
+            onClick={() => trigger('stop', { scope: 'service', service })}
+            aria-label={`Stop ${service}`}
+          >
+            <Square size={13} />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title={`Restart ${service}`}>
+        <span>
+          <IconButton
+            size="small"
+            disabled={isPending}
+            onClick={() => trigger('restart', { scope: 'service', service })}
+            aria-label={`Restart ${service}`}
+          >
+            <RotateCcw size={13} />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title="Logs">
+        <IconButton size="small" onClick={onOpenLogs} aria-label="Logs">
+          <ScrollText size={13} />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Terminal">
+        <IconButton size="small" onClick={onOpenTerminal} aria-label="Terminal">
+          <Terminal size={13} />
+        </IconButton>
+      </Tooltip>
     </div>
   );
 }

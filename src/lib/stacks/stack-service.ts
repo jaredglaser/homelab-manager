@@ -5,7 +5,7 @@
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
 import type { DeployAction, DeployRecord, DeployRequest } from '@/lib/deploy/types';
-import type { StackControlRequest } from '@/lib/clients/agent-client';
+import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-client';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
@@ -466,6 +466,22 @@ export async function updateStackIconSlug(
   await repo.upsertEntityMetadata(`${entry.host}/${stackName}`, 'icon', iconSlug);
 }
 
+async function dispatchControlAction(
+  agent: AgentClient,
+  action: 'start' | 'stop' | 'restart',
+  req: StackControlRequest,
+): Promise<{ success: boolean; logs: string }> {
+  switch (action) {
+    case 'start':   return agent.start(req);
+    case 'stop':    return agent.stop(req);
+    case 'restart': return agent.restart(req);
+    default: {
+      const _exhaustive: never = action;
+      throw new Error(`Unknown action: ${_exhaustive}`);
+    }
+  }
+}
+
 export async function controlStackForHost(
   host: string,
   action: 'start' | 'stop' | 'restart',
@@ -495,17 +511,9 @@ export async function controlStackForHost(
   const signer = () => signAgentJwt(privateKey, managedHost.name);
   const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer });
 
-  let result: { success: boolean; logs: string } | undefined;
+  let result: { success: boolean; logs: string };
   try {
-    switch (action) {
-      case 'start': result = await agent.start(req); break;
-      case 'stop': result = await agent.stop(req); break;
-      case 'restart': result = await agent.restart(req); break;
-      default: {
-        const _exhaustive: never = action;
-        throw new Error(`Unknown action: ${_exhaustive}`);
-      }
-    }
+    result = await dispatchControlAction(agent, action, req);
   } catch (err) {
     console.error(`[StackService] controlStack ${action} failed for "${req.stack}" on "${host}":`, err);
     throw err;

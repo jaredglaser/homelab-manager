@@ -570,6 +570,29 @@ describe('StackStatusBroadcastService', () => {
     await emptyKeyService.stop();
   });
 
+  it('toStackContainer: trailing-slash serviceKey ("media/") normalizes service to null', async () => {
+    // "media/" splits to ["media", ""], and "" is falsy — must normalize to null, not "".
+    const trailingSlashService = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [
+        {
+          ...composeContainer1,
+          serviceKey: 'media/',
+        },
+      ],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    trailingSlashService.subscribe((e) => received.push(e));
+    await flush();
+
+    const init = received[0];
+    if (init.type === 'status') {
+      expect(init.entries[0].containers[0].service).toBeNull();
+    }
+    await trailingSlashService.stop();
+  });
+
   it('updated_at is an ISO string', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));

@@ -160,6 +160,15 @@ describe('controlStackSchema', () => {
     ).toThrow();
   });
 
+  it('rejects stack name starting with underscore or hyphen', () => {
+    expect(() =>
+      controlStackSchema.parse({ stack: '_mystack', host: 'h', action: 'start', scope: 'stack' })
+    ).toThrow();
+    expect(() =>
+      controlStackSchema.parse({ stack: '-mystack', host: 'h', action: 'start', scope: 'stack' })
+    ).toThrow();
+  });
+
   it('rejects invalid service name', () => {
     expect(() =>
       controlStackSchema.parse({ stack: 's', host: 'h', action: 'start', scope: 'service', service: '--help' })

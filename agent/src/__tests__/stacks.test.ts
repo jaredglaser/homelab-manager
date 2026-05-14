@@ -1199,6 +1199,8 @@ describe('handleStackStart', () => {
     expect(cmd).toContain('up');
     expect(cmd).toContain('-d');
     expect(cmd).not.toContain('web');
+    // start maps to `up -d`, NOT `up -d --remove-orphans` (which is deploy-only)
+    expect(cmd).not.toContain('--remove-orphans');
   });
 
   test('appends service name when scope is service', async () => {
@@ -1426,5 +1428,45 @@ describe('handleStackStop: invalid service name', () => {
     });
     const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
     expect(response.status).toBe(400);
+  });
+});
+
+describe('handleStackStop: invalid scope', () => {
+  test('returns 400 for invalid scope value', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'myapp', scope: 'container' }),
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+  });
+});
+
+describe('handleStackStart: invalid JSON body', () => {
+  test('returns 400 for malformed JSON', async () => {
+    const request = new Request('http://localhost/stacks/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+    const response = await handleStackStart(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toStartWith('Invalid JSON:');
+  });
+});
+
+describe('handleStackStop: invalid JSON body', () => {
+  test('returns 400 for malformed JSON', async () => {
+    const request = new Request('http://localhost/stacks/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+    const response = await handleStackStop(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toStartWith('Invalid JSON:');
   });
 });
