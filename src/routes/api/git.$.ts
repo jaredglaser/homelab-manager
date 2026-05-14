@@ -22,10 +22,14 @@ function extractToken(request: Request): string | null {
   }
 
   if (authHeader.startsWith('Basic ')) {
-    // Git sends Basic auth as base64(username:password) — the token is the password
-    const decoded = atob(authHeader.slice('Basic '.length));
-    const colonIndex = decoded.indexOf(':');
-    return colonIndex >= 0 ? decoded.slice(colonIndex + 1) : decoded;
+    // Git sends Basic auth as base64(username:password), the token is the password
+    try {
+      const decoded = atob(authHeader.slice('Basic '.length));
+      const colonIndex = decoded.indexOf(':');
+      return colonIndex >= 0 ? decoded.slice(colonIndex + 1) : decoded;
+    } catch {
+      return null;
+    }
   }
 
   return null;

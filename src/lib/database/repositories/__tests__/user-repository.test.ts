@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { UserRepository } from '../user-repository';
-import type { UserRow } from '../user-repository';
+import { UserRepository } from '@/lib/database/repositories/user-repository';
+import type { UserRow } from '@/lib/database/repositories/user-repository';
 
 function createMockPool(rows: Record<string, unknown>[] = []) {
   const queryResults: Record<string, unknown>[][] = [];

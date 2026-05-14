@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { loadAuthConfig, isAuthDisabled } from '../auth-config';
+import { loadAuthConfig, isAuthDisabled } from '@/lib/config/auth-config';
 
 describe('loadAuthConfig', () => {
   const originalEnv = { ...process.env };

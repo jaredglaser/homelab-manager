@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { migrateAgentTokensToTransit } from '../agent-token-migration';
+import { migrateAgentTokensToTransit } from '@/lib/auth/agent-token-migration';
 import type { Pool } from 'pg';
 
 describe('migrateAgentTokensToTransit', () => {

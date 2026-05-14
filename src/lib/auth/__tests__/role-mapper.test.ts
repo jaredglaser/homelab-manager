@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { mapGroupsToRole } from '../role-mapper';
-import type { RoleMappingConfig } from '../types';
+import { mapGroupsToRole } from '@/lib/auth/role-mapper';
+import type { RoleMappingConfig } from '@/lib/auth/types';
 
 const mockMapping: RoleMappingConfig = {
   admin: 'group-admin',

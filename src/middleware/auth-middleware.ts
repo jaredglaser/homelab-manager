@@ -50,7 +50,8 @@ export const authMiddleware = createMiddleware().server(
  */
 export function parseCookie(header: string | null, name: string): string | null {
   if (!header) return null;
-  const match = header.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = header.match(new RegExp(`(?:^|;\\s*)${escapedName}=([^;]*)`));
   return match ? decodeURIComponent(match[1]) : null;
 }
 

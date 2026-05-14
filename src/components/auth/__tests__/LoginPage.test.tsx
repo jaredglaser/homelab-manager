@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
-import LoginPage from '../LoginPage';
+import LoginPage from '@/components/auth/LoginPage';
 
 describe('LoginPage', () => {
   it('renders the app name heading', () => {

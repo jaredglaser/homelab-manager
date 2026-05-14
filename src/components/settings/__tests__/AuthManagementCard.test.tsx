@@ -45,25 +45,25 @@ function renderCard() {
 const mockUsers = [
   {
     id: 1,
-    oidc_subject: 'sub1',
+    oidcSubject: 'sub1',
     email: 'alice@example.com',
     name: 'Alice',
     role: 'admin' as const,
-    oidc_groups: ['homelab-admins'],
-    last_login: new Date('2024-01-15T10:00:00.000Z'),
-    created_at: new Date('2024-01-01T00:00:00.000Z'),
-    updated_at: new Date('2024-01-15T10:00:00.000Z'),
+    oidcGroups: ['homelab-admins'],
+    lastLogin: new Date('2024-01-15T10:00:00.000Z'),
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2024-01-15T10:00:00.000Z'),
   },
   {
     id: 2,
-    oidc_subject: 'sub2',
+    oidcSubject: 'sub2',
     email: 'bob@example.com',
     name: 'Bob',
     role: 'viewer' as const,
-    oidc_groups: ['homelab-viewers'],
-    last_login: new Date('2024-02-01T08:00:00.000Z'),
-    created_at: new Date('2024-01-10T00:00:00.000Z'),
-    updated_at: new Date('2024-02-01T08:00:00.000Z'),
+    oidcGroups: ['homelab-viewers'],
+    lastLogin: new Date('2024-02-01T08:00:00.000Z'),
+    createdAt: new Date('2024-01-10T00:00:00.000Z'),
+    updatedAt: new Date('2024-02-01T08:00:00.000Z'),
   },
 ]
 
@@ -179,6 +179,20 @@ describe('AuthManagementCard', () => {
 
       expect(screen.getByText('Alice')).toBeDefined()
       expect(screen.getByText('alice@example.com')).toBeDefined()
+    })
+
+    it('renders lastLogin date for users (not the fallback dash)', async () => {
+      const authFns = require('@/data/auth.functions') as { listUsers: ReturnType<typeof mock> }
+      authFns.listUsers.mockImplementation(() => Promise.resolve(mockUsers))
+
+      renderCard()
+      await act(async () => { await new Promise((r) => setTimeout(r, 50)) })
+
+      const emailCell = screen.getByText('alice@example.com')
+      const row = emailCell.closest('tr')
+      const lastLoginCell = row?.querySelectorAll('td')[3]
+      expect(lastLoginCell?.textContent).not.toBe('—')
+      expect(lastLoginCell?.textContent?.length).toBeGreaterThan(0)
     })
 
     it('shows empty state when no users', async () => {
