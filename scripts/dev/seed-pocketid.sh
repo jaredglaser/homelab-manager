@@ -84,7 +84,7 @@ ensure_user() {
     log "  creating user '${username}'"
     resp=$(curl -sf -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
       -X POST "${API}/users" \
-      -d "{\"username\":\"${username}\",\"firstName\":\"${first_name}\",\"lastName\":\"Dev\",\"email\":\"${username}@localhost\",\"isAdmin\":${is_admin},\"userGroupIds\":[\"${group_id}\"]}")
+      -d "{\"username\":\"${username}\",\"firstName\":\"${first_name}\",\"lastName\":\"Dev\",\"email\":\"${username}@example.com\",\"isAdmin\":${is_admin},\"userGroupIds\":[\"${group_id}\"]}")
     id=$(get_field "$resp" "id")
     if [ -z "$id" ]; then
       log "  ERROR: failed to create user '${username}': ${resp}"
