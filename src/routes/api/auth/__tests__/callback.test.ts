@@ -1,5 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { handleCallback, buildSessionCookie, CLEAR_STATE_COOKIE } from '../callback';
+import { describe, it, expect, mock, afterEach } from 'bun:test';
+import { handleCallback, buildSessionCookie, CLEAR_STATE_COOKIE, Route } from '../callback';
 import type { CallbackHandlerDeps } from '../callback';
 import type { OidcTokens, Role } from '@/lib/auth/types';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
@@ -430,5 +430,67 @@ describe('handleCallback', () => {
       expect(ipAddress).toBe('10.0.0.1');
       expect(userAgent).toBe('TestAgent/1.0');
     });
+  });
+});
+
+// ----- Route GET handler -----
+
+// Access the route's server handler directly to test the wiring layer.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const routeGetHandler = (Route as any).options?.server?.handlers?.GET as
+  ((args: { request: Request }) => Promise<Response>) | undefined;
+
+function makeRouteRequest(url: string): Request {
+  return new Request(url);
+}
+
+describe('Route GET handler', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('redirects to / when auth is disabled', async () => {
+    delete process.env.AUTH_ENABLED;
+    const response = await routeGetHandler!({ request: makeRouteRequest('http://localhost/api/auth/callback') });
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe('/');
+  });
+
+  it('returns 400 when code is missing from query params', async () => {
+    process.env.AUTH_ENABLED = 'true';
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+    process.env.OIDC_CLIENT_ID = 'homelab-manager';
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
+    const response = await routeGetHandler!({ request: makeRouteRequest('http://localhost/api/auth/callback?state=xyz') });
+    expect(response.status).toBe(400);
+  });
+
+  it('returns 400 when state is missing from query params', async () => {
+    process.env.AUTH_ENABLED = 'true';
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+    process.env.OIDC_CLIENT_ID = 'homelab-manager';
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
+    const response = await routeGetHandler!({ request: makeRouteRequest('http://localhost/api/auth/callback?code=abc') });
+    expect(response.status).toBe(400);
+  });
+
+  it('redirects to /login?error=callback_failed when an unhandled error occurs', async () => {
+    // AUTH_ENABLED=true, code+state present, but OIDC vars missing → loadAuthConfig throws → caught
+    process.env.AUTH_ENABLED = 'true';
+    delete process.env.OIDC_ISSUER_URL;
+    delete process.env.OIDC_CLIENT_ID;
+    delete process.env.OIDC_REDIRECT_URI;
+    // Suppress expected console.error from the catch block so bun doesn't treat it as an unhandled error
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    try {
+      const response = await routeGetHandler!({ request: makeRouteRequest('http://localhost/api/auth/callback?code=abc&state=xyz') });
+      expect(response.status).toBe(302);
+      expect(response.headers.get('Location')).toBe('/login?error=callback_failed');
+    } finally {
+      console.error = originalConsoleError;
+    }
   });
 });

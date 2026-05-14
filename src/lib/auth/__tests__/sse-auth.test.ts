@@ -2,6 +2,19 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { resetSSEAuthState } from '@/lib/auth/sse-auth';
 import type { AuthUser } from '@/lib/auth/types';
 
+const mockValidateSession = mock(async (_token: string) => null as AuthUser | null);
+const mockBuildSessionManager = mock(async () => ({ validateSession: mockValidateSession }));
+
+mock.module('@/lib/auth/session-manager', () => ({
+  buildSessionManager: mockBuildSessionManager,
+  resetSessionManagerState: mock(() => {}),
+  // Include SessionManager class so other test files importing this module still compile
+  // (bun applies mock.module globally across files run together)
+  SessionManager: class MockSessionManager {
+    constructor() {}
+  },
+}));
+
 function makeUser(overrides?: Partial<AuthUser>): AuthUser {
   return {
     id: 1,
@@ -73,6 +86,29 @@ describe('authenticateSSE', () => {
     const result = await authenticateSSE(makeMockRequest('other=abc; foo=bar'));
 
     expect(result).toBeNull();
+  });
+
+  it('calls buildSessionManager and validateSession when a session cookie is present', async () => {
+    process.env.AUTH_ENABLED = 'true';
+    const user: AuthUser = { id: 3, email: 'bob@example.com', name: 'Bob', role: 'viewer' };
+    mockValidateSession.mockImplementation(async () => user);
+
+    const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+    const result = await authenticateSSE(makeMockRequest('session=valid-token-abc'));
+
+    expect(result).toEqual(user);
+    expect(mockValidateSession).toHaveBeenCalledWith('valid-token-abc');
+  });
+
+  it('returns null when validateSession returns null for invalid token', async () => {
+    process.env.AUTH_ENABLED = 'true';
+    mockValidateSession.mockImplementation(async () => null);
+
+    const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+    const result = await authenticateSSE(makeMockRequest('session=bad-token'));
+
+    expect(result).toBeNull();
+    expect(mockValidateSession).toHaveBeenCalledWith('bad-token');
   });
 });
 

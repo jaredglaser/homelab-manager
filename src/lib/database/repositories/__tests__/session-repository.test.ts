@@ -199,4 +199,58 @@ describe('SessionRepository', () => {
       await expect(repo.deleteExpired()).resolves.toBeUndefined();
     });
   });
+
+  describe('findAllWithUser', () => {
+    it('returns sessions joined with user info', async () => {
+      const joinRows = [
+        {
+          id: 'session-1',
+          user_id: 1,
+          encrypted_oidc: 'enc-data',
+          ip_address: '127.0.0.1',
+          user_agent: 'Mozilla/5.0',
+          expires_at: new Date('2099-01-01'),
+          created_at: new Date('2024-01-01'),
+          user_name: 'Alice',
+          user_email: 'alice@example.com',
+        },
+      ];
+      mock.pushResult(joinRows as unknown as Record<string, unknown>[]);
+      const result = await repo.findAllWithUser();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe('session-1');
+      expect(result[0].userId).toBe(1);
+      expect(result[0].encryptedOidc).toBe('enc-data');
+      expect(result[0].userName).toBe('Alice');
+      expect(result[0].userEmail).toBe('alice@example.com');
+    });
+
+    it('returns empty array when no active sessions exist', async () => {
+      mock.pushResult([]);
+      const result = await repo.findAllWithUser();
+      expect(result).toEqual([]);
+    });
+
+    it('handles null user_name', async () => {
+      const joinRows = [
+        {
+          id: 'session-2',
+          user_id: 2,
+          encrypted_oidc: null,
+          ip_address: null,
+          user_agent: null,
+          expires_at: new Date('2099-01-01'),
+          created_at: new Date('2024-01-01'),
+          user_name: null,
+          user_email: 'bob@example.com',
+        },
+      ];
+      mock.pushResult(joinRows as unknown as Record<string, unknown>[]);
+      const result = await repo.findAllWithUser();
+
+      expect(result[0].userName).toBeNull();
+      expect(result[0].userEmail).toBe('bob@example.com');
+    });
+  });
 });

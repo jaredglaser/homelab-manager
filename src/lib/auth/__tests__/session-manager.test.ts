@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { createHash } from 'crypto';
 import { SessionManager, resetSessionManagerState } from '../session-manager';
 import type { SessionManagerDeps } from '../session-manager';
@@ -13,6 +13,21 @@ const mockDecryptValue = mock(async (ciphertext: string, _keyring: unknown) =>
 mock.module('@/lib/crypto/encrypted-value', () => ({
   encryptValue: mockEncryptValue,
   decryptValue: mockDecryptValue,
+}));
+
+// Module mocks for buildSessionManager's dynamic imports
+const mockBuiltPool = { query: mock(async () => ({ rows: [] })) };
+const mockGetClient = mock(async () => ({ getPool: () => mockBuiltPool }));
+const mockLoadMasterKeyring = mock(async () => ({ activeKid: 'v1', keys: new Map() }));
+
+mock.module('@/lib/clients/database-client', () => ({
+  databaseConnectionManager: { getClient: mockGetClient },
+}));
+mock.module('@/lib/config/database-config', () => ({
+  loadDatabaseConfig: () => ({}),
+}));
+mock.module('@/lib/crypto/master-key', () => ({
+  loadMasterKeyring: mockLoadMasterKeyring,
 }));
 
 function makeUser(overrides?: Partial<AuthUser>): AuthUser {
@@ -224,5 +239,48 @@ describe('SessionManager', () => {
 
       expect(deps.sessionRepo.deleteExpired).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('buildSessionManager', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    resetSessionManagerState();
+    mockGetClient.mockClear();
+    mockLoadMasterKeyring.mockClear();
+    // loadAuthConfig requires these vars; set them here instead of mocking the module
+    // (module mocks for auth-config leak across test files despite --isolate)
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+    process.env.OIDC_CLIENT_ID = 'homelab-manager';
+    process.env.OIDC_REDIRECT_URI = 'http://localhost/callback';
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    resetSessionManagerState();
+  });
+
+  it('builds a SessionManager with injected dependencies', async () => {
+    const { buildSessionManager } = await import('../session-manager');
+    const manager = await buildSessionManager();
+    expect(manager).toBeInstanceOf(SessionManager);
+  });
+
+  it('caches the manager and returns the same instance on subsequent calls', async () => {
+    const { buildSessionManager } = await import('../session-manager');
+    const first = await buildSessionManager();
+    const second = await buildSessionManager();
+    expect(first).toBe(second);
+    // getClient is called once — second call hits the cache
+    expect(mockGetClient).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates a fresh manager after resetSessionManagerState', async () => {
+    const { buildSessionManager } = await import('../session-manager');
+    const first = await buildSessionManager();
+    resetSessionManagerState();
+    const second = await buildSessionManager();
+    expect(first).not.toBe(second);
   });
 });
