@@ -491,7 +491,7 @@ async function collectStackStatus(
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, COMPOSE_PROJECT_NAME: stackName },
-  }, timeoutMs);
+  }, effectiveMs);
 
   if (result.timedOut) {
     console.error(`docker compose ps timed out for ${stackName}`);
