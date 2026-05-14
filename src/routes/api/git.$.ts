@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import type { AuthUser } from '@/lib/auth/types';
 
 function constantTimeEqual(a: string, b: string): boolean {
   const hashA = createHash('sha256').update(a).digest();
@@ -8,59 +9,149 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Authenticate git HTTP requests via Bearer token.
- * CRITICAL: Pushes can trigger auto-deploys, so this endpoint must be authenticated.
- * Uses GIT_SERVER_TOKEN env var. Returns null if authenticated, or an error Response.
+ * Extract the raw token from the Authorization header.
+ * Supports Bearer and Basic (password field) auth schemes.
+ * Returns null if the header is missing or uses an unsupported scheme.
  */
-function authenticateRequest(request: Request): Response | null {
-  const token = process.env.GIT_SERVER_TOKEN;
-  if (!token) {
-    return new Response('Git server token not configured', { status: 500 });
-  }
-
+function extractToken(request: Request): string | null {
   const authHeader = request.headers.get('Authorization');
-  if (!authHeader) {
-    return new Response('Unauthorized', {
-      status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="git"' },
-    });
+  if (!authHeader) return null;
+
+  if (authHeader.startsWith('Bearer ')) {
+    return authHeader.slice('Bearer '.length);
   }
 
-  let providedToken: string;
-  if (authHeader.startsWith('Bearer ')) {
-    providedToken = authHeader.slice('Bearer '.length);
-  } else if (authHeader.startsWith('Basic ')) {
-    // Git sends Basic auth as base64(username:password); the token is the password
-    let decoded: string;
+  if (authHeader.startsWith('Basic ')) {
+    // Git sends Basic auth as base64(username:password), the token is the password
     try {
-      decoded = atob(authHeader.slice('Basic '.length));
+      const decoded = atob(authHeader.slice('Basic '.length));
+      const colonIndex = decoded.indexOf(':');
+      return colonIndex >= 0 ? decoded.slice(colonIndex + 1) : decoded;
     } catch {
-      return new Response('Malformed Basic auth encoding', {
-        status: 401,
-        headers: { 'WWW-Authenticate': 'Basic realm="Git", charset="UTF-8"' },
-      });
+      return null;
     }
-    const colonIndex = decoded.indexOf(':');
-    providedToken = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : decoded;
-  } else {
-    return new Response('Unauthorized', {
-      status: 401,
-      headers: { 'WWW-Authenticate': 'Basic realm="git"' },
-    });
-  }
-  if (!constantTimeEqual(providedToken, token)) {
-    return new Response('Forbidden', { status: 403 });
   }
 
   return null;
+}
+
+/**
+ * Authenticate git HTTP requests using per-user git tokens.
+ * CRITICAL: Pushes can trigger auto-deploys, so this endpoint must be authenticated.
+ *
+ * Auth flow:
+ * 1. Extract token from Bearer or Basic auth
+ * 2. Load all git tokens from DB and decrypt via JWE keyring
+ * 3. Timing-safe compare against provided token
+ * 4. On match: resolve user, check role, update last_used_at
+ * 5. On no match: 403
+ *
+ * Returns the authenticated user on success, or a Response on failure.
+ */
+async function authenticateRequest(request: Request): Promise<AuthUser | Response> {
+  const providedToken = extractToken(request);
+
+  if (!providedToken) {
+    return new Response('Unauthorized', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Basic realm="git"' },
+    });
+  }
+
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { GitTokenRepository } = await import(
+    '@/lib/database/repositories/git-token-repository'
+  );
+  const { UserRepository } = await import(
+    '@/lib/database/repositories/user-repository'
+  );
+  const { requireRole } = await import('@/lib/auth/require-role');
+  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+  const { decryptValue } = await import('@/lib/crypto/encrypted-value');
+
+  const dbConfig = loadDatabaseConfig();
+  const dbClient = await databaseConnectionManager.getClient(dbConfig);
+  const pool = dbClient.getPool();
+
+  const gitTokenRepo = new GitTokenRepository(pool);
+  const userRepo = new UserRepository(pool);
+
+  const keyring = await loadMasterKeyring();
+  const encryptedTokens = await gitTokenRepo.findAllEncrypted();
+
+  let matchedTokenId: number | null = null;
+  let matchedUserId: number | null = null;
+  let decryptFailures = 0;
+
+  for (const tokenRecord of encryptedTokens) {
+    let decrypted: string;
+    try {
+      decrypted = await decryptValue(tokenRecord.encryptedToken, keyring);
+    } catch (error) {
+      decryptFailures++;
+      console.error(`[GitAuth] Failed to decrypt token ${tokenRecord.id}:`, error instanceof Error ? error.message : error);
+      continue;
+    }
+
+    if (constantTimeEqual(providedToken, decrypted)) {
+      matchedTokenId = tokenRecord.id;
+      matchedUserId = tokenRecord.userId;
+      break;
+    }
+  }
+
+  if (decryptFailures > 0 && decryptFailures === encryptedTokens.length) {
+    console.error(`[GitAuth] ALL ${decryptFailures} token(s) failed to decrypt — Transit may be unavailable`);
+  }
+
+  if (matchedTokenId === null || matchedUserId === null) {
+    // 401 lets git CLI re-prompt for credentials on token mismatch
+    return new Response('Unauthorized', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Basic realm="git"' },
+    });
+  }
+
+  const userRow = await userRepo.findById(matchedUserId);
+  if (!userRow) {
+    return new Response('Forbidden', { status: 403 });
+  }
+
+  const user: AuthUser = {
+    id: userRow.id,
+    email: userRow.email,
+    name: userRow.name,
+    role: userRow.role,
+  };
+
+  try {
+    requireRole('admin', 'operator')(user);
+  } catch {
+    return new Response('Forbidden', { status: 403 });
+  }
+
+  // Update last_used_at non-blocking — auth has already succeeded
+  gitTokenRepo.updateLastUsed(matchedTokenId).catch((err) => {
+    console.error(
+      `[GitAuth] Failed to update last_used_at for token ${matchedTokenId}:`,
+      err instanceof Error ? err.message : err,
+    );
+  });
+
+  return user;
 }
 
 export const Route = createFileRoute('/api/git/$')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const authError = authenticateRequest(request);
-        if (authError) return authError;
+        if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
+          return new Response('Not Found', { status: 404 });
+        }
+
+        const authResult = await authenticateRequest(request);
+        if (authResult instanceof Response) return authResult;
 
         const { loadGitConfig } = await import('@/lib/config/git-config');
         const { parseGitPath, isGitInfoRefsRequest } = await import(
@@ -97,8 +188,12 @@ export const Route = createFileRoute('/api/git/$')({
       },
 
       POST: async ({ request }) => {
-        const authError = authenticateRequest(request);
-        if (authError) return authError;
+        if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
+          return new Response('Not Found', { status: 404 });
+        }
+
+        const authResult = await authenticateRequest(request);
+        if (authResult instanceof Response) return authResult;
 
         const { loadGitConfig } = await import('@/lib/config/git-config');
         const {

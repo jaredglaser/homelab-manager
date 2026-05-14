@@ -129,10 +129,10 @@ export default memo(function HistoricalTimeline({
   const dateTimeFormat = general.use12HourTime ? 'MM/DD/YYYY hh:mm A' : 'MM/DD/YYYY HH:mm';
 
   return (
-    <div className="sticky bottom-0 z-10 border-t border-neutral-200 dark:border-neutral-700 bg-(--mui-palette-background-paper) px-4 py-3">
+    <div className="sticky bottom-0 z-10 border-t border-(--mui-palette-divider) bg-(--mui-palette-background-paper) px-4 py-3">
       <div className="flex items-center gap-3 mb-2 flex-wrap">
         <div className="flex items-center gap-2">
-          <Typography variant="caption" className="text-neutral-500">Range:</Typography>
+          <Typography variant="caption" className="text-(--mui-palette-text-secondary)">Range:</Typography>
           <ToggleButtonGroup
             value={activeRangeValue ? String(activeRangeValue.ms) : null}
             onChange={(_e, newValue) => {
@@ -151,7 +151,7 @@ export default memo(function HistoricalTimeline({
 
         <LocalizationProvider dateAdapter={AdapterDayjs}>
           <div className="flex items-center gap-2">
-            <Typography variant="caption" className="text-neutral-500">From:</Typography>
+            <Typography variant="caption" className="text-(--mui-palette-text-secondary)">From:</Typography>
             <DateTimePicker
               value={dayjs(timelineFrom)}
               onChange={handleFromChange}
@@ -162,7 +162,7 @@ export default memo(function HistoricalTimeline({
                 textField: { size: 'small' },
               }}
             />
-            <Typography variant="caption" className="text-neutral-500">To:</Typography>
+            <Typography variant="caption" className="text-(--mui-palette-text-secondary)">To:</Typography>
             <DateTimePicker
               value={dayjs(timelineTo)}
               onChange={handleToChange}
@@ -177,7 +177,7 @@ export default memo(function HistoricalTimeline({
         </LocalizationProvider>
 
         <div className="ml-auto flex items-center gap-2">
-          <Typography variant="caption" className="text-neutral-500">Metric:</Typography>
+          <Typography variant="caption" className="text-(--mui-palette-text-secondary)">Metric:</Typography>
           <ToggleButtonGroup
             value={timelineMetric}
             onChange={(_e, newValue) => {

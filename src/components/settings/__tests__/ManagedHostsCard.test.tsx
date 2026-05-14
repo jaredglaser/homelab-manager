@@ -4,8 +4,6 @@ import { ManagedHostsCardView } from '../ManagedHostsCard'
 import type { ManagedHostsCardProps } from '../ManagedHostsCard'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 
-// ----- Fixtures -----
-
 const makeHost = (overrides?: Partial<HostListItem>): HostListItem => ({
   id: 1,
   name: 'server1',
@@ -37,8 +35,6 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     ...overrides,
   }
 }
-
-// ----- Tests -----
 
 describe('ManagedHostsCard', () => {
   describe('loading state', () => {

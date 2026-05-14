@@ -11,6 +11,8 @@ import {
 } from '@/hooks/useSettings'
 import PageTitle from '@/components/PageTitle'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
+import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
+import { useAuth } from '@/hooks/useAuth'
 import {
   CHART_WINDOW_MARKS,
   UPDATE_INTERVAL_MARKS,
@@ -46,6 +48,7 @@ function SettingsContent() {
   } = useGeneralSettings();
   const { docker, setMemoryDisplayMode, setChartWindowSeconds, setDockerDecimal } = useDockerSettings();
   const { zfs, setZfsDecimal } = useZfsSettings();
+  const { user } = useAuth();
   const hash = useLocation({ select: (l) => l.hash });
 
   useEffect(() => {
@@ -84,7 +87,7 @@ function SettingsContent() {
                 <FormLabel>Update Interval</FormLabel>
                 <Typography variant="body2" className="font-mono">{formatUpdateInterval(general.updateIntervalMs)}</Typography>
               </div>
-              <Typography variant="caption" className="text-neutral-500 mb-3 block">
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
                 Controls how frequently stats are collected and displayed (requires worker restart)
               </Typography>
               <Slider
@@ -114,7 +117,7 @@ function SettingsContent() {
 
             <FormControl>
               <FormLabel>Light Mode Palette</FormLabel>
-              <Typography variant="caption" className="text-neutral-500 mb-2 block">
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-2 block">
                 Background color palette used in light mode
               </Typography>
               <Select
@@ -157,7 +160,7 @@ function SettingsContent() {
                   {formatChartWindow(docker.chartWindowSeconds)}
                 </Typography>
               </div>
-              <Typography variant="caption" className="text-neutral-500 mb-3 block">
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
                 Time range shown in the expanded container metric charts
               </Typography>
               <Slider
@@ -211,7 +214,7 @@ function SettingsContent() {
                 <FormLabel>Raw Data</FormLabel>
                 <Typography variant="body2" className="font-mono">{formatHours(retention.rawDataHours)}</Typography>
               </div>
-              <Typography variant="caption" className="text-neutral-500 mb-3 block">
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
                 Second-level data is downsampled to minute averages after this period
               </Typography>
               <Slider
@@ -229,7 +232,7 @@ function SettingsContent() {
                 <FormLabel>Minute Aggregates</FormLabel>
                 <Typography variant="body2" className="font-mono">{formatDays(retention.minuteAggDays)}</Typography>
               </div>
-              <Typography variant="caption" className="text-neutral-500 mb-3 block">
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
                 Minute averages are downsampled to hourly averages after this period
               </Typography>
               <Slider
@@ -247,7 +250,7 @@ function SettingsContent() {
                 <FormLabel>Hour Aggregates</FormLabel>
                 <Typography variant="body2" className="font-mono">{formatDays(retention.hourAggDays)}</Typography>
               </div>
-              <Typography variant="caption" className="text-neutral-500 mb-3 block">
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
                 Hourly averages are downsampled to daily averages after this period. Daily data is kept forever.
               </Typography>
               <Slider
@@ -266,13 +269,15 @@ function SettingsContent() {
           <ManagedHostsCard />
         </div>
 
+        {user?.role === 'admin' && <AuthManagementCard />}
+
         <Card id="developer" variant="outlined" className="p-4 scroll-mt-20">
           <Typography variant="h6" className="mb-4">Developer</Typography>
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
               <div>
                 <FormLabel>Docker Debug Logging</FormLabel>
-                <Typography variant="caption" className="text-neutral-500 block">
+                <Typography variant="caption" className="text-(--mui-palette-text-secondary) block">
                   Log connection lifecycle, stream events, and collection timing
                 </Typography>
               </div>
@@ -284,7 +289,7 @@ function SettingsContent() {
             <div className="flex justify-between items-center">
               <div>
                 <FormLabel>Database Flush Logging</FormLabel>
-                <Typography variant="caption" className="text-neutral-500 block">
+                <Typography variant="caption" className="text-(--mui-palette-text-secondary) block">
                   Log batch flush counts and database write timing
                 </Typography>
               </div>
@@ -296,7 +301,7 @@ function SettingsContent() {
             <div className="flex justify-between items-center">
               <div>
                 <FormLabel>SSE Pipeline Logging</FormLabel>
-                <Typography variant="caption" className="text-neutral-500 block">
+                <Typography variant="caption" className="text-(--mui-palette-text-secondary) block">
                   Log NOTIFY reception, cache updates, and SSE event emission
                 </Typography>
               </div>
@@ -311,4 +316,3 @@ function SettingsContent() {
     </div>
   )
 }
-

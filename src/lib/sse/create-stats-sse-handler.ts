@@ -7,6 +7,12 @@ import type { StatsSource } from '@/lib/database/subscription-service';
  */
 export function createStatsSseHandler(source: StatsSource) {
   return async ({ request }: { request: Request }) => {
+    const { authenticateSSE } = await import('@/lib/auth/sse-auth');
+    const user = await authenticateSSE(request);
+    if (!user) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
     await import('@/lib/server-init');
     const { statsPollService } = await import(
       '@/lib/database/subscription-service'

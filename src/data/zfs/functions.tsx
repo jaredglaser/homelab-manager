@@ -1,13 +1,14 @@
 import { createServerFn } from '@tanstack/react-start';
 import type { ZFSStatsRow } from '@/types/zfs';
 import { databaseMiddleware } from '@/middleware/database-middleware';
+import { authMiddleware } from '@/middleware/auth-middleware';
 import { getHistoricalZFSStatsSchema } from '@/data/zfs/schemas';
 
 /**
  * Get historical ZFS stats (wide rows) for preloading.
  */
 export const getHistoricalZFSStats = createServerFn()
-  .middleware([databaseMiddleware])
+  .middleware([authMiddleware, databaseMiddleware])
   .inputValidator(getHistoricalZFSStatsSchema)
   .handler(async ({ context, data }): Promise<ZFSStatsRow[]> => {
     try {

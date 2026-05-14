@@ -1,4 +1,57 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
+
+// Inject a synthetic admin user so requireRole checks pass in tests.
+//
+// In tests (no Babel transform), createServerFn's client middleware path calls
+// extractedFn(payload) where payload.context = sendContext (starts empty). The
+// server handler receives that empty context, so context.user is undefined unless
+// we also inject the user on the client path via options.client.
+//
+// The middleware shape must match TanStack's flattenMiddlewares expectations:
+// an object with options.server and/or options.client, and options.middleware undefined.
+mock.module('@/middleware/auth-middleware', () => ({
+  authMiddleware: {
+    options: {
+      type: 'function',
+      // client path: inject user into sendContext so handler receives context.user
+      client: async ({ next, sendContext }: { next: (opts: { sendContext: unknown }) => unknown; sendContext: unknown }) => {
+        return next({ sendContext: { ...(sendContext as Record<string, unknown>), user: SYNTHETIC_ADMIN } });
+      },
+      // server path: inject user into context (used when middleware runs server-side)
+      server: async ({ next, context }: { next: (opts: { context: unknown }) => unknown; context: unknown }) => {
+        return next({ context: { ...(context as Record<string, unknown>), user: SYNTHETIC_ADMIN } });
+      },
+    },
+  },
+  AuthError: class AuthError extends Error {
+    status: number;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+      this.name = 'AuthError';
+    }
+  },
+  parseCookie: () => null,
+  resetAuthMiddlewareState: () => {},
+}));
+
+// stackSecretsMiddleware is used by some stacks functions; mock it so it injects
+// a minimal context (pool/keyring) without needing a real DB connection.
+mock.module('@/middleware/stack-secrets-middleware', () => ({
+  stackSecretsMiddleware: {
+    options: {
+      type: 'function',
+      client: async ({ next, sendContext }: { next: (opts: { sendContext: unknown }) => unknown; sendContext: unknown }) => {
+        return next({ sendContext: { ...(sendContext as Record<string, unknown>), pool: null, keyring: null } });
+      },
+      server: async ({ next, context }: { next: (opts: { context: unknown }) => unknown; context: unknown }) => {
+        return next({ context: { ...(context as Record<string, unknown>), pool: null, keyring: null } });
+      },
+    },
+  },
+  resetStackSecretsMiddlewareState: () => {},
+}));
 
 const mockGetStackSummaries = mock(() => Promise.resolve([
   { name: 'nginx', status: 'running', host: 'server1', lastDeployed: '2026-01-01T00:00:00Z' },

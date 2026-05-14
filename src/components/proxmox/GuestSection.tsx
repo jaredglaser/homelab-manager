@@ -18,7 +18,7 @@ interface GuestSectionProps {
   useAbbreviatedUnits: boolean;
 }
 
-const BORDER = 'border-t border-neutral-200 dark:border-neutral-700';
+const BORDER = 'border-t border-(--mui-palette-divider)';
 
 const metricGroups: MetricGroup[] = [
   { label: 'CPU / Memory', columnIds: ['cpu', 'memory'] },

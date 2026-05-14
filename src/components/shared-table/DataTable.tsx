@@ -265,7 +265,7 @@ export function DataTable<TRow>({
     return (
       <div ref={containerRef} className="flex flex-col flex-1 min-h-0">
         {toolbar}
-        <div className="flex items-center justify-center flex-1 text-neutral-500 dark:text-neutral-400 py-12">
+        <div className="flex items-center justify-center flex-1 text-(--mui-palette-text-secondary) py-12">
           No data
         </div>
       </div>
@@ -281,7 +281,7 @@ export function DataTable<TRow>({
         {/* Sticky header: inside scroll container so it tracks horizontal scroll */}
         {showHeader && (
           <div
-            className="grid border-b border-neutral-200 dark:border-neutral-700 bg-(--mui-palette-background-default) sticky top-0 z-10"
+            className="grid border-b border-(--mui-palette-divider) bg-(--mui-palette-background-default) sticky top-0 z-10"
             style={{ gridTemplateColumns: gridTemplate }}
           >
             {table.getHeaderGroups().map((headerGroup) =>
@@ -289,7 +289,7 @@ export function DataTable<TRow>({
                 <div
                   key={header.id}
                   className={`px-3 py-2 font-semibold text-sm whitespace-nowrap select-none ${
-                    header.column.getCanSort() ? 'cursor-pointer hover:bg-neutral-100 dark:hover:bg-neutral-800' : ''
+                    header.column.getCanSort() ? 'cursor-pointer hover:bg-(--mui-palette-action-hover)' : ''
                   }`}
                   onClick={header.column.getToggleSortingHandler()}
                   role={header.column.getCanSort() ? 'button' : undefined}
@@ -353,7 +353,7 @@ export function DataTable<TRow>({
                     const panel = renderDetailPanel(row.original);
                     if (panel == null || !isExpanded) return null;
                     return (
-                      <div className="border-t border-neutral-200 dark:border-neutral-700">
+                      <div className="border-t border-(--mui-palette-divider)">
                         {panel}
                       </div>
                     );
@@ -382,7 +382,7 @@ export function DataTable<TRow>({
                     if (panel == null) return null;
                     return (
                       <Collapse in={isExpanded} unmountOnExit timeout={300}>
-                        <div className="border-t border-neutral-200 dark:border-neutral-700">
+                        <div className="border-t border-(--mui-palette-divider)">
                           {panel}
                         </div>
                       </Collapse>
@@ -415,7 +415,7 @@ function DataTableRow<TRow>({ row, gridTemplate, rowClassName, rowAttributes, ha
     <div
       role={canExpand ? 'button' : undefined}
       tabIndex={canExpand ? 0 : undefined}
-      className={`group grid border-t border-neutral-200 dark:border-neutral-700 hover:bg-blue-500/5 hover:shadow-[inset_0_0_0_1px_rgba(59,130,246,0.3)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
+      className={`group grid border-t border-(--mui-palette-divider) hover:bg-(--row-hover-tint) hover:shadow-[inset_0_0_0_1px_var(--row-hover-ring)] transition-[background-color,box-shadow] duration-150 ${canExpand ? 'cursor-pointer' : ''} ${customClass}`}
       style={{ gridTemplateColumns: gridTemplate }}
       onClick={canExpand ? () => row.toggleExpanded() : undefined}
       onKeyDown={canExpand ? (e) => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.toggleExpanded(); } } : undefined}
