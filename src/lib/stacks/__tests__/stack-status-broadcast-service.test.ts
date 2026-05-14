@@ -521,6 +521,8 @@ describe('StackStatusBroadcastService', () => {
       expect(container.name).toBe('plex');
       expect(container.status).toBe('running');
       expect(container.image).toBe('plexinc/pms-docker:latest');
+      // serviceKey is "media/plex"; service should be the bare service name for docker compose
+      expect(container.service).toBe('plex');
     }
   });
 
