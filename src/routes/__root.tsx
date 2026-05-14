@@ -25,6 +25,7 @@ const TanStackRouterDevtoolsPanel = import.meta.env.DEV
   : () => null
 
 export const Route = createRootRoute({
+  ssr: false,
   head: () => ({
     meta: [
       {

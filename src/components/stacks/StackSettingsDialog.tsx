@@ -73,7 +73,7 @@ export default function StackSettingsDialog({
             checked={autoDeploy}
             onChange={(e) => setAutoDeploy(e.target.checked)}
             disabled={isLoading}
-            slotProps={{ input: { 'aria-label': 'Auto Deploy' } }}
+            slotProps={{ input: { 'aria-label': 'Auto Deploy', role: 'switch' } }}
           />
           <div>
             <Typography variant="body2" className="font-medium">Auto Deploy</Typography>
