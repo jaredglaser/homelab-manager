@@ -283,7 +283,7 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
               size="small"
               disabled={isGenerating}
               fullWidth
-              inputProps={{ 'aria-label': 'Token label' }}
+              slotProps={{ htmlInput: { 'aria-label': 'Token label' } }}
             />
           </>
         )}
