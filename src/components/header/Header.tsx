@@ -7,6 +7,7 @@ import { Link } from '@tanstack/react-router'
 import { ChevronDown } from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
 import { IS_DEMO_MODE } from '@/lib/constants/demo'
+import type { AuthUser } from '@/lib/auth/types'
 import {
   NAV_ITEMS,
   type RouteKey,
@@ -14,7 +15,7 @@ import {
   handlePrefetch,
 } from '@/components/header/nav-config'
 import { useCurrentTab, useMenuController } from '@/components/header/useMenuController'
-import { MenuContentFor, NavMenuCloseContext } from '@/components/header/menus'
+import { AccountMenu, MenuContentFor, NavMenuCloseContext } from '@/components/header/menus'
 import { DemoBanner } from '@/components/header/DemoBanner'
 
 // Brand SVGs (Docker, Proxmox) lack the small transparent padding that lucide icons
@@ -23,7 +24,7 @@ import { DemoBanner } from '@/components/header/DemoBanner'
 // contexts that already use flex gap-* for spacing.
 const SPACED_ICON_ROUTES = new Set<RouteKey>(['/docker', '/proxmox'])
 
-export default function Header() {
+export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
   const currentTab = useCurrentTab()
   const controller = useMenuController()
   const [anchors, setAnchors] = useState<Partial<Record<MenuRouteKey, HTMLElement>>>({})
@@ -98,7 +99,8 @@ export default function Header() {
           })}
         </Tabs>
 
-        <div className="ml-auto pl-3 border-l border-(--mui-palette-divider)/30">
+        <div className="ml-auto pl-3 border-l border-(--mui-palette-divider)/30 flex items-center gap-1">
+          {!IS_DEMO_MODE && user && <AccountMenu />}
           <ModeToggle />
         </div>
       </nav>

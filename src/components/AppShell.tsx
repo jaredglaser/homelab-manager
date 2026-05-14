@@ -25,7 +25,7 @@ if (IS_DEMO_MODE && typeof window !== 'undefined') {
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { loading } = useAuth()
+  const { loading, user } = useAuth()
   useSettingsSync()
   useLightPaletteEffect()
 
@@ -50,7 +50,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <div className="flex flex-col h-screen overflow-hidden">
-          <Header />
+          <Header user={user} />
           <div className="flex-1 flex flex-col min-h-0 [view-transition-name:page-content]">
             {children}
           </div>

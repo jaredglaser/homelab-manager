@@ -1,7 +1,11 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Server } from 'lucide-react'
+import { LogOut, Server, CircleUser } from 'lucide-react'
+import IconButton from '@mui/material/IconButton'
+import Popper from '@mui/material/Popper'
+import Paper from '@mui/material/Paper'
+import ClickAwayListener from '@mui/material/ClickAwayListener'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { listManagedHostNames, listStacks } from '@/data/stacks/functions'
 import { getIconUrl } from '@/lib/utils/icon-resolver'
@@ -121,6 +125,51 @@ export function DockerHostsMenuContent() {
         </Link>
       ))}
     </div>
+  )
+}
+
+export function AccountMenu() {
+  const [open, setOpen] = useState(false)
+  const anchorRef = useRef<HTMLButtonElement>(null)
+
+  return (
+    <>
+      <IconButton
+        ref={anchorRef}
+        size="small"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-label="Account menu"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <CircleUser size={20} />
+      </IconButton>
+      <Popper
+        open={open}
+        anchorEl={anchorRef.current}
+        placement="bottom-end"
+        modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}
+        className="z-50!"
+      >
+        <ClickAwayListener onClickAway={() => setOpen(false)}>
+          <Paper
+            elevation={4}
+            className="rounded-xl! backdrop-blur-xl! bg-(--mui-palette-background-paper)/95! border border-(--mui-palette-divider)/30 overflow-hidden min-w-36 pointer-events-auto"
+          >
+            <div role="menu">
+              <a
+                href="/api/auth/logout"
+                className={MENU_ITEM_CLASSES}
+                role="menuitem"
+              >
+                <LogOut size={14} />
+                <span>Log out</span>
+              </a>
+            </div>
+          </Paper>
+        </ClickAwayListener>
+      </Popper>
+    </>
   )
 }
 
