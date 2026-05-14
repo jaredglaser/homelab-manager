@@ -36,12 +36,9 @@ export default memo(function ContainerLogViewer({
       elevation={0}
       className="relative rounded-sm bg-(--mui-palette-background-chartBg)! h-full min-h-0 flex flex-col overflow-hidden"
     >
-      <Typography variant="body2" className="p-3 pb-0 font-medium">
-        Logs
-      </Typography>
       <div
         ref={containerRef}
-        className={`flex-1 px-2 pb-2 min-h-0 transition-opacity duration-300 ${showSkeleton ? 'opacity-0' : 'opacity-100'}`}
+        className={`flex-1 p-2 min-h-0 transition-opacity duration-300 ${showSkeleton ? 'opacity-0' : 'opacity-100'}`}
       />
       {showSkeleton && (
         <div className="absolute inset-0 top-10 px-3 pb-3 flex flex-col gap-1">

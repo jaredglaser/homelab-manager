@@ -9,11 +9,26 @@ mock.module('@/data/stacks/functions', () => ({
   controlStack: mockControlStack,
 }));
 
-mock.module('@/components/docker/ContainerLogsTerminalPanel', () => ({
+mock.module('@/components/docker/ContainerLogViewer', () => ({
   default: ({ containerId }: { containerId: string }) => (
     <div data-testid="log-viewer">{containerId}</div>
   ),
 }));
+
+mock.module('@/components/docker/ContainerTerminal', () => ({
+  default: ({ containerId }: { containerId: string }) => (
+    <div data-testid="terminal-viewer">{containerId}</div>
+  ),
+}));
+
+mock.module('@/hooks/useDockerSettings', () => ({
+  useDockerSettings: () => ({
+    getContainerShell: () => undefined,
+    setContainerShell: () => {},
+  }),
+}));
+
+mock.module('@/lib/constants/demo', () => ({ IS_DEMO_MODE: false }));
 
 const { default: StackContainersPanel } = await import('../StackContainersPanel');
 
@@ -93,6 +108,14 @@ describe('StackContainersPanel', () => {
     fireEvent.click(logsBtn);
     expect(screen.getByTestId('log-viewer')).toBeDefined();
     expect(screen.getByTestId('log-viewer').textContent).toBe('abc123');
+  });
+
+  it('opens terminal modal when Terminal button is clicked', () => {
+    renderPanel();
+    const terminalBtn = screen.getAllByRole('button', { name: /^terminal$/i })[0];
+    fireEvent.click(terminalBtn);
+    expect(screen.getByTestId('terminal-viewer')).toBeDefined();
+    expect(screen.getByTestId('terminal-viewer').textContent).toBe('abc123');
   });
 
   it('closes log modal when close button is clicked', () => {

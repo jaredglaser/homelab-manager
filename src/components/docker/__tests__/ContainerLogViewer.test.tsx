@@ -73,12 +73,6 @@ afterAll(() => {
 const { default: ContainerLogViewer } = await import('../ContainerLogViewer');
 
 describe('ContainerLogViewer', () => {
-  it('renders logs title', () => {
-    mockReturnValue = { isConnected: true, error: null };
-    render(<ContainerLogViewer containerId="abc123" host="server" />);
-    expect(screen.getByText('Logs')).toBeTruthy();
-  });
-
   it('shows skeleton loading state when not ready', () => {
     mockReturnValue = { isConnected: false, error: null };
     const { container } = render(<ContainerLogViewer containerId="abc123" host="server" />);
