@@ -82,7 +82,7 @@ bun run test:coverage:all     # Run tests in both with coverage enforcement
 - **Framework:** TanStack Start (SPA mode, SSR disabled) + React 19
 - **Runtime:** Bun (pinned in `.bun-version`; package manager, test runner, runtime)
 - **Language:** TypeScript (strict mode, `noUnusedLocals`, `noUnusedParameters`)
-- **UI:** MUI Material UI v7 (components) + TailwindCSS v4 (styling, via `@tailwindcss/vite` plugin - no config file)
+- **UI:** MUI Material UI v9 (components) + TailwindCSS v4 (styling, via `@tailwindcss/vite` plugin - no config file)
 - **State:** Jotai (settings atoms) + TanStack Query
 - **Streaming:** SSE via TanStack Router server routes
 - **Charts:** Apache ECharts
@@ -153,6 +153,10 @@ Separate Bun package that runs as a sidecar container alongside Docker hosts. Pr
 
 The agent is intentionally NOT a workspace member of the homelab-manager `package.json`: its `agent/bun.lock` is the only lockfile the docker build (`context: ./agent`) sees, and workspace membership would mask drift by routing local `bun install` to the homelab-manager lockfile. Web/worker import only types from the agent via the TS path alias `@homelab-manager/agent/*` (resolved at compile time, no runtime dependency). Run `bun run setup` for a full install.
 
+### Authentication (`src/lib/auth/`)
+
+Optional OIDC login, gated by `AUTH_ENABLED=true`. When enabled, `/api/auth/login`, `/api/auth/callback`, and `/api/auth/logout` handle the OIDC handshake; sessions are issued as signed cookies with TTL from `SESSION_TTL_HOURS`. OIDC group claims map to three roles (`admin`, `operator`, `viewer`) via `OIDC_ROLE_ADMIN`/`OPERATOR`/`VIEWER` env vars. `require-role.ts` guards server functions; `sse-auth.ts` authenticates SSE endpoints. `agent-token-migration.ts` migrates legacy agent tokens on startup. UI routes: `src/routes/login.tsx`, `src/routes/denied.tsx`. Designed to pair with Pocket ID but works with any OIDC provider. When `AUTH_ENABLED=false` (default), all routes are open: keep the dashboard on a trusted network.
+
 ### Deploy Pipeline (`src/lib/deploy/`)
 
 Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index. Stuck deploys recovered on startup and via `DeployWatchdog` (default 10-min threshold) so a crashed process can't leave `in_progress` rows stranded.
@@ -170,15 +174,15 @@ Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`, `docker_container_eve
 Encrypted columns (`stack_secrets.ciphertext_jwe`, `agent_keypairs.private_jwk_jwe`) use a versioned keyring so a new master key can be enrolled without breaking existing ciphertext.
 
 **Env var patterns:**
-- `MASTER_KEY` / `MASTER_KEY_FILE` — single-key legacy pattern, treated as KID `v1`.
-- `MASTER_KEY_<KID>` / `MASTER_KEY_FILE_<KID>` — additional keys, e.g. `MASTER_KEY_v2=<base64>`.
+- `MASTER_KEY` / `MASTER_KEY_FILE`: single-key legacy pattern, treated as KID `v1`.
+- `MASTER_KEY_<KID>` / `MASTER_KEY_FILE_<KID>`: additional keys, e.g. `MASTER_KEY_v2=<base64>`.
 
 The lexicographically last KID is used for new encryptions; all loaded keys are available for decryption.
 
 **Rotation procedure:**
 1. Generate a new key: `openssl rand -base64 32`
 2. Add it alongside the old key: set `MASTER_KEY_v2=<new-base64>` (keep `MASTER_KEY`/`MASTER_KEY_v1` in place).
-3. Restart the app — new secrets encrypt under `v2`, old secrets still decrypt via `v1`.
+3. Restart the app: new secrets encrypt under `v2`, old secrets still decrypt via `v1`.
 4. Run the migration CLI to re-encrypt existing rows:
 
    ```bash

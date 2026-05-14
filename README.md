@@ -47,17 +47,18 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 
 ## Quick Start
 
+The fastest path is the pre-built Docker images. Download the compose file and a `.env`, then bring it up:
+
 ```bash
-# Clone and start the full stack
-git clone https://github.com/jaredglaser/homelab-manager.git
-cd homelab-manager
-cp .env.example .env          # Edit with your host details
-docker compose up -d          # Start TimescaleDB, web, and worker
+mkdir homelab-manager && cd homelab-manager
+curl -O https://raw.githubusercontent.com/jaredglaser/homelab-manager/main/self-hosting/docker-compose.yml
+# Create a .env with POSTGRES_* and MASTER_KEY (see self-hosting guide)
+docker compose up -d
 ```
 
-Open http://localhost:3000
+Open http://localhost:3000.
 
-For development setup, see the [Development Guide](docs/development.md).
+Full instructions: [Self-Hosting Guide](self-hosting/README.md). For local development setup (source checkout, HMR, sample data), see the [Development Guide](docs/development.md).
 
 ## Roadmap
 
@@ -72,7 +73,7 @@ For development setup, see the [Development Guide](docs/development.md).
 - [x] Agent-updater sidecar for automatic container updates
 - [x] Pre-built Docker image on a container registry
 - [x] Live demo deployed to GitHub Pages
-- [ ] Authentication (OIDC with Pocket ID support)
+- [~] Authentication (OIDC with Pocket ID support): code landed in `src/lib/auth/` and gated by `AUTH_ENABLED`; integration docs pending
 - [ ] Return to TanStack Start streaming server functions (pending upstream abort signal fix)
 
 ## AI Disclosure

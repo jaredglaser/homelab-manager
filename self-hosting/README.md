@@ -85,7 +85,7 @@ All configuration is done via environment variables in your `.env` file.
 | `POSTGRES_DB` | Database name |
 | `POSTGRES_USER` | Database user |
 | `POSTGRES_PASSWORD` | Database password |
-| `MASTER_KEY` | Base64-encoded 256-bit key for at-rest encryption of stack secrets and agent keypairs. Generate with `openssl rand -base64 32`. |
+| `MASTER_KEY` or `MASTER_KEY_FILE` | Base64-encoded 256-bit key for at-rest encryption of stack secrets and agent keypairs. Set exactly one: `MASTER_KEY` inline, or `MASTER_KEY_FILE` pointing at a file containing the base64 string. Generate with `openssl rand -base64 32`. For key rotation, add `MASTER_KEY_<KID>` (e.g. `MASTER_KEY_v2`) alongside the old key and re-encrypt with `bun run migrate-secrets --from v1 --to v2`. |
 
 ### Web Server
 
@@ -144,6 +144,31 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 | `POSTGRES_SSL` | `false` | Enable TLS for the PostgreSQL connection |
 | `POSTGRES_SSL_REJECT_UNAUTHORIZED` | `true` | Verify the server's TLS certificate. Set to `false` only for self-signed certificates. This disables chain validation and exposes the connection to MITM attacks. |
 | `POSTGRES_POOL_SIZE` | `10` | Database connection pool size |
+
+### Authentication (optional, OIDC)
+
+Off by default. Set `AUTH_ENABLED=true` to require login via an OIDC provider (designed and tested with [Pocket ID](https://github.com/stonith404/pocket-id), but works with any OIDC issuer). With auth disabled, the dashboard still relies on network isolation (see the warning above).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_ENABLED` | `false` | Require OIDC login for all routes and SSE streams |
+| `OIDC_ISSUER_URL` | - | OIDC discovery URL (e.g. `https://pocketid.example.com`) |
+| `OIDC_CLIENT_ID` | - | OIDC client ID registered with your provider |
+| `OIDC_CLIENT_SECRET` | - | OIDC client secret |
+| `OIDC_REDIRECT_URI` | - | Public callback URL, e.g. `https://homelab.example.com/api/auth/callback` |
+| `SESSION_TTL_HOURS` | `8` | Session cookie lifetime |
+| `OIDC_ROLE_ADMIN` | `homelab-admins` | OIDC group claim that maps to the `admin` role |
+| `OIDC_ROLE_OPERATOR` | `homelab-operators` | OIDC group claim that maps to the `operator` role |
+| `OIDC_ROLE_VIEWER` | `homelab-viewers` | OIDC group claim that maps to the `viewer` role |
+
+If you prefer to keep auth at the proxy layer instead (tinyauth + Pocket ID), leave `AUTH_ENABLED=false`. See the [Authentication layer](#reverse-proxy) note above.
+
+### Deploy Watchdog (optional)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEPLOY_WATCHDOG_INTERVAL_MS` | `120000` | How often to scan for stuck deploys |
+| `DEPLOY_WATCHDOG_TIMEOUT_MINUTES` | `10` | Deploys still `in_progress` past this threshold are failed |
 
 ### Worker Behavior
 
