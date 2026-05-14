@@ -19,43 +19,39 @@ describe('ContainerStateChip', () => {
     expect(chip.getAttribute('data-state')).toBe('exited');
   });
 
-  it('renders running state with green dot', () => {
+  it('renders running state with active-indicator dot', () => {
     renderChip('running');
     const dot = screen.getByLabelText('running');
-    expect(dot.className).toContain('bg-green-500');
+    expect(dot.className).toContain('bg-(--indicator-active)');
   });
 
-  it('renders restarting state with pulsing yellow dot', () => {
+  it('renders restarting state with pulsing warning dot', () => {
     renderChip('restarting');
     const dot = screen.getByLabelText('restarting');
-    expect(dot.className).toContain('bg-yellow-400');
+    expect(dot.className).toContain('bg-(--mui-palette-warning-main)');
     expect(dot.className).toContain('animate-pulse');
   });
 
-  it('renders paused state with yellow dot (non-pulsing)', () => {
+  it('renders paused state with info dot (non-pulsing)', () => {
     renderChip('paused');
     const dot = screen.getByLabelText('paused');
-    expect(dot.className).toContain('bg-yellow-400');
+    expect(dot.className).toContain('bg-(--mui-palette-info-main)');
     expect(dot.className).not.toContain('animate-pulse');
   });
 
   it('renders exited state with grey dot', () => {
     renderChip('exited');
     const dot = screen.getByLabelText('exited');
-    expect(dot.className).not.toContain('bg-green-500');
-    expect(dot.className).not.toContain('bg-yellow-400');
-    // Filled grey: uses background color class, not border (outlined variant)
-    expect(dot.className).toContain('bg-(--mui-palette-action-disabled)');
+    // Filled grey: uses design-system disabled token, not border (outlined variant)
+    expect(dot.className).toContain('bg-(--mui-palette-text-disabled)');
     expect(dot.className).not.toContain('border');
   });
 
   it('renders dead state with grey dot', () => {
     renderChip('dead');
     const dot = screen.getByLabelText('dead');
-    expect(dot.className).not.toContain('bg-green-500');
-    expect(dot.className).not.toContain('bg-yellow-400');
-    // Filled grey: uses background color class, not border (outlined variant)
-    expect(dot.className).toContain('bg-(--mui-palette-action-disabled)');
+    // Filled grey: uses design-system disabled token, not border (outlined variant)
+    expect(dot.className).toContain('bg-(--mui-palette-text-disabled)');
     expect(dot.className).not.toContain('border');
   });
 
