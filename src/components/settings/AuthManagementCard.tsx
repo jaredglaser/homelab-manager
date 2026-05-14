@@ -24,8 +24,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
 
-// ----- Role Mapping Panel -----
-
 function RoleMappingPanel() {
   const { data: roleMapping } = useQuery({
     queryKey: ['role-mapping'],
@@ -76,8 +74,6 @@ function RoleMappingPanel() {
     </div>
   )
 }
-
-// ----- Users Table -----
 
 function UsersTable() {
   const { data: users = [], isLoading, isError, error } = useQuery({
@@ -131,8 +127,6 @@ function UsersTable() {
     </div>
   )
 }
-
-// ----- Sessions Table -----
 
 function SessionsTable() {
   const queryClient = useQueryClient()
@@ -247,8 +241,6 @@ function SessionsTable() {
   )
 }
 
-// ----- Generate Token Dialog -----
-
 interface GenerateTokenDialogProps {
   open: boolean
   onClose: () => void
@@ -317,8 +309,6 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
     </Dialog>
   )
 }
-
-// ----- Git Tokens Table -----
 
 function GitTokensTable() {
   const queryClient = useQueryClient()
@@ -428,8 +418,6 @@ function GitTokensTable() {
   )
 }
 
-// ----- Main Card -----
-
 /**
  * Admin-only card for managing OIDC role mappings, users, sessions, and git tokens.
  */
@@ -446,8 +434,6 @@ export function AuthManagementCard() {
     </Card>
   )
 }
-
-// ----- Helpers -----
 
 function formatDate(date: Date | string | null | undefined): string {
   if (!date) return '—'

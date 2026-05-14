@@ -4,12 +4,8 @@ import type { CallbackHandlerDeps } from '../callback';
 import type { OidcTokens, Role } from '@/lib/auth/types';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
 
-// ----- Shared test constants -----
-
 const validState = 'state-abc123';
 const validNonce = 'nonce-xyz789';
-
-// ----- Helpers -----
 
 function makeTokens(overrides?: Partial<OidcTokens>): OidcTokens {
   return {
@@ -77,8 +73,6 @@ function makeDeps(overrides?: Partial<CallbackHandlerDeps>): CallbackHandlerDeps
 function validCookieHeader(): string {
   return `oidc_state=${encodedStateParam(validState, validNonce)}`;
 }
-
-// ----- Tests -----
 
 describe('handleCallback', () => {
   describe('request validation', () => {
@@ -432,8 +426,6 @@ describe('handleCallback', () => {
     });
   });
 });
-
-// ----- Route GET handler -----
 
 // Access the route's server handler directly to test the wiring layer.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -2,8 +2,6 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-// ----- Module mocks -----
-
 // Mock server functions before importing the component
 mock.module('@/data/auth.functions', () => ({
   listUsers: mock(() => Promise.resolve([])),
@@ -24,8 +22,6 @@ mock.module('@/data/git-tokens.functions', () => ({
 // eslint-disable-next-line import/first
 import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
 
-// ----- Test helpers -----
-
 function makeQueryClient() {
   return new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -40,8 +36,6 @@ function renderCard() {
     </QueryClientProvider>
   )
 }
-
-// ----- Fixtures -----
 
 const mockUsers = [
   {
@@ -93,8 +87,6 @@ const mockTokens = [
     userEmail: 'alice@example.com',
   },
 ]
-
-// ----- Tests -----
 
 describe('AuthManagementCard', () => {
   beforeEach(() => {

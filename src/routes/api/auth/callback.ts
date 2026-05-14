@@ -2,8 +2,6 @@ import { createFileRoute } from '@tanstack/react-router';
 import type { OidcTokens, Role, RoleMappingConfig } from '@/lib/auth/types';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
 
-// ----- Dependency interfaces -----
-
 export interface CallbackOidcClient {
   exchangeCode(code: string): Promise<OidcTokens>;
   getUserGroups(accessToken: string): Promise<string[]>;
@@ -38,8 +36,6 @@ export interface CallbackHandlerDeps {
   isSecure: boolean;
 }
 
-// ----- Cookie helpers (pure, testable) -----
-
 export function buildSessionCookie(rawToken: string, isSecure: boolean): string {
   const securePart = isSecure ? ' Secure;' : '';
   return `session=${encodeURIComponent(rawToken)}; HttpOnly;${securePart} SameSite=Lax; Path=/`;
@@ -47,8 +43,6 @@ export function buildSessionCookie(rawToken: string, isSecure: boolean): string 
 
 export const CLEAR_STATE_COOKIE =
   'oidc_state=; HttpOnly; SameSite=Lax; Path=/api/auth; Max-Age=0';
-
-// ----- Testable handler -----
 
 export async function handleCallback(
   deps: CallbackHandlerDeps,
@@ -147,8 +141,6 @@ export async function handleCallback(
     ],
   });
 }
-
-// ----- Route -----
 
 export const Route = createFileRoute('/api/auth/callback')({
   server: {
