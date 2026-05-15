@@ -193,6 +193,15 @@ src/
 │   │   └── agent-stack-compose.ts   # Generate agent docker-compose.yml for host deployment
 │   ├── hosts/
 │   │   └── host-utils.ts            # Host utility functions
+│   ├── auth/
+│   │   ├── oidc-client.ts            # OIDC discovery + authorization-code flow client
+│   │   ├── oidc-secrets.ts           # OIDC client secret resolution
+│   │   ├── session-manager.ts       # Signed-cookie session issue/verify (TTL from SESSION_TTL_HOURS)
+│   │   ├── role-mapper.ts            # OIDC group claim -> admin/operator/viewer role
+│   │   ├── require-role.ts           # Server-function guard by role
+│   │   ├── sse-auth.ts               # SSE endpoint authentication helper
+│   │   ├── agent-token-migration.ts # One-shot migration of legacy agent tokens at startup
+│   │   └── types.ts                  # Auth domain types (Session, Role, OIDCClaims)
 │   ├── settings/
 │   │   └── settings-broadcast-service.ts  # PostgreSQL LISTEN + SSE broadcast for settings changes
 │   ├── sse/
@@ -257,7 +266,13 @@ src/
     │   ├── proxmox-stats.ts         # Proxmox SSE endpoint
     │   ├── settings.ts              # Settings SSE endpoint (cross-browser sync)
     │   ├── stack-status.ts          # Stack status SSE endpoint
+    │   ├── auth/
+    │   │   ├── login.ts             # OIDC login redirect (initiates auth code flow)
+    │   │   ├── callback.ts          # OIDC callback (issues session cookie)
+    │   │   └── logout.ts            # Clears session cookie
     │   └── git.$.ts                 # Git HTTP smart protocol (catch-all route)
+    ├── login.tsx                    # Login landing page (/login)
+    ├── denied.tsx                   # Access-denied page (/denied)
     ├── index.tsx                    # Home/redirect page (/)
     ├── docker.tsx                   # Docker page (/docker)
     ├── docker.$containerId.tsx      # Docker container detail (/docker/:containerId)
@@ -273,7 +288,7 @@ src/
 src/theme.ts                         # MUI Material theme config
 public/icons/                        # SVG icons from homarr-labs/dashboard-icons
 migrations/                          # SQL migrations (settings + TimescaleDB wide tables + stack status + deploys)
-scripts/                             # check-coverage.js, download-icons.ts, download-compose-schema.ts
+scripts/                             # check-coverage.js, download-icons.ts, download-compose-schema.ts, migrate-master-key.ts, test-perf.sh
 
 agent/                               # Agent sidecar container (separate Bun package)
 ├── src/
@@ -293,6 +308,11 @@ agent/                               # Agent sidecar container (separate Bun pac
 ├── Dockerfile
 ├── package.json
 └── tsconfig.json
+
+server/                              # WebSocket / non-SSR API routes outside TanStack Router
+└── routes/
+    └── api/
+        └── docker-exec/[containerId].ts  # WebSocket-style exec passthrough to agent for container terminal
 
 agent-updater/                       # Agent updater sidecar (separate Bun package)
 ├── src/
