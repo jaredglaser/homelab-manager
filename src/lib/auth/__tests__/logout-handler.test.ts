@@ -3,10 +3,11 @@ import {
   handleLogout,
   buildClearSessionCookie,
   logoutGetHandler,
+  logoutWithCookie,
   type LogoutHandlerDeps,
 } from '@/lib/auth/logout-handler';
 
-// mock.module intercepts dynamic imports inside logoutGetHandler (auth-config path).
+// mock.module intercepts dynamic imports inside logoutGetHandler.
 const mockIsAuthDisabled = mock(() => false);
 const mockLoadAuthConfig = mock(() => ({
   issuerUrl: 'https://pocketid.example.com',
@@ -19,6 +20,28 @@ const mockLoadAuthConfig = mock(() => ({
 mock.module('@/lib/config/auth-config', () => ({
   isAuthDisabled: mockIsAuthDisabled,
   loadAuthConfig: mockLoadAuthConfig,
+}));
+
+const mockGetIdToken = mock(async (_: string) => null as string | null);
+const mockRevokeSession = mock(async (_: string) => {});
+const mockBuildSessionManager = mock(async () => ({
+  getIdToken: mockGetIdToken,
+  revokeSession: mockRevokeSession,
+}));
+
+mock.module('@/lib/auth/session-manager', () => ({
+  buildSessionManager: mockBuildSessionManager,
+}));
+
+const mockGetLogoutUrl = mock(async (_uri: string, _hint?: string) => null as string | null);
+mock.module('@/lib/auth/oidc-client', () => ({
+  OidcClient: class {
+    getLogoutUrl(uri: string, hint?: string) { return mockGetLogoutUrl(uri, hint); }
+  },
+}));
+
+mock.module('@/lib/auth/oidc-secrets', () => ({
+  getOidcClientSecret: mock(async () => 'mock-secret'),
 }));
 
 // ------------------------------------------------------------------
@@ -231,6 +254,9 @@ describe('logoutGetHandler', () => {
     process.env = { ...originalEnv };
     mockIsAuthDisabled.mockReset();
     mockLoadAuthConfig.mockReset();
+    mockGetIdToken.mockReset();
+    mockRevokeSession.mockReset();
+    mockGetLogoutUrl.mockReset();
   });
 
   it('redirects to /login?prompt=login when auth is disabled', async () => {
@@ -242,6 +268,27 @@ describe('logoutGetHandler', () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('/login?prompt=login');
+  });
+
+  it('with session cookie: revokes session and redirects via OIDC logout URL', async () => {
+    mockIsAuthDisabled.mockImplementation(() => false);
+    mockLoadAuthConfig.mockImplementation(() => ({
+      issuerUrl: 'https://pocketid.example.com',
+      clientId: 'homelab-manager',
+      redirectUri: 'http://localhost:3000/api/auth/callback',
+      sessionTtlHours: 8,
+      roleMapping: { admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' },
+    }));
+    mockGetIdToken.mockImplementation(async () => 'id-tok');
+    mockGetLogoutUrl.mockImplementation(async () => 'https://pocketid.example.com/end-session?foo=bar');
+
+    // logoutWithCookie accepts the cookie string directly, bypassing the Happy-DOM
+    // browser restriction that blocks the `cookie` request header.
+    const response = await logoutWithCookie('session=rawtoken123');
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toContain('pocketid.example.com/end-session');
+    expect(mockRevokeSession).toHaveBeenCalledTimes(1);
   });
 
   it('redirects to /login?prompt=login when auth is enabled but loadAuthConfig throws', async () => {

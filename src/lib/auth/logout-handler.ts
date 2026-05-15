@@ -74,7 +74,7 @@ export async function handleLogout(
   });
 }
 
-export async function logoutGetHandler({ request }: { request: Request }): Promise<Response> {
+export async function logoutWithCookie(cookieHeader: string): Promise<Response> {
   const { isAuthDisabled, loadAuthConfig } = await import('@/lib/config/auth-config');
 
   if (isAuthDisabled()) {
@@ -91,7 +91,6 @@ export async function logoutGetHandler({ request }: { request: Request }): Promi
   const isSecure = config.redirectUri.startsWith('https://');
   const postLogoutRedirectUri = `${new URL(config.redirectUri).origin}/login`;
 
-  const cookieHeader = request.headers.get('cookie') ?? '';
   const match = cookieHeader.match(/(?:^|;\s*)session=([^;]*)/);
   const token = match ? decodeURIComponent(match[1]) : null;
 
@@ -123,4 +122,8 @@ export async function logoutGetHandler({ request }: { request: Request }): Promi
   };
 
   return handleLogout({ getOidcLogoutUrl, sessionManager, isSecure, postLogoutRedirectUri }, token);
+}
+
+export async function logoutGetHandler({ request }: { request: Request }): Promise<Response> {
+  return logoutWithCookie(request.headers.get('cookie') ?? '');
 }
