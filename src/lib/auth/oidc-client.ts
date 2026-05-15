@@ -122,8 +122,7 @@ export class OidcClient {
     });
 
     if (!response.ok) {
-      console.error(`[OidcClient] Userinfo endpoint returned HTTP ${response.status} — proceeding with empty groups`);
-      return [];
+      throw new Error(`Userinfo endpoint returned HTTP ${response.status}`);
     }
 
     const body = await response.json();

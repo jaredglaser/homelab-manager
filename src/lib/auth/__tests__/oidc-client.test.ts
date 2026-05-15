@@ -317,15 +317,15 @@ describe('OidcClient', () => {
       expect(groups).toEqual([]);
     });
 
-    it('returns empty array on non-ok userinfo response', async () => {
+    it('throws on non-ok userinfo response', async () => {
       const mockFetch = makeDiscoveryFetch({
         'https://auth.example.com/userinfo': () => makeResponse({ error: 'unauthorized' }, 401),
       });
 
       const client = new OidcClient(config, mockFetch);
-      const groups = await client.getUserGroups('expired-token');
-
-      expect(groups).toEqual([]);
+      await expect(client.getUserGroups('expired-token')).rejects.toThrow(
+        'Userinfo endpoint returned HTTP 401',
+      );
     });
 
     it('sends Authorization: Bearer header', async () => {

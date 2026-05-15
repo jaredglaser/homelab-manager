@@ -35,6 +35,11 @@ ensure_group() {
   resp=$(curl -sf -H "${AUTH_HEADER}" "${API}/user-groups?search=${name}")
   id=$(get_first_id "$resp")
 
+  # Verify the returned record matches exactly; substring search can return a wrong group.
+  if [ -n "$id" ] && ! printf '%s' "$resp" | grep -q "\"name\":\"${name}\""; then
+    id=""
+  fi
+
   if [ -z "$id" ]; then
     log "  creating group '${name}'"
     resp=$(curl -sf -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
@@ -66,6 +71,11 @@ ensure_user() {
 
   resp=$(curl -sf -H "${AUTH_HEADER}" "${API}/users?search=${username}")
   id=$(get_first_id "$resp")
+
+  # Verify the returned record matches exactly; substring search can return a wrong user.
+  if [ -n "$id" ] && ! printf '%s' "$resp" | grep -q "\"username\":\"${username}\""; then
+    id=""
+  fi
 
   if [ -z "$id" ]; then
     log "  creating user '${username}'"
@@ -105,24 +115,30 @@ if [ -z "$existing_id" ]; then
     -X POST "${API}/oidc/clients" \
     -d "{\"id\":\"${CLIENT_ID}\",\"name\":\"Homelab Manager (dev)\",\"callbackURLs\":[\"${APP_CALLBACK_URL}\"],\"logoutCallbackURLs\":[\"${APP_LOGOUT_URL}\"],\"isPublic\":false}" \
     > /dev/null
+  log "  rotating OIDC client secret..."
+  secret_resp=$(curl -sf -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
+    -X POST "${API}/oidc/clients/${CLIENT_ID}/secret" \
+    -d '{}')
+  CLIENT_SECRET=$(get_field "$secret_resp" "secret")
+  if [ -z "$CLIENT_SECRET" ]; then
+    log "  ERROR: failed to rotate client secret: ${secret_resp}"
+    exit 1
+  fi
+  log "  client secret rotated"
 else
-  log "  OIDC client '${CLIENT_ID}' already exists, updating callback URLs"
+  log "  OIDC client '${CLIENT_ID}' already exists, skipping secret rotation"
   curl -sf -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
     -X PUT "${API}/oidc/clients/${CLIENT_ID}" \
     -d "{\"name\":\"Homelab Manager (dev)\",\"callbackURLs\":[\"${APP_CALLBACK_URL}\"],\"logoutCallbackURLs\":[\"${APP_LOGOUT_URL}\"],\"isPublic\":false}" \
     > /dev/null
+  # Read the existing secret from the env file so the output file stays consistent.
+  if [ -f "${OUTPUT_ENV_FILE}" ]; then
+    CLIENT_SECRET=$(grep '^OIDC_CLIENT_SECRET=' "${OUTPUT_ENV_FILE}" | sed 's/^OIDC_CLIENT_SECRET=//')
+  fi
+  if [ -z "$CLIENT_SECRET" ]; then
+    log "  WARNING: could not read existing client secret from ${OUTPUT_ENV_FILE}; token exchange may fail until a new client is created"
+  fi
 fi
-
-log "  rotating OIDC client secret..."
-secret_resp=$(curl -sf -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
-  -X POST "${API}/oidc/clients/${CLIENT_ID}/secret" \
-  -d '{}')
-CLIENT_SECRET=$(get_field "$secret_resp" "secret")
-if [ -z "$CLIENT_SECRET" ]; then
-  log "  ERROR: failed to rotate client secret: ${secret_resp}"
-  exit 1
-fi
-log "  client secret rotated"
 
 log "Step 4: generating one-time login tokens..."
 

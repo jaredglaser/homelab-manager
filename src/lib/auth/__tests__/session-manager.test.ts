@@ -268,6 +268,32 @@ describe('SessionManager', () => {
 
       expect(await manager.getIdToken('some-id')).toBeNull();
     });
+
+    it('returns null when decryptValue throws', async () => {
+      const encryptedOidc = 'jwe:mock:some-payload';
+      const deps = makeDeps({
+        sessionRepo: {
+          create: mock(async () => {}),
+          findById: mock(async () => ({
+            session: { encryptedOidc } as never,
+            user: makeUser(),
+          })),
+          findByUserId: mock(async () => []),
+          deleteById: mock(async () => {}),
+          deleteByUserId: mock(async () => {}),
+          deleteExpired: mock(async () => {}),
+        } as unknown as SessionManagerDeps['sessionRepo'],
+      });
+      const manager = new SessionManager(deps);
+
+      mockDecryptValue.mockImplementationOnce(async () => {
+        throw new Error('decryption failed');
+      });
+
+      const result = await manager.getIdToken('some-hashed-id');
+
+      expect(result).toBeNull();
+    });
   });
 
   describe('revokeAllUserSessions', () => {

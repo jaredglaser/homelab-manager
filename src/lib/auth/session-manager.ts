@@ -58,7 +58,8 @@ export class SessionManager {
       const plain = await decryptValue(result.session.encryptedOidc, this.deps.keyring);
       const tokens = JSON.parse(plain) as { idToken?: string };
       return typeof tokens.idToken === 'string' ? tokens.idToken : null;
-    } catch {
+    } catch (err) {
+      console.error('[SessionManager] Failed to decrypt id_token for logout hint:', err);
       return null;
     }
   }
