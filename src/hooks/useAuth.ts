@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useServerFn } from '@tanstack/react-start';
 import { getSession } from '@/data/auth.functions';
+import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
 
 /**
  * Checks the current session on mount and redirects to /login if unauthenticated.
- * Returns the authenticated user and a loading flag.
+ * Returns the authenticated user (null when auth is disabled or not logged in) and a loading flag.
  */
 export function useAuth(): { user: AuthUser | null; loading: boolean } {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -19,6 +20,9 @@ export function useAuth(): { user: AuthUser | null; loading: boolean } {
       .then((result) => {
         if (!result) {
           void navigate({ to: '/login' });
+        } else if (result.id === SYNTHETIC_ADMIN.id) {
+          // Auth disabled — synthetic admin is not a real user, so don't surface it in the UI.
+          setUser(null);
         } else {
           setUser(result);
         }
