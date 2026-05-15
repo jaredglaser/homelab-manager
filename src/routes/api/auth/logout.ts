@@ -13,7 +13,6 @@ export const Route = createFileRoute('/api/auth/logout')({
           const config = loadAuthConfig();
           isSecure = config.redirectUri.startsWith('https://');
 
-          // Extract session, delete from DB
           const cookieHeader = request.headers.get('cookie') ?? '';
           const match = cookieHeader.match(/(?:^|;\s*)session=([^;]*)/);
           const token = match ? decodeURIComponent(match[1]) : null;
@@ -23,8 +22,7 @@ export const Route = createFileRoute('/api/auth/logout')({
               const hashedId = createHash('sha256').update(token).digest('hex');
               const { buildSessionManager } = await import('@/lib/auth/session-manager');
               const sessionManager = await buildSessionManager();
-              // Retrieve id_token before revoking — needed as id_token_hint for RP-initiated logout
-              // so the OIDC provider can identify which session to end without re-prompting the user.
+              // Fetch id_token before revoking: needed as id_token_hint for RP-initiated logout.
               const idToken = await sessionManager.getIdToken(hashedId);
               await sessionManager.revokeSession(hashedId);
 
@@ -51,7 +49,7 @@ export const Route = createFileRoute('/api/auth/logout')({
 
         const securePart = isSecure ? ' Secure;' : '';
         const clearCookie = `session=; HttpOnly;${securePart} SameSite=Lax; Path=/; Max-Age=0`;
-        // Fall back to local login page with prompt=login if provider has no end_session_endpoint
+        // prompt=login forces re-auth when the provider still holds a valid browser session.
         const redirectTo = oidcLogoutUrl ?? '/login?prompt=login';
 
         return new Response(null, {

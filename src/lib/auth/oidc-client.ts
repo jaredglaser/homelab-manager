@@ -74,11 +74,7 @@ export class OidcClient {
     return `${endpoints.authorizationEndpoint}?${params.toString()}`;
   }
 
-  /**
-   * Returns the RP-initiated logout URL, or null if the provider does not advertise
-   * end_session_endpoint in its discovery document. Passing idTokenHint lets the provider
-   * identify the session to end without prompting the user to re-authenticate.
-   */
+  /** Returns the RP-initiated logout URL, or null if the provider has no end_session_endpoint. */
   async getLogoutUrl(postLogoutRedirectUri: string, idTokenHint?: string): Promise<string | null> {
     const endpoints = await this.discoverEndpoints();
     if (!endpoints.endSessionEndpoint) return null;

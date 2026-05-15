@@ -49,7 +49,7 @@ export class SessionManager {
     await this.deps.sessionRepo.deleteById(hashedId);
   }
 
-  /** Returns the id_token stored in the session, or null if unavailable. Used for id_token_hint on RP-initiated logout. */
+  /** Returns the stored id_token for RP-initiated logout (id_token_hint), or null if unavailable. */
   async getIdToken(hashedId: string): Promise<string | null> {
     const result = await this.deps.sessionRepo.findById(hashedId);
     if (!result?.session.encryptedOidc) return null;

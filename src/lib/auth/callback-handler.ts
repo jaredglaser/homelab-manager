@@ -51,7 +51,6 @@ export async function handleCallback(
   ipAddress: string | null,
   userAgent: string | null,
 ): Promise<Response> {
-  // Validate state from cookie
   const stateMatch = cookieHeader.match(/(?:^|;\s*)oidc_state=([^;]*)/);
   if (!stateMatch) {
     return new Response('Missing state cookie', { status: 400 });
@@ -68,10 +67,9 @@ export async function handleCallback(
     return new Response('State mismatch', { status: 400 });
   }
 
-  // Exchange code for tokens
   const tokens = await deps.oidcClient.exchangeCode(code);
 
-  // Get groups from userinfo AND id_token claims (merge, deduplicate)
+  // Providers vary on whether groups appear in userinfo or id_token; merge both.
   const userinfoGroups = await deps.oidcClient.getUserGroups(tokens.accessToken);
   const idTokenClaims = deps.extractIdTokenClaims(tokens.idToken);
 

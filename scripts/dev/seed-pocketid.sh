@@ -17,25 +17,15 @@ AUTH_HEADER="X-API-Key: ${POCKET_ID_API_KEY}"
 
 log() { printf '[seed-pocketid] %s\n' "$1" >&2; }
 
-# ---------------------------------------------------------------------------
-# Helpers: parse a JSON string field from a single-level object.
 # No jq dependency; uses only sh builtins + sed + grep.
-# ---------------------------------------------------------------------------
-
-# get_field <json> <field>
 get_field() {
   printf '%s' "$1" | grep -o "\"$2\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" | head -1 | sed 's/.*"[^"]*"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
 }
 
-# get_array_first_id <json_array_string>
-# Returns the id of the first element in a "data":[{...}] array.
 get_first_id() {
   printf '%s' "$1" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)".*/\1/'
 }
 
-# ---------------------------------------------------------------------------
-# Step 1: Groups
-# ---------------------------------------------------------------------------
 log "Step 1: ensuring user groups..."
 
 ensure_group() {
@@ -66,9 +56,6 @@ GROUP_ADMINS=$(ensure_group "homelab-admins" "Homelab Admins")
 GROUP_OPERATORS=$(ensure_group "homelab-operators" "Homelab Operators")
 GROUP_VIEWERS=$(ensure_group "homelab-viewers" "Homelab Viewers")
 
-# ---------------------------------------------------------------------------
-# Step 2: Users
-# ---------------------------------------------------------------------------
 log "Step 2: ensuring users..."
 
 ensure_user() {
@@ -101,9 +88,6 @@ USER_ADMIN_ID=$(ensure_user "dev-admin" "Dev Admin" "true" "${GROUP_ADMINS}")
 USER_OPERATOR_ID=$(ensure_user "dev-operator" "Dev Operator" "false" "${GROUP_OPERATORS}")
 USER_VIEWER_ID=$(ensure_user "dev-viewer" "Dev Viewer" "false" "${GROUP_VIEWERS}")
 
-# ---------------------------------------------------------------------------
-# Step 3: OIDC client (idempotent create, always rotate secret)
-# ---------------------------------------------------------------------------
 log "Step 3: ensuring OIDC client..."
 
 CLIENT_ID="homelab-manager-dev"
@@ -140,9 +124,6 @@ if [ -z "$CLIENT_SECRET" ]; then
 fi
 log "  client secret rotated"
 
-# ---------------------------------------------------------------------------
-# Step 4: One-time login tokens (720-hour TTL)
-# ---------------------------------------------------------------------------
 log "Step 4: generating one-time login tokens..."
 
 get_one_time_token() {
@@ -162,9 +143,6 @@ TOKEN_ADMIN=$(get_one_time_token "${USER_ADMIN_ID}")
 TOKEN_OPERATOR=$(get_one_time_token "${USER_OPERATOR_ID}")
 TOKEN_VIEWER=$(get_one_time_token "${USER_VIEWER_ID}")
 
-# ---------------------------------------------------------------------------
-# Step 5: Write output files
-# ---------------------------------------------------------------------------
 log "Step 5: writing output files..."
 
 # Rewrite internal container URL to the host-accessible URL for the browser.
