@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { AccountMenu } from '../menus';
+import { AccountMenu } from '@/components/header/menus';
 
 describe('AccountMenu', () => {
   it('renders the account menu button', () => {

@@ -14,7 +14,7 @@
 
 **`data/dev-oidc-logins.txt`** contains one-time login URLs (valid 30 days) for each dev user:
 
-```
+```text
 admin (role: admin):
   http://localhost:1411/lc/<token>
 

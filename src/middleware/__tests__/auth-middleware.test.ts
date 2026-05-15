@@ -6,6 +6,16 @@ import {
 } from '@/middleware/auth-middleware';
 import type { AuthUser } from '@/lib/auth/types';
 
+// getRequest() requires an H3 AsyncLocalStorage context not present in tests;
+// mock it to return a controllable request object.
+const mockGetRequest = mock(() => ({
+  headers: { get: (_name: string) => null as string | null },
+}));
+
+mock.module('@tanstack/start-server-core', () => ({
+  getRequest: mockGetRequest,
+}));
+
 function makeUser(overrides?: Partial<AuthUser>): AuthUser {
   return {
     id: 1,
@@ -71,6 +81,7 @@ describe('authMiddleware', () => {
 
   beforeEach(() => {
     resetAuthMiddlewareState();
+    mockGetRequest.mockClear();
   });
 
   afterEach(() => {
