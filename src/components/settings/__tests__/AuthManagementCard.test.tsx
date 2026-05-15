@@ -24,7 +24,7 @@ import { AuthManagementCard } from '@/components/settings/AuthManagementCard'
 
 function makeQueryClient() {
   return new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
   })
 }
 
@@ -239,6 +239,29 @@ describe('AuthManagementCard', () => {
     it('shows empty state when no sessions', async () => {
       renderCard()
       await waitFor(() => expect(screen.getByText('No active sessions.')).toBeDefined())
+    })
+  })
+
+  describe('error states', () => {
+    it('shows error alert when users fail to load', async () => {
+      const authFns = require('@/data/auth.functions') as { listUsers: ReturnType<typeof mock> }
+      authFns.listUsers.mockImplementation(() => Promise.reject(new Error('Network error')))
+      renderCard()
+      await waitFor(() => expect(screen.getByText(/Failed to load users/)).toBeDefined())
+    })
+
+    it('shows error alert when sessions fail to load', async () => {
+      const authFns = require('@/data/auth.functions') as { listSessions: ReturnType<typeof mock> }
+      authFns.listSessions.mockImplementation(() => Promise.reject(new Error('Network error')))
+      renderCard()
+      await waitFor(() => expect(screen.getByText(/Failed to load sessions/)).toBeDefined())
+    })
+
+    it('shows error alert when git tokens fail to load', async () => {
+      const gitFns = require('@/data/git-tokens.functions') as { listGitTokens: ReturnType<typeof mock> }
+      gitFns.listGitTokens.mockImplementation(() => Promise.reject(new Error('Network error')))
+      renderCard()
+      await waitFor(() => expect(screen.getByText(/Failed to load tokens/)).toBeDefined())
     })
   })
 
