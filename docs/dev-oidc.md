@@ -15,7 +15,7 @@
 **`data/dev-oidc-logins.txt`** contains one-time login URLs (valid 30 days) for each dev user:
 
 ```text
-admin (role: admin):
+dev-admin (role: admin):
   http://localhost:1411/lc/<token>
 
 dev-operator (role: operator):
@@ -60,7 +60,7 @@ This stops all containers and deletes all volumes, including the Pocket ID data 
 To skip Pocket ID entirely, remove `oidc` from `COMPOSE_PROFILES` in your `.env`:
 
 ```env
-COMPOSE_PROFILES="management"
+COMPOSE_PROFILES=management
 ```
 
 Without the `oidc` profile, `.env.development.local` will not be generated and auth will be disabled (the default when `AUTH_ENABLED` is unset).
