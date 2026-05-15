@@ -219,6 +219,57 @@ describe('SessionManager', () => {
     });
   });
 
+  describe('getIdToken', () => {
+    it('decrypts and returns the idToken from a valid session', async () => {
+      const tokens = makeTokens({ idToken: 'eyJ.test.token' });
+      const encryptedOidc = `jwe:mock:${JSON.stringify(tokens)}`;
+      const deps = makeDeps({
+        sessionRepo: {
+          create: mock(async () => {}),
+          findById: mock(async () => ({
+            session: { encryptedOidc } as never,
+            user: makeUser(),
+          })),
+          findByUserId: mock(async () => []),
+          deleteById: mock(async () => {}),
+          deleteByUserId: mock(async () => {}),
+          deleteExpired: mock(async () => {}),
+        } as unknown as SessionManagerDeps['sessionRepo'],
+      });
+      const manager = new SessionManager(deps);
+
+      const result = await manager.getIdToken('some-hashed-id');
+
+      expect(result).toBe('eyJ.test.token');
+    });
+
+    it('returns null when session is not found', async () => {
+      const deps = makeDeps();
+      const manager = new SessionManager(deps);
+
+      expect(await manager.getIdToken('no-such-id')).toBeNull();
+    });
+
+    it('returns null when encryptedOidc is null', async () => {
+      const deps = makeDeps({
+        sessionRepo: {
+          create: mock(async () => {}),
+          findById: mock(async () => ({
+            session: { encryptedOidc: null } as never,
+            user: makeUser(),
+          })),
+          findByUserId: mock(async () => []),
+          deleteById: mock(async () => {}),
+          deleteByUserId: mock(async () => {}),
+          deleteExpired: mock(async () => {}),
+        } as unknown as SessionManagerDeps['sessionRepo'],
+      });
+      const manager = new SessionManager(deps);
+
+      expect(await manager.getIdToken('some-id')).toBeNull();
+    });
+  });
+
   describe('revokeAllUserSessions', () => {
     it('deletes all sessions for a given user id', async () => {
       const deps = makeDeps();

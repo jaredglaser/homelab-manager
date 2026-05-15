@@ -17,6 +17,11 @@ const DISCOVERY_BODY = {
   userinfo_endpoint: 'https://auth.example.com/userinfo',
 };
 
+const DISCOVERY_BODY_WITH_END_SESSION = {
+  ...DISCOVERY_BODY,
+  end_session_endpoint: 'https://auth.example.com/logout',
+};
+
 const config: OidcConfig = {
   issuerUrl: 'https://auth.example.com',
   clientId: 'my-client',
@@ -58,6 +63,18 @@ describe('OidcClient', () => {
       expect(endpoints.authorizationEndpoint).toBe('https://auth.example.com/authorize');
       expect(endpoints.tokenEndpoint).toBe('https://auth.example.com/token');
       expect(endpoints.userinfoEndpoint).toBe('https://auth.example.com/userinfo');
+      expect(endpoints.endSessionEndpoint).toBeNull();
+    });
+
+    it('captures end_session_endpoint when present in discovery document', async () => {
+      const fetchFn = asFetch(async (input) => {
+        if (input.toString() === DISCOVERY_URL) return makeResponse(DISCOVERY_BODY_WITH_END_SESSION);
+        return makeResponse({}, 404);
+      });
+      const client = new OidcClient(config, fetchFn);
+      const endpoints = await client.discoverEndpoints();
+
+      expect(endpoints.endSessionEndpoint).toBe('https://auth.example.com/logout');
     });
 
     it('caches result so fetch is only called once on repeated calls', async () => {
@@ -139,6 +156,39 @@ describe('OidcClient', () => {
       const url = await client.getAuthorizationUrl('state-abc', 'nonce-xyz', 'none');
 
       expect(new URL(url).searchParams.get('prompt')).toBe('none');
+    });
+  });
+
+  describe('getLogoutUrl', () => {
+    it('returns end_session_endpoint URL with post_logout_redirect_uri when advertised', async () => {
+      const fetchFn = asFetch(async (input) => {
+        if (input.toString() === DISCOVERY_URL) return makeResponse(DISCOVERY_BODY_WITH_END_SESSION);
+        return makeResponse({}, 404);
+      });
+      const client = new OidcClient(config, fetchFn);
+      const url = await client.getLogoutUrl('https://app.example.com/login');
+
+      const parsed = new URL(url!);
+      expect(parsed.origin + parsed.pathname).toBe('https://auth.example.com/logout');
+      expect(parsed.searchParams.get('post_logout_redirect_uri')).toBe('https://app.example.com/login');
+      expect(parsed.searchParams.has('id_token_hint')).toBe(false);
+    });
+
+    it('includes id_token_hint when provided', async () => {
+      const fetchFn = asFetch(async (input) => {
+        if (input.toString() === DISCOVERY_URL) return makeResponse(DISCOVERY_BODY_WITH_END_SESSION);
+        return makeResponse({}, 404);
+      });
+      const client = new OidcClient(config, fetchFn);
+      const url = await client.getLogoutUrl('https://app.example.com/login', 'my-id-token');
+
+      expect(new URL(url!).searchParams.get('id_token_hint')).toBe('my-id-token');
+    });
+
+    it('returns null when provider has no end_session_endpoint', async () => {
+      const client = new OidcClient(config, makeDiscoveryFetch());
+      const url = await client.getLogoutUrl('https://app.example.com/login');
+      expect(url).toBeNull();
     });
   });
 

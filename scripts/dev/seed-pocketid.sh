@@ -111,14 +111,22 @@ CLIENT_ID="homelab-manager-dev"
 resp=$(curl -sf -H "${AUTH_HEADER}" "${API}/oidc/clients")
 existing_id=$(printf '%s' "$resp" | grep -o "\"id\"[[:space:]]*:[[:space:]]*\"${CLIENT_ID}\"" | head -1)
 
+# Derive the logout redirect URI from the callback URL origin
+APP_ORIGIN=$(printf '%s' "${APP_CALLBACK_URL}" | sed 's|\(https\?://[^/]*\).*|\1|')
+APP_LOGOUT_URL="${APP_ORIGIN}/login"
+
 if [ -z "$existing_id" ]; then
   log "  creating OIDC client '${CLIENT_ID}'"
   curl -sf -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
     -X POST "${API}/oidc/clients" \
-    -d "{\"id\":\"${CLIENT_ID}\",\"name\":\"Homelab Manager (dev)\",\"callbackURLs\":[\"${APP_CALLBACK_URL}\"],\"isPublic\":false}" \
+    -d "{\"id\":\"${CLIENT_ID}\",\"name\":\"Homelab Manager (dev)\",\"callbackURLs\":[\"${APP_CALLBACK_URL}\"],\"logoutCallbackURLs\":[\"${APP_LOGOUT_URL}\"],\"isPublic\":false}" \
     > /dev/null
 else
-  log "  OIDC client '${CLIENT_ID}' already exists"
+  log "  OIDC client '${CLIENT_ID}' already exists, updating callback URLs"
+  curl -sf -H "${AUTH_HEADER}" -H 'Content-Type: application/json' \
+    -X PUT "${API}/oidc/clients/${CLIENT_ID}" \
+    -d "{\"name\":\"Homelab Manager (dev)\",\"callbackURLs\":[\"${APP_CALLBACK_URL}\"],\"logoutCallbackURLs\":[\"${APP_LOGOUT_URL}\"],\"isPublic\":false}" \
+    > /dev/null
 fi
 
 log "  rotating OIDC client secret..."

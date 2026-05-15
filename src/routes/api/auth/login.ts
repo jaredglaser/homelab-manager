@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto';
 export const Route = createFileRoute('/api/auth/login')({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
         try {
         const { isAuthDisabled, loadAuthConfig } = await import('@/lib/config/auth-config');
         if (isAuthDisabled()) {
@@ -25,7 +25,9 @@ export const Route = createFileRoute('/api/auth/login')({
 
         const state = randomBytes(32).toString('hex');
         const nonce = randomBytes(32).toString('hex');
-        const url = await oidc.getAuthorizationUrl(state, nonce);
+        const urlObj = new URL(request.url);
+        const prompt = urlObj.searchParams.get('prompt') ?? undefined;
+        const url = await oidc.getAuthorizationUrl(state, nonce, prompt);
 
         const isSecure = config.redirectUri.startsWith('https://');
         const secureFlag = isSecure ? '; Secure' : '';

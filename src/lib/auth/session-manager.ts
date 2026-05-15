@@ -49,6 +49,20 @@ export class SessionManager {
     await this.deps.sessionRepo.deleteById(hashedId);
   }
 
+  /** Returns the id_token stored in the session, or null if unavailable. Used for id_token_hint on RP-initiated logout. */
+  async getIdToken(hashedId: string): Promise<string | null> {
+    const result = await this.deps.sessionRepo.findById(hashedId);
+    if (!result?.session.encryptedOidc) return null;
+    try {
+      const { decryptValue } = await import('@/lib/crypto/encrypted-value');
+      const plain = await decryptValue(result.session.encryptedOidc, this.deps.keyring);
+      const tokens = JSON.parse(plain) as { idToken?: string };
+      return typeof tokens.idToken === 'string' ? tokens.idToken : null;
+    } catch {
+      return null;
+    }
+  }
+
   async revokeAllUserSessions(userId: number): Promise<void> {
     await this.deps.sessionRepo.deleteByUserId(userId);
   }
