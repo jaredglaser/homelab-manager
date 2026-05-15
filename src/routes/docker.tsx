@@ -3,7 +3,7 @@ import { createFileRoute, Outlet, useMatchRoute, useLocation } from '@tanstack/r
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryClient } from '@/lib/query-client'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
-import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
+import ContainerModal from '@/components/docker/ContainerModal'
 import PageStatusBar from '@/components/PageStatusBar'
 import DockerStatusSummary from '@/components/docker/DockerStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
@@ -66,9 +66,6 @@ function DockerContainersPage() {
 
   const handleCloseHistory = useCallback(() => {
     setHistoryOpen(false)
-  }, [])
-
-  const handleHistoryExited = useCallback(() => {
     setHistoryTarget(null)
   }, [])
 
@@ -139,12 +136,14 @@ function DockerContainersPage() {
         onOpenHistory={handleOpenHistory}
       />
       {historyTarget && (
-        <ContainerHistoryPanel
+        <ContainerModal
           open={historyOpen}
+          onClose={handleCloseHistory}
           containerId={historyTarget.containerId}
           host={historyTarget.host}
-          onClose={handleCloseHistory}
-          onExited={handleHistoryExited}
+          inventory={inventory.get(`${historyTarget.host}/${historyTarget.containerId}`) ?? null}
+          initialTab="history"
+          iconSlug={entityIcons?.[`${historyTarget.host}/${historyTarget.containerId}`]?.iconSlug}
         />
       )}
     </div>
