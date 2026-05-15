@@ -210,7 +210,7 @@ function StackEditorView() {
         </Tabs>
       </div>
 
-      {/* Tab content — scrollable */}
+      {/* Tab content, scrollable */}
       <div className="flex-1 overflow-y-auto themed-scrollbar">
         <div className="flex flex-col gap-4 py-4">
           {panel === 'compose' && (

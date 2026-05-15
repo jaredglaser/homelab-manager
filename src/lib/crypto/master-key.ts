@@ -12,8 +12,8 @@ const LEGACY_KID: Kid = 'v1';
 /**
  * Load the master keyring from environment variables.
  *
- * Single-key (legacy) pattern — backward compatible:
- *   MASTER_KEY / MASTER_KEY_FILE  →  KID "v1", active key
+ * Single-key (legacy) pattern, backward compatible:
+ *   MASTER_KEY / MASTER_KEY_FILE maps to KID "v1", active key
  *
  * Multi-key pattern (for key rotation):
  *   MASTER_KEY_<KID> / MASTER_KEY_FILE_<KID>  →  additional keys by explicit KID

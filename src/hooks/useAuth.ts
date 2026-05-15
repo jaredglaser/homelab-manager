@@ -21,7 +21,7 @@ export function useAuth(): { user: AuthUser | null; loading: boolean } {
         if (!result) {
           void navigate({ to: '/login' });
         } else if (result.id === SYNTHETIC_ADMIN.id) {
-          // Auth disabled — synthetic admin is not a real user, so don't surface it in the UI.
+          // Auth disabled: synthetic admin is not a real user, don't surface it in the UI.
           setUser(null);
         } else {
           setUser(result);

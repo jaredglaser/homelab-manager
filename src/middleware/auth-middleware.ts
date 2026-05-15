@@ -4,11 +4,7 @@ import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 
 let cachedSessionManager: import('@/lib/auth/session-manager').SessionManager | null = null;
 
-/**
- * Auth middleware — validates session cookies and injects AuthUser into server function context.
- * When auth is disabled (AUTH_ENABLED not set to "true"), injects a synthetic admin user.
- * Dynamically imports server-only modules to avoid leaking into the client bundle.
- */
+/** Validates session cookies and injects AuthUser into server function context. Dynamic imports keep server-only modules out of the client bundle. */
 export const authMiddleware = createMiddleware().server(
   async ({ next, context }) => {
     const { isAuthDisabled } = await import('@/lib/config/auth-config');
@@ -20,8 +16,7 @@ export const authMiddleware = createMiddleware().server(
       return next({ context: { ...ctx, user: SYNTHETIC_ADMIN as AuthUser } });
     }
 
-    // Extract the session token from the cookie before building the session manager
-    // to avoid unnecessary DB/OpenBao connections on unauthenticated requests.
+    // Check the cookie before building the session manager to skip DB connections on unauthenticated requests.
     const { getRequest } = await import('@tanstack/start-server-core');
     const cookieHeader = getRequest().headers.get('cookie') ?? null;
     const sessionToken = parseCookie(cookieHeader, 'session');

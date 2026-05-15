@@ -7,7 +7,7 @@ export interface TransitConfig {
 
 /**
  * Thin wrapper around OpenBao Transit secrets engine HTTP API.
- * Provides encrypt/decrypt operations using native fetch() — no SDK dependency.
+ * Provides encrypt/decrypt operations using native fetch() with no SDK dependency.
  *
  * Key name convention: matches SAFE_PATH_SEGMENT_PATTERN ([a-zA-Z0-9_-]+)
  */

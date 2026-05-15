@@ -7,10 +7,7 @@ import type { AuthUser } from '@/lib/auth/types';
 
 let cachedSessionManager: import('@/lib/auth/session-manager').SessionManager | null = null;
 
-/**
- * Middleware that reads the session cookie and resolves the AuthUser (or null).
- * Unlike authMiddleware, this never throws — it passes null when unauthenticated.
- */
+/** Reads the session cookie and resolves the AuthUser (or null). Never throws: passes null when unauthenticated, unlike authMiddleware. */
 export const sessionReadMiddleware = createMiddleware().server(async ({ next, context }) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ctx = context as any;

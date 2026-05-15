@@ -53,9 +53,7 @@ export const triggerDeploy = createServerFn()
     return triggerStackDeploy(data);
   });
 
-/**
- * Approve a pending deploy — runs it through the pipeline's resumePending path.
- */
+/** Approves a pending deploy via the pipeline's resumePending path. */
 export const resumeDeploy = createServerFn({ method: 'POST' })
   .inputValidator(resumeDeploySchema)
   .handler(async ({ data }): Promise<{ deployId: number }> => {
@@ -63,9 +61,7 @@ export const resumeDeploy = createServerFn({ method: 'POST' })
     return resumePendingDeploy(data.deployId);
   });
 
-/**
- * Reject a pending deploy — marks it failed with a "Manually rejected" log.
- */
+/** Rejects a pending deploy, marking it failed with a "Manually rejected" log. */
 export const rejectDeploy = createServerFn({ method: 'POST' })
   .inputValidator(rejectDeploySchema)
   .handler(async ({ data }): Promise<{ deployId: number }> => {
