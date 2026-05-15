@@ -429,3 +429,17 @@ export async function ensureVariablesExist(_opts: {
 }): Promise<void> {
   // No-op in demo mode
 }
+
+export async function controlStack(_opts: {
+  data:
+    | { host: string; stack: string; action: 'start' | 'stop' | 'restart'; scope: 'stack' }
+    | {
+        host: string;
+        stack: string;
+        action: 'start' | 'stop' | 'restart';
+        scope: 'service';
+        service: string;
+      };
+}): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+}
