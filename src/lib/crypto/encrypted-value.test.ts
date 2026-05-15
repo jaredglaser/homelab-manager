@@ -50,4 +50,11 @@ describe('encryptValue / decryptValue', () => {
     segments[3] = 'AAAA' + segments[3].slice(4);
     await expect(decryptValue(segments.join('.'), keyring)).rejects.toThrow();
   });
+
+  it('decryption fails when JWE header has empty kid', async () => {
+    const keyring = await makeKeyring();
+    const header = Buffer.from(JSON.stringify({ alg: 'dir', enc: 'A256GCM', kid: '' })).toString('base64url');
+    const jweEmptyKid = `${header}..AAAAAAAAAAAAAAAA.AAAA.AAAAAAAAAAAAAAAAAAAAAA`;
+    await expect(decryptValue(jweEmptyKid, keyring)).rejects.toThrow('JWE header missing "kid"');
+  });
 });

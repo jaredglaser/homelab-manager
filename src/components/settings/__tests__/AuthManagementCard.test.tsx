@@ -1,5 +1,5 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 // Mock server functions before importing the component
@@ -325,6 +325,63 @@ describe('AuthManagementCard', () => {
       await waitFor(() => {
         expect(screen.getByText('Copy this token now — it will not be shown again.')).toBeDefined()
         expect(screen.getByText('test-token-abc123')).toBeDefined()
+      })
+    })
+
+    describe('dialog close (handleClose / handleDialogClose)', () => {
+      const origSetTimeout = globalThis.setTimeout
+      const origClearTimeout = globalThis.clearTimeout
+      let pendingCallbacks: Array<{ fn: () => void; id: number }> = []
+      let nextTimerId = 9000
+
+      beforeEach(() => {
+        pendingCallbacks = []
+        nextTimerId = 9000
+        ;(globalThis as any).setTimeout = (fn: () => void) => {
+          const id = nextTimerId++
+          pendingCallbacks.push({ fn, id })
+          return id
+        }
+        ;(globalThis as any).clearTimeout = (id?: number) => {
+          pendingCallbacks = pendingCallbacks.filter((cb) => cb.id !== id)
+        }
+      })
+
+      afterEach(() => {
+        globalThis.setTimeout = origSetTimeout
+        globalThis.clearTimeout = origClearTimeout
+      })
+
+      function flushTimers() {
+        const cbs = [...pendingCallbacks]
+        pendingCallbacks = []
+        for (const cb of cbs) cb.fn()
+      }
+
+      it('Cancel resets label and calls handleDialogClose', () => {
+        renderCard()
+        act(() => { flushTimers() })
+
+        fireEvent.click(screen.getByText('Generate Token'))
+        act(() => { flushTimers() })
+
+        const labelInput = screen.getByLabelText('Token label')
+        fireEvent.change(labelInput, { target: { value: 'my label' } })
+
+        act(() => {
+          fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+        })
+        act(() => { flushTimers() })
+        act(() => { flushTimers() })
+
+        // After close: handleClose cleared the label; handleDialogClose closed the dialog.
+        // The dialog content stays mounted during MUI exit transition in Happy-DOM,
+        // but the label state was reset to '' (line 261) and setGenerateDialogOpen(false)
+        // and setNewToken(null) were called (lines 337-338).
+        // Reopen to confirm label was reset:
+        fireEvent.click(screen.getByText('Generate Token'))
+        act(() => { flushTimers() })
+        expect((screen.getByLabelText('Token label') as HTMLInputElement).value).toBe('')
       })
     })
   })

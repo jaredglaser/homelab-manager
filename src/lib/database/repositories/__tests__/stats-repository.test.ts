@@ -251,6 +251,59 @@ describe('StatsRepository', () => {
       expect(mockPool.queries[0].sql).toContain('time_bucket');
       expect(mockPool.queries[0].params).toEqual([1800, 6]);
     });
+
+    it('should return rows set via setDefault', async () => {
+      const rawRow = {
+        time: '2024-01-01T00:00:00.000Z',
+        host: 'default-host',
+        pool: 'data',
+        entity: 'data',
+        entity_type: 'pool',
+        indent: 0,
+        capacity_alloc: 500,
+        capacity_free: 500,
+        read_ops_per_sec: null,
+        write_ops_per_sec: null,
+        read_bytes_per_sec: null,
+        write_bytes_per_sec: null,
+        utilization_percent: null,
+      };
+      mockPool.setDefault([rawRow]);
+      const result = await repo.getZFSStatsHistory(60);
+      expect(result).toHaveLength(1);
+      expect(result[0].host).toBe('default-host');
+      mockPool.setDefault([]);
+    });
+
+    it('should map rows through toZFSStatsRow coercing BIGINT strings to numbers', async () => {
+      const rawRow = {
+        time: '2024-01-01T00:00:00.000Z',
+        host: 'server1',
+        pool: 'tank',
+        entity: 'tank',
+        entity_type: 'pool',
+        indent: '0',
+        capacity_alloc: '1000000000',
+        capacity_free: '2000000000',
+        read_ops_per_sec: '42',
+        write_ops_per_sec: '7',
+        read_bytes_per_sec: '1048576',
+        write_bytes_per_sec: '512',
+        utilization_percent: null,
+      };
+      mockPool.pushResult([rawRow]);
+
+      const result = await repo.getZFSStatsHistory(120);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].host).toBe('server1');
+      expect(result[0].pool).toBe('tank');
+      expect(result[0].capacity_alloc).toBe(1000000000);
+      expect(result[0].capacity_free).toBe(2000000000);
+      expect(result[0].read_ops_per_sec).toBe(42);
+      expect(result[0].utilization_percent).toBeNull();
+      expect(result[0].indent).toBe(0);
+    });
   });
 
   describe('getDockerStatsForContainer', () => {
@@ -646,6 +699,17 @@ describe('StatsRepository', () => {
 
       const result = await repo.getProxmoxStatsHistory(60);
       expect(result).toEqual(mockRows);
+    });
+  });
+
+  describe('mock-pool clearError', () => {
+    it('clearError allows queries to succeed after setError', async () => {
+      mockPool.setError(new Error('temporary failure'));
+      await expect(repo.getZFSStatsHistory(60)).rejects.toThrow('temporary failure');
+
+      mockPool.clearError();
+      const result = await repo.getZFSStatsHistory(60);
+      expect(result).toEqual([]);
     });
   });
 
