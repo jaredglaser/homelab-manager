@@ -20,7 +20,6 @@ interface ContainerModalProps {
   host: string;
   inventory: DockerInventorySnapshotContainer | null;
   initialTab?: ModalTab;
-  /** Optional resolved icon slug (from entity icons map) */
   iconSlug?: string | null;
 }
 
@@ -107,7 +106,6 @@ function ModalHeader({
       className="flex items-center gap-3 px-3 py-2 border-b border-(--mui-palette-divider) shrink-0"
       style={{ background: 'var(--mui-palette-background-popup)', minHeight: 52 }}
     >
-      {/* Icon + name + state + breadcrumb */}
       <img
         src={iconError ? FALLBACK_ICON_URL : iconUrl}
         alt=""
@@ -127,12 +125,10 @@ function ModalHeader({
       </div>
       <ContainerStateChip state={inventory.state} />
 
-      {/* Center: tab switcher */}
       <div className="flex-1 flex justify-center">
         <TabSwitch value={activeTab} onChange={onTabChange} isRunning={isRunning} />
       </div>
 
-      {/* Shell selector (terminal tab only) */}
       {activeTab === 'terminal' && (
         <FormControl size="small" className="min-w-[90px] shrink-0">
           <InputLabel id="modal-shell-label" shrink className="text-xs!">Shell</InputLabel>
@@ -165,30 +161,14 @@ function ModalHeader({
         </FormControl>
       )}
 
-      {/* Action buttons — stub; Start/Stop/Restart need a controlContainer API */}
       <div className="flex items-center gap-1 shrink-0">
-        <IconButton
-          size="small"
-          disabled
-          title="Start (not yet available)"
-          className="p-1!"
-        >
+        <IconButton size="small" disabled className="p-1!">
           <Play size={14} />
         </IconButton>
-        <IconButton
-          size="small"
-          disabled={!isRunning}
-          title="Stop (not yet available)"
-          className="p-1!"
-        >
+        <IconButton size="small" disabled={!isRunning} className="p-1!">
           <Square size={14} />
         </IconButton>
-        <IconButton
-          size="small"
-          disabled={!isRunning}
-          title="Restart (not yet available)"
-          className="p-1!"
-        >
+        <IconButton size="small" disabled={!isRunning} className="p-1!">
           <RotateCcw size={14} />
         </IconButton>
       </div>
@@ -286,12 +266,11 @@ export default memo(function ContainerModal({
         className="flex-1 min-h-0 p-0! flex flex-col"
         style={{ minHeight: 480 }}
       >
-        {/* Logs tab */}
         <div className={activeTab === 'logs' ? 'flex-1 min-h-0' : 'hidden'}>
           <ContainerLogViewer containerId={containerId} host={host} />
         </div>
 
-        {/* Terminal tab — keep mounted once opened to preserve buffer */}
+        {/* keep mounted once opened to preserve xterm buffer */}
         {terminalMounted && (
           <div className={activeTab === 'terminal' ? 'flex-1 min-h-0' : 'hidden'}>
             <ContainerTerminal
@@ -307,7 +286,6 @@ export default memo(function ContainerModal({
           <div className="flex-1 min-h-0 bg-(--mui-palette-background-chartBg)" />
         )}
 
-        {/* History tab */}
         {activeTab === 'history' && (
           <div className="flex-1 min-h-0 overflow-y-auto themed-scrollbar">
             <ContainerHistoryPage

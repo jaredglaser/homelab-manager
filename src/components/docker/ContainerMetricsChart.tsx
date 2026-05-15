@@ -85,8 +85,7 @@ function buildOption(
   const activeMetrics = METRIC_DEFS.filter((m) => active.has(m.key));
 
   // One hidden y-axis per active series gives each metric its own scale,
-  // so CPU%, memory%, bytes/s and bits/s all render on the same canvas
-  // without normalizing values — tooltips show actual units automatically.
+  // so CPU%, memory%, bytes/s and bits/s coexist on one canvas without normalization.
   const yAxis = activeMetrics.map(() => ({
     type: 'value' as const,
     show: false,
@@ -228,7 +227,7 @@ export default memo(function ContainerMetricsChart({
 
   const option = useMemo(
     () => buildOption(dataPoints, active, windowMs, chrome, general.use12HourTime),
-    // chrome is a plain object derived from CSS vars; no need to list its fields
+    // chrome is a new object each render; adding it would rerun buildOption every render
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dataPoints, active, windowMs, general.use12HourTime],
   );
