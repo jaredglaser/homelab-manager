@@ -12,7 +12,6 @@ interface ContainerDetailPanelProps {
   containerId: string;
   host: string;
   inventory: DockerInventorySnapshotContainer;
-  /** Resolved icon slug from entity icons map */
   iconSlug?: string | null;
 }
 
@@ -112,7 +111,6 @@ function StatusStrip({
       className="flex items-center gap-3 px-3 py-2 flex-wrap border-b border-(--mui-palette-divider)"
       style={{ minHeight: 40 }}
     >
-      {/* State + metadata */}
       <ContainerStateChip state={inventory.state} />
 
       <div
@@ -142,7 +140,6 @@ function StatusStrip({
 
       <StatusItem label="ID" value={shortId} />
 
-      {/* Action buttons — pushed to right */}
       <div className="ml-auto flex items-center gap-1 shrink-0">
         <ActionStripButton
           icon={<Play size={12} />}
@@ -254,7 +251,6 @@ export default memo(function ContainerDetailPanel({
       if (action === 'logs' || action === 'terminal' || action === 'history') {
         openModal(action);
       }
-      // start/stop/restart: no API yet — buttons are disabled
     },
     [openModal],
   );
