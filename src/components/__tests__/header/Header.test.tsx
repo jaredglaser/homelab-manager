@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 mock.module('@tanstack/react-router', () => ({
@@ -99,5 +99,37 @@ describe('Header', () => {
     expect(screen.getByRole('menu')).not.toBeNull()
     fireEvent.keyDown(dockerTab!, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('closes the open menu when mouse leaves a menu tab', async () => {
+    render(<Header />, { wrapper: createWrapper() })
+    const tabs = screen.getAllByRole('tab')
+    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
+    expect(dockerTab).not.toBeNull()
+    fireEvent.mouseEnter(dockerTab!)
+    expect(screen.getByRole('menu')).not.toBeNull()
+    fireEvent.mouseLeave(dockerTab!)
+    // requestClose() closes after MENU_CLOSE_DELAY_MS (120ms); waitFor retries until closed
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+  })
+
+  it('opens the menu when a menu tab receives focus', () => {
+    render(<Header />, { wrapper: createWrapper() })
+    const tabs = screen.getAllByRole('tab')
+    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
+    expect(dockerTab).not.toBeNull()
+    fireEvent.focus(dockerTab!)
+    expect(screen.getByRole('menu')).not.toBeNull()
+  })
+
+  it('closes the open menu when a menu tab loses focus', async () => {
+    render(<Header />, { wrapper: createWrapper() })
+    const tabs = screen.getAllByRole('tab')
+    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
+    expect(dockerTab).not.toBeNull()
+    fireEvent.focus(dockerTab!)
+    expect(screen.getByRole('menu')).not.toBeNull()
+    fireEvent.blur(dockerTab!)
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
   })
 })

@@ -57,6 +57,35 @@ describe('loadAuthConfig', () => {
     expect(config.roleMapping.viewer).toBe('my-viewers');
   });
 
+  it('throws when SESSION_TTL_HOURS is not a positive integer string', () => {
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+    process.env.OIDC_CLIENT_ID = 'homelab-manager';
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
+    process.env.SESSION_TTL_HOURS = 'abc';
+
+    expect(() => loadAuthConfig()).toThrow('SESSION_TTL_HOURS must be a positive integer');
+  });
+
+  it('throws when SESSION_TTL_HOURS is zero', () => {
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+    process.env.OIDC_CLIENT_ID = 'homelab-manager';
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
+    process.env.SESSION_TTL_HOURS = '0';
+
+    expect(() => loadAuthConfig()).toThrow('SESSION_TTL_HOURS must be a positive integer');
+  });
+
+  it('throws when OIDC_ROLE_ADMIN is set to whitespace only', () => {
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+    process.env.OIDC_CLIENT_ID = 'homelab-manager';
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
+    process.env.OIDC_ROLE_ADMIN = '   ';
+
+    expect(() => loadAuthConfig()).toThrow(
+      'OIDC_ROLE_ADMIN, OIDC_ROLE_OPERATOR, and OIDC_ROLE_VIEWER must be non-empty'
+    );
+  });
+
   it('defaults SESSION_TTL_HOURS to 8 when not set', () => {
     process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
     process.env.OIDC_CLIENT_ID = 'homelab-manager';
