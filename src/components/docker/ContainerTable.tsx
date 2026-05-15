@@ -315,16 +315,18 @@ export default function ContainerTable({
       if (row.type !== 'container' || !row.dataPoints) return null;
       const { host, containerId } = row.inventory;
       if (!host || !containerId) return null;
+      const entityId = `${host}/${containerId}`;
       return (
         <ContainerDetailPanel
           dataPoints={row.dataPoints}
           containerId={containerId}
           host={host}
           inventory={row.inventory}
+          iconSlug={entityIcons[entityId]?.iconSlug ?? null}
         />
       );
     },
-    [],
+    [entityIcons],
   );
 
   const rowClassName = useCallback((row: DockerTableRow) => {

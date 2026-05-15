@@ -99,14 +99,22 @@ describe('IconPickerDialog', () => {
     expect(screen.queryByAltText('redis')).toBeNull();
   });
 
-  it('calls onSelect and closes after selecting an icon', async () => {
+  it('calls onSelect and closes after selecting an icon and clicking Apply', async () => {
     const onSelect = mock((_slug: string) => {});
     const onClose = mock(() => {});
     render(<IconPickerDialog {...defaultProps} onSelect={onSelect} onClose={onClose} />);
+
+    // Select an icon tile (sets pending selection)
     const img = screen.getByAltText('nginx');
     const btn = img.closest('button');
     expect(btn).not.toBeNull();
     fireEvent.click(btn!);
+
+    // onSelect not yet called — need to confirm via Apply
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // Click Apply to commit the selection
+    fireEvent.click(screen.getByText('Apply'));
     expect(onSelect).toHaveBeenCalledWith('nginx');
 
     await act(async () => {
