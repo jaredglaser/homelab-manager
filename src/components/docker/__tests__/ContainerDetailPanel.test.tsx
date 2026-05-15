@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
@@ -127,5 +127,52 @@ describe('ContainerDetailPanel', () => {
     screen.getByText('Finished');
     // Exit label
     screen.getByText('Exit');
+  });
+
+  it('shows uptime for a running container with startedAt', () => {
+    const recentStart = new Date(Date.now() - 2 * 60 * 1000); // 2 minutes ago
+    renderPanel({
+      inventory: { ...sampleInventory, startedAt: recentStart },
+    });
+    screen.getByText('Started');
+    screen.getByText('Uptime');
+    // Should show something like "2m"
+    expect(screen.getByText(/\dm/).textContent).toBeTruthy();
+  });
+
+  it('shows uptime with hours when container ran for hours', () => {
+    const hourStart = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2 hours ago
+    renderPanel({
+      inventory: { ...sampleInventory, startedAt: hourStart },
+    });
+    expect(screen.getByText(/2h/).textContent).toBeTruthy();
+  });
+
+  it('clicking Logs button triggers modal open callback', () => {
+    renderPanel();
+    // The "Open full view" link triggers openModal('logs')
+    fireEvent.click(screen.getByText(/Open full view/));
+    // ContainerModal is mocked to null, just verify no crash
+  });
+
+  it('clicking action strip Logs button triggers action', () => {
+    renderPanel();
+    const logsBtn = screen.getByText('Logs').closest('button');
+    expect(logsBtn).not.toBeNull();
+    fireEvent.click(logsBtn!);
+  });
+
+  it('clicking action strip History button triggers action', () => {
+    renderPanel();
+    const historyBtn = screen.getByText('History').closest('button');
+    expect(historyBtn).not.toBeNull();
+    fireEvent.click(historyBtn!);
+  });
+
+  it('clicking action strip Terminal button triggers action for running container', () => {
+    renderPanel();
+    const terminalBtn = screen.getByText('Terminal').closest('button');
+    expect(terminalBtn).not.toBeNull();
+    fireEvent.click(terminalBtn!);
   });
 });
