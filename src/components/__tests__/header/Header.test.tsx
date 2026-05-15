@@ -1,5 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 mock.module('@tanstack/react-router', () => ({
@@ -88,6 +88,14 @@ describe('Header', () => {
     expect(screen.queryByText('Demo mode')).toBeNull()
   })
 
+  it('renders the account menu button when a non-synthetic user is provided', () => {
+    render(
+      <Header user={{ id: 1, email: 'alice@example.com', name: 'Alice', role: 'admin' }} />,
+      { wrapper: createWrapper() },
+    )
+    expect(screen.getByRole('button', { name: 'Account menu' })).not.toBeNull()
+  })
+
   it('closes the open menu when Escape is pressed on a menu tab', () => {
     render(<Header />, { wrapper: createWrapper() })
     const tabs = screen.getAllByRole('tab')
@@ -101,35 +109,71 @@ describe('Header', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('closes the open menu when mouse leaves a menu tab', async () => {
-    render(<Header />, { wrapper: createWrapper() })
-    const tabs = screen.getAllByRole('tab')
-    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
-    expect(dockerTab).not.toBeNull()
-    fireEvent.mouseEnter(dockerTab!)
-    expect(screen.getByRole('menu')).not.toBeNull()
-    fireEvent.mouseLeave(dockerTab!)
-    // requestClose() closes after MENU_CLOSE_DELAY_MS (120ms); waitFor retries until closed
-    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
-  })
+  // requestClose() schedules close via setTimeout (MENU_CLOSE_DELAY_MS = 120ms).
+  // Fake setTimeout so tests flush the timer synchronously rather than waiting real time.
+  describe('delayed-close event handlers', () => {
+    const origSetTimeout = globalThis.setTimeout
+    const origClearTimeout = globalThis.clearTimeout
+    let pendingCallbacks: Array<{ fn: () => void; id: number }> = []
+    let nextTimerId = 1000
 
-  it('opens the menu when a menu tab receives focus', () => {
-    render(<Header />, { wrapper: createWrapper() })
-    const tabs = screen.getAllByRole('tab')
-    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
-    expect(dockerTab).not.toBeNull()
-    fireEvent.focus(dockerTab!)
-    expect(screen.getByRole('menu')).not.toBeNull()
-  })
+    beforeEach(() => {
+      pendingCallbacks = []
+      nextTimerId = 1000
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalThis as any).setTimeout = (fn: () => void) => {
+        const id = nextTimerId++
+        pendingCallbacks.push({ fn, id })
+        return id
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ;(globalThis as any).clearTimeout = (id?: number) => {
+        pendingCallbacks = pendingCallbacks.filter((cb) => cb.id !== id)
+      }
+    })
 
-  it('closes the open menu when a menu tab loses focus', async () => {
-    render(<Header />, { wrapper: createWrapper() })
-    const tabs = screen.getAllByRole('tab')
-    const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
-    expect(dockerTab).not.toBeNull()
-    fireEvent.focus(dockerTab!)
-    expect(screen.getByRole('menu')).not.toBeNull()
-    fireEvent.blur(dockerTab!)
-    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    afterEach(() => {
+      globalThis.setTimeout = origSetTimeout
+      globalThis.clearTimeout = origClearTimeout
+    })
+
+    function flushTimers() {
+      const cbs = [...pendingCallbacks]
+      pendingCallbacks = []
+      for (const cb of cbs) cb.fn()
+    }
+
+    it('closes the open menu when mouse leaves a menu tab', () => {
+      render(<Header />, { wrapper: createWrapper() })
+      const tabs = screen.getAllByRole('tab')
+      const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
+      expect(dockerTab).not.toBeNull()
+      fireEvent.mouseEnter(dockerTab!)
+      expect(screen.getByRole('menu')).not.toBeNull()
+      fireEvent.mouseLeave(dockerTab!)
+      act(() => { flushTimers() })
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
+
+    it('opens the menu when a menu tab receives focus', () => {
+      render(<Header />, { wrapper: createWrapper() })
+      const tabs = screen.getAllByRole('tab')
+      const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
+      expect(dockerTab).not.toBeNull()
+      fireEvent.focus(dockerTab!)
+      expect(screen.getByRole('menu')).not.toBeNull()
+    })
+
+    it('closes the open menu when a menu tab loses focus', () => {
+      render(<Header />, { wrapper: createWrapper() })
+      const tabs = screen.getAllByRole('tab')
+      const dockerTab = tabs.find((t) => t.textContent?.includes('Docker'))
+      expect(dockerTab).not.toBeNull()
+      fireEvent.focus(dockerTab!)
+      expect(screen.getByRole('menu')).not.toBeNull()
+      fireEvent.blur(dockerTab!)
+      act(() => { flushTimers() })
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
   })
 })
