@@ -27,6 +27,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 |----------|-------------|
 | [Architecture](docs/architecture.md) | System diagrams, data streaming pipeline, and how the two-stage collection works |
 | [Development Guide](docs/development.md) | Prerequisites, environment setup, running locally, and testing |
+| [Local OIDC Dev](docs/dev-oidc.md) | Pocket ID setup, dev users, one-time login URLs, and token refresh |
 | [Project Structure](docs/project-structure.md) | Full directory tree with file descriptions |
 | [Tech Stack](docs/tech-stack.md) | All technologies and their roles |
 | [Self-Hosting Guide](self-hosting/README.md) | Deploy with pre-built Docker images |

@@ -11,6 +11,7 @@ interface OidcEndpoints {
   authorizationEndpoint: string;
   tokenEndpoint: string;
   userinfoEndpoint: string;
+  endSessionEndpoint: string | null;
 }
 
 export class OidcClient {
@@ -54,7 +55,8 @@ export class OidcClient {
     if (typeof authEndpoint !== 'string' || typeof tokenEndpoint !== 'string' || typeof userinfoEndpoint !== 'string') {
       throw new Error('OIDC discovery response missing required endpoints (authorization_endpoint, token_endpoint, userinfo_endpoint)');
     }
-    this.endpoints = { authorizationEndpoint: authEndpoint, tokenEndpoint, userinfoEndpoint };
+    const endSessionEndpoint = typeof body.end_session_endpoint === 'string' ? body.end_session_endpoint : null;
+    this.endpoints = { authorizationEndpoint: authEndpoint, tokenEndpoint, userinfoEndpoint, endSessionEndpoint };
     return this.endpoints;
   }
 
@@ -70,6 +72,15 @@ export class OidcClient {
     });
     if (prompt) params.set('prompt', prompt);
     return `${endpoints.authorizationEndpoint}?${params.toString()}`;
+  }
+
+  /** Returns the RP-initiated logout URL, or null if the provider has no end_session_endpoint. */
+  async getLogoutUrl(postLogoutRedirectUri: string, idTokenHint?: string): Promise<string | null> {
+    const endpoints = await this.discoverEndpoints();
+    if (!endpoints.endSessionEndpoint) return null;
+    const params = new URLSearchParams({ post_logout_redirect_uri: postLogoutRedirectUri });
+    if (idTokenHint) params.set('id_token_hint', idTokenHint);
+    return `${endpoints.endSessionEndpoint}?${params.toString()}`;
   }
 
   async exchangeCode(code: string): Promise<OidcTokens> {
@@ -111,8 +122,7 @@ export class OidcClient {
     });
 
     if (!response.ok) {
-      console.error(`[OidcClient] Userinfo endpoint returned HTTP ${response.status} — proceeding with empty groups`);
-      return [];
+      throw new Error(`Userinfo endpoint returned HTTP ${response.status}`);
     }
 
     const body = await response.json();

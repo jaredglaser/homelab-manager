@@ -1,6 +1,10 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { createBroadcastSseHandler } from '../create-broadcast-sse-handler';
 
+mock.module('@/lib/auth/sse-auth', () => ({
+  authenticateSSE: mock(async () => ({ id: 1, role: 'admin' })),
+}));
+
 type Event = { n: number };
 
 function setup(serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(e)}\n\n`) {
@@ -207,6 +211,19 @@ describe('createBroadcastSseHandler', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
 
     reader.cancel();
+    ac.abort();
+  });
+
+  it('returns 401 when authenticateSSE returns null', async () => {
+    const { authenticateSSE } = require('@/lib/auth/sse-auth') as { authenticateSSE: ReturnType<typeof mock> };
+    authenticateSSE.mockImplementationOnce(async () => null);
+
+    const { handler } = setup();
+    const ac = new AbortController();
+
+    const res = await handler({ request: makeRequest(ac) });
+
+    expect(res.status).toBe(401);
     ac.abort();
   });
 });

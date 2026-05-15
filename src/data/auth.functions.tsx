@@ -7,11 +7,8 @@ import type { AuthUser } from '@/lib/auth/types';
 
 let cachedSessionManager: import('@/lib/auth/session-manager').SessionManager | null = null;
 
-/**
- * Middleware that reads the session cookie and resolves the AuthUser (or null).
- * Unlike authMiddleware, this never throws — it passes null when unauthenticated.
- */
-const sessionReadMiddleware = createMiddleware().server(async ({ next, context }) => {
+/** Reads the session cookie and resolves the AuthUser (or null). Never throws: passes null when unauthenticated, unlike authMiddleware. */
+export const sessionReadMiddleware = createMiddleware().server(async ({ next, context }) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ctx = context as any;
 
@@ -22,8 +19,8 @@ const sessionReadMiddleware = createMiddleware().server(async ({ next, context }
     return next({ context: { ...ctx, sessionUser: SYNTHETIC_ADMIN as AuthUser | null } });
   }
 
-  const request = ctx.request as Request | undefined;
-  const cookieHeader = request?.headers.get('cookie') ?? null;
+  const { getRequest } = await import('@tanstack/start-server-core');
+  const cookieHeader = getRequest().headers.get('cookie') ?? null;
 
   const { parseCookie } = await import('@/middleware/auth-middleware');
   const sessionToken = parseCookie(cookieHeader, 'session');

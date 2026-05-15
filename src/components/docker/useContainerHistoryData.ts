@@ -33,16 +33,11 @@ export interface UseContainerHistoryDataParams {
 }
 
 export interface ContainerHistoryData {
-  // Query loading/fetching states
   isInfoLoading: boolean;
   isChartFetching: boolean;
   isChartDataEmpty: boolean;
-
-  // Derived data
   timelineData: DockerStatsRow[];
   chartData: DockerStatsRow[];
-
-  // Container display info
   containerName: string;
   containerImage: string;
   iconUrl: string;
@@ -50,19 +45,13 @@ export interface ContainerHistoryData {
   showServiceKey: boolean;
   serviceKey: string | null;
   setIconError: (value: boolean) => void;
-
-  // Range state
   initialRange: { from: number; to: number };
   timelineRange: { from: number; to: number };
   activePresetMs: number | null;
   chartFrom: number;
   chartTo: number;
-
-  // Metric selection
   selectedMetrics: Set<MetricType>;
   handleMetricsChange: (metrics: Set<MetricType>) => void;
-
-  // Range handlers
   handleRangeChange: (from: number, to: number) => void;
   handlePresetChange: (ms: number) => void;
   handleCustomRangeChange: (from: number, to: number) => void;
@@ -105,7 +94,6 @@ export function useContainerHistoryData({
     () => parseMetrics(initialMetrics),
   );
 
-  // ─── Stream 1: Timeline data for the current range ───
   // Query key includes absolute from/to so presets and custom ranges trigger refetch.
   // Auto-refresh only when the range actually overlaps the current moment.
   const currentTime = Date.now();
@@ -125,7 +113,6 @@ export function useContainerHistoryData({
     refetchInterval: timelineIncludesNow ? 60_000 : false,
   });
 
-  // Fetch container info (name, image, icon)
   const infoQuery = useQuery({
     queryKey: ['container-info', host, containerId],
     queryFn: () => getContainerInfo({ data: { containerId, host } }),
@@ -135,7 +122,6 @@ export function useContainerHistoryData({
   // Auto-refresh charts when the range actually overlaps "now" (within 30s)
   const includesNow = debouncedRange.from <= currentTime && debouncedRange.to >= currentTime - 30_000;
 
-  // ─── Stream 2: Chart detail (debounced, fine-grained) ───
   const chartQuery = useQuery({
     queryKey: ['container-charts', host, containerId, debouncedRange.from, debouncedRange.to],
     queryFn: () => getContainerHistory({
@@ -176,14 +162,12 @@ export function useContainerHistoryData({
     setDebouncedRange({ from, to });
   }, []);
 
-  // Cleanup debounce timer
   useEffect(() => () => clearTimeout(debounceRef.current), []);
 
   const handleMetricsChange = useCallback((metrics: Set<MetricType>) => {
     setSelectedMetrics(metrics);
   }, []);
 
-  // Container display info
   const containerName = infoQuery.data?.containerName ?? containerId.substring(0, 12);
   const containerImage = infoQuery.data?.image ?? '';
   const containerIcon = infoQuery.data?.icon ?? null;

@@ -27,8 +27,6 @@ describe('loadMasterKeyring', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // ---- Single-key (backward-compat) ----------------------------------------
-
   it('loads from MASTER_KEY_FILE when set', async () => {
     const file = join(tmpDir, 'master.key');
     writeFileSync(file, Buffer.alloc(32, 1).toString('base64'));
@@ -75,7 +73,7 @@ describe('loadMasterKeyring', () => {
     await expect(loadMasterKeyring()).rejects.toThrow(/32 bytes/);
   });
 
-  // ---- Multi-key support ----------------------------------------------------
+
 
   it('loads multiple keys and selects the lexicographically last KID as active', async () => {
     process.env.MASTER_KEY = KEY_A;       // KID "v1"

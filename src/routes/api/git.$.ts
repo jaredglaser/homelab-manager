@@ -102,7 +102,7 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
   }
 
   if (decryptFailures > 0 && decryptFailures === encryptedTokens.length) {
-    console.error(`[GitAuth] ALL ${decryptFailures} token(s) failed to decrypt — Transit may be unavailable`);
+    console.error(`[GitAuth] ALL ${decryptFailures} token(s) failed to decrypt (Transit may be unavailable)`);
   }
 
   if (matchedTokenId === null || matchedUserId === null) {
@@ -131,7 +131,7 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
     return new Response('Forbidden', { status: 403 });
   }
 
-  // Update last_used_at non-blocking — auth has already succeeded
+  // Update last_used_at non-blocking; auth has already succeeded.
   gitTokenRepo.updateLastUsed(matchedTokenId).catch((err) => {
     console.error(
       `[GitAuth] Failed to update last_used_at for token ${matchedTokenId}:`,

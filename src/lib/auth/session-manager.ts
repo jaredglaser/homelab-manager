@@ -49,6 +49,21 @@ export class SessionManager {
     await this.deps.sessionRepo.deleteById(hashedId);
   }
 
+  /** Returns the stored id_token for RP-initiated logout (id_token_hint), or null if unavailable. */
+  async getIdToken(hashedId: string): Promise<string | null> {
+    const result = await this.deps.sessionRepo.findById(hashedId);
+    if (!result?.session.encryptedOidc) return null;
+    try {
+      const { decryptValue } = await import('@/lib/crypto/encrypted-value');
+      const plain = await decryptValue(result.session.encryptedOidc, this.deps.keyring);
+      const tokens = JSON.parse(plain) as { idToken?: string };
+      return typeof tokens.idToken === 'string' ? tokens.idToken : null;
+    } catch (err) {
+      console.error('[SessionManager] Failed to decrypt id_token for logout hint:', err);
+      return null;
+    }
+  }
+
   async revokeAllUserSessions(userId: number): Promise<void> {
     await this.deps.sessionRepo.deleteByUserId(userId);
   }

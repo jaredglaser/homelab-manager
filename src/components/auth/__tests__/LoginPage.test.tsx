@@ -12,6 +12,12 @@ describe('LoginPage', () => {
     render(<LoginPage />);
     const link = screen.getByRole('link', { name: 'Sign in' });
     expect(link).toBeDefined();
-    expect((link as HTMLAnchorElement).href).toContain('/api/auth/login');
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/api/auth/login');
+  });
+
+  it('includes prompt param in sign-in link when provided', () => {
+    render(<LoginPage prompt="login" />);
+    const link = screen.getByRole('link', { name: 'Sign in' });
+    expect((link as HTMLAnchorElement).getAttribute('href')).toBe('/api/auth/login?prompt=login');
   });
 });

@@ -25,16 +25,24 @@ if (IS_DEMO_MODE && typeof window !== 'undefined') {
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { loading } = useAuth()
+  const { loading, user, authEnabled } = useAuth()
   useSettingsSync()
   useLightPaletteEffect()
 
-  // Pre-seed all route data on app load so tab switches are instant
+  // Pre-seed route data after auth resolves so tab switches are instant.
+  // Gated on loading: avoids firing before the session check completes, which
+  // causes 401s when auth is enabled. When auth is disabled, server functions
+  // accept the synthetic admin so preloads work even with user=null.
   useEffect(() => {
+    if (loading) return;
+    // With auth enabled, only preload once the session is confirmed. If there's
+    // no session, a redirect to /login is already in flight.
+    if (authEnabled && !user) return;
     queryClient.ensureQueryData({ queryKey: [...DOCKER_PRELOAD_KEY], queryFn: () => preloadDockerStats(), staleTime: PRELOAD_STALE_TIME }).catch((err) => console.error('Failed to preload Docker stats:', err))
     queryClient.ensureQueryData({ queryKey: [...ZFS_PRELOAD_KEY], queryFn: preloadZFSStats, staleTime: PRELOAD_STALE_TIME }).catch((err) => console.error('Failed to preload ZFS stats:', err))
     queryClient.ensureQueryData({ queryKey: [...PROXMOX_PRELOAD_KEY], queryFn: preloadProxmoxStats, staleTime: PRELOAD_STALE_TIME }).catch((err) => console.error('Failed to preload Proxmox stats:', err))
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading])
 
   if (loading) {
     return (
@@ -50,7 +58,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
         <div className="flex flex-col h-screen overflow-hidden">
-          <Header />
+          <Header user={user} />
           <div className="flex-1 flex flex-col min-h-0 [view-transition-name:page-content]">
             {children}
           </div>

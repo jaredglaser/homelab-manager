@@ -41,7 +41,7 @@ interface HostEntry {
   /**
    * Reference to the listener registered on the global abort signal so
    * removeHost can detach it. Without this, every add/remove cycle leaks a
-   * closure on the global signal — `{ once: true }` only fires on the
+   * closure on the global signal; `{ once: true }` only fires on the
    * shutdown path, never on dynamic removes.
    */
   onGlobalAbort: () => void;

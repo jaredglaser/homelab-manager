@@ -195,6 +195,15 @@ describe('docker-exec websocket route', () => {
       const init = constructedWebSockets[0]!.init as { headers?: Record<string, string> };
       expect(init.headers?.Authorization).toBe('Bearer jwt-xyz');
     });
+
+    it('closes with 1011 "Internal error" when the open handler throws unexpectedly', async () => {
+      mockFindByName.mockImplementation(async () => { throw new Error('DB unavailable') });
+      const peer = makePeer({ url: 'http://localhost:3000/api/docker-exec/abc123?host=server1' });
+
+      await handler.open(peer);
+
+      expect(peer.close).toHaveBeenCalledWith(1011, 'Internal error');
+    });
   });
 
   describe('message', () => {

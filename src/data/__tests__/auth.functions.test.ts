@@ -69,6 +69,32 @@ mock.module('@/lib/config/auth-config', () => ({
 
 // createServerFn() wrappers do not return handler values in test context.
 // Tests verify delegation by asserting on mock call counts and arguments.
+
+describe('sessionReadMiddleware (auth disabled)', () => {
+  it('passes sessionUser: SYNTHETIC_ADMIN when auth is disabled', async () => {
+    const { sessionReadMiddleware } = await import('@/data/auth.functions');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const serverHandler = (sessionReadMiddleware as any).options.server as (
+      args: unknown,
+    ) => Promise<unknown>;
+
+    let capturedContext: Record<string, unknown> = {};
+    const nextFn = mock(({ context }: { context: Record<string, unknown> }) => {
+      capturedContext = context;
+      return Promise.resolve();
+    });
+
+    await serverHandler({ next: nextFn, context: {} });
+
+    expect(nextFn).toHaveBeenCalledTimes(1);
+    expect(capturedContext.sessionUser).toMatchObject({
+      id: 0,
+      email: 'admin@local',
+      role: 'admin',
+    });
+  });
+});
+
 describe('auth.functions', () => {
   beforeEach(() => {
     mockPool.query.mockClear();
@@ -143,6 +169,13 @@ describe('auth.functions', () => {
       const { revokeAllUserSessions } = await import('@/data/auth.functions');
       await revokeAllUserSessions({ data: { userId: 99 } });
       expect(mockSessionDeleteByUserId).toHaveBeenCalledWith(99);
+    });
+  });
+
+  describe('getRoleMapping', () => {
+    it('is callable without throwing when auth is disabled', async () => {
+      const { getRoleMapping } = await import('@/data/auth.functions');
+      await getRoleMapping({});
     });
   });
 

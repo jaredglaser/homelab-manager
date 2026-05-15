@@ -172,10 +172,60 @@ services:
     profiles:
       - management
 
+  # Pocket ID OIDC provider (oidc profile)
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:v2
+    container_name: hlm-pocket-id
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1411:1411"
+    volumes:
+      - pocketid-data:/app/data
+    environment:
+      APP_URL: "http://localhost:1411"
+      ENCRYPTION_KEY: "${POCKET_ID_ENCRYPTION_KEY}"
+      STATIC_API_KEY: "${POCKET_ID_API_KEY}"
+      DISABLE_RATE_LIMITING: "true"
+      ANALYTICS_DISABLED: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:1411/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - homelab-network
+    profiles:
+      - oidc
+
+  # Seeds Pocket ID with an OIDC client for local dev (oidc profile)
+  pocket-id-seeder:
+    image: curlimages/curl:latest
+    container_name: hlm-pocket-id-seeder
+    entrypoint: ["/bin/sh"]
+    command: ["/scripts/seed-pocketid.sh"]
+    volumes:
+      - .:/workspace
+      - ./scripts/dev:/scripts:ro
+    environment:
+      POCKET_ID_URL: "http://pocket-id:1411"
+      POCKET_ID_API_KEY: "${POCKET_ID_API_KEY}"
+      APP_CALLBACK_URL: "http://localhost:3000/api/auth/callback"
+      OUTPUT_ENV_FILE: "/workspace/.env.development.local"
+      OUTPUT_LOGINS_FILE: "/workspace/data/dev-oidc-logins.txt"
+    depends_on:
+      pocket-id:
+        condition: service_healthy
+    networks:
+      - homelab-network
+    profiles:
+      - oidc
+
 volumes:
   node_modules:
   pgdata-local:
   agent-stacks-local:
+  pocketid-data:
 
 networks:
   homelab-network:

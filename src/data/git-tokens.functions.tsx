@@ -3,10 +3,7 @@ import { z } from 'zod';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
 
-/**
- * Create a new git token for the current admin user.
- * The raw token is returned once — it is never stored in plaintext.
- */
+/** Creates a git token. The raw token is returned once and never stored in plaintext. */
 export const createGitToken = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(z.object({ label: z.string().min(1).max(100) }))

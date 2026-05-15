@@ -846,3 +846,44 @@ describe('StackStatusBroadcastService', () => {
     }
   });
 });
+
+// defaultGetPoolClient and defaultLoadSnapshot are the production defaults used
+// when no deps are injected. They use dynamic imports so we mock those modules
+// here; bun resolves dynamic imports at call time, so the mocks apply even
+// though StackStatusBroadcastService was already imported above.
+mock.module('@/lib/config/database-config', () => ({
+  loadDatabaseConfig: () => ({}),
+}));
+
+mock.module('@/lib/clients/database-client', () => ({
+  databaseConnectionManager: {
+    getClient: async () => ({
+      getPool: () => ({
+        connect: async () => {
+          const client = createMockPoolClient();
+          return client as unknown as PoolClient;
+        },
+      }),
+    }),
+  },
+}));
+
+mock.module('@/lib/database/repositories/docker-container-event-repository', () => ({
+  DockerContainerEventRepository: class {
+    async getCurrentSnapshot() { return []; }
+  },
+}));
+
+describe('default dependency implementations', () => {
+  it('uses defaultGetPoolClient and defaultLoadSnapshot when no deps are injected', async () => {
+    const service = new StackStatusBroadcastService();
+    const received: unknown[] = [];
+    const unsub = service.subscribe((event) => { received.push(event); });
+    await flush();
+    await flush();
+    unsub();
+    await service.stop();
+    // sendInit fires a 'status' event with an empty entries list (snapshot is empty)
+    expect(received.some((e) => (e as { type: string }).type === 'status')).toBe(true);
+  });
+});

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, afterEach } from 'bun:test';
 import { OidcClient } from '@/lib/auth/oidc-client';
 import type { OidcConfig } from '@/lib/auth/oidc-client';
 
@@ -15,6 +15,11 @@ const DISCOVERY_BODY = {
   authorization_endpoint: 'https://auth.example.com/authorize',
   token_endpoint: 'https://auth.example.com/token',
   userinfo_endpoint: 'https://auth.example.com/userinfo',
+};
+
+const DISCOVERY_BODY_WITH_END_SESSION = {
+  ...DISCOVERY_BODY,
+  end_session_endpoint: 'https://auth.example.com/logout',
 };
 
 const config: OidcConfig = {
@@ -50,6 +55,38 @@ function makeDiscoveryFetch(extraHandlers?: Record<string, () => Response>): Fet
 }
 
 describe('OidcClient', () => {
+  describe('fetchWithTimeout (timeout callback)', () => {
+    const origSetTimeout = globalThis.setTimeout;
+
+    afterEach(() => {
+      globalThis.setTimeout = origSetTimeout;
+    });
+
+    it('aborts the request when the timeout fires', async () => {
+      let capturedCallback: (() => void) | null = null;
+      // Capture the timeout callback without scheduling it
+      globalThis.setTimeout = ((fn: () => void) =>
+        ((capturedCallback = fn), 0)) as typeof globalThis.setTimeout;
+
+      // A fetch that rejects only when the AbortSignal fires
+      const hangingFetch = asFetch((_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        }),
+      );
+
+      const client = new OidcClient(config, hangingFetch);
+      const promise = client.discoverEndpoints();
+
+      // Fire the captured timeout callback — calls controller.abort()
+      capturedCallback!();
+
+      await expect(promise).rejects.toThrow();
+    });
+  });
+
   describe('discoverEndpoints', () => {
     it('fetches .well-known/openid-configuration and returns endpoints', async () => {
       const client = new OidcClient(config, makeDiscoveryFetch());
@@ -58,6 +95,18 @@ describe('OidcClient', () => {
       expect(endpoints.authorizationEndpoint).toBe('https://auth.example.com/authorize');
       expect(endpoints.tokenEndpoint).toBe('https://auth.example.com/token');
       expect(endpoints.userinfoEndpoint).toBe('https://auth.example.com/userinfo');
+      expect(endpoints.endSessionEndpoint).toBeNull();
+    });
+
+    it('captures end_session_endpoint when present in discovery document', async () => {
+      const fetchFn = asFetch(async (input) => {
+        if (input.toString() === DISCOVERY_URL) return makeResponse(DISCOVERY_BODY_WITH_END_SESSION);
+        return makeResponse({}, 404);
+      });
+      const client = new OidcClient(config, fetchFn);
+      const endpoints = await client.discoverEndpoints();
+
+      expect(endpoints.endSessionEndpoint).toBe('https://auth.example.com/logout');
     });
 
     it('caches result so fetch is only called once on repeated calls', async () => {
@@ -139,6 +188,39 @@ describe('OidcClient', () => {
       const url = await client.getAuthorizationUrl('state-abc', 'nonce-xyz', 'none');
 
       expect(new URL(url).searchParams.get('prompt')).toBe('none');
+    });
+  });
+
+  describe('getLogoutUrl', () => {
+    it('returns end_session_endpoint URL with post_logout_redirect_uri when advertised', async () => {
+      const fetchFn = asFetch(async (input) => {
+        if (input.toString() === DISCOVERY_URL) return makeResponse(DISCOVERY_BODY_WITH_END_SESSION);
+        return makeResponse({}, 404);
+      });
+      const client = new OidcClient(config, fetchFn);
+      const url = await client.getLogoutUrl('https://app.example.com/login');
+
+      const parsed = new URL(url!);
+      expect(parsed.origin + parsed.pathname).toBe('https://auth.example.com/logout');
+      expect(parsed.searchParams.get('post_logout_redirect_uri')).toBe('https://app.example.com/login');
+      expect(parsed.searchParams.has('id_token_hint')).toBe(false);
+    });
+
+    it('includes id_token_hint when provided', async () => {
+      const fetchFn = asFetch(async (input) => {
+        if (input.toString() === DISCOVERY_URL) return makeResponse(DISCOVERY_BODY_WITH_END_SESSION);
+        return makeResponse({}, 404);
+      });
+      const client = new OidcClient(config, fetchFn);
+      const url = await client.getLogoutUrl('https://app.example.com/login', 'my-id-token');
+
+      expect(new URL(url!).searchParams.get('id_token_hint')).toBe('my-id-token');
+    });
+
+    it('returns null when provider has no end_session_endpoint', async () => {
+      const client = new OidcClient(config, makeDiscoveryFetch());
+      const url = await client.getLogoutUrl('https://app.example.com/login');
+      expect(url).toBeNull();
     });
   });
 
@@ -267,15 +349,15 @@ describe('OidcClient', () => {
       expect(groups).toEqual([]);
     });
 
-    it('returns empty array on non-ok userinfo response', async () => {
+    it('throws on non-ok userinfo response', async () => {
       const mockFetch = makeDiscoveryFetch({
         'https://auth.example.com/userinfo': () => makeResponse({ error: 'unauthorized' }, 401),
       });
 
       const client = new OidcClient(config, mockFetch);
-      const groups = await client.getUserGroups('expired-token');
-
-      expect(groups).toEqual([]);
+      await expect(client.getUserGroups('expired-token')).rejects.toThrow(
+        'Userinfo endpoint returned HTTP 401',
+      );
     });
 
     it('sends Authorization: Bearer header', async () => {
