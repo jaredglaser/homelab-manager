@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, afterEach } from 'bun:test';
 import { OidcClient } from '@/lib/auth/oidc-client';
 import type { OidcConfig } from '@/lib/auth/oidc-client';
 
@@ -55,6 +55,38 @@ function makeDiscoveryFetch(extraHandlers?: Record<string, () => Response>): Fet
 }
 
 describe('OidcClient', () => {
+  describe('fetchWithTimeout (timeout callback)', () => {
+    const origSetTimeout = globalThis.setTimeout;
+
+    afterEach(() => {
+      globalThis.setTimeout = origSetTimeout;
+    });
+
+    it('aborts the request when the timeout fires', async () => {
+      let capturedCallback: (() => void) | null = null;
+      // Capture the timeout callback without scheduling it
+      globalThis.setTimeout = ((fn: () => void) =>
+        ((capturedCallback = fn), 0)) as typeof globalThis.setTimeout;
+
+      // A fetch that rejects only when the AbortSignal fires
+      const hangingFetch = asFetch((_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        }),
+      );
+
+      const client = new OidcClient(config, hangingFetch);
+      const promise = client.discoverEndpoints();
+
+      // Fire the captured timeout callback — calls controller.abort()
+      capturedCallback!();
+
+      await expect(promise).rejects.toThrow();
+    });
+  });
+
   describe('discoverEndpoints', () => {
     it('fetches .well-known/openid-configuration and returns endpoints', async () => {
       const client = new OidcClient(config, makeDiscoveryFetch());
