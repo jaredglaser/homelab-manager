@@ -73,6 +73,8 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPan
         containerId="abc123"
         host="server"
         inventory={sampleInventory}
+        serviceKeyEntity="server/abc123"
+        onIconChange={async () => {}}
         {...overrides}
       />
     </Provider>,

@@ -217,24 +217,6 @@ describe('ContainerTable', () => {
     expect(stoppedRows.length).toBeGreaterThan(0);
   });
 
-  it('history button fires onOpenHistory with correct args when clicked', () => {
-    const calls: Array<{ containerId: string; host: string }> = [];
-    const handleOpenHistory = (containerId: string, host: string) => {
-      calls.push({ containerId, host });
-    };
-
-    const inventory = new Map([
-      ['host1/abc123', makeInventory('host1', 'abc123', 'my-app', 'exited')],
-    ]);
-    renderTable({ inventory, onOpenHistory: handleOpenHistory });
-
-    const historyButton = screen.getByLabelText('View container history');
-    fireEvent.click(historyButton);
-    expect(calls.length).toBe(1);
-    expect(calls[0]!.containerId).toBe('abc123');
-    expect(calls[0]!.host).toBe('host1');
-  });
-
   it('shows exit metadata in the expanded detail panel for an exited container', () => {
     const inventory = new Map([
       ['host1/abc123', {

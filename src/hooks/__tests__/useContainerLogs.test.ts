@@ -229,6 +229,27 @@ describe('useContainerLogs', () => {
     });
   });
 
+  it('does not reconnect after stream_end event from agent', () => {
+    const { result } = renderHook(() =>
+      useContainerLogs({
+        containerId: 'abc123',
+        host: 'server',
+        terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+      }),
+    );
+
+    act(() => {
+      MockEventSource.instances[0].onopen?.();
+      MockEventSource.instances[0].dispatchEvent('stream_end', {});
+      MockEventSource.instances[0].onerror?.();
+    });
+
+    // Only the initial connection -- no reconnect after stream_end
+    expect(MockEventSource.instances.length).toBe(1);
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
   it('handles error SSE events from the agent', () => {
     renderHook(() =>
       useContainerLogs({
