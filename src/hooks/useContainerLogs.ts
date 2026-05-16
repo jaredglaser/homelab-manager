@@ -67,6 +67,8 @@ export function useContainerLogs({
     const connect = () => {
       if (!mounted) return;
 
+      let streamEnded = false;
+
       const url = apiUrl(`/api/docker-logs/${encodeURIComponent(containerId)}?host=${encodeURIComponent(host)}`);
       const eventSource = new EventSource(url);
       eventSourceRef.current = eventSource;
@@ -104,6 +106,12 @@ export function useContainerLogs({
       // to prevent the event from hitting the default onmessage handler.
       eventSource.addEventListener('backlog_done', () => {});
 
+      // Agent sends this when the live follow stream ends cleanly (container stopped).
+      // Suppress the reconnect loop -- there are no more logs to stream.
+      eventSource.addEventListener('stream_end', () => {
+        streamEnded = true;
+      });
+
       const handleLogError = (event: Event) => {
         if (!mounted) return;
         // Named SSE 'error' events carry a data payload; native connection errors do not.
@@ -135,6 +143,8 @@ export function useContainerLogs({
 
         eventSource.close();
         eventSourceRef.current = null;
+
+        if (streamEnded) return;
 
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
           setError(new Error('Log stream disconnected after multiple reconnect attempts. Check that the agent for this host is running and the container still exists.'));

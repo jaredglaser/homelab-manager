@@ -12,6 +12,7 @@ interface ContainerTerminalProps {
   host: string;
   shell: string;
   frozen: boolean;
+  wordWrap: boolean;
   /** Called when the agent reports which shell it actually spawned (for `auto`). */
   onShellResolved?: (shell: string) => void;
 }
@@ -21,14 +22,20 @@ export default memo(function ContainerTerminal({
   host,
   shell,
   frozen,
+  wordWrap,
   onShellResolved,
 }: ContainerTerminalProps) {
-  const { containerRef, terminal, error: setupError } = useXtermSetup({
+  const { containerRef, terminal, error: setupError, setWordWrap } = useXtermSetup({
     disableStdin: false,
     cursorBlink: true,
     convertEol: true,
   });
   const [ready, setReady] = useState(false);
+
+  // terminal is a dep so this re-runs once the xterm instance is ready
+  useEffect(() => {
+    setWordWrap(wordWrap);
+  }, [terminal, wordWrap, setWordWrap]);
 
   const { isConnected, error: wsError, resolvedShell, sessionEnded, reconnect } = useTerminalSession({
     containerId,
@@ -64,7 +71,7 @@ export default memo(function ContainerTerminal({
     >
       <div
         ref={containerRef}
-        className={`flex-1 p-2 min-h-0 transition-opacity duration-300 ${showSkeleton ? 'opacity-0' : 'opacity-100'}`}
+        className={`flex-1 p-2 min-h-0 transition-opacity duration-300 ${!wordWrap ? 'overflow-x-auto overflow-y-hidden' : ''} ${showSkeleton ? 'opacity-0' : 'opacity-100'}`}
       />
       {showSkeleton && (
         <div className="absolute inset-0 px-3 pb-3 flex flex-col gap-1 pt-2">
