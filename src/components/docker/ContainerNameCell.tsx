@@ -40,7 +40,8 @@ function ContainerNameCell({
   const lastUpdatedMs = lastUpdated?.getTime() ?? 0;
   const { indicatorRef, pingRef, dotRef } = usePulseIndicator(lastUpdatedMs);
 
-  const handleIconSelect = async (iconSlug: string) => {
+  const handleIconSelect = async (iconSlug: string | null) => {
+    if (iconSlug === null) return; // null means use auto-detected — no stored preference to save
     try {
       const serviceKeyEntity = stats?.serviceKeyEntity ?? `${inventory.host}/${inventory.name}`;
       await onIconChange(serviceKeyEntity, iconSlug);

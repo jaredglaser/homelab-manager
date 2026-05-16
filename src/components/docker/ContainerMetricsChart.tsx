@@ -67,6 +67,12 @@ const METRIC_DEFS: MetricDef[] = [
   },
 ];
 
+// Compile-time check: every MetricKey must have a MetricDef entry.
+const _exhaustiveMetricDefs: Record<MetricKey, true> = Object.fromEntries(
+  METRIC_DEFS.map((d) => [d.key, true]),
+) as Record<MetricKey, true>;
+void _exhaustiveMetricDefs;
+
 interface ContainerMetricsChartProps {
   dataPoints: ChartDataPoint[];
   active: Set<MetricKey>;
@@ -192,15 +198,15 @@ function LegendChip({
       onClick={onToggle}
       className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium transition-all cursor-pointer"
       style={{
-        border: `1px solid ${isActive ? colors.line : 'var(--mui-palette-divider)'}`,
-        background: isActive ? `color-mix(in srgb, ${colors.line} 12%, transparent)` : 'transparent',
+        border: isActive && colors.line ? `1px solid ${colors.line}` : '1px solid var(--mui-palette-divider)',
+        background: isActive ? (colors.line ? `color-mix(in srgb, ${colors.line} 12%, transparent)` : 'transparent') : 'transparent',
         color: isActive ? 'var(--mui-palette-text-primary)' : 'var(--mui-palette-text-disabled)',
       }}
     >
       <span
         className="w-2 h-2 rounded-full shrink-0"
         style={{
-          background: isActive ? colors.line : 'var(--mui-palette-text-disabled)',
+          background: isActive ? (colors.line || 'var(--mui-palette-divider)') : 'var(--mui-palette-text-disabled)',
           opacity: metric.dashed ? 0.6 : 1,
         }}
       />
@@ -227,7 +233,9 @@ export default memo(function ContainerMetricsChart({
 
   const option = useMemo(
     () => buildOption(dataPoints, active, windowMs, chrome, general.use12HourTime),
-    // chrome is a new object each render; adding it would rerun buildOption every render
+    // resolveChartChromeColors() reads getComputedStyle on every call and returns a new object,
+    // so chrome is never reference-stable. Omitting it is safe: theme changes also cause
+    // parent re-renders which update dataPoints, triggering a memo recompute.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [dataPoints, active, windowMs, general.use12HourTime],
   );

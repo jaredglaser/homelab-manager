@@ -1,9 +1,10 @@
 import { memo, useCallback, useState } from 'react';
-import { Play, Square, RotateCcw, ScrollText, Terminal, History } from 'lucide-react';
+import { ScrollText, Terminal, History } from 'lucide-react';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerMetricsChart, { type MetricKey } from '@/components/docker/ContainerMetricsChart';
 import ContainerModal, { type ModalTab } from '@/components/docker/ContainerModal';
+import ContainerActionButtons from '@/components/docker/ContainerActionButtons';
 import type { ChartDataPoint } from '@/hooks/useContainerChartData';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
@@ -15,8 +16,17 @@ interface ContainerDetailPanelProps {
   iconSlug?: string | null;
 }
 
+// SSE JSON.parse delivers ISO strings; useEventSource has no Zod coercion at the boundary.
+function toDate(date: Date | null): Date | null {
+  if (!date) return null;
+  if (date instanceof Date) return date;
+  const d = new Date(date as unknown as string);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function formatLocalDateTime(date: Date | null): string {
-  if (!date) return '—';
+  const d = toDate(date);
+  if (!d) return '-';
   return new Intl.DateTimeFormat(undefined, {
     month: 'long',
     day: 'numeric',
@@ -25,12 +35,13 @@ function formatLocalDateTime(date: Date | null): string {
     minute: '2-digit',
     hour12: true,
     timeZoneName: 'short',
-  }).format(date);
+  }).format(d);
 }
 
 function formatUptime(startedAt: Date | null): string {
-  if (!startedAt) return '—';
-  const ms = Date.now() - startedAt.getTime();
+  const d = toDate(startedAt);
+  if (!d) return '-';
+  const ms = Date.now() - d.getTime();
   const totalSec = Math.floor(ms / 1000);
   const days = Math.floor(totalSec / 86400);
   const hours = Math.floor((totalSec % 86400) / 3600);
@@ -48,16 +59,10 @@ interface StatusItemProps {
 function StatusItem({ label, value }: StatusItemProps) {
   return (
     <div className="flex items-baseline gap-1 shrink-0">
-      <span
-        className="text-xs font-medium"
-        style={{ color: 'var(--mui-palette-text-secondary)' }}
-      >
+      <span className="text-xs font-medium text-(--mui-palette-text-secondary)">
         {label}
       </span>
-      <span
-        className="font-mono text-xs tabular-nums"
-        style={{ color: 'var(--mui-palette-text-primary)' }}
-      >
+      <span className="font-mono text-xs tabular-nums text-(--mui-palette-text-primary)">
         {value}
       </span>
     </div>
@@ -69,25 +74,15 @@ interface ActionStripButtonProps {
   label: string;
   onClick?: () => void;
   disabled?: boolean;
-  danger?: boolean;
 }
 
-function ActionStripButton({ icon, label, onClick, disabled, danger }: ActionStripButtonProps) {
+function ActionStripButton({ icon, label, onClick, disabled }: ActionStripButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1 px-2 rounded text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-      style={{
-        height: 28,
-        border: '1px solid var(--mui-palette-divider)',
-        background: 'transparent',
-        color: danger
-          ? 'var(--mui-palette-error-main)'
-          : 'var(--mui-palette-text-secondary)',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-      }}
+      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-(--mui-palette-text-secondary) border border-(--mui-palette-divider) bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
     >
       {icon}
       {label}
@@ -97,26 +92,24 @@ function ActionStripButton({ icon, label, onClick, disabled, danger }: ActionStr
 
 function StatusStrip({
   inventory,
+  containerId,
+  host,
   onAction,
 }: {
   inventory: DockerInventorySnapshotContainer;
-  onAction: (action: ModalTab | 'start' | 'stop' | 'restart') => void;
+  containerId: string;
+  host: string;
+  onAction: (action: ModalTab) => void;
 }) {
   const isRunning = inventory.state === 'running';
   const isExited = inventory.state === 'exited';
   const shortId = inventory.containerId.slice(-12);
 
   return (
-    <div
-      className="flex items-center gap-3 px-3 py-2 flex-wrap border-b border-(--mui-palette-divider)"
-      style={{ minHeight: 40 }}
-    >
+    <div className="flex items-center gap-3 px-3 py-2 flex-wrap border-b border-(--mui-palette-divider) min-h-[40px]">
       <ContainerStateChip state={inventory.state} />
 
-      <div
-        className="w-px h-3.5 shrink-0"
-        style={{ background: 'var(--mui-palette-divider)' }}
-      />
+      <div className="w-px h-3.5 shrink-0 bg-(--mui-palette-divider)" />
 
       <StatusItem
         label="Image"
@@ -141,30 +134,9 @@ function StatusStrip({
       <StatusItem label="ID" value={shortId} />
 
       <div className="ml-auto flex items-center gap-1 shrink-0">
-        <ActionStripButton
-          icon={<Play size={12} />}
-          label="Start"
-          disabled
-          onClick={() => onAction('start')}
-        />
-        <ActionStripButton
-          icon={<Square size={12} />}
-          label="Stop"
-          danger
-          disabled={!isRunning}
-          onClick={() => onAction('stop')}
-        />
-        <ActionStripButton
-          icon={<RotateCcw size={12} />}
-          label="Restart"
-          disabled={!isRunning}
-          onClick={() => onAction('restart')}
-        />
+        <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
 
-        <div
-          className="w-px h-4 mx-1 shrink-0"
-          style={{ background: 'var(--mui-palette-divider)' }}
-        />
+        <div className="w-px h-4 mx-1 shrink-0 bg-(--mui-palette-divider)" />
 
         <ActionStripButton
           icon={<ScrollText size={12} />}
@@ -197,31 +169,20 @@ function LogPreviewPanel({
   onOpenFull: () => void;
 }) {
   return (
-    <div
-      className="flex flex-col h-full rounded-sm overflow-hidden"
-      style={{ background: 'var(--mui-palette-background-chartBg)' }}
-    >
-      <div
-        className="flex items-center justify-between px-2 py-1 border-b border-(--mui-palette-divider) shrink-0"
-      >
-        <span
-          className="text-xs font-medium"
-          style={{ color: 'var(--mui-palette-text-secondary)' }}
-        >
+    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--mui-palette-background-chartBg)">
+      <div className="flex items-center justify-between px-2 py-1 border-b border-(--mui-palette-divider) shrink-0">
+        <span className="text-xs font-medium text-(--mui-palette-text-secondary)">
           Recent logs
         </span>
       </div>
       <div className="flex-1 min-h-0">
         <ContainerLogViewer containerId={containerId} host={host} />
       </div>
-      <div
-        className="shrink-0 px-2 py-1 border-t border-(--mui-palette-divider) flex justify-end"
-      >
+      <div className="shrink-0 px-2 py-1 border-t border-(--mui-palette-divider) flex justify-end">
         <button
           type="button"
           onClick={onOpenFull}
-          className="text-xs transition-opacity hover:opacity-80"
-          style={{ color: 'var(--mui-palette-primary-main)' }}
+          className="text-xs text-(--mui-palette-primary-main) transition-opacity hover:opacity-80"
         >
           Open full view →
         </button>
@@ -246,15 +207,6 @@ export default memo(function ContainerDetailPanel({
     setModalOpen(true);
   }, []);
 
-  const handleAction = useCallback(
-    (action: ModalTab | 'start' | 'stop' | 'restart') => {
-      if (action === 'logs' || action === 'terminal' || action === 'history') {
-        openModal(action);
-      }
-    },
-    [openModal],
-  );
-
   const handleToggle = useCallback((key: MetricKey) => {
     setActive((prev) => {
       const next = new Set(prev);
@@ -268,20 +220,17 @@ export default memo(function ContainerDetailPanel({
   }, []);
 
   return (
-    <div
-      className="border-b border-(--mui-palette-divider)"
-      style={{ background: 'var(--mui-palette-background-level1)' }}
-    >
-      <StatusStrip inventory={inventory} onAction={handleAction} />
+    <div className="border-b border-(--mui-palette-divider) bg-(--mui-palette-background-level1)">
+      <StatusStrip
+        inventory={inventory}
+        containerId={containerId}
+        host={host}
+        onAction={openModal}
+      />
 
       <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)',
-          gap: 12,
-          padding: 12,
-          height: 232,
-        }}
+        className="grid gap-3 p-3 h-[232px]"
+        style={{ gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)' }}
       >
         <ContainerMetricsChart
           dataPoints={dataPoints}

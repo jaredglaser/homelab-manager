@@ -135,17 +135,20 @@ function DockerContainersPage() {
         onIconChange={handleIconChange}
         onOpenHistory={handleOpenHistory}
       />
-      {historyTarget && (
-        <ContainerModal
-          open={historyOpen}
-          onClose={handleCloseHistory}
-          containerId={historyTarget.containerId}
-          host={historyTarget.host}
-          inventory={inventory.get(`${historyTarget.host}/${historyTarget.containerId}`) ?? null}
-          initialTab="history"
-          iconSlug={entityIcons?.[`${historyTarget.host}/${historyTarget.containerId}`]?.iconSlug}
-        />
-      )}
+      {historyTarget && (() => {
+        const inv = inventory.get(`${historyTarget.host}/${historyTarget.containerId}`);
+        return inv ? (
+          <ContainerModal
+            open={historyOpen}
+            onClose={handleCloseHistory}
+            containerId={historyTarget.containerId}
+            host={historyTarget.host}
+            inventory={inv}
+            initialTab="history"
+            iconSlug={entityIcons?.[`${historyTarget.host}/${historyTarget.containerId}`]?.iconSlug}
+          />
+        ) : null;
+      })()}
     </div>
   )
 }

@@ -1,24 +1,26 @@
 import { memo, useCallback, useState } from 'react';
 import { Dialog, DialogContent, IconButton, Select, MenuItem, FormControl, InputLabel, CircularProgress } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { ScrollText, Terminal, History, X, Play, Square, RotateCcw } from 'lucide-react';
+import { ScrollText, Terminal, History, X } from 'lucide-react';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ContainerHistoryPage from '@/components/docker/ContainerHistoryPage';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
+import ContainerActionButtons from '@/components/docker/ContainerActionButtons';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
 import { IS_DEMO_MODE } from '@/lib/constants/demo';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 export type ModalTab = 'logs' | 'terminal' | 'history';
+export type ContainerAction = 'start' | 'stop' | 'restart';
 
 interface ContainerModalProps {
   open: boolean;
   onClose: () => void;
   containerId: string;
   host: string;
-  inventory: DockerInventorySnapshotContainer | null;
+  inventory: DockerInventorySnapshotContainer;
   initialTab?: ModalTab;
   iconSlug?: string | null;
 }
@@ -41,10 +43,7 @@ function TabSwitch({
   isRunning: boolean;
 }) {
   return (
-    <div
-      className="inline-flex gap-0.5 rounded-full p-0.5"
-      style={{ background: 'var(--mui-palette-background-default)' }}
-    >
+    <div className="inline-flex gap-0.5 rounded-full p-0.5 bg-(--mui-palette-background-default)">
       {TABS.map(({ key, label, Icon }) => {
         const active = value === key;
         const disabled = key === 'terminal' && !isRunning;
@@ -54,17 +53,15 @@ function TabSwitch({
             type="button"
             disabled={disabled}
             onClick={() => onChange(key)}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all"
-            style={{
-              background: active ? 'var(--mui-palette-background-popup)' : 'transparent',
-              color: disabled
-                ? 'var(--mui-palette-text-disabled)'
+            className={[
+              'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all',
+              active ? 'bg-(--mui-palette-background-popup) shadow-[var(--shadow-1)]' : '',
+              disabled
+                ? 'text-(--mui-palette-text-disabled) cursor-not-allowed'
                 : active
-                  ? 'var(--mui-palette-text-primary)'
-                  : 'var(--mui-palette-text-secondary)',
-              cursor: disabled ? 'not-allowed' : 'pointer',
-              boxShadow: active ? 'var(--shadow-1)' : 'none',
-            }}
+                  ? 'text-(--mui-palette-text-primary) cursor-pointer'
+                  : 'text-(--mui-palette-text-secondary) cursor-pointer',
+            ].join(' ')}
           >
             <Icon size={12} />
             {label}
@@ -77,6 +74,8 @@ function TabSwitch({
 
 function ModalHeader({
   inventory,
+  containerId,
+  host,
   iconUrl,
   iconError,
   onIconError,
@@ -88,6 +87,8 @@ function ModalHeader({
   onClose,
 }: {
   inventory: DockerInventorySnapshotContainer;
+  containerId: string;
+  host: string;
   iconUrl: string;
   iconError: boolean;
   onIconError: () => void;
@@ -102,10 +103,7 @@ function ModalHeader({
   const shortId = inventory.containerId.slice(-8);
 
   return (
-    <div
-      className="flex items-center gap-3 px-3 py-2 border-b border-(--mui-palette-divider) shrink-0"
-      style={{ background: 'var(--mui-palette-background-popup)', minHeight: 52 }}
-    >
+    <div className="flex items-center gap-3 px-3 py-2 border-b border-(--mui-palette-divider) shrink-0 bg-(--mui-palette-background-popup) min-h-[52px]">
       <img
         src={iconError ? FALLBACK_ICON_URL : iconUrl}
         alt=""
@@ -116,10 +114,7 @@ function ModalHeader({
         <span className="text-sm font-semibold leading-tight truncate max-w-[160px]">
           {inventory.name}
         </span>
-        <span
-          className="font-mono text-[10px] leading-tight"
-          style={{ color: 'var(--mui-palette-text-disabled)' }}
-        >
+        <span className="font-mono text-[10px] leading-tight text-(--mui-palette-text-disabled)">
           {inventory.host} / {shortId}
         </span>
       </div>
@@ -161,22 +156,9 @@ function ModalHeader({
         </FormControl>
       )}
 
-      <div className="flex items-center gap-1 shrink-0">
-        <IconButton size="small" disabled className="p-1!">
-          <Play size={14} />
-        </IconButton>
-        <IconButton size="small" disabled={!isRunning} className="p-1!">
-          <Square size={14} />
-        </IconButton>
-        <IconButton size="small" disabled={!isRunning} className="p-1!">
-          <RotateCcw size={14} />
-        </IconButton>
-      </div>
+      <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} compact />
 
-      <div
-        className="w-px h-5 shrink-0"
-        style={{ background: 'var(--mui-palette-divider)' }}
-      />
+      <div className="w-px h-5 shrink-0 bg-(--mui-palette-divider)" />
 
       <IconButton size="small" onClick={onClose} aria-label="Close modal" className="p-1! shrink-0">
         <X size={16} />
@@ -200,12 +182,12 @@ export default memo(function ContainerModal({
   const [iconError, setIconError] = useState(false);
 
   const { getContainerShell, setContainerShell } = useDockerSettings();
-  const shellKey = inventory ? `${host}/${inventory.name}` : `${host}/${containerId}`;
+  const shellKey = `${host}/${inventory.name}`;
   const savedShell = getContainerShell(shellKey);
   const effectiveShell =
     savedShell === undefined || savedShell === '' || savedShell === 'auto' ? 'auto' : savedShell;
 
-  const isRunning = inventory?.state === 'running';
+  const isRunning = inventory.state === 'running';
 
   const handleTabChange = useCallback(
     (tab: ModalTab) => {
@@ -227,9 +209,7 @@ export default memo(function ContainerModal({
 
   const handleShellResolved = useCallback((s: string) => setResolvedShell(s), []);
 
-  const iconUrl = inventory
-    ? getIconUrl(iconSlug ?? null, inventory.image)
-    : FALLBACK_ICON_URL;
+  const iconUrl = getIconUrl(iconSlug ?? null, inventory.image);
 
   return (
     <Dialog
@@ -239,38 +219,32 @@ export default memo(function ContainerModal({
       fullWidth
       slotProps={{
         paper: {
-          className: 'flex! flex-col! min-h-0! rounded-lg!',
-          style: {
-            background: 'var(--mui-palette-background-popup)',
-            maxHeight: 'calc(100vh - 80px)',
-          },
+          className: 'flex! flex-col! min-h-0! rounded-lg! bg-(--mui-palette-background-popup)',
+          style: { height: 'calc(100vh - 80px)' },
         },
       }}
     >
-      {inventory && (
-        <ModalHeader
-          inventory={inventory}
-          iconUrl={iconUrl}
-          iconError={iconError}
-          onIconError={() => setIconError(true)}
-          activeTab={activeTab}
-          onTabChange={handleTabChange}
-          resolvedShell={resolvedShell}
-          shell={effectiveShell}
-          onShellChange={handleShellChange}
-          onClose={onClose}
-        />
-      )}
+      <ModalHeader
+        inventory={inventory}
+        containerId={containerId}
+        host={host}
+        iconUrl={iconUrl}
+        iconError={iconError}
+        onIconError={() => setIconError(true)}
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        resolvedShell={resolvedShell}
+        shell={effectiveShell}
+        onShellChange={handleShellChange}
+        onClose={onClose}
+      />
 
-      <DialogContent
-        className="flex-1 min-h-0 p-0! flex flex-col"
-        style={{ minHeight: 480 }}
-      >
+      <DialogContent className="flex-1 min-h-0 p-0! flex flex-col min-h-[480px]">
         <div className={activeTab === 'logs' ? 'flex-1 min-h-0' : 'hidden'}>
           <ContainerLogViewer containerId={containerId} host={host} />
         </div>
 
-        {/* keep mounted once opened to preserve xterm buffer */}
+        {/* stay mounted after first open: unmounting xterm clears the scrollback buffer */}
         {terminalMounted && (
           <div className={activeTab === 'terminal' ? 'flex-1 min-h-0' : 'hidden'}>
             <ContainerTerminal

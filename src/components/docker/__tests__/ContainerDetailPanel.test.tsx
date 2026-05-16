@@ -21,6 +21,10 @@ mock.module('@/components/docker/ContainerModal', () => ({
   default: () => null,
 }));
 
+mock.module('@/components/docker/ContainerActionButtons', () => ({
+  default: () => null,
+}));
+
 const { default: ContainerDetailPanel } = await import('@/components/docker/ContainerDetailPanel');
 const { createStore, Provider } = await import('jotai');
 
@@ -119,13 +123,10 @@ describe('ContainerDetailPanel', () => {
       },
     });
 
-    // State chip shows the state label
     screen.getByText('exited');
-    // Exit code shown in status strip
     screen.getByText('137');
-    // Finished label and date
     screen.getByText('Finished');
-    // Exit label
     screen.getByText('Exit');
   });
+
 });

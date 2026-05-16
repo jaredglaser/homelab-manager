@@ -17,7 +17,7 @@ import IconGrid from '@/components/docker/IconGrid';
 interface IconPickerDialogProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (iconSlug: string) => void;
+  onSelect: (iconSlug: string | null) => void;
   currentIcon: string | null;
   containerName: string;
 }
@@ -33,7 +33,6 @@ export default function IconPickerDialog({
   const [pendingIcon, setPendingIcon] = useState<string | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Reset pending selection when dialog opens
   useEffect(() => {
     if (open) {
       setPendingIcon(null);
@@ -62,7 +61,7 @@ export default function IconPickerDialog({
   }, [pendingIcon, onSelect, onClose]);
 
   const handleAutoDetect = useCallback(() => {
-    onSelect('');
+    onSelect(null);
     feedbackTimerRef.current = setTimeout(() => {
       onClose();
     }, SELECTION_FEEDBACK_MS);
@@ -93,10 +92,8 @@ export default function IconPickerDialog({
         },
       }}
     >
-      {/* Header */}
       <div
-        className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-(--mui-palette-divider) shrink-0"
-        style={{ background: 'var(--mui-palette-background-popup)' }}
+        className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-(--mui-palette-divider) shrink-0 bg-(--mui-palette-background-popup)"
       >
         <Typography variant="h6" className="text-sm! font-semibold!">
           Select Icon for {containerName}
@@ -106,7 +103,6 @@ export default function IconPickerDialog({
         </IconButton>
       </div>
 
-      {/* Search */}
       <div className="px-5 pt-3 pb-2 shrink-0">
         <TextField
           placeholder="Search icons..."
@@ -134,14 +130,12 @@ export default function IconPickerDialog({
         />
         <Typography
           variant="caption"
-          className="mt-1 block"
-          style={{ color: 'var(--mui-palette-text-disabled)' }}
+          className="mt-1 block text-(--mui-palette-text-disabled)"
         >
           Showing {filteredIcons.length} of {AVAILABLE_ICONS.length} icons
         </Typography>
       </div>
 
-      {/* Icon grid */}
       <DialogContent className="p-0! flex-1 min-h-0">
         <IconGrid
           filteredIcons={filteredIcons}
@@ -151,17 +145,14 @@ export default function IconPickerDialog({
         />
       </DialogContent>
 
-      {/* Footer */}
       <DialogActions
-        className="px-5 py-3 border-t border-(--mui-palette-divider)!"
-        style={{ background: 'var(--mui-palette-background-popup)' }}
+        className="px-5 py-3 border-t border-(--mui-palette-divider)! bg-(--mui-palette-background-popup)"
       >
         <Button
           size="small"
           variant="text"
           onClick={handleAutoDetect}
-          className="mr-auto! text-xs!"
-          style={{ color: 'var(--mui-palette-text-secondary)' }}
+          className="mr-auto! text-xs! text-(--mui-palette-text-secondary)"
         >
           Use auto-detected
         </Button>

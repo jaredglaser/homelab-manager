@@ -54,6 +54,10 @@ mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
 }));
 
+mock.module('@/components/docker/ContainerActionButtons', () => ({
+  default: () => null,
+}));
+
 mock.module('@/lib/utils/icon-resolver', () => ({
   getIconUrl: () => '/icon.png',
   FALLBACK_ICON_URL: '/fallback.png',
@@ -244,9 +248,8 @@ describe('ContainerTable', () => {
 
     fireEvent.click(screen.getByText('old-app'));
 
-    expect(screen.getByText('Container Status')).toBeDefined();
-    expect(screen.getByText('Exited')).toBeDefined();
-    expect(screen.getByText('Exit code')).toBeDefined();
+    expect(screen.getAllByText('exited').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Exit')).toBeDefined();
     expect(screen.getByText('137')).toBeDefined();
   });
 });

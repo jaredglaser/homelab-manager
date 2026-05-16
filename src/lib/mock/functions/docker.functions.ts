@@ -90,3 +90,16 @@ export const updateContainerIcon = async (_opts: {
 }): Promise<void> => {
   // No-op in demo mode
 };
+
+/**
+ * Mock: Control container lifecycle (start/stop/restart) - no-op in demo mode.
+ */
+export const controlContainer = async (_opts: {
+  data: {
+    host: string;
+    containerId: string;
+    action: 'start' | 'stop' | 'restart';
+  };
+}): Promise<void> => {
+  // No-op in demo mode
+};

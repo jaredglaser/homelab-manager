@@ -100,7 +100,7 @@ describe('IconPickerDialog', () => {
   });
 
   it('calls onSelect and closes after selecting an icon and clicking Apply', async () => {
-    const onSelect = mock((_slug: string) => {});
+    const onSelect = mock((_slug: string | null) => {});
     const onClose = mock(() => {});
     render(<IconPickerDialog {...defaultProps} onSelect={onSelect} onClose={onClose} />);
 
@@ -116,6 +116,20 @@ describe('IconPickerDialog', () => {
     // Click Apply to commit the selection
     fireEvent.click(screen.getByText('Apply'));
     expect(onSelect).toHaveBeenCalledWith('nginx');
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onSelect(null) and closes when "Use auto-detected" is clicked', async () => {
+    const onSelect = mock((_slug: string | null) => {});
+    const onClose = mock(() => {});
+    render(<IconPickerDialog {...defaultProps} onSelect={onSelect} onClose={onClose} />);
+
+    fireEvent.click(screen.getByText('Use auto-detected'));
+    expect(onSelect).toHaveBeenCalledWith(null);
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 1));
