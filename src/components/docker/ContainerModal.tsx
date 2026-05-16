@@ -298,7 +298,7 @@ export default memo(function ContainerModal({
         )}
 
         {activeTab === 'history' && (
-          <div className="flex-1 min-h-0 overflow-y-auto themed-scrollbar">
+          <div className="flex-1 min-h-0">
             <ContainerHistoryPage
               key={`${host}/${containerId}`}
               containerId={containerId}
