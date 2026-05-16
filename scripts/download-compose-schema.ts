@@ -10,16 +10,33 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
-const COMPOSE_SPEC_REF = process.env.COMPOSE_SPEC_REF ?? 'v2.4.0';
-const SCHEMA_URL =
-  `https://raw.githubusercontent.com/compose-spec/compose-spec/${COMPOSE_SPEC_REF}/schema/compose-spec.json`;
+const REQUEST_TIMEOUT_MS = 10_000;
 const OUTPUT_DIR = './src/lib/schemas';
 const OUTPUT_PATH = `${OUTPUT_DIR}/compose-spec.json`;
 
-async function downloadComposeSchema() {
-  console.info(`Fetching Compose schema from ${SCHEMA_URL}...`);
+function makeHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (process.env.GITHUB_TOKEN) headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
+  return headers;
+}
 
-  const response = await fetch(SCHEMA_URL);
+// Native fetch has no built-in timeout; without this wrapper, the script hangs indefinitely in CI if GitHub is slow or unresponsive.
+async function fetchWithTimeout(input: string, init: RequestInit = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function downloadComposeSchema() {
+  const ref = process.env.COMPOSE_SPEC_REF ?? 'main';
+  const schemaUrl = `https://raw.githubusercontent.com/compose-spec/compose-spec/${ref}/schema/compose-spec.json`;
+  console.info(`Fetching Compose schema (${ref}) from ${schemaUrl}...`);
+
+  const response = await fetchWithTimeout(schemaUrl, { headers: makeHeaders() });
   if (!response.ok) {
     throw new Error(`Failed to fetch schema: ${response.status} ${response.statusText}`);
   }
