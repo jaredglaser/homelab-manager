@@ -10,14 +10,23 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 
-const COMPOSE_SPEC_REF = process.env.COMPOSE_SPEC_REF ?? 'v2.4.0';
-const SCHEMA_URL =
-  `https://raw.githubusercontent.com/compose-spec/compose-spec/${COMPOSE_SPEC_REF}/schema/compose-spec.json`;
+async function resolveRef(): Promise<string> {
+  if (process.env.COMPOSE_SPEC_REF) return process.env.COMPOSE_SPEC_REF;
+  const res = await fetch('https://api.github.com/repos/compose-spec/compose-spec/tags?per_page=1', {
+    headers: { Accept: 'application/vnd.github+json' },
+  });
+  if (!res.ok) throw new Error(`Failed to resolve latest tag: ${res.status} ${res.statusText}`);
+  const [{ name }] = await res.json() as { name: string }[];
+  return name;
+}
+
+const ref = await resolveRef();
+const SCHEMA_URL = `https://raw.githubusercontent.com/compose-spec/compose-spec/${ref}/schema/compose-spec.json`;
 const OUTPUT_DIR = './src/lib/schemas';
 const OUTPUT_PATH = `${OUTPUT_DIR}/compose-spec.json`;
 
 async function downloadComposeSchema() {
-  console.info(`Fetching Compose schema from ${SCHEMA_URL}...`);
+  console.info(`Fetching Compose schema (${ref}) from ${SCHEMA_URL}...`);
 
   const response = await fetch(SCHEMA_URL);
   if (!response.ok) {
