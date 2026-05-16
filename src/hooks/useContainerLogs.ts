@@ -70,6 +70,15 @@ export function useContainerLogs({
         if (!mounted) return;
         setIsConnected(false);
         if (!cleanEnd) {
+          if (rafIdRef.current !== 0) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = 0;
+          }
+          const pending = writeBufferRef.current;
+          if (pending.length > 0 && terminalRef.current) {
+            terminalRef.current.write(pending.join('\n') + '\n');
+            pending.length = 0;
+          }
           terminalRef.current?.writeln('\x1b[31m[Error] Connection lost\x1b[0m');
         }
       },

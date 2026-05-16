@@ -169,8 +169,7 @@ function ModalHeader({
           <IconButton
             size="small"
             onClick={onWrapToggle}
-            className="p-1! shrink-0"
-            style={{ color: wordWrap ? 'var(--mui-palette-primary-main)' : 'var(--mui-palette-text-disabled)' }}
+            className={`p-1! shrink-0 ${wordWrap ? 'text-(--mui-palette-primary-main)!' : 'text-(--mui-palette-text-disabled)!'}`}
             aria-label="Toggle word wrap"
           >
             <WrapText size={16} />
@@ -245,6 +244,10 @@ export default memo(function ContainerModal({
   const handleShellResolved = useCallback((s: string) => setResolvedShell(s), []);
 
   const iconUrl = getIconUrl(iconSlug ?? null, inventory.image);
+
+  useEffect(() => {
+    setIconError(false);
+  }, [iconUrl]);
 
   return (
     <Dialog

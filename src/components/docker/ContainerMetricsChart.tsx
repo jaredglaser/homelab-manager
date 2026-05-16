@@ -199,6 +199,7 @@ function LegendChip({
     <button
       type="button"
       onClick={onToggle}
+      aria-pressed={isActive}
       className="inline-flex shrink-0 items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap transition-all cursor-pointer"
       style={{
         border: isActive && colors.line ? `1px solid ${colors.line}` : '1px solid var(--mui-palette-divider)',

@@ -187,8 +187,7 @@ function LogPreviewPanel({ containerId, host }: { containerId: string; host: str
           <IconButton
             size="small"
             onClick={() => setWordWrap((w) => !w)}
-            className="p-0.5!"
-            style={{ color: wordWrap ? 'var(--mui-palette-primary-main)' : 'var(--mui-palette-text-disabled)' }}
+            className={`p-0.5! ${wordWrap ? 'text-(--mui-palette-primary-main)!' : 'text-(--mui-palette-text-disabled)!'}`}
             aria-label="Toggle word wrap"
           >
             <WrapText size={13} />

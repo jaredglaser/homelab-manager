@@ -25,7 +25,7 @@ export default function IconTooltip({ label, children }: IconTooltipProps) {
 
   return (
     <>
-      <span ref={ref} onMouseEnter={show} onMouseLeave={hide} className="inline-flex">
+      <span ref={ref} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} className="inline-flex">
         {children}
       </span>
       {pos !== null && createPortal(

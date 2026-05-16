@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { subscribeToContainerLogs, _resetLogStreams, type LogStreamSubscriber } from '../log-stream-registry';
+import { subscribeToContainerLogs, _resetLogStreams, type LogStreamSubscriber } from '@/lib/docker/log-stream-registry';
 
 class MockEventSource {
   static instances: MockEventSource[] = [];
