@@ -164,9 +164,21 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
     const observer = new ResizeObserver(() => {
       if (timer !== undefined) clearTimeout(timer);
       timer = setTimeout(() => {
-        if (!wordWrapEnabledRef.current) return;
+        const fitAddon = fitAddonRef.current;
+        const term = terminalRef.current;
+        if (!fitAddon || !term) return;
         try {
-          fitAddonRef.current?.fit();
+          // Always fit to update row count when the container height changes.
+          // FitAddon is a no-op when the container is display:none, so this is
+          // safe to call regardless of tab visibility.
+          fitAddon.fit();
+          if (!wordWrapEnabledRef.current) {
+            // In no-wrap mode fit() recalculated cols based on container width;
+            // restore content-based cols while keeping the updated row count.
+            const contentWidth = getBufferMaxWidth(term);
+            const cols = contentWidth > 0 ? contentWidth + NO_WRAP_PADDING : NO_WRAP_COLS;
+            term.resize(cols, term.rows);
+          }
           consecutiveFitErrors = 0;
         } catch (err) {
           consecutiveFitErrors += 1;
