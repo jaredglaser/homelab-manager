@@ -12,7 +12,7 @@ mock.module('@/lib/constants/ui-timing', () => ({
   DRAWER_EASING: 'ease',
 }));
 
-const { default: IconPickerDialog } = await import('../IconPickerDialog');
+const { default: IconPickerDialog } = await import('@/components/docker/IconPickerDialog');
 
 const defaultProps = {
   open: true,

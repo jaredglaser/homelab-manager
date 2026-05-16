@@ -7,7 +7,7 @@ import PageStatusBar from '@/components/PageStatusBar'
 import DockerStatusSummary from '@/components/docker/DockerStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useDockerInventory } from '@/hooks/useDockerInventory'
-import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions'
+import { getDockerEntityIcons, updateContainerIcon, clearContainerIcon } from '@/data/docker/functions'
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
@@ -82,8 +82,12 @@ function DockerContainersPage() {
   })
 
   const handleIconChange = useCallback(
-    async (serviceKeyEntity: string, iconSlug: string) => {
-      await updateContainerIcon({ data: { serviceKeyEntity, iconSlug } })
+    async (serviceKeyEntity: string, iconSlug: string | null) => {
+      if (iconSlug === null) {
+        await clearContainerIcon({ data: { serviceKeyEntity } });
+      } else {
+        await updateContainerIcon({ data: { serviceKeyEntity, iconSlug } });
+      }
       await qc.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY })
     },
     [qc],

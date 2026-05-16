@@ -91,6 +91,14 @@ export const updateContainerIcon = async (_opts: {
   // No-op in demo mode
 };
 
+export const clearContainerIcon = async (_opts: {
+  data: {
+    serviceKeyEntity: string;
+  };
+}): Promise<void> => {
+  // No-op in demo mode
+};
+
 /**
  * Mock: Control container lifecycle (start/stop/restart) - no-op in demo mode.
  */

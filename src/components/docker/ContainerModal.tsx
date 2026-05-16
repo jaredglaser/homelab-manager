@@ -109,8 +109,7 @@ function ModalHeader({
 
   return (
     <div
-      className="grid px-3 py-2 border-b border-(--mui-palette-divider) shrink-0 bg-(--mui-palette-background-popup) min-h-[52px] items-center gap-2"
-      style={{ gridTemplateColumns: '1fr auto 1fr' }}
+      className="grid [grid-template-columns:1fr_auto_1fr] px-3 py-2 border-b border-(--mui-palette-divider) shrink-0 bg-(--mui-palette-background-popup) min-h-[52px] items-center gap-2"
     >
       <div className="flex items-center gap-3 min-w-0">
         <img
@@ -209,7 +208,7 @@ export default memo(function ContainerModal({
   const [wordWrap, setWordWrap] = useState(false);
 
   const { getContainerShell, setContainerShell } = useDockerSettings();
-  const shellKey = `${host}/${inventory.name}`;
+  const shellKey = `${host}/${inventory.containerId}`;
   const savedShell = getContainerShell(shellKey);
   const effectiveShell =
     savedShell === undefined || savedShell === '' || savedShell === 'auto' ? 'auto' : savedShell;
@@ -255,8 +254,7 @@ export default memo(function ContainerModal({
       fullWidth
       slotProps={{
         paper: {
-          className: 'flex! flex-col! min-h-0! rounded-lg! bg-(--mui-palette-background-popup)',
-          style: { height: 'calc(100vh - 80px)' },
+          className: 'flex! flex-col! min-h-0! rounded-lg! bg-(--mui-palette-background-popup) h-[calc(100vh-80px)]',
         },
       }}
     >

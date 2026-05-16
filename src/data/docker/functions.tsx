@@ -7,6 +7,7 @@ import {
   getContainerHistorySchema,
   getContainerInfoSchema,
   updateContainerIconSchema,
+  clearContainerIconSchema,
   controlContainerSchema,
 } from '@/data/docker/schemas';
 
@@ -175,4 +176,16 @@ export const updateContainerIcon = createServerFn()
     const repo = new EntityMetadataRepository(context.pool);
 
     await repo.upsertEntityMetadata(data.serviceKeyEntity, 'icon', data.iconSlug);
+  });
+
+export const clearContainerIcon = createServerFn()
+  .middleware([authMiddleware, databaseMiddleware])
+  .inputValidator(clearContainerIconSchema)
+  .handler(async ({ context, data }): Promise<void> => {
+    const { EntityMetadataRepository } = await import(
+      '@/lib/database/repositories/entity-metadata-repository'
+    );
+    const repo = new EntityMetadataRepository(context.pool);
+
+    await repo.deleteEntityIcon(data.serviceKeyEntity);
   });

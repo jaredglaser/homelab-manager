@@ -44,7 +44,7 @@ interface ContainerTableProps {
   error: Error | null;
   isStale: boolean;
   entityIcons: DockerEntityIconsMap;
-  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string | null) => Promise<void>;
 }
 
 /**

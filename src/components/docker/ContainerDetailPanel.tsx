@@ -18,7 +18,7 @@ interface ContainerDetailPanelProps {
   inventory: DockerInventorySnapshotContainer;
   iconSlug?: string | null;
   serviceKeyEntity: string;
-  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string | null) => Promise<void>;
 }
 
 // SSE JSON.parse delivers ISO strings; useEventSource has no Zod coercion at the boundary.
@@ -120,7 +120,7 @@ function StatusStrip({
 
       <StatusItem
         label="Image"
-        value={inventory.image.split(':')[0].split('/').pop() ?? inventory.image}
+        value={inventory.image.split('/').pop()?.split(':')[0] ?? inventory.image}
       />
 
       {isRunning && inventory.startedAt && (
@@ -223,7 +223,6 @@ export default memo(function ContainerDetailPanel({
   }, []);
 
   const handleIconSelect = useCallback(async (slug: string | null) => {
-    if (slug === null) return;
     try {
       await onIconChange(serviceKeyEntity, slug);
     } catch (err) {

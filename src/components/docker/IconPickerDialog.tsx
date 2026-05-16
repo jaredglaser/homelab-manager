@@ -54,6 +54,7 @@ export default function IconPickerDialog({
   const handleApply = useCallback(() => {
     if (pendingIcon) {
       onSelect(pendingIcon);
+      clearTimeout(feedbackTimerRef.current);
       feedbackTimerRef.current = setTimeout(() => {
         onClose();
       }, SELECTION_FEEDBACK_MS);
@@ -62,6 +63,7 @@ export default function IconPickerDialog({
 
   const handleAutoDetect = useCallback(() => {
     onSelect(null);
+    clearTimeout(feedbackTimerRef.current);
     feedbackTimerRef.current = setTimeout(() => {
       onClose();
     }, SELECTION_FEEDBACK_MS);
@@ -83,12 +85,7 @@ export default function IconPickerDialog({
       fullWidth
       slotProps={{
         paper: {
-          className: 'rounded-lg!',
-          style: {
-            background: 'var(--mui-palette-background-popup)',
-            maxHeight: 600,
-            width: 720,
-          },
+          className: 'rounded-lg! bg-(--mui-palette-background-popup) w-[720px] max-h-[600px]',
         },
       }}
     >
