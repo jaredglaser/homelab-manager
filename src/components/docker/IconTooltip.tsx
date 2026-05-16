@@ -25,26 +25,13 @@ export default function IconTooltip({ label, children }: IconTooltipProps) {
 
   return (
     <>
-      <span ref={ref} onMouseEnter={show} onMouseLeave={hide} style={{ display: 'inline-flex' }}>
+      <span ref={ref} onMouseEnter={show} onMouseLeave={hide} className="inline-flex">
         {children}
       </span>
       {pos !== null && createPortal(
         <div
-          style={{
-            position: 'fixed',
-            left: pos.x,
-            top: pos.y,
-            transform: 'translate(-50%, calc(-100% - 6px))',
-            zIndex: 9999,
-            pointerEvents: 'none',
-            background: 'rgba(97, 97, 97, 0.92)',
-            color: '#fff',
-            padding: '4px 8px',
-            borderRadius: 4,
-            fontSize: 12,
-            lineHeight: 1.4,
-            whiteSpace: 'nowrap',
-          }}
+          className="fixed z-[9999] pointer-events-none -translate-x-1/2 -translate-y-[calc(100%+6px)] rounded px-2 py-1 text-xs leading-[1.4] whitespace-nowrap text-white bg-(--mui-palette-grey-700)/90"
+          style={{ left: pos.x, top: pos.y }}
           role="tooltip"
         >
           {label}

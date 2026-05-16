@@ -262,10 +262,12 @@ describe('useContainerLogs', () => {
       MockEventSource.instances[0].onerror?.();
     });
 
-    // Only the initial connection -- no reconnect after stream_end
+    // Only the initial connection, no reconnect after stream_end
     expect(MockEventSource.instances.length).toBe(1);
     expect(result.current.isConnected).toBe(false);
     expect(result.current.error).toBeNull();
+    // No "Connection lost" message written to terminal after a clean stream_end
+    expect(mockTerminal.writeln).not.toHaveBeenCalled();
   });
 
   describe('error events with immediate RAF', () => {

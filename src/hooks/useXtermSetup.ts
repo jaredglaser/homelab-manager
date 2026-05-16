@@ -120,6 +120,7 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
     return () => {
       disposed = true;
       fitAddonRef.current = null;
+      lineFeedDisposableRef.current?.dispose();
       lineFeedDisposableRef.current = null;
       terminalRef.current?.dispose();
       terminalRef.current = null;

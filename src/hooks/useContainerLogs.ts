@@ -66,10 +66,12 @@ export function useContainerLogs({
         setIsConnected(true);
         setError(null);
       },
-      onDisconnect: () => {
+      onDisconnect: (cleanEnd) => {
         if (!mounted) return;
         setIsConnected(false);
-        terminalRef.current?.writeln('\x1b[31m[Error] Connection lost\x1b[0m');
+        if (!cleanEnd) {
+          terminalRef.current?.writeln('\x1b[31m[Error] Connection lost\x1b[0m');
+        }
       },
       onError: (err) => {
         if (!mounted) return;

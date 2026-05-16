@@ -77,11 +77,13 @@ export default memo(function HistoricalTimeline({
       const opt = instance.getOption() as { dataZoom: { startValue: string | number; endValue: string | number }[] };
       const zoom = opt.dataZoom?.[0];
       if (!zoom || zoom.startValue == null || zoom.endValue == null) return;
-      // Time axis may return date strings - coerce to numeric timestamps
+      // Time axis may return date strings - coerce to numeric timestamps.
+      // Slider drags produce interpolated floats; round to integer ms so the
+      // server-side schema (which requires int ms) doesn't reject the query.
       const from = typeof zoom.startValue === 'string' ? new Date(zoom.startValue).getTime() : zoom.startValue;
       const to = typeof zoom.endValue === 'string' ? new Date(zoom.endValue).getTime() : zoom.endValue;
       if (isNaN(from) || isNaN(to)) return;
-      onRangeChange(from, to);
+      onRangeChange(Math.round(from), Math.round(to));
     },
   }), [onRangeChange]);
 

@@ -15,7 +15,8 @@ export interface LogLine {
 export interface LogStreamSubscriber {
   onLine: (line: LogLine) => void;
   onConnect: () => void;
-  onDisconnect: () => void;
+  /** Called when the connection drops. `cleanEnd` is true when the agent sent a stream_end event (container stopped normally). */
+  onDisconnect: (cleanEnd: boolean) => void;
   onError: (error: Error) => void;
   onClear: () => void;
 }
@@ -138,7 +139,7 @@ class LogStream {
       eventSource.close();
       this.eventSource = null;
 
-      for (const sub of this.subscribers) sub.onDisconnect();
+      for (const sub of this.subscribers) sub.onDisconnect(this.streamEnded);
 
       if (this.streamEnded) return;
 

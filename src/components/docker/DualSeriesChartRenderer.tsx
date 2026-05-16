@@ -6,7 +6,7 @@ interface DualSeriesChartRendererProps {
   option: EChartsOption;
   ref?: Ref<ReactECharts>;
   notMerge?: boolean;
-  replaceMerge?: string[];
+  replaceMerge?: string | string[];
 }
 
 export default function DualSeriesChartRenderer({ option, ref, notMerge = true, replaceMerge }: DualSeriesChartRendererProps) {

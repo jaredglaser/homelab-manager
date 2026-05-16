@@ -66,9 +66,15 @@ const METRIC_DEFS: MetricDef[] = [
 ];
 
 // Compile-time check: every MetricKey must have a MetricDef entry.
-const _exhaustiveMetricDefs: Record<MetricKey, true> = Object.fromEntries(
-  METRIC_DEFS.map((d) => [d.key, true]),
-) as Record<MetricKey, true>;
+// satisfies (not `as`) means tsc errors if a MetricKey is absent from METRIC_DEFS.
+const _exhaustiveMetricDefs = {
+  cpu: true,
+  memory: true,
+  blockRead: true,
+  blockWrite: true,
+  networkRx: true,
+  networkTx: true,
+} satisfies Record<MetricKey, true>;
 void _exhaustiveMetricDefs;
 
 interface ContainerMetricsChartProps {
