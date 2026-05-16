@@ -1,7 +1,8 @@
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { Dialog, DialogContent, IconButton, Select, MenuItem, FormControl, InputLabel, CircularProgress } from '@mui/material';
+import IconTooltip from '@/components/docker/IconTooltip';
 import type { SelectChangeEvent } from '@mui/material/Select';
-import { ScrollText, Terminal, History, X } from 'lucide-react';
+import { ScrollText, Terminal, History, X, WrapText } from 'lucide-react';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
@@ -84,6 +85,8 @@ function ModalHeader({
   resolvedShell,
   shell,
   onShellChange,
+  wordWrap,
+  onWrapToggle,
   onClose,
 }: {
   inventory: DockerInventorySnapshotContainer;
@@ -97,33 +100,39 @@ function ModalHeader({
   resolvedShell: string | undefined;
   shell: string;
   onShellChange: (shell: string) => void;
+  wordWrap: boolean;
+  onWrapToggle: () => void;
   onClose: () => void;
 }) {
   const isRunning = inventory.state === 'running';
   const shortId = inventory.containerId.slice(-8);
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 border-b border-(--mui-palette-divider) shrink-0 bg-(--mui-palette-background-popup) min-h-[52px]">
-      <img
-        src={iconError ? FALLBACK_ICON_URL : iconUrl}
-        alt=""
-        className="w-6 h-6 shrink-0 rounded-sm"
-        onError={onIconError}
-      />
-      <div className="flex flex-col gap-0 min-w-0 shrink-0">
-        <span className="text-sm font-semibold leading-tight truncate max-w-[160px]">
-          {inventory.name}
-        </span>
-        <span className="font-mono text-[10px] leading-tight text-(--mui-palette-text-disabled)">
-          {inventory.host} / {shortId}
-        </span>
+    <div
+      className="grid px-3 py-2 border-b border-(--mui-palette-divider) shrink-0 bg-(--mui-palette-background-popup) min-h-[52px] items-center gap-2"
+      style={{ gridTemplateColumns: '1fr auto 1fr' }}
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <img
+          src={iconError ? FALLBACK_ICON_URL : iconUrl}
+          alt=""
+          className="w-6 h-6 shrink-0 rounded-sm"
+          onError={onIconError}
+        />
+        <div className="flex flex-col gap-0 min-w-0 shrink-0">
+          <span className="text-sm font-semibold leading-tight truncate max-w-[160px]">
+            {inventory.name}
+          </span>
+          <span className="font-mono text-[10px] leading-tight text-(--mui-palette-text-disabled)">
+            {inventory.host} / {shortId}
+          </span>
+        </div>
+        <ContainerStateChip state={inventory.state} />
       </div>
-      <ContainerStateChip state={inventory.state} />
 
-      <div className="flex-1 flex justify-center">
-        <TabSwitch value={activeTab} onChange={onTabChange} isRunning={isRunning} />
-      </div>
+      <TabSwitch value={activeTab} onChange={onTabChange} isRunning={isRunning} />
 
+      <div className="flex items-center justify-end gap-2">
       {activeTab === 'terminal' && (
         <FormControl size="small" className="min-w-[90px] shrink-0">
           <InputLabel id="modal-shell-label" shrink className="text-xs!">Shell</InputLabel>
@@ -156,13 +165,30 @@ function ModalHeader({
         </FormControl>
       )}
 
-      <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} compact />
+      {(activeTab === 'logs' || activeTab === 'terminal') && (
+        <IconTooltip label={wordWrap ? 'Disable word wrap' : 'Enable word wrap'}>
+          <IconButton
+            size="small"
+            onClick={onWrapToggle}
+            className="p-1! shrink-0"
+            style={{ color: wordWrap ? 'var(--mui-palette-primary-main)' : 'var(--mui-palette-text-disabled)' }}
+            aria-label="Toggle word wrap"
+          >
+            <WrapText size={16} />
+          </IconButton>
+        </IconTooltip>
+      )}
+
+      <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
 
       <div className="w-px h-5 shrink-0 bg-(--mui-palette-divider)" />
 
-      <IconButton size="small" onClick={onClose} aria-label="Close modal" className="p-1! shrink-0">
-        <X size={16} />
-      </IconButton>
+      <IconTooltip label="Close">
+        <IconButton size="small" onClick={onClose} aria-label="Close modal" className="p-1! shrink-0">
+          <X size={16} />
+        </IconButton>
+      </IconTooltip>
+      </div>
     </div>
   );
 }
@@ -180,6 +206,7 @@ export default memo(function ContainerModal({
   const [terminalMounted, setTerminalMounted] = useState(false);
   const [resolvedShell, setResolvedShell] = useState<string | undefined>(undefined);
   const [iconError, setIconError] = useState(false);
+  const [wordWrap, setWordWrap] = useState(false);
 
   const { getContainerShell, setContainerShell } = useDockerSettings();
   const shellKey = `${host}/${inventory.name}`;
@@ -188,6 +215,15 @@ export default memo(function ContainerModal({
     savedShell === undefined || savedShell === '' || savedShell === 'auto' ? 'auto' : savedShell;
 
   const isRunning = inventory.state === 'running';
+
+  // initialTab prop changes are ignored by useState after first mount because ContainerModal
+  // stays mounted in ContainerDetailPanel (not conditionally rendered). Sync on each open.
+  useEffect(() => {
+    if (open) {
+      setActiveTab(initialTab);
+      if (initialTab === 'terminal') setTerminalMounted(true);
+    }
+  }, [open, initialTab]);
 
   const handleTabChange = useCallback(
     (tab: ModalTab) => {
@@ -236,12 +272,14 @@ export default memo(function ContainerModal({
         resolvedShell={resolvedShell}
         shell={effectiveShell}
         onShellChange={handleShellChange}
+        wordWrap={wordWrap}
+        onWrapToggle={() => setWordWrap((w) => !w)}
         onClose={onClose}
       />
 
       <DialogContent className="flex-1 min-h-0 p-0! flex flex-col min-h-[480px]">
         <div className={activeTab === 'logs' ? 'flex-1 min-h-0' : 'hidden'}>
-          <ContainerLogViewer containerId={containerId} host={host} />
+          <ContainerLogViewer containerId={containerId} host={host} wordWrap={wordWrap} />
         </div>
 
         {/* stay mounted after first open: unmounting xterm clears the scrollback buffer */}
@@ -252,6 +290,7 @@ export default memo(function ContainerModal({
               host={host}
               shell={effectiveShell}
               frozen={!isRunning}
+              wordWrap={wordWrap}
               onShellResolved={handleShellResolved}
             />
           </div>
