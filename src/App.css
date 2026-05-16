@@ -59,6 +59,17 @@ html {
 }
 
 
+/* Hide xterm's vertical scrollbar inside the log viewer. The DOM renderer
+   draws its own DIV-based scrollbar (.scrollbar.vertical) inside
+   .xterm-scrollable-element, which scrolls horizontally with the rest of
+   the content. We render an overlay scrollbar outside the scroll container
+   instead so it stays pinned to the visible right edge.
+   xterm.css is dynamically imported at runtime; !important guarantees the
+   rule wins regardless of injection order. */
+.xterm-log-viewer .scrollbar.vertical {
+  display: none !important;
+}
+
 /* Themed scrollbar for drawer panels: uses MUI palette for theme adaptation */
 .themed-scrollbar {
   &::-webkit-scrollbar {
