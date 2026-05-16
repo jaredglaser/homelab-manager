@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Chip } from '@mui/material';
+import { Chip, IconButton } from '@mui/material';
 import { ChevronRight, Server, WifiOff } from 'lucide-react';
 import type { DockerHostTableRow } from '@/types/docker';
 
@@ -10,17 +10,19 @@ const HostNameCell = memo(function HostNameCell({
   row: DockerHostTableRow;
   expanded: boolean;
 }>) {
-  const { totalHosts, children, aggregated: a } = row;
+  const { children, aggregated: a } = row;
   const hasContainers = children.length > 0;
-  const canToggle = hasContainers && totalHosts > 1;
+  const canToggle = hasContainers;
 
   return (
     <div className="flex items-center gap-2">
       {canToggle && (
-        <ChevronRight
-          size={18}
-          className={`shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-        />
+        <IconButton size="small" tabIndex={-1}>
+          <ChevronRight
+            size={18}
+            className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          />
+        </IconButton>
       )}
       <Server size={18} className="shrink-0" />
       {row.isStale && (

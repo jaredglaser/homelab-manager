@@ -133,6 +133,7 @@ export function useContainerHistoryData({
         targetPoints: 600,
       },
     }),
+    staleTime: 30_000,
     refetchInterval: includesNow ? 10_000 : false,
   });
 

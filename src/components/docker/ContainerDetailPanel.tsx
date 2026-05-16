@@ -1,10 +1,13 @@
 import { memo, useCallback, useState } from 'react';
-import { ScrollText, Terminal, History } from 'lucide-react';
+import { ScrollText, Terminal, History, WrapText, Image } from 'lucide-react';
+import { IconButton, Tooltip } from '@mui/material';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerMetricsChart, { type MetricKey } from '@/components/docker/ContainerMetricsChart';
 import ContainerModal, { type ModalTab } from '@/components/docker/ContainerModal';
 import ContainerActionButtons from '@/components/docker/ContainerActionButtons';
+import IconPickerDialog from '@/components/docker/IconPickerDialog';
+import { useToast } from '@/hooks/toastAtom';
 import type { ChartDataPoint } from '@/hooks/useContainerChartData';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
@@ -14,6 +17,8 @@ interface ContainerDetailPanelProps {
   host: string;
   inventory: DockerInventorySnapshotContainer;
   iconSlug?: string | null;
+  serviceKeyEntity: string;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
 }
 
 // SSE JSON.parse delivers ISO strings; useEventSource has no Zod coercion at the boundary.
@@ -95,18 +100,20 @@ function StatusStrip({
   containerId,
   host,
   onAction,
+  onIconClick,
 }: {
   inventory: DockerInventorySnapshotContainer;
   containerId: string;
   host: string;
   onAction: (action: ModalTab) => void;
+  onIconClick: () => void;
 }) {
   const isRunning = inventory.state === 'running';
   const isExited = inventory.state === 'exited';
   const shortId = inventory.containerId.slice(-12);
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 flex-wrap border-b border-(--mui-palette-divider) min-h-[40px]">
+    <div className="flex items-start lg:items-center gap-3 px-3 py-2 flex-wrap border-b border-(--mui-palette-divider) min-h-[40px]">
       <ContainerStateChip state={inventory.state} />
 
       <div className="w-px h-3.5 shrink-0 bg-(--mui-palette-divider)" />
@@ -133,8 +140,16 @@ function StatusStrip({
 
       <StatusItem label="ID" value={shortId} />
 
-      <div className="ml-auto flex items-center gap-1 shrink-0">
+      <div className="w-full lg:w-auto lg:ml-auto flex items-center gap-1">
         <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
+
+        <div className="w-px h-4 mx-1 shrink-0 bg-(--mui-palette-divider)" />
+
+        <ActionStripButton
+          icon={<Image size={12} />}
+          label="Icon"
+          onClick={onIconClick}
+        />
 
         <div className="w-px h-4 mx-1 shrink-0 bg-(--mui-palette-divider)" />
 
@@ -159,33 +174,29 @@ function StatusStrip({
   );
 }
 
-function LogPreviewPanel({
-  containerId,
-  host,
-  onOpenFull,
-}: {
-  containerId: string;
-  host: string;
-  onOpenFull: () => void;
-}) {
+function LogPreviewPanel({ containerId, host }: { containerId: string; host: string }) {
+  const [wordWrap, setWordWrap] = useState(false);
+
   return (
     <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--mui-palette-background-chartBg)">
-      <div className="flex items-center justify-between px-2 py-1 border-b border-(--mui-palette-divider) shrink-0">
+      <div className="flex items-center justify-between px-2 py-0.5 border-b border-(--mui-palette-divider) shrink-0">
         <span className="text-xs font-medium text-(--mui-palette-text-secondary)">
           Recent logs
         </span>
+        <Tooltip title={wordWrap ? 'Disable word wrap' : 'Enable word wrap'} placement="top">
+          <IconButton
+            size="small"
+            onClick={() => setWordWrap((w) => !w)}
+            className="p-0.5!"
+            style={{ color: wordWrap ? 'var(--mui-palette-primary-main)' : 'var(--mui-palette-text-disabled)' }}
+            aria-label="Toggle word wrap"
+          >
+            <WrapText size={13} />
+          </IconButton>
+        </Tooltip>
       </div>
       <div className="flex-1 min-h-0">
-        <ContainerLogViewer containerId={containerId} host={host} />
-      </div>
-      <div className="shrink-0 px-2 py-1 border-t border-(--mui-palette-divider) flex justify-end">
-        <button
-          type="button"
-          onClick={onOpenFull}
-          className="text-xs text-(--mui-palette-primary-main) transition-opacity hover:opacity-80"
-        >
-          Open full view →
-        </button>
+        <ContainerLogViewer containerId={containerId} host={host} wordWrap={wordWrap} />
       </div>
     </div>
   );
@@ -197,15 +208,29 @@ export default memo(function ContainerDetailPanel({
   host,
   inventory,
   iconSlug,
+  serviceKeyEntity,
+  onIconChange,
 }: ContainerDetailPanelProps) {
   const [active, setActive] = useState<Set<MetricKey>>(new Set(['cpu', 'memory']));
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState<ModalTab>('logs');
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const { showToast } = useToast();
 
   const openModal = useCallback((tab: ModalTab) => {
     setModalTab(tab);
     setModalOpen(true);
   }, []);
+
+  const handleIconSelect = useCallback(async (slug: string | null) => {
+    if (slug === null) return;
+    try {
+      await onIconChange(serviceKeyEntity, slug);
+    } catch (err) {
+      console.error('Failed to update container icon:', err);
+      showToast('Failed to update icon. Please try again.', 'error');
+    }
+  }, [onIconChange, serviceKeyEntity, showToast]);
 
   const handleToggle = useCallback((key: MetricKey) => {
     setActive((prev) => {
@@ -226,22 +251,18 @@ export default memo(function ContainerDetailPanel({
         containerId={containerId}
         host={host}
         onAction={openModal}
+        onIconClick={() => setIconPickerOpen(true)}
       />
 
-      <div
-        className="grid gap-3 p-3 h-[232px]"
-        style={{ gridTemplateColumns: 'minmax(0, 1.55fr) minmax(0, 1fr)' }}
-      >
+      <div className="grid gap-3 p-3 [grid-template-rows:200px] lg:h-[232px] lg:grid-cols-2 lg:[grid-template-rows:none]">
         <ContainerMetricsChart
           dataPoints={dataPoints}
           active={active}
           onToggle={handleToggle}
         />
-        <LogPreviewPanel
-          containerId={containerId}
-          host={host}
-          onOpenFull={() => openModal('logs')}
-        />
+        <div className="hidden lg:contents">
+          <LogPreviewPanel containerId={containerId} host={host} />
+        </div>
       </div>
 
       <ContainerModal
@@ -253,6 +274,16 @@ export default memo(function ContainerDetailPanel({
         initialTab={modalTab}
         iconSlug={iconSlug}
       />
+
+      {iconPickerOpen && (
+        <IconPickerDialog
+          open={iconPickerOpen}
+          onClose={() => setIconPickerOpen(false)}
+          onSelect={handleIconSelect}
+          currentIcon={iconSlug ?? null}
+          containerName={inventory.name}
+        />
+      )}
     </div>
   );
 });

@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect } from 'react'
 import { createFileRoute, Outlet, useMatchRoute, useLocation } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryClient } from '@/lib/query-client'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
-import ContainerModal from '@/components/docker/ContainerModal'
 import PageStatusBar from '@/components/PageStatusBar'
 import DockerStatusSummary from '@/components/docker/DockerStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
@@ -56,19 +55,6 @@ function DockerContainersPage() {
     })
     return () => cancelAnimationFrame(raf)
   }, [hash])
-  const [historyTarget, setHistoryTarget] = useState<{ containerId: string; host: string } | null>(null)
-  const [historyOpen, setHistoryOpen] = useState(false)
-
-  const handleOpenHistory = useCallback((containerId: string, host: string) => {
-    setHistoryTarget({ containerId, host })
-    setHistoryOpen(true)
-  }, [])
-
-  const handleCloseHistory = useCallback(() => {
-    setHistoryOpen(false)
-    setHistoryTarget(null)
-  }, [])
-
   const windowSeconds = Math.max(docker.chartWindowSeconds + 10, SPARKLINE_BUFFER_SECONDS)
   const qc = useQueryClient()
 
@@ -133,22 +119,7 @@ function DockerContainersPage() {
         isStale={stream.isStale}
         entityIcons={entityIcons ?? {}}
         onIconChange={handleIconChange}
-        onOpenHistory={handleOpenHistory}
       />
-      {historyTarget && (() => {
-        const inv = inventory.get(`${historyTarget.host}/${historyTarget.containerId}`);
-        return inv ? (
-          <ContainerModal
-            open={historyOpen}
-            onClose={handleCloseHistory}
-            containerId={historyTarget.containerId}
-            host={historyTarget.host}
-            inventory={inv}
-            initialTab="history"
-            iconSlug={entityIcons?.[`${historyTarget.host}/${historyTarget.containerId}`]?.iconSlug}
-          />
-        ) : null;
-      })()}
     </div>
   )
 }

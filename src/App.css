@@ -31,6 +31,9 @@ html {
   --chart-tooltip-text: #1e293b; /* slate-800 */
   --indicator-active: #22c55e; /* green-500 */
   --indicator-late: #f59e0b; /* amber-500 */
+  --row-hover-tint: rgba(59, 130, 246, 0.05); /* blue-500/5 */
+  --row-hover-ring: rgba(59, 130, 246, 0.3);
+  --row-stale-tint: rgba(245, 158, 11, 0.1); /* amber-500/10 */
 }
 
 /* Chart colors - dark mode */

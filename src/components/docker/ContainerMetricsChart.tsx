@@ -1,6 +1,7 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useGeneralSettings } from '@/hooks/useSettings';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
 import { useEChartTimeScroll } from '@/hooks/useEChartTimeScroll';
@@ -15,7 +16,6 @@ interface MetricDef {
   key: MetricKey;
   label: string;
   colorVar: string;
-  dashed?: boolean;
   format: (v: number) => string;
   extract: (d: ChartDataPoint) => number;
 }
@@ -53,7 +53,6 @@ const METRIC_DEFS: MetricDef[] = [
     key: 'networkRx',
     label: 'Net RX',
     colorVar: '--chart-read',
-    dashed: true,
     format: (v) => formatBitsSIUnits(v * 8, true),
     extract: (d) => d.networkRxBytesPerSec,
   },
@@ -61,7 +60,6 @@ const METRIC_DEFS: MetricDef[] = [
     key: 'networkTx',
     label: 'Net TX',
     colorVar: '--chart-write',
-    dashed: true,
     format: (v) => formatBitsSIUnits(v * 8, true),
     extract: (d) => d.networkTxBytesPerSec,
   },
@@ -109,6 +107,7 @@ function buildOption(
     const colors = resolveChartColors(metric.colorVar);
     const data = dataPoints.map((d) => [d.timestamp, metric.extract(d)] as [number, number]);
     return {
+      id: metric.key,
       name: metric.label,
       type: 'line' as const,
       smooth: true,
@@ -119,7 +118,6 @@ function buildOption(
       lineStyle: {
         color: colors.line,
         width: 2,
-        type: metric.dashed ? ('dashed' as const) : ('solid' as const),
       },
       areaStyle: {
         color: {
@@ -130,7 +128,6 @@ function buildOption(
             { offset: 1, color: colors.areaEnd },
           ],
         },
-        opacity: metric.dashed ? 0 : 1,
       },
     };
   });
@@ -196,7 +193,7 @@ function LegendChip({
     <button
       type="button"
       onClick={onToggle}
-      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium transition-all cursor-pointer"
+      className="inline-flex shrink-0 items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap transition-all cursor-pointer"
       style={{
         border: isActive && colors.line ? `1px solid ${colors.line}` : '1px solid var(--mui-palette-divider)',
         background: isActive ? (colors.line ? `color-mix(in srgb, ${colors.line} 12%, transparent)` : 'transparent') : 'transparent',
@@ -207,7 +204,6 @@ function LegendChip({
         className="w-2 h-2 rounded-full shrink-0"
         style={{
           background: isActive ? (colors.line || 'var(--mui-palette-divider)') : 'var(--mui-palette-text-disabled)',
-          opacity: metric.dashed ? 0.6 : 1,
         }}
       />
       <span>{metric.label}</span>
@@ -217,6 +213,77 @@ function LegendChip({
         </span>
       )}
     </button>
+  );
+}
+
+function ChipScrollRow({ children }: { children: React.ReactNode }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const sync = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 1);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    const inner = innerRef.current;
+    if (!el) return;
+    sync();
+    el.addEventListener('scroll', sync, { passive: true });
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    // Observe the inner content so that chip width changes (metric values loading in)
+    // trigger a re-check without requiring a scroll event.
+    if (inner) ro.observe(inner);
+    return () => {
+      el.removeEventListener('scroll', sync);
+      ro.disconnect();
+    };
+  }, [sync]);
+
+  const nudge = useCallback((dir: 'left' | 'right') => {
+    scrollRef.current?.scrollBy({ left: dir === 'left' ? -120 : 120, behavior: 'smooth' });
+  }, []);
+
+  const btnClass =
+    'flex items-center justify-center shrink-0 w-5 self-stretch text-(--mui-palette-text-secondary) hover:text-(--mui-palette-text-primary) transition-colors cursor-pointer';
+
+  return (
+    <div className="relative flex items-center border-t border-(--mui-palette-divider) shrink-0">
+      {canScrollLeft && (
+        <button type="button" aria-label="Scroll left" onClick={() => nudge('left')} className={`${btnClass} pl-1`}>
+          <ChevronLeft size={13} />
+        </button>
+      )}
+
+      <div className="relative flex-1 min-w-0">
+        {canScrollLeft && (
+          <div className="pointer-events-none absolute left-0 top-0 bottom-0 w-6 z-10 bg-gradient-to-r from-(--mui-palette-background-chartBg) to-transparent" />
+        )}
+        <div
+          ref={scrollRef}
+          className="flex flex-nowrap px-2 py-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div ref={innerRef} className="flex flex-nowrap gap-1">
+            {children}
+          </div>
+        </div>
+        {canScrollRight && (
+          <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-6 z-10 bg-gradient-to-l from-(--mui-palette-background-chartBg) to-transparent" />
+        )}
+      </div>
+
+      {canScrollRight && (
+        <button type="button" aria-label="Scroll right" onClick={() => nudge('right')} className={`${btnClass} pr-1`}>
+          <ChevronRight size={13} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -255,7 +322,7 @@ export default memo(function ContainerMetricsChart({
       <div ref={wrapperRef} className="flex-1 min-h-0">
         <DualSeriesChartRenderer ref={chartRef} option={option} />
       </div>
-      <div className="flex flex-wrap gap-1 px-2 pb-1.5 pt-1 shrink-0 border-t border-(--mui-palette-divider)">
+      <ChipScrollRow>
         {METRIC_DEFS.map((m) => (
           <LegendChip
             key={m.key}
@@ -265,7 +332,7 @@ export default memo(function ContainerMetricsChart({
             onToggle={() => onToggle(m.key)}
           />
         ))}
-      </div>
+      </ChipScrollRow>
     </div>
   );
 });

@@ -45,7 +45,6 @@ interface ContainerTableProps {
   isStale: boolean;
   entityIcons: DockerEntityIconsMap;
   onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
-  onOpenHistory?: (containerId: string, host: string) => void;
 }
 
 /**
@@ -68,7 +67,6 @@ export default function ContainerTable({
   isStale,
   entityIcons,
   onIconChange,
-  onOpenHistory,
 }: Readonly<ContainerTableProps>) {
   const {
     docker,
@@ -193,8 +191,6 @@ export default function ContainerTable({
             <ContainerNameCell
               row={data}
               expanded={row.getIsExpanded()}
-              onIconChange={onIconChange}
-              onOpenHistory={onOpenHistory}
             />
           );
         },
@@ -306,7 +302,7 @@ export default function ContainerTable({
         getIsStale: (row) => row.isStale,
       }),
     ],
-    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onIconChange, onOpenHistory],
+    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onIconChange],
   );
 
   /** Render container detail panel (charts + logs) for the nested DataTable */
@@ -323,10 +319,12 @@ export default function ContainerTable({
           host={host}
           inventory={row.inventory}
           iconSlug={entityIcons[entityId]?.iconSlug ?? null}
+          serviceKeyEntity={entityIcons[entityId]?.serviceKeyEntity ?? entityId}
+          onIconChange={onIconChange}
         />
       );
     },
-    [entityIcons],
+    [entityIcons, onIconChange],
   );
 
   const rowClassName = useCallback((row: DockerTableRow) => {
