@@ -1,5 +1,5 @@
 # Toolchain stage: provides Docker CLI + Compose via pre-built image (no runtime downloads)
-FROM docker:27.5.1-cli AS toolchain
+FROM docker:29.5.2-cli AS toolchain
 
 # Application stage
 FROM oven/bun:1.3.13 AS base
