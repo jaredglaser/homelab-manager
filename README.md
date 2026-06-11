@@ -26,6 +26,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 | Document | Description |
 |----------|-------------|
 | [Architecture](docs/architecture.md) | System diagrams, data streaming pipeline, and how the two-stage collection works |
+| [Data Flow Review](docs/data-flow-review.md) | Code-verified data flow traces, pattern alignment against current vendor guidance, and prioritized findings (generated 2026-06-11) |
 | [Development Guide](docs/development.md) | Prerequisites, environment setup, running locally, and testing |
 | [Local OIDC Dev](docs/dev-oidc.md) | Pocket ID setup, dev users, one-time login URLs, and token refresh |
 | [Project Structure](docs/project-structure.md) | Full directory tree with file descriptions |
