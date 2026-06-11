@@ -253,6 +253,32 @@ describe('useEventSource', () => {
     expect(onServiceError).toHaveBeenCalledTimes(1);
   });
 
+  it('calls onServiceError for a custom errorEventName', () => {
+    const onServiceError = mock(() => {});
+    renderHook(() =>
+      useEventSource({ url: '/api/settings', onData: () => {}, onServiceError, errorEventName: 'settings_error' })
+    );
+
+    const es = MockEventSource.instances[0];
+    act(() => { es.onopen?.(); });
+    act(() => { es.fireEvent('settings_error'); });
+
+    expect(onServiceError).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not listen for stats_error when a custom errorEventName is set', () => {
+    const onServiceError = mock(() => {});
+    renderHook(() =>
+      useEventSource({ url: '/api/settings', onData: () => {}, onServiceError, errorEventName: 'settings_error' })
+    );
+
+    const es = MockEventSource.instances[0];
+    act(() => { es.onopen?.(); });
+    act(() => { es.fireEvent('stats_error'); });
+
+    expect(onServiceError).not.toHaveBeenCalled();
+  });
+
   it('processes multiple messages sequentially', () => {
     const received: unknown[] = [];
     const onData = mock((data: unknown) => { received.push(data); });
