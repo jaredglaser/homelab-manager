@@ -42,6 +42,14 @@ export default memo(function SparklineCell({ data, color }: SparklineCellProps) 
   //
   // WARNING: Do not change the timestamp-based assumptions (e.g. switching to index-
   // based filtering or adding non-deterministic logic) without revisiting this pattern.
+  //
+  // React Compiler constraint: this pattern violates the react-hooks refs rule
+  // (no ref reads/writes during render), so the compiler cannot be enabled while
+  // this component exists in its current form. Before adopting the compiler, move
+  // the accumulator into an entity-keyed external store (keyed by host-prefixed
+  // entity ID) and subscribe via useSyncExternalStore. That store is also what
+  // survives virtualizer remounts (see CLAUDE.md gotcha 12), so the migration
+  // solves both problems at once.
   if (data.length > 0) {
     const latest = data.at(-1)!.timestamp;
 
