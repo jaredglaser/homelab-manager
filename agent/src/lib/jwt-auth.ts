@@ -12,10 +12,25 @@ export async function loadTrustedPublicKey(jwkJson: string): Promise<CryptoKey> 
   return (await importJWK(parsed, 'EdDSA')) as CryptoKey;
 }
 
-export async function verifyAgentJwt(jwt: string, publicKey: CryptoKey): Promise<void> {
+/**
+ * Verifies a manager-issued JWT.
+ *
+ * @param expectedAudience host name to match against the token's aud claim
+ *   (from AGENT_HOST_NAME). When undefined, audience verification is skipped
+ *   for back-compat with deployments that predate the env var.
+ */
+export async function verifyAgentJwt(
+  jwt: string,
+  publicKey: CryptoKey,
+  expectedAudience?: string,
+): Promise<void> {
   await jwtVerify(jwt, publicKey, {
     issuer: AGENT_JWT_ISSUER,
     algorithms: ['EdDSA'],
     maxTokenAge: '30s',
+    // Worker and agent run on different machines; a few seconds of NTP drift
+    // would otherwise produce hard-to-diagnose 401s on every request.
+    clockTolerance: '5s',
+    ...(expectedAudience !== undefined ? { audience: expectedAudience } : {}),
   });
 }

@@ -23,6 +23,13 @@ const STACKS_DIR = process.env.STACKS_DIR || '/opt/homelab-manager/stacks';
 const AGENT_CONTAINER_NAME = process.env.AGENT_CONTAINER_NAME ?? 'hlm-agent';
 const AGENT_TRUSTED_PUBKEY_FILE = process.env.AGENT_TRUSTED_PUBKEY_FILE;
 const AGENT_TRUSTED_PUBKEY_ENV = process.env.AGENT_TRUSTED_PUBKEY;
+// Manager JWTs carry aud = managed host name. Matching it here stops tokens
+// minted for another host from being accepted when keys are misconfigured
+// (e.g. the same keypair reused across agents). Optional for back-compat.
+const AGENT_HOST_NAME = process.env.AGENT_HOST_NAME?.trim() || undefined;
+if (AGENT_HOST_NAME === undefined) {
+  console.warn('AGENT_HOST_NAME is not set; skipping JWT audience verification. Set it to this host\'s managed host name to reject tokens issued for other hosts.');
+}
 const DOCKER_HOST = process.env.DOCKER_HOST;
 
 let trustedPubkeyJson: string;
@@ -176,7 +183,7 @@ Bun.serve<ExecWebSocketData>({
     try {
       const url = new URL(request.url);
 
-      const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname);
+      const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname, AGENT_HOST_NAME);
       if (authError) return authError;
 
       // WebSocket upgrade for exec sessions: must happen before matchRoute since server.upgrade() is Bun-specific
