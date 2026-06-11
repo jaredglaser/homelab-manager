@@ -70,6 +70,19 @@ export interface ProxmoxResource {
   storage?: string;
   content?: string;
   plugintype?: string;
+  shared?: number;
+}
+
+/**
+ * Cluster snapshot assembled from GET /cluster/status plus GET /cluster/resources.
+ * Replaces the per-node fan-out (qemu/lxc/storage per online node): the whole
+ * cluster is captured in 2 requests per poll cycle regardless of node count.
+ */
+export interface ProxmoxClusterSnapshot {
+  clusterName: string;
+  quorate: boolean;
+  version: number;
+  resources: ProxmoxResource[];
 }
 
 /** VM (QEMU) from GET /api2/json/nodes/{node}/qemu */

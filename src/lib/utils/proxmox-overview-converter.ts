@@ -1,18 +1,95 @@
-import type { ProxmoxClusterOverview, ProxmoxStatsRow } from '@/types/proxmox';
+import type {
+  ProxmoxClusterSnapshot,
+  ProxmoxResource,
+  ProxmoxStatsRow,
+} from '@/types/proxmox';
 
 /**
- * Convert a ProxmoxClusterOverview into a flat array of ProxmoxStatsRow, producing one row for the cluster and one row per node, VM, container, and storage.
+ * Map a guest resource (qemu or lxc) from /cluster/resources to a stats row.
+ * Resource `maxcpu` is the allocated core count (same value the per-node
+ * endpoints exposed as `cpus`), so `max_cpu` keeps its historical meaning.
+ */
+function guestToRow(
+  guest: ProxmoxResource,
+  entityType: 'qemu' | 'lxc',
+  host: string,
+  now: Date,
+): ProxmoxStatsRow {
+  return {
+    time: now,
+    host,
+    entity_type: entityType,
+    node: guest.node ?? null,
+    entity_id: String(guest.vmid ?? 0),
+    entity_name: guest.name ?? null,
+    status: guest.status,
+    cpu: guest.cpu ?? 0,
+    max_cpu: guest.maxcpu ?? 0,
+    mem: guest.mem ?? 0,
+    max_mem: guest.maxmem ?? 0,
+    disk: guest.disk ?? 0,
+    max_disk: guest.maxdisk ?? 0,
+    uptime: guest.uptime ?? 0,
+    vmid: guest.vmid ?? 0,
+    netin: guest.netin ?? 0,
+    netout: guest.netout ?? 0,
+    storage_type: null,
+    storage_content: null,
+    storage_avail: null,
+    storage_shared: null,
+    cluster_version: null,
+  };
+}
+
+/**
+ * Convert a ProxmoxClusterSnapshot into a flat array of ProxmoxStatsRow, producing one row for the cluster and one row per node, VM, container, and storage.
  *
- * @param overview - Cluster overview object returned by the Proxmox REST API
+ * Row shape and entity IDs are kept identical to the old per-node fan-out
+ * (cluster=name, node=node name, qemu/lxc=String(vmid), storage=node/name)
+ * so existing hypertable data and downstream queries stay valid.
+ *
+ * @param snapshot - Cluster snapshot from ProxmoxClient.getClusterSnapshot()
  * @param host - Host identifier to set on every produced row
  * @returns An array of ProxmoxStatsRow: the first element is the cluster row, followed by node rows, VM rows (entity_type 'qemu'), container rows (entity_type 'lxc'), and storage rows
  */
-export function overviewToRows(
-  overview: ProxmoxClusterOverview,
+export function snapshotToRows(
+  snapshot: ProxmoxClusterSnapshot,
   host: string,
 ): ProxmoxStatsRow[] {
   const now = new Date();
   const rows: ProxmoxStatsRow[] = [];
+
+  const nodes: ProxmoxResource[] = [];
+  const vms: ProxmoxResource[] = [];
+  const containers: ProxmoxResource[] = [];
+  const storages: ProxmoxResource[] = [];
+
+  for (const resource of snapshot.resources) {
+    switch (resource.type) {
+      case 'node':
+        nodes.push(resource);
+        break;
+      case 'qemu':
+        if (!resource.template) vms.push(resource);
+        break;
+      case 'lxc':
+        if (!resource.template) containers.push(resource);
+        break;
+      case 'storage':
+        storages.push(resource);
+        break;
+      // sdn and pool resources carry no stats we persist
+    }
+  }
+
+  // Node `cpu` from /cluster/resources is a 0-1 fraction; rows store the
+  // absolute core usage (fraction * maxcpu) like the old /nodes path did
+  const totalCpu = nodes.reduce((sum, n) => sum + (n.maxcpu ?? 0), 0);
+  const usedCpu = nodes.reduce((sum, n) => sum + (n.cpu ?? 0) * (n.maxcpu ?? 0), 0);
+  const totalMemory = nodes.reduce((sum, n) => sum + (n.maxmem ?? 0), 0);
+  const usedMemory = nodes.reduce((sum, n) => sum + (n.mem ?? 0), 0);
+  const totalDisk = nodes.reduce((sum, n) => sum + (n.maxdisk ?? 0), 0);
+  const usedDisk = nodes.reduce((sum, n) => sum + (n.disk ?? 0), 0);
 
   // Cluster-level row
   rows.push({
@@ -20,15 +97,15 @@ export function overviewToRows(
     host,
     entity_type: 'cluster',
     node: null,
-    entity_id: overview.clusterName,
-    entity_name: overview.clusterName,
-    status: overview.quorate ? 'quorate' : 'no-quorum',
-    cpu: overview.totals.usedCpu,
-    max_cpu: overview.totals.totalCpu,
-    mem: overview.totals.usedMemory,
-    max_mem: overview.totals.totalMemory,
-    disk: overview.totals.usedDisk,
-    max_disk: overview.totals.totalDisk,
+    entity_id: snapshot.clusterName,
+    entity_name: snapshot.clusterName,
+    status: snapshot.quorate ? 'quorate' : 'no-quorum',
+    cpu: usedCpu,
+    max_cpu: totalCpu,
+    mem: usedMemory,
+    max_mem: totalMemory,
+    disk: usedDisk,
+    max_disk: totalDisk,
     uptime: null,
     vmid: null,
     netin: null,
@@ -37,26 +114,27 @@ export function overviewToRows(
     storage_content: null,
     storage_avail: null,
     storage_shared: null,
-    cluster_version: overview.version,
+    cluster_version: snapshot.version,
   });
 
   // Node rows
-  for (const node of overview.nodes) {
+  for (const node of nodes) {
+    const nodeName = node.node ?? '';
     rows.push({
       time: now,
       host,
       entity_type: 'node',
-      node: node.node,
-      entity_id: node.node,
-      entity_name: node.node,
+      node: nodeName,
+      entity_id: nodeName,
+      entity_name: nodeName,
       status: node.status,
-      cpu: node.cpu * node.maxcpu,
-      max_cpu: node.maxcpu,
-      mem: node.mem,
-      max_mem: node.maxmem,
-      disk: node.disk,
-      max_disk: node.maxdisk,
-      uptime: node.uptime,
+      cpu: (node.cpu ?? 0) * (node.maxcpu ?? 0),
+      max_cpu: node.maxcpu ?? 0,
+      mem: node.mem ?? 0,
+      max_mem: node.maxmem ?? 0,
+      disk: node.disk ?? 0,
+      max_disk: node.maxdisk ?? 0,
+      uptime: node.uptime ?? 0,
       vmid: null,
       netin: null,
       netout: null,
@@ -69,85 +147,44 @@ export function overviewToRows(
   }
 
   // VM rows
-  for (const vm of overview.vms) {
-    rows.push({
-      time: now,
-      host,
-      entity_type: 'qemu',
-      node: vm.node,
-      entity_id: String(vm.vmid),
-      entity_name: vm.name,
-      status: vm.status,
-      cpu: vm.cpu,
-      max_cpu: vm.cpus,
-      mem: vm.mem,
-      max_mem: vm.maxmem,
-      disk: vm.disk,
-      max_disk: vm.maxdisk,
-      uptime: vm.uptime,
-      vmid: vm.vmid,
-      netin: vm.netin,
-      netout: vm.netout,
-      storage_type: null,
-      storage_content: null,
-      storage_avail: null,
-      storage_shared: null,
-      cluster_version: null,
-    });
+  for (const vm of vms) {
+    rows.push(guestToRow(vm, 'qemu', host, now));
   }
 
   // Container rows
-  for (const ct of overview.containers) {
-    rows.push({
-      time: now,
-      host,
-      entity_type: 'lxc',
-      node: ct.node,
-      entity_id: String(ct.vmid),
-      entity_name: ct.name,
-      status: ct.status,
-      cpu: ct.cpu,
-      max_cpu: ct.cpus,
-      mem: ct.mem,
-      max_mem: ct.maxmem,
-      disk: ct.disk,
-      max_disk: ct.maxdisk,
-      uptime: ct.uptime,
-      vmid: ct.vmid,
-      netin: ct.netin,
-      netout: ct.netout,
-      storage_type: null,
-      storage_content: null,
-      storage_avail: null,
-      storage_shared: null,
-      cluster_version: null,
-    });
+  for (const ct of containers) {
+    rows.push(guestToRow(ct, 'lxc', host, now));
   }
 
   // Storage rows
-  for (const s of overview.storages) {
+  for (const s of storages) {
+    const used = s.disk ?? 0;
+    const total = s.maxdisk ?? 0;
     rows.push({
       time: now,
       host,
       entity_type: 'storage',
-      node: s.node,
+      node: s.node ?? null,
       entity_id: `${s.node}/${s.storage}`,
-      entity_name: s.storage,
-      status: s.active ? 'active' : 'inactive',
+      entity_name: s.storage ?? null,
+      // /cluster/resources reports 'available'/'unavailable'; rows keep the
+      // historical 'active'/'inactive' values from the per-node storage API
+      status: s.status === 'available' ? 'active' : 'inactive',
       cpu: null,
       max_cpu: null,
       mem: null,
       max_mem: null,
-      disk: s.used,
-      max_disk: s.total,
+      disk: used,
+      max_disk: total,
       uptime: null,
       vmid: null,
       netin: null,
       netout: null,
-      storage_type: s.type,
-      storage_content: s.content,
-      storage_avail: s.avail,
-      storage_shared: s.shared === 1,
+      storage_type: s.plugintype ?? null,
+      storage_content: s.content ?? null,
+      // /cluster/resources has no avail field; derive it from total - used
+      storage_avail: Math.max(0, total - used),
+      storage_shared: (s.shared ?? 0) === 1,
       cluster_version: null,
     });
   }
