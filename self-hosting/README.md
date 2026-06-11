@@ -95,7 +95,16 @@ All configuration is done via environment variables in your `.env` file.
 
 ### Reverse Proxy
 
-Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular homelab choice - refer to its docs for setup.
+If you put a reverse proxy in front of the dashboard, **it must serve HTTP/2 to the browser** (or speak h2c if you terminate TLS elsewhere). [Caddy](https://caddyserver.com/docs/) is a popular homelab choice - refer to its docs for setup.
+
+**Why HTTP/2 matters:** each dashboard tab holds several long-lived SSE streams (stats, container inventory, stack status, settings). Over HTTP/1.1, browsers cap concurrent connections at about 6 per origin, and that pool is shared across all tabs. An HTTP/1.1-only proxy therefore works fine with one tab, then hangs (blank pages, stalled requests, frozen stats) as soon as you open a second or third tab, because every connection slot is occupied by an SSE stream. HTTP/2 multiplexes all streams over a single connection, so the limit never applies.
+
+One-line examples:
+
+- **Caddy** enables HTTP/2 automatically when it terminates TLS, so a minimal site block is enough: `homelab.example.com { reverse_proxy localhost:3000 }`
+- **nginx** needs HTTP/2 enabled explicitly on the TLS listener: `listen 443 ssl; http2 on;` (on nginx older than 1.25.1, use `listen 443 ssl http2;`)
+
+Note that browsers only negotiate HTTP/2 over TLS. Accessing the dashboard directly via plain `http://<ip>:3000` is always HTTP/1.1 and hits the same connection cap with multiple tabs; a TLS-terminating proxy with HTTP/2 is the fix.
 
 **Keep the dashboard on your LAN.** A reverse proxy does not change the security posture described in the warning above. Do not route this dashboard through a public-facing proxy.
 
@@ -248,3 +257,6 @@ docker compose up -d
 
 **Port conflict on 3000**
 - Set `WEB_PORT` to any available port in your `.env`.
+
+**Dashboard hangs or stops updating when a second tab is open**
+- Your reverse proxy (or direct plain-HTTP access) is serving HTTP/1.1, and the browser's ~6-connections-per-origin cap is exhausted by SSE streams. Serve the dashboard over HTTP/2; see [Reverse Proxy](#reverse-proxy).
