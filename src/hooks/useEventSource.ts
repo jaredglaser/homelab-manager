@@ -1,8 +1,11 @@
 import { useEffect, useState, useRef } from 'react';
 
-const MAX_RECONNECT_ATTEMPTS = 5;
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 16_000;
+// After this many consecutive failures the hook surfaces an error so the UI
+// can show a degraded state. Reconnect attempts continue indefinitely: a
+// continuously visible tab must recover on its own once the server is back.
+const ERROR_AFTER_ATTEMPTS = 5;
 
 interface UseEventSourceOptions<T> {
   url: string;
@@ -21,8 +24,9 @@ interface UseEventSourceResult {
  *
  * Establishes and maintains an EventSource for the given URL, parses incoming messages as JSON
  * and forwards them to `onData`, tracks connection status and errors, and reconnects with
- * exponential backoff (1s, 2s, 4s, 8s, 16s) up to MAX_RECONNECT_ATTEMPTS.
- * Re-establishes the connection when the document becomes visible again.
+ * exponential backoff (1s, 2s, 4s, 8s, then 16s) indefinitely, surfacing `error` after
+ * ERROR_AFTER_ATTEMPTS consecutive failures. Re-establishes the connection when the document
+ * becomes visible again and when the browser comes back online.
  */
 export function useEventSource<T>({
   url,
@@ -108,22 +112,17 @@ export function useEventSource<T>({
         eventSource.close();
         eventSourceRef.current = null;
 
-        if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-          if (reconnectTimerRef.current !== null) {
-            clearTimeout(reconnectTimerRef.current);
-            reconnectTimerRef.current = null;
-          }
-          setError(new Error('Connection failed after multiple attempts'));
-          return;
-        }
-
         reconnectAttemptsRef.current++;
 
-        if (debug) {
-          console.warn(`[useEventSource] Connection error (attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+        if (reconnectAttemptsRef.current > ERROR_AFTER_ATTEMPTS) {
+          setError(new Error('Connection failed after multiple attempts'));
         }
 
-        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+        if (debug) {
+          console.warn(`[useEventSource] Connection error (attempt ${reconnectAttemptsRef.current})`);
+        }
+
+        // Exponential backoff: 1s, 2s, 4s, 8s, then 16s indefinitely
         const delay = Math.min(
           BASE_BACKOFF_MS * 2 ** (reconnectAttemptsRef.current - 1),
           MAX_BACKOFF_MS,
@@ -150,11 +149,25 @@ export function useEventSource<T>({
       }
     };
 
+    // Network came back: skip the remaining backoff delay and reconnect now
+    // with a fresh retry budget instead of waiting out a 16s timer.
+    const handleOnline = () => {
+      if (eventSourceRef.current !== null) return;
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      reconnectAttemptsRef.current = 0;
+      connect();
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
 
     return () => {
       mounted = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
       if (reconnectTimerRef.current !== null) {
         clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
