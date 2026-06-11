@@ -19,7 +19,7 @@ export interface CallbackUserRepo {
 export interface CallbackSessionManager {
   createSession(
     userId: number,
-    tokens: OidcTokens,
+    idToken: string,
     ipAddress: string | null,
     userAgent: string | null,
   ): Promise<string>;
@@ -113,9 +113,12 @@ export async function handleCallback(
     groups: allGroups,
   });
 
+  // Only the id_token outlives the callback (logout id_token_hint). The access
+  // token is consumed above for the userinfo lookup; access and refresh tokens
+  // are never persisted.
   const rawSessionToken = await deps.sessionManager.createSession(
     user.id,
-    tokens,
+    tokens.idToken,
     ipAddress,
     userAgent,
   );

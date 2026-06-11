@@ -281,6 +281,25 @@ describe('handleCallback', () => {
       await handleCallback(deps, 'auth-code', validState, validCookieHeader(), null, null);
       expect(deps.sessionManager.createSession).toHaveBeenCalledTimes(1);
     });
+
+    it('passes only the id_token to createSession, never access or refresh tokens', async () => {
+      const tokens = makeTokens();
+      const deps = makeDeps({
+        oidcClient: {
+          exchangeCode: mock(async () => tokens),
+          getUserGroups: mock(async () => ['homelab-viewers']),
+        },
+      });
+
+      await handleCallback(deps, 'auth-code', validState, validCookieHeader(), null, null);
+
+      const [, sessionToken] = (
+        deps.sessionManager.createSession as ReturnType<typeof mock>
+      ).mock.calls[0] as [number, string, string | null, string | null];
+      expect(sessionToken).toBe(tokens.idToken);
+      expect(sessionToken).not.toContain(tokens.accessToken);
+      expect(sessionToken).not.toContain(tokens.refreshToken as string);
+    });
   });
 
   describe('buildSessionCookie helper', () => {
@@ -421,7 +440,7 @@ describe('handleCallback', () => {
       expect(deps.sessionManager.createSession).toHaveBeenCalledTimes(1);
       const [, , ipAddress, userAgent] = (
         deps.sessionManager.createSession as ReturnType<typeof mock>
-      ).mock.calls[0] as [number, OidcTokens, string | null, string | null];
+      ).mock.calls[0] as [number, string, string | null, string | null];
       expect(ipAddress).toBe('10.0.0.1');
       expect(userAgent).toBe('TestAgent/1.0');
     });

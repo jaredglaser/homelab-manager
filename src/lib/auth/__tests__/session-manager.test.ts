@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { createHash } from 'crypto';
 import { SessionManager, resetSessionManagerState } from '../session-manager';
 import type { SessionManagerDeps } from '../session-manager';
-import type { AuthUser, OidcTokens } from '@/lib/auth/types';
+import type { AuthUser } from '@/lib/auth/types';
 
 // Mock the JWE encryption module so tests don't need real crypto keys
 const mockEncryptValue = mock(async (_plaintext: string, _keyring: unknown) => 'jwe:mock:encrypted');
@@ -40,14 +40,7 @@ function makeUser(overrides?: Partial<AuthUser>): AuthUser {
   };
 }
 
-function makeTokens(overrides?: Partial<OidcTokens>): OidcTokens {
-  return {
-    accessToken: 'access-abc',
-    refreshToken: 'refresh-xyz',
-    idToken: 'id-token-123',
-    ...overrides,
-  };
-}
+const testIdToken = 'id-token-123';
 
 const mockKeyring = { activeKid: 'v1', keys: new Map() } as unknown as SessionManagerDeps['keyring'];
 
@@ -79,7 +72,7 @@ describe('SessionManager', () => {
       const deps = makeDeps();
       const manager = new SessionManager(deps);
 
-      const token = await manager.createSession(1, makeTokens(), null, null);
+      const token = await manager.createSession(1, testIdToken, null, null);
 
       expect(typeof token).toBe('string');
       expect(token).toMatch(/^[0-9a-f]{64}$/);
@@ -89,7 +82,7 @@ describe('SessionManager', () => {
       const deps = makeDeps();
       const manager = new SessionManager(deps);
 
-      const rawToken = await manager.createSession(1, makeTokens(), '127.0.0.1', 'Mozilla/5.0');
+      const rawToken = await manager.createSession(1, testIdToken, '127.0.0.1', 'Mozilla/5.0');
 
       const expectedHash = createHash('sha256').update(rawToken).digest('hex');
       expect(deps.sessionRepo.create).toHaveBeenCalledTimes(1);
@@ -101,7 +94,7 @@ describe('SessionManager', () => {
       const deps = makeDeps();
       const manager = new SessionManager(deps);
 
-      await manager.createSession(42, makeTokens(), '10.0.0.1', 'TestAgent/1.0');
+      await manager.createSession(42, testIdToken, '10.0.0.1', 'TestAgent/1.0');
 
       const callArg = (deps.sessionRepo.create as ReturnType<typeof mock>).mock.calls[0][0] as {
         userId: number;
@@ -113,16 +106,15 @@ describe('SessionManager', () => {
       expect(callArg.userAgent).toBe('TestAgent/1.0');
     });
 
-    it('encrypts OIDC tokens via JWE before storing', async () => {
+    it('encrypts only the id_token via JWE before storing', async () => {
       const deps = makeDeps();
       const manager = new SessionManager(deps);
-      const tokens = makeTokens();
 
-      await manager.createSession(1, tokens, null, null);
+      await manager.createSession(1, testIdToken, null, null);
 
       expect(mockEncryptValue).toHaveBeenCalledTimes(1);
       const [plaintext] = mockEncryptValue.mock.calls[0] as [string, unknown];
-      expect(JSON.parse(plaintext)).toEqual(tokens);
+      expect(JSON.parse(plaintext)).toEqual({ idToken: testIdToken });
 
       const createArg = (deps.sessionRepo.create as ReturnType<typeof mock>).mock.calls[0][0] as { encryptedOidc: string };
       expect(createArg.encryptedOidc).toBe('jwe:mock:encrypted');
@@ -133,7 +125,7 @@ describe('SessionManager', () => {
       const manager = new SessionManager(deps);
       const before = new Date();
 
-      await manager.createSession(1, makeTokens(), null, null);
+      await manager.createSession(1, testIdToken, null, null);
 
       const after = new Date();
       const createArg = (deps.sessionRepo.create as ReturnType<typeof mock>).mock.calls[0][0] as { expiresAt: Date };
@@ -149,8 +141,8 @@ describe('SessionManager', () => {
       const deps = makeDeps();
       const manager = new SessionManager(deps);
 
-      const token1 = await manager.createSession(1, makeTokens(), null, null);
-      const token2 = await manager.createSession(1, makeTokens(), null, null);
+      const token1 = await manager.createSession(1, testIdToken, null, null);
+      const token2 = await manager.createSession(1, testIdToken, null, null);
 
       expect(token1).not.toBe(token2);
     });
@@ -220,10 +212,8 @@ describe('SessionManager', () => {
   });
 
   describe('getIdToken', () => {
-    it('decrypts and returns the idToken from a valid session', async () => {
-      const tokens = makeTokens({ idToken: 'eyJ.test.token' });
-      const encryptedOidc = `jwe:mock:${JSON.stringify(tokens)}`;
-      const deps = makeDeps({
+    function depsWithEncryptedOidc(encryptedOidc: string): SessionManagerDeps {
+      return makeDeps({
         sessionRepo: {
           create: mock(async () => {}),
           findById: mock(async () => ({
@@ -236,11 +226,36 @@ describe('SessionManager', () => {
           deleteExpired: mock(async () => {}),
         } as unknown as SessionManagerDeps['sessionRepo'],
       });
-      const manager = new SessionManager(deps);
+    }
+
+    it('decrypts and returns the idToken from a current-format payload', async () => {
+      const encryptedOidc = `jwe:mock:${JSON.stringify({ idToken: 'eyJ.test.token' })}`;
+      const manager = new SessionManager(depsWithEncryptedOidc(encryptedOidc));
 
       const result = await manager.getIdToken('some-hashed-id');
 
       expect(result).toBe('eyJ.test.token');
+    });
+
+    it('returns the idToken from a legacy payload that also stored access and refresh tokens', async () => {
+      const legacyPayload = {
+        accessToken: 'access-abc',
+        refreshToken: 'refresh-xyz',
+        idToken: 'eyJ.legacy.token',
+      };
+      const encryptedOidc = `jwe:mock:${JSON.stringify(legacyPayload)}`;
+      const manager = new SessionManager(depsWithEncryptedOidc(encryptedOidc));
+
+      const result = await manager.getIdToken('some-hashed-id');
+
+      expect(result).toBe('eyJ.legacy.token');
+    });
+
+    it('returns null when the payload has no idToken field', async () => {
+      const encryptedOidc = `jwe:mock:${JSON.stringify({ accessToken: 'access-abc' })}`;
+      const manager = new SessionManager(depsWithEncryptedOidc(encryptedOidc));
+
+      expect(await manager.getIdToken('some-hashed-id')).toBeNull();
     });
 
     it('returns null when session is not found', async () => {
