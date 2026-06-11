@@ -13,14 +13,20 @@ export async function encryptValue(plaintext: string, keyring: MasterKeyring): P
 }
 
 export async function decryptValue(jwe: string, keyring: MasterKeyring): Promise<string> {
-  const { plaintext } = await compactDecrypt(jwe, async (header) => {
-    const kid = header.kid;
-    if (typeof kid !== 'string' || kid.length === 0) {
-      throw new Error('JWE header missing "kid"');
-    }
-    const key = keyring.keys.get(kid);
-    if (!key) throw new Error(`Unknown JWE kid "${kid}"`);
-    return key;
-  });
+  // Pin the accepted algorithms so an attacker-supplied header cannot select
+  // a weaker or different scheme than the one we encrypt with.
+  const { plaintext } = await compactDecrypt(
+    jwe,
+    async (header) => {
+      const kid = header.kid;
+      if (typeof kid !== 'string' || kid.length === 0) {
+        throw new Error('JWE header missing "kid"');
+      }
+      const key = keyring.keys.get(kid);
+      if (!key) throw new Error(`Unknown JWE kid "${kid}"`);
+      return key;
+    },
+    { keyManagementAlgorithms: [KEY_ALG], contentEncryptionAlgorithms: [ENC_ALG] },
+  );
   return new TextDecoder().decode(plaintext);
 }
