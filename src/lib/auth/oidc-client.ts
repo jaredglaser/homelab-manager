@@ -1,3 +1,4 @@
+import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import type { OidcTokens } from '@/lib/auth/types';
 
 export interface OidcConfig {
@@ -8,14 +9,18 @@ export interface OidcConfig {
 }
 
 interface OidcEndpoints {
+  issuer: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
   userinfoEndpoint: string;
+  jwksUri: string;
   endSessionEndpoint: string | null;
+  idTokenSigningAlgs: string[];
 }
 
 export class OidcClient {
   private endpoints: OidcEndpoints | null = null;
+  private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
   private readonly fetchFn: typeof fetch;
 
   constructor(
@@ -49,14 +54,38 @@ export class OidcClient {
     }
 
     const body = await response.json();
+    const issuer = body.issuer;
     const authEndpoint = body.authorization_endpoint;
     const tokenEndpoint = body.token_endpoint;
     const userinfoEndpoint = body.userinfo_endpoint;
-    if (typeof authEndpoint !== 'string' || typeof tokenEndpoint !== 'string' || typeof userinfoEndpoint !== 'string') {
-      throw new Error('OIDC discovery response missing required endpoints (authorization_endpoint, token_endpoint, userinfo_endpoint)');
+    const jwksUri = body.jwks_uri;
+    if (
+      typeof issuer !== 'string' ||
+      typeof authEndpoint !== 'string' ||
+      typeof tokenEndpoint !== 'string' ||
+      typeof userinfoEndpoint !== 'string' ||
+      typeof jwksUri !== 'string'
+    ) {
+      throw new Error('OIDC discovery response missing required fields (issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri)');
     }
     const endSessionEndpoint = typeof body.end_session_endpoint === 'string' ? body.end_session_endpoint : null;
-    this.endpoints = { authorizationEndpoint: authEndpoint, tokenEndpoint, userinfoEndpoint, endSessionEndpoint };
+    // 'none' is never acceptable for ID tokens; RS256 is the OIDC Core default when the
+    // provider does not advertise id_token_signing_alg_values_supported.
+    const advertisedAlgs = Array.isArray(body.id_token_signing_alg_values_supported)
+      ? body.id_token_signing_alg_values_supported.filter(
+          (alg: unknown): alg is string => typeof alg === 'string' && alg !== 'none',
+        )
+      : [];
+    const idTokenSigningAlgs = advertisedAlgs.length > 0 ? advertisedAlgs : ['RS256'];
+    this.endpoints = {
+      issuer,
+      authorizationEndpoint: authEndpoint,
+      tokenEndpoint,
+      userinfoEndpoint,
+      jwksUri,
+      endSessionEndpoint,
+      idTokenSigningAlgs,
+    };
     return this.endpoints;
   }
 
@@ -129,13 +158,22 @@ export class OidcClient {
     return Array.isArray(body.groups) ? body.groups : [];
   }
 
-  /** Decode JWT payload without verification (server already verified via token endpoint) */
-  static extractIdTokenClaims(idToken: string): Record<string, unknown> {
-    const parts = idToken.split('.');
-    if (parts.length !== 3) throw new Error('Invalid ID token format');
-    // JWT payloads are base64url-encoded (RFC 7519): replace - and _ then pad to 4-char boundary
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-    return JSON.parse(atob(padded));
+  /**
+   * Verifies the ID token signature against the provider's JWKS and returns its claims.
+   * Pins issuer, audience (client_id), and the signing algorithms advertised in the
+   * discovery document, so the nonce check downstream binds to an authenticated document.
+   * The remote JWK set is cached per client instance; jose handles refresh on key rotation.
+   */
+  async verifyIdToken(idToken: string): Promise<Record<string, unknown>> {
+    const endpoints = await this.discoverEndpoints();
+    this.jwks ??= createRemoteJWKSet(new URL(endpoints.jwksUri), {
+      [customFetch]: this.fetchFn,
+    });
+    const { payload } = await jwtVerify(idToken, this.jwks, {
+      issuer: endpoints.issuer,
+      audience: this.config.clientId,
+      algorithms: endpoints.idTokenSigningAlgs,
+    });
+    return payload;
   }
 }
