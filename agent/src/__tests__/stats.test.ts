@@ -1,6 +1,6 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { handleStatsStream, computeMetrics, type StatsStreamOptions, type ComputedStats } from '../routes/stats';
+import { handleStatsStream, computeMetrics, resolveMaxStatStreams, type StatsStreamOptions, type ComputedStats } from '../routes/stats';
 
 beforeAll(() => {
   console.error = mock(() => {});
@@ -622,5 +622,111 @@ describe('handleStatsStream: container refresh', () => {
     expect(text).toContain('event: container-error');
     expect(text).toContain('"type":"refresh_failed"');
     expect(text).toContain('"error":"Docker daemon down"');
+  });
+});
+
+describe('resolveMaxStatStreams', () => {
+  test('defaults to 300 when env var is unset', () => {
+    expect(resolveMaxStatStreams(undefined)).toBe(300);
+  });
+
+  test('parses a valid integer', () => {
+    expect(resolveMaxStatStreams('50')).toBe(50);
+  });
+
+  test('falls back to default for non-numeric values', () => {
+    expect(resolveMaxStatStreams('abc')).toBe(300);
+  });
+
+  test('falls back to default for zero or negative values', () => {
+    expect(resolveMaxStatStreams('0')).toBe(300);
+    expect(resolveMaxStatStreams('-5')).toBe(300);
+  });
+
+  test('falls back to default for non-integer values', () => {
+    expect(resolveMaxStatStreams('1.5')).toBe(300);
+  });
+});
+
+describe('handleStatsStream: stat stream cap', () => {
+  test('streams only the first maxStatStreams containers and emits stream-cap-exceeded', async () => {
+    const containers = [
+      { Id: 'cap1', Names: ['/one'], Image: 'a:latest' },
+      { Id: 'cap2', Names: ['/two'], Image: 'b:latest' },
+      { Id: 'cap3', Names: ['/three'], Image: 'c:latest' },
+    ];
+    const requestedIds: string[] = [];
+
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getContainer: mock((id: string) => {
+        requestedIds.push(id);
+        return { stats: mock(() => Promise.resolve(new EventEmitter())) };
+      }),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request, { maxStatStreams: 2 });
+
+    const text = await readUntil(response, (s) =>
+      s.includes('event: stream-cap-exceeded') && s.includes('event: containers')
+    );
+    ac.abort();
+
+    expect(requestedIds).toEqual(['cap1', 'cap2']);
+    expect(text).toContain('event: stream-cap-exceeded');
+    expect(text).toContain('"maxStatStreams":2');
+    expect(text).toContain('"totalContainers":3');
+    expect(text).toContain('"skippedContainers":1');
+    expect(text).toContain('"cap1"');
+    expect(text).toContain('"cap2"');
+    expect(text).not.toContain('"cap3"');
+  });
+
+  test('does not emit stream-cap-exceeded when at or under the cap', async () => {
+    const container = { Id: 'under1', Names: ['/under'], Image: 'a:latest' };
+    const mockDocker = {
+      listContainers: mock(() => Promise.resolve([container])),
+      getContainer: mock(() => ({ stats: mock(() => Promise.resolve(new EventEmitter())) })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request, { maxStatStreams: 1 });
+
+    const text = await readUntil(response, (s) => s.includes('event: containers'));
+    ac.abort();
+
+    expect(text).not.toContain('stream-cap-exceeded');
+    expect(text).toContain('"under1"');
+  });
+
+  test('re-applies the cap on container list refresh', async () => {
+    const container1 = { Id: 'ref1', Names: ['/one'], Image: 'a:latest' };
+    const container2 = { Id: 'ref2', Names: ['/two'], Image: 'b:latest' };
+
+    let callCount = 0;
+    const mockDocker = {
+      listContainers: mock(() => {
+        callCount++;
+        // First call returns 1 container (under cap), refresh returns 2 (over cap)
+        return Promise.resolve(callCount <= 1 ? [container1] : [container1, container2]);
+      }),
+      getContainer: mock(() => ({ stats: mock(() => Promise.resolve(new EventEmitter())) })),
+    };
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request, { ...fastOptions, maxStatStreams: 1 });
+
+    const text = await readUntil(response, (s) => s.includes('event: stream-cap-exceeded'), 2000);
+    ac.abort();
+
+    expect(text).toContain('event: stream-cap-exceeded');
+    expect(text).toContain('"maxStatStreams":1');
+    expect(text).toContain('"totalContainers":2');
+    // The capped container never gets a stream
+    expect(mockDocker.getContainer).not.toHaveBeenCalledWith('ref2');
   });
 });

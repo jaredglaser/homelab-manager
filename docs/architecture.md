@@ -164,6 +164,7 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 - Ed25519 JWT authentication (trusted public JWK loaded from `AGENT_TRUSTED_PUBKEY[_FILE]` at startup; per-request JWTs verified against it)
 - Optional TLS via `TLS_CERT_PATH` and `TLS_KEY_PATH`
 - Connects to Docker via `DOCKER_HOST` env var (socket proxy recommended)
+- Per-container stat stream fan-out capped via `AGENT_MAX_STAT_STREAMS` (default 300). Each streamed container holds one open dockerd connection; when the running container count exceeds the cap, only the first N containers are streamed and a `stream-cap-exceeded` SSE event reports the truncation
 - Subprocess timeout (5 minutes) for `docker compose` operations
 
 **Endpoints:**

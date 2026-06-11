@@ -4,12 +4,31 @@ import type Dockerode from 'dockerode';
 const DEFAULT_REFRESH_INTERVAL_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_MAX_CONSECUTIVE_FAILURES = 10;
+const DEFAULT_MAX_STAT_STREAMS = 300;
 
 export interface StatsStreamOptions {
   refreshIntervalMs?: number;
   pollIntervalMs?: number;
   /** Close the stream after this many consecutive refresh failures (default: 10). */
   maxConsecutiveFailures?: number;
+  /** Cap on concurrent per-container stat streams (default: AGENT_MAX_STAT_STREAMS env var or 300). */
+  maxStatStreams?: number;
+}
+
+/**
+ * Resolve the per-container stat stream cap from AGENT_MAX_STAT_STREAMS.
+ * Each streamed container holds one open connection to dockerd, so an
+ * unbounded fan-out on a host with hundreds of containers can exhaust
+ * dockerd connection limits. Invalid values fall back to the default.
+ */
+export function resolveMaxStatStreams(envValue = process.env.AGENT_MAX_STAT_STREAMS): number {
+  if (!envValue) return DEFAULT_MAX_STAT_STREAMS;
+  const parsed = Number(envValue);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    console.error(`Invalid AGENT_MAX_STAT_STREAMS: '${envValue}'. Using default ${DEFAULT_MAX_STAT_STREAMS}.`);
+    return DEFAULT_MAX_STAT_STREAMS;
+  }
+  return parsed;
 }
 
 /** Flat computed metrics matching the worker's AgentStatsEvent interface. */
@@ -293,6 +312,29 @@ function reconcileContainers(
   sendSSE(ctx, JSON.stringify({ ids: [...currentIds] }), 'containers');
 }
 
+/**
+ * Truncate the container list to the stat stream cap. When over the cap,
+ * only the first `maxStatStreams` containers (Docker list order) get streams
+ * and a `stream-cap-exceeded` SSE event reports the truncation so the worker
+ * can surface the gap instead of silently missing containers.
+ */
+function capContainers(
+  ctx: StreamContext,
+  containers: Dockerode.ContainerInfo[],
+  maxStatStreams: number,
+): Dockerode.ContainerInfo[] {
+  if (containers.length <= maxStatStreams) return containers;
+  const skipped = containers.length - maxStatStreams;
+  console.error(`Stat stream cap exceeded: streaming ${maxStatStreams} of ${containers.length} containers (${skipped} skipped). Raise AGENT_MAX_STAT_STREAMS to stream more.`);
+  sendErrorSSE(ctx, {
+    error: `Stat stream cap exceeded: streaming ${maxStatStreams} of ${containers.length} containers`,
+    maxStatStreams,
+    totalContainers: containers.length,
+    skippedContainers: skipped,
+  }, 'stream-cap-exceeded');
+  return containers.slice(0, maxStatStreams);
+}
+
 /** Try to close a ReadableStream controller, ignoring errors if already closed. */
 function tryCloseController(controller: ReadableStreamDefaultController<Uint8Array>): void {
   try {
@@ -313,9 +355,10 @@ async function tryRefreshContainers(
   failureCount: number,
   maxFailures: number,
   prevFrames: Map<string, PreviousFrame>,
+  maxStatStreams: number,
 ): Promise<{ containers: Dockerode.ContainerInfo[]; shouldBreak: boolean } | null> {
   try {
-    const current = await docker.listContainers({ all: false });
+    const current = capContainers(ctx, await docker.listContainers({ all: false }), maxStatStreams);
     if (ctx.closed) return { containers: current, shouldBreak: true };
     reconcileContainers(ctx, docker, previous, current, prevFrames);
     return { containers: current, shouldBreak: false };
@@ -340,9 +383,10 @@ async function runStatsLoop(
   pollIntervalMs: number,
   refreshIntervalMs: number,
   maxConsecutiveFailures: number,
+  maxStatStreams: number,
 ): Promise<void> {
   const prevFrames = new Map<string, PreviousFrame>();
-  let containers = await docker.listContainers({ all: false });
+  let containers = capContainers(ctx, await docker.listContainers({ all: false }), maxStatStreams);
   if (ctx.closed) return;
   let lastRefresh = Date.now();
   let consecutiveFailures = 0;
@@ -361,7 +405,7 @@ async function runStatsLoop(
     if (now - lastRefresh < refreshIntervalMs) continue;
     lastRefresh = now;
 
-    const result = await tryRefreshContainers(ctx, docker, containers, consecutiveFailures, maxConsecutiveFailures, prevFrames);
+    const result = await tryRefreshContainers(ctx, docker, containers, consecutiveFailures, maxConsecutiveFailures, prevFrames, maxStatStreams);
     if (!result) {
       consecutiveFailures++;
       if (consecutiveFailures >= maxConsecutiveFailures) break;
@@ -380,16 +424,20 @@ async function runStatsLoop(
 /**
  * Create an SSE Response that streams live Docker container stats.
  *
- * Opens a `stats({ stream: true })` connection per running container and forwards
- * NDJSON frames as SSE `data` events. A background poll loop refreshes the container
- * list every `refreshIntervalMs` (checked every `pollIntervalMs`), opening streams for
- * new containers and destroying stale ones.
+ * Opens a `stats({ stream: true })` connection per running container (capped at
+ * `maxStatStreams`, see `resolveMaxStatStreams`) and forwards NDJSON frames as SSE
+ * `data` events. A background poll loop refreshes the container list every
+ * `refreshIntervalMs` (checked every `pollIntervalMs`), opening streams for new
+ * containers and destroying stale ones.
  *
  * SSE event types emitted:
  * - `data` (default): `{ containerId, containerName, image, cpuPercent, memoryUsage, ... }`, pre-computed metrics
  * - `containers`: `{ ids: string[] }`, emitted after each container list refresh
  * - `container-error`: `{ containerId, error }`, per-container stream or open failure
  * - `container-error` with `type: "refresh_failed"`: `{ error, type }`, container list refresh failure
+ * - `stream-cap-exceeded`: `{ error, maxStatStreams, totalContainers, skippedContainers }`,
+ *   emitted when the running container count exceeds the stat stream cap; only the first
+ *   `maxStatStreams` containers are streamed
  * - `error`: `{ error }`, fatal stream-level failure (e.g. initial listContainers fails)
  *
  * Clients MUST handle the `error` and `container-error` SSE events since the HTTP
@@ -410,6 +458,7 @@ export function handleStatsStream(
   const refreshIntervalMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
+  const maxStatStreams = options.maxStatStreams ?? resolveMaxStatStreams();
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -427,7 +476,7 @@ export function handleStatsStream(
       });
 
       try {
-        await runStatsLoop(ctx, docker, pollIntervalMs, refreshIntervalMs, maxConsecutiveFailures);
+        await runStatsLoop(ctx, docker, pollIntervalMs, refreshIntervalMs, maxConsecutiveFailures, maxStatStreams);
       } catch (error) {
         console.error('Failed to start stats stream:', error);
         const msg = error instanceof Error ? error.message : String(error);
