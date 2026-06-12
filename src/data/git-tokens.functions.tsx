@@ -8,6 +8,7 @@ import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { loadMasterKeyring } from '@/lib/crypto/master-key';
 import { encryptValue } from '@/lib/crypto/encrypted-value';
 import { GitTokenRepository } from '@/lib/database/repositories/git-token-repository';
+import { hashGitToken } from '@/lib/git/git-token-auth';
 
 /** Creates a git token. The raw token is returned once and never stored in plaintext. */
 export const createGitToken = createServerFn()
@@ -28,6 +29,7 @@ export const createGitToken = createServerFn()
     await repo.create({
       userId: context.user.id,
       encryptedToken,
+      tokenHash: hashGitToken(rawToken),
       label: data.label,
     });
 

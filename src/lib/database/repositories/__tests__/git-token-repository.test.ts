@@ -4,9 +4,11 @@ import type { GitTokenRow } from '../git-token-repository';
 
 function createMockPool(rows: Record<string, unknown>[] = []) {
   const queryResults: Record<string, unknown>[][] = [];
+  const calls: { sql: string; params?: unknown[] }[] = [];
   return {
     pool: {
-      query: async (_sql: string, _params?: unknown[]) => {
+      query: async (sql: string, params?: unknown[]) => {
+        calls.push({ sql, params });
         const result = queryResults.length > 0 ? queryResults.shift()! : rows;
         return { rows: result };
       },
@@ -14,6 +16,7 @@ function createMockPool(rows: Record<string, unknown>[] = []) {
     pushResult(r: Record<string, unknown>[]) {
       queryResults.push(r);
     },
+    calls,
   };
 }
 
@@ -50,6 +53,7 @@ describe('GitTokenRepository', () => {
       const result = await repo.create({
         userId: 10,
         encryptedToken: 'enc:abc123',
+        tokenHash: 'a'.repeat(64),
         label: 'my-token',
       });
       expect(result.id).toBe(1);
@@ -59,11 +63,24 @@ describe('GitTokenRepository', () => {
       expect(result.createdAt).toEqual(now);
     });
 
+    it('passes token_hash as an insert parameter', async () => {
+      mock.pushResult([baseTokenDbRow]);
+      await repo.create({
+        userId: 10,
+        encryptedToken: 'enc:abc123',
+        tokenHash: 'deadbeef',
+        label: 'my-token',
+      });
+      expect(mock.calls[0].sql).toContain('token_hash');
+      expect(mock.calls[0].params).toEqual([10, 'enc:abc123', 'deadbeef', 'my-token']);
+    });
+
     it('coerces string id and user_id to numbers', async () => {
       mock.pushResult([{ ...baseTokenDbRow, id: '42', user_id: '99' }]);
       const result = await repo.create({
         userId: 99,
         encryptedToken: 'enc:xyz',
+        tokenHash: 'b'.repeat(64),
         label: 'coerce-test',
       });
       expect(result.id).toBe(42);
@@ -128,22 +145,46 @@ describe('GitTokenRepository', () => {
     });
   });
 
-  describe('findAllEncrypted', () => {
-    it('returns id, userId, and encryptedToken for all tokens', async () => {
+  describe('findByTokenHash', () => {
+    it('returns id, userId, and tokenHash for a matching row', async () => {
+      mock.pushResult([{ id: '1', user_id: '10', token_hash: 'c'.repeat(64) }]);
+      const result = await repo.findByTokenHash('c'.repeat(64));
+      expect(result).toEqual({ id: 1, userId: 10, tokenHash: 'c'.repeat(64) });
+      expect(mock.calls[0].params).toEqual(['c'.repeat(64)]);
+    });
+
+    it('returns null when no row matches', async () => {
+      mock.pushResult([]);
+      const result = await repo.findByTokenHash('missing');
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('findLegacyEncrypted', () => {
+    it('returns id, userId, and encryptedToken for tokens without a hash', async () => {
       mock.pushResult([
         { id: '1', user_id: '10', encrypted_token: 'enc:token1' },
         { id: '2', user_id: '20', encrypted_token: 'enc:token2' },
       ]);
-      const result = await repo.findAllEncrypted();
+      const result = await repo.findLegacyEncrypted();
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({ id: 1, userId: 10, encryptedToken: 'enc:token1' });
       expect(result[1]).toEqual({ id: 2, userId: 20, encryptedToken: 'enc:token2' });
+      expect(mock.calls[0].sql).toContain('token_hash IS NULL');
     });
 
-    it('returns empty array when no tokens exist', async () => {
+    it('returns empty array when no legacy tokens exist', async () => {
       mock.pushResult([]);
-      const result = await repo.findAllEncrypted();
+      const result = await repo.findLegacyEncrypted();
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('setTokenHash', () => {
+    it('updates token_hash for the given token id', async () => {
+      await repo.setTokenHash(7, 'd'.repeat(64));
+      expect(mock.calls[0].sql).toContain('SET token_hash');
+      expect(mock.calls[0].params).toEqual([7, 'd'.repeat(64)]);
     });
   });
 
@@ -178,7 +219,12 @@ describe('GitTokenRepository', () => {
 
     it('create returns row with null last_used_at by default', async () => {
       mock.pushResult([baseTokenDbRow]);
-      const result = await repo.create({ userId: 10, encryptedToken: 'enc:x', label: 'lbl' });
+      const result = await repo.create({
+        userId: 10,
+        encryptedToken: 'enc:x',
+        tokenHash: 'e'.repeat(64),
+        label: 'lbl',
+      });
       expect(result).toEqual(expectedTokenRow);
     });
   });

@@ -20,9 +20,16 @@ export interface GitTokenWithEncrypted {
   encryptedToken: string;
 }
 
+export interface GitTokenHashMatch {
+  id: number;
+  userId: number;
+  tokenHash: string;
+}
+
 export interface CreateGitTokenInput {
   userId: number;
   encryptedToken: string;
+  tokenHash: string;
   label: string;
 }
 
@@ -47,10 +54,10 @@ export class GitTokenRepository {
 
   async create(input: CreateGitTokenInput): Promise<GitTokenRow> {
     const result = await this.pool.query(
-      `INSERT INTO git_tokens (user_id, encrypted_token, label)
-       VALUES ($1, $2, $3)
+      `INSERT INTO git_tokens (user_id, encrypted_token, token_hash, label)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, user_id, label, last_used_at, created_at`,
-      [input.userId, input.encryptedToken, input.label]
+      [input.userId, input.encryptedToken, input.tokenHash, input.label]
     );
     return rowToGitToken(result.rows[0] as Parameters<typeof rowToGitToken>[0]);
   }
@@ -89,15 +96,44 @@ export class GitTokenRepository {
     }));
   }
 
-  async findAllEncrypted(): Promise<GitTokenWithEncrypted[]> {
+  /** Indexed lookup for the auth fast path. Returns null when no row matches. */
+  async findByTokenHash(tokenHash: string): Promise<GitTokenHashMatch | null> {
     const result = await this.pool.query(
-      `SELECT id, user_id, encrypted_token FROM git_tokens`
+      `SELECT id, user_id, token_hash FROM git_tokens WHERE token_hash = $1`,
+      [tokenHash]
+    );
+    const row = result.rows[0] as
+      | { id: unknown; user_id: unknown; token_hash: unknown }
+      | undefined;
+    if (!row) return null;
+    return {
+      id: Number(row.id),
+      userId: Number(row.user_id),
+      tokenHash: row.token_hash as string,
+    };
+  }
+
+  /**
+   * Tokens created before the token_hash column existed (migration 024).
+   * Only these need the decrypt-and-compare fallback during auth.
+   */
+  async findLegacyEncrypted(): Promise<GitTokenWithEncrypted[]> {
+    const result = await this.pool.query(
+      `SELECT id, user_id, encrypted_token FROM git_tokens WHERE token_hash IS NULL`
     );
     return (result.rows as { id: unknown; user_id: unknown; encrypted_token: unknown }[]).map(row => ({
       id: Number(row.id),
       userId: Number(row.user_id),
       encryptedToken: row.encrypted_token as string,
     }));
+  }
+
+  /** Backfill the hash for a legacy token after a successful auth match. */
+  async setTokenHash(id: number, tokenHash: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE git_tokens SET token_hash = $2 WHERE id = $1',
+      [id, tokenHash]
+    );
   }
 
   async deleteById(id: number): Promise<void> {
