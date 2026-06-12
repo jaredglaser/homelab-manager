@@ -12,10 +12,19 @@ type ReactNode = import('react').ReactNode;
         updateSetting: mockUpdateSetting,
     }));
 
+    const mockToastError = mock(() => {});
+    mock.module('sonner', () => ({
+        toast: {
+            success: mock(() => {}),
+            info: mock(() => {}),
+            warning: mock(() => {}),
+            error: mockToastError,
+        },
+    }));
+
     // Import after mocking
     const { useSettings } = await import('../useSettings');
     const { rawSettingsAtom } = await import('../settingsAtom');
-    const { toastsAtom } = await import('../toastAtom');
     const { createStore, Provider } = await import('jotai');
 
     function createWrapper(initialRaw: Record<string, string> = {}) {
@@ -33,6 +42,7 @@ type ReactNode = import('react').ReactNode;
     beforeEach(() => {
         mockUpdateSetting.mockClear();
         mockUpdateSetting.mockImplementation(() => Promise.resolve());
+        mockToastError.mockClear();
     });
 
     describe('initialization', () => {
@@ -751,7 +761,7 @@ type ReactNode = import('react').ReactNode;
         it('should roll back a simple setting on failure', async () => {
             mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
 
-            const { wrapper, store } = createWrapper();
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             expect(result.current.general.showSparklines).toBe(true);
@@ -769,15 +779,13 @@ type ReactNode = import('react').ReactNode;
             });
 
             // Toast should be shown
-            const toasts = store.get(toastsAtom);
-            expect(toasts.length).toBeGreaterThan(0);
-            expect(toasts[0].message).toBe('Failed to save setting');
+            expect(mockToastError).toHaveBeenCalledWith('Failed to save setting');
         });
 
         it('should roll back a toggle setting on failure', async () => {
             mockUpdateSetting.mockImplementation(() => Promise.reject(new Error('DB error')));
 
-            const { wrapper, store } = createWrapper();
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             expect(result.current.isContainerExpanded('c1')).toBe(false);
@@ -794,8 +802,7 @@ type ReactNode = import('react').ReactNode;
                 expect(result.current.isContainerExpanded('c1')).toBe(false);
             });
 
-            const toasts = store.get(toastsAtom);
-            expect(toasts.length).toBeGreaterThan(0);
+            expect(mockToastError).toHaveBeenCalled();
         });
 
         it('should roll back to existing value when key was already set', async () => {
@@ -824,7 +831,7 @@ type ReactNode = import('react').ReactNode;
         it('should not roll back when persist succeeds', async () => {
             mockUpdateSetting.mockImplementation(() => Promise.resolve());
 
-            const { wrapper, store } = createWrapper();
+            const { wrapper } = createWrapper();
             const { result } = renderHook(() => useSettings(), { wrapper });
 
             act(() => {
@@ -842,7 +849,6 @@ type ReactNode = import('react').ReactNode;
             expect(result.current.general.showSparklines).toBe(false);
 
             // No toasts
-            const toasts = store.get(toastsAtom);
-            expect(toasts.length).toBe(0);
+            expect(mockToastError).not.toHaveBeenCalled();
         });
     });
