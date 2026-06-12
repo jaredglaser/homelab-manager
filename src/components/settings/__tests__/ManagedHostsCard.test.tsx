@@ -30,8 +30,6 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
     isUpdating: false,
     onHealthCheck: mock(() => {}),
     checkingHostIds: new Set<number>(),
-    snackbar: { open: false, message: '', severity: 'success' },
-    onSnackbarClose: mock(() => {}),
     ...overrides,
   }
 }
@@ -417,16 +415,4 @@ describe('ManagedHostsCard', () => {
     })
   })
 
-  describe('snackbar', () => {
-    it('renders snackbar message when open', () => {
-      render(
-        <ManagedHostsCardView
-          {...makeProps({
-            snackbar: { open: true, message: 'Host added successfully', severity: 'success' },
-          })}
-        />
-      )
-      expect(screen.getByText('Host added successfully')).toBeDefined()
-    })
-  })
 })
