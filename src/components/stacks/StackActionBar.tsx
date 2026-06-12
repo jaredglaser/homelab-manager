@@ -1,4 +1,6 @@
-import { Button, Checkbox, FormControlLabel, IconButton, Tooltip, Typography } from '@mui/material';
+import { Button, IconButton, Tooltip, Typography } from '@mui/material';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { HelpCircle, Play, Square, Trash2 } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 
@@ -38,18 +40,18 @@ export default function StackActionBar({
       </Button>
 
       <div className="flex items-center">
-        <FormControlLabel
-          control={
-            <Checkbox
-              size="small"
-              checked={forceRecreate}
-              onChange={(e) => onForceRecreateChange(e.target.checked)}
-              disabled={isDeploying}
-            />
-          }
-          label={<Typography variant="caption" className="select-none">Force</Typography>}
-          className="mr-0!"
-        />
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="force-recreate"
+            className="size-4"
+            checked={forceRecreate}
+            onCheckedChange={(checked) => onForceRecreateChange(checked)}
+            disabled={isDeploying}
+          />
+          <Label htmlFor="force-recreate" className="cursor-pointer">
+            <Typography variant="caption" className="select-none">Force</Typography>
+          </Label>
+        </div>
         <Tooltip
           title={
             <div className="p-1">
