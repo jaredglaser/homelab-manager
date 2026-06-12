@@ -155,7 +155,7 @@ The agent is intentionally NOT a workspace member of the homelab-manager `packag
 
 ### Authentication (`src/lib/auth/`)
 
-Optional OIDC login, gated by `AUTH_ENABLED=true`. When enabled, `/api/auth/login`, `/api/auth/callback`, and `/api/auth/logout` handle the OIDC handshake; sessions are issued as signed cookies with TTL from `SESSION_TTL_HOURS`. OIDC group claims map to three roles (`admin`, `operator`, `viewer`) via `OIDC_ROLE_ADMIN`/`OPERATOR`/`VIEWER` env vars. `require-role.ts` guards server functions; `sse-auth.ts` authenticates SSE endpoints. `agent-token-migration.ts` migrates legacy agent tokens on startup. UI routes: `src/routes/login.tsx`, `src/routes/denied.tsx`. Designed to pair with Pocket ID but works with any OIDC provider. When `AUTH_ENABLED=false` (default), all routes are open: keep the dashboard on a trusted network.
+OIDC login, required by default; `AUTH_DISABLED=true` is the explicit opt-out and mistyped values fail startup (including the removed legacy `AUTH_ENABLED`). When auth is on, `/api/auth/login`, `/api/auth/callback`, and `/api/auth/logout` handle the OIDC handshake; sessions are issued as signed cookies with TTL from `SESSION_TTL_HOURS`. OIDC group claims map to three roles (`admin`, `operator`, `viewer`) via `OIDC_ROLE_ADMIN`/`OPERATOR`/`VIEWER` env vars. `require-role.ts` guards server functions; `sse-auth.ts` authenticates SSE endpoints. `agent-token-migration.ts` migrates legacy agent tokens on startup. UI routes: `src/routes/login.tsx`, `src/routes/denied.tsx`. Designed to pair with Pocket ID but works with any OIDC provider. When `AUTH_DISABLED=true`, all routes are open: keep the dashboard on a trusted network.
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
