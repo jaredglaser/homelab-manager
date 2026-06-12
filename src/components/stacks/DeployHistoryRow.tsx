@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Button, Collapse, Paper } from '@mui/material';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ChevronRight, GitCommit } from 'lucide-react';
 import type { StackDeployRecord, DeployAction, DeployStatus } from '@/types/stacks';
 import { triggerDeploy } from '@/data/stacks/functions';
@@ -73,16 +74,13 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
   return (
     <>
-      <Paper
-        elevation={0}
-        className="bg-(--mui-palette-background-chartBg)! rounded-sm overflow-hidden"
-      >
+      <div className="bg-chart-bg rounded-sm overflow-hidden">
         <div
           role={record.logs ? 'button' : undefined}
           tabIndex={record.logs ? 0 : undefined}
           onClick={() => record.logs && setExpanded(!expanded)}
           onKeyDown={record.logs ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded); } } : undefined}
-          className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-(--mui-palette-action-hover)' : ''}`}
+          className={`flex items-center gap-3 px-3 py-2 text-sm ${record.logs ? 'cursor-pointer hover:bg-accent' : ''}`}
         >
           {record.logs && (
             <ChevronRight
@@ -117,10 +115,8 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
           {showApprovalActions && onApprove !== undefined && (
             <Button
-              size="small"
-              variant="contained"
-              color="primary"
-              className="text-xs! h-6! min-w-0! px-2! ml-1!"
+              size="sm"
+              className="text-xs h-6 px-2 ml-1"
               onClick={(e) => {
                 e.stopPropagation();
                 onApprove(record.id);
@@ -133,10 +129,9 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
           )}
           {showApprovalActions && onReject !== undefined && (
             <Button
-              size="small"
-              variant="outlined"
-              color="error"
-              className="text-xs! h-6! min-w-0! px-2! ml-1!"
+              size="sm"
+              variant="outline"
+              className="text-xs h-6 px-2 ml-1 text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5"
               onClick={(e) => {
                 e.stopPropagation();
                 onReject(record.id);
@@ -150,9 +145,9 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
 
           {canRollback && (
             <Button
-              size="small"
-              variant="outlined"
-              className="text-xs! h-6! min-w-0! px-2! ml-1! border-red-600! text-red-500! hover:bg-red-600/10!"
+              size="sm"
+              variant="outline"
+              className="text-xs h-6 px-2 ml-1 border-red-600 text-red-500 hover:bg-red-600/10"
               onClick={(e) => {
                 e.stopPropagation();
                 setRollbackOpen(true);
@@ -165,13 +160,15 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
         </div>
 
         {record.logs && (
-          <Collapse in={expanded} unmountOnExit>
-            <pre className="px-4 py-2 text-xs font-mono whitespace-pre-wrap opacity-80 border-t border-(--mui-palette-divider) max-h-[200px] overflow-y-auto">
-              {record.logs}
-            </pre>
-          </Collapse>
+          <Collapsible open={expanded}>
+            <CollapsibleContent>
+              <pre className="px-4 py-2 text-xs font-mono whitespace-pre-wrap opacity-80 border-t border-border max-h-[200px] overflow-y-auto">
+                {record.logs}
+              </pre>
+            </CollapsibleContent>
+          </Collapsible>
         )}
-      </Paper>
+      </div>
 
       {canRollback && (
         <RollbackDialog

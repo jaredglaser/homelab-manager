@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Collapse } from '@mui/material';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { GuestRow } from '@/types/proxmox';
@@ -111,8 +111,9 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
         </span>
       </button>
 
-      <Collapse in={expanded} unmountOnExit>
-        <div className="bg-(--mui-palette-action-hover) border-b border-(--mui-palette-divider)">
+      <Collapsible open={expanded}>
+        <CollapsibleContent>
+        <div className="bg-accent border-b border-border">
           <DataTable
             data={sorted}
             columns={columns}
@@ -123,7 +124,8 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
             enableColumnVisibility={false}
           />
         </div>
-      </Collapse>
+        </CollapsibleContent>
+      </Collapsible>
     </>
   );
 }

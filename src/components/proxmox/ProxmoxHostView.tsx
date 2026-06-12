@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { Paper, Collapse } from '@mui/material'
 import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
 import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
@@ -73,7 +73,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
   }, [overview.vms, overview.containers, overview.storages, overview.nodes])
 
   return (
-    <Paper variant="outlined" className="rounded-sm overflow-x-auto">
+    <div className="bg-card border border-border rounded-sm overflow-x-auto">
       {sortedNodes.map((node, nodeIdx) => {
         const vms = vmsByNode.get(node.node) || []
         const containers = containersByNode.get(node.node) || []
@@ -118,7 +118,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
             </div>
 
             {/* Expanded sections */}
-            <Collapse id={`proxmox-host-panel-${node.node}`} in={hostExpanded} unmountOnExit>
+            <Collapsible open={hostExpanded}>
+            <CollapsibleContent id={`proxmox-host-panel-${node.node}`}>
               {vms.length > 0 && (
                 <GuestSection
                   label="Virtual Machines"
@@ -150,10 +151,11 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
                   useAbbreviatedUnits={useAbbreviatedUnits}
                 />
               )}
-            </Collapse>
+            </CollapsibleContent>
+            </Collapsible>
           </div>
         )
       })}
-    </Paper>
+    </div>
   )
 }
