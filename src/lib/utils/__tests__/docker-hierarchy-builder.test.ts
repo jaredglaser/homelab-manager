@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'bun:test';
-import { buildDockerTableHierarchy, rowToDockerStats, computeServiceKey, totalContainers } from '../docker-hierarchy-builder';
+import {
+  attachStatsToHierarchy,
+  buildDockerInventoryHierarchy,
+  buildDockerTableHierarchy,
+  rowToDockerStats,
+  computeServiceKey,
+  totalContainers,
+} from '../docker-hierarchy-builder';
 import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
@@ -106,58 +113,58 @@ describe('rowToDockerStats', () => {
   });
 });
 
+const baseDate = new Date('2024-01-01T00:00:00Z');
+
+function makeInventory(
+  host: string,
+  containerId: string,
+  name: string,
+  overrides?: Partial<DockerInventorySnapshotContainer>,
+): DockerInventorySnapshotContainer {
+  return {
+    host,
+    containerId,
+    name,
+    image: 'nginx:latest',
+    state: 'running',
+    composeProject: null,
+    serviceKey: name,
+    startedAt: baseDate,
+    finishedAt: null,
+    exitCode: null,
+    labels: {},
+    updatedAt: baseDate,
+    ...overrides,
+  };
+}
+
+function makeStats(
+  host: string,
+  containerId: string,
+  name: string,
+  cpuPercent = 10,
+): DockerStatsFromDB {
+  return {
+    id: `${host}/${containerId}`,
+    serviceKeyEntity: `${host}/${name}`,
+    name,
+    image: 'nginx:latest',
+    icon: null,
+    stale: false,
+    timestamp: baseDate,
+    rates: {
+      cpuPercent,
+      memoryPercent: 50,
+      networkRxBytesPerSec: 1000,
+      networkTxBytesPerSec: 500,
+      blockIoReadBytesPerSec: 2000,
+      blockIoWriteBytesPerSec: 1000,
+    },
+    memory_stats: { usage: 512, limit: 1024 },
+  };
+}
+
 describe('buildDockerTableHierarchy', () => {
-  const baseDate = new Date('2024-01-01T00:00:00Z');
-
-  function makeInventory(
-    host: string,
-    containerId: string,
-    name: string,
-    overrides?: Partial<DockerInventorySnapshotContainer>,
-  ): DockerInventorySnapshotContainer {
-    return {
-      host,
-      containerId,
-      name,
-      image: 'nginx:latest',
-      state: 'running',
-      composeProject: null,
-      serviceKey: name,
-      startedAt: baseDate,
-      finishedAt: null,
-      exitCode: null,
-      labels: {},
-      updatedAt: baseDate,
-      ...overrides,
-    };
-  }
-
-  function makeStats(
-    host: string,
-    containerId: string,
-    name: string,
-    cpuPercent = 10,
-  ): DockerStatsFromDB {
-    return {
-      id: `${host}/${containerId}`,
-      serviceKeyEntity: `${host}/${name}`,
-      name,
-      image: 'nginx:latest',
-      icon: null,
-      stale: false,
-      timestamp: baseDate,
-      rates: {
-        cpuPercent,
-        memoryPercent: 50,
-        networkRxBytesPerSec: 1000,
-        networkTxBytesPerSec: 500,
-        blockIoReadBytesPerSec: 2000,
-        blockIoWriteBytesPerSec: 1000,
-      },
-      memory_stats: { usage: 512, limit: 1024 },
-    };
-  }
-
   it('returns empty hosts for empty inventory', () => {
     const { hosts } = buildDockerTableHierarchy(new Map(), new Map());
     expect(hosts).toHaveLength(0);
@@ -345,6 +352,84 @@ describe('buildDockerTableHierarchy', () => {
     const stats = new Map([['host1/c2', makeStats('host1', 'c2', 'r2')]]);
     const { hosts } = buildDockerTableHierarchy(inventory, stats);
     expect(hosts[0].aggregated.staleContainerCount).toBe(1);
+  });
+});
+
+describe('buildDockerInventoryHierarchy', () => {
+  it('returns empty skeleton for empty inventory', () => {
+    const result = buildDockerInventoryHierarchy(new Map());
+    expect(result.hostNames).toHaveLength(0);
+    expect(result.containersByHost.size).toBe(0);
+  });
+
+  it('groups deduped containers per host with hosts sorted alphabetically', () => {
+    const inventory = new Map([
+      ['zeta/c1', makeInventory('zeta', 'c1', 'nginx')],
+      ['alpha/c2', makeInventory('alpha', 'c2', 'redis')],
+      ['alpha/c3', makeInventory('alpha', 'c3', 'postgres')],
+    ]);
+    const result = buildDockerInventoryHierarchy(inventory);
+    expect(result.hostNames).toEqual(['alpha', 'zeta']);
+    expect(result.containersByHost.get('alpha')).toHaveLength(2);
+    expect(result.containersByHost.get('zeta')).toHaveLength(1);
+  });
+
+  it('sorts containers by state priority then name', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'zebra', { state: 'exited' })],
+      ['host1/c2', makeInventory('host1', 'c2', 'zebra-live', { state: 'running' })],
+      ['host1/c3', makeInventory('host1', 'c3', 'apple-live', { state: 'running' })],
+    ]);
+    const result = buildDockerInventoryHierarchy(inventory);
+    const names = result.containersByHost.get('host1')!.map((inv) => inv.name);
+    expect(names).toEqual(['apple-live', 'zebra-live', 'zebra']);
+  });
+
+  it('dedupes by serviceKey keeping the most recently started container', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'plex', {
+        serviceKey: 'media/plex',
+        startedAt: new Date('2024-01-01T00:00:00Z'),
+      })],
+      ['host1/c2', makeInventory('host1', 'c2', 'plex', {
+        serviceKey: 'media/plex',
+        startedAt: new Date('2024-01-02T00:00:00Z'),
+      })],
+    ]);
+    const result = buildDockerInventoryHierarchy(inventory);
+    const containers = result.containersByHost.get('host1')!;
+    expect(containers).toHaveLength(1);
+    expect(containers[0].containerId).toBe('c2');
+  });
+});
+
+describe('attachStatsToHierarchy', () => {
+  it('reusing the same skeleton with different stats yields updated rows', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'nginx', { state: 'running' })],
+    ]);
+    const skeleton = buildDockerInventoryHierarchy(inventory);
+
+    const first = attachStatsToHierarchy(skeleton, new Map());
+    expect(first.hosts[0].children[0].isStale).toBe(true);
+    expect(first.hosts[0].children[0].stats).toBeUndefined();
+
+    const stats = new Map([['host1/c1', makeStats('host1', 'c1', 'nginx', 33)]]);
+    const second = attachStatsToHierarchy(skeleton, stats);
+    expect(second.hosts[0].children[0].isStale).toBe(false);
+    expect(second.hosts[0].children[0].stats!.rates.cpuPercent).toBe(33);
+  });
+
+  it('sets totalHosts and host row ids from the skeleton', () => {
+    const inventory = new Map([
+      ['host1/c1', makeInventory('host1', 'c1', 'nginx')],
+      ['host2/c2', makeInventory('host2', 'c2', 'redis')],
+    ]);
+    const { hosts } = attachStatsToHierarchy(buildDockerInventoryHierarchy(inventory), new Map());
+    expect(hosts).toHaveLength(2);
+    expect(hosts[0].id).toBe('host:host1');
+    expect(hosts[0].totalHosts).toBe(2);
+    expect(hosts[1].id).toBe('host:host2');
   });
 });
 
