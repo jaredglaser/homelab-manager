@@ -102,6 +102,20 @@ describe('handleContainerEvents: response headers', () => {
   });
 });
 
+describe('handleContainerEvents: heartbeat', () => {
+  test('emits heartbeat comment pings while no container events occur', async () => {
+    const docker = makeDocker([]);
+    const ac = new AbortController();
+    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
+    const response = await handleContainerEvents(docker as any, request, 10);
+
+    const text = await readUntil(response, (s) => s.includes(': ping'));
+    ac.abort();
+
+    expect(text).toContain(': ping\n\n');
+  });
+});
+
 describe('handleContainerEvents: init snapshot', () => {
   test('emits init event with all containers on connect', async () => {
     const containers = [

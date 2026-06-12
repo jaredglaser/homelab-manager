@@ -1,7 +1,7 @@
 import type Dockerode from 'dockerode';
 import { subscribe as broadcasterSubscribe } from '../lib/docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../lib/docker-events-broadcaster';
-import { sendSSE } from '../lib/sse-utils';
+import { sendSSE, startSseHeartbeat } from '../lib/sse-utils';
 import type {
   AgentContainerEvent,
   ContainerState,
@@ -63,16 +63,24 @@ function toUpdateContainer(c: MinimalContainerInfo): InventoryUpdateContainer {
  *
  * @param docker - Dockerode client used to interact with the Docker daemon
  * @param request - The HTTP request; its abort signal triggers cleanup
+ * @param heartbeatIntervalMs - Comment ping period in milliseconds (default: 25s)
  */
-export async function handleContainerEvents(docker: Dockerode, request: Request): Promise<Response> {
+export async function handleContainerEvents(
+  docker: Dockerode,
+  request: Request,
+  heartbeatIntervalMs?: number,
+): Promise<Response> {
   const encoder = new TextEncoder();
   const closed = { value: false };
   let unsubscribe: (() => void) | null = null;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      let stopHeartbeat: () => void = () => {};
+
       request.signal.addEventListener('abort', () => {
         closed.value = true;
+        stopHeartbeat();
         unsubscribe?.();
         try {
           controller.close();
@@ -86,6 +94,16 @@ export async function handleContainerEvents(docker: Dockerode, request: Request)
         } catch {}
         return;
       }
+
+      // Inventory events only fire on container state changes, which can be
+      // hours apart; a comment ping keeps proxies and Bun's idleTimeout from
+      // killing the quiet stream.
+      stopHeartbeat = startSseHeartbeat(
+        controller,
+        encoder,
+        () => closed.value,
+        heartbeatIntervalMs,
+      );
 
       const sub = await broadcasterSubscribe(docker, (event: BroadcasterEvent) => {
         let message: AgentContainerEvent;

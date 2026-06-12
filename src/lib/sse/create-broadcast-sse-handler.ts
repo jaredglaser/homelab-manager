@@ -6,10 +6,17 @@
  * a broadcast service, forward each event via a caller-provided serializer,
  * and tear down on request abort or enqueue failure.
  *
- * The heartbeat (`: ok\n\n`) forces Nitro to flush response headers
- * immediately so clients don't stall waiting for the first byte.
+ * The initial comment (`: ok\n\n`) forces Nitro to flush response headers
+ * immediately so clients don't stall waiting for the first byte. Periodic
+ * `: ping\n\n` comments then keep idle connections alive.
  */
 type Unsubscribe = () => void;
+
+/**
+ * Default heartbeat period. Must stay below typical idle timeouts that kill
+ * quiet streams (Bun's idleTimeout, nginx's 60 s proxy_read_timeout).
+ */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 25_000;
 
 export interface BroadcastSseHandlerOptions<Event> {
   /**
@@ -29,6 +36,8 @@ export interface BroadcastSseHandlerOptions<Event> {
    * surface the failure instead of silently stalling on an empty stream.
    */
   errorEvent: string;
+  /** Heartbeat comment period in milliseconds (default: 25s). */
+  heartbeatIntervalMs?: number;
 }
 
 function isCloseRelatedError(err: unknown): boolean {
@@ -38,6 +47,9 @@ function isCloseRelatedError(err: unknown): boolean {
 export function createBroadcastSseHandler<Event>(
   options: BroadcastSseHandlerOptions<Event>,
 ) {
+  const heartbeatIntervalMs =
+    options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+
   return async ({ request }: { request: Request }): Promise<Response> => {
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const user = await authenticateSSE(request);
@@ -57,11 +69,24 @@ export function createBroadcastSseHandler<Event>(
         const teardown = () => {
           if (closed) return;
           closed = true;
+          clearInterval(heartbeat);
           unsubscribe();
           try {
             controller.close();
           } catch {}
         };
+
+        // Broadcast events can be minutes apart (settings changes, deploys);
+        // a periodic comment frame keeps proxies and Bun's idleTimeout from
+        // killing the connection in between.
+        const heartbeat = setInterval(() => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(': ping\n\n'));
+          } catch {
+            teardown();
+          }
+        }, heartbeatIntervalMs);
 
         const sendEvent = (event: Event) => {
           if (closed) return;
@@ -91,10 +116,7 @@ export function createBroadcastSseHandler<Event>(
               ),
             );
           } catch {}
-          closed = true;
-          try {
-            controller.close();
-          } catch {}
+          teardown();
           return;
         }
 

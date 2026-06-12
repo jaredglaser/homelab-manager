@@ -141,6 +141,31 @@ describe('handleZfsStatsStream', () => {
     expect(tankEvent.line).toContain('tank');
   });
 
+  test('emits heartbeat comment pings while iostat is silent', async () => {
+    const killMock = mock(() => {});
+    const readableStream = new ReadableStream<Uint8Array>({
+      start() {
+        // Keep stream open with no output; simulates a silent iostat
+      },
+    });
+
+    Bun.spawn = mock(() => ({
+      stdout: readableStream,
+      stderr: new ReadableStream(),
+      kill: killMock,
+      exited: new Promise(() => {}), // never resolves
+    })) as any;
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/zfs/stats/stream', { signal: ac.signal });
+    const response = handleZfsStatsStream(request, zfsAvailable, 10);
+
+    const text = await readUntil(response, (s) => s.includes(': ping'));
+    ac.abort();
+
+    expect(text).toContain(': ping\n\n');
+  });
+
   test('kills subprocess on client disconnect', async () => {
     const killMock = mock(() => {});
     const readableStream = new ReadableStream<Uint8Array>({

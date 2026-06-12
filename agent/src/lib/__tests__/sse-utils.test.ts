@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { sendSSE } from '../sse-utils';
+import { sendSSE, startSseHeartbeat } from '../sse-utils';
 
 const originalConsoleError = console.error;
 
@@ -99,5 +99,54 @@ describe('sendSSE', () => {
     expect(() => {
       sendSSE(controller, makeEncoder(), { value: false }, 'hello');
     }).toThrow(err);
+  });
+});
+
+describe('startSseHeartbeat', () => {
+  test('enqueues comment pings on each interval tick', async () => {
+    const { controller, enqueued } = makeController();
+    const stop = startSseHeartbeat(controller, makeEncoder(), () => false, 5);
+
+    await new Promise((r) => setTimeout(r, 20));
+    stop();
+
+    expect(enqueued.length).toBeGreaterThanOrEqual(1);
+    expect(enqueued[0]).toBe(': ping\n\n');
+  });
+
+  test('stops pinging once isClosed reports true', async () => {
+    const { controller, enqueued } = makeController();
+    let closed = false;
+    const stop = startSseHeartbeat(controller, makeEncoder(), () => closed, 5);
+
+    await new Promise((r) => setTimeout(r, 15));
+    closed = true;
+    await new Promise((r) => setTimeout(r, 15));
+    const countAtClose = enqueued.length;
+    await new Promise((r) => setTimeout(r, 15));
+    stop();
+
+    expect(enqueued.length).toBe(countAtClose);
+  });
+
+  test('clears itself when enqueue throws (controller already closed)', async () => {
+    const { controller, enqueued, makeEnqueueThrow } = makeController();
+    makeEnqueueThrow(new TypeError('Controller is closed'));
+    const stop = startSseHeartbeat(controller, makeEncoder(), () => false, 5);
+
+    await new Promise((r) => setTimeout(r, 30));
+    stop();
+
+    expect(enqueued).toHaveLength(0);
+  });
+
+  test('stop function prevents any further pings', async () => {
+    const { controller, enqueued } = makeController();
+    const stop = startSseHeartbeat(controller, makeEncoder(), () => false, 5);
+    stop();
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(enqueued).toHaveLength(0);
   });
 });

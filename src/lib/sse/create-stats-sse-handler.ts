@@ -1,11 +1,28 @@
 import type { StatsSource } from '@/lib/database/subscription-service';
 
 /**
+ * Default heartbeat period. Must stay below typical idle timeouts that kill
+ * quiet streams (Bun's idleTimeout, nginx's 60 s proxy_read_timeout).
+ */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 25_000;
+
+export interface StatsSseHandlerOptions {
+  /** Heartbeat comment period in milliseconds (default: 25s). */
+  heartbeatIntervalMs?: number;
+}
+
+/**
  * Factory for stats SSE route handlers.
  * All three stats endpoints (docker, zfs, proxmox) share identical logic;
  * only the source string differs.
  */
-export function createStatsSseHandler(source: StatsSource) {
+export function createStatsSseHandler(
+  source: StatsSource,
+  options: StatsSseHandlerOptions = {},
+) {
+  const heartbeatIntervalMs =
+    options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+
   return async ({ request }: { request: Request }) => {
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const user = await authenticateSSE(request);
@@ -33,6 +50,7 @@ export function createStatsSseHandler(source: StatsSource) {
         const teardown = () => {
           if (closed) return;
           closed = true;
+          clearInterval(heartbeat);
           unsubscribe();
           try {
             controller.close();
@@ -40,6 +58,18 @@ export function createStatsSseHandler(source: StatsSource) {
             // Already closed
           }
         };
+
+        // Stats rows only flow while the poll service has data; a periodic
+        // comment frame keeps proxies and Bun's idleTimeout from killing the
+        // connection during quiet stretches.
+        const heartbeat = setInterval(() => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(': ping\n\n'));
+          } catch {
+            teardown();
+          }
+        }, heartbeatIntervalMs);
 
         const sendData = (rows: unknown[]) => {
           if (closed) return;
@@ -64,8 +94,7 @@ export function createStatsSseHandler(source: StatsSource) {
           unsubscribe = statsPollService.subscribe(source, sendData, sendError);
         } catch {
           sendError();
-          closed = true;
-          try { controller.close(); } catch { /* already closed */ }
+          teardown();
           return;
         }
 

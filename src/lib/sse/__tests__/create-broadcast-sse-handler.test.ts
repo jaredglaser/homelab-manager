@@ -7,7 +7,10 @@ mock.module('@/lib/auth/sse-auth', () => ({
 
 type Event = { n: number };
 
-function setup(serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(e)}\n\n`) {
+function setup(
+  serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(e)}\n\n`,
+  heartbeatIntervalMs?: number,
+) {
   let captured: ((event: Event) => void) | null = null;
   const unsubscribe = mock(() => {});
   const subscribe = mock((cb: (event: Event) => void) => {
@@ -19,6 +22,7 @@ function setup(serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(
     loadSubscribe: async () => subscribe,
     serialize,
     errorEvent: 'test_error',
+    heartbeatIntervalMs,
   });
 
   return {
@@ -212,6 +216,57 @@ describe('createBroadcastSseHandler', () => {
 
     reader.cancel();
     ac.abort();
+  });
+
+  it('emits periodic comment pings on the heartbeat interval', async () => {
+    const { handler } = setup(undefined, 5);
+    const ac = new AbortController();
+
+    const res = await handler({ request: makeRequest(ac) });
+    const reader = readerOf(res);
+    const decoder = new TextDecoder();
+
+    const first = await reader.read();
+    expect(decoder.decode(first.value)).toBe(': ok\n\n');
+
+    const second = await reader.read();
+    expect(decoder.decode(second.value)).toBe(': ping\n\n');
+
+    ac.abort();
+    reader.cancel();
+  });
+
+  it('tears down when the heartbeat ping hits a dead consumer', async () => {
+    const { handler, unsubscribe } = setup(undefined, 5);
+    const ac = new AbortController();
+
+    const res = await handler({ request: makeRequest(ac) });
+    const reader = readerOf(res);
+    await reader.read(); // initial flush comment
+
+    // Cancelling the reader closes the controller without firing abort, so
+    // the next ping's enqueue throws and must trigger teardown.
+    await reader.cancel();
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+
+    ac.abort();
+  });
+
+  it('stops the heartbeat after abort', async () => {
+    const clearSpy = spyOn(globalThis, 'clearInterval');
+    try {
+      const { handler } = setup(undefined, 5);
+      const ac = new AbortController();
+
+      await handler({ request: makeRequest(ac) });
+      ac.abort();
+
+      expect(clearSpy).toHaveBeenCalled();
+    } finally {
+      clearSpy.mockRestore();
+    }
   });
 
   it('returns 401 when authenticateSSE returns null', async () => {

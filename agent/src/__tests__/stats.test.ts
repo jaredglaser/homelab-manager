@@ -211,6 +211,18 @@ describe('handleStatsStream', () => {
     expect(response.headers.get('Connection')).toBe('keep-alive');
   });
 
+  test('emits heartbeat comment pings while the stream is idle', async () => {
+    const mockDocker = { listContainers: mock(() => Promise.resolve([])) };
+    const ac = new AbortController();
+    const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+    const response = handleStatsStream(mockDocker as any, request, { heartbeatIntervalMs: 10 });
+
+    const text = await readUntil(response, (s) => s.includes(': ping'));
+    ac.abort();
+
+    expect(text).toContain(': ping\n\n');
+  });
+
   test('streams flat computed stats as SSE events', async () => {
     const statsEmitter = new EventEmitter();
 

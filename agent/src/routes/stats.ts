@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
+import { startSseHeartbeat } from '../lib/sse-utils';
 
 const DEFAULT_REFRESH_INTERVAL_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -10,6 +11,8 @@ export interface StatsStreamOptions {
   pollIntervalMs?: number;
   /** Close the stream after this many consecutive refresh failures (default: 10). */
   maxConsecutiveFailures?: number;
+  /** Heartbeat comment period in milliseconds (default: 25s). */
+  heartbeatIntervalMs?: number;
 }
 
 /** Flat computed metrics matching the worker's AgentStatsEvent interface. */
@@ -420,8 +423,18 @@ export function handleStatsStream(
         controller,
       };
 
+      // Stats frames stop flowing when no containers run; a comment ping
+      // keeps proxies and Bun's idleTimeout from killing the quiet stream.
+      const stopHeartbeat = startSseHeartbeat(
+        controller,
+        ctx.encoder,
+        () => ctx.closed,
+        options.heartbeatIntervalMs,
+      );
+
       request.signal.addEventListener('abort', () => {
         ctx.closed = true;
+        stopHeartbeat();
         destroyAllStreams(ctx.containerStreams);
         tryCloseController(controller);
       });
@@ -433,6 +446,8 @@ export function handleStatsStream(
         const msg = error instanceof Error ? error.message : String(error);
         sendSSE(ctx, JSON.stringify({ error: msg }), 'error');
         tryCloseController(controller);
+      } finally {
+        stopHeartbeat();
       }
     },
   });

@@ -1,14 +1,18 @@
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
+import { startSseHeartbeat } from '../lib/sse-utils';
 
 /**
  * GET /zfs/stats/stream: SSE endpoint that streams `zpool iostat -v 1` output.
  *
  * Each non-empty line from the subprocess is emitted as an SSE event with
  * `{ line, timestamp }`. The subprocess is killed when the client disconnects.
+ *
+ * @param heartbeatIntervalMs - Comment ping period in milliseconds (default: 25s)
  */
 export function handleZfsStatsStream(
   request: Request,
   capabilities: ZfsCapabilities,
+  heartbeatIntervalMs?: number,
 ): Response {
   if (!capabilities.available) {
     return Response.json(
@@ -29,8 +33,19 @@ export function handleZfsStatsStream(
 
         let closed = false;
 
+        // `zpool iostat 1` normally emits every second, but a wedged pool or
+        // stalled subprocess can go silent; a comment ping keeps proxies and
+        // Bun's idleTimeout from killing the connection in the meantime.
+        const stopHeartbeat = startSseHeartbeat(
+          controller,
+          encoder,
+          () => closed,
+          heartbeatIntervalMs,
+        );
+
         request.signal.addEventListener('abort', () => {
           closed = true;
+          stopHeartbeat();
           proc.kill();
           try {
             controller.close();
@@ -71,6 +86,7 @@ export function handleZfsStatsStream(
             console.error('ZFS stats stream error:', err);
           }
         } finally {
+          stopHeartbeat();
           proc.kill();
           if (!closed) {
             closed = true;
