@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { createFileRoute, useLocation } from '@tanstack/react-router'
-import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Typography } from '@mui/material'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import {
   useDockerSettings,
@@ -72,11 +74,11 @@ function SettingsContent() {
       <PageTitle title="Settings" />
 
       <div className="flex flex-col gap-4 max-w-2xl px-4 pb-6">
-        <Card id="general" variant="outlined" className="p-4 scroll-mt-20">
-          <Typography variant="h6" className="mb-4">General</Typography>
+        <div id="general" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+          <h6 className="text-xl font-medium mb-4">General</h6>
           <div className="flex flex-col gap-6">
             <div className="flex justify-between items-center">
-              <FormLabel>Use 12-hour time format</FormLabel>
+              <Label>Use 12-hour time format</Label>
               <Switch
                 checked={general.use12HourTime}
                 onCheckedChange={setUse12HourTime}
@@ -85,23 +87,23 @@ function SettingsContent() {
 
             <div>
               <div className="flex justify-between items-baseline mb-1">
-                <FormLabel>Update Interval</FormLabel>
-                <Typography variant="body2" className="font-mono">{formatUpdateInterval(general.updateIntervalMs)}</Typography>
+                <Label>Update Interval</Label>
+                <p className="text-sm font-mono">{formatUpdateInterval(general.updateIntervalMs)}</p>
               </div>
-              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
+              <span className="text-xs text-muted-foreground mb-3 block">
                 Controls how frequently stats are collected and displayed (requires worker restart)
-              </Typography>
+              </span>
               <Slider
                 value={general.updateIntervalMs}
-                onChange={(_e, v) => setUpdateInterval(v as number)}
+                onValueChange={setUpdateInterval}
                 min={100}
                 max={60000}
-                step={null}
                 marks={UPDATE_INTERVAL_MARKS}
+                aria-label="Update Interval"
               />
             </div>
             <div className="flex justify-between items-center">
-              <FormLabel>Show Sparklines</FormLabel>
+              <Label>Show Sparklines</Label>
               <Switch
                 checked={general.showSparklines}
                 onCheckedChange={setShowSparklines}
@@ -109,77 +111,85 @@ function SettingsContent() {
             </div>
 
             <div className="flex justify-between items-center">
-              <FormLabel>Use Abbreviated Units</FormLabel>
+              <Label>Use Abbreviated Units</Label>
               <Switch
                 checked={general.useAbbreviatedUnits}
                 onCheckedChange={setUseAbbreviatedUnits}
               />
             </div>
 
-            <FormControl>
-              <FormLabel>Light Mode Palette</FormLabel>
-              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-2 block">
+            <div className="flex flex-col">
+              <Label className="mb-1">Light Mode Palette</Label>
+              <span className="text-xs text-muted-foreground mb-2 block">
                 Background color palette used in light mode
-              </Typography>
+              </span>
               <Select
                 value={general.lightPalette}
-                onChange={(e) => { if (e.target.value) setLightPalette(e.target.value as LightPalette); }}
-                size="small"
+                onValueChange={(value) => { if (value) setLightPalette(value as LightPalette); }}
               >
-                <MenuItem value="cool-blue">Cool Blue</MenuItem>
-                <MenuItem value="dusty-rose">Dusty Rose</MenuItem>
-                <MenuItem value="forest-mist">Forest Mist</MenuItem>
-                <MenuItem value="soft-stone">Soft Stone</MenuItem>
-                <MenuItem value="warm-slate">Warm Slate</MenuItem>
+                <SelectTrigger aria-label="Light Mode Palette">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cool-blue">Cool Blue</SelectItem>
+                  <SelectItem value="dusty-rose">Dusty Rose</SelectItem>
+                  <SelectItem value="forest-mist">Forest Mist</SelectItem>
+                  <SelectItem value="soft-stone">Soft Stone</SelectItem>
+                  <SelectItem value="warm-slate">Warm Slate</SelectItem>
+                </SelectContent>
               </Select>
-            </FormControl>
+            </div>
 
           </div>
-        </Card>
+        </div>
 
-        <Card id="docker-dashboard" variant="outlined" className="p-4 scroll-mt-20">
-          <Typography variant="h6" className="mb-4">Docker Containers Dashboard</Typography>
+        <div id="docker-dashboard" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+          <h6 className="text-xl font-medium mb-4">Docker Containers Dashboard</h6>
           <div className="flex flex-col gap-4">
-            <FormControl>
-              <FormLabel>Memory Display</FormLabel>
+            <div className="flex flex-col gap-1">
+              <Label>Memory Display</Label>
               <Select
                 value={docker.memoryDisplayMode}
-                onChange={(e) => {
-                  if (e.target.value) setMemoryDisplayMode(e.target.value as MemoryDisplayMode);
+                onValueChange={(value) => {
+                  if (value) setMemoryDisplayMode(value as MemoryDisplayMode);
                 }}
-                size="small"
               >
-                <MenuItem value="percentage">Percentage (%)</MenuItem>
-                <MenuItem value="bytes">Bytes (B, KiB, MiB, GiB)</MenuItem>
+                <SelectTrigger aria-label="Memory Display">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percentage">Percentage (%)</SelectItem>
+                  <SelectItem value="bytes">Bytes (B, KiB, MiB, GiB)</SelectItem>
+                </SelectContent>
               </Select>
-            </FormControl>
+            </div>
 
             <div>
               <div className="flex justify-between items-baseline mb-1">
-                <FormLabel>Chart Window</FormLabel>
-                <Typography variant="body2" className="font-mono">
+                <Label>Chart Window</Label>
+                <p className="text-sm font-mono">
                   {formatChartWindow(docker.chartWindowSeconds)}
-                </Typography>
+                </p>
               </div>
-              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
+              <span className="text-xs text-muted-foreground mb-3 block">
                 Time range shown in the expanded container metric charts
-              </Typography>
+              </span>
               <Slider
                 value={docker.chartWindowSeconds}
-                onChange={(_e, v) => setChartWindowSeconds(v as number)}
+                onValueChange={setChartWindowSeconds}
                 min={60}
                 max={1800}
-                step={null}
                 marks={CHART_WINDOW_MARKS}
+                aria-label="Chart Window"
               />
             </div>
 
             <div>
-              <Typography variant="subtitle2" className="mb-2">Show Decimal Places</Typography>
+              <p className="text-sm font-medium mb-2">Show Decimal Places</p>
               <div className="flex flex-col gap-2">
                 {(Object.keys(docker.decimals) as (keyof DecimalSettings)[]).map((key) => (
                   <div key={key} className="flex justify-between items-center">
-                    <FormLabel>{formatDecimalLabel(key)}</FormLabel>
+                    <Label>{formatDecimalLabel(key)}</Label>
                     <Switch
                       checked={docker.decimals[key]}
                       onCheckedChange={(checked) => setDockerDecimal(key, checked)}
@@ -189,15 +199,15 @@ function SettingsContent() {
               </div>
             </div>
           </div>
-        </Card>
+        </div>
 
-        <Card id="zfs-dashboard" variant="outlined" className="p-4 scroll-mt-20">
-          <Typography variant="h6" className="mb-4">ZFS Dashboard</Typography>
+        <div id="zfs-dashboard" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+          <h6 className="text-xl font-medium mb-4">ZFS Dashboard</h6>
           <div>
-            <Typography variant="subtitle2" className="mb-2">Show Decimal Places</Typography>
+            <p className="text-sm font-medium mb-2">Show Decimal Places</p>
             <div className="flex flex-col gap-2">
               <div className="flex justify-between items-center">
-                <FormLabel>Disk Speed</FormLabel>
+                <Label>Disk Speed</Label>
                 <Switch
                   checked={zfs.decimals.diskSpeed}
                   onCheckedChange={(checked) => setZfsDecimal('diskSpeed', checked)}
@@ -205,66 +215,66 @@ function SettingsContent() {
               </div>
             </div>
           </div>
-        </Card>
+        </div>
 
-        <Card id="data-retention" variant="outlined" className="p-4 scroll-mt-20">
-          <Typography variant="h6" className="mb-4">Data Retention</Typography>
+        <div id="data-retention" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+          <h6 className="text-xl font-medium mb-4">Data Retention</h6>
           <div className="flex flex-col gap-6">
             <div>
               <div className="flex justify-between items-baseline mb-1">
-                <FormLabel>Raw Data</FormLabel>
-                <Typography variant="body2" className="font-mono">{formatHours(retention.rawDataHours)}</Typography>
+                <Label>Raw Data</Label>
+                <p className="text-sm font-mono">{formatHours(retention.rawDataHours)}</p>
               </div>
-              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
+              <span className="text-xs text-muted-foreground mb-3 block">
                 Second-level data is downsampled to minute averages after this period
-              </Typography>
+              </span>
               <Slider
                 value={retention.rawDataHours}
-                onChange={(_e, v) => setRetention('rawDataHours', v as number)}
+                onValueChange={(v) => setRetention('rawDataHours', v)}
                 min={1}
                 max={168}
-                step={null}
                 marks={RAW_DATA_MARKS}
+                aria-label="Raw Data retention"
               />
             </div>
 
             <div>
               <div className="flex justify-between items-baseline mb-1">
-                <FormLabel>Minute Aggregates</FormLabel>
-                <Typography variant="body2" className="font-mono">{formatDays(retention.minuteAggDays)}</Typography>
+                <Label>Minute Aggregates</Label>
+                <p className="text-sm font-mono">{formatDays(retention.minuteAggDays)}</p>
               </div>
-              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
+              <span className="text-xs text-muted-foreground mb-3 block">
                 Minute averages are downsampled to hourly averages after this period
-              </Typography>
+              </span>
               <Slider
                 value={retention.minuteAggDays}
-                onChange={(_e, v) => setRetention('minuteAggDays', v as number)}
+                onValueChange={(v) => setRetention('minuteAggDays', v)}
                 min={1}
                 max={30}
-                step={null}
                 marks={MINUTE_AGG_MARKS}
+                aria-label="Minute Aggregates retention"
               />
             </div>
 
             <div>
               <div className="flex justify-between items-baseline mb-1">
-                <FormLabel>Hour Aggregates</FormLabel>
-                <Typography variant="body2" className="font-mono">{formatDays(retention.hourAggDays)}</Typography>
+                <Label>Hour Aggregates</Label>
+                <p className="text-sm font-mono">{formatDays(retention.hourAggDays)}</p>
               </div>
-              <Typography variant="caption" className="text-(--mui-palette-text-secondary) mb-3 block">
+              <span className="text-xs text-muted-foreground mb-3 block">
                 Hourly averages are downsampled to daily averages after this period. Daily data is kept forever.
-              </Typography>
+              </span>
               <Slider
                 value={retention.hourAggDays}
-                onChange={(_e, v) => setRetention('hourAggDays', v as number)}
+                onValueChange={(v) => setRetention('hourAggDays', v)}
                 min={1}
                 max={365}
-                step={null}
                 marks={HOUR_AGG_MARKS}
+                aria-label="Hour Aggregates retention"
               />
             </div>
           </div>
-        </Card>
+        </div>
 
         <div id="managed-hosts" className="scroll-mt-20">
           <ManagedHostsCard />
@@ -272,15 +282,15 @@ function SettingsContent() {
 
         {user?.role === 'admin' && <AuthManagementCard />}
 
-        <Card id="developer" variant="outlined" className="p-4 scroll-mt-20">
-          <Typography variant="h6" className="mb-4">Developer</Typography>
+        <div id="developer" className="p-4 scroll-mt-20 bg-card rounded-lg border border-border">
+          <h6 className="text-xl font-medium mb-4">Developer</h6>
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center">
               <div>
-                <FormLabel>Docker Debug Logging</FormLabel>
-                <Typography variant="caption" className="text-(--mui-palette-text-secondary) block">
+                <Label>Docker Debug Logging</Label>
+                <span className="text-xs text-muted-foreground block">
                   Log connection lifecycle, stream events, and collection timing
-                </Typography>
+                </span>
               </div>
               <Switch
                 checked={developer.dockerDebugLogging}
@@ -289,10 +299,10 @@ function SettingsContent() {
             </div>
             <div className="flex justify-between items-center">
               <div>
-                <FormLabel>Database Flush Logging</FormLabel>
-                <Typography variant="caption" className="text-(--mui-palette-text-secondary) block">
+                <Label>Database Flush Logging</Label>
+                <span className="text-xs text-muted-foreground block">
                   Log batch flush counts and database write timing
-                </Typography>
+                </span>
               </div>
               <Switch
                 checked={developer.dbFlushDebugLogging}
@@ -301,10 +311,10 @@ function SettingsContent() {
             </div>
             <div className="flex justify-between items-center">
               <div>
-                <FormLabel>SSE Pipeline Logging</FormLabel>
-                <Typography variant="caption" className="text-(--mui-palette-text-secondary) block">
+                <Label>SSE Pipeline Logging</Label>
+                <span className="text-xs text-muted-foreground block">
                   Log NOTIFY reception, cache updates, and SSE event emission
-                </Typography>
+                </span>
               </div>
               <Switch
                 checked={developer.sseDebugLogging}
@@ -312,7 +322,7 @@ function SettingsContent() {
               />
             </div>
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   )
