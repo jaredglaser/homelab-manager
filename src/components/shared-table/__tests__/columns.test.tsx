@@ -205,7 +205,7 @@ describe('statusColumn', () => {
     expect(screen.getByText('running')).toBeTruthy();
   });
 
-  it('renders a Chip element (MUI chip role)', () => {
+  it('renders a Badge element', () => {
     const col = statusColumn<TestRow>({
       id: 'status',
       getValue: (r) => r.status,
@@ -213,9 +213,8 @@ describe('statusColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    // MUI Chip renders with role="button" or as a div with MuiChip class
-    const chip = container.querySelector('.MuiChip-root');
-    expect(chip).toBeTruthy();
+    const badge = container.querySelector('[data-slot="badge"]');
+    expect(badge).toBeTruthy();
   });
 
   it('sets size when provided', () => {
@@ -250,7 +249,7 @@ describe('progressColumn', () => {
     expect(screen.getByText('75%')).toBeTruthy();
   });
 
-  it('renders a LinearProgress element', () => {
+  it('renders a Progress element', () => {
     const col = progressColumn<TestRow>({
       id: 'usage',
       getValue: (r) => r.pct,
@@ -258,7 +257,7 @@ describe('progressColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    const progress = container.querySelector('.MuiLinearProgress-root');
+    const progress = container.querySelector('[data-slot="progress"]');
     expect(progress).toBeTruthy();
   });
 
@@ -270,8 +269,8 @@ describe('progressColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    const progress = container.querySelector('.MuiLinearProgress-colorWarning');
-    expect(progress).toBeTruthy();
+    const bar = container.querySelector('[data-slot="progress-indicator"]');
+    expect(bar?.className).toContain('bg-warning');
   });
 
   it('uses error color for value > 90', () => {
@@ -282,8 +281,8 @@ describe('progressColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    const progress = container.querySelector('.MuiLinearProgress-colorError');
-    expect(progress).toBeTruthy();
+    const bar = container.querySelector('[data-slot="progress-indicator"]');
+    expect(bar?.className).toContain('bg-destructive');
   });
 
   it('uses success color for value <= 70', () => {
@@ -294,8 +293,8 @@ describe('progressColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    const progress = container.querySelector('.MuiLinearProgress-colorSuccess');
-    expect(progress).toBeTruthy();
+    const bar = container.querySelector('[data-slot="progress-indicator"]');
+    expect(bar?.className).toContain('bg-success');
   });
 
   it('sets size when provided', () => {
@@ -316,9 +315,9 @@ describe('progressColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    const bar = container.querySelector('.MuiLinearProgress-root');
-    expect(bar?.className).toContain('colorSuccess');
-    expect(bar?.className).not.toContain('colorWarning');
+    const bar = container.querySelector('[data-slot="progress-indicator"]');
+    expect(bar?.className).toContain('bg-success');
+    expect(bar?.className).not.toContain('bg-warning');
   });
 
   it('renders warning color at 71 (first value > 70)', () => {
@@ -329,8 +328,8 @@ describe('progressColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    const bar = container.querySelector('.MuiLinearProgress-root');
-    expect(bar?.className).toContain('colorWarning');
+    const bar = container.querySelector('[data-slot="progress-indicator"]');
+    expect(bar?.className).toContain('bg-warning');
   });
 
   it('renders warning color at exactly 90 (not > 90)', () => {
@@ -341,9 +340,9 @@ describe('progressColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    const bar = container.querySelector('.MuiLinearProgress-root');
-    expect(bar?.className).toContain('colorWarning');
-    expect(bar?.className).not.toContain('colorError');
+    const bar = container.querySelector('[data-slot="progress-indicator"]');
+    expect(bar?.className).toContain('bg-warning');
+    expect(bar?.className).not.toContain('bg-destructive');
   });
 
   it('renders error color at 91 (first value > 90)', () => {
@@ -354,7 +353,7 @@ describe('progressColumn', () => {
     });
 
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
-    const bar = container.querySelector('.MuiLinearProgress-root');
-    expect(bar?.className).toContain('colorError');
+    const bar = container.querySelector('[data-slot="progress-indicator"]');
+    expect(bar?.className).toContain('bg-destructive');
   });
 });

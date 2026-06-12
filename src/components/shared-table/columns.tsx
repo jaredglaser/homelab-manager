@@ -1,5 +1,7 @@
 import { type ColumnDef, type CellContext } from '@tanstack/react-table';
-import { Chip, LinearProgress } from '@mui/material';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils/cn';
 import type { ReactNode } from 'react';
 import { MetricCell, MetricHeaderCell } from '@/components/shared-table';
 
@@ -97,8 +99,15 @@ export function nameColumn<TRow>(opts: {
   };
 }
 
+const STATUS_BADGE_CLASSES = {
+  success: 'border-success text-success',
+  warning: 'border-warning text-warning',
+  error: 'border-destructive text-destructive',
+  default: 'border-border text-foreground',
+} as const;
+
 /**
- * Creates a status column that renders an MUI Chip with the entity's status.
+ * Creates a status column that renders an outlined Badge with the entity's status.
  */
 export function statusColumn<TRow>(opts: {
   id: string;
@@ -110,12 +119,9 @@ export function statusColumn<TRow>(opts: {
     id: opts.id,
     header: 'Status',
     cell: ({ row }: CellContext<TRow, unknown>) => (
-      <Chip
-        label={opts.getValue(row.original)}
-        color={opts.getColor(row.original)}
-        size="small"
-        variant="outlined"
-      />
+      <Badge variant="outline" className={STATUS_BADGE_CLASSES[opts.getColor(row.original)]}>
+        {opts.getValue(row.original)}
+      </Badge>
     ),
     size: opts.size,
   };
@@ -138,15 +144,20 @@ export function progressColumn<TRow>(opts: {
     cell: ({ row }: CellContext<TRow, unknown>) => {
       const value = opts.getValue(row.original);
       const label = opts.getLabel(row.original);
-      const color = value > 90 ? 'error' : value > 70 ? 'warning' : 'success';
+      const color =
+        value > 90
+          ? { track: 'bg-destructive/30', bar: 'bg-destructive' }
+          : value > 70
+            ? { track: 'bg-warning/30', bar: 'bg-warning' }
+            : { track: 'bg-success/30', bar: 'bg-success' };
 
       return (
         <div className="flex items-center gap-2 min-w-0">
           <div className="flex-1 min-w-0">
-            <LinearProgress
-              variant="determinate"
+            <Progress
               value={Math.min(100, Math.max(0, value))}
-              color={color}
+              className={cn('h-1', color.track)}
+              indicatorClassName={color.bar}
             />
           </div>
           <span className="shrink-0 min-w-[5ch] text-right text-xs tabular-nums text-(--mui-palette-text-secondary)">
