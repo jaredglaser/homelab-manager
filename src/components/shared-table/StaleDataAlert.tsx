@@ -1,4 +1,4 @@
-import { Alert } from '@mui/material'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AlertTriangle } from 'lucide-react'
 
 interface StaleDataAlertProps {
@@ -8,12 +8,9 @@ interface StaleDataAlertProps {
 export function StaleDataAlert({ isStale }: StaleDataAlertProps) {
   if (!isStale) return null
   return (
-    <Alert
-      severity="warning"
-      icon={<AlertTriangle size={18} />}
-      className="mb-3"
-    >
-      Data is stale. Background worker may not be running.
+    <Alert variant="warning" className="mb-3">
+      <AlertTriangle size={18} />
+      <AlertDescription>Data is stale. Background worker may not be running.</AlertDescription>
     </Alert>
   )
 }

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { MetricGroup } from '@/components/shared-table/DataTable';
 
 interface DataTableToolbarProps {
@@ -32,24 +32,23 @@ export function DataTableToolbar({
   return (
     <div className="flex items-center gap-2 px-2 py-1.5 flex-wrap">
       {showToggles && (
-        <ToggleButtonGroup
-          value={activeGroupIndex}
-          exclusive
-          size="small"
-          onChange={(_, value: number | null) => {
-            if (value !== null) {
-              onGroupChange(value);
+        <ToggleGroup
+          value={[String(activeGroupIndex)]}
+          onValueChange={(groupValue) => {
+            const value = groupValue[0];
+            if (value !== undefined) {
+              onGroupChange(Number(value));
             }
           }}
           aria-label="metric group"
         >
           {metricGroups!.map((group, index) => (
-            <ToggleButton key={group.label} value={index} aria-label={group.label}>
+            <ToggleGroupItem key={group.label} value={String(index)} aria-label={group.label}>
               {group.icon && <span className="mr-1 flex items-center">{group.icon}</span>}
               {group.label}
-            </ToggleButton>
+            </ToggleGroupItem>
           ))}
-        </ToggleButtonGroup>
+        </ToggleGroup>
       )}
       {children}
     </div>

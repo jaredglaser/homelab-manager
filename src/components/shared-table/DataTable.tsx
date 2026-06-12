@@ -15,7 +15,7 @@ import {
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
-import { Collapse } from '@mui/material';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ArrowUp, ArrowDown } from 'lucide-react';
 import { DataTableToolbar } from '@/components/shared-table/DataTableToolbar';
 import { useGeneralSettings } from '@/hooks/useSettings';
@@ -381,11 +381,13 @@ export function DataTable<TRow>({
                     const panel = renderDetailPanel(row.original);
                     if (panel == null) return null;
                     return (
-                      <Collapse in={isExpanded} unmountOnExit timeout={300}>
-                        <div className="border-t border-(--mui-palette-divider)">
-                          {panel}
-                        </div>
-                      </Collapse>
+                      <Collapsible open={isExpanded}>
+                        <CollapsibleContent>
+                          <div className="border-t border-border">
+                            {panel}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
                     );
                   })()}
                 </div>
