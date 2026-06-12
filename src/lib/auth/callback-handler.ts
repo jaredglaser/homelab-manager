@@ -2,7 +2,7 @@ import type { OidcTokens, Role, RoleMappingConfig } from '@/lib/auth/types';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
 
 export interface CallbackOidcClient {
-  exchangeCode(code: string): Promise<OidcTokens>;
+  exchangeCode(code: string, codeVerifier: string): Promise<OidcTokens>;
   getUserGroups(accessToken: string): Promise<string[]>;
 }
 
@@ -56,7 +56,7 @@ export async function handleCallback(
     return new Response('Missing state cookie', { status: 400 });
   }
 
-  let storedState: { state: string; nonce: string };
+  let storedState: { state: string; nonce: string; codeVerifier: string };
   try {
     storedState = JSON.parse(decodeURIComponent(stateMatch[1]));
   } catch {
@@ -67,7 +67,12 @@ export async function handleCallback(
     return new Response('State mismatch', { status: 400 });
   }
 
-  const tokens = await deps.oidcClient.exchangeCode(code);
+  // PKCE: the token exchange must replay the verifier the login handler stored
+  if (typeof storedState.codeVerifier !== 'string' || !storedState.codeVerifier) {
+    return new Response('State cookie missing code verifier', { status: 400 });
+  }
+
+  const tokens = await deps.oidcClient.exchangeCode(code, storedState.codeVerifier);
 
   // Providers vary on whether groups appear in userinfo or id_token; merge both.
   const userinfoGroups = await deps.oidcClient.getUserGroups(tokens.accessToken);

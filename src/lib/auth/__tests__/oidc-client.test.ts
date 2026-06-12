@@ -164,7 +164,7 @@ describe('OidcClient', () => {
   describe('getAuthorizationUrl', () => {
     it('builds correct URL with required params', async () => {
       const client = new OidcClient(config, makeDiscoveryFetch());
-      const url = await client.getAuthorizationUrl('state-abc', 'nonce-xyz');
+      const url = await client.getAuthorizationUrl('state-abc', 'nonce-xyz', 'challenge-123');
 
       const parsed = new URL(url);
       expect(parsed.origin + parsed.pathname).toBe('https://auth.example.com/authorize');
@@ -176,16 +176,25 @@ describe('OidcClient', () => {
       expect(parsed.searchParams.get('nonce')).toBe('nonce-xyz');
     });
 
+    it('includes PKCE code_challenge and code_challenge_method=S256', async () => {
+      const client = new OidcClient(config, makeDiscoveryFetch());
+      const url = await client.getAuthorizationUrl('state-abc', 'nonce-xyz', 'challenge-123');
+
+      const parsed = new URL(url);
+      expect(parsed.searchParams.get('code_challenge')).toBe('challenge-123');
+      expect(parsed.searchParams.get('code_challenge_method')).toBe('S256');
+    });
+
     it('does not include prompt param when not specified', async () => {
       const client = new OidcClient(config, makeDiscoveryFetch());
-      const url = await client.getAuthorizationUrl('s', 'n');
+      const url = await client.getAuthorizationUrl('s', 'n', 'c');
 
       expect(new URL(url).searchParams.has('prompt')).toBe(false);
     });
 
     it('includes prompt=none for silent re-auth', async () => {
       const client = new OidcClient(config, makeDiscoveryFetch());
-      const url = await client.getAuthorizationUrl('state-abc', 'nonce-xyz', 'none');
+      const url = await client.getAuthorizationUrl('state-abc', 'nonce-xyz', 'challenge-123', 'none');
 
       expect(new URL(url).searchParams.get('prompt')).toBe('none');
     });
@@ -245,7 +254,7 @@ describe('OidcClient', () => {
       });
 
       const client = new OidcClient(config, mockFetch);
-      const tokens = await client.exchangeCode('auth-code-123');
+      const tokens = await client.exchangeCode('auth-code-123', 'verifier-456');
 
       expect(tokens.accessToken).toBe('access-tok');
       expect(tokens.refreshToken).toBe('refresh-tok');
@@ -262,6 +271,7 @@ describe('OidcClient', () => {
       expect(body.get('client_secret')).toBe('my-secret');
       expect(body.get('redirect_uri')).toBe('https://app.example.com/callback');
       expect(body.get('code')).toBe('auth-code-123');
+      expect(body.get('code_verifier')).toBe('verifier-456');
     });
 
     it('sets refreshToken to null when not present in response', async () => {
@@ -271,7 +281,7 @@ describe('OidcClient', () => {
       });
 
       const client = new OidcClient(config, mockFetch);
-      const tokens = await client.exchangeCode('code');
+      const tokens = await client.exchangeCode('code', 'verifier');
 
       expect(tokens.refreshToken).toBeNull();
     });
@@ -282,7 +292,7 @@ describe('OidcClient', () => {
       });
 
       const client = new OidcClient(config, mockFetch);
-      await expect(client.exchangeCode('bad-code')).rejects.toThrow(
+      await expect(client.exchangeCode('bad-code', 'verifier')).rejects.toThrow(
         'OIDC token exchange failed (HTTP 400): invalid_grant',
       );
     });
@@ -294,7 +304,7 @@ describe('OidcClient', () => {
       });
 
       const client = new OidcClient(config, mockFetch);
-      await expect(client.exchangeCode('code')).rejects.toThrow(
+      await expect(client.exchangeCode('code', 'verifier')).rejects.toThrow(
         'OIDC token response missing required fields (access_token, id_token)',
       );
     });
@@ -306,7 +316,7 @@ describe('OidcClient', () => {
       });
 
       const client = new OidcClient(config, mockFetch);
-      await expect(client.exchangeCode('code')).rejects.toThrow(
+      await expect(client.exchangeCode('code', 'verifier')).rejects.toThrow(
         'OIDC token response missing required fields (access_token, id_token)',
       );
     });
