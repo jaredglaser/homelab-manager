@@ -1,7 +1,7 @@
 import type { AgentClient } from '@/lib/clients/agent-client';
-import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
+import type { DeployRepository, InsertDeployParams, QueuedDeploy } from '@/lib/database/repositories/deploy-repository';
 import type { HostRepository, ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { DeployRequest, DeployStatus, SecretResolver } from '@/lib/deploy/types';
+import type { DeployRecord, DeployRequest, DeployStatus, SecretResolver } from '@/lib/deploy/types';
 import { computeHash, detectChanges } from '@/lib/deploy/change-detection';
 import { extractVariableReferences } from '@/lib/deploy/secret-resolver';
 
@@ -51,7 +51,12 @@ export class DeployPipeline {
     this.stackRepoWriter = deps.stackRepoWriter;
   }
 
-  async execute(request: DeployRequest): Promise<PipelineResult> {
+  /**
+   * @param queuedAt Original queue timestamp when redispatching a drained
+   * request. Passed back to enqueueDeploy if the request gets re-queued so it
+   * can never replace a newer queued push.
+   */
+  async execute(request: DeployRequest, queuedAt?: Date): Promise<PipelineResult> {
     // 1. Validate: host exists in managed_hosts
     const host = await this.hostsRepo.findByName(request.host);
     if (!host) {
@@ -145,21 +150,30 @@ export class DeployPipeline {
       envHash = computeHash(resolvedEnvContent);
     }
 
-    // 3. Atomic insert: the partial unique index rejects if an active deploy exists
-    const deployId = await this.deployRepo.insertDeployIfNoActive({
+    const insertParams = {
       stack: request.stack,
       host: request.host,
       commitSha: request.commitSha,
       composeHash,
       envHash,
-      status: 'pending',
+      status: 'pending' as DeployStatus,
       trigger: request.trigger,
       action: request.action,
       forceRecreate: request.action === 'deploy' ? request.forceRecreate : false,
       postSuccess: request.postSuccess ?? null,
-    });
+    };
+
+    // 3. Atomic insert: the partial unique index rejects if an active deploy exists
+    const deployId = await this.deployRepo.insertDeployIfNoActive(insertParams);
 
     if (deployId === null) {
+      // A git push blocked by an active deploy must not be dropped: the newest
+      // commit would silently never deploy. Queue it for dispatch after the
+      // active deploy reaches a terminal state. UI triggers keep the immediate
+      // failed response so the user sees the conflict right away.
+      if (request.trigger === 'git_push') {
+        return this.queueBlockedPush(request, insertParams, queuedAt);
+      }
       return { status: 'failed', logs: `Stack "${request.stack}" already has an active deploy` };
     }
 
@@ -225,10 +239,128 @@ export class DeployPipeline {
       } catch (notifyErr) {
         console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${request.host}"):`, notifyErr);
       }
+      await this.drainQueue(request.stack, request.host);
       return { status: 'failed', logs: errorMsg, deployId };
     }
 
     return this.dispatch(host, request, resolvedEnvContent, deployId);
+  }
+
+  private async queueBlockedPush(
+    request: DeployRequest,
+    insertParams: InsertDeployParams,
+    queuedAt?: Date,
+  ): Promise<PipelineResult> {
+    const logs = `Stack "${request.stack}" has an active deploy; queued commit ${request.commitSha} for dispatch after it completes`;
+    let won: boolean;
+    try {
+      won = await this.deployRepo.enqueueDeploy(request, queuedAt);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[Pipeline] Failed to queue blocked git push for stack "${request.stack}":`, err);
+      return { status: 'failed', logs: `Stack "${request.stack}" already has an active deploy and queueing failed: ${errMsg}` };
+    }
+
+    if (!won) {
+      return { status: 'no_change', logs: `Queued commit ${request.commitSha} superseded by a newer push` };
+    }
+
+    const deployId = await this.recordQueuedDeploy(request, insertParams, logs);
+    return deployId === null ? { status: 'queued', logs } : { status: 'queued', logs, deployId };
+  }
+
+  /**
+   * Write the `queued` deploy_history marker so a blocked push is visible in the
+   * history list and on the stack-status channel. Best-effort: the queue row is
+   * the source of truth, so a marker failure must not fail the push.
+   */
+  private async recordQueuedDeploy(
+    request: DeployRequest,
+    insertParams: InsertDeployParams,
+    logs: string,
+  ): Promise<number | null> {
+    try {
+      const deployId = await this.deployRepo.recordQueuedDeploy({ ...insertParams, status: 'queued' });
+      await this.deployRepo.notifyStackChange(request.stack, request.host, {
+        deployId,
+        status: 'queued',
+        action: request.action,
+        trigger: request.trigger,
+        message: logs,
+      });
+      return deployId;
+    } catch (err) {
+      console.error(`[Pipeline] Failed to record queued deploy marker for stack "${request.stack}":`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Dispatch the newest queued git push for stack+host, if one exists. Runs
+   * after a deploy reaches a terminal state. If the dequeued request loses a
+   * race against a concurrent push (its insert hits the active-deploy index
+   * again), execute re-enqueues it with the original queue timestamp so it
+   * cannot replace a newer queued push.
+   */
+  private async drainQueue(stack: string, host: string): Promise<void> {
+    const queued = await this.deployRepo.dequeueDeploy(stack, host).catch((err: unknown) => {
+      console.error(`[Pipeline] Failed to read deploy queue for "${stack}" on "${host}":`, err);
+      return null;
+    });
+    if (!queued) return;
+
+    const stale = await this.findSupersedingDeploy(queued);
+    if (stale) {
+      const logs = `Discarded queued commit ${queued.request.commitSha}: commit ${stale.commitSha} deployed successfully after it was queued`;
+      console.info(`[Pipeline] ${logs}`);
+      await this.resolveQueuedMarker(queued.request, logs);
+      return;
+    }
+
+    console.info(
+      `[Pipeline] Dispatching queued deploy for "${stack}" on "${host}" (commit ${queued.request.commitSha})`,
+    );
+    await this.deployRepo.clearQueuedDeploy(stack, host).catch((err: unknown) => {
+      console.error(`[Pipeline] Failed to clear queued marker for "${stack}" on "${host}":`, err);
+    });
+    try {
+      await this.execute(queued.request, queued.queuedAt);
+    } catch (err) {
+      console.error(`[Pipeline] Queued deploy dispatch failed for "${stack}" on "${host}":`, err);
+    }
+  }
+
+  /**
+   * A dequeued request must never deploy over a newer commit. Startup recovery
+   * and the watchdog both fail an active deploy without draining, so a queued
+   * row can outlive the deploy it was waiting on and silently revert the stack.
+   */
+  private async findSupersedingDeploy(queued: QueuedDeploy): Promise<DeployRecord | null> {
+    const latest = await this.deployRepo
+      .getLatestSuccessful(queued.request.stack, queued.request.host)
+      .catch((err: unknown) => {
+        console.error(`[Pipeline] Failed to check deployed commit for "${queued.request.stack}":`, err);
+        return null;
+      });
+    if (!latest) return null;
+    if (latest.commitSha === queued.request.commitSha) return latest;
+    return latest.createdAt.getTime() >= queued.queuedAt.getTime() ? latest : null;
+  }
+
+  private async resolveQueuedMarker(request: DeployRequest, logs: string): Promise<void> {
+    try {
+      const deployId = await this.deployRepo.failQueuedDeploy(request.stack, request.host, logs);
+      if (deployId === null) return;
+      await this.deployRepo.notifyStackChange(request.stack, request.host, {
+        deployId,
+        status: 'failed',
+        action: request.action,
+        trigger: request.trigger,
+        message: logs,
+      });
+    } catch (err) {
+      console.error(`[Pipeline] Failed to resolve queued marker for stack "${request.stack}":`, err);
+    }
   }
 
   private async resolveEnv(request: DeployRequest): Promise<string> {
@@ -296,6 +428,7 @@ export class DeployPipeline {
       } catch (notifyErr) {
         console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${host.name}"):`, notifyErr);
       }
+      await this.drainQueue(request.stack, host.name);
       return { status: 'failed', logs: errorMsg, deployId };
     }
 
@@ -343,6 +476,7 @@ export class DeployPipeline {
         } catch (notifyErr) {
           console.error(`Failed to notify stack change for "${request.stack}":`, notifyErr);
         }
+        await this.drainQueue(request.stack, host.name);
         return { status: 'failed', logs: errMsg, deployId };
       }
     }
@@ -358,6 +492,8 @@ export class DeployPipeline {
     } catch (err) {
       console.error(`Failed to notify stack change for "${request.stack}":`, err);
     }
+
+    await this.drainQueue(request.stack, host.name);
 
     return { status: finalStatus, logs: result.logs, deployId };
   }

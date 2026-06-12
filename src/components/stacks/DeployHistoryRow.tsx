@@ -18,6 +18,7 @@ const STATUS_COLOR: Record<DeployStatus, string> = {
   pending: 'var(--chart-deploy-pending)',
   in_progress: 'var(--chart-deploy-in-progress)',
   no_change: 'var(--chart-deploy-success)',
+  queued: 'var(--chart-deploy-pending)',
 };
 
 const STATUS_LABEL: Record<DeployStatus, string> = {
@@ -26,6 +27,7 @@ const STATUS_LABEL: Record<DeployStatus, string> = {
   pending: 'Pending',
   in_progress: 'In Progress',
   no_change: 'No Changes',
+  queued: 'Queued',
 };
 
 const ACTION_LABEL: Record<DeployAction, string> = {

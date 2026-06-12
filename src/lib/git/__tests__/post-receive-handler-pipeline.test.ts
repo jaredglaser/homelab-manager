@@ -77,7 +77,7 @@ describe('processPostReceive (pipeline paths)', () => {
   let insertDeployIfNoActiveSpy: ReturnType<typeof spyOn>;
   let getLatestSuccessfulSpy: ReturnType<typeof spyOn>;
   let updateStatusSpy: ReturnType<typeof spyOn>;
-  let deduplicatePendingSpy: ReturnType<typeof spyOn>;
+  let dequeueDeploySpy: ReturnType<typeof spyOn>;
   let notifyStackChangeSpy: ReturnType<typeof spyOn>;
   let findByNameSpy: ReturnType<typeof spyOn>;
   let agentDeploySpy: ReturnType<typeof spyOn>;
@@ -118,10 +118,10 @@ describe('processPostReceive (pipeline paths)', () => {
       DeployRepository.prototype,
       'updateStatus',
     ).mockResolvedValue(undefined as never);
-    deduplicatePendingSpy = spyOn(
+    dequeueDeploySpy = spyOn(
       DeployRepository.prototype,
-      'deduplicatePending',
-    ).mockResolvedValue(undefined as never);
+      'dequeueDeploy',
+    ).mockResolvedValue(null as never);
     notifyStackChangeSpy = spyOn(
       DeployRepository.prototype,
       'notifyStackChange',
@@ -158,7 +158,7 @@ describe('processPostReceive (pipeline paths)', () => {
     insertDeployIfNoActiveSpy.mockRestore();
     getLatestSuccessfulSpy.mockRestore();
     updateStatusSpy.mockRestore();
-    deduplicatePendingSpy.mockRestore();
+    dequeueDeploySpy.mockRestore();
     notifyStackChangeSpy.mockRestore();
     findByNameSpy.mockRestore();
     agentDeploySpy.mockRestore();
@@ -257,6 +257,29 @@ describe('processPostReceive (pipeline paths)', () => {
       } satisfies DeployRequest);
     } finally {
       executeSpy.mockRestore();
+    }
+  });
+
+  it('queues a git push blocked by an active deploy', async () => {
+    const enqueueSpy = spyOn(
+      DeployRepository.prototype,
+      'enqueueDeploy',
+    ).mockResolvedValue(true as never);
+
+    try {
+      // Simulate the partial unique index rejecting the insert
+      insertDeployIfNoActiveSpy.mockResolvedValueOnce(null as never);
+      const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
+
+      await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
+
+      expect(enqueueSpy).toHaveBeenCalledTimes(1);
+      expect(agentDeploySpy).not.toHaveBeenCalled();
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": queued'),
+      );
+    } finally {
+      enqueueSpy.mockRestore();
     }
   });
 

@@ -47,9 +47,14 @@ function deploySuffix(action: DeployAction, trigger: DeployTrigger): string {
  * Map a deploy outcome to toast copy. Returns null for non-terminal statuses
  * ('pending', 'in_progress') and for 'no_change' outside a UI-triggered
  * deploy (git-push/rollback no_change events are routine and would spam).
+ * 'queued' does toast: a push that lands mid-deploy is otherwise silent.
  */
 export function formatDeployOutcome(evt: DeployOutcomeEvent): DeployOutcomeToast | null {
   if (evt.status === 'pending' || evt.status === 'in_progress') return null;
+
+  if (evt.status === 'queued') {
+    return { message: `Deploy of ${evt.stack} queued behind an active deploy`, severity: 'info' };
+  }
 
   if (evt.status === 'no_change') {
     if (evt.trigger !== 'ui') return null;

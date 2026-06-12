@@ -37,6 +37,11 @@ function createMockDeployRepo(overrides: Partial<DeployRepository> = {}): Deploy
     getLatestSuccessful: mock().mockResolvedValue(null),
     hasActiveDeployForStack: mock().mockResolvedValue(false),
     deduplicatePending: mock().mockResolvedValue(undefined),
+    enqueueDeploy: mock().mockResolvedValue(true),
+    dequeueDeploy: mock().mockResolvedValue(null),
+    recordQueuedDeploy: mock().mockResolvedValue(99),
+    clearQueuedDeploy: mock().mockResolvedValue(undefined),
+    failQueuedDeploy: mock().mockResolvedValue(99),
     getDeployHistory: mock().mockResolvedValue([]),
     getPendingDeploys: mock().mockResolvedValue([]),
     getLatestDeployPerStack: mock().mockResolvedValue([]),
@@ -317,7 +322,7 @@ describe('DeployPipeline', () => {
       await expect(pipeline.execute(testRequest)).rejects.toThrow('not found in managed_hosts');
     });
 
-    it('rejects deploy when another deploy is active for the stack', async () => {
+    it('queues a blocked git push instead of failing', async () => {
       deployRepo = createMockDeployRepo({
         insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
       });
@@ -331,8 +336,115 @@ describe('DeployPipeline', () => {
       });
 
       const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('queued');
+      expect(result.logs).toContain('queued commit abc123');
+      expect(deployRepo.enqueueDeploy).toHaveBeenCalledWith(testRequest, undefined);
+      // No deploy ran: nothing dispatched to the agent
+      expect(agentClientFactory).not.toHaveBeenCalled();
+    });
+
+    it('records a queued history row so a blocked push is visible', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.deployId).toBe(99);
+      const recordCall = (deployRepo.recordQueuedDeploy as ReturnType<typeof mock>).mock.calls[0] as [any];
+      expect(recordCall[0]).toMatchObject({ stack: 'plex', host: 'homeserver', commitSha: 'abc123', status: 'queued' });
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 99,
+        status: 'queued',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: expect.stringContaining('queued commit abc123'),
+      });
+    });
+
+    it('still reports queued when the history marker cannot be written', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        recordQueuedDeploy: mock().mockRejectedValue(new Error('db down')) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('queued');
+      expect(result.deployId).toBeUndefined();
+    });
+
+    it('reports no_change when a newer push already won the queue slot', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        enqueueDeploy: mock().mockResolvedValue(false) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('no_change');
+      expect(result.logs).toContain('superseded');
+      expect(deployRepo.recordQueuedDeploy).not.toHaveBeenCalled();
+    });
+
+    it('rejects a blocked UI deploy with an immediate failed response', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const uiRequest: DeployRequest = { ...testRequest, trigger: 'ui' };
+      const result = await pipeline.execute(uiRequest);
       expect(result.status).toBe('failed');
       expect(result.logs).toContain('active deploy');
+      expect(deployRepo.enqueueDeploy).not.toHaveBeenCalled();
+    });
+
+    it('returns failed when queueing a blocked git push fails', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+        enqueueDeploy: mock().mockRejectedValue(new Error('db down')) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toContain('queueing failed');
     });
 
     it('creates a pending record for non-auto-approved requests', async () => {
@@ -464,15 +576,12 @@ describe('DeployPipeline', () => {
       expect(deployCall[0].envContent).toContain("BAZ='qux'");
     });
 
-    it('deduplicates pending deploys for the same stack', async () => {
-      const result = await pipeline.execute(testRequest);
-      expect(result.status).toBe('succeeded');
-      expect(deployRepo.deduplicatePending).toHaveBeenCalled();
-    });
-
-    it('continues when deduplicatePending fails', async () => {
+    it('drains the queued push after a successful deploy', async () => {
+      const queuedRequest: DeployRequest = { ...testRequest, commitSha: 'def456' };
       deployRepo = createMockDeployRepo({
-        deduplicatePending: mock().mockRejectedValue(new Error('db timeout')) as any,
+        dequeueDeploy: mock()
+          .mockResolvedValueOnce({ request: queuedRequest, queuedAt: new Date('2026-06-01') })
+          .mockResolvedValue(null) as any,
       });
       pipeline = new DeployPipeline({
         deployRepo: deployRepo as unknown as DeployRepository,
@@ -485,6 +594,235 @@ describe('DeployPipeline', () => {
 
       const result = await pipeline.execute(testRequest);
       expect(result.status).toBe('succeeded');
+      // The queued request went through a full second pipeline run
+      expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(2);
+      const secondInsert = (deployRepo.insertDeployIfNoActive as ReturnType<typeof mock>).mock.calls[1] as [any];
+      expect(secondInsert[0].commitSha).toBe('def456');
+    });
+
+    it('drains the queued push after a failed deploy', async () => {
+      const failAgent = createMockAgentClient(false);
+      agentClientFactory = mock().mockReturnValue(failAgent);
+      const queuedRequest: DeployRequest = { ...testRequest, commitSha: 'def456' };
+      deployRepo = createMockDeployRepo({
+        dequeueDeploy: mock()
+          .mockResolvedValueOnce({ request: queuedRequest, queuedAt: new Date('2026-06-01') })
+          .mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('failed');
+      expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(2);
+    });
+
+    it('drains the queued push when agent dispatch throws', async () => {
+      agentClientFactory = mock().mockReturnValue({
+        deploy: mock().mockRejectedValue(new Error('connection refused')),
+        teardown: mock(),
+        health: mock(),
+      });
+      const queuedRequest: DeployRequest = { ...testRequest, commitSha: 'def456' };
+      deployRepo = createMockDeployRepo({
+        dequeueDeploy: mock()
+          .mockResolvedValueOnce({ request: queuedRequest, queuedAt: new Date('2026-06-01') })
+          .mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('failed');
+      expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(2);
+    });
+
+    it('re-enqueues a drained request with its original timestamp when it loses the insert race', async () => {
+      const queuedAt = new Date('2026-06-01T00:00:00Z');
+      const queuedRequest: DeployRequest = { ...testRequest, commitSha: 'def456' };
+      deployRepo = createMockDeployRepo({
+        // First insert: original deploy proceeds. Second insert: the drained
+        // request hits the active-deploy index (a concurrent push won the race).
+        insertDeployIfNoActive: mock()
+          .mockResolvedValueOnce(1)
+          .mockResolvedValueOnce(null) as any,
+        dequeueDeploy: mock()
+          .mockResolvedValueOnce({ request: queuedRequest, queuedAt })
+          .mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('succeeded');
+      // Original queuedAt is preserved so an even newer queued push cannot be replaced
+      expect(deployRepo.enqueueDeploy).toHaveBeenCalledWith(queuedRequest, queuedAt);
+    });
+
+    it('discards a queued request that a newer commit already superseded', async () => {
+      const queuedAt = new Date('2026-06-01T00:00:00Z');
+      const queuedRequest: DeployRequest = { ...testRequest, commitSha: 'old111' };
+      const supersedingDeploy: DeployRecord = {
+        ...defaultPendingRecord,
+        id: 7,
+        commitSha: 'new999',
+        composeHash: 'other-compose-hash',
+        envHash: 'other-env-hash',
+        status: 'succeeded',
+        createdAt: new Date('2026-06-01T00:05:00Z'),
+      };
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue(supersedingDeploy) as any,
+        dequeueDeploy: mock()
+          .mockResolvedValueOnce({ request: queuedRequest, queuedAt })
+          .mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('succeeded');
+      // The stale commit never reached a second pipeline run, so it cannot revert the stack
+      expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(1);
+      expect(deployRepo.failQueuedDeploy).toHaveBeenCalledWith(
+        'plex',
+        'homeserver',
+        expect.stringContaining('old111'),
+      );
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 99,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: expect.stringContaining('new999'),
+      });
+    });
+
+    it('discards a queued request whose commit is already the deployed one', async () => {
+      const queuedRequest: DeployRequest = { ...testRequest, commitSha: 'abc123' };
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue({
+          ...defaultPendingRecord,
+          composeHash: 'other-compose-hash',
+          envHash: 'other-env-hash',
+          status: 'succeeded',
+          createdAt: new Date('2020-01-01T00:00:00Z'),
+        }) as any,
+        dequeueDeploy: mock()
+          .mockResolvedValueOnce({ request: queuedRequest, queuedAt: new Date('2026-06-01T00:00:00Z') })
+          .mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      await pipeline.execute(testRequest);
+      expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(1);
+      expect(deployRepo.failQueuedDeploy).toHaveBeenCalled();
+    });
+
+    it('dispatches a queued request that predates the last successful deploy', async () => {
+      const queuedRequest: DeployRequest = { ...testRequest, commitSha: 'def456' };
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue({
+          ...defaultPendingRecord,
+          commitSha: 'older000',
+          composeHash: 'other-compose-hash',
+          envHash: 'other-env-hash',
+          status: 'succeeded',
+          createdAt: new Date('2026-05-01T00:00:00Z'),
+        }) as any,
+        dequeueDeploy: mock()
+          .mockResolvedValueOnce({ request: queuedRequest, queuedAt: new Date('2026-06-01T00:00:00Z') })
+          .mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      await pipeline.execute(testRequest);
+      expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(2);
+      expect(deployRepo.failQueuedDeploy).not.toHaveBeenCalled();
+    });
+
+    it('returns the deploy result even when the drained request throws', async () => {
+      const queuedRequest: DeployRequest = { ...testRequest, commitSha: 'def456' };
+      deployRepo = createMockDeployRepo({
+        dequeueDeploy: mock()
+          .mockResolvedValueOnce({ request: queuedRequest, queuedAt: new Date('2026-06-01') })
+          .mockResolvedValue(null) as any,
+      });
+      // Host lookup succeeds for the original deploy, then throws for the
+      // drained request so execute rejects inside drainQueue
+      hostsRepo = {
+        findByName: mock()
+          .mockResolvedValueOnce(testHost)
+          .mockRejectedValue(new Error('host lookup failed')),
+      } as unknown as HostRepository;
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('succeeded');
+      expect(result.logs).toBe('deployed ok');
+    });
+
+    it('returns the deploy result even when queue drain fails', async () => {
+      deployRepo = createMockDeployRepo({
+        dequeueDeploy: mock().mockRejectedValue(new Error('db down')) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testRequest);
+      expect(result.status).toBe('succeeded');
+      expect(result.logs).toBe('deployed ok');
     });
 
     it('catches dispatch errors and records failure', async () => {
@@ -1020,6 +1358,7 @@ describe('DeployPipeline', () => {
         trigger: 'git_push',
         message: expect.stringContaining('vault unreachable'),
       });
+      expect(deployRepo.dequeueDeploy).toHaveBeenCalledWith('plex', 'homeserver');
     });
 
     it('records failure when agent dispatch fails during resume', async () => {
