@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import {
   Button,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -13,6 +12,7 @@ import {
   Switch,
   Typography,
 } from '@mui/material'
+import { Spinner } from '@/components/ui/spinner';
 
 export interface StackSettingsDialogProps {
   open: boolean
@@ -86,7 +86,7 @@ export default function StackSettingsDialog({
       <DialogActions>
         <Button onClick={onClose} color="inherit" disabled={isLoading}>Cancel</Button>
         <Button onClick={handleSave} variant="contained" disabled={!host || isLoading}>
-          {isLoading ? <CircularProgress size={16} /> : 'Save'}
+          {isLoading ? <Spinner className="size-4" /> : 'Save'}
         </Button>
       </DialogActions>
     </Dialog>

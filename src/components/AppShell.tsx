@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { CircularProgress } from '@mui/material'
+
 import {
   DOCKER_PRELOAD_KEY, ZFS_PRELOAD_KEY, PROXMOX_PRELOAD_KEY,
   PRELOAD_STALE_TIME,
@@ -14,6 +14,7 @@ import { useLightPaletteEffect } from '@/hooks/useLightPaletteEffect'
 import { queryClient } from '@/lib/query-client'
 import { IS_DEMO_MODE } from '@/lib/constants/demo'
 import { useAuth } from '@/hooks/useAuth'
+import { Spinner } from '@/components/ui/spinner';
 
 if (IS_DEMO_MODE && typeof window !== 'undefined') {
   // Use .then() instead of top-level await to avoid circular dependency deadlock.
@@ -48,7 +49,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <ThemeProvider>
         <div className="flex items-center justify-center min-h-screen">
-          <CircularProgress />
+          <Spinner />
         </div>
       </ThemeProvider>
     )

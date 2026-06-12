@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box, Typography } from '@mui/material';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
 import { metricColumn, nameColumn } from '@/components/shared-table/columns';
@@ -12,6 +12,7 @@ import { useGeneralSettings, useZfsSettings } from '@/hooks/useSettings';
 import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 import PoolSubTable from '@/components/zfs/subtables/PoolSubTable';
 import { buildHostRow } from '@/components/zfs/utils/zfs-row-builders';
+import { Spinner } from '@/components/ui/spinner';
 
 /** Flattened row model for the DataTable tree structure */
 export interface ZFSTableRow {
@@ -251,7 +252,7 @@ export default function ZFSPoolsTable({
     return (
       <Box className="w-full">
         <Box className="flex justify-center p-4">
-          <CircularProgress />
+          <Spinner />
         </Box>
       </Box>
     );

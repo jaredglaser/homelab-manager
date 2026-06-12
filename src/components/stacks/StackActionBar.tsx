@@ -1,5 +1,6 @@
-import { Button, Checkbox, CircularProgress, FormControlLabel, IconButton, Tooltip, Typography } from '@mui/material';
+import { Button, Checkbox, FormControlLabel, IconButton, Tooltip, Typography } from '@mui/material';
 import { HelpCircle, Play, Square, Trash2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 
 interface StackActionBarProps {
   onDeploy: () => void;
@@ -27,7 +28,7 @@ export default function StackActionBar({
         onClick={onDeploy}
         startIcon={
           isDeploying ? (
-            <CircularProgress size={14} className="text-inherit!" />
+            <Spinner className="size-3.5 text-inherit" />
           ) : (
             <Play size={14} />
           )

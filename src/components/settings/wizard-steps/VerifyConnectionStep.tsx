@@ -1,6 +1,7 @@
-import { Typography, TextField, Button, CircularProgress, Alert } from '@mui/material'
+import { Typography, TextField, Button, Alert } from '@mui/material'
 import { Plus } from 'lucide-react'
 import CopyButton from '@/components/settings/CopyButton'
+import { Spinner } from '@/components/ui/spinner';
 
 interface VerifyConnectionStepProps {
   name: string
@@ -53,7 +54,7 @@ export default function VerifyConnectionStep({
         size="small"
         disabled={!canVerify || isAdding}
         onClick={onVerify}
-        startIcon={isAdding ? <CircularProgress size={14} /> : <Plus size={14} />}
+        startIcon={isAdding ? <Spinner className="size-3.5" /> : <Plus size={14} />}
         className="self-end"
       >
         Verify Connection

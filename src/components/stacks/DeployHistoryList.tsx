@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Skeleton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
+import { ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
+import { Skeleton } from '@/components/ui/skeleton';
 import { HelpCircle } from 'lucide-react';
 import type { StackDeployRecord, DeployStatus } from '@/types/stacks';
 import type { triggerDeploy } from '@/data/stacks/functions';
@@ -47,7 +48,7 @@ export default function DeployHistoryList({
     return (
       <div className="space-y-2">
         {Array.from({ length: 3 }, (_, i) => (
-          <Skeleton key={i} variant="rounded" height={40} className="bg-(--mui-palette-action-hover)!" />
+          <Skeleton key={i} className="h-10 bg-accent" />
         ))}
       </div>
     );

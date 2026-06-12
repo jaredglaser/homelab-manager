@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Typography, CircularProgress } from '@mui/material'
+import { Typography } from '@mui/material'
 import { useSetAtom } from 'jotai'
 import PageStatusBar from '@/components/PageStatusBar'
 import ProxmoxStatusSummary from '@/components/proxmox/ProxmoxStatusSummary'
@@ -17,6 +17,7 @@ import { apiUrl } from '@/lib/utils/api-url'
 import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
 import { useProxmoxSettings } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
+import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/proxmox')({
   ssr: false,
@@ -166,7 +167,7 @@ PROXMOX_ALLOW_SELF_SIGNED=true # optional, default true`}
 
     return (
       <div className="flex items-center gap-3 py-12">
-        <CircularProgress size={20} />
+        <Spinner className="size-5" />
         <Typography variant="body1">Loading Proxmox cluster data...</Typography>
       </div>
     )

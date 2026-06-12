@@ -7,9 +7,9 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
-  CircularProgress,
 } from '@mui/material'
 import type { HostListItem } from '@/lib/hosts/host-utils'
+import { Spinner } from '@/components/ui/spinner';
 
 interface RemoveDialogProps {
   open: boolean
@@ -31,7 +31,7 @@ export function RemoveDialog({ open, hostName, isRemoving, onConfirm, onClose }:
       <DialogActions>
         <Button onClick={onClose} disabled={isRemoving}>Cancel</Button>
         <Button onClick={onConfirm} color="error" disabled={isRemoving}>
-          {isRemoving ? <CircularProgress size={16} /> : 'Remove'}
+          {isRemoving ? <Spinner className="size-4" /> : 'Remove'}
         </Button>
       </DialogActions>
     </Dialog>
@@ -90,7 +90,7 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
       <DialogActions>
         <Button onClick={onClose} disabled={isUpdating}>Cancel</Button>
         <Button onClick={handleSave} variant="contained" disabled={!isValid || isUpdating}>
-          {isUpdating ? <CircularProgress size={16} /> : 'Save'}
+          {isUpdating ? <Spinner className="size-4" /> : 'Save'}
         </Button>
       </DialogActions>
     </Dialog>

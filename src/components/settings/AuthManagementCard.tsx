@@ -17,12 +17,12 @@ import {
   DialogActions,
   TextField,
   Alert,
-  CircularProgress,
 } from '@mui/material'
 import { HelpCircle, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
+import { Spinner } from '@/components/ui/spinner';
 
 function RoleMappingPanel() {
   const { data: roleMapping } = useQuery({
@@ -91,7 +91,7 @@ function UsersTable() {
       ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
-          <CircularProgress size={16} />
+          <Spinner className="size-4" />
           <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">Loading users…</Typography>
         </div>
       ) : (
@@ -162,7 +162,7 @@ function SessionsTable() {
       ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
-          <CircularProgress size={16} />
+          <Spinner className="size-4" />
           <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">Loading sessions…</Typography>
         </div>
       ) : sessions.length === 0 ? (
@@ -301,7 +301,7 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
               variant="contained"
               disabled={!label.trim() || isGenerating}
             >
-              {isGenerating ? <CircularProgress size={16} /> : 'Generate'}
+              {isGenerating ? <Spinner className="size-4" /> : 'Generate'}
             </Button>
           </>
         )}
@@ -357,7 +357,7 @@ function GitTokensTable() {
       ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
-          <CircularProgress size={16} />
+          <Spinner className="size-4" />
           <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">Loading tokens…</Typography>
         </div>
       ) : (

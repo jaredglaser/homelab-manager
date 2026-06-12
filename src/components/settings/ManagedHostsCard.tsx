@@ -2,7 +2,6 @@ import { useState } from 'react'
 import {
   Card,
   Typography,
-  CircularProgress,
   Snackbar,
   Alert,
 } from '@mui/material'
@@ -10,6 +9,7 @@ import type { HostListItem } from '@/lib/hosts/host-utils'
 import HostRow from '@/components/settings/HostRow'
 import { RemoveDialog, EditDialog } from '@/components/settings/HostDialogs'
 import AddHostWizard from '@/components/settings/AddHostWizard'
+import { Spinner } from '@/components/ui/spinner';
 
 export interface ManagedHostsCardProps {
   hosts: HostListItem[]
@@ -65,7 +65,7 @@ export function ManagedHostsCardView({
 
         {isLoading ? (
           <div className="flex items-center gap-2 py-4">
-            <CircularProgress size={16} />
+            <Spinner className="size-4" />
             <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
               Loading hosts…
             </Typography>

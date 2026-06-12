@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Paper, Typography, CircularProgress } from '@mui/material';
+import { Button, Paper, Typography } from '@mui/material';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks/functions';
+import { Spinner } from '@/components/ui/spinner';
 
 interface ComposeEditorProps {
   stackName: string;
@@ -76,7 +77,7 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
         <Button
           size="small"
           variant="contained"
-          startIcon={saveMutation.isPending ? <CircularProgress size={14} /> : <Save size={14} />}
+          startIcon={saveMutation.isPending ? <Spinner className="size-3.5" /> : <Save size={14} />}
           onClick={() => saveMutation.mutate()}
           disabled={!isDirty || saveMutation.isPending}
           className="normal-case!"
@@ -115,13 +116,13 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
             }}
             loading={
               <div className="flex items-center justify-center h-full">
-                <CircularProgress size={24} />
+                <Spinner className="size-6" />
               </div>
             }
           />
         ) : (
           <div className="flex items-center justify-center h-[400px]">
-            <CircularProgress size={24} />
+            <Spinner className="size-6" />
           </div>
         )}
       </div>

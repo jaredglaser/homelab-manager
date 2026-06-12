@@ -3,7 +3,6 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
-  CircularProgress,
   IconButton,
   Snackbar,
   Tab,
@@ -33,6 +32,7 @@ import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
 import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { parseVariables } from '@/lib/stacks/parse-variables'
+import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/stacks/$stackName')({
   ssr: false,
@@ -159,7 +159,7 @@ function StackEditorView() {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm opacity-70 py-8">
-        <CircularProgress size={16} />
+        <Spinner className="size-4" />
         <span>Loading {stackName}...</span>
       </div>
     )

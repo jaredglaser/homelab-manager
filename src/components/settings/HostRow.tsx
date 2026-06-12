@@ -1,6 +1,7 @@
-import { Typography, IconButton, Tooltip, CircularProgress, Chip } from '@mui/material'
+import { Typography, IconButton, Tooltip, Chip } from '@mui/material'
 import { RefreshCw, Trash2, Server, Pencil } from 'lucide-react'
 import type { HostListItem } from '@/lib/hosts/host-utils'
+import { Spinner } from '@/components/ui/spinner';
 
 function StatusDot({ status }: { status: HostListItem['status'] }) {
   if (status === 'healthy') {
@@ -63,7 +64,7 @@ export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, o
               disabled={isChecking || isRemoving}
               aria-label="check health"
             >
-              {isChecking ? <CircularProgress size={14} /> : <RefreshCw size={14} />}
+              {isChecking ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
             </IconButton>
           </span>
         </Tooltip>
