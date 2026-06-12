@@ -1,21 +1,17 @@
 import { useEffect, useState } from 'react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
 import {
-  Alert,
-  Button,
   Dialog,
-  DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  FormControlLabel,
-  FormLabel,
-  MenuItem,
-  Radio,
-  RadioGroup,
-  Select,
-  TextField,
-  Typography,
-} from '@mui/material';
+  DialogBody,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const STACK_NAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
@@ -83,85 +79,84 @@ export default function CreateStackDialog({
   }
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Create Stack</DialogTitle>
-      <DialogContent className="flex flex-col gap-4 pt-4!">
-        {error && <Alert severity="error">{error}</Alert>}
-        <TextField
-          label="Stack Name"
-          value={stackName}
-          onChange={(e) => setStackName(e.target.value)}
-          error={!!nameError}
-          helperText={nameError || 'e.g. my-app or my_stack'}
-          fullWidth
-          autoFocus
-          disabled={isLoading}
-        />
-        {hosts.length > 1 && (
-          <FormControl fullWidth disabled={isLoading}>
-            <FormLabel className="text-sm! mb-1!">Target Host</FormLabel>
-            <Select
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              displayEmpty
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+      <DialogContent>
+        <DialogTitle>Create Stack</DialogTitle>
+        <DialogBody className="flex flex-col gap-4 pt-1">
+          {error && (
+            <Alert variant="error">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="stack-name">Stack Name</Label>
+            <Input
+              id="stack-name"
+              value={stackName}
+              onChange={(e) => setStackName(e.target.value)}
+              aria-invalid={!!nameError}
+              className={nameError ? 'border-destructive focus:border-destructive focus:ring-destructive' : ''}
+              autoFocus
+              disabled={isLoading}
+            />
+            <p className={`text-xs ${nameError ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {nameError || 'e.g. my-app or my_stack'}
+            </p>
+          </div>
+          {hosts.length > 1 && (
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="target-host" className="text-sm mb-1">Target Host</Label>
+              <Select
+                value={host}
+                onValueChange={(value) => { if (value) setHost(value); }}
+                disabled={isLoading}
+              >
+                <SelectTrigger id="target-host">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {hosts.map((h) => (
+                    <SelectItem key={h} value={h}>
+                      {h}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="flex flex-col gap-1">
+            <Label className="text-sm mb-1">Deploy Mode</Label>
+            <RadioGroup
+              value={autoDeploy ? 'auto' : 'manual'}
+              onValueChange={(value) => setAutoDeploy(value === 'auto')}
+              disabled={isLoading}
             >
-              {hosts.map((h) => (
-                <MenuItem key={h} value={h}>
-                  {h}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
-        <FormControl disabled={isLoading}>
-          <FormLabel className="text-sm! mb-1!">Deploy Mode</FormLabel>
-          <RadioGroup
-            value={autoDeploy ? 'auto' : 'manual'}
-            onChange={(e) => setAutoDeploy(e.target.value === 'auto')}
-          >
-            <FormControlLabel
-              value="auto"
-              control={<Radio />}
-              label={
+              <Label className="flex items-center gap-3 cursor-pointer" htmlFor="deploy-auto">
+                <RadioGroupItem id="deploy-auto" value="auto" />
                 <span>
-                  <Typography variant="body2" component="span" className="font-medium">
-                    Auto
-                  </Typography>
-                  <Typography variant="caption" component="span" className="ml-2 opacity-70">
-                    Deploy on every git push
-                  </Typography>
+                  <span className="text-sm font-medium">Auto</span>
+                  <span className="ml-2 text-xs opacity-70">Deploy on every git push</span>
                 </span>
-              }
-            />
-            <FormControlLabel
-              value="manual"
-              control={<Radio />}
-              label={
+              </Label>
+              <Label className="flex items-center gap-3 cursor-pointer" htmlFor="deploy-manual">
+                <RadioGroupItem id="deploy-manual" value="manual" />
                 <span>
-                  <Typography variant="body2" component="span" className="font-medium">
-                    Manual
-                  </Typography>
-                  <Typography variant="caption" component="span" className="ml-2 opacity-70">
-                    Deploy only when triggered manually
-                  </Typography>
+                  <span className="text-sm font-medium">Manual</span>
+                  <span className="ml-2 text-xs opacity-70">Deploy only when triggered manually</span>
                 </span>
-              }
-            />
-          </RadioGroup>
-        </FormControl>
+              </Label>
+            </RadioGroup>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" className="text-foreground" onClick={handleClose} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={!isValid || isLoading}>
+            Create Stack
+          </Button>
+        </DialogFooter>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose} color="inherit" disabled={isLoading}>
-          Cancel
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={!isValid || isLoading}
-        >
-          Create Stack
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 }
