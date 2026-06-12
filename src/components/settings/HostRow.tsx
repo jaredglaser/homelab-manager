@@ -1,20 +1,21 @@
-import { Typography, IconButton, Tooltip } from '@mui/material'
-import { Badge } from '@/components/ui/badge'
 import { RefreshCw, Trash2, Server, Pencil } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { Spinner } from '@/components/ui/spinner';
 
 function StatusDot({ status }: { status: HostListItem['status'] }) {
   if (status === 'healthy') {
-    return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--mui-palette-success-main)' }} aria-label="healthy" />
+    return <span className="inline-block w-2 h-2 rounded-full bg-success" aria-label="healthy" />
   }
   if (status === 'unhealthy') {
-    return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--mui-palette-error-main)' }} aria-label="unhealthy" />
+    return <span className="inline-block w-2 h-2 rounded-full bg-destructive" aria-label="unhealthy" />
   }
   if (status === 'error') {
-    return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--mui-palette-error-dark)' }} aria-label="error" />
+    return <span className="inline-block w-2 h-2 rounded-full bg-destructive brightness-75" aria-label="error" />
   }
-  return <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--mui-palette-grey-400)' }} aria-label="unknown" />
+  return <span className="inline-block w-2 h-2 rounded-full bg-muted-foreground/60" aria-label="unknown" />
 }
 
 interface HostRowProps {
@@ -26,26 +27,54 @@ interface HostRowProps {
   onRemove: () => void
 }
 
-export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
+interface HostActionProps {
+  label: string
+  ariaLabel: string
+  disabled: boolean
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}
+
+function HostAction({ label, ariaLabel, disabled, onClick, className, children }: HostActionProps) {
   return (
-    <div className="flex items-center gap-3 py-2 border-b border-(--mui-palette-divider) last:border-0">
-      <Server size={16} className="text-(--mui-palette-text-secondary) shrink-0" />
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={className ?? 'text-foreground'}
+            onClick={onClick}
+            disabled={disabled}
+            aria-label={ariaLabel}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, onEdit, onRemove }: HostRowProps) {
+  const busy = isChecking || isRemoving
+  return (
+    <div className="flex items-center gap-3 py-2 border-b border-border last:border-0">
+      <Server size={16} className="text-muted-foreground shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <Typography variant="body2" className="font-semibold truncate">
-            {host.name}
-          </Typography>
+          <p className="text-sm font-semibold truncate">{host.name}</p>
           <StatusDot status={host.status} />
           {host.agentVersion && (
-            <Typography variant="caption" className="text-(--mui-palette-text-secondary)">
-              v{host.agentVersion}
-            </Typography>
+            <span className="text-xs text-muted-foreground">v{host.agentVersion}</span>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Typography variant="caption" className="font-mono text-(--mui-palette-text-secondary) block truncate">
+          <span className="text-xs font-mono text-muted-foreground block truncate">
             {host.agentUrl}
-          </Typography>
+          </span>
           <div className="flex items-center gap-1">
             {host.capabilities?.docker && (
               <Badge variant="outline" className="h-4 text-[10px]">Docker</Badge>
@@ -57,43 +86,21 @@ export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, o
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <Tooltip title="Check health">
-          <span>
-            <IconButton
-              size="small"
-              onClick={onHealthCheck}
-              disabled={isChecking || isRemoving}
-              aria-label="check health"
-            >
-              {isChecking ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Edit host">
-          <span>
-            <IconButton
-              size="small"
-              onClick={onEdit}
-              disabled={isChecking || isRemoving}
-              aria-label="edit host"
-            >
-              <Pencil size={14} />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="Remove host">
-          <span>
-            <IconButton
-              size="small"
-              onClick={onRemove}
-              disabled={isChecking || isRemoving}
-              aria-label="remove host"
-              color="error"
-            >
-              <Trash2 size={14} />
-            </IconButton>
-          </span>
-        </Tooltip>
+        <HostAction label="Check health" ariaLabel="check health" disabled={busy} onClick={onHealthCheck}>
+          {isChecking ? <Spinner className="size-3.5" /> : <RefreshCw size={14} />}
+        </HostAction>
+        <HostAction label="Edit host" ariaLabel="edit host" disabled={busy} onClick={onEdit}>
+          <Pencil size={14} />
+        </HostAction>
+        <HostAction
+          label="Remove host"
+          ariaLabel="remove host"
+          disabled={busy}
+          onClick={onRemove}
+          className="text-destructive"
+        >
+          <Trash2 size={14} />
+        </HostAction>
       </div>
     </div>
   )

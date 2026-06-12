@@ -110,21 +110,21 @@ describe('ManagedHostsCard', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { docker: true } })] })} />)
       expect(screen.getAllByText('Docker').length).toBeGreaterThanOrEqual(1)
       // Chip is rendered inside the host row
-      const chips = document.querySelectorAll('.MuiChip-root')
+      const chips = document.querySelectorAll('[data-slot="badge"]')
       expect(chips.length).toBeGreaterThanOrEqual(1)
     })
 
     it('renders capability chips for zfs', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { zfs: true } })] })} />)
       // ZFS chip in host row (wizard also has ZFS checkbox label)
-      const chips = document.querySelectorAll('.MuiChip-root')
+      const chips = document.querySelectorAll('[data-slot="badge"]')
       const zfsChip = Array.from(chips).find((c) => c.textContent === 'ZFS')
       expect(zfsChip).toBeDefined()
     })
 
     it('renders both capability chips', () => {
       render(<ManagedHostsCardView {...makeProps({ hosts: [makeHost({ capabilities: { docker: true, zfs: true } })] })} />)
-      const chips = document.querySelectorAll('.MuiChip-root')
+      const chips = document.querySelectorAll('[data-slot="badge"]')
       const chipTexts = Array.from(chips).map((c) => c.textContent)
       expect(chipTexts).toContain('Docker')
       expect(chipTexts).toContain('ZFS')
