@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { Paper, Typography } from '@mui/material';
 import type { ZFSStatsRow } from '@/types/zfs';
 import ZFSPoolSpeedChart from './ZFSPoolSpeedChart';
 
@@ -56,10 +55,10 @@ export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
   }
 
   return (
-    <Paper variant="outlined" className="mt-6 rounded-sm p-4">
-      <Typography variant="subtitle1" className="mb-3">
+    <div className="mt-6 rounded-sm p-4 bg-card border border-border">
+      <p className="text-base mb-3">
         Pool I/O Speed
-      </Typography>
+      </p>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {pools.map((pool) => (
           <ZFSPoolSpeedChart
@@ -69,6 +68,6 @@ export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
           />
         ))}
       </div>
-    </Paper>
+    </div>
   );
 }

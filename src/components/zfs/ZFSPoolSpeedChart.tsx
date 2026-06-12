@@ -1,5 +1,4 @@
 import { useRef } from 'react';
-import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { formatBytes } from '@/formatters/metrics';
@@ -180,10 +179,10 @@ export default function ZFSPoolSpeedChart({
   useEChartTimeScroll(chartRef, WINDOW_MS, wrapperRef);
 
   return (
-    <Paper elevation={0} className="rounded-sm p-4 bg-(--mui-palette-background-chartBg)!">
-      <Typography variant="subtitle2" className="mb-2">
+    <div className="rounded-sm p-4 bg-chart-bg">
+      <p className="text-sm font-medium mb-2">
         {poolName}
-      </Typography>
+      </p>
       <div ref={wrapperRef} className="h-48">
         <ReactECharts
           ref={chartRef}
@@ -194,6 +193,6 @@ export default function ZFSPoolSpeedChart({
           lazyUpdate={true}
         />
       </div>
-    </Paper>
+    </div>
   );
 }

@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import { Typography } from '@mui/material';
 import { bucketContainerState } from '@/lib/utils/docker-hierarchy-builder';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
@@ -11,21 +10,13 @@ interface Segment {
 function StatusSegment({ label, count }: Readonly<Segment>) {
   return (
     <span>
-      <Typography
-        component="span"
-        variant="inherit"
-        className="font-mono tabular-nums text-(--mui-palette-text-primary)"
-      >
+      <span className="text-base font-mono tabular-nums text-(--mui-palette-text-primary)">
         {count}
-      </Typography>
+      </span>
       {' '}
-      <Typography
-        component="span"
-        variant="inherit"
-        className="text-(--mui-palette-text-secondary)"
-      >
+      <span className="text-base text-(--mui-palette-text-secondary)">
         {label}
-      </Typography>
+      </span>
     </span>
   );
 }
@@ -61,13 +52,9 @@ export default function DockerStatusSummary({ inventory }: Readonly<DockerStatus
       {segments.map((seg, i) => (
         <span key={seg.label} className="flex items-center gap-2">
           {i > 0 && (
-            <Typography
-              component="span"
-              variant="inherit"
-              className="text-(--mui-palette-text-disabled) select-none"
-            >
+            <span className="text-base text-(--mui-palette-text-disabled) select-none">
               ·
-            </Typography>
+            </span>
           )}
           <StatusSegment label={seg.label} count={seg.count} />
         </span>

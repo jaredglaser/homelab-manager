@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { Typography } from '@mui/material'
 import { useSetAtom } from 'jotai'
 import PageStatusBar from '@/components/PageStatusBar'
 import ProxmoxStatusSummary from '@/components/proxmox/ProxmoxStatusSummary'
@@ -138,9 +137,9 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
 
   if (stream.error) {
     return (
-      <Typography variant="body1" className="text-red-600 py-8">
+      <p className="text-base text-red-600 py-8">
         Failed to connect to Proxmox SSE stream: {stream.error.message}
-      </Typography>
+      </p>
     )
   }
 
@@ -148,12 +147,12 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
     if (configured === false) {
       return (
         <div className="py-8">
-          <Typography variant="body1" className="mb-2">
+          <p className="text-base mb-2">
             Proxmox is not configured.
-          </Typography>
-          <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
+          </p>
+          <p className="text-sm text-(--mui-palette-text-secondary)">
             Set the following environment variables to connect to your Proxmox cluster:
-          </Typography>
+          </p>
           <pre className="mt-3 p-4 bg-(--mui-palette-background-level1) rounded-lg text-sm font-mono">
 {`PROXMOX_HOST=your-proxmox-host
 PROXMOX_TOKEN_ID=user@realm!tokenid
@@ -168,7 +167,7 @@ PROXMOX_ALLOW_SELF_SIGNED=true # optional, default true`}
     return (
       <div className="flex items-center gap-3 py-12">
         <Spinner className="size-5" />
-        <Typography variant="body1">Loading Proxmox cluster data...</Typography>
+        <p className="text-base">Loading Proxmox cluster data...</p>
       </div>
     )
   }

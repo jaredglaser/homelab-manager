@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { createFileRoute, Outlet } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Typography } from '@mui/material'
 import { listStacks, listManagedHostNames } from '@/data/stacks/functions'
 import { useStackStatus } from '@/hooks/useStackStatus'
 import { StackListContext, StackStatusContext } from '@/components/stacks/stacks-context'
@@ -42,9 +41,9 @@ function StacksLayout() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Typography color="error" variant="body2">
+        <p className="text-sm" color="error">
           Failed to load stacks: {error.message}
-        </Typography>
+        </p>
       </div>
     )
   }
@@ -53,7 +52,7 @@ function StacksLayout() {
     return (
       <div className="flex items-center justify-center h-64 gap-2">
         <Spinner className="size-4" />
-        <Typography variant="body2" className="opacity-70">Loading stacks...</Typography>
+        <p className="text-sm opacity-70">Loading stacks...</p>
       </div>
     )
   }

@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { Box, Typography } from '@mui/material';
 import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
 import { metricColumn, nameColumn } from '@/components/shared-table/columns';
@@ -238,28 +237,28 @@ export default function ZFSPoolsTable({
 
   if (error && !hasData) {
     return (
-      <Box className="w-full">
-        <Box className="p-2">
-          <Typography color="error">
+      <div className="w-full">
+        <div className="p-2">
+          <p className="text-base" color="error">
             Error connecting to ZFS stats: {error.message}
-          </Typography>
-        </Box>
-      </Box>
+          </p>
+        </div>
+      </div>
     );
   }
 
   if (!isConnected && !hasData) {
     return (
-      <Box className="w-full">
-        <Box className="flex justify-center p-4">
+      <div className="w-full">
+        <div className="flex justify-center p-4">
           <Spinner />
-        </Box>
-      </Box>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box className="flex flex-col flex-1 min-h-0 w-full">
+    <div className="flex flex-col flex-1 min-h-0 w-full">
       <StaleDataAlert isStale={isStale} />
       <DataTable
         data={tableData}
@@ -272,6 +271,6 @@ export default function ZFSPoolsTable({
         rowClassName={rowClassName}
         enableSorting={false}
       />
-    </Box>
+    </div>
   );
 }

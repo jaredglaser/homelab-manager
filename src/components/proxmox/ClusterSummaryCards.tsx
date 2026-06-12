@@ -1,4 +1,3 @@
-import { Card, Typography } from '@mui/material'
 import type { ProxmoxClusterOverview } from '@/types/proxmox'
 import { formatBytes } from '@/formatters/metrics'
 
@@ -14,50 +13,50 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
 
   return (
     <div className="grid grid-cols-2 gap-4 mb-6 lg:grid-cols-4">
-      <Card variant="outlined" className="p-4">
-        <Typography variant="caption" className="uppercase tracking-wide text-(--mui-palette-text-secondary)">
+      <div className="p-4 bg-card rounded-lg border border-border">
+        <span className="text-xs uppercase tracking-wide text-(--mui-palette-text-secondary)">
           Cluster
-        </Typography>
-        <Typography variant="h5">{clusterName}</Typography>
-        <Typography variant="body2">
+        </span>
+        <h5 className="text-2xl">{clusterName}</h5>
+        <p className="text-sm">
           {onlineNodes}/{nodes.length} nodes online
-        </Typography>
-      </Card>
+        </p>
+      </div>
 
-      <Card variant="outlined" className="p-4">
-        <Typography variant="caption" className="uppercase tracking-wide text-(--mui-palette-text-secondary)">
+      <div className="p-4 bg-card rounded-lg border border-border">
+        <span className="text-xs uppercase tracking-wide text-(--mui-palette-text-secondary)">
           CPU
-        </Typography>
-        <Typography variant="h5">{cpuPercent.toFixed(1)}%</Typography>
-        <Typography variant="body2">
+        </span>
+        <h5 className="text-2xl">{cpuPercent.toFixed(1)}%</h5>
+        <p className="text-sm">
           {totals.usedCpu.toFixed(1)} / {totals.totalCpu} cores
-        </Typography>
-      </Card>
+        </p>
+      </div>
 
-      <Card variant="outlined" className="p-4">
-        <Typography variant="caption" className="uppercase tracking-wide text-(--mui-palette-text-secondary)">
+      <div className="p-4 bg-card rounded-lg border border-border">
+        <span className="text-xs uppercase tracking-wide text-(--mui-palette-text-secondary)">
           Memory
-        </Typography>
-        <Typography variant="h5">{memPercent.toFixed(1)}%</Typography>
-        <Typography variant="body2">
+        </span>
+        <h5 className="text-2xl">{memPercent.toFixed(1)}%</h5>
+        <p className="text-sm">
           {formatBytes(totals.usedMemory, false)} / {formatBytes(totals.totalMemory, false)}
-        </Typography>
-      </Card>
+        </p>
+      </div>
 
-      <Card variant="outlined" className="p-4">
-        <Typography variant="caption" className="uppercase tracking-wide text-(--mui-palette-text-secondary)">
+      <div className="p-4 bg-card rounded-lg border border-border">
+        <span className="text-xs uppercase tracking-wide text-(--mui-palette-text-secondary)">
           Guests
-        </Typography>
-        <Typography variant="h5">
+        </span>
+        <h5 className="text-2xl">
           {totals.runningVMs + totals.runningContainers} running
-        </Typography>
-        <Typography variant="body2">
+        </h5>
+        <p className="text-sm">
           {totals.runningVMs} VMs, {totals.runningContainers} CTs
           {(totals.stoppedVMs + totals.stoppedContainers > 0) && (
             <> ({totals.stoppedVMs + totals.stoppedContainers} stopped)</>
           )}
-        </Typography>
-      </Card>
+        </p>
+      </div>
     </div>
   )
 }
