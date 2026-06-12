@@ -38,6 +38,10 @@ html {
   --destructive: var(--mui-palette-error-main);
   --destructive-foreground: #fff;
   --success: var(--mui-palette-success-main);
+  --warning: var(--mui-palette-warning-main);
+  --info: var(--mui-palette-info-main);
+  --tooltip: var(--mui-palette-grey-700);
+  --tooltip-foreground: var(--mui-palette-common-white);
   --border: var(--mui-palette-divider);
   --input: var(--mui-palette-divider);
   --ring: var(--mui-palette-primary-main);
@@ -65,6 +69,10 @@ html {
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-tooltip: var(--tooltip);
+  --color-tooltip-foreground: var(--tooltip-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
