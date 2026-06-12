@@ -1,4 +1,5 @@
-import { Typography, IconButton, Tooltip, Chip } from '@mui/material'
+import { Typography, IconButton, Tooltip } from '@mui/material'
+import { Badge } from '@/components/ui/badge'
 import { RefreshCw, Trash2, Server, Pencil } from 'lucide-react'
 import type { HostListItem } from '@/lib/hosts/host-utils'
 import { Spinner } from '@/components/ui/spinner';
@@ -47,10 +48,10 @@ export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, o
           </Typography>
           <div className="flex items-center gap-1">
             {host.capabilities?.docker && (
-              <Chip label="Docker" size="small" variant="outlined" className="h-4! text-[10px]!" />
+              <Badge variant="outline" className="h-4 text-[10px]">Docker</Badge>
             )}
             {host.capabilities?.zfs && (
-              <Chip label="ZFS" size="small" variant="outlined" className="h-4! text-[10px]!" />
+              <Badge variant="outline" className="h-4 text-[10px]">ZFS</Badge>
             )}
           </div>
         </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Button, Chip, Collapse, Paper } from '@mui/material';
+import { Button, Collapse, Paper } from '@mui/material';
+import { Badge } from '@/components/ui/badge';
 import { ChevronRight, GitCommit } from 'lucide-react';
 import type { StackDeployRecord, DeployAction, DeployStatus } from '@/types/stacks';
 import { triggerDeploy } from '@/data/stacks/functions';
@@ -94,29 +95,20 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
           <GitCommit size={14} className="opacity-60 shrink-0" />
           <code className="font-mono text-xs">{record.commitSha.substring(0, 7)}</code>
 
-          <Chip
-            size="small"
-            label={getActionLabel(record)}
-            className="text-xs! h-5!"
-            variant="filled"
-          />
+          <Badge variant="secondary" className="h-5">{getActionLabel(record)}</Badge>
 
           {isPending ? (
-            <Chip
-              size="small"
-              color="warning"
-              label={PENDING_APPROVAL_LABEL}
-              className="text-xs! h-5!"
-              variant="outlined"
-            />
+            <Badge variant="outline" className="h-5 border-warning text-warning">
+              {PENDING_APPROVAL_LABEL}
+            </Badge>
           ) : (
-            <Chip
-              size="small"
-              label={STATUS_LABEL[record.status]}
-              className="text-xs! h-5!"
+            <Badge
+              variant="outline"
+              className="h-5"
               style={{ color: statusColor, borderColor: statusColor }}
-              variant="outlined"
-            />
+            >
+              {STATUS_LABEL[record.status]}
+            </Badge>
           )}
 
           <span className="ml-auto opacity-50 text-xs whitespace-nowrap">

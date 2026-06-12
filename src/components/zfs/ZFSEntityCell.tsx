@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Chip, Tooltip } from '@mui/material';
+import { Tooltip } from '@mui/material';
+import { Badge } from '@/components/ui/badge';
 import { ChevronRight, Server } from 'lucide-react';
 
 interface ZFSEntityCellProps {
@@ -26,7 +27,7 @@ const ZFSEntityCell = memo(function ZFSEntityCell({
   const isBold = entityType === 'host' || entityType === 'pool';
 
   const chipEl = badge ? (
-    <Chip size="small" variant="filled" label={badge.label} />
+    <Badge variant="secondary">{badge.label}</Badge>
   ) : null;
 
   return (

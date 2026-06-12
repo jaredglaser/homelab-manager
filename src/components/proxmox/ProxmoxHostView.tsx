@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { Paper, Chip, Collapse } from '@mui/material'
+import { Paper, Collapse } from '@mui/material'
+import { Badge } from '@/components/ui/badge'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
 import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
@@ -103,12 +104,9 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               />
               <Server size={18} className="shrink-0" />
               <span className="font-bold">{node.node}</span>
-              <Chip
-                size="small"
-                variant="filled"
-                color={node.status === 'online' ? 'success' : 'error'}
-                label={node.status}
-              />
+              <Badge variant={node.status === 'online' ? 'success' : 'destructive'}>
+                {node.status}
+              </Badge>
               <div className="ml-auto flex items-center gap-4 text-sm tabular-nums">
                 <span>CPU: {cpuPercent}%</span>
                 <span>Mem: {memPercent}%</span>

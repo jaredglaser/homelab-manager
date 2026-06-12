@@ -1,4 +1,5 @@
-import { Typography, Chip, Tooltip, ToggleButtonGroup, ToggleButton } from '@mui/material'
+import { Typography, Tooltip, ToggleButtonGroup, ToggleButton } from '@mui/material'
+import { Badge } from '@/components/ui/badge'
 import { Zap, Waves } from 'lucide-react'
 import type { MouseEvent } from 'react'
 import type { ProxmoxUpdateInterval } from '@/hooks/useSettings'
@@ -25,7 +26,7 @@ export function IntervalToggle({
           title={
             <div className="flex flex-col gap-1">
               <Typography variant="body2" className="text-white!">Fast updates (1 second)</Typography>
-              <Chip size="small" color="warning" variant="filled" label="Increases API load on Proxmox" />
+              <Badge className="bg-warning text-white">Increases API load on Proxmox</Badge>
             </div>
           }
           placement="bottom"
@@ -38,7 +39,7 @@ export function IntervalToggle({
           title={
             <div className="flex flex-col gap-1">
               <Typography variant="body2" className="text-white!">Relaxed updates (10 seconds)</Typography>
-              <Chip size="small" color="success" variant="filled" label="Recommended for most users" />
+              <Badge variant="success">Recommended for most users</Badge>
             </div>
           }
           placement="bottom"
