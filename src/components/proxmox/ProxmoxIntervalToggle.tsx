@@ -1,7 +1,7 @@
-import { Typography, Tooltip, ToggleButtonGroup, ToggleButton } from '@mui/material'
-import { Badge } from '@/components/ui/badge'
 import { Zap, Waves } from 'lucide-react'
-import type { MouseEvent } from 'react'
+import { Badge } from '@/components/ui/badge'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { ProxmoxUpdateInterval } from '@/hooks/useSettings'
 
 export function IntervalToggle({
@@ -12,41 +12,40 @@ export function IntervalToggle({
   onIntervalChange: (interval: ProxmoxUpdateInterval) => void
 }) {
   return (
-    <ToggleButtonGroup
-      value={String(interval)}
-      onChange={(_e: MouseEvent<HTMLElement>, newValue: string | null) => {
-        if (newValue !== null) onIntervalChange(Number(newValue) as ProxmoxUpdateInterval)
+    <ToggleGroup
+      value={[String(interval)]}
+      onValueChange={(groupValue) => {
+        const newValue = groupValue[0]
+        if (newValue !== undefined) onIntervalChange(Number(newValue) as ProxmoxUpdateInterval)
       }}
-      size="small"
-      exclusive
       aria-label="Update interval"
     >
-      <ToggleButton value="1000" aria-label="1 second (fast)">
-        <Tooltip
-          title={
-            <div className="flex flex-col gap-1">
-              <Typography variant="body2" className="text-white!">Fast updates (1 second)</Typography>
-              <Badge className="bg-warning text-white">Increases API load on Proxmox</Badge>
-            </div>
-          }
-          placement="bottom"
+      <Tooltip>
+        <TooltipTrigger
+          render={<ToggleGroupItem value="1000" aria-label="1 second (fast)" />}
         >
           <Zap size={16} />
-        </Tooltip>
-      </ToggleButton>
-      <ToggleButton value="10000" aria-label="10 seconds (relaxed)">
-        <Tooltip
-          title={
-            <div className="flex flex-col gap-1">
-              <Typography variant="body2" className="text-white!">Relaxed updates (10 seconds)</Typography>
-              <Badge variant="success">Recommended for most users</Badge>
-            </div>
-          }
-          placement="bottom"
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm">Fast updates (1 second)</p>
+            <Badge className="bg-warning text-white">Increases API load on Proxmox</Badge>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={<ToggleGroupItem value="10000" aria-label="10 seconds (relaxed)" />}
         >
           <Waves size={16} />
-        </Tooltip>
-      </ToggleButton>
-    </ToggleButtonGroup>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm">Relaxed updates (10 seconds)</p>
+            <Badge variant="success">Recommended for most users</Badge>
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </ToggleGroup>
   )
 }
