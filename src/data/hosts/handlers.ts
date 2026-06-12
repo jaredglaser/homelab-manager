@@ -43,7 +43,7 @@ export async function handleListHosts(deps: HostHandlerDeps): Promise<HostListIt
 }
 
 export async function handleCheckHostHealth(
-  deps: HostHandlerDeps & { checkHealth: (url: string) => Promise<HealthCheckOutcome> },
+  deps: HostHandlerDeps & { checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome> },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
 
@@ -51,7 +51,7 @@ export async function handleCheckHostHealth(
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const healthResult = await deps.checkHealth(host.agentUrl);
+  const healthResult = await deps.checkHealth(host.agentUrl, host.name);
   const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
   await deps.repo.updateStatus(host.id, newStatus);
 
@@ -82,13 +82,13 @@ export async function handleRemoveHost(
 }
 
 export async function handleRefreshHostStatus(
-  deps: HostHandlerDeps & { checkHealth: (url: string) => Promise<HealthCheckOutcome> },
+  deps: HostHandlerDeps & { checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome> },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const healthResult = await deps.checkHealth(host.agentUrl);
+  const healthResult = await deps.checkHealth(host.agentUrl, host.name);
   const newStatus: HostStatus = healthResult.healthy ? 'healthy' : 'unhealthy';
   await deps.repo.updateStatus(host.id, newStatus);
   if (healthResult.healthy && healthResult.version) {
@@ -103,7 +103,7 @@ export async function handleRefreshHostStatus(
 export async function handleUpdateAgent(
   deps: HostHandlerDeps & {
     getSigner: (hostname: string) => Promise<() => Promise<string>>;
-    checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+    checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
   },
   data: { hostId: number },
 ): Promise<HostOperationResult> {
@@ -111,7 +111,7 @@ export async function handleUpdateAgent(
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
   // 1. Record current version before update
-  const preCheck = await deps.checkHealth(host.agentUrl);
+  const preCheck = await deps.checkHealth(host.agentUrl, host.name);
   if (!preCheck.healthy) {
     return {
       hostId: host.id,
@@ -198,7 +198,7 @@ export async function handleUpdateAgent(
 
   for (const delay of HEALTH_CHECK_DELAYS_MS) {
     await new Promise((resolve) => setTimeout(resolve, delay));
-    lastResult = await deps.checkHealth(host.agentUrl);
+    lastResult = await deps.checkHealth(host.agentUrl, host.name);
     if (lastResult.healthy && lastResult.version !== currentVersion) {
       newVersion = lastResult.version;
       break;
@@ -358,7 +358,7 @@ async function tryDeleteKeypair(
 interface AddHostDeps extends HostHandlerDeps {
   provision: (socketProxyUrl: string, opts: { hostId: number; hostName: string; agentPort: number; publicJwkJson: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
   keypairs: KeypairsDep;
-  checkHealth: (url: string) => Promise<HealthCheckOutcome>;
+  checkHealth: (url: string, hostName: string) => Promise<HealthCheckOutcome>;
   removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>;
 }
 
@@ -449,7 +449,7 @@ export async function handleAddHost(
     await rollbackPostProvision(deps, host.id, data, err, `for ${data.name} after post-provision failure`);
   }
 
-  const healthResult = await retryHealthCheck(deps.checkHealth, provisionResult.agentUrl, [500, 1000, 2000]);
+  const healthResult = await retryHealthCheck((url) => deps.checkHealth(url, data.name), provisionResult.agentUrl, [500, 1000, 2000]);
 
   if (!healthResult.healthy) {
     return rollbackHealthCheckFailure(deps, host.id, data, healthResult.error);

@@ -1,9 +1,4 @@
-export interface AgentHealthResponse {
-  status: string;
-  version: string;
-  dockerVersion?: string;
-  uptime?: number;
-}
+import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
 
 export type AgentHealthResult =
   | { healthy: true; version?: string; dockerVersion?: string }
@@ -12,16 +7,50 @@ export type AgentHealthResult =
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 /**
- * Check the health of an agent by calling its /health endpoint.
- * Returns a result object indicating health status and version info.
+ * Fetch version and capability detail from the agent's authenticated /info
+ * endpoint. Best-effort: returns an empty object on any failure (no keypair
+ * yet, agent too old to serve /info, network error) so liveness reporting is
+ * never blocked by missing detail.
+ */
+async function fetchAgentInfo(
+  agentUrl: string,
+  timeoutMs: number,
+  fetchFn: typeof fetch,
+  getToken: () => Promise<string>
+): Promise<{ version?: string; dockerVersion?: string }> {
+  try {
+    const token = await getToken();
+    const response = await fetchFn(`${agentUrl}/info`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'manual',
+    });
+    if (!response.ok) return {};
+    const data = (await response.json()) as AgentInfoResponse;
+    return {
+      version: data.agentVersion,
+      dockerVersion: data.capabilities?.docker?.version,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Check the health of an agent by calling its unauthenticated /health endpoint
+ * (liveness only, the agent strips version and capability detail from it).
+ * When `getToken` is provided, version info is fetched from the authenticated
+ * /info endpoint; failures there do not affect the healthy verdict.
  * Never throws: all errors are captured in the result.
  *
  * @param fetchFn - Injectable fetch function for testing (defaults to globalThis.fetch)
+ * @param getToken - Optional JWT minter for the authenticated /info request
  */
 export async function checkAgentHealth(
   agentUrl: string,
   timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS,
-  fetchFn: typeof fetch = globalThis.fetch
+  fetchFn: typeof fetch = globalThis.fetch,
+  getToken?: () => Promise<string>
 ): Promise<AgentHealthResult> {
   try {
     const response = await fetchFn(`${agentUrl}/health`, {
@@ -40,18 +69,19 @@ export async function checkAgentHealth(
       };
     }
 
-    let data: AgentHealthResponse;
+    // Parse the body to confirm the URL points at an agent and not some other
+    // HTTP server that happens to return 200.
     try {
-      data = (await response.json()) as AgentHealthResponse;
+      (await response.json()) as AgentHealthCheckResponse;
     } catch {
       return { healthy: false, error: `Agent returned non-JSON response (status ${response.status})` };
     }
 
-    return {
-      healthy: true,
-      version: data.version,
-      dockerVersion: data.dockerVersion,
-    };
+    const info = getToken
+      ? await fetchAgentInfo(agentUrl, timeoutMs, fetchFn, getToken)
+      : {};
+
+    return { healthy: true, ...info };
   } catch (err: unknown) {
     if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       return {
