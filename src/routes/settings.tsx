@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { createFileRoute, useLocation } from '@tanstack/react-router'
-import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Switch, Typography } from '@mui/material'
+import { Card, FormControl, FormLabel, MenuItem, Select, Slider, Typography } from '@mui/material'
+import { Switch } from '@/components/ui/switch'
 import {
   useDockerSettings,
   useGeneralSettings,
@@ -78,7 +79,7 @@ function SettingsContent() {
               <FormLabel>Use 12-hour time format</FormLabel>
               <Switch
                 checked={general.use12HourTime}
-                onChange={(e) => setUse12HourTime(e.target.checked)}
+                onCheckedChange={setUse12HourTime}
               />
             </div>
 
@@ -103,7 +104,7 @@ function SettingsContent() {
               <FormLabel>Show Sparklines</FormLabel>
               <Switch
                 checked={general.showSparklines}
-                onChange={(e) => setShowSparklines(e.target.checked)}
+                onCheckedChange={setShowSparklines}
               />
             </div>
 
@@ -111,7 +112,7 @@ function SettingsContent() {
               <FormLabel>Use Abbreviated Units</FormLabel>
               <Switch
                 checked={general.useAbbreviatedUnits}
-                onChange={(e) => setUseAbbreviatedUnits(e.target.checked)}
+                onCheckedChange={setUseAbbreviatedUnits}
               />
             </div>
 
@@ -181,7 +182,7 @@ function SettingsContent() {
                     <FormLabel>{formatDecimalLabel(key)}</FormLabel>
                     <Switch
                       checked={docker.decimals[key]}
-                      onChange={(e) => setDockerDecimal(key, e.target.checked)}
+                      onCheckedChange={(checked) => setDockerDecimal(key, checked)}
                     />
                   </div>
                 ))}
@@ -199,7 +200,7 @@ function SettingsContent() {
                 <FormLabel>Disk Speed</FormLabel>
                 <Switch
                   checked={zfs.decimals.diskSpeed}
-                  onChange={(e) => setZfsDecimal('diskSpeed', e.target.checked)}
+                  onCheckedChange={(checked) => setZfsDecimal('diskSpeed', checked)}
                 />
               </div>
             </div>
@@ -283,7 +284,7 @@ function SettingsContent() {
               </div>
               <Switch
                 checked={developer.dockerDebugLogging}
-                onChange={(e) => setDockerDebugLogging(e.target.checked)}
+                onCheckedChange={setDockerDebugLogging}
               />
             </div>
             <div className="flex justify-between items-center">
@@ -295,7 +296,7 @@ function SettingsContent() {
               </div>
               <Switch
                 checked={developer.dbFlushDebugLogging}
-                onChange={(e) => setDbFlushDebugLogging(e.target.checked)}
+                onCheckedChange={setDbFlushDebugLogging}
               />
             </div>
             <div className="flex justify-between items-center">
@@ -307,7 +308,7 @@ function SettingsContent() {
               </div>
               <Switch
                 checked={developer.sseDebugLogging}
-                onChange={(e) => setSseDebugLogging(e.target.checked)}
+                onCheckedChange={setSseDebugLogging}
               />
             </div>
           </div>

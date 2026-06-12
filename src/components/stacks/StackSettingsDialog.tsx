@@ -9,10 +9,10 @@ import {
   FormLabel,
   MenuItem,
   Select,
-  Switch,
   Typography,
 } from '@mui/material'
 import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
 
 export interface StackSettingsDialogProps {
   open: boolean
@@ -71,9 +71,9 @@ export default function StackSettingsDialog({
         <div className="flex items-center gap-3">
           <Switch
             checked={autoDeploy}
-            onChange={(e) => setAutoDeploy(e.target.checked)}
+            onCheckedChange={setAutoDeploy}
             disabled={isLoading}
-            slotProps={{ input: { 'aria-label': 'Auto Deploy', role: 'switch' } }}
+            aria-label="Auto Deploy"
           />
           <div>
             <Typography variant="body2" className="font-medium">Auto Deploy</Typography>
