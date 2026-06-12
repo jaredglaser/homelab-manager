@@ -217,7 +217,7 @@ jobs:
 
       - name: Extract metadata for web image
         id: meta-web
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/jaredglaser/homelab-manager-web
           tags: |
@@ -228,7 +228,7 @@ jobs:
 
       - name: Extract metadata for worker image
         id: meta-worker
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/jaredglaser/homelab-manager-worker
           tags: |
@@ -239,7 +239,7 @@ jobs:
 
       - name: Extract metadata for agent image
         id: meta-agent
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/jaredglaser/homelab-manager-agent
           tags: |
@@ -250,7 +250,7 @@ jobs:
 
       - name: Extract metadata for agent-updater image
         id: meta-agent-updater
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/jaredglaser/homelab-manager-agent-updater
           tags: |
