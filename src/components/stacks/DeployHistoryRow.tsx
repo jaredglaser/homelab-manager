@@ -74,7 +74,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
     <>
       <Paper
         elevation={0}
-        className="bg-(--mui-palette-background-chartBg)! rounded-sm overflow-hidden"
+        className="bg-(--mui-palette-background-chartBg) rounded-sm overflow-hidden"
       >
         <div
           role={record.logs ? 'button' : undefined}
@@ -97,7 +97,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
           <Chip
             size="small"
             label={getActionLabel(record)}
-            className="text-xs! h-5!"
+            className="text-xs h-5"
             variant="filled"
           />
 
@@ -106,14 +106,14 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
               size="small"
               color="warning"
               label={PENDING_APPROVAL_LABEL}
-              className="text-xs! h-5!"
+              className="text-xs h-5"
               variant="outlined"
             />
           ) : (
             <Chip
               size="small"
               label={STATUS_LABEL[record.status]}
-              className="text-xs! h-5!"
+              className="text-xs h-5"
               style={{ color: statusColor, borderColor: statusColor }}
               variant="outlined"
             />
@@ -128,7 +128,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
               size="small"
               variant="contained"
               color="primary"
-              className="text-xs! h-6! min-w-0! px-2! ml-1!"
+              className="text-xs h-6 min-w-0 px-2 ml-1"
               onClick={(e) => {
                 e.stopPropagation();
                 onApprove(record.id);
@@ -144,7 +144,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
               size="small"
               variant="outlined"
               color="error"
-              className="text-xs! h-6! min-w-0! px-2! ml-1!"
+              className="text-xs h-6 min-w-0 px-2 ml-1"
               onClick={(e) => {
                 e.stopPropagation();
                 onReject(record.id);
@@ -160,7 +160,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
             <Button
               size="small"
               variant="outlined"
-              className="text-xs! h-6! min-w-0! px-2! ml-1! border-red-600! text-red-500! hover:bg-red-600/10!"
+              className="text-xs h-6 min-w-0 px-2 ml-1 border-red-600 text-red-500 hover:bg-red-600/10"
               onClick={(e) => {
                 e.stopPropagation();
                 setRollbackOpen(true);

@@ -62,7 +62,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
 
   if (isLoading) {
     return (
-      <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg)! rounded-sm">
+      <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg) rounded-sm">
         <div className="space-y-2">
           <Skeleton variant="text" width="60%" />
           <Skeleton variant="rounded" height={36} />
@@ -77,7 +77,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
 
   if (variableList.length === 0) {
     return (
-      <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg)! rounded-sm">
+      <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg) rounded-sm">
         <Typography variant="body2" className="opacity-50">
           No variables yet.
         </Typography>
@@ -86,11 +86,11 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
   }
 
   return (
-    <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg)! rounded-sm">
+    <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg) rounded-sm">
       <div className="flex items-center gap-2 mb-3">
         <Key size={16} className="opacity-60" />
         <Typography variant="subtitle2">Variables</Typography>
-        <Chip size="small" label={variableList.length} className="text-xs! h-5!" />
+        <Chip size="small" label={variableList.length} className="text-xs h-5" />
       </div>
       <div className="space-y-2">
         {variableList.map((varName) => (

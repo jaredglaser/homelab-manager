@@ -63,7 +63,7 @@ export default function ContainerHistoryPage({
   return (
     <div className="flex flex-col min-h-0">
       {/* Sticky panel header */}
-      <div className="sticky top-0 z-10 bg-(--mui-palette-background-level1)! border-b border-(--mui-palette-divider) px-6 pt-4 pb-3 select-none">
+      <div className="sticky top-0 z-10 bg-(--mui-palette-background-level1) border-b border-(--mui-palette-divider) px-6 pt-4 pb-3 select-none">
         <div className="relative">
           {/* Real content: always in flow, determines height */}
           <div className={`flex items-center gap-3 transition-opacity duration-300 ${isInfoLoading ? 'opacity-0' : 'opacity-100'}`}>
@@ -86,7 +86,7 @@ export default function ContainerHistoryPage({
               <Typography variant="caption" className="text-(--mui-palette-text-secondary) block" noWrap>{containerImage || ' '}</Typography>
             </div>
             {onClose && (
-              <IconButton onClick={onClose} aria-label="Close history panel" className="shrink-0!">
+              <IconButton onClick={onClose} aria-label="Close history panel" className="shrink-0">
                 <X size={20} />
               </IconButton>
             )}

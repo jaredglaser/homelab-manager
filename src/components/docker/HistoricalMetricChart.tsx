@@ -182,7 +182,7 @@ export default memo(function HistoricalMetricChart({
   );
 
   return (
-    <Paper elevation={0} className="rounded-sm p-3 bg-(--mui-palette-background-chartBg)!">
+    <Paper elevation={0} className="rounded-sm p-3 bg-(--mui-palette-background-chartBg)">
       <Typography variant="body2" className="mb-1 font-medium">
         {title}
       </Typography>

@@ -46,10 +46,10 @@ export default function HostRow({ host, isChecking, isRemoving, onHealthCheck, o
           </Typography>
           <div className="flex items-center gap-1">
             {host.capabilities?.docker && (
-              <Chip label="Docker" size="small" variant="outlined" className="h-4! text-[10px]!" />
+              <Chip label="Docker" size="small" variant="outlined" className="h-4 text-[10px]" />
             )}
             {host.capabilities?.zfs && (
-              <Chip label="ZFS" size="small" variant="outlined" className="h-4! text-[10px]!" />
+              <Chip label="ZFS" size="small" variant="outlined" className="h-4 text-[10px]" />
             )}
           </div>
         </div>

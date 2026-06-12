@@ -47,7 +47,7 @@ export default function SyncStatusBadge({ status }: SyncStatusBadgeProps) {
       variant="outlined"
       icon={<span className="flex items-center" style={{ color: config.colorVar }}>{config.icon}</span>}
       label={config.label}
-      className="border-current!"
+      className="border-current"
       style={{ color: config.colorVar }}
     />
   );

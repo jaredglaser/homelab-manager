@@ -78,7 +78,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
         <Button
           size="small"
           variant="outlined"
-          startIcon={activeKey === 'stack:start' ? <CircularProgress size={12} className="!text-inherit" /> : <Play size={13} />}
+          startIcon={activeKey === 'stack:start' ? <CircularProgress size={12} className="text-inherit" /> : <Play size={13} />}
           disabled={controlMutation.isPending || containers.length === 0}
           onClick={() => trigger('start', { scope: 'stack' })}
           aria-label="Start"
@@ -88,7 +88,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
         <Button
           size="small"
           variant="outlined"
-          startIcon={activeKey === 'stack:stop' ? <CircularProgress size={12} className="!text-inherit" /> : <Square size={13} />}
+          startIcon={activeKey === 'stack:stop' ? <CircularProgress size={12} className="text-inherit" /> : <Square size={13} />}
           disabled={controlMutation.isPending || containers.length === 0}
           onClick={() => trigger('stop', { scope: 'stack' })}
           aria-label="Stop"
@@ -98,7 +98,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
         <Button
           size="small"
           variant="outlined"
-          startIcon={activeKey === 'stack:restart' ? <CircularProgress size={12} className="!text-inherit" /> : <RotateCcw size={13} />}
+          startIcon={activeKey === 'stack:restart' ? <CircularProgress size={12} className="text-inherit" /> : <RotateCcw size={13} />}
           disabled={controlMutation.isPending || containers.length === 0}
           onClick={() => trigger('restart', { scope: 'stack' })}
           aria-label="Restart"
@@ -147,7 +147,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
         maxWidth="lg"
         slotProps={{ paper: { className: 'h-[70vh]' } }}
       >
-        <DialogTitle className="flex items-center justify-between !py-2">
+        <DialogTitle className="flex items-center justify-between py-2">
           <span className="text-sm font-medium">
             {modalState?.container.name}
           </span>
@@ -155,7 +155,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
             <X size={16} />
           </IconButton>
         </DialogTitle>
-        <DialogContent className="!p-2 flex flex-col min-h-0 h-full">
+        <DialogContent className="p-2 flex flex-col min-h-0 h-full">
           {modalState?.view === 'logs' && (
             <ContainerLogViewer containerId={modalState.container.id} host={host} />
           )}
@@ -172,7 +172,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
           onClose={() => setToast(null)}
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         >
-          <Alert severity={toast.type} onClose={() => setToast(null)} variant="filled" className="!text-sm">
+          <Alert severity={toast.type} onClose={() => setToast(null)} variant="filled" className="text-sm">
             {toast.text}
           </Alert>
         </Snackbar>
@@ -273,7 +273,7 @@ function TerminalDialogContent({ container, host }: { container: StackContainer;
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center px-1 py-1 border-b border-[var(--mui-palette-divider)]">
         <FormControl size="small" className="ml-auto min-w-[90px]">
-          <InputLabel id="shell-select-label" shrink className="text-xs!">Shell</InputLabel>
+          <InputLabel id="shell-select-label" shrink className="text-xs">Shell</InputLabel>
           <Select
             labelId="shell-select-label"
             label="Shell"
@@ -289,11 +289,11 @@ function TerminalDialogContent({ container, host }: { container: StackContainer;
               return (
                 <span className="inline-flex items-center gap-1.5">
                   auto
-                  <CircularProgress size={10} thickness={6} className="text-[var(--mui-palette-text-secondary)]!" />
+                  <CircularProgress size={10} thickness={6} className="text-[var(--mui-palette-text-secondary)]" />
                 </span>
               );
             }}
-            className="text-xs!"
+            className="text-xs"
           >
             <MenuItem value="" className="text-xs">auto</MenuItem>
             {SHELL_OPTIONS.map((s) => (

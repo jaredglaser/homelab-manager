@@ -1,3 +1,8 @@
+/* Cascade layer order for the MUI + Tailwind v4 interop: this declaration must come
+   before the tailwind import so MUI's emotion styles (injected into @layer mui by
+   StyledEngineProvider enableCssLayer) lose to Tailwind utilities by layer order,
+   making the ! important postfix unnecessary for MUI overrides. */
+@layer theme, base, mui, components, utilities;
 @import "tailwindcss";
 @source not "../CLAUDE.md";
 

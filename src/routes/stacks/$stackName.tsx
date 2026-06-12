@@ -201,12 +201,12 @@ function StackEditorView() {
         <Tabs
           value={panel}
           onChange={(_e, value: 'compose' | 'secrets' | 'containers' | 'deploys') => setPanel(value)}
-          className="min-h-0!"
+          className="min-h-0"
         >
-          <Tab value="compose" label="Compose" disableRipple className="min-h-0! py-2! normal-case!" />
-          <Tab value="secrets" label="Secrets" disableRipple className="min-h-0! py-2! normal-case!" />
-          <Tab value="containers" label="Containers" disableRipple className="min-h-0! py-2! normal-case!" />
-          <Tab value="deploys" label="Deploys" disableRipple className="min-h-0! py-2! normal-case!" />
+          <Tab value="compose" label="Compose" disableRipple className="min-h-0 py-2 normal-case" />
+          <Tab value="secrets" label="Secrets" disableRipple className="min-h-0 py-2 normal-case" />
+          <Tab value="containers" label="Containers" disableRipple className="min-h-0 py-2 normal-case" />
+          <Tab value="deploys" label="Deploys" disableRipple className="min-h-0 py-2 normal-case" />
         </Tabs>
       </div>
 
@@ -292,7 +292,7 @@ function StackEditorView() {
             severity={deployMessage.type}
             onClose={() => setDeployMessage(null)}
             variant="filled"
-            className="text-sm!"
+            className="text-sm"
           >
             {deployMessage.text}
           </Alert>

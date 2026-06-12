@@ -15,6 +15,8 @@ export default function DualSeriesChartRenderer({ option, ref }: DualSeriesChart
       opts={{ renderer: 'canvas' }}
       notMerge={false}
       lazyUpdate={true}
+      // echarts-for-react sets inline height/width on its wrapper div; the
+      // important postfix is required to beat inline styles (cascade layers don't).
       className="h-full! w-full!"
     />
   );

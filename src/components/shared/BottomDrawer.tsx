@@ -26,7 +26,7 @@ export default function BottomDrawer({ open, onClose, onExited, children }: Read
         },
         paper: {
           className:
-            'rounded-t-2xl! rounded-b-none! bg-(--mui-palette-background-default)! max-h-[calc(100vh-60px)]!',
+            'rounded-t-2xl rounded-b-none bg-(--mui-palette-background-default) max-h-[calc(100vh-60px)]',
         },
         transition: {
           onExited,

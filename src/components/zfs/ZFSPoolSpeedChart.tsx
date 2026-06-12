@@ -180,7 +180,7 @@ export default function ZFSPoolSpeedChart({
   useEChartTimeScroll(chartRef, WINDOW_MS, wrapperRef);
 
   return (
-    <Paper elevation={0} className="rounded-sm p-4 bg-(--mui-palette-background-chartBg)!">
+    <Paper elevation={0} className="rounded-sm p-4 bg-(--mui-palette-background-chartBg)">
       <Typography variant="subtitle2" className="mb-2">
         {poolName}
       </Typography>

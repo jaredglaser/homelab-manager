@@ -70,19 +70,19 @@ export default memo(function ContainerLogsTerminalPanel({
         <Tabs
           value={activeTab}
           onChange={handleTabChange}
-          className="min-h-0!"
+          className="min-h-0"
         >
-          <Tab value="logs" label="Logs" className="min-h-0! py-2! text-xs!" />
+          <Tab value="logs" label="Logs" className="min-h-0 py-2 text-xs" />
           <Tab
             value="terminal"
             label="Terminal"
             disabled={!isRunning && !terminalMounted}
-            className="min-h-0! py-2! text-xs!"
+            className="min-h-0 py-2 text-xs"
           />
         </Tabs>
         {activeTab === 'terminal' && (
           <FormControl size="small" className="ml-auto min-w-[90px]">
-            <InputLabel id="shell-select-label" shrink className="text-xs!">Shell</InputLabel>
+            <InputLabel id="shell-select-label" shrink className="text-xs">Shell</InputLabel>
             <Select
               labelId="shell-select-label"
               label="Shell"
@@ -100,11 +100,11 @@ export default memo(function ContainerLogsTerminalPanel({
                 return (
                   <span className="inline-flex items-center gap-1.5">
                     auto
-                    <CircularProgress size={10} thickness={6} className="text-[var(--mui-palette-text-secondary)]!" />
+                    <CircularProgress size={10} thickness={6} className="text-[var(--mui-palette-text-secondary)]" />
                   </span>
                 );
               }}
-              className="text-xs!"
+              className="text-xs"
             >
               <MenuItem value="" className="text-xs">auto</MenuItem>
               {SHELL_OPTIONS.map((s) => (

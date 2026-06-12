@@ -100,7 +100,7 @@ function ContainerNameCell({
             e.stopPropagation();
             setIconPickerOpen(true);
           }}
-          className={`p-1! transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+          className={`p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
           aria-label="Change container icon"
           tabIndex={expanded ? 0 : -1}
           aria-hidden={!expanded}
@@ -111,7 +111,7 @@ function ContainerNameCell({
           <IconButton
             size="small"
             onClick={handleHistoryClick}
-            className={`p-1! transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
+            className={`p-1 transition-opacity ${expanded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'}`}
             aria-label="View container history"
             tabIndex={expanded ? 0 : -1}
             aria-hidden={!expanded}

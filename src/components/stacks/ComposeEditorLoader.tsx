@@ -12,7 +12,7 @@ export default function ComposeEditorLoader(props: Readonly<ComposeEditorLoaderP
   return (
     <Suspense
       fallback={
-        <Paper elevation={0} className="p-8 mb-4 bg-(--mui-palette-background-chartBg)! rounded-sm flex items-center justify-center gap-3">
+        <Paper elevation={0} className="p-8 mb-4 bg-(--mui-palette-background-chartBg) rounded-sm flex items-center justify-center gap-3">
           <CircularProgress size={20} />
           <Typography variant="body2" className="opacity-60">
             Loading editor...

@@ -24,7 +24,7 @@ export function IntervalToggle({
         <Tooltip
           title={
             <div className="flex flex-col gap-1">
-              <Typography variant="body2" className="text-white!">Fast updates (1 second)</Typography>
+              <Typography variant="body2" className="text-white">Fast updates (1 second)</Typography>
               <Chip size="small" color="warning" variant="filled" label="Increases API load on Proxmox" />
             </div>
           }
@@ -37,7 +37,7 @@ export function IntervalToggle({
         <Tooltip
           title={
             <div className="flex flex-col gap-1">
-              <Typography variant="body2" className="text-white!">Relaxed updates (10 seconds)</Typography>
+              <Typography variant="body2" className="text-white">Relaxed updates (10 seconds)</Typography>
               <Chip size="small" color="success" variant="filled" label="Recommended for most users" />
             </div>
           }

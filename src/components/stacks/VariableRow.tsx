@@ -102,7 +102,7 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
             placeholder={fetchValueMutation.isPending ? 'Loading…' : 'Click eye to reveal'}
             slotProps={{
               input: {
-                className: 'text-xs!',
+                className: 'text-xs',
                 endAdornment: (
                   <InputAdornment position="end">
                     <IconButton
@@ -145,12 +145,12 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
           />
         </div>
         {fetchError && (
-          <Alert severity="error" className="text-xs! py-0">
+          <Alert severity="error" className="text-xs py-0">
             {fetchError}
           </Alert>
         )}
         {saveError && (
-          <Alert severity="error" className="text-xs! py-0">
+          <Alert severity="error" className="text-xs py-0">
             {saveError}
           </Alert>
         )}
@@ -163,7 +163,7 @@ export default function VariableRow({ stackName, varName, isReferenced, onDelete
             Delete variable <strong>{varName}</strong>? This cannot be undone.
           </DialogContentText>
           {deleteError && (
-            <Alert severity="error" className="text-xs! mt-2">
+            <Alert severity="error" className="text-xs mt-2">
               {deleteError}
             </Alert>
           )}

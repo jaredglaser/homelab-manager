@@ -149,12 +149,12 @@ export function AccountMenu() {
         anchorEl={anchorRef.current}
         placement="bottom-end"
         modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}
-        className="z-50!"
+        className="z-50"
       >
         <ClickAwayListener onClickAway={() => setOpen(false)}>
           <Paper
             elevation={4}
-            className="rounded-xl! backdrop-blur-xl! bg-(--mui-palette-background-paper)/95! border border-(--mui-palette-divider)/30 overflow-hidden min-w-36 pointer-events-auto"
+            className="rounded-xl backdrop-blur-xl bg-(--mui-palette-background-paper)/95 border border-(--mui-palette-divider)/30 overflow-hidden min-w-36 pointer-events-auto"
           >
             <div role="menu">
               <a

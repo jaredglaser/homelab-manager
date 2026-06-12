@@ -327,6 +327,9 @@ export default function ContainerTable({
     [],
   );
 
+  // The important postfix on these tints is a utility-vs-utility conflict, not an MUI
+  // override: it keeps stale/host backgrounds stable against the row's hover:bg
+  // utility, which lives in the same cascade layer and would otherwise win on hover.
   const rowClassName = useCallback((row: DockerTableRow) => {
     if (row.type === 'host') {
       const base = row.isStale ? 'bg-[var(--row-stale-tint)]!' : 'bg-(--mui-palette-background-level1)!';

@@ -265,7 +265,7 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>Generate Git Token</DialogTitle>
-      <DialogContent className="flex flex-col gap-4 !pt-4">
+      <DialogContent className="flex flex-col gap-4 pt-4">
         {newToken ? (
           <>
             <Alert severity="warning">

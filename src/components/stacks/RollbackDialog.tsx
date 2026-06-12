@@ -34,7 +34,7 @@ export default function RollbackDialog({
         <Button
           onClick={onConfirm}
           variant="contained"
-          className="bg-red-600! hover:bg-red-700! text-white!"
+          className="bg-red-600 hover:bg-red-700 text-white"
         >
           Confirm Rollback
         </Button>
