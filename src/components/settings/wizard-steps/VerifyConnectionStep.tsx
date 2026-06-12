@@ -1,4 +1,7 @@
-import { Typography, TextField, Button, Alert } from '@mui/material'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Plus } from 'lucide-react'
 import CopyButton from '@/components/settings/CopyButton'
 import { Spinner } from '@/components/ui/spinner';
@@ -26,49 +29,52 @@ export default function VerifyConnectionStep({
 }: VerifyConnectionStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-verify">
-      <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
+      <p className="text-sm text-muted-foreground">
         Enter the agent connection details and verify:
-      </Typography>
-      <TextField
-        label="Host Name"
-        value={name}
-        onChange={(e) => onNameChange(e.target.value)}
-        size="small"
-        disabled={isAdding}
-        placeholder="dev-machine"
-        fullWidth
-        slotProps={{ htmlInput: { 'aria-label': 'Host Name' } }}
-      />
-      <TextField
-        label="Agent URL"
-        value={agentUrl}
-        onChange={(e) => onAgentUrlChange(e.target.value)}
-        size="small"
-        placeholder="https://192.168.1.10:9090"
-        disabled={isAdding}
-        fullWidth
-        slotProps={{ htmlInput: { 'aria-label': 'Agent URL' } }}
-      />
+      </p>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="wizard-host-name">Host Name</Label>
+        <Input
+          id="wizard-host-name"
+          value={name}
+          onChange={(e) => onNameChange(e.target.value)}
+          disabled={isAdding}
+          placeholder="dev-machine"
+          aria-label="Host Name"
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="wizard-agent-url">Agent URL</Label>
+        <Input
+          id="wizard-agent-url"
+          value={agentUrl}
+          onChange={(e) => onAgentUrlChange(e.target.value)}
+          placeholder="https://192.168.1.10:9090"
+          disabled={isAdding}
+          aria-label="Agent URL"
+        />
+      </div>
       <Button
-        variant="contained"
-        size="small"
+        size="sm"
         disabled={!canVerify || isAdding}
         onClick={onVerify}
-        startIcon={isAdding ? <Spinner className="size-3.5" /> : <Plus size={14} />}
         className="self-end"
       >
+        {isAdding ? <Spinner className="size-3.5" /> : <Plus size={14} />}
         Verify Connection
       </Button>
 
       {publicJwkJson && (
-        <Alert severity="info" className="mt-2">
-          <Typography variant="body2" className="mb-2">
-            Set this as <code>AGENT_TRUSTED_PUBKEY</code> in your agent environment, then restart the agent:
-          </Typography>
-          <pre className="text-xs overflow-auto p-2 rounded bg-(--mui-palette-background-level1)" data-testid="pubkey-display">
-            {publicJwkJson}
-          </pre>
-          <CopyButton text={publicJwkJson} label="public key" />
+        <Alert variant="info" className="mt-2">
+          <AlertDescription className="w-full">
+            <p className="text-sm mb-2">
+              Set this as <code>AGENT_TRUSTED_PUBKEY</code> in your agent environment, then restart the agent:
+            </p>
+            <pre className="text-xs w-full overflow-auto p-2 rounded bg-level1 text-foreground" data-testid="pubkey-display">
+              {publicJwkJson}
+            </pre>
+            <CopyButton text={publicJwkJson} label="public key" />
+          </AlertDescription>
         </Alert>
       )}
     </div>

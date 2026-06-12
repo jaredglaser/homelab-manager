@@ -1,4 +1,3 @@
-import { Typography } from '@mui/material'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 
@@ -12,9 +11,9 @@ interface CapabilitiesStepProps {
 export default function CapabilitiesStep({ docker, zfs, onDockerChange, onZfsChange }: CapabilitiesStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-capabilities">
-      <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
+      <p className="text-sm text-muted-foreground">
         Select the capabilities this host will provide:
-      </Typography>
+      </p>
       <div className="flex items-center gap-2">
         <Checkbox
           id="capability-docker"
