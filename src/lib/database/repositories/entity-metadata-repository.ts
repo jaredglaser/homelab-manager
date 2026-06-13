@@ -37,6 +37,14 @@ export class EntityMetadataRepository {
     );
   }
 
+  async deleteEntityIcon(entity: string): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM entity_metadata
+       WHERE source = 'docker' AND entity = $1 AND key = 'icon'`,
+      [entity]
+    );
+  }
+
   async getSourceIcons(): Promise<Map<string, string>> {
     const result = await this.pool.query(
       `SELECT entity, value
