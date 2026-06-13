@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface HorizontalScrollRowProps {
   children: ReactNode;
-  /** CSS variable name (e.g. `--mui-palette-background-paper`) used for the edge fade gradient color. */
+  /** CSS variable name (e.g. `--card`) used for the edge fade gradient color. */
   bgVar: string;
   /** Class applied to the inner content row. Use to control gap/min-width/alignment. */
   innerClassName?: string;
@@ -51,7 +51,7 @@ export default memo(function HorizontalScrollRow({
   }, []);
 
   const btnClass =
-    'flex items-center justify-center shrink-0 w-5 self-stretch text-(--mui-palette-text-secondary) hover:text-(--mui-palette-text-primary) transition-colors cursor-pointer';
+    'flex items-center justify-center shrink-0 w-5 self-stretch text-(--muted-foreground) hover:text-foreground transition-colors cursor-pointer';
 
   return (
     <div className="relative flex items-center">

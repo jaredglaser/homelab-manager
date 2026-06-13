@@ -1,5 +1,4 @@
 import { memo, useMemo } from 'react';
-import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useGeneralSettings } from '@/hooks/useSettings';
@@ -182,10 +181,10 @@ export default memo(function HistoricalMetricChart({
   );
 
   return (
-    <Paper elevation={0} className="rounded-sm p-3 bg-(--mui-palette-background-chartBg)!">
-      <Typography variant="body2" className="mb-1 font-medium">
+    <div className="rounded-sm p-3 bg-chart-bg">
+      <p className="text-sm mb-1 font-medium">
         {title}
-      </Typography>
+      </p>
       <div className="h-64">
         <ReactECharts
           option={option}
@@ -195,6 +194,6 @@ export default memo(function HistoricalMetricChart({
           lazyUpdate={true}
         />
       </div>
-    </Paper>
+    </div>
   );
 });

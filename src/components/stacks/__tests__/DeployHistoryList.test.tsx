@@ -58,7 +58,7 @@ describe('DeployHistoryList', () => {
       <DeployHistoryList records={[]} isLoading={true} />,
       { wrapper: createWrapper() },
     );
-    const skeletons = container.querySelectorAll('.MuiSkeleton-root');
+    const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons.length).toBe(3);
   });
 

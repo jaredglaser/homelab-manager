@@ -12,7 +12,7 @@ export default function ContainerStateChip({ state }: Readonly<Props>) {
       data-state={state}
     >
       <StateIndicator state={state} />
-      <span className="text-(--mui-palette-text-secondary)">{state}</span>
+      <span className="text-(--muted-foreground)">{state}</span>
     </span>
   );
 }
@@ -30,7 +30,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'restarting') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-(--mui-palette-warning-main) animate-pulse"
+        className="inline-block w-2 h-2 rounded-full bg-(--warning) animate-pulse"
         aria-label="restarting"
       />
     );
@@ -39,7 +39,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'paused') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-(--mui-palette-info-main)"
+        className="inline-block w-2 h-2 rounded-full bg-(--info)"
         aria-label="paused"
       />
     );
@@ -48,7 +48,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   if (state === 'exited' || state === 'dead') {
     return (
       <span
-        className="inline-block w-2 h-2 rounded-full bg-(--mui-palette-text-disabled)"
+        className="inline-block w-2 h-2 rounded-full bg-(--text-disabled)"
         aria-label={state}
       />
     );
@@ -57,7 +57,7 @@ function StateIndicator({ state }: { state: ContainerState }) {
   // created, removing, unknown: outlined dot
   return (
     <span
-      className="inline-block w-2 h-2 rounded-full border border-(--mui-palette-action-disabled)"
+      className="inline-block w-2 h-2 rounded-full border border-(--action-disabled)"
       aria-label={state}
     />
   );

@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Chip } from '@mui/material';
+import { Badge } from '@/components/ui/badge';
 import { ChevronRight, Server, WifiOff } from 'lucide-react';
 import type { DockerHostTableRow } from '@/types/docker';
 
@@ -30,7 +30,7 @@ const HostNameCell = memo(function HostNameCell({
       )}
       <span className="font-bold">{row.hostName}</span>
       {a.staleContainerCount > 0 && !row.isStale && (
-        <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
+        <Badge className="bg-warning text-white">{`${a.staleContainerCount} stale`}</Badge>
       )}
     </div>
   );
