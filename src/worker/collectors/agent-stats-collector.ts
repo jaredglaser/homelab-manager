@@ -23,6 +23,13 @@ interface AgentStatsEvent {
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
+/**
+ * Pending-row flush cadence. TimescaleDB ingest guidance favors multi-row
+ * INSERTs over per-row writes; a 50-container host emits 50 events/sec, so
+ * batching on a 150 ms window collapses 50 round trips into at most ~7.
+ */
+const FLUSH_INTERVAL_MS = 150;
+
 /** Extract the JSON payload from an SSE message, returning null if invalid.
  *  Skips named events (e.g. "event: containers"): only default events carry stats data. */
 function extractDataLine(message: string): string | null {
@@ -64,6 +71,7 @@ export class AgentStatsCollector extends BaseCollector {
   private readonly fetchFn: FetchFn;
   private readonly entityMetadataRepository: EntityMetadataRepository;
   private readonly knownContainers = new Set<string>();
+  private pendingRows: DockerStatsRow[] = [];
 
   constructor(
     db: DatabaseClient,
@@ -87,9 +95,11 @@ export class AgentStatsCollector extends BaseCollector {
 
     try {
       const entityPath = `${this.host.name}/${event.containerId}`;
-      await this.entityMetadataRepository.upsertEntityMetadata(entityPath, 'name', event.containerName);
-      await this.entityMetadataRepository.upsertEntityMetadata(entityPath, 'image', event.image);
-      await this.entityMetadataRepository.upsertEntityMetadata(entityPath, 'service_key', event.containerName);
+      await this.entityMetadataRepository.upsertEntityMetadataBatch([
+        { entity: entityPath, key: 'name', value: event.containerName },
+        { entity: entityPath, key: 'image', value: event.image },
+        { entity: entityPath, key: 'service_key', value: event.containerName },
+      ]);
       this.knownContainers.add(event.containerId);
     } catch (err) {
       console.error(
@@ -99,7 +109,7 @@ export class AgentStatsCollector extends BaseCollector {
     }
   }
 
-  /** Parse and persist a single SSE event, returning true if a stat was written */
+  /** Parse a single SSE event and queue its row for the next flush, returning true if queued */
   private async processMessage(message: string): Promise<boolean> {
     const jsonStr = extractDataLine(message);
     if (!jsonStr) return false;
@@ -116,17 +126,30 @@ export class AgentStatsCollector extends BaseCollector {
 
     await this.registerContainer(event);
 
-    const row = toDockerStatsRow(event, this.host.name);
+    this.pendingRows.push(toDockerStatsRow(event, this.host.name));
+    return true;
+  }
+
+  /**
+   * Drain pending rows in a single multi-row INSERT. Swaps the buffer before
+   * awaiting so rows queued during the write land in the next flush. Errors
+   * are logged and the batch dropped so a transient DB failure does not kill
+   * the SSE stream; the next interval retries with fresh data.
+   */
+  private async flushPendingRows(): Promise<void> {
+    if (this.pendingRows.length === 0) return;
+    const rows = this.pendingRows;
+    this.pendingRows = [];
+
     const t0 = performance.now();
     try {
-      await this.repository.insertDockerStats([row]);
+      await this.repository.insertDockerStats(rows);
     } catch (err) {
-      console.error(`[${this.name}] Failed to insert stat for ${event.containerName}:`, err);
-      return false;
+      console.error(`[${this.name}] Failed to insert batch of ${rows.length} stats rows:`, err);
+      return;
     }
     const writeMs = (performance.now() - t0).toFixed(1);
-    this.dbDebugLog(`[${this.name}] Wrote stat for ${event.containerName} in ${writeMs}ms`);
-    return true;
+    this.dbDebugLog(`[${this.name}] Wrote ${rows.length} stats rows in ${writeMs}ms`);
   }
 
   protected async collect(): Promise<void> {
@@ -153,6 +176,10 @@ export class AgentStatsCollector extends BaseCollector {
     let buffer = '';
     let statsReceived = 0;
 
+    // Interval flush (instead of per-event INSERTs) batches all rows that
+    // arrive within the window, regardless of how the agent chunks them.
+    const flushTimer = setInterval(() => { void this.flushPendingRows(); }, FLUSH_INTERVAL_MS);
+
     try {
       while (!this.signal.aborted) {
         const { done, value } = await reader.read();
@@ -164,12 +191,16 @@ export class AgentStatsCollector extends BaseCollector {
 
         for (const message of messages) {
           if (this.signal.aborted) break;
-          const wrote = await this.processMessage(message);
-          if (wrote) statsReceived++;
+          const queued = await this.processMessage(message);
+          if (queued) statsReceived++;
         }
       }
     } finally {
+      clearInterval(flushTimer);
       reader.releaseLock();
+      // Final drain so rows queued since the last interval survive stream end
+      // and worker shutdown (abort).
+      await this.flushPendingRows();
       this.debugLog(
         `[${this.name}] Stream ended (${statsReceived} stats received, aborted=${this.signal.aborted})`
       );

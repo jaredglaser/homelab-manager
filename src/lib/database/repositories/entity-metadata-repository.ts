@@ -45,6 +45,31 @@ export class EntityMetadataRepository {
     );
   }
 
+  /**
+   * Upsert several entity/key/value rows in one statement via unnest.
+   * Used by AgentStatsCollector to register a new container (name, image,
+   * service_key) with one round trip instead of three. Entries must not
+   * contain duplicate (entity, key) pairs: ON CONFLICT DO UPDATE rejects
+   * affecting the same row twice within one statement.
+   */
+  async upsertEntityMetadataBatch(
+    entries: { entity: string; key: string; value: string }[]
+  ): Promise<void> {
+    if (entries.length === 0) return;
+    await this.pool.query(
+      `INSERT INTO entity_metadata (source, entity, key, value, updated_at)
+       SELECT 'docker', t.entity, t.key, t.value, NOW()
+       FROM unnest($1::text[], $2::text[], $3::text[]) AS t(entity, key, value)
+       ON CONFLICT (source, entity, key)
+       DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [
+        entries.map(e => e.entity),
+        entries.map(e => e.key),
+        entries.map(e => e.value),
+      ]
+    );
+  }
+
   async getSourceIcons(): Promise<Map<string, string>> {
     const result = await this.pool.query(
       `SELECT entity, value
