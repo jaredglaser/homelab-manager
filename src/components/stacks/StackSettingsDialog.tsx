@@ -1,18 +1,10 @@
 import { useState } from 'react'
-import {
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  FormLabel,
-  MenuItem,
-  Select,
-  Switch,
-  Typography,
-} from '@mui/material'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Spinner } from '@/components/ui/spinner';
+import { Switch } from '@/components/ui/switch';
 
 export interface StackSettingsDialogProps {
   open: boolean
@@ -52,43 +44,49 @@ export default function StackSettingsDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Stack Settings</DialogTitle>
-      <DialogContent className="flex flex-col gap-4 pt-4!">
-        <FormControl fullWidth disabled={isLoading}>
-          <FormLabel className="text-sm! mb-1!">Target Host</FormLabel>
-          <Select
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            displayEmpty
-            slotProps={{ input: { 'aria-label': 'Target Host' } }}
-          >
-            {availableHosts.map((h) => (
-              <MenuItem key={h} value={h}>{h}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <div className="flex items-center gap-3">
-          <Switch
-            checked={autoDeploy}
-            onChange={(e) => setAutoDeploy(e.target.checked)}
-            disabled={isLoading}
-            slotProps={{ input: { 'aria-label': 'Auto Deploy', role: 'switch' } }}
-          />
-          <div>
-            <Typography variant="body2" className="font-medium">Auto Deploy</Typography>
-            <Typography variant="caption" className="opacity-70">
-              {autoDeploy ? 'Deploy on every git push' : 'Deploy only when triggered manually'}
-            </Typography>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose() }}>
+      <DialogContent>
+        <DialogTitle>Stack Settings</DialogTitle>
+        <DialogBody className="flex flex-col gap-4 pt-1">
+          <div className="flex flex-col gap-1">
+            <Label htmlFor="settings-target-host" className="text-sm mb-1">Target Host</Label>
+            <Select
+              value={host}
+              onValueChange={(value) => { if (value) setHost(value) }}
+              disabled={isLoading}
+            >
+              <SelectTrigger id="settings-target-host" aria-label="Target Host">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {availableHosts.map((h) => (
+                  <SelectItem key={h} value={h}>{h}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </div>
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={autoDeploy}
+              onCheckedChange={setAutoDeploy}
+              disabled={isLoading}
+              aria-label="Auto Deploy"
+            />
+            <div>
+              <p className="text-sm font-medium">Auto Deploy</p>
+              <p className="text-xs opacity-70">
+                {autoDeploy ? 'Deploy on every git push' : 'Deploy only when triggered manually'}
+              </p>
+            </div>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" className="text-foreground" onClick={onClose} disabled={isLoading}>Cancel</Button>
+          <Button onClick={handleSave} disabled={!host || isLoading}>
+            {isLoading ? <Spinner className="size-4" /> : 'Save'}
+          </Button>
+        </DialogFooter>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} color="inherit" disabled={isLoading}>Cancel</Button>
-        <Button onClick={handleSave} variant="contained" disabled={!host || isLoading}>
-          {isLoading ? <CircularProgress size={16} /> : 'Save'}
-        </Button>
-      </DialogActions>
     </Dialog>
   )
 }

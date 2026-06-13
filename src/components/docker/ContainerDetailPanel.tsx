@@ -1,6 +1,7 @@
 import { memo, useCallback, useState } from 'react';
 import { ScrollText, Terminal, History, WrapText, Image } from 'lucide-react';
-import { IconButton, Tooltip } from '@mui/material';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerMetricsChart, { type MetricKey } from '@/components/docker/ContainerMetricsChart';
@@ -64,10 +65,10 @@ interface StatusItemProps {
 function StatusItem({ label, value }: StatusItemProps) {
   return (
     <div className="flex items-baseline gap-1 shrink-0">
-      <span className="text-xs font-medium text-(--mui-palette-text-secondary)">
+      <span className="text-xs font-medium text-(--muted-foreground)">
         {label}
       </span>
-      <span className="font-mono text-xs tabular-nums text-(--mui-palette-text-primary)">
+      <span className="font-mono text-xs tabular-nums text-foreground">
         {value}
       </span>
     </div>
@@ -87,7 +88,7 @@ function ActionStripButton({ icon, label, onClick, disabled }: ActionStripButton
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-(--mui-palette-text-secondary) border border-(--mui-palette-divider) bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      className="inline-flex items-center gap-1 px-2 h-[28px] rounded text-xs font-medium text-(--muted-foreground) border border-(--border) bg-transparent transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
     >
       {icon}
       {label}
@@ -113,10 +114,10 @@ function StatusStrip({
   const shortId = inventory.containerId.slice(-12);
 
   return (
-    <div className="flex items-start lg:items-center gap-3 px-3 py-2 flex-wrap border-b border-(--mui-palette-divider) min-h-[40px]">
+    <div className="flex items-start lg:items-center gap-3 px-3 py-2 flex-wrap border-b border-(--border) min-h-[40px]">
       <ContainerStateChip state={inventory.state} />
 
-      <div className="w-px h-3.5 shrink-0 bg-(--mui-palette-divider)" />
+      <div className="w-px h-3.5 shrink-0 bg-(--border)" />
 
       <StatusItem
         label="Image"
@@ -143,7 +144,7 @@ function StatusStrip({
       <div className="w-full lg:w-auto lg:ml-auto flex items-center gap-1">
         <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
 
-        <div className="w-px h-4 mx-1 shrink-0 bg-(--mui-palette-divider)" />
+        <div className="w-px h-4 mx-1 shrink-0 bg-(--border)" />
 
         <ActionStripButton
           icon={<Image size={12} />}
@@ -151,7 +152,7 @@ function StatusStrip({
           onClick={onIconClick}
         />
 
-        <div className="w-px h-4 mx-1 shrink-0 bg-(--mui-palette-divider)" />
+        <div className="w-px h-4 mx-1 shrink-0 bg-(--border)" />
 
         <ActionStripButton
           icon={<ScrollText size={12} />}
@@ -178,20 +179,28 @@ function LogPreviewPanel({ containerId, host }: { containerId: string; host: str
   const [wordWrap, setWordWrap] = useState(false);
 
   return (
-    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--mui-palette-background-chartBg)">
-      <div className="flex items-center justify-between px-2 py-0.5 border-b border-(--mui-palette-divider) shrink-0">
-        <span className="text-xs font-medium text-(--mui-palette-text-secondary)">
+    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--chart-bg)">
+      <div className="flex items-center justify-between px-2 py-0.5 border-b border-(--border) shrink-0">
+        <span className="text-xs font-medium text-(--muted-foreground)">
           Recent logs
         </span>
-        <Tooltip title={wordWrap ? 'Disable word wrap' : 'Enable word wrap'} placement="top">
-          <IconButton
-            size="small"
-            onClick={() => setWordWrap((w) => !w)}
-            className={`p-0.5! ${wordWrap ? 'text-(--mui-palette-primary-main)!' : 'text-(--mui-palette-text-disabled)!'}`}
-            aria-label="Toggle word wrap"
-          >
-            <WrapText size={13} />
-          </IconButton>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setWordWrap((w) => !w)}
+                className={`p-0.5! ${wordWrap ? 'text-(--primary)!' : 'text-(--text-disabled)!'}`}
+                aria-label="Toggle word wrap"
+              >
+                <WrapText size={13} />
+              </Button>
+            }
+          />
+          <TooltipContent side="top">
+            {wordWrap ? 'Disable word wrap' : 'Enable word wrap'}
+          </TooltipContent>
         </Tooltip>
       </div>
       <div className="flex-1 min-h-0">
@@ -243,7 +252,7 @@ export default memo(function ContainerDetailPanel({
   }, []);
 
   return (
-    <div className="border-b border-(--mui-palette-divider) bg-(--mui-palette-background-level1)">
+    <div className="border-b border-(--border) bg-(--level1)">
       <StatusStrip
         inventory={inventory}
         containerId={containerId}

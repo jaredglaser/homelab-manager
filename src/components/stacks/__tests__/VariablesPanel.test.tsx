@@ -54,11 +54,11 @@ describe('VariablesPanel', () => {
       () => new Promise<string[]>((res) => { resolveVariables = res; }),
     );
     const { container } = await renderPanel();
-    const skeletons = container.querySelectorAll('.MuiSkeleton-root');
+    const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons.length).toBeGreaterThan(0);
     resolveVariables([]);
     await waitFor(() => {
-      expect(container.querySelectorAll('.MuiSkeleton-root')).toHaveLength(0);
+      expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0);
     });
   });
 

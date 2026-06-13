@@ -61,7 +61,7 @@ bun run test:coverage:all     # Run tests in both with coverage enforcement
 
 ## Critical Rules
 
-1. **Styling**: TailwindCSS ONLY. Never use MUI `sx` props or create `.css` files (exceptions: `App.css`, `theme.ts`). Inline `style` only when Tailwind cannot express the value (virtualizer positioning, dynamic indent, computed transforms). Never use hardcoded hex colors - use theme CSS variables. To override MUI defaults, use Tailwind's `!` suffix (v4 postfix form): `bg-[var(--mui-palette-background-chartBg)]!`. Prefer MUI's built-in component behavior (hover effects, transitions) over custom overrides unless there's a specific design requirement.
+1. **Styling**: TailwindCSS ONLY. Never create `.css` files (exception: `App.css`). Inline `style` only when Tailwind cannot express the value (virtualizer positioning, dynamic indent, computed transforms). Never use hardcoded hex colors - use the design tokens in `App.css` (`bg-card`, `text-muted-foreground`, `border-border`, `bg-level1`, `bg-chart-bg`, etc.). The tokens hold literal color values (no longer aliased to `--mui-palette-*`); the dark scheme lives in `:root` and the light overrides in `[data-color-scheme="light"]`, with `useLightPaletteEffect` rewriting the background-derived light tokens per selectable palette. Color mode (light/dark) is owned by `useColorMode` (sets `data-color-scheme`, persists to localStorage), seeded before first paint by an inline script in `__root.tsx`.
 2. **Imports**: Always use `@/` for src files. In test files: use `@/` for imports from outside `__tests__/`, relative paths for imports within the same `__tests__/` directory. Never mix `@/` and relative paths in non-test files.
 3. **Server Functions**: All server logic via `createServerFn()` + middleware injection. Never create clients directly in server functions.
 4. **Dynamic Imports**: ALWAYS use `await import()` for server-only modules (pg, subscription-service, database-client) inside SSE handlers and server functions. Static imports leak into the client bundle and break the app with `node:async_hooks` errors.
@@ -82,7 +82,7 @@ bun run test:coverage:all     # Run tests in both with coverage enforcement
 - **Framework:** TanStack Start (SPA mode, SSR disabled) + React 19
 - **Runtime:** Bun (pinned in `.bun-version`; package manager, test runner, runtime)
 - **Language:** TypeScript (strict mode, `noUnusedLocals`, `noUnusedParameters`)
-- **UI:** MUI Material UI v9 (components) + TailwindCSS v4 (styling, via `@tailwindcss/vite` plugin - no config file)
+- **UI:** shadcn-style components on Base UI (`@base-ui/react`, vendored in `src/components/ui/`) + TailwindCSS v4 (styling, via `@tailwindcss/vite` plugin - no config file) + sonner (toasts). MUI and emotion have been fully removed.
 - **State:** Jotai (settings atoms) + TanStack Query
 - **Streaming:** SSE via TanStack Router server routes
 - **Charts:** Apache ECharts
@@ -126,7 +126,7 @@ loadSubscribe: async () => {
 
 Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (auth + DB lookup + pipe-through from agent) and `git.$` (git HTTP smart protocol, not SSE).
 
-### Shared DataTable (`src/components/shared-table/`)
+### Shared DataTable (`src/components/ui/datatable/`)
 
 Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `DataTable.tsx`, `DataTableToolbar.tsx`, `columns.tsx` (factories: `metricColumn`, `nameColumn`, `statusColumn`, `progressColumn`), `MetricCell.tsx`, `SparklineCell.tsx`, `SparklineCanvas.tsx`.
 
@@ -140,7 +140,7 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 
 ### Key Patterns
 
-- **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. MUI theme in `src/theme.ts` uses `cssVariables` mode. Custom backgrounds: `chartBg`, `level1-3`, `popup`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
+- **Styling**: TailwindCSS v4 configured in `App.css` with `@import "tailwindcss"`. shadcn design tokens (`--background`, `--card`, `--popover`, `--muted`, `--accent`, `--level1-3`, `--chart-bg`, `--success`, `--warning`, `--info`, `--tooltip`, etc.) defined in `App.css` as literal color values: dark scheme in `:root`, light overrides in `[data-color-scheme="light"]`. Dark mode keys off the `data-color-scheme` attribute (`@custom-variant dark`), owned by `useColorMode`. Chart CSS vars (`--chart-cpu`, `--chart-memory`, etc.) in `App.css`.
 - **Settings**: Jotai atoms synced via SSE (`/api/settings`). Domain-scoped hooks (`useDockerSettings`, `useZfsSettings`, `useProxmoxSettings`, `useGeneralSettings`) provide optimistic setters and subscribe via `selectAtom` so each consumer only re-renders when its own slice changes. `useSettings()` remains as a composite wrapper for the settings page. Keys in `src/lib/constants/settings-keys.ts`. PostgreSQL `NOTIFY settings_change` broadcasts to all clients.
 - **Multi-host**: Docker and ZFS monitoring both use managed hosts registered via **Settings → Managed Hosts**. User deploys the agent container on each host, then provides the agent URL and capabilities (docker/zfs). The worker subscribes to each agent's SSE streams (`AgentStatsCollector`, `ZFSCollector`, `ContainerInventoryCollector`); it never connects to Docker directly. Agent auth uses per-host Ed25519 keypair JWTs: the web app generates the keypair at enrollment, stores the private JWK encrypted (JWE, master key from `MASTER_KEY_FILE`/`MASTER_KEY`), and returns the public JWK for the operator to install in the agent as `AGENT_TRUSTED_PUBKEY` (or via `AGENT_TRUSTED_PUBKEY_FILE`).
 - **Demo mode**: `VITE_DEMO_MODE=true` swaps server functions via Vite aliases and patches `EventSource`. Zero changes to routes/hooks/components. Mock entities defined in `src/lib/mock/entities.ts`.
@@ -209,7 +209,7 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 10. **Parallel agent worktree isolation**: When dispatching multiple agents into git worktrees, each agent must `cd "$WORKTREE_PATH"` before any file writes and use relative paths only. Never run `git stash` inside a worktree while other worktrees are active: `.git/refs/stash` is shared across all worktrees, so a stash created in one worktree can be popped (and destroyed) by an agent in another.
 11. **CSS vars empty on initial render**: CSS custom properties can resolve to empty strings before the theme applies. `CanvasGradient.addColorStop()` throws on empty color. Always guard canvas color operations.
 12. **Virtualizer remounting resets component state**: When `useVirtualizer` repositions rows after collapse, components remount and lose refs/state. Use entity-keyed external state (not component-local refs) for data that must survive remounting (e.g., sparkline accumulators).
-13. **Collapse + virtualizer can't sync**: MUI Collapse (CSS transitions) and virtualizer repositioning (JS `measureElement`) run on different systems. Don't virtualize the outer level (host rows); only virtualize inner levels (container rows).
+13. **Collapse + virtualizer can't sync**: collapse animations (CSS transitions, now Base UI Collapsible's `--collapsible-panel-height`) and virtualizer repositioning (JS `measureElement`) run on different systems. Don't virtualize the outer level (host rows); only virtualize inner levels (container rows).
 14. **Parallel agent worktrees start from main, not the feature branch**: `isolation: "worktree"` in the Agent tool creates worktrees from the repo's default branch (main), not the current feature branch. Subagents dispatched to fix issues on a feature branch will reconstruct the feature work from scratch and then apply their fix on top, wasting tokens and creating merge conflicts. When fixes are small and targeted (a few lines each), apply them directly rather than delegating to subagents. If subagents are needed for complex component rewrites, scope each agent to exactly the files it must change and provide full context about the current file contents so it makes the minimum edit.
 15. **MCP tool parameters are plain JSON strings**: Never use `$(cat <<'EOF'` or heredoc syntax in MCP tool call parameters (e.g., `mcp__github__create_pull_request` body). Heredoc is only for bash commands like `git commit -m` or `gh pr create` where the shell interprets the string. In MCP calls, it appears literally in the output.
 

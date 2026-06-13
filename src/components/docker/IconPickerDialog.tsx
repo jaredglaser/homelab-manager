@@ -1,14 +1,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogActions,
-  Button,
-  IconButton,
-  TextField,
-  InputAdornment,
-  Typography,
-} from '@mui/material';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Search, X } from 'lucide-react';
 import { AVAILABLE_ICONS } from '@/lib/utils/icon-resolver';
 import { SELECTION_FEEDBACK_MS } from '@/lib/constants/ui-timing';
@@ -78,94 +71,75 @@ export default function IconPickerDialog({
   const displayedIcon = pendingIcon ?? currentIcon;
 
   return (
-    <Dialog
-      open={open}
-      onClose={handleClose}
-      maxWidth="md"
-      fullWidth
-      slotProps={{
-        paper: {
-          className: 'rounded-lg! bg-(--mui-palette-background-popup) w-[720px] max-h-[600px]',
-        },
-      }}
-    >
-      <div
-        className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-(--mui-palette-divider) shrink-0 bg-(--mui-palette-background-popup)"
-      >
-        <Typography variant="h6" className="text-sm! font-semibold!">
-          Select Icon for {containerName}
-        </Typography>
-        <IconButton onClick={handleClose} size="small" aria-label="Close">
-          <X size={18} />
-        </IconButton>
-      </div>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+      <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-(--popover) w-[720px] max-w-[calc(100%-64px)] max-h-[600px] p-0">
+        <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-(--border) shrink-0 bg-(--popover)">
+          <h2 className="text-sm font-semibold">
+            Select Icon for {containerName}
+          </h2>
+          <Button variant="ghost" size="icon-sm" onClick={handleClose} aria-label="Close">
+            <X size={18} />
+          </Button>
+        </div>
 
-      <div className="px-5 pt-3 pb-2 shrink-0">
-        <TextField
-          placeholder="Search icons..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          autoFocus
-          fullWidth
-          size="small"
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search size={16} />
-                </InputAdornment>
-              ),
-              endAdornment: search ? (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setSearch('')} edge="end" aria-label="Clear search">
-                    <X size={14} />
-                  </IconButton>
-                </InputAdornment>
-              ) : undefined,
-            },
-          }}
-        />
-        <Typography
-          variant="caption"
-          className="mt-1 block text-(--mui-palette-text-disabled)"
-        >
-          Showing {filteredIcons.length} of {AVAILABLE_ICONS.length} icons
-        </Typography>
-      </div>
+        <div className="px-5 pt-3 pb-2 shrink-0">
+          <div className="relative">
+            <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none" />
+            <Input
+              placeholder="Search icons..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+              className="h-9 pl-8 pr-9"
+            />
+            {search && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-1 top-1/2 -translate-y-1/2"
+              >
+                <X size={14} />
+              </Button>
+            )}
+          </div>
+          <span className="mt-1 block text-xs text-(--text-disabled)">
+            Showing {filteredIcons.length} of {AVAILABLE_ICONS.length} icons
+          </span>
+        </div>
 
-      <DialogContent className="p-0! flex-1 min-h-0">
-        <IconGrid
-          filteredIcons={filteredIcons}
-          currentIcon={displayedIcon}
-          onSelect={handleTileSelect}
-          emptyMessage={`No icons found for "${search}"`}
-        />
+        <div className="flex-1 min-h-0">
+          <IconGrid
+            filteredIcons={filteredIcons}
+            currentIcon={displayedIcon}
+            onSelect={handleTileSelect}
+            emptyMessage={`No icons found for "${search}"`}
+          />
+        </div>
+
+        <DialogFooter className="px-5 py-3 border-t border-(--border) bg-(--popover)">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleAutoDetect}
+            className="mr-auto text-xs text-(--muted-foreground)"
+          >
+            Use auto-detected
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleClose} className="text-xs">
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleApply}
+            disabled={!pendingIcon}
+            className="text-xs"
+          >
+            Apply
+          </Button>
+        </DialogFooter>
       </DialogContent>
-
-      <DialogActions
-        className="px-5 py-3 border-t border-(--mui-palette-divider)! bg-(--mui-palette-background-popup)"
-      >
-        <Button
-          size="small"
-          variant="text"
-          onClick={handleAutoDetect}
-          className="mr-auto! text-xs! text-(--mui-palette-text-secondary)"
-        >
-          Use auto-detected
-        </Button>
-        <Button size="small" variant="outlined" onClick={handleClose} className="text-xs!">
-          Cancel
-        </Button>
-        <Button
-          size="small"
-          variant="contained"
-          onClick={handleApply}
-          disabled={!pendingIcon}
-          className="text-xs!"
-        >
-          Apply
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 }
