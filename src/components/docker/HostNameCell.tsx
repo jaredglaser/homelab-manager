@@ -10,17 +10,19 @@ const HostNameCell = memo(function HostNameCell({
   row: DockerHostTableRow;
   expanded: boolean;
 }>) {
-  const { totalHosts, children, aggregated: a } = row;
+  const { children, aggregated: a } = row;
   const hasContainers = children.length > 0;
-  const canToggle = hasContainers && totalHosts > 1;
+  const canToggle = hasContainers;
 
   return (
     <div className="flex items-center gap-2">
       {canToggle && (
-        <ChevronRight
-          size={18}
-          className={`shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-        />
+        <span className="inline-flex items-center justify-center p-1" aria-hidden="true">
+          <ChevronRight
+            size={18}
+            className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          />
+        </span>
       )}
       <Server size={18} className="shrink-0" />
       {row.isStale && (
