@@ -1,7 +1,5 @@
-// Marks this module server-only for TanStack Start import protection: the
-// build fails fast if pg ever reaches the client environment instead of
-// breaking at runtime with node:async_hooks errors. The marker resolves to an
-// empty module under Bun (worker, tests) and to a virtual module in Vite.
+// Server-only marker: any import of this file from the client graph fails the
+// build instead of breaking at runtime with node:async_hooks errors.
 import '@tanstack/react-start/server-only';
 import { Pool, type PoolConfig } from 'pg';
 import type { StreamingClient } from '../streaming/types';
