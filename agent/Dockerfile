@@ -2,7 +2,7 @@
 FROM docker:29.5.2-cli AS toolchain
 
 # Application stage
-FROM oven/bun:1.3.13 AS base
+FROM oven/bun:1.3.14 AS base
 
 COPY --from=toolchain /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=toolchain /usr/local/libexec/docker/cli-plugins /usr/local/lib/docker/cli-plugins
