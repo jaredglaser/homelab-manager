@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { IconButton } from '@mui/material';
+import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
@@ -31,12 +31,12 @@ function ContainerNameCell({
   return (
     <>
       <div className="flex items-center gap-2">
-        <IconButton size="small" tabIndex={-1}>
+        <Button variant="ghost" size="icon-sm" tabIndex={-1} className="text-foreground">
           <ChevronRight
             size={16}
             className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
           />
-        </IconButton>
+        </Button>
 
         {/* Pulse indicator: for running and restarting containers with data */}
         {(inventory.state === 'running' || inventory.state === 'restarting') && (

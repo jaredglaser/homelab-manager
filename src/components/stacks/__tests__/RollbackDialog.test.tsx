@@ -47,10 +47,10 @@ describe('RollbackDialog', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  it('Confirm Rollback button has destructive red styling', () => {
+  it('Confirm Rollback button has destructive styling', () => {
     render(<RollbackDialog {...createProps()} />);
     const btn = screen.getByRole('button', { name: 'Confirm Rollback' });
-    expect(btn.className).toContain('red');
+    expect(btn.className).toContain('destructive');
   });
 
   it('does not render when open is false', () => {

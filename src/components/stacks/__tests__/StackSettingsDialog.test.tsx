@@ -82,11 +82,13 @@ describe('StackSettingsDialog', () => {
     const onSave = mock(() => {});
     render(<StackSettingsDialog {...defaultProps} onSave={onSave} />);
 
-    // Open the MUI Select dropdown
-    fireEvent.mouseDown(screen.getByRole('combobox'));
+    // Open the Select dropdown
+    fireEvent.click(screen.getByRole('combobox'));
 
     // Click the server2 option in the listbox
     const option = await screen.findByRole('option', { name: 'server2' });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
     fireEvent.click(option);
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));

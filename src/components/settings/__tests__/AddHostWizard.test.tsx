@@ -35,14 +35,14 @@ describe('AddHostWizard', () => {
 
     it('Docker is checked by default', () => {
       render(<AddHostWizard {...makeProps()} />)
-      const dockerCheckbox = screen.getByLabelText('Docker capability') as HTMLInputElement
-      expect(dockerCheckbox.checked).toBe(true)
+      const dockerCheckbox = screen.getByLabelText('Docker capability')
+      expect(dockerCheckbox.getAttribute('aria-checked')).toBe('true')
     })
 
     it('ZFS is unchecked by default', () => {
       render(<AddHostWizard {...makeProps()} />)
-      const zfsCheckbox = screen.getByLabelText('ZFS capability') as HTMLInputElement
-      expect(zfsCheckbox.checked).toBe(false)
+      const zfsCheckbox = screen.getByLabelText('ZFS capability')
+      expect(zfsCheckbox.getAttribute('aria-checked')).toBe('false')
     })
 
     it('shows stepper with correct steps (no ZFS)', () => {
@@ -259,11 +259,9 @@ describe('AddHostWizard', () => {
     it('resets ZFS checkbox to unchecked', () => {
       render(<AddHostWizard {...makeProps()} />)
       fireEvent.click(screen.getByLabelText('ZFS capability'))
-      const zfsCheckbox = screen.getByLabelText('ZFS capability') as HTMLInputElement
-      expect(zfsCheckbox.checked).toBe(true)
+      expect(screen.getByLabelText('ZFS capability').getAttribute('aria-checked')).toBe('true')
       fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
-      const zfsAfterReset = screen.getByLabelText('ZFS capability') as HTMLInputElement
-      expect(zfsAfterReset.checked).toBe(false)
+      expect(screen.getByLabelText('ZFS capability').getAttribute('aria-checked')).toBe('false')
     })
 
     it('Reset button is disabled while isAdding', () => {

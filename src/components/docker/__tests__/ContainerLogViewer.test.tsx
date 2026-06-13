@@ -83,7 +83,7 @@ describe('ContainerLogViewer', () => {
     mockReturnValue = { isConnected: false, error: null };
     const { container } = render(<ContainerLogViewer containerId="abc123" host="server" wordWrap={false} />);
     // Skeleton elements should be present
-    expect(container.querySelectorAll('.MuiSkeleton-root').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
     // Terminal container should be invisible (opacity-0)
     const termContainer = container.querySelector('.transition-opacity');
     expect(termContainer?.className).toContain('opacity-0');
@@ -101,7 +101,7 @@ describe('ContainerLogViewer', () => {
 
     // Once ready, skeleton should be gone and terminal visible
     await waitFor(() => {
-      expect(container.querySelectorAll('.MuiSkeleton-root').length).toBe(0);
+      expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
       const termContainer = container.querySelector('.transition-opacity');
       expect(termContainer?.className).toContain('opacity-100');
     });
