@@ -178,27 +178,19 @@ describe('ProxmoxCollector', () => {
       });
 
       // Mock proxmoxConnectionManager via dynamic import
-      const mockOverview = {
+      const mockSnapshot = {
         clusterName: 'test-cluster',
         quorate: true,
         version: 3,
-        nodes: [{
-          node: 'pve1', status: 'online', cpu: 0.5, maxcpu: 4,
-          mem: 2e9, maxmem: 8e9, disk: 10e9, maxdisk: 100e9,
-          uptime: 3600, type: 'node' as const, id: 'node/pve1',
+        resources: [{
+          id: 'node/pve1', type: 'node' as const, node: 'pve1', status: 'online',
+          cpu: 0.5, maxcpu: 4, mem: 2e9, maxmem: 8e9, disk: 10e9, maxdisk: 100e9,
+          uptime: 3600,
         }],
-        vms: [],
-        containers: [],
-        storages: [],
-        totals: {
-          totalCpu: 4, usedCpu: 2, totalMemory: 8e9, usedMemory: 2e9,
-          totalDisk: 100e9, usedDisk: 10e9, runningVMs: 0, stoppedVMs: 0,
-          runningContainers: 0, stoppedContainers: 0,
-        },
       };
 
       const mockClient = {
-        getClusterOverview: mock(async () => mockOverview),
+        getClusterSnapshot: mock(async () => mockSnapshot),
       };
 
       // We need to mock the dynamic import of proxmox-client
