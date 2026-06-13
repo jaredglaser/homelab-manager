@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Spinner } from '@/components/ui/spinner';
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
-import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
-import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
-import { metricColumn, nameColumn } from '@/components/shared-table/columns';
-import { EMPTY_METRIC } from '@/components/shared-table/MetricCell';
+import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
+import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
+import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
+import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import type {
   DockerStatsRow,
@@ -329,7 +329,7 @@ export default function ContainerTable({
 
   const rowClassName = useCallback((row: DockerTableRow) => {
     if (row.type === 'host') {
-      const base = row.isStale ? 'bg-[var(--row-stale-tint)]!' : 'bg-(--mui-palette-background-level1)!';
+      const base = row.isStale ? 'bg-[var(--row-stale-tint)]!' : 'bg-(--level1)!';
       // scroll-mt clears the DataTable's sticky column header (~37px) when scrollIntoView is called
       return `${base} scroll-mt-10`;
     }
@@ -377,25 +377,25 @@ export default function ContainerTable({
   // Loading / error states
   if (error && !hasData) {
     return (
-      <Box className="w-full">
-        <Box className="p-2">
-          <Typography color="error">
+      <div className="w-full">
+        <div className="p-2">
+          <p className="text-destructive">
             Error connecting to Docker stats: {error.message}
-          </Typography>
-        </Box>
-      </Box>
+          </p>
+        </div>
+      </div>
     );
   }
 
   if (inventoryError && inventory.size === 0) {
     return (
-      <Box className="w-full">
-        <Box className="p-2">
-          <Typography color="error">
+      <div className="w-full">
+        <div className="p-2">
+          <p className="text-destructive">
             Error connecting to Docker inventory: {inventoryError.message}
-          </Typography>
-        </Box>
-      </Box>
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -404,16 +404,16 @@ export default function ContainerTable({
   // the table would render zero rows when stats arrive before inventory.
   if ((!isConnected && !hasData) || (!isInventoryConnected && inventory.size === 0)) {
     return (
-      <Box className="w-full">
-        <Box className="flex justify-center p-4">
-          <CircularProgress />
-        </Box>
-      </Box>
+      <div className="w-full">
+        <div className="flex justify-center p-4">
+          <Spinner />
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box className="flex flex-col flex-1 min-h-0 w-full">
+    <div className="flex flex-col flex-1 min-h-0 w-full">
       <StaleDataAlert isStale={isStale} />
       <DataTable
         data={tableData}
@@ -427,7 +427,7 @@ export default function ContainerTable({
         rowAttributes={rowAttributes}
         enableSorting={false}
       />
-    </Box>
+    </div>
   );
 }
 

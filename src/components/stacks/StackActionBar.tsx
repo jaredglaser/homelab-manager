@@ -1,5 +1,9 @@
-import { Button, Checkbox, CircularProgress, FormControlLabel, IconButton, Tooltip, Typography } from '@mui/material';
 import { HelpCircle, Play, Square, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface StackActionBarProps {
   onDeploy: () => void;
@@ -20,79 +24,74 @@ export default function StackActionBar({
 }: StackActionBarProps) {
   return (
     <div className="flex items-center gap-2">
-      <Button
-        variant="contained"
-        size="small"
-        disabled={isDeploying}
-        onClick={onDeploy}
-        startIcon={
-          isDeploying ? (
-            <CircularProgress size={14} className="text-inherit!" />
-          ) : (
-            <Play size={14} />
-          )
-        }
-      >
+      <Button size="sm" disabled={isDeploying} onClick={onDeploy}>
+        {isDeploying ? <Spinner className="size-3.5 text-inherit" /> : <Play size={14} />}
         Deploy
       </Button>
 
       <div className="flex items-center">
-        <FormControlLabel
-          control={
-            <Checkbox
-              size="small"
-              checked={forceRecreate}
-              onChange={(e) => onForceRecreateChange(e.target.checked)}
-              disabled={isDeploying}
-            />
-          }
-          label={<Typography variant="caption" className="select-none">Force</Typography>}
-          className="mr-0!"
-        />
-        <Tooltip
-          title={
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="force-recreate"
+            className="size-4"
+            checked={forceRecreate}
+            onCheckedChange={(checked) => onForceRecreateChange(checked)}
+            disabled={isDeploying}
+          />
+          <Label htmlFor="force-recreate" className="cursor-pointer">
+            <span className="text-xs select-none">Force</span>
+          </Label>
+        </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Force recreate help"
+                className="text-foreground p-0.5 opacity-40 hover:opacity-80"
+              />
+            }
+          >
+            <HelpCircle size={14} />
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
             <div className="p-1">
-              <Typography variant="subtitle2" className="text-inherit! mb-1">Force Recreate</Typography>
-              <Typography variant="caption" className="text-inherit! block opacity-90">
+              <p className="text-sm font-medium mb-1">Force Recreate</p>
+              <p className="text-xs block opacity-90">
                 By default, Docker Compose only recreates containers whose configuration has changed.
                 Enable this to forcefully recreate all containers in the stack, even if their
                 config is unchanged. This also removes any containers with conflicting names
                 from other projects before deploying.
-              </Typography>
-              <Typography variant="caption" className="text-inherit! block opacity-70 mt-1">
+              </p>
+              <p className="text-xs block opacity-70 mt-1">
                 Use this when you encounter name conflicts or need a clean restart of all services.
-              </Typography>
+              </p>
             </div>
-          }
-          placement="top-start"
-          slotProps={{ tooltip: { className: 'max-w-xs!' } }}
-        >
-          <IconButton size="small" aria-label="Force recreate help" className="p-0.5! opacity-40! hover:opacity-80!">
-            <HelpCircle size={14} />
-          </IconButton>
+          </TooltipContent>
         </Tooltip>
       </div>
 
       <Button
-        variant="outlined"
-        size="small"
+        variant="outline"
+        size="sm"
         disabled={isDeploying}
         onClick={onTeardown}
-        startIcon={<Square size={14} />}
-        className="text-(--mui-palette-error-main)! border-(--mui-palette-error-main)!"
+        className="text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5"
       >
+        <Square size={14} />
         Teardown
       </Button>
 
       <div className="ml-auto">
         <Button
-          variant="outlined"
-          size="small"
+          variant="outline"
+          size="sm"
           disabled={isDeploying}
           onClick={onDelete}
-          startIcon={<Trash2 size={14} />}
-          className="text-(--mui-palette-error-main)! border-(--mui-palette-error-main)!"
+          className="text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5"
         >
+          <Trash2 size={14} />
           Delete Stack
         </Button>
       </div>

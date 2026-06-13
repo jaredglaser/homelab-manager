@@ -72,7 +72,7 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
         const FitAddon = (fitAny.FitAddon ??
           (fitAny.default as Record<string, unknown>).FitAddon) as new () => import('@xterm/xterm').ITerminalAddon & { fit(): void };
 
-        const bg = getCssVar('--mui-palette-background-chartBg');
+        const bg = getCssVar('--chart-bg');
         const fg = getCssVar('--chart-text-muted');
 
         const term = new Terminal({
@@ -135,7 +135,7 @@ export function useXtermSetup(options: ITerminalOptions): UseXtermSetupResult {
     if (!terminal) return;
     const root = document.documentElement;
     const applyTheme = () => {
-      const bg = getCssVar('--mui-palette-background-chartBg');
+      const bg = getCssVar('--chart-bg');
       const fg = getCssVar('--chart-text-muted');
       terminal.options.theme = {
         ...(bg && { background: bg }),

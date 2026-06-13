@@ -202,15 +202,15 @@ function LegendChip({
       aria-pressed={isActive}
       className="inline-flex shrink-0 items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap transition-all cursor-pointer"
       style={{
-        border: isActive && colors.line ? `1px solid ${colors.line}` : '1px solid var(--mui-palette-divider)',
+        border: isActive && colors.line ? `1px solid ${colors.line}` : '1px solid var(--border)',
         background: isActive ? (colors.line ? `color-mix(in srgb, ${colors.line} 12%, transparent)` : 'transparent') : 'transparent',
-        color: isActive ? 'var(--mui-palette-text-primary)' : 'var(--mui-palette-text-disabled)',
+        color: isActive ? 'var(--foreground)' : 'var(--text-disabled)',
       }}
     >
       <span
         className="w-2 h-2 rounded-full shrink-0"
         style={{
-          background: isActive ? (colors.line || 'var(--mui-palette-divider)') : 'var(--mui-palette-text-disabled)',
+          background: isActive ? (colors.line || 'var(--border)') : 'var(--text-disabled)',
         }}
       />
       <span>{metric.label}</span>
@@ -254,12 +254,12 @@ export default memo(function ContainerMetricsChart({
   }, [dataPoints]);
 
   return (
-    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--mui-palette-background-chartBg)">
+    <div className="flex flex-col h-full rounded-sm overflow-hidden bg-(--chart-bg)">
       <div ref={wrapperRef} className="flex-1 min-h-0">
         <DualSeriesChartRenderer ref={chartRef} option={option} />
       </div>
-      <div className="border-t border-(--mui-palette-divider) shrink-0">
-        <HorizontalScrollRow bgVar="--mui-palette-background-chartBg">
+      <div className="border-t border-(--border) shrink-0">
+        <HorizontalScrollRow bgVar="--chart-bg">
           {METRIC_DEFS.map((m) => (
             <LegendChip
               key={m.key}

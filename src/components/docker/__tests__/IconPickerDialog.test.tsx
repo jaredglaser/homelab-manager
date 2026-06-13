@@ -7,9 +7,6 @@ mock.module('@/lib/utils/icon-resolver', () => ({
 
 mock.module('@/lib/constants/ui-timing', () => ({
   SELECTION_FEEDBACK_MS: 0,
-  DRAWER_ENTER_MS: 0,
-  DRAWER_EXIT_MS: 0,
-  DRAWER_EASING: 'ease',
 }));
 
 const { default: IconPickerDialog } = await import('@/components/docker/IconPickerDialog');

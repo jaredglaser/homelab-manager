@@ -1,34 +1,16 @@
-import type { AlertColor } from '@mui/material';
-import { atom, useSetAtom } from 'jotai';
 import { useCallback } from 'react';
+import { toast } from 'sonner';
 
-export interface Toast {
-  id: number;
-  message: string;
-  severity: AlertColor;
-}
+export type ToastSeverity = 'success' | 'info' | 'warning' | 'error';
 
-let nextId = 0;
-
-export const toastsAtom = atom<Toast[]>([]);
-
+/**
+ * Thin wrapper over sonner for showToast(message, severity). Sonner owns
+ * queueing and dismissal.
+ */
 export function useToast() {
-  const setToasts = useSetAtom(toastsAtom);
+  const showToast = useCallback((message: string, severity: ToastSeverity) => {
+    toast[severity](message);
+  }, []);
 
-  const showToast = useCallback(
-    (message: string, severity: AlertColor) => {
-      const id = nextId++;
-      setToasts(prev => [...prev, { id, message, severity }]);
-    },
-    [setToasts]
-  );
-
-  const dismissToast = useCallback(
-    (id: number) => {
-      setToasts(prev => prev.filter(t => t.id !== id));
-    },
-    [setToasts]
-  );
-
-  return { showToast, dismissToast };
+  return { showToast };
 }

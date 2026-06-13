@@ -1,6 +1,6 @@
 import { memo, useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ButtonBase, Skeleton } from '@mui/material';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: string; selected: boolean; onSelect: (slug: string) => void }) {
   const [loaded, setLoaded] = useState(false);
@@ -33,15 +33,16 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
   }, [slug]);
 
   return (
-    <ButtonBase
+    <button
+      type="button"
       onClick={() => onSelect(slug)}
-      className={`!flex flex-col! items-center! p-2! rounded-md! hover:bg-blue-500/10! ${
-        selected ? 'bg-blue-500/20! ring-1! ring-blue-500!' : ''
+      className={`flex flex-col items-center p-2 rounded-md cursor-pointer hover:bg-blue-500/10 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+        selected ? 'bg-blue-500/20 ring-1 ring-blue-500' : ''
       }`}
     >
       <div className="relative w-8 h-8">
         {!loaded && (
-          <Skeleton variant="rounded" width={32} height={32} className="absolute! inset-0" />
+          <Skeleton className="absolute inset-0 w-8 h-8 rounded" />
         )}
         <img
           ref={imgRef}
@@ -52,7 +53,7 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
         />
       </div>
       <span className="mt-1 text-xs truncate w-full text-center">{slug}</span>
-    </ButtonBase>
+    </button>
   );
 });
 
@@ -109,7 +110,7 @@ export default function IconGrid({
   return (
     <div
       ref={scrollRef}
-      className="overflow-y-auto h-[50vh] ml-4 mr-2 mb-4 pl-2 pr-2 py-2 rounded-l-xl rounded-r-none bg-(--mui-palette-background-level1)! themed-scrollbar"
+      className="overflow-y-auto h-[50vh] ml-4 mr-2 mb-4 pl-2 pr-2 py-2 rounded-l-xl rounded-r-none bg-(--level1)! themed-scrollbar"
     >
       {filteredIcons.length === 0 ? (
         <p className="text-center py-4 text-sm opacity-70">{emptyMessage}</p>
