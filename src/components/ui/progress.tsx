@@ -2,7 +2,7 @@ import type { ComponentProps } from 'react';
 import { Progress as ProgressPrimitive } from '@base-ui/react/progress';
 import { cn } from '@/lib/utils/cn';
 
-/* Replaces MUI LinearProgress: 4px track in a 30% tint of the indicator color.
+/* 4px track in a 30% tint of the indicator color.
    Override the bar color per usage (e.g. capacity thresholds) via indicatorClassName. */
 function Progress({
   className,

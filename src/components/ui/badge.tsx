@@ -2,7 +2,6 @@ import type { ComponentProps } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
 
-/* Styled to match MUI Chip size="small": pill shape, 24px tall. */
 const badgeVariants = cva(
   'inline-flex items-center justify-center gap-1 rounded-full h-6 px-2 text-xs font-medium whitespace-nowrap shrink-0 [&>svg]:size-3 [&>svg]:pointer-events-none transition-colors overflow-hidden',
   {

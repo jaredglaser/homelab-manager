@@ -2,8 +2,7 @@ import type { ComponentProps } from 'react';
 import { Input as InputPrimitive } from '@base-ui/react/input';
 import { cn } from '@/lib/utils/cn';
 
-/* Styled like MUI outlined TextField size="small": 40px tall, divider border,
-   2px primary border when focused. */
+/* 40px tall, 2px primary ring on focus. */
 function Input({ className, ...props }: ComponentProps<typeof InputPrimitive>) {
   return (
     <InputPrimitive

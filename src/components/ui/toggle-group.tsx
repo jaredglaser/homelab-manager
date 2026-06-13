@@ -3,12 +3,11 @@ import { Toggle as TogglePrimitive } from '@base-ui/react/toggle';
 import { cn } from '@/lib/utils/cn';
 
 /*
- * Styled like MUI ToggleButtonGroup size="small": connected outlined buttons
- * with a primary-tinted pressed state. Base UI's group value is always an
- * array; exclusive selection is enforced at call sites via toggleMultiple
- * (default false keeps single-select semantics like MUI's `exclusive`).
+ * Connected outlined buttons with a primary-tinted pressed state. Base UI's
+ * group value is always an array; exclusive selection is enforced at call sites
+ * via toggleMultiple (default false for single-select).
  */
-function ToggleGroup({ className, ...props }: ToggleGroupPrimitive.Props<string>) {
+function ToggleGroup({ className, ...props }: Readonly<ToggleGroupPrimitive.Props<string>>) {
   return (
     <ToggleGroupPrimitive
       data-slot="toggle-group"
@@ -18,7 +17,7 @@ function ToggleGroup({ className, ...props }: ToggleGroupPrimitive.Props<string>
   );
 }
 
-function ToggleGroupItem({ className, ...props }: TogglePrimitive.Props) {
+function ToggleGroupItem({ className, ...props }: Readonly<TogglePrimitive.Props>) {
   return (
     <TogglePrimitive
       data-slot="toggle-group-item"

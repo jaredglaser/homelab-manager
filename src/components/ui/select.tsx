@@ -3,7 +3,7 @@ import { Select as SelectPrimitive } from '@base-ui/react/select';
 import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
-function Select<Value>(props: SelectPrimitive.Root.Props<Value, false>) {
+function Select<Value>(props: Readonly<SelectPrimitive.Root.Props<Value, false>>) {
   return <SelectPrimitive.Root data-slot="select" {...props} />;
 }
 
@@ -11,7 +11,6 @@ function SelectValue(props: ComponentProps<typeof SelectPrimitive.Value>) {
   return <SelectPrimitive.Value data-slot="select-value" {...props} />;
 }
 
-/* Styled like MUI outlined Select: divider border, paper-height 40px, chevron icon. */
 function SelectTrigger({ className, children, ...props }: ComponentProps<typeof SelectPrimitive.Trigger>) {
   return (
     <SelectPrimitive.Trigger
@@ -49,7 +48,6 @@ function SelectContent({ className, children, ...props }: ComponentProps<typeof 
   );
 }
 
-/* Styled like MUI MenuItem: full-width rows with hover tint and check on the selected item. */
 function SelectItem({ className, children, ...props }: ComponentProps<typeof SelectPrimitive.Item>) {
   return (
     <SelectPrimitive.Item

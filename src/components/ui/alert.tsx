@@ -3,8 +3,8 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
 
 /*
- * Severity variants mirror MUI Alert's standard variant: a tint of the
- * severity color as background with the color itself for text and icon.
+ * Severity variants use a tint of the severity color as background with the
+ * color itself for text and icon.
  * color-mix against the card background keeps the tint readable in both
  * color schemes without per-scheme overrides.
  */

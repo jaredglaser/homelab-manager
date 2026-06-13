@@ -13,10 +13,7 @@ function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
 
-/**
- * Format a timestamp to match the MUI DateTimePicker format strings this picker
- * replaced: `MM/DD/YYYY hh:mm A` (12h) or `MM/DD/YYYY HH:mm` (24h).
- */
+/** Format a timestamp as `MM/DD/YYYY hh:mm A` (12h) or `MM/DD/YYYY HH:mm` (24h). */
 export function formatDateTime(ms: number, use12Hour: boolean): string {
   const d = new Date(ms);
   const date = `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}/${d.getFullYear()}`;
@@ -65,9 +62,9 @@ interface DateTimePickerProps {
 
 /**
  * Composed date + time picker (Base UI Popover + a hand-built month grid and
- * time fields). Replaces MUI's @mui/x-date-pickers DateTimePicker. Values are
- * epoch milliseconds; selections are clamped into [min, max] but the parent is
- * still expected to guard cross-field constraints (e.g. from < to).
+ * time fields). Values are epoch milliseconds; selections are clamped into
+ * [min, max] but the parent is still expected to guard cross-field constraints
+ * (e.g. from < to).
  */
 export function DateTimePicker({
   value,

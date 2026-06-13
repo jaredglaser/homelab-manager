@@ -5,11 +5,11 @@ import { cn } from '@/lib/utils/cn';
 function TooltipProvider({
   delay = 100,
   ...props
-}: ComponentProps<typeof TooltipPrimitive.Provider>) {
+}: Readonly<ComponentProps<typeof TooltipPrimitive.Provider>>) {
   return <TooltipPrimitive.Provider delay={delay} {...props} />;
 }
 
-function Tooltip(props: ComponentProps<typeof TooltipPrimitive.Root>) {
+function Tooltip(props: Readonly<ComponentProps<typeof TooltipPrimitive.Root>>) {
   return <TooltipPrimitive.Root {...props} />;
 }
 
@@ -17,7 +17,6 @@ function TooltipTrigger(props: ComponentProps<typeof TooltipPrimitive.Trigger>) 
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
 }
 
-/* Popup styled like MUI Tooltip: grey-700 pill at 92% opacity, 11px text. */
 function TooltipContent({
   className,
   sideOffset = 8,

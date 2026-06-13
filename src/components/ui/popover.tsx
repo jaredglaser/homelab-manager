@@ -2,15 +2,14 @@ import type { ComponentProps } from 'react';
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { cn } from '@/lib/utils/cn';
 
-function Popover(props: ComponentProps<typeof PopoverPrimitive.Root>) {
+function Popover(props: Readonly<ComponentProps<typeof PopoverPrimitive.Root>>) {
   return <PopoverPrimitive.Root data-slot="popover" {...props} />;
 }
 
-function PopoverTrigger(props: ComponentProps<typeof PopoverPrimitive.Trigger>) {
+function PopoverTrigger(props: Readonly<ComponentProps<typeof PopoverPrimitive.Trigger>>) {
   return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />;
 }
 
-/* Popup styled like a MUI Popover paper: popup background, 8px radius, elevation. */
 function PopoverContent({
   className,
   align = 'start',

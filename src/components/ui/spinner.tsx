@@ -2,7 +2,7 @@ import type { ComponentProps } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { cn } from '@/lib/utils/cn';
 
-/* Replaces MUI CircularProgress: primary color, 40px default like MUI. */
+/* Primary color, 40px default. */
 function Spinner({ className, ...props }: ComponentProps<typeof LoaderCircle>) {
   return (
     <LoaderCircle

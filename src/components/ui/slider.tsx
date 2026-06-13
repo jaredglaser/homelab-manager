@@ -8,8 +8,8 @@ interface SliderProps {
   min: number;
   max: number;
   /**
-   * Snap-only values, replacing MUI's step={null} + marks pattern: the thumb
-   * can only land on these values. When omitted the slider moves in steps of 1.
+   * Snap-only values: the thumb can only land on these values. When omitted
+   * the slider moves in steps of 1.
    */
   marks?: number[];
   'aria-label'?: string;
@@ -24,8 +24,7 @@ function snapToMark(value: number, marks: number[]): number {
   return nearest;
 }
 
-/* Styled like MUI Slider: 4px track, 30% tint rail, 20px primary thumb. */
-function Slider({ value, onValueChange, min, max, marks, className, ...props }: SliderProps) {
+function Slider({ value, onValueChange, min, max, marks, className, ...props }: Readonly<SliderProps>) {
   const handleChange = useCallback(
     (next: number) => {
       onValueChange(marks && marks.length > 0 ? snapToMark(next, marks) : next);

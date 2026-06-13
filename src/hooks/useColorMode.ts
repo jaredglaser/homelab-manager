@@ -3,12 +3,10 @@ import { useCallback, useSyncExternalStore } from 'react';
 export type ColorMode = 'light' | 'dark';
 
 const STORAGE_KEY = 'color-scheme';
-/** Preserve the preference from the pre-Base-UI MUI build, which persisted mode under this key. */
-const LEGACY_KEY = 'mui-mode';
 const DEFAULT_MODE: ColorMode = 'dark';
 
 function applyMode(mode: ColorMode): void {
-  document.documentElement.setAttribute('data-color-scheme', mode);
+  document.documentElement.dataset.colorScheme = mode;
 }
 
 /**
@@ -17,10 +15,10 @@ function applyMode(mode: ColorMode): void {
  * hook's first render aligned with what the user already sees (no theme flash).
  */
 function readMode(): ColorMode {
-  const attr = document.documentElement.getAttribute('data-color-scheme');
+  const attr = document.documentElement.dataset.colorScheme;
   if (attr === 'light' || attr === 'dark') return attr;
   try {
-    const stored = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_KEY);
+    const stored = localStorage.getItem(STORAGE_KEY);
     if (stored === 'light' || stored === 'dark') return stored;
   } catch {
     // localStorage can throw in private-mode / sandboxed contexts; fall through.
@@ -48,17 +46,17 @@ function subscribe(cb: () => void): () => void {
     if (e.newValue === 'light' || e.newValue === 'dark') applyMode(e.newValue);
     cb();
   };
-  window.addEventListener('storage', onStorage);
+  globalThis.addEventListener('storage', onStorage);
   return () => {
     listeners.delete(cb);
-    window.removeEventListener('storage', onStorage);
+    globalThis.removeEventListener('storage', onStorage);
   };
 }
 
 /**
- * Local replacement for MUI's useColorScheme. Tracks light/dark mode, persists
- * it to localStorage, drives the `data-color-scheme` attribute that Tailwind's
- * `dark:` variant keys off, and stays in sync across tabs.
+ * Tracks light/dark mode, persists it to localStorage, drives the
+ * `data-color-scheme` attribute that Tailwind's `dark:` variant keys off,
+ * and stays in sync across tabs.
  */
 export function useColorMode(): {
   mode: ColorMode;

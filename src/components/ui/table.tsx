@@ -1,7 +1,6 @@
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils/cn';
 
-/* Styled like MUI Table size="small": row dividers, muted uppercase-free headers. */
 function Table({ className, ...props }: ComponentProps<'table'>) {
   return (
     <div data-slot="table-container" className="relative w-full overflow-x-auto">

@@ -1,6 +1,5 @@
 import { Toaster } from 'sonner';
 
-/* Matches the previous MUI Snackbar placement and 4s auto-dismiss. */
 export default function Toasts() {
   return (
     <Toaster

@@ -3,7 +3,7 @@ import { RadioGroup as RadioGroupPrimitive } from '@base-ui/react/radio-group';
 import { Radio as RadioPrimitive } from '@base-ui/react/radio';
 import { cn } from '@/lib/utils/cn';
 
-function RadioGroup({ className, ...props }: ComponentProps<typeof RadioGroupPrimitive>) {
+function RadioGroup({ className, ...props }: Readonly<ComponentProps<typeof RadioGroupPrimitive>>) {
   return (
     <RadioGroupPrimitive
       data-slot="radio-group"
@@ -13,8 +13,7 @@ function RadioGroup({ className, ...props }: ComponentProps<typeof RadioGroupPri
   );
 }
 
-/* Styled like MUI Radio: 2px ring in muted color, primary dot when checked. */
-function RadioGroupItem({ className, ...props }: ComponentProps<typeof RadioPrimitive.Root>) {
+function RadioGroupItem({ className, ...props }: Readonly<ComponentProps<typeof RadioPrimitive.Root>>) {
   return (
     <RadioPrimitive.Root
       data-slot="radio-group-item"

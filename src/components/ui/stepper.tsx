@@ -8,11 +8,11 @@ interface StepperProps {
 }
 
 /*
- * Replaces MUI Stepper alternativeLabel: numbered circles joined by
- * connector lines with the label centered under each circle. Purely
+ * Numbered circles joined by connector lines with the label centered under
+ * each circle. Purely
  * presentational; step state lives in the caller.
  */
-function Stepper({ steps, activeStep, className }: StepperProps) {
+function Stepper({ steps, activeStep, className }: Readonly<StepperProps>) {
   return (
     <div data-slot="stepper" className={cn('flex w-full', className)}>
       {steps.map((label, index) => {

@@ -11,7 +11,7 @@ function CollapsibleTrigger(props: ComponentProps<typeof CollapsiblePrimitive.Tr
 }
 
 /*
- * Replaces MUI Collapse. The height transition runs on CSS via Base UI's
+ * The height transition runs on CSS via Base UI's
  * --collapsible-panel-height var, which is what lets detail panels keep
  * animating under the DataTable's content-visibility path (below the 150-row
  * virtualization threshold) without a JS animation system fighting the

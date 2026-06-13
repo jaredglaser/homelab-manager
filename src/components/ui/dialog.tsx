@@ -2,22 +2,21 @@ import type { ComponentProps } from 'react';
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog';
 import { cn } from '@/lib/utils/cn';
 
-function Dialog(props: ComponentProps<typeof DialogPrimitive.Root>) {
+function Dialog(props: Readonly<ComponentProps<typeof DialogPrimitive.Root>>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
 
-function DialogTrigger(props: ComponentProps<typeof DialogPrimitive.Trigger>) {
+function DialogTrigger(props: Readonly<ComponentProps<typeof DialogPrimitive.Trigger>>) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
 }
 
-function DialogClose(props: ComponentProps<typeof DialogPrimitive.Close>) {
+function DialogClose(props: Readonly<ComponentProps<typeof DialogPrimitive.Close>>) {
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
 /*
- * Styled like MUI Dialog maxWidth="sm" fullWidth: paper background, 4px
- * radius, high elevation shadow, 600px cap, 50% black backdrop. Width can be
- * overridden per dialog via className.
+ * paper background, 4px radius, high elevation shadow, 600px cap, 50% black
+ * backdrop. Width can be overridden per dialog via className.
  */
 function DialogContent({ className, children, ...props }: ComponentProps<typeof DialogPrimitive.Popup>) {
   return (

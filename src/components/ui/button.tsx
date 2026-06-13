@@ -4,10 +4,8 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils/cn';
 
 /*
- * Variants are styled to match the MUI buttons they replace:
- * default = contained, outline = outlined, ghost = text, icon sizes are
- * circular like MUI IconButton. Uppercase + tracking mirrors MUI's
- * text-transform so migrated screens don't change appearance.
+ * default = filled, outline = outlined, ghost = text. Uppercase + tracking
+ * mirrors the MUI default to avoid visible regressions.
  */
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium uppercase tracking-[0.02857em] transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring/50",

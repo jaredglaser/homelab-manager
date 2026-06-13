@@ -22,8 +22,8 @@ function TabsList({ className, children, ...props }: ComponentProps<typeof TabsP
   );
 }
 
-/* Styled like MUI Tab: 48px min height text button with primary selected state;
-   the underline comes from the shared TabsList indicator. */
+/* 48px min height text button with primary selected state; the underline comes
+   from the shared TabsList indicator. */
 function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsPrimitive.Tab>) {
   return (
     <TabsPrimitive.Tab
