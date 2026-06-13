@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getContainerHistory, getContainerInfo } from '@/data/docker/functions';
-import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
+import { getContainerHistory } from '@/data/docker/functions';
 import { CHART_DEBOUNCE_MS } from '@/lib/constants/ui-timing';
 import { type MetricType } from '@/components/docker/MetricCheckboxes';
 import type { DockerStatsRow } from '@/types/docker';
@@ -33,18 +32,9 @@ export interface UseContainerHistoryDataParams {
 }
 
 export interface ContainerHistoryData {
-  isInfoLoading: boolean;
-  isChartFetching: boolean;
   isChartDataEmpty: boolean;
   timelineData: DockerStatsRow[];
   chartData: DockerStatsRow[];
-  containerName: string;
-  containerImage: string;
-  iconUrl: string;
-  iconError: boolean;
-  showServiceKey: boolean;
-  serviceKey: string | null;
-  setIconError: (value: boolean) => void;
   initialRange: { from: number; to: number };
   timelineRange: { from: number; to: number };
   activePresetMs: number | null;
@@ -113,12 +103,6 @@ export function useContainerHistoryData({
     refetchInterval: timelineIncludesNow ? 60_000 : false,
   });
 
-  const infoQuery = useQuery({
-    queryKey: ['container-info', host, containerId],
-    queryFn: () => getContainerInfo({ data: { containerId, host } }),
-    staleTime: 60_000,
-  });
-
   // Auto-refresh charts when the range actually overlaps "now" (within 30s)
   const includesNow = debouncedRange.from <= currentTime && debouncedRange.to >= currentTime - 30_000;
 
@@ -133,6 +117,7 @@ export function useContainerHistoryData({
         targetPoints: 600,
       },
     }),
+    staleTime: 30_000,
     refetchInterval: includesNow ? 10_000 : false,
   });
 
@@ -168,21 +153,6 @@ export function useContainerHistoryData({
     setSelectedMetrics(metrics);
   }, []);
 
-  const containerName = infoQuery.data?.containerName ?? containerId.substring(0, 12);
-  const containerImage = infoQuery.data?.image ?? '';
-  const containerIcon = infoQuery.data?.icon ?? null;
-  const serviceKey = infoQuery.data?.serviceKey ?? null;
-  // Only show service key label when it's compose-based (contains '/'), i.e. "media-stack/plex".
-  // When it's just the container name fallback, the label would be redundant.
-  const showServiceKey = serviceKey?.includes('/') ?? false;
-  const iconUrl = containerImage ? getIconUrl(containerIcon, containerImage) : FALLBACK_ICON_URL;
-  const [iconError, setIconError] = useState(false);
-
-  // Reset icon error when the resolved URL changes (e.g. new valid icon assigned)
-  useEffect(() => {
-    setIconError(false);
-  }, [iconUrl]);
-
   const timelineData = useMemo(() => timelineQuery.data ?? [], [timelineQuery.data]);
   const chartData = useMemo(() => chartQuery.data ?? [], [chartQuery.data]);
 
@@ -193,18 +163,9 @@ export function useContainerHistoryData({
   const chartTo = debouncedRange.to;
 
   return {
-    isInfoLoading: infoQuery.isLoading,
-    isChartFetching: chartQuery.isFetching,
     isChartDataEmpty: chartData.length === 0 && !chartQuery.isFetching,
     timelineData,
     chartData,
-    containerName,
-    containerImage,
-    iconUrl,
-    iconError,
-    showServiceKey,
-    serviceKey,
-    setIconError,
     initialRange,
     timelineRange,
     activePresetMs,

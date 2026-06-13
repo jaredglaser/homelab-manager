@@ -44,8 +44,7 @@ interface ContainerTableProps {
   error: Error | null;
   isStale: boolean;
   entityIcons: DockerEntityIconsMap;
-  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
-  onOpenHistory?: (containerId: string, host: string) => void;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string | null) => Promise<void>;
 }
 
 /**
@@ -68,7 +67,6 @@ export default function ContainerTable({
   isStale,
   entityIcons,
   onIconChange,
-  onOpenHistory,
 }: Readonly<ContainerTableProps>) {
   const {
     docker,
@@ -193,8 +191,6 @@ export default function ContainerTable({
             <ContainerNameCell
               row={data}
               expanded={row.getIsExpanded()}
-              onIconChange={onIconChange}
-              onOpenHistory={onOpenHistory}
             />
           );
         },
@@ -306,7 +302,7 @@ export default function ContainerTable({
         getIsStale: (row) => row.isStale,
       }),
     ],
-    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onIconChange, onOpenHistory],
+    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits],
   );
 
   /** Render container detail panel (charts + logs) for the nested DataTable */
@@ -315,16 +311,20 @@ export default function ContainerTable({
       if (row.type !== 'container' || !row.dataPoints) return null;
       const { host, containerId } = row.inventory;
       if (!host || !containerId) return null;
+      const entityId = `${host}/${containerId}`;
       return (
         <ContainerDetailPanel
           dataPoints={row.dataPoints}
           containerId={containerId}
           host={host}
           inventory={row.inventory}
+          iconSlug={entityIcons[entityId]?.iconSlug ?? null}
+          serviceKeyEntity={entityIcons[entityId]?.serviceKeyEntity ?? entityId}
+          onIconChange={onIconChange}
         />
       );
     },
-    [],
+    [entityIcons, onIconChange],
   );
 
   const rowClassName = useCallback((row: DockerTableRow) => {
