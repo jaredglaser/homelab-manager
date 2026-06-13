@@ -4,7 +4,7 @@ import { useColorMode, setColorMode } from '@/hooks/useColorMode';
 
 function reset() {
   localStorage.clear();
-  document.documentElement.removeAttribute('data-color-scheme');
+  delete document.documentElement.dataset.colorScheme;
 }
 
 describe('useColorMode', () => {
@@ -17,13 +17,13 @@ describe('useColorMode', () => {
   });
 
   it('reads an existing data-color-scheme attribute (set by the pre-paint script)', () => {
-    document.documentElement.setAttribute('data-color-scheme', 'light');
+    document.documentElement.dataset.colorScheme = 'light';
     const { result } = renderHook(() => useColorMode());
     expect(result.current.mode).toBe('light');
   });
 
-  it('falls back to the legacy mui-mode key before the default', () => {
-    localStorage.setItem('mui-mode', 'light');
+  it('falls back to the stored color-scheme key when no attribute is set', () => {
+    localStorage.setItem('color-scheme', 'light');
     const { result } = renderHook(() => useColorMode());
     expect(result.current.mode).toBe('light');
   });
@@ -32,7 +32,7 @@ describe('useColorMode', () => {
     const { result } = renderHook(() => useColorMode());
     act(() => result.current.setMode('light'));
     expect(result.current.mode).toBe('light');
-    expect(document.documentElement.getAttribute('data-color-scheme')).toBe('light');
+    expect(document.documentElement.dataset.colorScheme).toBe('light');
     expect(localStorage.getItem('color-scheme')).toBe('light');
   });
 
@@ -47,16 +47,16 @@ describe('useColorMode', () => {
   it('reacts to a storage event from another tab', () => {
     const { result } = renderHook(() => useColorMode());
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'color-scheme', newValue: 'light' }));
+      globalThis.dispatchEvent(new StorageEvent('storage', { key: 'color-scheme', newValue: 'light' }));
     });
     expect(result.current.mode).toBe('light');
-    expect(document.documentElement.getAttribute('data-color-scheme')).toBe('light');
+    expect(document.documentElement.dataset.colorScheme).toBe('light');
   });
 
   it('ignores storage events for unrelated keys', () => {
     const { result } = renderHook(() => useColorMode());
     act(() => {
-      window.dispatchEvent(new StorageEvent('storage', { key: 'something-else', newValue: 'light' }));
+      globalThis.dispatchEvent(new StorageEvent('storage', { key: 'something-else', newValue: 'light' }));
     });
     expect(result.current.mode).toBe('dark');
   });
