@@ -75,8 +75,7 @@ export interface ProxmoxResource {
 
 /**
  * Cluster snapshot assembled from GET /cluster/status plus GET /cluster/resources.
- * Replaces the per-node fan-out (qemu/lxc/storage per online node): the whole
- * cluster is captured in 2 requests per poll cycle regardless of node count.
+ * The whole cluster is captured in 2 requests per poll cycle regardless of node count.
  */
 export interface ProxmoxClusterSnapshot {
   clusterName: string;

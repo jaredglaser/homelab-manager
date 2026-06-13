@@ -6,8 +6,7 @@ import type {
 
 /**
  * Map a guest resource (qemu or lxc) from /cluster/resources to a stats row.
- * Resource `maxcpu` is the allocated core count (same value the per-node
- * endpoints exposed as `cpus`), so `max_cpu` keeps its historical meaning.
+ * `maxcpu` is the allocated core count, stored as `max_cpu`.
  */
 function guestToRow(
   guest: ProxmoxResource,
@@ -44,9 +43,8 @@ function guestToRow(
 /**
  * Convert a ProxmoxClusterSnapshot into a flat array of ProxmoxStatsRow, producing one row for the cluster and one row per node, VM, container, and storage.
  *
- * Row shape and entity IDs are kept identical to the old per-node fan-out
- * (cluster=name, node=node name, qemu/lxc=String(vmid), storage=node/name)
- * so existing hypertable data and downstream queries stay valid.
+ * Entity IDs are stable (cluster=name, node=node name, qemu/lxc=String(vmid),
+ * storage=node/name) so rows join to existing hypertable history.
  *
  * @param snapshot - Cluster snapshot from ProxmoxClient.getClusterSnapshot()
  * @param host - Host identifier to set on every produced row
@@ -82,8 +80,7 @@ export function snapshotToRows(
     }
   }
 
-  // Node `cpu` from /cluster/resources is a 0-1 fraction; rows store the
-  // absolute core usage (fraction * maxcpu) like the old /nodes path did
+  // Node `cpu` is a 0-1 fraction; rows store absolute core usage (fraction * maxcpu)
   const totalCpu = nodes.reduce((sum, n) => sum + (n.maxcpu ?? 0), 0);
   const usedCpu = nodes.reduce((sum, n) => sum + (n.cpu ?? 0) * (n.maxcpu ?? 0), 0);
   const totalMemory = nodes.reduce((sum, n) => sum + (n.maxmem ?? 0), 0);
@@ -167,8 +164,7 @@ export function snapshotToRows(
       node: s.node ?? null,
       entity_id: `${s.node}/${s.storage}`,
       entity_name: s.storage ?? null,
-      // /cluster/resources reports 'available'/'unavailable'; rows keep the
-      // historical 'active'/'inactive' values from the per-node storage API
+      // normalize 'available'/'unavailable' to the row's 'active'/'inactive' status
       status: s.status === 'available' ? 'active' : 'inactive',
       cpu: null,
       max_cpu: null,

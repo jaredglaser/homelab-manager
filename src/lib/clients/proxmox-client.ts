@@ -102,12 +102,9 @@ export class ProxmoxClient {
   }
 
   /**
-   * Fetch a full cluster snapshot with exactly 2 requests.
-   *
-   * /cluster/resources returns every node, guest, and storage entry in one
-   * response, so the request count stays constant as nodes are added. The
-   * previous per-node fan-out (qemu + lxc + storage per online node) cost
-   * 2 + 3N requests per poll cycle.
+   * Fetch a full cluster snapshot. /cluster/resources returns every node,
+   * guest, and storage entry in one response, so a poll cycle is always 2
+   * requests regardless of node count.
    */
   async getClusterSnapshot(): Promise<ProxmoxClusterSnapshot> {
     const [clusterStatusEntries, resources] = await Promise.all([
