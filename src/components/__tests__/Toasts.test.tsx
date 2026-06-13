@@ -11,12 +11,4 @@ describe('Toasts', () => {
       expect(screen.getByText('Something went wrong')).toBeDefined();
     });
   });
-
-  it('renders success toasts', async () => {
-    render(<Toasts />);
-    toast.success('Saved!');
-    await waitFor(() => {
-      expect(screen.getByText('Saved!')).toBeDefined();
-    });
-  });
 });

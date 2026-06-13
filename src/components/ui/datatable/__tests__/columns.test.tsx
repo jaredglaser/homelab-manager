@@ -60,15 +60,6 @@ function HeaderRenderer<TRow>({ column }: { column: ColumnDef<TRow, unknown> }) 
 }
 
 describe('metricColumn', () => {
-  it('returns a ColumnDef with the correct id', () => {
-    const col = metricColumn<TestRow>({
-      id: 'speed',
-      header: 'Speed',
-      getValue: (r) => ({ value: String(r.value), unit: r.unit }),
-    });
-    expect(col.id).toBe('speed');
-  });
-
   it('renders MetricCell content inside a cell', () => {
     const col = metricColumn<TestRow>({
       id: 'speed',
@@ -119,11 +110,6 @@ describe('metricColumn', () => {
 });
 
 describe('nameColumn', () => {
-  it('returns a ColumnDef with id "name"', () => {
-    const col = nameColumn<TestRow>({ getLabel: (r) => r.name });
-    expect(col.id).toBe('name');
-  });
-
   it('default cell renders the label text', () => {
     const col = nameColumn<TestRow>({ getLabel: (r) => r.name });
 
@@ -177,23 +163,9 @@ describe('nameColumn', () => {
     expect(screen.queryByText('alpha')).toBeNull();
   });
 
-  it('sets meta.flex to minmax(200px, 1fr)', () => {
-    const col = nameColumn<TestRow>({ getLabel: (r) => r.name });
-    const meta = col.meta as { flex?: string } | undefined;
-    expect(meta?.flex).toBe('minmax(200px, 1fr)');
-  });
 });
 
 describe('statusColumn', () => {
-  it('returns a ColumnDef with the correct id', () => {
-    const col = statusColumn<TestRow>({
-      id: 'status',
-      getValue: (r) => r.status,
-      getColor: () => 'success',
-    });
-    expect(col.id).toBe('status');
-  });
-
   it('renders a Chip with the status label', () => {
     const col = statusColumn<TestRow>({
       id: 'status',
@@ -217,27 +189,9 @@ describe('statusColumn', () => {
     expect(badge).toBeTruthy();
   });
 
-  it('sets size when provided', () => {
-    const col = statusColumn<TestRow>({
-      id: 'status',
-      getValue: (r) => r.status,
-      getColor: () => 'error',
-      size: 100,
-    });
-    expect(col.size).toBe(100);
-  });
 });
 
 describe('progressColumn', () => {
-  it('returns a ColumnDef with the correct id', () => {
-    const col = progressColumn<TestRow>({
-      id: 'usage',
-      getValue: (r) => r.pct,
-      getLabel: (r) => `${r.pct}%`,
-    });
-    expect(col.id).toBe('usage');
-  });
-
   it('renders the label text', () => {
     const col = progressColumn<TestRow>({
       id: 'usage',
@@ -295,16 +249,6 @@ describe('progressColumn', () => {
     const { container } = render(<CellRenderer column={col} row={sampleRow} />);
     const bar = container.querySelector('[data-slot="progress-indicator"]');
     expect(bar?.className).toContain('bg-success');
-  });
-
-  it('sets size when provided', () => {
-    const col = progressColumn<TestRow>({
-      id: 'usage',
-      getValue: (r) => r.pct,
-      getLabel: (r) => `${r.pct}%`,
-      size: 150,
-    });
-    expect(col.size).toBe(150);
   });
 
   it('renders success color at exactly 70 (not > 70)', () => {

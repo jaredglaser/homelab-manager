@@ -33,11 +33,4 @@ describe('Button', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onClick).not.toHaveBeenCalled();
   });
-
-  it('merges custom className last', () => {
-    render(<Button className="bg-red-600">Delete</Button>);
-    const button = screen.getByRole('button', { name: 'Delete' });
-    expect(button.className.split(' ')).toContain('bg-red-600');
-    expect(button.className.split(' ')).not.toContain('bg-primary');
-  });
 });

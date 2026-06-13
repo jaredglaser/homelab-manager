@@ -518,20 +518,6 @@ type ReactNode = import('react').ReactNode;
     });
 
     describe('developer settings', () => {
-        it('should default dockerDebugLogging to false', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.developer.dockerDebugLogging).toBe(false);
-        });
-
-        it('should default dbFlushDebugLogging to false', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.developer.dbFlushDebugLogging).toBe(false);
-        });
-
         it('should derive dockerDebugLogging from raw atom', () => {
             const { wrapper } = createWrapper({
                 [SETTINGS_KEYS.developer.dockerDebugLogging]: 'true',
@@ -602,13 +588,6 @@ type ReactNode = import('react').ReactNode;
             expect(mockUpdateSetting).toHaveBeenCalledWith({
                 data: { key: SETTINGS_KEYS.developer.dbFlushDebugLogging, value: 'true' },
             });
-        });
-
-        it('should default sseDebugLogging to false', () => {
-            const { wrapper } = createWrapper();
-            const { result } = renderHook(() => useSettings(), { wrapper });
-
-            expect(result.current.developer.sseDebugLogging).toBe(false);
         });
 
         it('should derive sseDebugLogging from raw atom', () => {

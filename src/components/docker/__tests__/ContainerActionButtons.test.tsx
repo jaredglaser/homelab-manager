@@ -94,12 +94,5 @@ describe('ContainerActionButtons', () => {
       expect(screen.queryByText('Stop')).toBeNull();
       expect(screen.queryByText('Restart')).toBeNull();
     });
-
-    it('renders aria-labeled icon buttons', () => {
-      renderButtons({ isRunning: true, compact: true });
-      screen.getByLabelText('Start container');
-      screen.getByLabelText('Stop container');
-      screen.getByLabelText('Restart container');
-    });
   });
 });

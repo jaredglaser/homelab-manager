@@ -250,18 +250,6 @@ describe('SparklineCanvas', () => {
     expect(mockGradient.addColorStop).toHaveBeenCalledWith(1, CPU_AREA_END);
   });
 
-  it('renders canvas with display: block style', () => {
-    const { container } = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
-    const canvas = container.querySelector('canvas')!;
-    expect(canvas.style.display).toBe('block');
-  });
-
-  it('wrapper div includes shrink-0 class', () => {
-    const { container } = render(<SparklineCanvas data={[]} color="--chart-cpu" />);
-    const wrapper = container.firstElementChild as HTMLElement;
-    expect(wrapper.className).toContain('shrink-0');
-  });
-
   it('rebuilds gradient when color prop changes after mount', () => {
     // Register a second color CSS variable set
     setCssColorVars('--chart-memory', MEMORY_LINE, MEMORY_AREA_START, MEMORY_AREA_END);

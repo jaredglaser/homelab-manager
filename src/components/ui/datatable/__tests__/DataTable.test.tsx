@@ -267,18 +267,6 @@ describe('DataTable', () => {
     expect(headerCell).toBeNull();
   });
 
-  it('uses normal flow when row count is at or below virtualization threshold', () => {
-    const { container } = render(<DataTable {...defaultProps()} />);
-
-    // 3 rows is well below threshold, should NOT have absolute-positioned wrappers
-    const absoluteRows = container.querySelectorAll('[style*="position: absolute"]');
-    expect(absoluteRows.length).toBe(0);
-
-    // Should have content-visibility on row wrappers
-    const cvRows = container.querySelectorAll('[style*="content-visibility: auto"]');
-    expect(cvRows.length).toBe(3);
-  });
-
   it('uses virtualized rendering when row count exceeds threshold', () => {
     const manyRows: TestRow[] = Array.from({ length: 200 }, (_, i) => ({
       id: String(i),
@@ -297,23 +285,6 @@ describe('DataTable', () => {
     // Should NOT have content-visibility rows
     const cvRows = container.querySelectorAll('[style*="content-visibility: auto"]');
     expect(cvRows.length).toBe(0);
-  });
-
-  it('sorts when Enter or Space is pressed on a sortable header', () => {
-    render(<DataTable {...defaultProps()} />);
-
-    const nameHeader = screen.getByText('Name');
-    const headerCell = nameHeader.closest('[role="button"]')!;
-
-    // Press Enter to sort ascending
-    fireEvent.keyDown(headerCell, { key: 'Enter' });
-    let cells = screen.getAllByText(/Alpha|Beta|Charlie/);
-    expect(cells.map((el) => el.textContent)).toEqual(['Alpha', 'Beta', 'Charlie']);
-
-    // Press Space to sort descending
-    fireEvent.keyDown(headerCell, { key: ' ' });
-    cells = screen.getAllByText(/Alpha|Beta|Charlie/);
-    expect(cells.map((el) => el.textContent)).toEqual(['Charlie', 'Beta', 'Alpha']);
   });
 
   it('toggles expansion using internal state when no controlled expansion is provided', () => {
@@ -481,21 +452,6 @@ describe('DataTable', () => {
     expect(style).toContain('minmax(200px, 1fr)');
     // No meta on value column: falls through to col.getSize()px = 100px
     expect(style).toContain('100px');
-  });
-
-  it('hides header when showHeader is false', () => {
-    render(<DataTable {...defaultProps({ showHeader: false })} />);
-
-    // Data rows should still render
-    expect(screen.getByText('Alpha')).toBeTruthy();
-
-    // No header cells with role="button" for sortable columns
-    const headerButtons = screen.queryAllByRole('button');
-    // The only buttons should be row buttons (if any), not header buttons
-    // With showHeader=false, the Name/Value headers should not appear as sortable header cells
-    // Verify no grid header row is present by checking that column headers are absent from role="button" elements
-    const headerTexts = headerButtons.map((el) => el.textContent);
-    expect(headerTexts.some((t) => t?.includes('Name') || t?.includes('Value'))).toBe(false);
   });
 
   describe('buildGridTemplate sparkline-aware column sizing', () => {

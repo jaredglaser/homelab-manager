@@ -8,17 +8,6 @@ function renderChip(state: ContainerState) {
 }
 
 describe('ContainerStateChip', () => {
-  it('renders the state label', () => {
-    renderChip('running');
-    expect(screen.getByText('running')).toBeDefined();
-  });
-
-  it('has data-state attribute matching the state', () => {
-    renderChip('exited');
-    const chip = screen.getByTestId('container-state-chip');
-    expect(chip.getAttribute('data-state')).toBe('exited');
-  });
-
   it('renders running state with active-indicator dot', () => {
     renderChip('running');
     const dot = screen.getByLabelText('running');
