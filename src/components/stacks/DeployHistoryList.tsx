@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Skeleton, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from '@mui/material';
+import { Skeleton } from '@/components/ui/skeleton';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { HelpCircle } from 'lucide-react';
 import type { StackDeployRecord, DeployStatus } from '@/types/stacks';
 import type { triggerDeploy } from '@/data/stacks/functions';
@@ -47,7 +49,7 @@ export default function DeployHistoryList({
     return (
       <div className="space-y-2">
         {Array.from({ length: 3 }, (_, i) => (
-          <Skeleton key={i} variant="rounded" height={40} className="bg-(--mui-palette-action-hover)!" />
+          <Skeleton key={i} className="h-10 bg-accent" />
         ))}
       </div>
     );
@@ -55,9 +57,7 @@ export default function DeployHistoryList({
 
   if (records.length === 0) {
     return (
-      <Typography variant="body2" className="opacity-50 py-2">
-        No deploy history.
-      </Typography>
+      <p className="text-sm opacity-50 py-2">No deploy history.</p>
     );
   }
 
@@ -65,51 +65,48 @@ export default function DeployHistoryList({
     <div>
       {hasStatusVariety && (
         <div className="flex items-center gap-3 mb-3 flex-wrap">
-          <ToggleButtonGroup
-            value={statusFilter}
-            exclusive
-            onChange={(_e, v) => { if (v) setStatusFilter(v) }}
-            size="small"
+          <ToggleGroup
+            value={[statusFilter]}
+            onValueChange={(groupValue) => { const v = groupValue[0]; if (v) setStatusFilter(v as typeof statusFilter) }}
           >
-            <ToggleButton value="all" className="normal-case! px-3! text-xs!">All</ToggleButton>
-            <ToggleButton value="succeeded" className="normal-case! px-3! text-xs!">Succeeded</ToggleButton>
-            <ToggleButton value="failed" className="normal-case! px-3! text-xs!">Failed</ToggleButton>
-            <ToggleButton value="pending" className="normal-case! px-3! text-xs!">Pending</ToggleButton>
-            <ToggleButton value="in_progress" className="normal-case! px-3! text-xs!">In Progress</ToggleButton>
-            <ToggleButton value="no_change" className="normal-case! px-3! text-xs!">No Changes</ToggleButton>
-          </ToggleButtonGroup>
+            <ToggleGroupItem value="all" className="normal-case px-3">All</ToggleGroupItem>
+            <ToggleGroupItem value="succeeded" className="normal-case px-3">Succeeded</ToggleGroupItem>
+            <ToggleGroupItem value="failed" className="normal-case px-3">Failed</ToggleGroupItem>
+            <ToggleGroupItem value="pending" className="normal-case px-3">Pending</ToggleGroupItem>
+            <ToggleGroupItem value="in_progress" className="normal-case px-3">In Progress</ToggleGroupItem>
+            <ToggleGroupItem value="no_change" className="normal-case px-3">No Changes</ToggleGroupItem>
+          </ToggleGroup>
           {filtered.length !== records.length && (
-            <Typography variant="caption" className="opacity-50">
+            <span className="text-xs opacity-50">
               {filtered.length} of {records.length}
-            </Typography>
+            </span>
           )}
-          <Tooltip
-            title={
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className="p-0.5 opacity-40 hover:opacity-80 transition-opacity cursor-help" />
+              }
+            >
+              <HelpCircle size={14} />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
               <div className="p-1">
-                <Typography variant="subtitle2" className="text-inherit! mb-1">Deploy History</Typography>
-                <Typography variant="caption" className="text-inherit! block opacity-90">
+                <p className="text-sm font-medium mb-1">Deploy History</p>
+                <p className="text-xs block opacity-90">
                   Showing the most recent 100 deployments for this stack. Use the filters
                   to narrow by status. Expand a row to view its deploy logs.
-                </Typography>
-                <Typography variant="caption" className="text-inherit! block opacity-70 mt-1">
+                </p>
+                <p className="text-xs block opacity-70 mt-1">
                   Eligible deployments can be rolled back to recreate containers from a previous compose configuration.
-                </Typography>
+                </p>
               </div>
-            }
-            placement="top-start"
-            slotProps={{ tooltip: { className: 'max-w-xs!' } }}
-          >
-            <span className="p-0.5 opacity-40 hover:opacity-80 transition-opacity cursor-help">
-              <HelpCircle size={14} />
-            </span>
+            </TooltipContent>
           </Tooltip>
         </div>
       )}
 
       {filtered.length === 0 ? (
-        <Typography variant="body2" className="opacity-50 py-2">
-          No deploys match the selected filters.
-        </Typography>
+        <p className="text-sm opacity-50 py-2">No deploys match the selected filters.</p>
       ) : (
         <div className="flex flex-col gap-1">
           {filtered.map((record) => (

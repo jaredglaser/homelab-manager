@@ -1,6 +1,6 @@
 import { memo } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { DataTable } from '@/components/shared-table/DataTable';
+import { DataTable } from '@/components/ui/datatable/DataTable';
 import type { ZFSTableRow } from '@/components/zfs/ZFSPoolsTable';
 
 /**

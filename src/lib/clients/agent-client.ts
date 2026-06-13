@@ -112,6 +112,18 @@ export class AgentClient {
     return adaptDeployResponse(raw);
   }
 
+  async startContainer(containerId: string): Promise<void> {
+    await this.postJson<{ status: string }>(`/containers/${containerId}/start`, {}, this.controlTimeoutMs);
+  }
+
+  async stopContainer(containerId: string): Promise<void> {
+    await this.postJson<{ status: string }>(`/containers/${containerId}/stop`, {}, this.controlTimeoutMs);
+  }
+
+  async restartContainer(containerId: string): Promise<void> {
+    await this.postJson<{ status: string }>(`/containers/${containerId}/restart`, {}, this.controlTimeoutMs);
+  }
+
   async health(): Promise<AgentHealthResponse> {
     const raw = await this.getJson<AgentHealthCheckResponse>('/health');
     const version = raw.status === 'healthy'

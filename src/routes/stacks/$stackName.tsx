@@ -1,16 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  Alert,
-  CircularProgress,
-  IconButton,
-  Snackbar,
-  Tab,
-  Tabs,
-  Tooltip,
-  Typography,
-} from '@mui/material'
+import { Button } from '@/components/ui/button'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Settings2 } from 'lucide-react'
 import { useStackStatusContext } from '@/components/stacks/stacks-context'
 import { useToast } from '@/hooks/toastAtom'
@@ -33,6 +26,7 @@ import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
 import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { parseVariables } from '@/lib/stacks/parse-variables'
+import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/stacks/$stackName')({
   ssr: false,
@@ -50,7 +44,6 @@ function StackEditorView() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [forceRecreate, setForceRecreate] = useState(false)
-  const [deployMessage, setDeployMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const { data: detail, isLoading, error } = useQuery({
     queryKey: ['stack-detail', stackName],
@@ -83,12 +76,12 @@ function StackEditorView() {
     mutationFn: (action: 'deploy' | 'teardown') =>
       triggerDeploy({ data: { stack: stackName, host: detail!.host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
     onSuccess: (_data, action) => {
-      setDeployMessage({ type: 'success', text: `${action} triggered successfully` })
+      showToast(`${action} triggered successfully`, 'success')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
     },
     onError: (err) => {
-      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
+      showToast(err instanceof Error ? err.message : String(err), 'error')
     },
   })
 
@@ -119,12 +112,12 @@ function StackEditorView() {
   const approveMutation = useMutation({
     mutationFn: (deployId: number) => resumeDeploy({ data: { deployId } }),
     onSuccess: () => {
-      setDeployMessage({ type: 'success', text: `Deploy approved for ${stackName}` })
+      showToast(`Deploy approved for ${stackName}`, 'success')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
     },
     onError: (err) => {
-      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
+      showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
   })
@@ -132,12 +125,12 @@ function StackEditorView() {
   const rejectMutation = useMutation({
     mutationFn: (deployId: number) => rejectDeploy({ data: { deployId } }),
     onSuccess: () => {
-      setDeployMessage({ type: 'success', text: `Deploy rejected for ${stackName}` })
+      showToast(`Deploy rejected for ${stackName}`, 'success')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
     },
     onError: (err) => {
-      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
+      showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
   })
@@ -149,17 +142,17 @@ function StackEditorView() {
       queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
       setSettingsDialogOpen(false)
-      setDeployMessage({ type: 'success', text: 'Stack settings updated' })
+      showToast('Stack settings updated', 'success')
     },
     onError: (err) => {
-      setDeployMessage({ type: 'error', text: err instanceof Error ? err.message : String(err) })
+      showToast(err instanceof Error ? err.message : String(err), 'error')
     },
   })
 
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm opacity-70 py-8">
-        <CircularProgress size={16} />
+        <Spinner className="size-4" />
         <span>Loading {stackName}...</span>
       </div>
     )
@@ -167,9 +160,9 @@ function StackEditorView() {
 
   if (error || !detail) {
     return (
-      <Typography variant="body2" className="opacity-70 py-8">
+      <p className="text-sm opacity-70 py-8">
         {error ? `Failed to load: ${error.message}` : 'Stack not found in repository.'}
-      </Typography>
+      </p>
     )
   }
 
@@ -178,35 +171,43 @@ function StackEditorView() {
       {/* Header */}
       <div className="flex items-center justify-between pb-3">
         <div className="flex items-center gap-3">
-          <Typography variant="h6">{stackName}</Typography>
-          <Typography variant="caption" className="opacity-50">
-            {detail.host}
-          </Typography>
-          <Typography variant="caption" className="opacity-50">
-            &middot;
-          </Typography>
-          <Typography variant="caption" className="opacity-50">
+          <h2 className="text-xl">{stackName}</h2>
+          <span className="text-xs opacity-50">{detail.host}</span>
+          <span className="text-xs opacity-50">&middot;</span>
+          <span className="text-xs opacity-50">
             {detail.deployMode === 'auto' ? 'Auto Deploy' : 'Manual Deploy'}
-          </Typography>
+          </span>
         </div>
-        <Tooltip title="Stack settings">
-          <IconButton size="small" onClick={() => setSettingsDialogOpen(true)} aria-label="stack settings">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="text-foreground"
+                onClick={() => setSettingsDialogOpen(true)}
+                aria-label="stack settings"
+              />
+            }
+          >
             <Settings2 size={16} />
-          </IconButton>
+          </TooltipTrigger>
+          <TooltipContent>Stack settings</TooltipContent>
         </Tooltip>
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-center gap-3 border-b border-(--mui-palette-divider)">
+      <div className="flex items-center gap-3 border-b border-border">
         <Tabs
           value={panel}
-          onChange={(_e, value: 'compose' | 'secrets' | 'containers' | 'deploys') => setPanel(value)}
-          className="min-h-0!"
+          onValueChange={(value) => setPanel(value as 'compose' | 'secrets' | 'containers' | 'deploys')}
         >
-          <Tab value="compose" label="Compose" disableRipple className="min-h-0! py-2! normal-case!" />
-          <Tab value="secrets" label="Secrets" disableRipple className="min-h-0! py-2! normal-case!" />
-          <Tab value="containers" label="Containers" disableRipple className="min-h-0! py-2! normal-case!" />
-          <Tab value="deploys" label="Deploys" disableRipple className="min-h-0! py-2! normal-case!" />
+          <TabsList>
+            <TabsTrigger value="compose" className="py-2">Compose</TabsTrigger>
+            <TabsTrigger value="secrets" className="py-2">Secrets</TabsTrigger>
+            <TabsTrigger value="containers" className="py-2">Containers</TabsTrigger>
+            <TabsTrigger value="deploys" className="py-2">Deploys</TabsTrigger>
+          </TabsList>
         </Tabs>
       </div>
 
@@ -236,12 +237,12 @@ function StackEditorView() {
               stackName={stackName}
               host={detail.host}
               onRollbackComplete={() => {
-                setDeployMessage({ type: 'success', text: 'Rollback triggered successfully' })
+                showToast('Rollback triggered successfully', 'success')
                 queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                 queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
               }}
               onRollbackError={(err) => {
-                setDeployMessage({ type: 'error', text: err.message })
+                showToast(err.message, 'error')
               }}
               onApprove={(deployId) => approveMutation.mutate(deployId)}
               onReject={(deployId) => rejectMutation.mutate(deployId)}
@@ -253,7 +254,7 @@ function StackEditorView() {
       </div>
 
       {/* Sticky Action Bar */}
-      <div className="shrink-0 border-t border-(--mui-palette-divider) bg-(--mui-palette-background-default) px-1 py-3">
+      <div className="shrink-0 border-t border-(--border) bg-(--background) px-1 py-3">
         <StackActionBar
           onDeploy={() => deployMutation.mutate('deploy')}
           onTeardown={() => deployMutation.mutate('teardown')}
@@ -281,23 +282,6 @@ function StackEditorView() {
         stackName={stackName}
         isLoading={deleteMutation.isPending}
       />
-      {deployMessage && (
-        <Snackbar
-          open
-          autoHideDuration={5000}
-          onClose={() => setDeployMessage(null)}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-        >
-          <Alert
-            severity={deployMessage.type}
-            onClose={() => setDeployMessage(null)}
-            variant="filled"
-            className="text-sm!"
-          >
-            {deployMessage.text}
-          </Alert>
-        </Snackbar>
-      )}
     </div>
   )
 }
