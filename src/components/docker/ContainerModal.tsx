@@ -1,7 +1,8 @@
 import { memo, useCallback, useEffect, useState } from 'react';
-import { Dialog, DialogContent, IconButton, Select, MenuItem, FormControl, InputLabel, CircularProgress } from '@mui/material';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import IconTooltip from '@/components/docker/IconTooltip';
-import type { SelectChangeEvent } from '@mui/material/Select';
+import ShellSelect from '@/components/docker/ShellSelect';
 import { ScrollText, Terminal, History, X, WrapText } from 'lucide-react';
 import { getIconUrl, FALLBACK_ICON_URL } from '@/lib/utils/icon-resolver';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
@@ -10,7 +11,6 @@ import ContainerHistoryPage from '@/components/docker/ContainerHistoryPage';
 import ContainerStateChip from '@/components/docker/ContainerStateChip';
 import ContainerActionButtons from '@/components/docker/ContainerActionButtons';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
-import { IS_DEMO_MODE } from '@/lib/constants/demo';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 export type ModalTab = 'logs' | 'terminal' | 'history';
@@ -25,8 +25,6 @@ interface ContainerModalProps {
   initialTab?: ModalTab;
   iconSlug?: string | null;
 }
-
-const SHELL_OPTIONS = ['bash', 'sh', 'ash', 'zsh'] as const;
 
 const TABS: { key: ModalTab; label: string; Icon: typeof ScrollText }[] = [
   { key: 'logs', label: 'Logs', Icon: ScrollText },
@@ -44,7 +42,7 @@ function TabSwitch({
   isRunning: boolean;
 }) {
   return (
-    <div className="inline-flex gap-0.5 rounded-full p-0.5 bg-(--mui-palette-background-default)">
+    <div className="inline-flex gap-0.5 rounded-full p-0.5 bg-(--background)">
       {TABS.map(({ key, label, Icon }) => {
         const active = value === key;
         const disabled = key === 'terminal' && !isRunning;
@@ -56,12 +54,12 @@ function TabSwitch({
             onClick={() => onChange(key)}
             className={[
               'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all',
-              active ? 'bg-(--mui-palette-background-popup) shadow-[var(--shadow-1)]' : '',
+              active ? 'bg-(--popover) shadow-[var(--shadow-1)]' : '',
               disabled
-                ? 'text-(--mui-palette-text-disabled) cursor-not-allowed'
+                ? 'text-(--text-disabled) cursor-not-allowed'
                 : active
-                  ? 'text-(--mui-palette-text-primary) cursor-pointer'
-                  : 'text-(--mui-palette-text-secondary) cursor-pointer',
+                  ? 'text-(--foreground) cursor-pointer'
+                  : 'text-(--muted-foreground) cursor-pointer',
             ].join(' ')}
           >
             <Icon size={12} />
@@ -109,7 +107,7 @@ function ModalHeader({
 
   return (
     <div
-      className="grid [grid-template-columns:1fr_auto_1fr] px-3 py-2 border-b border-(--mui-palette-divider) shrink-0 bg-(--mui-palette-background-popup) min-h-[52px] items-center gap-2"
+      className="grid [grid-template-columns:1fr_auto_1fr] px-3 py-2 border-b border-(--border) shrink-0 bg-(--popover) min-h-[52px] items-center gap-2"
     >
       <div className="flex items-center gap-3 min-w-0">
         <img
@@ -122,7 +120,7 @@ function ModalHeader({
           <span className="text-sm font-semibold leading-tight truncate max-w-[160px]">
             {inventory.name}
           </span>
-          <span className="font-mono text-[10px] leading-tight text-(--mui-palette-text-disabled)">
+          <span className="font-mono text-[10px] leading-tight text-(--text-disabled)">
             {inventory.host} / {shortId}
           </span>
         </div>
@@ -133,58 +131,36 @@ function ModalHeader({
 
       <div className="flex items-center justify-end gap-2">
       {activeTab === 'terminal' && (
-        <FormControl size="small" className="min-w-[90px] shrink-0">
-          <InputLabel id="modal-shell-label" shrink className="text-xs!">Shell</InputLabel>
-          <Select
-            labelId="modal-shell-label"
-            label="Shell"
-            value={shell === 'auto' ? '' : shell}
-            onChange={(e: SelectChangeEvent) => onShellChange(e.target.value || 'auto')}
-            displayEmpty
-            disabled={IS_DEMO_MODE}
-            renderValue={(v) => {
-              if (IS_DEMO_MODE) return 'auto (demo)';
-              const setting = (v as string) || 'auto';
-              if (setting !== 'auto') return setting;
-              if (resolvedShell) return `auto (${resolvedShell})`;
-              return (
-                <span className="inline-flex items-center gap-1.5">
-                  auto
-                  <CircularProgress size={10} thickness={6} className="text-(--mui-palette-text-secondary)!" />
-                </span>
-              );
-            }}
-            className="text-xs!"
-          >
-            <MenuItem value="" className="text-xs">auto</MenuItem>
-            {SHELL_OPTIONS.map((s) => (
-              <MenuItem key={s} value={s} className="text-xs">{s}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <ShellSelect
+          value={shell}
+          onChange={onShellChange}
+          resolvedShell={resolvedShell}
+          className="shrink-0"
+        />
       )}
 
       {(activeTab === 'logs' || activeTab === 'terminal') && (
         <IconTooltip label={wordWrap ? 'Disable word wrap' : 'Enable word wrap'}>
-          <IconButton
-            size="small"
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={onWrapToggle}
-            className={`p-1! shrink-0 ${wordWrap ? 'text-(--mui-palette-primary-main)!' : 'text-(--mui-palette-text-disabled)!'}`}
+            className={`p-1! shrink-0 ${wordWrap ? 'text-(--primary)!' : 'text-(--text-disabled)!'}`}
             aria-label="Toggle word wrap"
           >
             <WrapText size={16} />
-          </IconButton>
+          </Button>
         </IconTooltip>
       )}
 
       <ContainerActionButtons containerId={containerId} host={host} isRunning={isRunning} />
 
-      <div className="w-px h-5 shrink-0 bg-(--mui-palette-divider)" />
+      <div className="w-px h-5 shrink-0 bg-(--border)" />
 
       <IconTooltip label="Close">
-        <IconButton size="small" onClick={onClose} aria-label="Close modal" className="p-1! shrink-0">
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close modal" className="p-1! shrink-0">
           <X size={16} />
-        </IconButton>
+        </Button>
       </IconTooltip>
       </div>
     </div>
@@ -250,17 +226,8 @@ export default memo(function ContainerModal({
   }, [iconUrl]);
 
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth="lg"
-      fullWidth
-      slotProps={{
-        paper: {
-          className: 'flex! flex-col! min-h-0! rounded-lg! bg-(--mui-palette-background-popup) h-[calc(100vh-80px)]',
-        },
-      }}
-    >
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+      <DialogContent className="flex flex-col min-h-0 overflow-hidden rounded-lg bg-(--popover) w-[calc(100%-64px)] max-w-[1200px] h-[calc(100vh-80px)] p-0">
       <ModalHeader
         inventory={inventory}
         containerId={containerId}
@@ -278,7 +245,7 @@ export default memo(function ContainerModal({
         onClose={onClose}
       />
 
-      <DialogContent className="flex-1 min-h-0 p-0! flex flex-col min-h-[480px]">
+      <div className="flex-1 min-h-0 flex flex-col min-h-[480px]">
         <div className={activeTab === 'logs' ? 'flex-1 min-h-0' : 'hidden'}>
           <ContainerLogViewer containerId={containerId} host={host} wordWrap={wordWrap} />
         </div>
@@ -297,7 +264,7 @@ export default memo(function ContainerModal({
           </div>
         )}
         {!terminalMounted && activeTab === 'terminal' && (
-          <div className="flex-1 min-h-0 bg-(--mui-palette-background-chartBg)" />
+          <div className="flex-1 min-h-0 bg-(--chart-bg)" />
         )}
 
         {activeTab === 'history' && (
@@ -310,6 +277,7 @@ export default memo(function ContainerModal({
             />
           </div>
         )}
+      </div>
       </DialogContent>
     </Dialog>
   );

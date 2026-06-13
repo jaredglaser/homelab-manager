@@ -17,7 +17,7 @@ interface StorageSectionProps {
   useAbbreviatedUnits: boolean;
 }
 
-const BORDER = 'border-t border-(--mui-palette-divider)';
+const BORDER = 'border-t border-(--border)';
 
 const metricGroups: MetricGroup[] = [
   { label: 'Used / Available', columnIds: ['used', 'available'] },
@@ -82,7 +82,7 @@ export function StorageSection({ storages, expanded, onToggle, showSparklines, u
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-(--mui-palette-background-level1)`}
+        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-(--level1)`}
       >
         <ChevronRight
           size={16}

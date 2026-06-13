@@ -13,11 +13,11 @@ interface Segment {
 function StatusSegment({ label, count }: Readonly<Segment>) {
   return (
     <span>
-      <span className="text-base font-mono tabular-nums text-(--mui-palette-text-primary)">
+      <span className="text-base font-mono tabular-nums text-(--foreground)">
         {count}
       </span>
       {' '}
-      <span className="text-base text-(--mui-palette-text-secondary)">
+      <span className="text-base text-(--muted-foreground)">
         {label}
       </span>
     </span>
@@ -57,7 +57,7 @@ export default function ZFSStatusSummary({ latestByEntity }: Readonly<ZFSStatusS
       {segments.map((seg, i) => (
         <span key={seg.label} className="flex items-center gap-2">
           {i > 0 && (
-            <span className="text-base text-(--mui-palette-text-disabled) select-none">
+            <span className="text-base text-(--text-disabled) select-none">
               ·
             </span>
           )}

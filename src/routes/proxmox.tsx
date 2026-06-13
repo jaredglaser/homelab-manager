@@ -150,10 +150,10 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
           <p className="text-base mb-2">
             Proxmox is not configured.
           </p>
-          <p className="text-sm text-(--mui-palette-text-secondary)">
+          <p className="text-sm text-(--muted-foreground)">
             Set the following environment variables to connect to your Proxmox cluster:
           </p>
-          <pre className="mt-3 p-4 bg-(--mui-palette-background-level1) rounded-lg text-sm font-mono">
+          <pre className="mt-3 p-4 bg-(--level1) rounded-lg text-sm font-mono">
 {`PROXMOX_HOST=your-proxmox-host
 PROXMOX_TOKEN_ID=user@realm!tokenid
 PROXMOX_TOKEN_SECRET=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx

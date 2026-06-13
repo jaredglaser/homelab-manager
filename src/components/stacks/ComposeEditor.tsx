@@ -65,7 +65,7 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
   return (
     <div className="mb-4 bg-chart-bg rounded-sm overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-3 py-2 border-b border-(--mui-palette-divider)">
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-(--border)">
         <p className="text-sm font-medium flex-1">
           docker-compose.yml
         </p>

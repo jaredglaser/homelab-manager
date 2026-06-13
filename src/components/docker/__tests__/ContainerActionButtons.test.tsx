@@ -32,39 +32,39 @@ describe('ContainerActionButtons', () => {
     controlContainerMock.mockImplementation(() => Promise.resolve());
   });
 
-  describe('default (labeled) mode', () => {
+  describe('control actions', () => {
     it('renders Start, Stop, and Restart buttons', () => {
       renderButtons({ isRunning: true });
-      screen.getByText('Start');
-      screen.getByText('Stop');
-      screen.getByText('Restart');
+      screen.getByLabelText('Start container');
+      screen.getByLabelText('Stop container');
+      screen.getByLabelText('Restart container');
     });
 
     it('disables Start when container is running', () => {
       renderButtons({ isRunning: true });
-      expect((screen.getByText('Start').closest('button') as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByLabelText('Start container') as HTMLButtonElement).disabled).toBe(true);
     });
 
     it('enables Start when container is not running', () => {
       renderButtons({ isRunning: false });
-      expect((screen.getByText('Start').closest('button') as HTMLButtonElement).disabled).toBe(false);
+      expect((screen.getByLabelText('Start container') as HTMLButtonElement).disabled).toBe(false);
     });
 
     it('disables Stop and Restart when container is not running', () => {
       renderButtons({ isRunning: false });
-      expect((screen.getByText('Stop').closest('button') as HTMLButtonElement).disabled).toBe(true);
-      expect((screen.getByText('Restart').closest('button') as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByLabelText('Stop container') as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByLabelText('Restart container') as HTMLButtonElement).disabled).toBe(true);
     });
 
     it('enables Stop and Restart when container is running', () => {
       renderButtons({ isRunning: true });
-      expect((screen.getByText('Stop').closest('button') as HTMLButtonElement).disabled).toBe(false);
-      expect((screen.getByText('Restart').closest('button') as HTMLButtonElement).disabled).toBe(false);
+      expect((screen.getByLabelText('Stop container') as HTMLButtonElement).disabled).toBe(false);
+      expect((screen.getByLabelText('Restart container') as HTMLButtonElement).disabled).toBe(false);
     });
 
     it('calls controlContainer with start action when Start is clicked', async () => {
       renderButtons({ isRunning: false });
-      fireEvent.click(screen.getByText('Start').closest('button')!);
+      fireEvent.click(screen.getByLabelText('Start container'));
       await waitFor(() => expect(controlContainerMock).toHaveBeenCalledTimes(1));
       expect(controlContainerMock).toHaveBeenCalledWith({
         data: { host: 'server', containerId: 'abc123', action: 'start' },
@@ -73,7 +73,7 @@ describe('ContainerActionButtons', () => {
 
     it('shows success toast after successful stop', async () => {
       renderButtons({ isRunning: true });
-      fireEvent.click(screen.getByText('Stop').closest('button')!);
+      fireEvent.click(screen.getByLabelText('Stop container'));
       await waitFor(() => expect(showToastMock).toHaveBeenCalled());
       expect(showToastMock).toHaveBeenCalledWith('Container stopped', 'success');
     });
@@ -81,7 +81,7 @@ describe('ContainerActionButtons', () => {
     it('shows error toast when mutation fails', async () => {
       controlContainerMock.mockImplementation(() => Promise.reject(new Error('connection refused')));
       renderButtons({ isRunning: true });
-      fireEvent.click(screen.getByText('Restart').closest('button')!);
+      fireEvent.click(screen.getByLabelText('Restart container'));
       await waitFor(() => expect(showToastMock).toHaveBeenCalled());
       expect(showToastMock.mock.calls[0][1]).toBe('error');
     });

@@ -36,7 +36,7 @@ export default function ZfsSetupStep({
         Run these commands on the target host to create the ZFS user:
       </p>
       <div className="relative">
-        <pre className="p-3 rounded text-xs overflow-x-auto bg-(--mui-palette-background-level1) text-(--mui-palette-text-primary)">
+        <pre className="p-3 rounded text-xs overflow-x-auto bg-(--level1) text-(--foreground)">
           {ZFS_SETUP_COMMANDS}
         </pre>
         <div className="absolute top-1 right-1">

@@ -96,13 +96,15 @@ describe('ContainerLogsTerminalPanel', () => {
   it('Terminal tab is disabled when container is not running', () => {
     renderPanel(stoppedInventory);
     const termTab = screen.getByRole('tab', { name: /terminal/i });
-    expect(termTab.hasAttribute('disabled')).toBe(true);
+    // Base UI marks disabled tabs via aria-disabled (kept focusable for a11y),
+    // not the native disabled attribute.
+    expect(termTab.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('Terminal tab is enabled when container is running', () => {
     renderPanel(runningInventory);
     const termTab = screen.getByRole('tab', { name: /terminal/i });
-    expect(termTab.hasAttribute('disabled')).toBe(false);
+    expect(termTab.getAttribute('aria-disabled')).not.toBe('true');
   });
 
   it('clicking Terminal tab mounts and shows terminal component', () => {
@@ -138,12 +140,15 @@ describe('ContainerLogsTerminalPanel', () => {
     expect(finalId).toBe(firstId);
   });
 
-  it('calls setContainerShell with the correct key when shell selector changes', () => {
+  it('calls setContainerShell with the correct key when shell selector changes', async () => {
     renderPanel(runningInventory);
     fireEvent.click(screen.getByRole('tab', { name: /terminal/i }));
-    // Open the Select and pick 'bash'
-    fireEvent.mouseDown(screen.getByRole('combobox'));
-    fireEvent.click(screen.getByRole('option', { name: 'bash' }));
+    // Open the Base UI Select and pick 'bash' (portal-rendered options appear async).
+    fireEvent.click(screen.getByRole('combobox'));
+    const option = await screen.findByRole('option', { name: 'bash' });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
     // shellKey is `${host}/${inventory.name}` = 'server1/nginx'
     expect(mockSetContainerShell).toHaveBeenCalledWith('server1/nginx', 'bash');
   });

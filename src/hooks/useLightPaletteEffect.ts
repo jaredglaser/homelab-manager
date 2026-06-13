@@ -55,14 +55,20 @@ export function useLightPaletteEffect(): void {
     }
 
     const t = PALETTE_MAP[palette];
+    // Override the background-derived shadcn tokens for the selected light
+    // palette. level1 backs --secondary, --muted, and --level1 (they shared the
+    // same MUI background-level1 source). The fixed light tokens (foreground,
+    // primary, border, etc.) stay in App.css; only these vary by palette.
     el.textContent = `[data-color-scheme="light"] {
-  --mui-palette-background-default: ${t.default};
-  --mui-palette-background-paper: ${t.paper};
-  --mui-palette-background-popup: ${t.popup};
-  --mui-palette-background-level1: ${t.level1};
-  --mui-palette-background-level2: ${t.level2};
-  --mui-palette-background-level3: ${t.level3};
-  --mui-palette-background-chartBg: ${t.chartBg};
+  --background: ${t.default};
+  --card: ${t.paper};
+  --popover: ${t.popup};
+  --secondary: ${t.level1};
+  --muted: ${t.level1};
+  --level1: ${t.level1};
+  --level2: ${t.level2};
+  --level3: ${t.level3};
+  --chart-bg: ${t.chartBg};
 }`;
   }, [palette]);
 }

@@ -6,7 +6,6 @@ import {
   PRELOAD_STALE_TIME,
   preloadDockerStats, preloadZFSStats, preloadProxmoxStats,
 } from '@/lib/constants/preload-queries'
-import ThemeProvider from '@/components/ThemeProvider'
 import Header from '@/components/header'
 import Toasts from '@/components/Toasts'
 import { useSettingsSync } from '@/hooks/useSettingsSync'
@@ -47,25 +46,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <ThemeProvider>
-        <div className="flex items-center justify-center min-h-screen">
-          <Spinner />
-        </div>
-      </ThemeProvider>
+      <div className="flex items-center justify-center min-h-screen">
+        <Spinner />
+      </div>
     )
   }
 
   return (
-    <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <div className="flex flex-col h-screen overflow-hidden">
-          <Header user={user} />
-          <div className="flex-1 flex flex-col min-h-0 [view-transition-name:page-content]">
-            {children}
-          </div>
-          <Toasts />
+    <QueryClientProvider client={queryClient}>
+      <div className="flex flex-col h-screen overflow-hidden">
+        <Header user={user} />
+        <div className="flex-1 flex flex-col min-h-0 [view-transition-name:page-content]">
+          {children}
         </div>
-      </QueryClientProvider>
-    </ThemeProvider>
+        <Toasts />
+      </div>
+    </QueryClientProvider>
   )
 }

@@ -254,7 +254,7 @@ function StackEditorView() {
       </div>
 
       {/* Sticky Action Bar */}
-      <div className="shrink-0 border-t border-(--mui-palette-divider) bg-(--mui-palette-background-default) px-1 py-3">
+      <div className="shrink-0 border-t border-(--border) bg-(--background) px-1 py-3">
         <StackActionBar
           onDeploy={() => deployMutation.mutate('deploy')}
           onTeardown={() => deployMutation.mutate('teardown')}

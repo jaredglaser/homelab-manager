@@ -5,6 +5,13 @@ import type { StackContainer } from '@/types/stacks';
 
 const mockControlStack = mock(async () => {});
 
+const mockToastSuccess = mock((_message: string) => {});
+const mockToastError = mock((_message: string) => {});
+
+mock.module('sonner', () => ({
+  toast: { success: mockToastSuccess, error: mockToastError },
+}));
+
 mock.module('@/data/stacks/functions', () => ({
   controlStack: mockControlStack,
 }));
@@ -59,6 +66,8 @@ function renderPanel(props = defaultProps) {
 describe('StackContainersPanel', () => {
   beforeEach(() => {
     mockControlStack.mockClear();
+    mockToastSuccess.mockClear();
+    mockToastError.mockClear();
   });
 
   it('renders container names and statuses', () => {
@@ -130,23 +139,21 @@ describe('StackContainersPanel', () => {
     mockControlStack.mockRejectedValueOnce(new Error('agent unreachable'));
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: /^start$/i }));
-    await waitFor(() =>
-      expect(screen.getByRole('alert')).toBeDefined()
-    );
-    const alert = screen.getByRole('alert');
-    expect(alert.textContent).toContain('Failed to start');
-    expect(alert.textContent).toContain('agent unreachable');
+    await waitFor(() => expect(mockToastError).toHaveBeenCalled());
+    const message = mockToastError.mock.calls[0][0];
+    expect(message).toContain('Failed to start');
+    expect(message).toContain('agent unreachable');
   });
 
   it('shows success toast with past-tense message when controlStack resolves', async () => {
     mockControlStack.mockResolvedValueOnce(undefined);
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: /^start$/i }));
-    await waitFor(() => expect(screen.getByRole('alert')).toBeDefined());
-    const alert = screen.getByRole('alert');
-    expect(alert.textContent).toContain('plex');
-    expect(alert.textContent).toContain('started');
-    expect(alert.textContent).toContain('successfully');
+    await waitFor(() => expect(mockToastSuccess).toHaveBeenCalled());
+    const message = mockToastSuccess.mock.calls[0][0];
+    expect(message).toContain('plex');
+    expect(message).toContain('started');
+    expect(message).toContain('successfully');
   });
 
   it('disables all control buttons while mutation is pending', async () => {

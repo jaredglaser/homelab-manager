@@ -14,7 +14,7 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
   return (
     <div className="grid grid-cols-2 gap-4 mb-6 lg:grid-cols-4">
       <div className="p-4 bg-card rounded-lg border border-border">
-        <span className="text-xs uppercase tracking-wide text-(--mui-palette-text-secondary)">
+        <span className="text-xs uppercase tracking-wide text-(--muted-foreground)">
           Cluster
         </span>
         <h5 className="text-2xl">{clusterName}</h5>
@@ -24,7 +24,7 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
       </div>
 
       <div className="p-4 bg-card rounded-lg border border-border">
-        <span className="text-xs uppercase tracking-wide text-(--mui-palette-text-secondary)">
+        <span className="text-xs uppercase tracking-wide text-(--muted-foreground)">
           CPU
         </span>
         <h5 className="text-2xl">{cpuPercent.toFixed(1)}%</h5>
@@ -34,7 +34,7 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
       </div>
 
       <div className="p-4 bg-card rounded-lg border border-border">
-        <span className="text-xs uppercase tracking-wide text-(--mui-palette-text-secondary)">
+        <span className="text-xs uppercase tracking-wide text-(--muted-foreground)">
           Memory
         </span>
         <h5 className="text-2xl">{memPercent.toFixed(1)}%</h5>
@@ -44,7 +44,7 @@ export default function ClusterSummaryCards({ overview }: ClusterSummaryCardsPro
       </div>
 
       <div className="p-4 bg-card rounded-lg border border-border">
-        <span className="text-xs uppercase tracking-wide text-(--mui-palette-text-secondary)">
+        <span className="text-xs uppercase tracking-wide text-(--muted-foreground)">
           Guests
         </span>
         <h5 className="text-2xl">
