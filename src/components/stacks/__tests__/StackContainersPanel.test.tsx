@@ -37,7 +37,7 @@ mock.module('@/hooks/useDockerSettings', () => ({
 
 mock.module('@/lib/constants/demo', () => ({ IS_DEMO_MODE: false }));
 
-const { default: StackContainersPanel } = await import('../StackContainersPanel');
+const { default: StackContainersPanel } = await import('@/components/stacks/StackContainersPanel');
 
 const mockContainers: StackContainer[] = [
   { id: 'abc123', name: 'plex-web-1', status: 'running', image: 'plexinc/pms-docker', service: 'web' },

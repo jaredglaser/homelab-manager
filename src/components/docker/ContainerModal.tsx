@@ -54,7 +54,7 @@ function TabSwitch({
             onClick={() => onChange(key)}
             className={[
               'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all',
-              active ? 'bg-(--popover) shadow-[var(--shadow-1)]' : '',
+              active ? 'bg-(--popover) shadow-(--shadow-1)' : '',
               disabled
                 ? 'text-(--text-disabled) cursor-not-allowed'
                 : active
@@ -183,7 +183,7 @@ export default memo(function ContainerModal({
   const [wordWrap, setWordWrap] = useState(false);
 
   const { getContainerShell, setContainerShell } = useDockerSettings();
-  const shellKey = `${host}/${inventory.containerId}`;
+  const shellKey = `${host}/${inventory.name}`;
   const savedShell = getContainerShell(shellKey);
   const effectiveShell =
     savedShell === undefined || savedShell === '' || savedShell === 'auto' ? 'auto' : savedShell;

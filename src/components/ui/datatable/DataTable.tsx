@@ -353,7 +353,7 @@ export function DataTable<TRow>({
                     const panel = renderDetailPanel(row.original);
                     if (panel == null || !isExpanded) return null;
                     return (
-                      <div className="border-t border-(--border)">
+                      <div className="border-t border-border">
                         {panel}
                       </div>
                     );
