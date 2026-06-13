@@ -17,7 +17,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 
 import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ArrowUp, ArrowDown } from 'lucide-react';
-import { DataTableToolbar } from '@/components/shared-table/DataTableToolbar';
+import { DataTableToolbar } from '@/components/ui/datatable/DataTableToolbar';
 import { useGeneralSettings } from '@/hooks/useSettings';
 
 export interface MetricGroup {

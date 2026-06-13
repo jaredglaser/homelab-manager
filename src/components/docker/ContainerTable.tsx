@@ -2,10 +2,10 @@ import { useCallback, useMemo, useRef } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
 import { Spinner } from '@/components/ui/spinner';
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
-import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
-import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
-import { metricColumn, nameColumn } from '@/components/shared-table/columns';
-import { EMPTY_METRIC } from '@/components/shared-table/MetricCell';
+import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
+import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
+import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
+import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import type {
   DockerStatsRow,

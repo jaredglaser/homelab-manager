@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { render } from '@testing-library/react';
-import SparklineCell from '@/components/shared-table/SparklineCell';
+import SparklineCell from '@/components/ui/datatable/SparklineCell';
 
 // Set CSS custom properties so resolveChartColors reads real values via getComputedStyle.
 // Closer to how the component actually runs than stubbing the resolver.

@@ -1,5 +1,5 @@
 import { memo, useRef } from 'react';
-import SparklineCanvas from '@/components/shared-table/SparklineCanvas';
+import SparklineCanvas from '@/components/ui/datatable/SparklineCanvas';
 import { resolveChartColors } from '@/lib/charts/css-vars';
 
 const SPARKLINE_WINDOW_MS = 35000;

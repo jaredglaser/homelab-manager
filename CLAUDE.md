@@ -126,7 +126,7 @@ loadSubscribe: async () => {
 
 Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (auth + DB lookup + pipe-through from agent) and `git.$` (git HTTP smart protocol, not SSE).
 
-### Shared DataTable (`src/components/shared-table/`)
+### Shared DataTable (`src/components/ui/datatable/`)
 
 Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `DataTable.tsx`, `DataTableToolbar.tsx`, `columns.tsx` (factories: `metricColumn`, `nameColumn`, `statusColumn`, `progressColumn`), `MetricCell.tsx`, `SparklineCell.tsx`, `SparklineCanvas.tsx`.
 

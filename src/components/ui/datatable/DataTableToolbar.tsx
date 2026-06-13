@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import type { MetricGroup } from '@/components/shared-table/DataTable';
+import type { MetricGroup } from '@/components/ui/datatable/DataTable';
 
 interface DataTableToolbarProps {
   metricGroups?: MetricGroup[];

@@ -3,7 +3,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils/cn';
 import type { ReactNode } from 'react';
-import { MetricCell, MetricHeaderCell } from '@/components/shared-table';
+import { MetricCell } from '@/components/ui/datatable/MetricCell';
+import { MetricHeaderCell } from '@/components/ui/datatable/MetricHeaderCell';
 
 const METRIC_COL_SIZE = 180;
 const METRIC_COL_SIZE_COMPACT = 115;

@@ -4,9 +4,9 @@ import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { GuestRow } from '@/types/proxmox';
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
-import { EMPTY_METRIC } from '@/components/shared-table';
-import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
-import { nameColumn, statusColumn, metricColumn } from '@/components/shared-table/columns';
+import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
+import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
+import { nameColumn, statusColumn, metricColumn } from '@/components/ui/datatable/columns';
 import { GuestCell } from '@/components/proxmox/GuestCell';
 
 interface GuestSectionProps {

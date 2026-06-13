@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { DataTableToolbar } from '@/components/shared-table/DataTableToolbar';
-import type { MetricGroup } from '@/components/shared-table/DataTable';
+import { DataTableToolbar } from '@/components/ui/datatable/DataTableToolbar';
+import type { MetricGroup } from '@/components/ui/datatable/DataTable';
 
 const cpuIcon = <span data-testid="cpu-icon">CPU</span>;
 const memIcon = <span data-testid="mem-icon">MEM</span>;

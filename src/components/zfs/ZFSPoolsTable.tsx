@@ -1,9 +1,9 @@
 import { useCallback, useMemo } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
-import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
-import { metricColumn, nameColumn } from '@/components/shared-table/columns';
-import { EMPTY_METRIC } from '@/components/shared-table';
+import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
+import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
+import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
+import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
 import type { ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
