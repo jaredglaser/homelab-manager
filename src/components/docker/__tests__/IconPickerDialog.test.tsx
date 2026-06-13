@@ -12,7 +12,7 @@ mock.module('@/lib/constants/ui-timing', () => ({
   DRAWER_EASING: 'ease',
 }));
 
-const { default: IconPickerDialog } = await import('../IconPickerDialog');
+const { default: IconPickerDialog } = await import('@/components/docker/IconPickerDialog');
 
 const defaultProps = {
   open: true,
@@ -99,15 +99,37 @@ describe('IconPickerDialog', () => {
     expect(screen.queryByAltText('redis')).toBeNull();
   });
 
-  it('calls onSelect and closes after selecting an icon', async () => {
-    const onSelect = mock((_slug: string) => {});
+  it('calls onSelect and closes after selecting an icon and clicking Apply', async () => {
+    const onSelect = mock((_slug: string | null) => {});
     const onClose = mock(() => {});
     render(<IconPickerDialog {...defaultProps} onSelect={onSelect} onClose={onClose} />);
+
+    // Select an icon tile (sets pending selection)
     const img = screen.getByAltText('nginx');
     const btn = img.closest('button');
     expect(btn).not.toBeNull();
     fireEvent.click(btn!);
+
+    // onSelect not yet called — need to confirm via Apply
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // Click Apply to commit the selection
+    fireEvent.click(screen.getByText('Apply'));
     expect(onSelect).toHaveBeenCalledWith('nginx');
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onSelect(null) and closes when "Use auto-detected" is clicked', async () => {
+    const onSelect = mock((_slug: string | null) => {});
+    const onClose = mock(() => {});
+    render(<IconPickerDialog {...defaultProps} onSelect={onSelect} onClose={onClose} />);
+
+    fireEvent.click(screen.getByText('Use auto-detected'));
+    expect(onSelect).toHaveBeenCalledWith(null);
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 1));

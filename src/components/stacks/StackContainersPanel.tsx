@@ -157,7 +157,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
         </DialogTitle>
         <DialogContent className="!p-2 flex flex-col min-h-0 h-full">
           {modalState?.view === 'logs' && (
-            <ContainerLogViewer containerId={modalState.container.id} host={host} />
+            <ContainerLogViewer containerId={modalState.container.id} host={host} wordWrap={false} />
           )}
           {modalState?.view === 'terminal' && (
             <TerminalDialogContent container={modalState.container} host={host} />
@@ -308,6 +308,7 @@ function TerminalDialogContent({ container, host }: { container: StackContainer;
           host={host}
           shell={effectiveShell}
           frozen={frozen}
+          wordWrap={false}
           onShellResolved={handleShellResolved}
         />
       </div>
