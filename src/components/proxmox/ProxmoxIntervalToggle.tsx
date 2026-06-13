@@ -29,7 +29,7 @@ export function IntervalToggle({
         <TooltipContent side="bottom">
           <div className="flex flex-col gap-1">
             <p className="text-sm">Fast updates (1 second)</p>
-            <Badge className="bg-warning text-white">Increases API load on Proxmox</Badge>
+            <Badge variant="warning">Increases API load on Proxmox</Badge>
           </div>
         </TooltipContent>
       </Tooltip>

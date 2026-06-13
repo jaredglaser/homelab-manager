@@ -41,7 +41,7 @@ function StacksLayout() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
-        <p className="text-sm" color="error">
+        <p className="text-sm text-destructive">
           Failed to load stacks: {error.message}
         </p>
       </div>

@@ -68,7 +68,7 @@ function StatusItem({ label, value }: StatusItemProps) {
       <span className="text-xs font-medium text-(--muted-foreground)">
         {label}
       </span>
-      <span className="font-mono text-xs tabular-nums text-(--foreground)">
+      <span className="font-mono text-xs tabular-nums text-foreground">
         {value}
       </span>
     </div>

@@ -33,7 +33,7 @@ export default function RollbackDialog({
           <Button variant="ghost" className="text-foreground" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={onConfirm} className="bg-red-600 hover:bg-red-700 text-white">
+          <Button variant="destructive" onClick={onConfirm}>
             Confirm Rollback
           </Button>
         </DialogFooter>

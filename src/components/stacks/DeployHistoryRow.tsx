@@ -147,7 +147,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
             <Button
               size="sm"
               variant="outline"
-              className="text-xs h-6 px-2 ml-1 border-red-600 text-red-500 hover:bg-red-600/10"
+              className="text-xs h-6 px-2 ml-1 border-destructive text-destructive hover:bg-destructive/10"
               onClick={(e) => {
                 e.stopPropagation();
                 setRollbackOpen(true);

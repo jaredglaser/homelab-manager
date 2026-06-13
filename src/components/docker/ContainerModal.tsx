@@ -58,7 +58,7 @@ function TabSwitch({
               disabled
                 ? 'text-(--text-disabled) cursor-not-allowed'
                 : active
-                  ? 'text-(--foreground) cursor-pointer'
+                  ? 'text-foreground cursor-pointer'
                   : 'text-(--muted-foreground) cursor-pointer',
             ].join(' ')}
           >

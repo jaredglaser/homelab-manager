@@ -93,7 +93,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   // Update the last-update atom when new rows arrive
   const prevLastRowRef = useRef<ProxmoxStatsRow | null>(null)
   useEffect(() => {
-    const lastRow = stream.rows[stream.rows.length - 1] ?? null
+    const lastRow = stream.rows.at(-1) ?? null
     if (lastRow && lastRow !== prevLastRowRef.current) {
       prevLastRowRef.current = lastRow
       setLastUpdate(Date.now())
@@ -137,7 +137,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
 
   if (stream.error) {
     return (
-      <p className="text-base text-red-600 py-8">
+      <p className="text-base text-destructive py-8">
         Failed to connect to Proxmox SSE stream: {stream.error.message}
       </p>
     )

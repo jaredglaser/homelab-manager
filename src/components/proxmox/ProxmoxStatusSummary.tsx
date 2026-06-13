@@ -12,7 +12,7 @@ interface Segment {
 function StatusSegment({ label, count }: Readonly<Segment>) {
   return (
     <span>
-      <span className="text-base font-mono tabular-nums text-(--foreground)">
+      <span className="text-base font-mono tabular-nums text-foreground">
         {count}
       </span>
       {' '}

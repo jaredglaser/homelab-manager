@@ -239,7 +239,7 @@ export default function ZFSPoolsTable({
     return (
       <div className="w-full">
         <div className="p-2">
-          <p className="text-base" color="error">
+          <p className="text-base text-destructive">
             Error connecting to ZFS stats: {error.message}
           </p>
         </div>

@@ -51,7 +51,7 @@ export default memo(function HorizontalScrollRow({
   }, []);
 
   const btnClass =
-    'flex items-center justify-center shrink-0 w-5 self-stretch text-(--muted-foreground) hover:text-(--foreground) transition-colors cursor-pointer';
+    'flex items-center justify-center shrink-0 w-5 self-stretch text-(--muted-foreground) hover:text-foreground transition-colors cursor-pointer';
 
   return (
     <div className="relative flex items-center">
