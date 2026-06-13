@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import ReactECharts from 'echarts-for-react';
 import { useGeneralSettings } from '@/hooks/useSettings';
+import HorizontalScrollRow from '@/components/shared/HorizontalScrollRow';
 import { RANGE_PRESETS, TIMELINE_METRICS, getTimelineOption } from '@/lib/charts/timeline-chart-config';
 import type { DockerStatsRow } from '@/types/docker';
 import type { MetricType } from '@/components/docker/MetricCheckboxes';
@@ -77,11 +78,13 @@ export default memo(function HistoricalTimeline({
       const opt = instance.getOption() as { dataZoom: { startValue: string | number; endValue: string | number }[] };
       const zoom = opt.dataZoom?.[0];
       if (!zoom || zoom.startValue == null || zoom.endValue == null) return;
-      // Time axis may return date strings - coerce to numeric timestamps
+      // Time axis may return date strings - coerce to numeric timestamps.
+      // Slider drags produce interpolated floats; round to integer ms so the
+      // server-side schema (which requires int ms) doesn't reject the query.
       const from = typeof zoom.startValue === 'string' ? new Date(zoom.startValue).getTime() : zoom.startValue;
       const to = typeof zoom.endValue === 'string' ? new Date(zoom.endValue).getTime() : zoom.endValue;
       if (isNaN(from) || isNaN(to)) return;
-      onRangeChange(from, to);
+      onRangeChange(Math.round(from), Math.round(to));
     },
   }), [onRangeChange]);
 
@@ -129,10 +132,13 @@ export default memo(function HistoricalTimeline({
   const dateTimeFormat = general.use12HourTime ? 'MM/DD/YYYY hh:mm A' : 'MM/DD/YYYY HH:mm';
 
   return (
-    <div className="sticky bottom-0 z-10 border-t border-(--mui-palette-divider) bg-(--mui-palette-background-paper) px-4 py-3">
-      <div className="flex items-center gap-3 mb-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Typography variant="caption" className="text-(--mui-palette-text-secondary)">Range:</Typography>
+    <div className="border-t border-(--mui-palette-divider) bg-(--mui-palette-background-paper) px-4 py-3 shrink-0">
+      <div className="mb-2">
+        <HorizontalScrollRow
+          bgVar="--mui-palette-background-paper"
+          innerClassName="flex flex-nowrap items-center gap-3 min-w-full"
+          scrollClassName="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
           <ToggleButtonGroup
             value={activeRangeValue ? String(activeRangeValue.ms) : null}
             onChange={(_e, newValue) => {
@@ -140,6 +146,7 @@ export default memo(function HistoricalTimeline({
             }}
             size="small"
             exclusive
+            className="shrink-0"
           >
             {RANGE_PRESETS.map((preset) => (
               <ToggleButton key={preset.label} value={String(preset.ms)}>
@@ -147,37 +154,34 @@ export default memo(function HistoricalTimeline({
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
-        </div>
 
-        <LocalizationProvider dateAdapter={AdapterDayjs}>
-          <div className="flex items-center gap-2">
-            <Typography variant="caption" className="text-(--mui-palette-text-secondary)">From:</Typography>
-            <DateTimePicker
-              value={dayjs(timelineFrom)}
-              onChange={handleFromChange}
-              maxDateTime={dayjs(timelineTo)}
-              ampm={general.use12HourTime}
-              format={dateTimeFormat}
-              slotProps={{
-                textField: { size: 'small' },
-              }}
-            />
-            <Typography variant="caption" className="text-(--mui-palette-text-secondary)">To:</Typography>
-            <DateTimePicker
-              value={dayjs(timelineTo)}
-              onChange={handleToChange}
-              minDateTime={dayjs(timelineFrom)}
-              ampm={general.use12HourTime}
-              format={dateTimeFormat}
-              slotProps={{
-                textField: { size: 'small' },
-              }}
-            />
-          </div>
-        </LocalizationProvider>
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <div className="flex items-center gap-2 shrink-0">
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary)">From:</Typography>
+              <DateTimePicker
+                value={dayjs(timelineFrom)}
+                onChange={handleFromChange}
+                maxDateTime={dayjs(timelineTo)}
+                ampm={general.use12HourTime}
+                format={dateTimeFormat}
+                slotProps={{
+                  textField: { size: 'small' },
+                }}
+              />
+              <Typography variant="caption" className="text-(--mui-palette-text-secondary)">To:</Typography>
+              <DateTimePicker
+                value={dayjs(timelineTo)}
+                onChange={handleToChange}
+                minDateTime={dayjs(timelineFrom)}
+                ampm={general.use12HourTime}
+                format={dateTimeFormat}
+                slotProps={{
+                  textField: { size: 'small' },
+                }}
+              />
+            </div>
+          </LocalizationProvider>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Typography variant="caption" className="text-(--mui-palette-text-secondary)">Metric:</Typography>
           <ToggleButtonGroup
             value={timelineMetric}
             onChange={(_e, newValue) => {
@@ -185,6 +189,7 @@ export default memo(function HistoricalTimeline({
             }}
             size="small"
             exclusive
+            className="shrink-0 ml-auto"
           >
             {TIMELINE_METRICS.map((metric) => (
               <ToggleButton key={metric.key} value={metric.key}>
@@ -192,7 +197,7 @@ export default memo(function HistoricalTimeline({
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
-        </div>
+        </HorizontalScrollRow>
       </div>
       <div className="h-[160px]">
         <ReactECharts

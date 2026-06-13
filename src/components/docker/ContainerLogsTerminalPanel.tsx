@@ -116,7 +116,7 @@ export default memo(function ContainerLogsTerminalPanel({
       </div>
       <div className="flex-1 min-h-0 relative">
         <div className={activeTab === 'logs' ? 'h-full' : 'hidden'}>
-          <ContainerLogViewer containerId={containerId} host={host} />
+          <ContainerLogViewer containerId={containerId} host={host} wordWrap={false} />
         </div>
         {terminalMounted && (
           <div className={activeTab === 'terminal' ? 'h-full' : 'hidden'}>
@@ -125,6 +125,7 @@ export default memo(function ContainerLogsTerminalPanel({
               host={host}
               shell={effectiveShell}
               frozen={frozen}
+              wordWrap={false}
               onShellResolved={handleShellResolved}
             />
           </div>

@@ -7,6 +7,8 @@ import {
   getContainerHistorySchema,
   getContainerInfoSchema,
   updateContainerIconSchema,
+  clearContainerIconSchema,
+  controlContainerSchema,
 } from '@/data/docker/schemas';
 
 /**
@@ -132,6 +134,38 @@ export const getContainerInfo = createServerFn()
  * Update the icon for a container service.
  * Stores the icon slug under the service_key entity so it persists across container recreations.
  */
+export const controlContainer = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware, databaseMiddleware])
+  .inputValidator(controlContainerSchema)
+  .handler(async ({ context, data }): Promise<void> => {
+    const { HostRepository } = await import('@/lib/database/repositories/host-repository');
+    const { AgentClient } = await import('@/lib/clients/agent-client');
+    const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');
+    const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+    const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+
+    const hostsRepo = new HostRepository(context.pool);
+    const managedHost = await hostsRepo.findByName(data.host);
+    if (!managedHost) throw new Error(`Host "${data.host}" not found in managed_hosts`);
+
+    const keyring = await loadMasterKeyring();
+    const agentKeypairs = new AgentKeypairsRepository(context.pool, keyring);
+    const privateKey = await agentKeypairs.getPrivateKeyForHost(managedHost.name);
+    if (!privateKey) throw new Error(`No agent keypair for host "${managedHost.name}". Re-enroll the agent.`);
+
+    const signer = () => signAgentJwt(privateKey, managedHost.name);
+    const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer });
+
+    try {
+      if (data.action === 'start') await agent.startContainer(data.containerId);
+      else if (data.action === 'stop') await agent.stopContainer(data.containerId);
+      else await agent.restartContainer(data.containerId);
+    } catch (err) {
+      console.error(`[controlContainer] ${data.action} failed for "${data.containerId}" on "${data.host}":`, err);
+      throw err;
+    }
+  });
+
 export const updateContainerIcon = createServerFn()
   .middleware([authMiddleware, databaseMiddleware])
   .inputValidator(updateContainerIconSchema)
@@ -142,4 +176,16 @@ export const updateContainerIcon = createServerFn()
     const repo = new EntityMetadataRepository(context.pool);
 
     await repo.upsertEntityMetadata(data.serviceKeyEntity, 'icon', data.iconSlug);
+  });
+
+export const clearContainerIcon = createServerFn()
+  .middleware([authMiddleware, databaseMiddleware])
+  .inputValidator(clearContainerIconSchema)
+  .handler(async ({ context, data }): Promise<void> => {
+    const { EntityMetadataRepository } = await import(
+      '@/lib/database/repositories/entity-metadata-repository'
+    );
+    const repo = new EntityMetadataRepository(context.pool);
+
+    await repo.deleteEntityIcon(data.serviceKeyEntity);
   });
