@@ -1,4 +1,3 @@
-import { Typography } from '@mui/material';
 import MetricCheckboxes from '@/components/docker/MetricCheckboxes';
 import HistoricalChartsGrid from '@/components/docker/HistoricalChartsGrid';
 import HistoricalTimeline from '@/components/docker/HistoricalTimeline';
@@ -37,14 +36,14 @@ export default function ContainerHistoryPage({
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="border-b border-(--mui-palette-divider) bg-(--mui-palette-background-level1) px-6 py-3 select-none shrink-0">
+      <div className="border-b border-(--border) bg-(--level1) px-6 py-3 select-none shrink-0">
         <MetricCheckboxes selected={selectedMetrics} onChange={handleMetricsChange} />
       </div>
 
       <div className="overflow-y-auto flex-1 min-h-0 themed-scrollbar px-6 py-4">
         {isChartDataEmpty ? (
-          <div className="flex items-center justify-center h-64 text-(--mui-palette-text-secondary)">
-            <Typography variant="body1">No data available for this time range.</Typography>
+          <div className="flex items-center justify-center h-64 text-(--muted-foreground)">
+            <p>No data available for this time range.</p>
           </div>
         ) : (
           <HistoricalChartsGrid

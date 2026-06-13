@@ -1,4 +1,5 @@
-import { Typography, Checkbox, FormControlLabel } from '@mui/material'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 
 interface CapabilitiesStepProps {
   docker: boolean
@@ -10,29 +11,27 @@ interface CapabilitiesStepProps {
 export default function CapabilitiesStep({ docker, zfs, onDockerChange, onZfsChange }: CapabilitiesStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-capabilities">
-      <Typography variant="body2" className="text-(--mui-palette-text-secondary)">
+      <p className="text-sm text-muted-foreground">
         Select the capabilities this host will provide:
-      </Typography>
-      <FormControlLabel
-        control={
-          <Checkbox
-            checked={docker}
-            onChange={(e) => onDockerChange(e.target.checked)}
-            slotProps={{ input: { 'aria-label': 'Docker capability' } }}
-          />
-        }
-        label="Docker"
-      />
-      <FormControlLabel
-        control={
-          <Checkbox
-            checked={zfs}
-            onChange={(e) => onZfsChange(e.target.checked)}
-            slotProps={{ input: { 'aria-label': 'ZFS capability' } }}
-          />
-        }
-        label="ZFS"
-      />
+      </p>
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="capability-docker"
+          checked={docker}
+          onCheckedChange={(checked) => onDockerChange(checked)}
+          aria-label="Docker capability"
+        />
+        <Label htmlFor="capability-docker" className="cursor-pointer">Docker</Label>
+      </div>
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id="capability-zfs"
+          checked={zfs}
+          onCheckedChange={(checked) => onZfsChange(checked)}
+          aria-label="ZFS capability"
+        />
+        <Label htmlFor="capability-zfs" className="cursor-pointer">ZFS</Label>
+      </div>
     </div>
   )
 }

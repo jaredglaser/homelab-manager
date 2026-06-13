@@ -1,6 +1,6 @@
 import { memo, useEffect, useState } from 'react';
-import { Paper, Skeleton, Typography } from '@mui/material';
 import type { Terminal as TerminalType } from '@xterm/xterm';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useXtermSetup } from '@/hooks/useXtermSetup';
 import { useContainerLogs } from '@/hooks/useContainerLogs';
 
@@ -103,7 +103,7 @@ function CustomVerticalScrollbar({ terminal }: { terminal: TerminalType | null }
           style={{
             top: thumb.top,
             height: thumb.height,
-            backgroundColor: 'color-mix(in srgb, var(--mui-palette-text-primary) 35%, transparent)',
+            backgroundColor: 'color-mix(in srgb, var(--foreground) 35%, transparent)',
           }}
         />
       )}
@@ -153,10 +153,7 @@ export default memo(function ContainerLogViewer({
   const showSkeleton = !ready && !error;
 
   return (
-    <Paper
-      elevation={0}
-      className="relative rounded-sm bg-(--mui-palette-background-chartBg)! h-full min-h-0 flex flex-col overflow-hidden"
-    >
+    <div className="relative rounded-sm bg-(--chart-bg)! h-full min-h-0 flex flex-col overflow-hidden">
       <div className="relative flex-1 min-h-0">
         <div
           ref={containerRef}
@@ -169,20 +166,17 @@ export default memo(function ContainerLogViewer({
           {Array.from({ length: 14 }, (_, i) => (
             <Skeleton
               key={i}
-              variant="text"
-              width={`${45 + ((i * 37) % 50)}%`}
-              className="bg-(--mui-palette-action-hover)! text-xs!"
+              className="h-4 rounded bg-(--accent)!"
+              style={{ width: `${45 + ((i * 37) % 50)}%` }}
             />
           ))}
         </div>
       )}
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-sm">
-          <Typography variant="body2" color="error">
-            {error.message}
-          </Typography>
+          <p className="text-sm text-destructive">{error.message}</p>
         </div>
       )}
-    </Paper>
+    </div>
   );
 });

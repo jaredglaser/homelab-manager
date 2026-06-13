@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { IconButton, CircularProgress } from '@mui/material';
+import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import IconTooltip from '@/components/docker/IconTooltip';
 import { Play, Square, RotateCcw } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
@@ -56,50 +57,52 @@ export default function ContainerActionButtons({
   return (
     <div className="flex items-center gap-0.5">
       <IconTooltip label="Start">
-        <IconButton
-          size="small"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           className="p-1!"
           disabled={isRunning || isPending}
           onClick={() => trigger('start')}
           aria-label="Start container"
         >
           {pendingAction === 'start' ? (
-            <CircularProgress size={14} className="!text-inherit" />
+            <Spinner className="size-3.5 text-current" />
           ) : (
             <Play size={14} />
           )}
-        </IconButton>
+        </Button>
       </IconTooltip>
       <IconTooltip label="Stop">
-        <IconButton
-          size="small"
-          className="p-1!"
-          color={isRunning && !isPending ? 'error' : undefined}
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className={`p-1! ${isRunning && !isPending ? 'text-destructive' : ''}`}
           disabled={!isRunning || isPending}
           onClick={() => trigger('stop')}
           aria-label="Stop container"
         >
           {pendingAction === 'stop' ? (
-            <CircularProgress size={14} className="!text-inherit" />
+            <Spinner className="size-3.5 text-current" />
           ) : (
             <Square size={14} />
           )}
-        </IconButton>
+        </Button>
       </IconTooltip>
       <IconTooltip label="Restart">
-        <IconButton
-          size="small"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           className="p-1!"
           disabled={!isRunning || isPending}
           onClick={() => trigger('restart')}
           aria-label="Restart container"
         >
           {pendingAction === 'restart' ? (
-            <CircularProgress size={14} className="!text-inherit" />
+            <Spinner className="size-3.5 text-current" />
           ) : (
             <RotateCcw size={14} />
           )}
-        </IconButton>
+        </Button>
       </IconTooltip>
     </div>
   );

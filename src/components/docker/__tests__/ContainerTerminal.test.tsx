@@ -105,7 +105,7 @@ describe('ContainerTerminal', () => {
     const { container } = render(
       <ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={false} wordWrap={false} />,
     );
-    expect(container.querySelectorAll('.MuiSkeleton-root').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
   });
 
   it('shows error overlay when error occurs and not frozen', () => {
