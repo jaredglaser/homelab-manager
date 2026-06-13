@@ -27,6 +27,10 @@ body {
  * runtime for the selectable light palettes.
  */
 :root {
+  /* Tell the browser to render native UI (scrollbars, form controls) for the
+     dark scheme. MUI's cssVariables theme used to emit this; without it the
+     terminal's native horizontal scrollbar stays light in dark mode. */
+  color-scheme: dark;
   --radius: 0.25rem; /* MUI shape.borderRadius (4px) */
   --background: #121212;
   --foreground: #fff;
@@ -62,6 +66,7 @@ body {
 }
 
 [data-color-scheme="light"] {
+  color-scheme: light;
   --background: #e3eaf3;
   --foreground: rgba(0, 0, 0, 0.87);
   --card: #d8e1ee;
