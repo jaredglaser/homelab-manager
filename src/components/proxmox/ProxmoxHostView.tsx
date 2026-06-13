@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
-import { Paper, Chip, Collapse } from '@mui/material'
+import { Badge } from '@/components/ui/badge'
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import { ChevronRight, Server } from 'lucide-react'
 import type { ProxmoxClusterOverview, GuestRow } from '@/types/proxmox'
 import { useGeneralSettings, useProxmoxSettings } from '@/hooks/useSettings'
-import { EMPTY_METRIC } from '@/components/shared-table'
+import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell'
 import { formatUptime } from '@/components/proxmox/utils'
 import { GuestSection } from '@/components/proxmox/GuestSection'
 import { StorageSection } from '@/components/proxmox/StorageSection'
@@ -72,7 +73,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
   }, [overview.vms, overview.containers, overview.storages, overview.nodes])
 
   return (
-    <Paper variant="outlined" className="rounded-sm overflow-x-auto">
+    <div className="bg-card border border-border rounded-sm overflow-x-auto">
       {sortedNodes.map((node, nodeIdx) => {
         const vms = vmsByNode.get(node.node) || []
         const containers = containersByNode.get(node.node) || []
@@ -94,8 +95,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               onClick={() => toggleProxmoxHostExpanded(node.node)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProxmoxHostExpanded(node.node); } }}
               className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors duration-150 ${
-                nodeIdx > 0 ? 'border-t border-(--mui-palette-divider)' : ''
-              } ${hostExpanded ? 'bg-(--mui-palette-action-hover)' : 'bg-(--mui-palette-background-level2)'}`}
+                nodeIdx > 0 ? 'border-t border-(--border)' : ''
+              } ${hostExpanded ? 'bg-(--accent)' : 'bg-(--level2)'}`}
             >
               <ChevronRight
                 size={18}
@@ -103,24 +104,22 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               />
               <Server size={18} className="shrink-0" />
               <span className="font-bold">{node.node}</span>
-              <Chip
-                size="small"
-                variant="filled"
-                color={node.status === 'online' ? 'success' : 'error'}
-                label={node.status}
-              />
+              <Badge variant={node.status === 'online' ? 'success' : 'destructive'}>
+                {node.status}
+              </Badge>
               <div className="ml-auto flex items-center gap-4 text-sm tabular-nums">
                 <span>CPU: {cpuPercent}%</span>
                 <span>Mem: {memPercent}%</span>
                 <span>Disk: {diskPercent}%</span>
-                <span className="text-(--mui-palette-text-secondary)">
+                <span className="text-(--muted-foreground)">
                   {node.status === 'online' ? formatUptime(node.uptime) : EMPTY_METRIC}
                 </span>
               </div>
             </div>
 
             {/* Expanded sections */}
-            <Collapse id={`proxmox-host-panel-${node.node}`} in={hostExpanded} unmountOnExit>
+            <Collapsible open={hostExpanded}>
+            <CollapsibleContent id={`proxmox-host-panel-${node.node}`}>
               {vms.length > 0 && (
                 <GuestSection
                   label="Virtual Machines"
@@ -152,10 +151,11 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
                   useAbbreviatedUnits={useAbbreviatedUnits}
                 />
               )}
-            </Collapse>
+            </CollapsibleContent>
+            </Collapsible>
           </div>
         )
       })}
-    </Paper>
+    </div>
   )
 }

@@ -37,6 +37,14 @@ export class EntityMetadataRepository {
     );
   }
 
+  async deleteEntityIcon(entity: string): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM entity_metadata
+       WHERE source = 'docker' AND entity = $1 AND key = 'icon'`,
+      [entity]
+    );
+  }
+
   /**
    * Upsert several entity/key/value rows in one statement via unnest.
    * Used by AgentStatsCollector to register a new container (name, image,

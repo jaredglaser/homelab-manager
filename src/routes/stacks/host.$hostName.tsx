@@ -1,5 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { Typography } from '@mui/material'
 import { ManagedHostsCard } from '@/components/settings/ManagedHostsCardConnected'
 
 export const Route = createFileRoute('/stacks/host/$hostName')({
@@ -12,7 +11,7 @@ function HostSettingsView() {
 
   return (
     <div className="max-w-2xl">
-      <Typography variant="h6" className="mb-4">{hostName}</Typography>
+      <h6 className="text-xl font-medium mb-4">{hostName}</h6>
       <ManagedHostsCard filterHostName={hostName} />
     </div>
   )

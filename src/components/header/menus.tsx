@@ -1,11 +1,9 @@
-import { createContext, useContext, useRef, useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { LogOut, Server, CircleUser } from 'lucide-react'
-import IconButton from '@mui/material/IconButton'
-import Popper from '@mui/material/Popper'
-import Paper from '@mui/material/Paper'
-import ClickAwayListener from '@mui/material/ClickAwayListener'
+import { Popover } from '@base-ui/react/popover'
+import { Button } from '@/components/ui/button'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import { listManagedHostNames, listStacks } from '@/data/stacks/functions'
 import { getIconUrl } from '@/lib/utils/icon-resolver'
@@ -16,7 +14,7 @@ export const NavMenuCloseContext = createContext<() => void>(() => {})
 
 const MENU_ITEM_CLASSES =
   'flex items-center gap-2 px-3 py-2 text-sm no-underline text-inherit ' +
-  'hover:bg-(--mui-palette-action-hover) transition-colors'
+  'hover:bg-accent transition-colors'
 
 export function SettingsMenuContent() {
   const close = useContext(NavMenuCloseContext)
@@ -54,7 +52,7 @@ export function StacksMenuContent() {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
   }
   if (isError) {
-    return <div className="px-3 py-2 text-sm text-(--mui-palette-error-main)">Failed to load stacks</div>
+    return <div className="px-3 py-2 text-sm text-destructive">Failed to load stacks</div>
   }
   if (!stacks?.length) {
     return <div className="px-3 py-2 text-sm opacity-60">No stacks</div>
@@ -78,7 +76,7 @@ export function StacksMenuContent() {
             {iconUrl ? (
               <img src={iconUrl} alt="" className="w-4 h-4 rounded-sm" />
             ) : (
-              <span className="w-4 h-4 rounded-sm bg-(--mui-palette-action-disabledBackground) flex items-center justify-center text-[10px] font-bold opacity-50">
+              <span className="w-4 h-4 rounded-sm bg-foreground/12 flex items-center justify-center text-[10px] font-bold opacity-50">
                 {(stack.name.charAt(0) || '?').toUpperCase()}
               </span>
             )}
@@ -103,7 +101,7 @@ export function DockerHostsMenuContent() {
     return <div className="px-3 py-2 text-sm opacity-60">Loading…</div>
   }
   if (isError) {
-    return <div className="px-3 py-2 text-sm text-(--mui-palette-error-main)">Failed to load hosts</div>
+    return <div className="px-3 py-2 text-sm text-destructive">Failed to load hosts</div>
   }
   if (!hosts?.length) {
     return <div className="px-3 py-2 text-sm opacity-60">No hosts</div>
@@ -130,32 +128,25 @@ export function DockerHostsMenuContent() {
 
 export function AccountMenu() {
   const [open, setOpen] = useState(false)
-  const anchorRef = useRef<HTMLButtonElement>(null)
 
   return (
-    <>
-      <IconButton
-        ref={anchorRef}
-        size="small"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-label="Account menu"
-        aria-haspopup="menu"
-        aria-expanded={open}
+    <Popover.Root open={open} onOpenChange={setOpen} modal={false}>
+      <Popover.Trigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-foreground"
+            aria-label="Account menu"
+            aria-haspopup="menu"
+          />
+        }
       >
         <CircleUser size={20} />
-      </IconButton>
-      <Popper
-        open={open}
-        anchorEl={anchorRef.current}
-        placement="bottom-end"
-        modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}
-        className="z-50!"
-      >
-        <ClickAwayListener onClickAway={() => setOpen(false)}>
-          <Paper
-            elevation={4}
-            className="rounded-xl! backdrop-blur-xl! bg-(--mui-palette-background-paper)/95! border border-(--mui-palette-divider)/30 overflow-hidden min-w-36 pointer-events-auto"
-          >
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Positioner side="bottom" align="end" sideOffset={8} className="z-50">
+          <Popover.Popup className="rounded-xl backdrop-blur-xl bg-card/95 border border-border/30 shadow-lg overflow-hidden min-w-36 pointer-events-auto outline-none">
             <div role="menu">
               <a
                 href="/api/auth/logout"
@@ -166,10 +157,10 @@ export function AccountMenu() {
                 <span>Log out</span>
               </a>
             </div>
-          </Paper>
-        </ClickAwayListener>
-      </Popper>
-    </>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
   )
 }
 

@@ -188,7 +188,7 @@ jobs:
           fetch-depth: 0
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v6
+        uses: SonarSource/sonarqube-scan-action@v8.1.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
@@ -217,7 +217,7 @@ jobs:
 
       - name: Extract metadata for web image
         id: meta-web
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/jaredglaser/homelab-manager-web
           tags: |
@@ -228,7 +228,7 @@ jobs:
 
       - name: Extract metadata for worker image
         id: meta-worker
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/jaredglaser/homelab-manager-worker
           tags: |
@@ -239,7 +239,7 @@ jobs:
 
       - name: Extract metadata for agent image
         id: meta-agent
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/jaredglaser/homelab-manager-agent
           tags: |
@@ -250,7 +250,7 @@ jobs:
 
       - name: Extract metadata for agent-updater image
         id: meta-agent-updater
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/jaredglaser/homelab-manager-agent-updater
           tags: |
@@ -342,10 +342,10 @@ jobs:
         uses: actions/configure-pages@v6
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: .output/public
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

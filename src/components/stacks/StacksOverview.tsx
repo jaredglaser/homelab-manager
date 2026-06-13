@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { Button, Paper, Typography } from '@mui/material'
+import { Button } from '@/components/ui/button'
 import { Server, Layers, Plus } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useStackListContext, useStackStatusContext } from '@/components/stacks/stacks-context'
@@ -67,7 +67,7 @@ export default function StacksOverview() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 opacity-50">
-        <Typography variant="body2">Loading stacks...</Typography>
+        <p className="text-sm">Loading stacks...</p>
       </div>
     )
   }
@@ -77,8 +77,9 @@ export default function StacksOverview() {
       <>
         <div className="flex flex-col items-center justify-center h-64 gap-3">
           <Layers size={40} className="opacity-20" />
-          <Typography variant="body1" className="opacity-50">No stacks yet.</Typography>
-          <Button variant="outlined" size="small" startIcon={<Plus size={14} />} onClick={openDialog}>
+          <p className="text-base opacity-50">No stacks yet.</p>
+          <Button variant="outline" size="sm" onClick={openDialog}>
+            <Plus size={14} />
             New stack
           </Button>
         </div>
@@ -91,26 +92,26 @@ export default function StacksOverview() {
     <>
       <div className="max-w-lg">
         <div className="flex items-center justify-between mb-4">
-          <Typography variant="h6">Stacks Overview</Typography>
-          <Button variant="outlined" size="small" startIcon={<Plus size={14} />} onClick={openDialog}>
+          <h6 className="text-xl font-medium">Stacks Overview</h6>
+          <Button variant="outline" size="sm" onClick={openDialog}>
+            <Plus size={14} />
             New stack
           </Button>
         </div>
         <div className="flex flex-col gap-3">
           {hostSummaries.map(({ host, total, running }) => (
-            <Paper
+            <div
               key={host}
-              variant="outlined"
-              className="flex items-center gap-3 px-4 py-3"
+              className="flex items-center gap-3 px-4 py-3 bg-card rounded-lg border border-border"
             >
               <Server size={18} className="opacity-50" />
               <div className="flex-1">
-                <Typography variant="body2" className="font-medium">{host}</Typography>
-                <Typography variant="caption" className="opacity-60">
+                <p className="text-sm font-medium">{host}</p>
+                <span className="text-xs opacity-60">
                   {total} {total === 1 ? 'stack' : 'stacks'} &middot; {running} running
-                </Typography>
+                </span>
               </div>
-            </Paper>
+            </div>
           ))}
         </div>
       </div>

@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import IconGrid from '../IconGrid';
 
 let origGetBCR: typeof HTMLElement.prototype.getBoundingClientRect;
+let origFetch: typeof globalThis.fetch;
 const origDescriptors = {
   clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
   scrollHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollHeight'),
@@ -17,10 +18,15 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, 'clientHeight', { configurable: true, get() { return 600; } });
   Object.defineProperty(HTMLElement.prototype, 'scrollHeight', { configurable: true, get() { return 600; } });
   Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return 600; } });
+  // IconCell calls fetch in useLayoutEffect; stub it out so the test environment
+  // doesn't generate act() warnings from async failure paths.
+  origFetch = globalThis.fetch;
+  globalThis.fetch = mock(() => new Promise(() => {})) as unknown as typeof globalThis.fetch;
 });
 
 afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = origGetBCR;
+  globalThis.fetch = origFetch;
   for (const prop of ['clientHeight', 'scrollHeight', 'offsetHeight'] as const) {
     const desc = origDescriptors[prop];
     if (desc) {

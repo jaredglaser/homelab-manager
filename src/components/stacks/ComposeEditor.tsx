@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Paper, Typography, CircularProgress } from '@mui/material';
+import { Button } from '@/components/ui/button';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks/functions';
+import { Spinner } from '@/components/ui/spinner';
 
 interface ComposeEditorProps {
   stackName: string;
@@ -62,25 +63,24 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
     && document.documentElement.dataset.colorScheme === 'dark';
 
   return (
-    <Paper elevation={0} className="mb-4 bg-(--mui-palette-background-chartBg)! rounded-sm overflow-hidden">
+    <div className="mb-4 bg-chart-bg rounded-sm overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-3 px-3 py-2 border-b border-(--mui-palette-divider)">
-        <Typography variant="subtitle2" className="flex-1">
+      <div className="flex items-center gap-3 px-3 py-2 border-b border-(--border)">
+        <p className="text-sm font-medium flex-1">
           docker-compose.yml
-        </Typography>
+        </p>
         {isDirty && (
-          <Typography variant="caption" className="opacity-60">
+          <span className="text-xs opacity-60">
             Unsaved changes
-          </Typography>
+          </span>
         )}
         <Button
-          size="small"
-          variant="contained"
-          startIcon={saveMutation.isPending ? <CircularProgress size={14} /> : <Save size={14} />}
+          size="sm"
           onClick={() => saveMutation.mutate()}
           disabled={!isDirty || saveMutation.isPending}
-          className="normal-case!"
+          className="normal-case"
         >
+          {saveMutation.isPending ? <Spinner className="size-3.5" /> : <Save size={14} />}
           Save &amp; Commit
         </Button>
       </div>
@@ -89,9 +89,9 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
       <div className="min-h-[400px]">
         {monacoLoadFailed ? (
           <div className="flex items-center justify-center h-[400px]">
-            <Typography variant="body2" className="opacity-50">
+            <p className="text-sm opacity-50">
               Failed to load editor. Please refresh the page.
-            </Typography>
+            </p>
           </div>
         ) : monacoReady ? (
           <Editor
@@ -115,16 +115,16 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
             }}
             loading={
               <div className="flex items-center justify-center h-full">
-                <CircularProgress size={24} />
+                <Spinner className="size-6" />
               </div>
             }
           />
         ) : (
           <div className="flex items-center justify-center h-[400px]">
-            <CircularProgress size={24} />
+            <Spinner className="size-6" />
           </div>
         )}
       </div>
-    </Paper>
+    </div>
   );
 }

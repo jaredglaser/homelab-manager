@@ -1,28 +1,23 @@
 import { useState } from 'react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import {
-  Card,
-  Typography,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Button,
-  IconButton,
-  Tooltip,
   Dialog,
-  DialogTitle,
   DialogContent,
-  DialogContentText,
-  DialogActions,
-  TextField,
-  Alert,
-  CircularProgress,
-} from '@mui/material'
+  DialogTitle,
+  DialogDescription,
+  DialogBody,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { HelpCircle, Trash2 } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listUsers, listSessions, revokeSession, revokeAllUserSessions, getRoleMapping } from '@/data/auth.functions'
 import { listGitTokens, createGitToken, revokeGitToken } from '@/data/git-tokens.functions'
+import { Spinner } from '@/components/ui/spinner';
 
 function RoleMappingPanel() {
   const { data: roleMapping } = useQuery({
@@ -48,20 +43,23 @@ function RoleMappingPanel() {
   return (
     <div>
       <div className="flex items-center gap-1 mb-2">
-        <Typography variant="subtitle2">Role Mappings</Typography>
-        <Tooltip title={tooltipContent} arrow>
-          <IconButton size="small" aria-label="Role mapping info">
+        <p className="text-sm font-medium">Role Mappings</p>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="ghost" size="icon-sm" className="text-foreground" aria-label="Role mapping info" />}
+          >
             <HelpCircle size={16} />
-          </IconButton>
+          </TooltipTrigger>
+          <TooltipContent>{tooltipContent}</TooltipContent>
         </Tooltip>
       </div>
-      <Table size="small">
-        <TableHead>
+      <Table>
+        <TableHeader>
           <TableRow>
-            <TableCell>Role</TableCell>
-            <TableCell>OIDC Group</TableCell>
+            <TableHead>Role</TableHead>
+            <TableHead>OIDC Group</TableHead>
           </TableRow>
-        </TableHead>
+        </TableHeader>
         <TableBody>
           {roleMappings.map(({ role, group }) => (
             <TableRow key={role}>
@@ -83,32 +81,32 @@ function UsersTable() {
 
   return (
     <div>
-      <Typography variant="subtitle2" className="mb-2">Users</Typography>
+      <p className="text-sm font-medium mb-2">Users</p>
       {isError ? (
-        <Alert severity="error" className="mb-2">
-          Failed to load users: {error instanceof Error ? error.message : 'Unknown error'}
+        <Alert variant="error" className="mb-2">
+          <AlertDescription>Failed to load users: {error instanceof Error ? error.message : 'Unknown error'}</AlertDescription>
         </Alert>
       ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
-          <CircularProgress size={16} />
-          <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">Loading users…</Typography>
+          <Spinner className="size-4" />
+          <p className="text-sm text-muted-foreground">Loading users…</p>
         </div>
       ) : (
-        <Table size="small">
-          <TableHead>
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell>Role</TableCell>
-              <TableCell>Last Login</TableCell>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Last Login</TableHead>
             </TableRow>
-          </TableHead>
+          </TableHeader>
           <TableBody>
             {users.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4}>
-                  <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">No users found.</Typography>
+                  <p className="text-sm text-muted-foreground">No users found.</p>
                 </TableCell>
               </TableRow>
             ) : (
@@ -151,22 +149,24 @@ function SessionsTable() {
 
   return (
     <div>
-      <Typography variant="subtitle2" className="mb-2">Active Sessions</Typography>
-      <Alert severity="info" className="mb-2">
-        Role changes in your OIDC provider take effect on next login. To apply immediately, revoke the user&apos;s sessions.
+      <p className="text-sm font-medium mb-2">Active Sessions</p>
+      <Alert variant="info" className="mb-2">
+        <AlertDescription>
+          Role changes in your OIDC provider take effect on next login. To apply immediately, revoke the user&apos;s sessions.
+        </AlertDescription>
       </Alert>
       {isError ? (
-        <Alert severity="error" className="mb-2">
-          Failed to load sessions: {error instanceof Error ? error.message : 'Unknown error'}
+        <Alert variant="error" className="mb-2">
+          <AlertDescription>Failed to load sessions: {error instanceof Error ? error.message : 'Unknown error'}</AlertDescription>
         </Alert>
       ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
-          <CircularProgress size={16} />
-          <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">Loading sessions…</Typography>
+          <Spinner className="size-4" />
+          <p className="text-sm text-muted-foreground">Loading sessions…</p>
         </div>
       ) : sessions.length === 0 ? (
-        <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)] py-2">No active sessions.</Typography>
+        <p className="text-sm text-muted-foreground py-2">No active sessions.</p>
       ) : (
         userIds.map((userId) => {
           const userSessions = sessions.filter((s) => s.userId === userId)
@@ -176,11 +176,11 @@ function SessionsTable() {
           return (
             <div key={userId} className="mb-4">
               <div className="flex items-center justify-between mb-1">
-                <Typography variant="body2" className="font-semibold">{displayName}</Typography>
+                <p className="text-sm font-semibold">{displayName}</p>
                 <Button
-                  size="small"
-                  color="error"
-                  variant="outlined"
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive border-destructive/50 hover:border-destructive hover:bg-destructive/5"
                   disabled={revokeAllMutation.isPending}
                   onClick={() => revokeAllMutation.mutate(userId)}
                   aria-label={`Revoke all sessions for ${displayName}`}
@@ -188,45 +188,50 @@ function SessionsTable() {
                   Revoke All Sessions
                 </Button>
               </div>
-              <Table size="small">
-                <TableHead>
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableCell>User</TableCell>
-                    <TableCell>IP Address</TableCell>
-                    <TableCell>User Agent</TableCell>
-                    <TableCell>Created</TableCell>
-                    <TableCell>Expires</TableCell>
-                    <TableCell />
+                    <TableHead>User</TableHead>
+                    <TableHead>IP Address</TableHead>
+                    <TableHead>User Agent</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Expires</TableHead>
+                    <TableHead />
                   </TableRow>
-                </TableHead>
+                </TableHeader>
                 <TableBody>
                   {userSessions.map((session) => (
                     <TableRow key={session.id}>
                       <TableCell>
                         <div>{session.userName ?? '—'}</div>
-                        <div className="text-xs text-[var(--mui-palette-text-secondary)]">{session.userEmail}</div>
+                        <div className="text-xs text-muted-foreground">{session.userEmail}</div>
                       </TableCell>
                       <TableCell>{session.ipAddress ?? '—'}</TableCell>
                       <TableCell>
-                        <Tooltip title={session.userAgent ?? ''} arrow>
-                          <span>{truncate(session.userAgent ?? '', 50)}</span>
+                        <Tooltip>
+                          <TooltipTrigger render={<span />}>{truncate(session.userAgent ?? '', 50)}</TooltipTrigger>
+                          <TooltipContent>{session.userAgent ?? ''}</TooltipContent>
                         </Tooltip>
                       </TableCell>
                       <TableCell>{formatDate(session.createdAt)}</TableCell>
                       <TableCell>{formatDate(session.expiresAt)}</TableCell>
                       <TableCell>
-                        <Tooltip title="Revoke session">
-                          <span>
-                            <IconButton
-                              size="small"
-                              color="error"
-                              disabled={revokeMutation.isPending}
-                              onClick={() => revokeMutation.mutate(session.id)}
-                              aria-label="Revoke session"
-                            >
-                              <Trash2 size={14} />
-                            </IconButton>
-                          </span>
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="text-destructive"
+                                disabled={revokeMutation.isPending}
+                                onClick={() => revokeMutation.mutate(session.id)}
+                                aria-label="Revoke session"
+                              />
+                            }
+                          >
+                            <Trash2 size={14} />
+                          </TooltipTrigger>
+                          <TooltipContent>Revoke session</TooltipContent>
                         </Tooltip>
                       </TableCell>
                     </TableRow>
@@ -263,49 +268,48 @@ function GenerateTokenDialog({ open, onClose, onGenerate, isGenerating, newToken
   }
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Generate Git Token</DialogTitle>
-      <DialogContent className="flex flex-col gap-4 !pt-4">
-        {newToken ? (
-          <>
-            <Alert severity="warning">
-              Copy this token now — it will not be shown again.
-            </Alert>
-            <div className="p-3 rounded bg-[var(--mui-palette-background-level1)]">
-              <Typography variant="body2" className="font-mono break-all">{newToken}</Typography>
-            </div>
-          </>
-        ) : (
-          <>
-            <DialogContentText>Enter a label to identify this token.</DialogContentText>
-            <TextField
-              label="Label"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              size="small"
-              disabled={isGenerating}
-              fullWidth
-              slotProps={{ htmlInput: { 'aria-label': 'Token label' } }}
-            />
-          </>
-        )}
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose() }}>
+      <DialogContent>
+        <DialogTitle>Generate Git Token</DialogTitle>
+        <DialogBody className="flex flex-col gap-4 pt-1">
+          {newToken ? (
+            <>
+              <Alert variant="warning">
+                <AlertDescription>Copy this token now — it will not be shown again.</AlertDescription>
+              </Alert>
+              <div className="p-3 rounded bg-level1">
+                <p className="text-sm font-mono break-all">{newToken}</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <DialogDescription className="px-0">Enter a label to identify this token.</DialogDescription>
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="git-token-label">Label</Label>
+                <Input
+                  id="git-token-label"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  disabled={isGenerating}
+                  aria-label="Token label"
+                />
+              </div>
+            </>
+          )}
+        </DialogBody>
+        <DialogFooter>
+          {newToken ? (
+            <Button variant="ghost" onClick={handleClose}>Done</Button>
+          ) : (
+            <>
+              <Button variant="ghost" onClick={handleClose} disabled={isGenerating}>Cancel</Button>
+              <Button onClick={handleGenerate} disabled={!label.trim() || isGenerating}>
+                {isGenerating ? <Spinner className="size-4" /> : 'Generate'}
+              </Button>
+            </>
+          )}
+        </DialogFooter>
       </DialogContent>
-      <DialogActions>
-        {newToken ? (
-          <Button onClick={handleClose}>Done</Button>
-        ) : (
-          <>
-            <Button onClick={handleClose} disabled={isGenerating}>Cancel</Button>
-            <Button
-              onClick={handleGenerate}
-              variant="contained"
-              disabled={!label.trim() || isGenerating}
-            >
-              {isGenerating ? <CircularProgress size={16} /> : 'Generate'}
-            </Button>
-          </>
-        )}
-      </DialogActions>
     </Dialog>
   )
 }
@@ -341,41 +345,37 @@ function GitTokensTable() {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <Typography variant="subtitle2">Git Tokens</Typography>
-        <Button
-          size="small"
-          variant="outlined"
-          onClick={() => setGenerateDialogOpen(true)}
-        >
+        <p className="text-sm font-medium">Git Tokens</p>
+        <Button size="sm" variant="outline" onClick={() => setGenerateDialogOpen(true)}>
           Generate Token
         </Button>
       </div>
       {isError ? (
-        <Alert severity="error" className="mb-2">
-          Failed to load tokens: {error instanceof Error ? error.message : 'Unknown error'}
+        <Alert variant="error" className="mb-2">
+          <AlertDescription>Failed to load tokens: {error instanceof Error ? error.message : 'Unknown error'}</AlertDescription>
         </Alert>
       ) : null}
       {isLoading ? (
         <div className="flex items-center gap-2 py-2">
-          <CircularProgress size={16} />
-          <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">Loading tokens…</Typography>
+          <Spinner className="size-4" />
+          <p className="text-sm text-muted-foreground">Loading tokens…</p>
         </div>
       ) : (
-        <Table size="small">
-          <TableHead>
+        <Table>
+          <TableHeader>
             <TableRow>
-              <TableCell>User</TableCell>
-              <TableCell>Label</TableCell>
-              <TableCell>Last Used</TableCell>
-              <TableCell>Created</TableCell>
-              <TableCell />
+              <TableHead>User</TableHead>
+              <TableHead>Label</TableHead>
+              <TableHead>Last Used</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead />
             </TableRow>
-          </TableHead>
+          </TableHeader>
           <TableBody>
             {tokens.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5}>
-                  <Typography variant="body2" className="text-[var(--mui-palette-text-secondary)]">No tokens.</Typography>
+                  <p className="text-sm text-muted-foreground">No tokens.</p>
                 </TableCell>
               </TableRow>
             ) : (
@@ -386,18 +386,22 @@ function GitTokensTable() {
                   <TableCell>{token.lastUsedAt ? formatDate(token.lastUsedAt) : '—'}</TableCell>
                   <TableCell>{formatDate(token.createdAt)}</TableCell>
                   <TableCell>
-                    <Tooltip title="Revoke token">
-                      <span>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          disabled={revokeMutation.isPending}
-                          onClick={() => revokeMutation.mutate(token.id)}
-                          aria-label="Revoke token"
-                        >
-                          <Trash2 size={14} />
-                        </IconButton>
-                      </span>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-destructive"
+                            disabled={revokeMutation.isPending}
+                            onClick={() => revokeMutation.mutate(token.id)}
+                            aria-label="Revoke token"
+                          />
+                        }
+                      >
+                        <Trash2 size={14} />
+                      </TooltipTrigger>
+                      <TooltipContent>Revoke token</TooltipContent>
                     </Tooltip>
                   </TableCell>
                 </TableRow>
@@ -423,15 +427,15 @@ function GitTokensTable() {
  */
 export function AuthManagementCard() {
   return (
-    <Card variant="outlined" className="p-4">
-      <Typography variant="h6" className="mb-4">Auth Management</Typography>
+    <div className="p-4 bg-card rounded-lg border border-border">
+      <h6 className="text-xl font-medium mb-4">Auth Management</h6>
       <div className="flex flex-col gap-6">
         <RoleMappingPanel />
         <UsersTable />
         <SessionsTable />
         <GitTokensTable />
       </div>
-    </Card>
+    </div>
   )
 }
 
