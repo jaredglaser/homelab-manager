@@ -161,7 +161,7 @@ Hosts are registered via the Settings UI and stored in the `managed_hosts` datab
 A separate Bun package that runs as a sidecar container alongside each managed Docker host. Zero framework dependencies beyond Dockerode. Capabilities are auto-detected at startup (Docker via `DOCKER_HOST` env var, ZFS via `zpool` binary presence).
 
 **Architecture:**
-- Ed25519 JWT authentication (trusted public JWK loaded from `AGENT_TRUSTED_PUBKEY[_FILE]` at startup; per-request JWTs verified against it). JWTs carry `aud` set to the managed host name; set `AGENT_HOST_NAME` on the agent to enforce audience verification (when unset, the agent logs a startup warning and skips the check)
+- Ed25519 JWT authentication (trusted public JWK loaded from `AGENT_TRUSTED_PUBKEY[_FILE]` at startup; per-request JWTs verified against it). JWTs carry `aud` set to the managed host name; the agent verifies it against the required `AGENT_HOST_NAME` so a token minted for another host is rejected
 - Optional TLS via `TLS_CERT_PATH` and `TLS_KEY_PATH`
 - Connects to Docker via `DOCKER_HOST` env var (socket proxy recommended)
 - Subprocess timeout (5 minutes) for `docker compose` operations

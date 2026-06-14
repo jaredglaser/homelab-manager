@@ -3,35 +3,36 @@ import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import { authenticateRequest } from '../middleware';
 import { loadTrustedPublicKey } from '../lib/jwt-auth';
 
+const HOST = 'test-host';
+
 async function makeAuth(): Promise<{ trusted: CryptoKey; sign: (overrides?: { iss?: string; aud?: string }) => Promise<string>; privateKey: CryptoKey }> {
   const { publicKey, privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
   const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
   return {
     trusted,
     privateKey,
-    sign: (overrides) => {
-      let b = new SignJWT({})
+    sign: (overrides) =>
+      new SignJWT({})
         .setProtectedHeader({ alg: 'EdDSA' })
         .setIssuer(overrides?.iss ?? 'homelab-manager')
+        .setAudience(overrides?.aud ?? HOST)
         .setIssuedAt()
         .setJti(crypto.randomUUID())
-        .setExpirationTime('30s');
-      if (overrides?.aud !== undefined) b = b.setAudience(overrides.aud);
-      return b.sign(privateKey);
-    },
+        .setExpirationTime('30s')
+        .sign(privateKey),
   };
 }
 
 describe('authenticateRequest (JWT)', () => {
   it('skips auth on /health', async () => {
     const { trusted } = await makeAuth();
-    const result = await authenticateRequest(new Headers(), trusted, '/health');
+    const result = await authenticateRequest(new Headers(), trusted, '/health', HOST);
     expect(result).toBeNull();
   });
 
   it('returns 401 when Authorization missing', async () => {
     const { trusted } = await makeAuth();
-    const result = await authenticateRequest(new Headers(), trusted, '/stats');
+    const result = await authenticateRequest(new Headers(), trusted, '/stats', HOST);
     expect(result?.status).toBe(401);
   });
 
@@ -42,6 +43,7 @@ describe('authenticateRequest (JWT)', () => {
       new Headers({ Authorization: `Bearer ${jwt}` }),
       trusted,
       '/stats',
+      HOST,
     );
     expect(result).toBeNull();
   });
@@ -52,6 +54,7 @@ describe('authenticateRequest (JWT)', () => {
       new Headers({ Authorization: 'Basic xyz' }),
       trusted,
       '/stats',
+      HOST,
     );
     expect(result?.status).toBe(401);
   });
@@ -64,6 +67,7 @@ describe('authenticateRequest (JWT)', () => {
       new Headers({ Authorization: `Bearer ${jwt}` }),
       trusted,
       '/stats',
+      HOST,
     );
     expect(result?.status).toBe(401);
   });
@@ -75,23 +79,12 @@ describe('authenticateRequest (JWT)', () => {
       new Headers({ Authorization: `Bearer ${jwt}` }),
       trusted,
       '/stats',
+      HOST,
     );
     expect(result?.status).toBe(401);
   });
 
-  it('accepts a JWT with matching aud when expectedAudience is set', async () => {
-    const { trusted, sign } = await makeAuth();
-    const jwt = await sign({ aud: 'host-a' });
-    const result = await authenticateRequest(
-      new Headers({ Authorization: `Bearer ${jwt}` }),
-      trusted,
-      '/stats',
-      'host-a',
-    );
-    expect(result).toBeNull();
-  });
-
-  it('rejects a JWT with mismatched aud when expectedAudience is set', async () => {
+  it('rejects a JWT whose aud is another host', async () => {
     const { trusted, sign } = await makeAuth();
     const jwt = await sign({ aud: 'host-b' });
     const result = await authenticateRequest(
@@ -109,19 +102,21 @@ describe('authenticateRequest (JWT)', () => {
       new Headers({ Authorization: 'Bearer ' }),
       trusted,
       '/stats',
+      HOST,
     );
     expect(result?.status).toBe(401);
   });
 
   it('requires auth on /auth/verify (not bypassed like /health)', async () => {
     const { trusted, sign } = await makeAuth();
-    const noAuth = await authenticateRequest(new Headers(), trusted, '/auth/verify');
+    const noAuth = await authenticateRequest(new Headers(), trusted, '/auth/verify', HOST);
     expect(noAuth?.status).toBe(401);
     const jwt = await sign();
     const withAuth = await authenticateRequest(
       new Headers({ Authorization: `Bearer ${jwt}` }),
       trusted,
       '/auth/verify',
+      HOST,
     );
     expect(withAuth).toBeNull();
   });

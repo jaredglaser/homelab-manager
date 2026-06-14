@@ -2,6 +2,8 @@ import { describe, it, expect } from 'bun:test';
 import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 import { loadTrustedPublicKey, verifyAgentJwt } from '../jwt-auth';
 
+const HOST = 'host-a';
+
 async function makePair() {
   const { publicKey, privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519', extractable: true });
   return { publicKey, privateKey };
@@ -11,9 +13,9 @@ async function sign(privateKey: CryptoKey, opts: { iss?: string; aud?: string; e
   let b = new SignJWT({})
     .setProtectedHeader({ alg: 'EdDSA' })
     .setIssuer(opts.iss ?? 'homelab-manager')
+    .setAudience(opts.aud ?? HOST)
     .setIssuedAt()
     .setJti(crypto.randomUUID());
-  if (opts.aud !== undefined) b = b.setAudience(opts.aud);
   if (opts.expSeconds !== undefined) b = b.setExpirationTime(`${opts.expSeconds}s`);
   return b.sign(privateKey);
 }
@@ -24,14 +26,14 @@ describe('verifyAgentJwt', () => {
     const jwk = await exportJWK(publicKey);
     const trusted = await loadTrustedPublicKey(JSON.stringify(jwk));
     const jwt = await sign(privateKey, { expSeconds: 30 });
-    await expect(verifyAgentJwt(jwt, trusted)).resolves.toBeUndefined();
+    await expect(verifyAgentJwt(jwt, trusted, HOST)).resolves.toBeUndefined();
   });
 
   it('rejects JWT with wrong issuer', async () => {
     const { publicKey, privateKey } = await makePair();
     const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
     const jwt = await sign(privateKey, { iss: 'attacker', expSeconds: 30 });
-    await expect(verifyAgentJwt(jwt, trusted)).rejects.toThrow();
+    await expect(verifyAgentJwt(jwt, trusted, HOST)).rejects.toThrow();
   });
 
   it('rejects expired JWT', async () => {
@@ -40,11 +42,12 @@ describe('verifyAgentJwt', () => {
     const jwt = await new SignJWT({})
       .setProtectedHeader({ alg: 'EdDSA' })
       .setIssuer('homelab-manager')
+      .setAudience(HOST)
       .setIssuedAt(Math.floor(Date.now() / 1000) - 120)
       .setExpirationTime(Math.floor(Date.now() / 1000) - 60)
       .setJti(crypto.randomUUID())
       .sign(privateKey);
-    await expect(verifyAgentJwt(jwt, trusted)).rejects.toThrow();
+    await expect(verifyAgentJwt(jwt, trusted, HOST)).rejects.toThrow();
   });
 
   it('rejects JWT signed by a different key', async () => {
@@ -52,35 +55,27 @@ describe('verifyAgentJwt', () => {
     const otherPair = await makePair();
     const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(trustedPair.publicKey)));
     const jwt = await sign(otherPair.privateKey, { expSeconds: 30 });
-    await expect(verifyAgentJwt(jwt, trusted)).rejects.toThrow();
+    await expect(verifyAgentJwt(jwt, trusted, HOST)).rejects.toThrow();
   });
 
-  it('accepts a JWT whose aud matches the expected audience', async () => {
-    const { publicKey, privateKey } = await makePair();
-    const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
-    const jwt = await sign(privateKey, { aud: 'host-a', expSeconds: 30 });
-    await expect(verifyAgentJwt(jwt, trusted, 'host-a')).resolves.toBeUndefined();
-  });
-
-  it('rejects a JWT whose aud does not match the expected audience', async () => {
+  it('rejects a JWT whose aud is another host', async () => {
     const { publicKey, privateKey } = await makePair();
     const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
     const jwt = await sign(privateKey, { aud: 'host-b', expSeconds: 30 });
     await expect(verifyAgentJwt(jwt, trusted, 'host-a')).rejects.toThrow();
   });
 
-  it('rejects a JWT without aud when an expected audience is set', async () => {
+  it('rejects a JWT without aud', async () => {
     const { publicKey, privateKey } = await makePair();
     const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
-    const jwt = await sign(privateKey, { expSeconds: 30 });
+    const jwt = await new SignJWT({})
+      .setProtectedHeader({ alg: 'EdDSA' })
+      .setIssuer('homelab-manager')
+      .setIssuedAt()
+      .setExpirationTime('30s')
+      .setJti(crypto.randomUUID())
+      .sign(privateKey);
     await expect(verifyAgentJwt(jwt, trusted, 'host-a')).rejects.toThrow();
-  });
-
-  it('skips audience verification when no expected audience is set', async () => {
-    const { publicKey, privateKey } = await makePair();
-    const trusted = await loadTrustedPublicKey(JSON.stringify(await exportJWK(publicKey)));
-    const jwt = await sign(privateKey, { aud: 'some-other-host', expSeconds: 30 });
-    await expect(verifyAgentJwt(jwt, trusted)).resolves.toBeUndefined();
   });
 
   it('accepts a JWT that expired within the 5s clock tolerance', async () => {
@@ -90,11 +85,12 @@ describe('verifyAgentJwt', () => {
     const jwt = await new SignJWT({})
       .setProtectedHeader({ alg: 'EdDSA' })
       .setIssuer('homelab-manager')
+      .setAudience(HOST)
       .setIssuedAt(now - 33)
       .setExpirationTime(now - 3)
       .setJti(crypto.randomUUID())
       .sign(privateKey);
-    await expect(verifyAgentJwt(jwt, trusted)).resolves.toBeUndefined();
+    await expect(verifyAgentJwt(jwt, trusted, HOST)).resolves.toBeUndefined();
   });
 
   it('accepts a JWT issued slightly in the future (skewed agent clock)', async () => {
@@ -104,11 +100,12 @@ describe('verifyAgentJwt', () => {
     const jwt = await new SignJWT({})
       .setProtectedHeader({ alg: 'EdDSA' })
       .setIssuer('homelab-manager')
+      .setAudience(HOST)
       .setIssuedAt(now + 3)
       .setExpirationTime(now + 33)
       .setJti(crypto.randomUUID())
       .sign(privateKey);
-    await expect(verifyAgentJwt(jwt, trusted)).resolves.toBeUndefined();
+    await expect(verifyAgentJwt(jwt, trusted, HOST)).resolves.toBeUndefined();
   });
 
   it('loadTrustedPublicKey throws on invalid JSON', async () => {

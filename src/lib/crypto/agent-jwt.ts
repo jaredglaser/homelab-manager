@@ -4,8 +4,7 @@ export const AGENT_JWT_ISSUER = 'homelab-manager';
 const TTL_SECONDS = 30;
 
 export async function signAgentJwt(privateKey: CryptoKey, hostName: string): Promise<string> {
-  // aud pins the token to one agent: with shared or copy-pasted keys, an agent
-  // configured with AGENT_HOST_NAME rejects tokens minted for a different host.
+  // aud pins the token to one host so a reused keypair can't accept another's.
   return new SignJWT({})
     .setProtectedHeader({ alg: 'EdDSA' })
     .setIssuer(AGENT_JWT_ISSUER)
