@@ -1,4 +1,5 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogBody, DialogFooter } from '@/components/ui/dialog';
 
 interface RollbackDialogProps {
   open: boolean;
@@ -16,29 +17,27 @@ export default function RollbackDialog({
   commitSha,
 }: RollbackDialogProps) {
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Rollback {stackName}?</DialogTitle>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent>
-        <Typography variant="body2">
-          This will redeploy commit{' '}
-          <code className="font-mono text-xs bg-(--mui-palette-action-hover) px-1 py-0.5 rounded">
-            {commitSha}
-          </code>
-          . Containers will be recreated with the previous compose configuration.
-        </Typography>
+        <DialogTitle>Rollback {stackName}?</DialogTitle>
+        <DialogBody>
+          <p className="text-sm">
+            This will redeploy commit{' '}
+            <code className="font-mono text-xs bg-accent px-1 py-0.5 rounded">
+              {commitSha}
+            </code>
+            . Containers will be recreated with the previous compose configuration.
+          </p>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" className="text-foreground" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="destructive" onClick={onConfirm}>
+            Confirm Rollback
+          </Button>
+        </DialogFooter>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose} color="inherit">
-          Cancel
-        </Button>
-        <Button
-          onClick={onConfirm}
-          variant="contained"
-          className="bg-red-600! hover:bg-red-700! text-white!"
-        >
-          Confirm Rollback
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 }
