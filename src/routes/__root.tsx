@@ -68,9 +68,12 @@ function RootLayout() {
   );
 }
 
-function RootDocument({ children }: { children: React.ReactNode }) {
+function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning: the pre-paint script below sets data-color-scheme
+    // on <html> before React hydrates the static shell (which has no such
+    // attribute), so the attribute mismatch on this element is intentional.
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Set the color scheme before first paint to avoid a light/dark flash.
             Mirrors the default and legacy-key logic in useColorMode. */}
