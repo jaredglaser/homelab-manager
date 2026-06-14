@@ -410,14 +410,14 @@ describe('ManagedHostsCard', () => {
       expect(screen.queryByLabelText('Edit Socket Proxy URL')).toBeNull()
     })
 
-    it('calls onUpdate with correct values when Save is clicked', () => {
+    it('calls onUpdate with the unchanged name and edited URL when Save is clicked', () => {
       const onUpdate = mock(() => {})
       const host = makeHost()
       render(<ManagedHostsCardView {...makeProps({ hosts: [host], onUpdate })} />)
       fireEvent.click(screen.getByLabelText('edit host'))
-      fireEvent.change(screen.getByLabelText('Edit Host Name'), { target: { value: 'updated-server' } })
+      fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: 'http://10.0.0.9:9090' } })
       fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-      expect(onUpdate).toHaveBeenCalledWith(1, 'updated-server', 'http://192.168.1.10:9090')
+      expect(onUpdate).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.9:9090')
     })
 
     it('does not call onUpdate when Cancel is clicked', () => {
