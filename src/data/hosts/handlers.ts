@@ -271,14 +271,15 @@ export async function handleRegisterExistingHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { name: string; agentUrl: string },
 ): Promise<AddHostResult> {
+  const name = data.name.trim();
   const host = await deps.repo.create({
-    name: data.name,
+    name,
     agentUrl: data.agentUrl,
   });
 
   let publicJwk;
   try {
-    ({ publicJwk } = await deps.keypairs.createForHost(data.name));
+    ({ publicJwk } = await deps.keypairs.createForHost(name));
   } catch (err) {
     await deps.repo.delete(host.id);
     throw new Error(
@@ -302,15 +303,16 @@ export async function handleVerifyHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
+  const name = data.name.trim();
   const host = await deps.repo.create({
-    name: data.name,
+    name,
     agentUrl: data.agentUrl,
     capabilities: data.capabilities,
   });
 
   let publicJwk;
   try {
-    ({ publicJwk } = await deps.keypairs.createForHost(data.name));
+    ({ publicJwk } = await deps.keypairs.createForHost(name));
   } catch (err) {
     await deps.repo.delete(host.id);
     throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`);
@@ -408,8 +410,10 @@ async function finalizeHostRecord(
 
 export async function handleAddHost(
   deps: AddHostDeps,
-  data: AddHostInput,
+  dataInput: AddHostInput,
 ): Promise<AddHostResult> {
+  const data: AddHostInput = { ...dataInput, name: dataInput.name.trim() };
+
   const host = await deps.repo.create({
     name: data.name,
     agentUrl: '',

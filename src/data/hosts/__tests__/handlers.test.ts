@@ -213,6 +213,17 @@ describe('handleVerifyHost', () => {
       capabilities: { docker: true, zfs: true },
     });
   });
+
+  it('trims the host name before create and keypair generation', async () => {
+    const deps = verifyDeps();
+    await handleVerifyHost(deps, { name: '  padded-host  ', agentUrl: 'http://x:9090' });
+    expect(deps.repo.create).toHaveBeenCalledWith({
+      name: 'padded-host',
+      agentUrl: 'http://x:9090',
+      capabilities: undefined,
+    });
+    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('padded-host');
+  });
 });
 
 describe('handleRegisterExistingHost', () => {
@@ -254,6 +265,16 @@ describe('handleRegisterExistingHost', () => {
     ).rejects.toThrow(/Failed to generate agent keypair/);
 
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('trims the host name before create and keypair generation', async () => {
+    const deps = registerDeps();
+    await handleRegisterExistingHost(deps, { name: '  padded-host  ', agentUrl: 'http://x:9090' });
+    expect(deps.repo.create).toHaveBeenCalledWith({
+      name: 'padded-host',
+      agentUrl: 'http://x:9090',
+    });
+    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('padded-host');
   });
 });
 
@@ -413,6 +434,15 @@ describe('handleAddHost', () => {
     // deleteForHost threw but error was swallowed; rollback error is the one that propagates
     expect(deps.keypairs.deleteForHost).toHaveBeenCalledWith('new');
     expect(deps.repo.delete).toHaveBeenCalledWith(1);
+  });
+
+  it('trims the host name before create, keypair, and provision', async () => {
+    const deps = addDeps();
+    await handleAddHost(deps, { name: '  padded-host  ', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
+    expect(deps.repo.create).toHaveBeenCalledWith({ name: 'padded-host', agentUrl: '' });
+    expect(deps.keypairs.createForHost).toHaveBeenCalledWith('padded-host');
+    const provisionCall = (deps.provision as ReturnType<typeof mock>).mock.calls[0];
+    expect(provisionCall[1]).toHaveProperty('hostName', 'padded-host');
   });
 });
 
