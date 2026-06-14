@@ -145,13 +145,13 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 | `POSTGRES_SSL_REJECT_UNAUTHORIZED` | `true` | Verify the server's TLS certificate. Set to `false` only for self-signed certificates. This disables chain validation and exposes the connection to MITM attacks. |
 | `POSTGRES_POOL_SIZE` | `10` | Database connection pool size |
 
-### Authentication (optional, OIDC)
+### Authentication (OIDC)
 
-Off by default. Set `AUTH_ENABLED=true` to require login via an OIDC provider (designed and tested with [Pocket ID](https://github.com/stonith404/pocket-id), but works with any OIDC issuer). With auth disabled, the dashboard still relies on network isolation (see the warning above).
+On by default. Configure an OIDC provider (designed and tested with [Pocket ID](https://github.com/stonith404/pocket-id), but works with any OIDC issuer), or set `AUTH_DISABLED=true` to opt out on a trusted network. The opt-out is deliberate: an unrecognized `AUTH_DISABLED` value or the removed legacy `AUTH_ENABLED` variable fails startup instead of silently opening the app. With auth disabled, the dashboard relies on network isolation (see the warning above).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTH_ENABLED` | `false` | Require OIDC login for all routes and SSE streams |
+| `AUTH_DISABLED` | unset (auth required) | Set to `true` (or `1`/`yes`/`on`) to disable OIDC login for all routes and SSE streams |
 | `OIDC_ISSUER_URL` | - | OIDC discovery URL (e.g. `https://pocketid.example.com`) |
 | `OIDC_CLIENT_ID` | - | OIDC client ID registered with your provider |
 | `OIDC_CLIENT_SECRET` | - | OIDC client secret |
@@ -161,7 +161,7 @@ Off by default. Set `AUTH_ENABLED=true` to require login via an OIDC provider (d
 | `OIDC_ROLE_OPERATOR` | `homelab-operators` | OIDC group claim that maps to the `operator` role |
 | `OIDC_ROLE_VIEWER` | `homelab-viewers` | OIDC group claim that maps to the `viewer` role |
 
-If you prefer to keep auth at the proxy layer instead (tinyauth + Pocket ID), leave `AUTH_ENABLED=false`. See the [Authentication layer](#reverse-proxy) note above.
+If you prefer to keep auth at the proxy layer instead (tinyauth + Pocket ID), set `AUTH_DISABLED=true`. See the [Authentication layer](#reverse-proxy) note above.
 
 ### Deploy Watchdog (optional)
 

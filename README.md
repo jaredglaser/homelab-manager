@@ -74,7 +74,7 @@ Full instructions: [Self-Hosting Guide](self-hosting/README.md). For local devel
 - [x] Agent-updater sidecar for automatic container updates
 - [x] Pre-built Docker image on a container registry
 - [x] Live demo deployed to GitHub Pages
-- [~] Authentication (OIDC with Pocket ID support): code landed in `src/lib/auth/` and gated by `AUTH_ENABLED`; integration docs pending
+- [~] Authentication (OIDC with Pocket ID support): code landed in `src/lib/auth/`, required by default with `AUTH_DISABLED=true` as the opt-out; integration docs pending
 - [ ] Return to TanStack Start streaming server functions (pending upstream abort signal fix)
 
 ## AI Disclosure
