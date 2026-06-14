@@ -24,8 +24,14 @@ export function useSettingsSync(): void {
     }
   }, [setRaw]);
 
+  const handleServiceError = useCallback(() => {
+    console.error('[useSettingsSync] Settings stream failed on the server');
+  }, []);
+
   useEventSource<SettingsSSEMessage>({
     url: apiUrl('/api/settings'),
     onData: handleData,
+    onServiceError: handleServiceError,
+    errorEventName: 'settings_error',
   });
 }

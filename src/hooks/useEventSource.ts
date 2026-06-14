@@ -17,6 +17,13 @@ interface UseEventSourceOptions<T> {
    * use this to backfill the gap left by a dropped connection.
    */
   onReconnect?: () => void;
+  /**
+   * Named SSE event that signals a server-side failure for this stream.
+   * Stats endpoints emit `stats_error` (the default); broadcast endpoints
+   * emit per-route names (`settings_error`, `inventory_error`,
+   * `stack_status_error`) that consumers must pass explicitly.
+   */
+  errorEventName?: string;
   debug?: boolean;
 }
 
@@ -39,6 +46,7 @@ export function useEventSource<T>({
   onData,
   onServiceError,
   onReconnect,
+  errorEventName = 'stats_error',
   debug = false,
 }: UseEventSourceOptions<T>): UseEventSourceResult {
   const [isConnected, setIsConnected] = useState(false);
@@ -113,7 +121,7 @@ export function useEventSource<T>({
         }
       };
 
-      eventSource.addEventListener('stats_error', () => {
+      eventSource.addEventListener(errorEventName, () => {
         if (mounted) onServiceErrorRef.current?.();
       });
 
@@ -194,7 +202,7 @@ export function useEventSource<T>({
         eventSourceRef.current = null;
       }
     };
-  }, [url, debug]);
+  }, [url, errorEventName, debug]);
 
   return { isConnected, error };
 }
