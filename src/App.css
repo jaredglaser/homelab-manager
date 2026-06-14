@@ -225,7 +225,10 @@ body {
 
 /* View transitions: fade out then fade in.
    Painting the theme background on the root pseudo-elements prevents the
-   browser's default white overlay from flashing during the transition. */
+   browser's default white overlay from flashing during the transition.
+   NOTE: currently inert. View transitions are disabled in router.tsx (see the
+   comment there for the content-area white-flash root cause); these rules only
+   take effect once defaultViewTransition is re-enabled. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
