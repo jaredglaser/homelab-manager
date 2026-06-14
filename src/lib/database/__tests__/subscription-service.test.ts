@@ -147,20 +147,97 @@ describe('StatsPollService', () => {
 
     const tick = harness.intervals[0].cb;
 
-    // Threshold is 3 consecutive failures: first two ticks stay silent, the
-    // third trips the onError callback exactly once.
-    await tick();
+    // Threshold is 3 consecutive failures: first two polls stay silent, the
+    // third trips the onError callback exactly once. Backoff skips ticks
+    // between polls, so advance until each poll actually runs.
+    await ticksUntilNextPoll(tick, getClientSpy);
     expect(errorFired).toBe(0);
-    await tick();
+    await ticksUntilNextPoll(tick, getClientSpy);
     expect(errorFired).toBe(0);
-    await tick();
+    await ticksUntilNextPoll(tick, getClientSpy);
     expect(errorFired).toBe(1);
 
     // Subsequent failures don't re-fire within the same failure episode.
-    await tick();
+    await ticksUntilNextPoll(tick, getClientSpy);
     expect(errorFired).toBe(1);
 
-    // And each failing tick logs via console.error, preserving existing behavior.
+    // And each failing poll logs via console.error, preserving existing behavior.
     expect(errorSpy).toHaveBeenCalled();
   });
+
+  it('skips ticks with doubling backoff after failures and resets on success', async () => {
+    const pool = createMockPool('pool-recover');
+    const client = createMockDbClient(pool.pool);
+
+    getClientSpy = spyOn(databaseConnectionManager, 'getClient')
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockResolvedValue(client as never);
+    const querySpy = spyOn(StatsRepository.prototype, 'getDockerStatsSince').mockResolvedValue([]);
+
+    statsPollService.subscribe('docker', () => {});
+    const tick = harness.intervals[0].cb;
+
+    // Failure 1: effective spacing doubles to 2s, so 1 tick is skipped.
+    await tick();
+    expect(getClientSpy).toHaveBeenCalledTimes(1);
+    await tick();
+    expect(getClientSpy).toHaveBeenCalledTimes(1);
+
+    // Failure 2: spacing doubles to 4s, so 3 ticks are skipped.
+    await tick();
+    expect(getClientSpy).toHaveBeenCalledTimes(2);
+    await tick();
+    await tick();
+    await tick();
+    expect(getClientSpy).toHaveBeenCalledTimes(2);
+
+    // Next poll succeeds and resets the backoff.
+    await tick();
+    expect(getClientSpy).toHaveBeenCalledTimes(3);
+
+    // Healthy again: every tick polls.
+    await tick();
+    expect(getClientSpy).toHaveBeenCalledTimes(4);
+    await tick();
+    expect(getClientSpy).toHaveBeenCalledTimes(5);
+
+    querySpy.mockRestore();
+  });
+
+  it('caps the effective poll spacing at 10 ticks while the database stays down', async () => {
+    getClientSpy = spyOn(databaseConnectionManager, 'getClient').mockRejectedValue(
+      new Error('db down'),
+    );
+
+    statsPollService.subscribe('docker', () => {});
+    const tick = harness.intervals[0].cb;
+
+    const skips: number[] = [];
+    for (let poll = 0; poll < 6; poll++) {
+      skips.push(await ticksUntilNextPoll(tick, getClientSpy));
+    }
+
+    // First poll runs immediately; spacing then doubles (2s, 4s, 8s) and caps
+    // at 10s, which means at most 9 skipped ticks between polls.
+    expect(skips).toEqual([0, 1, 3, 7, 9, 9]);
+  });
 });
+
+/**
+ * Advance the polling tick until getClient is invoked again, returning how
+ * many ticks were skipped by the backoff before the poll ran.
+ */
+async function ticksUntilNextPoll(
+  tick: () => Promise<void> | void,
+  getClientSpy: ReturnType<typeof spyOn>,
+): Promise<number> {
+  const before = getClientSpy.mock.calls.length;
+  let skipped = 0;
+  while (getClientSpy.mock.calls.length === before) {
+    if (skipped > 20) throw new Error('no poll ran within 20 ticks');
+    await tick();
+    if (getClientSpy.mock.calls.length === before) skipped += 1;
+  }
+  return skipped;
+}

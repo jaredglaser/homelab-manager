@@ -13,8 +13,16 @@ mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
   ),
 }));
 
-mock.module('@/components/docker/ContainerLogsTerminalPanel', () => ({
-  default: () => <div data-testid="logs-terminal-panel" />,
+mock.module('@/components/docker/ContainerLogViewer', () => ({
+  default: () => <div data-testid="log-viewer" />,
+}));
+
+mock.module('@/components/docker/ContainerModal', () => ({
+  default: () => null,
+}));
+
+mock.module('@/components/docker/ContainerActionButtons', () => ({
+  default: () => null,
 }));
 
 const { default: ContainerDetailPanel } = await import('@/components/docker/ContainerDetailPanel');
@@ -65,6 +73,8 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPan
         containerId="abc123"
         host="server"
         inventory={sampleInventory}
+        serviceKeyEntity="server/abc123"
+        onIconChange={async () => {}}
         {...overrides}
       />
     </Provider>,
@@ -72,35 +82,37 @@ function renderPanel(overrides: Partial<ComponentProps<typeof ContainerDetailPan
 }
 
 describe('ContainerDetailPanel', () => {
-  it('renders two chart sections', () => {
+  it('renders a combined metrics chart', () => {
     renderPanel();
-    screen.getByText('CPU & Memory');
-    screen.getByText('Network I/O');
+    // New design uses a single combined chart with 6 stackable series
+    expect(screen.getAllByTestId('echarts-mock')).toHaveLength(1);
   });
 
-  it('renders the logs/terminal panel', () => {
+  it('renders the log preview panel', () => {
     renderPanel();
-    screen.getByTestId('logs-terminal-panel');
+    screen.getByTestId('log-viewer');
   });
 
-  it('renders two chart instances', () => {
+  it('renders metric legend chips for CPU and Memory by default', () => {
     renderPanel();
-    expect(screen.getAllByTestId('echarts-mock')).toHaveLength(2);
-  });
-
-  it('wires cpuPercent to the first chart and networkRxBytesPerSec (×8) to the second', () => {
-    renderPanel();
-    const [cpuChart, netChart] = screen.getAllByTestId('echarts-mock');
-    const cpuOpt = JSON.parse(cpuChart.getAttribute('data-option')!);
-    const netOpt = JSON.parse(netChart.getAttribute('data-option')!);
-    expect(cpuOpt.series[0].data[0][1]).toBe(sampleDataPoints[0].cpuPercent);
-    expect(netOpt.series[0].data[0][1]).toBe(sampleDataPoints[0].networkRxBytesPerSec * 8);
+    screen.getByText('CPU');
+    screen.getByText('Memory');
+    screen.getByText('Block Read');
+    screen.getByText('Block Write');
+    screen.getByText('Net RX');
+    screen.getByText('Net TX');
   });
 
   it('renders with empty data points', () => {
     renderPanel({ dataPoints: [] });
-    screen.getByText('CPU & Memory');
-    screen.getByTestId('logs-terminal-panel');
+    expect(screen.getAllByTestId('echarts-mock')).toHaveLength(1);
+    screen.getByTestId('log-viewer');
+  });
+
+  it('shows the status strip with container state', () => {
+    renderPanel();
+    // State chip shows "running"
+    screen.getByText('running');
   });
 
   it('shows exit metadata for an exited container', () => {
@@ -113,11 +125,10 @@ describe('ContainerDetailPanel', () => {
       },
     });
 
-    screen.getByText('Container Status');
-    screen.getByText('Exited');
-    screen.getByText('Exit code');
+    screen.getByText('exited');
     screen.getByText('137');
     screen.getByText('Finished');
-    expect(screen.getAllByText(/2024/)).toHaveLength(2);
+    screen.getByText('Exit');
   });
+
 });

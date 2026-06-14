@@ -2,17 +2,14 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listHosts, verifyHost, removeHost, checkHostHealth, updateHost } from '@/data/hosts/functions'
 import { ManagedHostsCardView } from '@/components/settings/ManagedHostsCard'
+import { useToast } from '@/hooks/toastAtom'
 
 const HOSTS_QUERY_KEY = ['managed-hosts'] as const
 
 export function ManagedHostsCard({ filterHostName }: { filterHostName?: string } = {}) {
   const queryClient = useQueryClient()
   const [checkingHostIds, setCheckingHostIds] = useState<Set<number>>(new Set())
-  const [snackbar, setSnackbar] = useState<{
-    open: boolean
-    message: string
-    severity: 'success' | 'error' | 'warning'
-  }>({ open: false, message: '', severity: 'success' })
+  const { showToast } = useToast()
   const [addError, setAddError] = useState<string | null>(null)
   const [verifyResult, setVerifyResult] = useState<{ publicJwk: unknown } | null>(null)
 
@@ -36,13 +33,9 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
         setVerifyResult(null)
       }
       if (result.publicJwk) {
-        setSnackbar({
-          open: true,
-          message: 'Host added. Set AGENT_TRUSTED_PUBKEY on the agent and run Verify Connection.',
-          severity: 'warning',
-        })
+        showToast('Host added. Set AGENT_TRUSTED_PUBKEY on the agent and run Verify Connection.', 'warning')
       } else {
-        setSnackbar({ open: true, message: 'Host added successfully', severity: 'success' })
+        showToast('Host added successfully', 'success')
       }
     },
     onError: (err: unknown) => {
@@ -56,11 +49,11 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
     mutationFn: (hostId: number) => removeHost({ data: { hostId } }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      setSnackbar({ open: true, message: 'Host removed', severity: 'success' })
+      showToast('Host removed', 'success')
     },
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : 'Failed to remove host'
-      setSnackbar({ open: true, message, severity: 'error' })
+      showToast(message, 'error')
     },
   })
 
@@ -69,11 +62,11 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       updateHost({ data: { hostId, name, agentUrl } }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
-      setSnackbar({ open: true, message: 'Host updated', severity: 'success' })
+      showToast('Host updated', 'success')
     },
     onError: (err: unknown) => {
       const message = err instanceof Error ? err.message : 'Failed to update host'
-      setSnackbar({ open: true, message, severity: 'error' })
+      showToast(message, 'error')
     },
   })
 
@@ -86,23 +79,15 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       setCheckingHostIds(prev => { const next = new Set(prev); next.delete(hostId); return next })
       void queryClient.invalidateQueries({ queryKey: HOSTS_QUERY_KEY })
       if (result.healthy) {
-        setSnackbar({
-          open: true,
-          message: `Host is healthy${result.version ? ` (v${result.version})` : ''}`,
-          severity: 'success',
-        })
+        showToast(`Host is healthy${result.version ? ` (v${result.version})` : ''}`, 'success')
       } else {
-        setSnackbar({
-          open: true,
-          message: `Host unhealthy: ${result.error ?? 'unknown error'}`,
-          severity: 'error',
-        })
+        showToast(`Host unhealthy: ${result.error ?? 'unknown error'}`, 'error')
       }
     },
     onError: (err: unknown, hostId: number) => {
       setCheckingHostIds(prev => { const next = new Set(prev); next.delete(hostId); return next })
       const message = err instanceof Error ? err.message : 'Health check failed'
-      setSnackbar({ open: true, message, severity: 'error' })
+      showToast(message, 'error')
     },
   })
 
@@ -124,8 +109,6 @@ export function ManagedHostsCard({ filterHostName }: { filterHostName?: string }
       isUpdating={updateMutation.isPending}
       onHealthCheck={(hostId) => healthMutation.mutate(hostId)}
       checkingHostIds={checkingHostIds}
-      snackbar={snackbar}
-      onSnackbarClose={() => setSnackbar((s) => ({ ...s, open: false }))}
     />
   )
 }

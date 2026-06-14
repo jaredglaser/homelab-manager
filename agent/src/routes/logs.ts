@@ -167,6 +167,9 @@ export function handleLogStream(
         liveStream.on('end', () => {
           clearInterval(heartbeatInterval);
           if (!closed) {
+            // Signal to the client that the stream ended cleanly (container stopped)
+            // so it can suppress the reconnect loop.
+            controller.enqueue(encoder.encode('event: stream_end\ndata: {}\n\n'));
             closed = true;
             controller.close();
           }

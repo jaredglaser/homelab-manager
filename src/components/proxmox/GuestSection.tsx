@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
-import { Collapse } from '@mui/material';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { ChevronRight } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { GuestRow } from '@/types/proxmox';
 import { formatAsPercentParts, formatBytesParts } from '@/formatters/metrics';
-import { EMPTY_METRIC } from '@/components/shared-table';
-import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
-import { nameColumn, statusColumn, metricColumn } from '@/components/shared-table/columns';
+import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
+import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
+import { nameColumn, statusColumn, metricColumn } from '@/components/ui/datatable/columns';
 import { GuestCell } from '@/components/proxmox/GuestCell';
 
 interface GuestSectionProps {
@@ -18,7 +18,7 @@ interface GuestSectionProps {
   useAbbreviatedUnits: boolean;
 }
 
-const BORDER = 'border-t border-(--mui-palette-divider)';
+const BORDER = 'border-t border-(--border)';
 
 const metricGroups: MetricGroup[] = [
   { label: 'CPU / Memory', columnIds: ['cpu', 'memory'] },
@@ -100,7 +100,7 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
         type="button"
         onClick={onToggle}
         aria-expanded={expanded}
-        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-(--mui-palette-background-level1)`}
+        className={`flex items-center gap-2 px-4 py-2 w-full text-left cursor-pointer ${BORDER} bg-(--level1)`}
       >
         <ChevronRight
           size={16}
@@ -111,8 +111,9 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
         </span>
       </button>
 
-      <Collapse in={expanded} unmountOnExit>
-        <div className="bg-(--mui-palette-action-hover) border-b border-(--mui-palette-divider)">
+      <Collapsible open={expanded}>
+        <CollapsibleContent>
+        <div className="bg-accent border-b border-border">
           <DataTable
             data={sorted}
             columns={columns}
@@ -123,7 +124,8 @@ export function GuestSection({ label, guests, expanded, onToggle, showSparklines
             enableColumnVisibility={false}
           />
         </div>
-      </Collapse>
+        </CollapsibleContent>
+      </Collapsible>
     </>
   );
 }

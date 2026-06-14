@@ -1,5 +1,4 @@
 import { memo, useMemo, useRef } from 'react';
-import { Paper, Typography } from '@mui/material';
 import ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
@@ -166,10 +165,10 @@ export default memo(function ContainerMetricChart({
   useEChartTimeScroll(chartRef, windowMs, wrapperRef);
 
   return (
-    <Paper elevation={0} className="rounded-sm p-3 bg-(--mui-palette-background-chartBg)!">
-      <Typography variant="body2" className="mb-1 font-medium">
+    <div className="rounded-sm p-3 bg-chart-bg">
+      <p className="text-sm mb-1 font-medium">
         {title}
-      </Typography>
+      </p>
       <div ref={wrapperRef} className="h-32">
         <ReactECharts
           ref={chartRef}
@@ -180,6 +179,6 @@ export default memo(function ContainerMetricChart({
           lazyUpdate={true}
         />
       </div>
-    </Paper>
+    </div>
   );
 });

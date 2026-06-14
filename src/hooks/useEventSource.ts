@@ -8,6 +8,12 @@ interface UseEventSourceOptions<T> {
   url: string;
   onData: (data: T) => void;
   onServiceError?: () => void;
+  /**
+   * Fired on open after a prior connection failure (never on first connect).
+   * SSE here carries snapshot metrics with no Last-Event-ID replay, so callers
+   * use this to backfill the gap left by a dropped connection.
+   */
+  onReconnect?: () => void;
   debug?: boolean;
 }
 
@@ -17,17 +23,15 @@ interface UseEventSourceResult {
 }
 
 /**
- * Manages an EventSource connection to receive server-sent JSON messages and expose connection state.
- *
- * Establishes and maintains an EventSource for the given URL, parses incoming messages as JSON
- * and forwards them to `onData`, tracks connection status and errors, and reconnects with
- * exponential backoff (1s, 2s, 4s, 8s, 16s) up to MAX_RECONNECT_ATTEMPTS.
- * Re-establishes the connection when the document becomes visible again.
+ * Reconnects with exponential backoff (1s → 2s → 4s → 8s → 16s) up to
+ * MAX_RECONNECT_ATTEMPTS, and re-establishes the connection when the document
+ * becomes visible again after being hidden.
  */
 export function useEventSource<T>({
   url,
   onData,
   onServiceError,
+  onReconnect,
   debug = false,
 }: UseEventSourceOptions<T>): UseEventSourceResult {
   const [isConnected, setIsConnected] = useState(false);
@@ -35,13 +39,16 @@ export function useEventSource<T>({
   const eventSourceRef = useRef<EventSource | null>(null);
   const onDataRef = useRef(onData);
   const onServiceErrorRef = useRef(onServiceError);
+  const onReconnectRef = useRef(onReconnect);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageCountRef = useRef(0);
   const lastMessageTimeRef = useRef(0);
+  const hadErrorRef = useRef(false);
 
   onDataRef.current = onData;
   onServiceErrorRef.current = onServiceError;
+  onReconnectRef.current = onReconnect;
 
   useEffect(() => {
     let mounted = true;
@@ -49,6 +56,7 @@ export function useEventSource<T>({
     // Reset retry budget and error state on each (re-)subscribe so a new URL
     // starts fresh rather than inheriting exhausted retry state from a prior URL.
     reconnectAttemptsRef.current = 0;
+    hadErrorRef.current = false;
     setError(null);
 
     const connect = () => {
@@ -63,6 +71,10 @@ export function useEventSource<T>({
           setIsConnected(true);
           setError(null);
           reconnectAttemptsRef.current = 0;
+          if (hadErrorRef.current) {
+            hadErrorRef.current = false;
+            onReconnectRef.current?.();
+          }
           if (debug) console.log('[useEventSource] Connected');
         }
       };
@@ -102,6 +114,7 @@ export function useEventSource<T>({
         if (!mounted) return;
         // Ignore errors from a replaced EventSource instance
         if (eventSource !== eventSourceRef.current) return;
+        hadErrorRef.current = true;
         setIsConnected(false);
 
         // Close current connection: we manage reconnection manually with backoff

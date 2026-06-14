@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Spinner } from '@/components/ui/spinner';
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
-import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
-import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
-import { metricColumn, nameColumn } from '@/components/shared-table/columns';
-import { EMPTY_METRIC } from '@/components/shared-table/MetricCell';
+import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
+import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
+import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
+import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import type {
   DockerStatsRow,
@@ -14,7 +14,11 @@ import type {
   DockerTableRow,
 } from '@/types/docker';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
-import { buildDockerTableHierarchy, rowToDockerStats } from '@/lib/utils/docker-hierarchy-builder';
+import {
+  attachStatsToHierarchy,
+  buildDockerInventoryHierarchy,
+  rowToDockerStats,
+} from '@/lib/utils/docker-hierarchy-builder';
 import ContainerDetailPanel from '@/components/docker/ContainerDetailPanel';
 import { buildContainerChartData } from '@/hooks/useContainerChartData';
 import HostNameCell from '@/components/docker/HostNameCell';
@@ -31,6 +35,12 @@ const METRIC_GROUPS: MetricGroup[] = [
   { label: 'Network', columnIds: ['netRx', 'netTx'] },
 ];
 
+/** Shared empty array so containers without stats keep a stable chartData reference */
+const EMPTY_CHART_DATA: DockerStatsRow[] = [];
+
+/** Per-entity chart derivations cached by chartData array identity */
+type ChartArtifacts = { chartData: DockerStatsRow[] } & ReturnType<typeof buildContainerChartData>;
+
 interface ContainerTableProps {
   inventory: Map<string, DockerInventorySnapshotContainer>;
   /** Whether the inventory SSE stream has connected (false until first event received) */
@@ -44,8 +54,7 @@ interface ContainerTableProps {
   error: Error | null;
   isStale: boolean;
   entityIcons: DockerEntityIconsMap;
-  onIconChange: (serviceKeyEntity: string, iconSlug: string) => Promise<void>;
-  onOpenHistory?: (containerId: string, host: string) => void;
+  onIconChange: (serviceKeyEntity: string, iconSlug: string | null) => Promise<void>;
 }
 
 /**
@@ -68,7 +77,6 @@ export default function ContainerTable({
   isStale,
   entityIcons,
   onIconChange,
-  onOpenHistory,
 }: Readonly<ContainerTableProps>) {
   const {
     docker,
@@ -114,11 +122,19 @@ export default function ContainerTable({
       arr.push(row);
     }
 
-    // Reuse previous array references when content hasn't changed
+    // Reuse the previous array reference when no new row arrived for the entity.
+    // Compare the last timestamp, not object identity: periodic buffer refreshes
+    // replace row objects with fresh references even when no new data point exists,
+    // and a rebuilt array would force every SparklineCell to redraw. Length must
+    // also match so window eviction (rows dropping off the front) still rebuilds.
     const prev = prevChartDataRef.current;
     for (const [key, arr] of map) {
       const prevArr = prev.get(key);
-      if (prevArr?.length === arr.length && prevArr.at(-1) === arr.at(-1)) {
+      if (
+        prevArr &&
+        prevArr.length === arr.length &&
+        new Date(prevArr.at(-1)!.time).getTime() === new Date(arr.at(-1)!.time).getTime()
+      ) {
         map.set(key, prevArr);
       }
     }
@@ -127,28 +143,45 @@ export default function ContainerTable({
     return map;
   }, [rows]);
 
-  const tableData = useMemo<DockerTableRow[]>(() => {
-    const { hosts } = buildDockerTableHierarchy(inventory, statsByEntityId);
+  // Inventory-only pass: serviceKey dedup, grouping, and row ordering survive
+  // stats flushes (every second) and only rebuild when inventory actually changes.
+  const inventoryHierarchy = useMemo(() => buildDockerInventoryHierarchy(inventory), [inventory]);
 
-    return hosts.map((hostRow) => {
+  const chartArtifactsRef = useRef<Map<string, ChartArtifacts>>(new Map());
+
+  const tableData = useMemo<DockerTableRow[]>(() => {
+    const { hosts } = attachStatsToHierarchy(inventoryHierarchy, statsByEntityId);
+    const prevArtifacts = chartArtifactsRef.current;
+    const nextArtifacts = new Map<string, ChartArtifacts>();
+
+    const data = hosts.map((hostRow) => {
       const enrichedChildren: DockerContainerTableRow[] = hostRow.children.map((c) => {
-        const chartData = chartDataByEntityId.get(c.id) ?? [];
-        const { sparklineData, dataPoints } = buildContainerChartData(chartData);
-        return { ...c, chartData, sparklineData, dataPoints };
+        const chartData = chartDataByEntityId.get(c.id) ?? EMPTY_CHART_DATA;
+        // Skip rebuilding sparkline/data point arrays when the chartData reference
+        // is unchanged; stable references let memoized SparklineCells skip redraws.
+        const prev = prevArtifacts.get(c.id);
+        const artifacts =
+          prev && prev.chartData === chartData
+            ? prev
+            : { chartData, ...buildContainerChartData(chartData) };
+        nextArtifacts.set(c.id, artifacts);
+        return { ...c, ...artifacts };
       });
       return { ...hostRow, children: enrichedChildren };
     });
-  }, [inventory, statsByEntityId, chartDataByEntityId]);
+
+    chartArtifactsRef.current = nextArtifacts;
+    return data;
+  }, [inventoryHierarchy, statsByEntityId, chartDataByEntityId]);
 
   const expandedState = useMemo<ExpandedState>(() => {
     const state: Record<string, boolean> = {};
-    for (const hostRow of tableData) {
-      if (hostRow.type === 'host') {
-        state[hostRow.id] = isHostExpanded(hostRow.hostName, hostRow.totalHosts);
-      }
+    const totalHosts = inventoryHierarchy.hostNames.length;
+    for (const hostName of inventoryHierarchy.hostNames) {
+      state[`host:${hostName}`] = isHostExpanded(hostName, totalHosts);
     }
     return state;
-  }, [tableData, isHostExpanded]);
+  }, [inventoryHierarchy, isHostExpanded]);
 
   const handleExpandedChange = useCallback(
     (newExpanded: ExpandedState) => {
@@ -193,8 +226,6 @@ export default function ContainerTable({
             <ContainerNameCell
               row={data}
               expanded={row.getIsExpanded()}
-              onIconChange={onIconChange}
-              onOpenHistory={onOpenHistory}
             />
           );
         },
@@ -306,7 +337,7 @@ export default function ContainerTable({
         getIsStale: (row) => row.isStale,
       }),
     ],
-    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits, onIconChange, onOpenHistory],
+    [docker.decimals.cpu, docker.decimals.memory, docker.decimals.diskSpeed, docker.decimals.networkSpeed, docker.memoryDisplayMode, memLabel, general.showSparklines, general.useAbbreviatedUnits],
   );
 
   /** Render container detail panel (charts + logs) for the nested DataTable */
@@ -315,21 +346,25 @@ export default function ContainerTable({
       if (row.type !== 'container' || !row.dataPoints) return null;
       const { host, containerId } = row.inventory;
       if (!host || !containerId) return null;
+      const entityId = `${host}/${containerId}`;
       return (
         <ContainerDetailPanel
           dataPoints={row.dataPoints}
           containerId={containerId}
           host={host}
           inventory={row.inventory}
+          iconSlug={entityIcons[entityId]?.iconSlug ?? null}
+          serviceKeyEntity={entityIcons[entityId]?.serviceKeyEntity ?? entityId}
+          onIconChange={onIconChange}
         />
       );
     },
-    [],
+    [entityIcons, onIconChange],
   );
 
   const rowClassName = useCallback((row: DockerTableRow) => {
     if (row.type === 'host') {
-      const base = row.isStale ? 'bg-[var(--row-stale-tint)]!' : 'bg-(--mui-palette-background-level1)!';
+      const base = row.isStale ? 'bg-[var(--row-stale-tint)]!' : 'bg-(--level1)!';
       // scroll-mt clears the DataTable's sticky column header (~37px) when scrollIntoView is called
       return `${base} scroll-mt-10`;
     }
@@ -377,25 +412,25 @@ export default function ContainerTable({
   // Loading / error states
   if (error && !hasData) {
     return (
-      <Box className="w-full">
-        <Box className="p-2">
-          <Typography color="error">
+      <div className="w-full">
+        <div className="p-2">
+          <p className="text-destructive">
             Error connecting to Docker stats: {error.message}
-          </Typography>
-        </Box>
-      </Box>
+          </p>
+        </div>
+      </div>
     );
   }
 
   if (inventoryError && inventory.size === 0) {
     return (
-      <Box className="w-full">
-        <Box className="p-2">
-          <Typography color="error">
+      <div className="w-full">
+        <div className="p-2">
+          <p className="text-destructive">
             Error connecting to Docker inventory: {inventoryError.message}
-          </Typography>
-        </Box>
-      </Box>
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -404,16 +439,16 @@ export default function ContainerTable({
   // the table would render zero rows when stats arrive before inventory.
   if ((!isConnected && !hasData) || (!isInventoryConnected && inventory.size === 0)) {
     return (
-      <Box className="w-full">
-        <Box className="flex justify-center p-4">
-          <CircularProgress />
-        </Box>
-      </Box>
+      <div className="w-full">
+        <div className="flex justify-center p-4">
+          <Spinner />
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box className="flex flex-col flex-1 min-h-0 w-full">
+    <div className="flex flex-col flex-1 min-h-0 w-full">
       <StaleDataAlert isStale={isStale} />
       <DataTable
         data={tableData}
@@ -427,7 +462,7 @@ export default function ContainerTable({
         rowAttributes={rowAttributes}
         enableSorting={false}
       />
-    </Box>
+    </div>
   );
 }
 

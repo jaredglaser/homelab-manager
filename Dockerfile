@@ -2,7 +2,7 @@
 # Multi-stage build: deps (dev), base (worker/cleanup), production (web)
 
 # Dependencies only - used for dev containers (source mounted via volume)
-FROM oven/bun:1.3.13 AS deps
+FROM oven/bun:1.3.14 AS deps
 WORKDIR /app
 COPY package.json bun.lock ./
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),

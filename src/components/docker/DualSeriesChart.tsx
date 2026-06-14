@@ -1,5 +1,4 @@
 import { memo, useRef } from 'react';
-import { Paper, Typography } from '@mui/material';
 import type ReactECharts from 'echarts-for-react';
 import type { EChartsOption } from 'echarts';
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings';
@@ -185,9 +184,9 @@ export default memo(function DualSeriesChart({
   useEChartTimeScroll(chartRef, windowMs, wrapperRef);
 
   return (
-    <Paper elevation={0} className="h-full flex flex-col rounded-sm p-2 bg-(--mui-palette-background-chartBg)!">
+    <div className="h-full flex flex-col rounded-sm p-2 bg-chart-bg">
       <div className="flex items-center justify-between mb-0.5 shrink-0">
-        <Typography variant="body2" className="font-medium">{title}</Typography>
+        <p className="text-sm font-medium">{title}</p>
         <div className="flex gap-3">
           {series.map((s) => {
             const color = resolveChartColors(s.colorVar).line;
@@ -203,6 +202,6 @@ export default memo(function DualSeriesChart({
       <div ref={wrapperRef} className="flex-1 min-h-0">
         <DualSeriesChartRenderer ref={chartRef} option={option} />
       </div>
-    </Paper>
+    </div>
   );
 });
