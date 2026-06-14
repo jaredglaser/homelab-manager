@@ -1,40 +1,51 @@
-import { memo, useState, useMemo, useRef, useCallback, useEffect, createContext, useContext } from 'react';
+import { memo, useState, useMemo, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ButtonBase, Skeleton } from '@mui/material';
-
-/** Row-level AbortController context: aborts all in-flight icon loads when the row unmounts. */
-const AbortContext = createContext<AbortSignal | null>(null);
+import { Skeleton } from '@/components/ui/skeleton';
 
 const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: string; selected: boolean; onSelect: (slug: string) => void }) {
   const [loaded, setLoaded] = useState(false);
-  const signal = useContext(AbortContext);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const handleLoad = useCallback(() => setLoaded(true), []);
   const handleError = useCallback(() => setLoaded(true), []);
 
-  useEffect(() => {
-    if (!signal) return;
-    const onAbort = () => {
-      if (imgRef.current) imgRef.current.src = '';
+  // Use fetch+AbortController because browser <img> requests can't be cancelled by
+  // setting src=''; the browser completes them anyway. Setting src to the resulting
+  // blob URL imperatively keeps React out of src reconciliation entirely.
+  useLayoutEffect(() => {
+    const controller = new AbortController();
+    let blobUrl: string | null = null;
+
+    fetch(`${import.meta.env.BASE_URL}icons/${slug}.svg`, { signal: controller.signal })
+      .then((res) => (res.ok ? res.blob() : Promise.reject(new Error('not ok'))))
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        blobUrl = URL.createObjectURL(blob);
+        if (imgRef.current) imgRef.current.src = blobUrl;
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setLoaded(true);
+      });
+
+    return () => {
+      controller.abort();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-    signal.addEventListener('abort', onAbort);
-    return () => signal.removeEventListener('abort', onAbort);
-  }, [signal]);
+  }, [slug]);
 
   return (
-    <ButtonBase
+    <button
+      type="button"
       onClick={() => onSelect(slug)}
-      className={`!flex flex-col! items-center! p-2! rounded-md! hover:bg-blue-500/10! ${
-        selected ? 'bg-blue-500/20! ring-1! ring-blue-500!' : ''
+      className={`flex flex-col items-center p-2 rounded-md cursor-pointer hover:bg-blue-500/10 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ${
+        selected ? 'bg-blue-500/20 ring-1 ring-blue-500' : ''
       }`}
     >
       <div className="relative w-8 h-8">
         {!loaded && (
-          <Skeleton variant="rounded" width={32} height={32} className="absolute! inset-0" />
+          <Skeleton className="absolute inset-0 w-8 h-8 rounded" />
         )}
         <img
           ref={imgRef}
-          src={`${import.meta.env.BASE_URL}icons/${slug}.svg`}
           alt={slug}
           className={`w-8 h-8 ${loaded ? 'visible' : 'invisible'}`}
           onLoad={handleLoad}
@@ -42,24 +53,17 @@ const IconCell = memo(function IconCell({ slug, selected, onSelect }: { slug: st
         />
       </div>
       <span className="mt-1 text-xs truncate w-full text-center">{slug}</span>
-    </ButtonBase>
+    </button>
   );
 });
 
-/** Provides a shared AbortController for all IconCells in the row. On unmount, aborts in-flight loads. */
 const IconRow = memo(function IconRow({ slugs, currentIcon, onSelect }: { slugs: string[]; currentIcon: string | null; onSelect: (slug: string) => void }) {
-  const controllerRef = useRef(new AbortController());
-
-  useEffect(() => {
-    return () => controllerRef.current.abort();
-  }, []);
-
   return (
-    <AbortContext.Provider value={controllerRef.current.signal}>
+    <>
       {slugs.map((slug) => (
         <IconCell key={slug} slug={slug} selected={currentIcon === slug} onSelect={onSelect} />
       ))}
-    </AbortContext.Provider>
+    </>
   );
 });
 
@@ -93,7 +97,7 @@ export default function IconGrid({
     count: iconRows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ICON_ROW_HEIGHT,
-    overscan: 8,
+    overscan: 2,
   });
 
   // When the filtered list changes the virtualizer may still be scrolled to an
@@ -106,7 +110,7 @@ export default function IconGrid({
   return (
     <div
       ref={scrollRef}
-      className="overflow-y-auto h-[50vh] ml-4 mr-2 mb-4 pl-2 pr-2 py-2 rounded-l-xl rounded-r-none bg-(--mui-palette-background-level1)! themed-scrollbar"
+      className="overflow-y-auto h-[50vh] ml-4 mr-2 mb-4 pl-2 pr-2 py-2 rounded-l-xl rounded-r-none bg-(--level1)! themed-scrollbar"
     >
       {filteredIcons.length === 0 ? (
         <p className="text-center py-4 text-sm opacity-70">{emptyMessage}</p>

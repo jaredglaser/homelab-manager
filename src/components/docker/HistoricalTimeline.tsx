@@ -1,12 +1,9 @@
 import { memo, useMemo, useRef, useEffect, useCallback, useState } from 'react';
-import { Typography, ToggleButtonGroup, ToggleButton } from '@mui/material';
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { DateTimePicker } from '@mui/x-date-pickers/DateTimePicker';
-import dayjs from 'dayjs';
-import type { Dayjs } from 'dayjs';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { DateTimePicker } from '@/components/ui/date-time-picker';
 import ReactECharts from 'echarts-for-react';
 import { useGeneralSettings } from '@/hooks/useSettings';
+import HorizontalScrollRow from '@/components/shared/HorizontalScrollRow';
 import { RANGE_PRESETS, TIMELINE_METRICS, getTimelineOption } from '@/lib/charts/timeline-chart-config';
 import type { DockerStatsRow } from '@/types/docker';
 import type { MetricType } from '@/components/docker/MetricCheckboxes';
@@ -77,11 +74,13 @@ export default memo(function HistoricalTimeline({
       const opt = instance.getOption() as { dataZoom: { startValue: string | number; endValue: string | number }[] };
       const zoom = opt.dataZoom?.[0];
       if (!zoom || zoom.startValue == null || zoom.endValue == null) return;
-      // Time axis may return date strings - coerce to numeric timestamps
+      // Time axis may return date strings - coerce to numeric timestamps.
+      // Slider drags produce interpolated floats; round to integer ms so the
+      // server-side schema (which requires int ms) doesn't reject the query.
       const from = typeof zoom.startValue === 'string' ? new Date(zoom.startValue).getTime() : zoom.startValue;
       const to = typeof zoom.endValue === 'string' ? new Date(zoom.endValue).getTime() : zoom.endValue;
       if (isNaN(from) || isNaN(to)) return;
-      onRangeChange(from, to);
+      onRangeChange(Math.round(from), Math.round(to));
     },
   }), [onRangeChange]);
 
@@ -105,17 +104,13 @@ export default memo(function HistoricalTimeline({
     }
   }, []);
 
-  const handleFromChange = useCallback((value: Dayjs | null) => {
-    if (!value || !value.isValid()) return;
-    const ms = value.valueOf();
+  const handleFromChange = useCallback((ms: number) => {
     if (ms >= timelineTo) return;
     onCustomRangeChange(ms, timelineTo);
     resetSlider();
   }, [timelineTo, onCustomRangeChange, resetSlider]);
 
-  const handleToChange = useCallback((value: Dayjs | null) => {
-    if (!value || !value.isValid()) return;
-    const ms = value.valueOf();
+  const handleToChange = useCallback((ms: number) => {
     if (ms <= timelineFrom) return;
     onCustomRangeChange(timelineFrom, ms);
     resetSlider();
@@ -126,73 +121,63 @@ export default memo(function HistoricalTimeline({
     ? RANGE_PRESETS.find((p) => p.ms === activePresetMs)
     : undefined;
 
-  const dateTimeFormat = general.use12HourTime ? 'MM/DD/YYYY hh:mm A' : 'MM/DD/YYYY HH:mm';
-
   return (
-    <div className="sticky bottom-0 z-10 border-t border-(--mui-palette-divider) bg-(--mui-palette-background-paper) px-4 py-3">
-      <div className="flex items-center gap-3 mb-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Typography variant="caption" className="text-(--mui-palette-text-secondary)">Range:</Typography>
-          <ToggleButtonGroup
-            value={activeRangeValue ? String(activeRangeValue.ms) : null}
-            onChange={(_e, newValue) => {
-              if (newValue !== null) handlePreset(Number(newValue));
+    <div className="border-t border-(--border) bg-(--card) px-4 py-3 shrink-0">
+      <div className="mb-2">
+        <HorizontalScrollRow
+          bgVar="--card"
+          innerClassName="flex flex-nowrap items-center gap-3 min-w-full"
+          scrollClassName="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <ToggleGroup
+            value={activeRangeValue ? [String(activeRangeValue.ms)] : []}
+            onValueChange={(vals) => {
+              const v = vals[0];
+              if (v != null) handlePreset(Number(v));
             }}
-            size="small"
-            exclusive
+            className="shrink-0"
           >
             {RANGE_PRESETS.map((preset) => (
-              <ToggleButton key={preset.label} value={String(preset.ms)}>
+              <ToggleGroupItem key={preset.label} value={String(preset.ms)}>
                 {preset.label}
-              </ToggleButton>
+              </ToggleGroupItem>
             ))}
-          </ToggleButtonGroup>
-        </div>
+          </ToggleGroup>
 
-        <LocalizationProvider dateAdapter={AdapterDayjs}>
-          <div className="flex items-center gap-2">
-            <Typography variant="caption" className="text-(--mui-palette-text-secondary)">From:</Typography>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-(--muted-foreground)">From:</span>
             <DateTimePicker
-              value={dayjs(timelineFrom)}
+              value={timelineFrom}
               onChange={handleFromChange}
-              maxDateTime={dayjs(timelineTo)}
-              ampm={general.use12HourTime}
-              format={dateTimeFormat}
-              slotProps={{
-                textField: { size: 'small' },
-              }}
+              max={timelineTo}
+              use12Hour={general.use12HourTime}
+              ariaLabel="From date and time"
             />
-            <Typography variant="caption" className="text-(--mui-palette-text-secondary)">To:</Typography>
+            <span className="text-xs text-(--muted-foreground)">To:</span>
             <DateTimePicker
-              value={dayjs(timelineTo)}
+              value={timelineTo}
               onChange={handleToChange}
-              minDateTime={dayjs(timelineFrom)}
-              ampm={general.use12HourTime}
-              format={dateTimeFormat}
-              slotProps={{
-                textField: { size: 'small' },
-              }}
+              min={timelineFrom}
+              use12Hour={general.use12HourTime}
+              ariaLabel="To date and time"
             />
           </div>
-        </LocalizationProvider>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Typography variant="caption" className="text-(--mui-palette-text-secondary)">Metric:</Typography>
-          <ToggleButtonGroup
-            value={timelineMetric}
-            onChange={(_e, newValue) => {
-              if (newValue !== null) setTimelineMetric(newValue as MetricType);
+          <ToggleGroup
+            value={[timelineMetric]}
+            onValueChange={(vals) => {
+              const v = vals[0];
+              if (v != null) setTimelineMetric(v as MetricType);
             }}
-            size="small"
-            exclusive
+            className="shrink-0 ml-auto"
           >
             {TIMELINE_METRICS.map((metric) => (
-              <ToggleButton key={metric.key} value={metric.key}>
+              <ToggleGroupItem key={metric.key} value={metric.key}>
                 {metric.label}
-              </ToggleButton>
+              </ToggleGroupItem>
             ))}
-          </ToggleButtonGroup>
-        </div>
+          </ToggleGroup>
+        </HorizontalScrollRow>
       </div>
       <div className="h-[160px]">
         <ReactECharts

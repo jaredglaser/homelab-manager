@@ -24,8 +24,8 @@ function createMockDb() {
       repo.insertDockerStats = async (rows: DockerStatsRow[]) => {
         insertedRows.push(rows);
       };
-      metaRepo.upsertEntityMetadata = async (entity: string, key: string, value: string) => {
-        upsertedMetadata.push({ entity, key, value });
+      metaRepo.upsertEntityMetadataBatch = async (entries: { entity: string; key: string; value: string }[]) => {
+        upsertedMetadata.push(...entries);
       };
     },
   };
@@ -241,7 +241,7 @@ describe('AgentStatsCollector', () => {
     await expect((collector as any).collect()).rejects.toThrow('Agent returned 401');
   });
 
-  it('continues streaming when insertDockerStats fails', async () => {
+  it('survives a failed batch insert without throwing', async () => {
     let insertCallCount = 0;
     const events = [sampleAgentEvent, { ...sampleAgentEvent, containerId: 'def456', containerName: 'sonarr' }];
     const fetchFn: FetchFn = mock(async () =>
@@ -256,10 +256,10 @@ describe('AgentStatsCollector', () => {
     );
     const repo = (collector as any).repository;
     const metaRepo = (collector as any).entityMetadataRepository;
-    metaRepo.upsertEntityMetadata = async () => {};
+    metaRepo.upsertEntityMetadataBatch = async () => {};
     repo.insertDockerStats = async () => {
       insertCallCount++;
-      if (insertCallCount === 1) throw new Error('DB write failed');
+      throw new Error('DB write failed');
     };
 
     const origError = console.error;
@@ -271,14 +271,14 @@ describe('AgentStatsCollector', () => {
       console.error = origError;
     }
 
-    // Both events were attempted; stream continued despite first failure
-    expect(insertCallCount).toBe(2);
-    expect(errorMessages.some(m => m.includes('Failed to insert stat for plex'))).toBe(true);
+    // Both events flushed as one batch; flush failure was logged, not thrown
+    expect(insertCallCount).toBe(1);
+    expect(errorMessages.some(m => m.includes('Failed to insert batch of 2 stats rows'))).toBe(true);
   });
 
   it('retries entity metadata upsert on failure', async () => {
     let upsertCallCount = 0;
-    const insertCount = { value: 0 };
+    const insertedCount = { value: 0 };
     const events = [sampleAgentEvent, sampleAgentEvent];
     const fetchFn: FetchFn = mock(async () =>
       new Response(createMockSSEStream(events), {
@@ -293,11 +293,11 @@ describe('AgentStatsCollector', () => {
     const repo = (collector as any).repository;
     const metaRepo = (collector as any).entityMetadataRepository;
     // First upsert call throws (first event), second succeeds (retry on second event)
-    metaRepo.upsertEntityMetadata = async () => {
+    metaRepo.upsertEntityMetadataBatch = async () => {
       upsertCallCount++;
       if (upsertCallCount === 1) throw new Error('DB connection lost');
     };
-    repo.insertDockerStats = async () => { insertCount.value++; };
+    repo.insertDockerStats = async (rows: DockerStatsRow[]) => { insertedCount.value += rows.length; };
 
     const origError = console.error;
     console.error = () => {};
@@ -308,13 +308,12 @@ describe('AgentStatsCollector', () => {
     }
 
     // Both events should still produce stats (error doesn't prevent stat insertion)
-    expect(insertCount.value).toBe(2);
+    expect(insertedCount.value).toBe(2);
     // Container was NOT added to knownContainers on first failure, so second event retries upsert
-    // First event: 1 call (throws) → Second event: 3 calls (name, image, service_key succeed)
-    expect(upsertCallCount).toBe(4);
+    expect(upsertCallCount).toBe(2);
   });
 
-  it('handles multiple events in sequence', async () => {
+  it('batches events arriving before a flush into one insert', async () => {
     const event2 = {
       ...sampleAgentEvent,
       containerId: 'def789ghi012',
@@ -336,6 +335,54 @@ describe('AgentStatsCollector', () => {
 
     await (collector as any).collect();
 
+    // Both events arrived within one flush window: one multi-row insert
+    expect(mockDb.insertedRows).toHaveLength(1);
+    expect(mockDb.insertedRows[0]).toHaveLength(2);
+    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
+    expect(mockDb.insertedRows[0][1].container_name).toBe('sonarr');
+  });
+
+  it('flushes accumulated rows on the interval while the stream stays open', async () => {
+    const encoder = new TextEncoder();
+    let releaseSecondEvent: () => void = () => {};
+    const secondEventGate = new Promise<void>(resolve => { releaseSecondEvent = resolve; });
+
+    let pullCount = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        pullCount++;
+        if (pullCount === 1) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
+        } else if (pullCount === 2) {
+          // Hold the stream open past the 150 ms flush interval
+          await secondEventGate;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ ...sampleAgentEvent, containerId: 'def456', containerName: 'sonarr' })}\n\n`));
+        } else {
+          controller.close();
+        }
+      },
+    });
+
+    const fetchFn: FetchFn = mock(async () =>
+      new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    );
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+    );
+    mockDb.patchRepository(collector);
+
+    const collectPromise = (collector as any).collect();
+
+    // Wait past the flush interval, then let the second event through
+    await new Promise(resolve => setTimeout(resolve, 250));
+    releaseSecondEvent();
+    await collectPromise;
+
+    // First event flushed by the interval timer, second by the final drain
     expect(mockDb.insertedRows).toHaveLength(2);
     expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
     expect(mockDb.insertedRows[1][0].container_name).toBe('sonarr');

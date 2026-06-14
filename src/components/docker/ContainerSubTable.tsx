@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, type ReactNode } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { DataTable } from '@/components/shared-table/DataTable';
+import { DataTable } from '@/components/ui/datatable/DataTable';
 import type { DockerContainerTableRow, DockerTableRow } from '@/types/docker';
 
 /**

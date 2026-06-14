@@ -1,15 +1,16 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { IconButton, TextField, InputAdornment, Typography } from '@mui/material';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Search, X } from 'lucide-react';
 import { AVAILABLE_ICONS } from '@/lib/utils/icon-resolver';
 import { SELECTION_FEEDBACK_MS } from '@/lib/constants/ui-timing';
-import BottomDrawer from '@/components/shared/BottomDrawer';
 import IconGrid from '@/components/docker/IconGrid';
 
 interface IconPickerDialogProps {
   open: boolean;
   onClose: () => void;
-  onSelect: (iconSlug: string) => void;
+  onSelect: (iconSlug: string | null) => void;
   currentIcon: string | null;
   containerName: string;
 }
@@ -22,11 +23,16 @@ export default function IconPickerDialog({
   containerName,
 }: IconPickerDialogProps) {
   const [search, setSearch] = useState('');
+  const [pendingIcon, setPendingIcon] = useState<string | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
+    if (open) {
+      setPendingIcon(null);
+      setSearch('');
+    }
     return () => clearTimeout(feedbackTimerRef.current);
-  }, []);
+  }, [open]);
 
   const filteredIcons = useMemo(() => {
     if (!search.trim()) return AVAILABLE_ICONS;
@@ -34,56 +40,106 @@ export default function IconPickerDialog({
     return AVAILABLE_ICONS.filter((icon) => icon.includes(term));
   }, [search]);
 
-  const handleSelect = useCallback((iconSlug: string) => {
-    onSelect(iconSlug);
+  const handleTileSelect = useCallback((iconSlug: string) => {
+    setPendingIcon(iconSlug);
+  }, []);
+
+  const handleApply = useCallback(() => {
+    if (pendingIcon) {
+      onSelect(pendingIcon);
+      clearTimeout(feedbackTimerRef.current);
+      feedbackTimerRef.current = setTimeout(() => {
+        onClose();
+      }, SELECTION_FEEDBACK_MS);
+    }
+  }, [pendingIcon, onSelect, onClose]);
+
+  const handleAutoDetect = useCallback(() => {
+    onSelect(null);
+    clearTimeout(feedbackTimerRef.current);
     feedbackTimerRef.current = setTimeout(() => {
       onClose();
-      setSearch('');
     }, SELECTION_FEEDBACK_MS);
   }, [onSelect, onClose]);
 
   const handleClose = useCallback(() => {
-    onClose();
     setSearch('');
+    setPendingIcon(null);
+    onClose();
   }, [onClose]);
 
+  const displayedIcon = pendingIcon ?? currentIcon;
+
   return (
-    <BottomDrawer open={open} onClose={handleClose}>
-      <div className="flex flex-col min-h-0">
-        <div className="flex items-center justify-between px-6 pt-2 pb-3 select-none">
-          <Typography variant="h6">Select Icon for {containerName}</Typography>
-          <IconButton onClick={handleClose} size="small" aria-label="Close">
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
+      <DialogContent className="flex flex-col overflow-hidden rounded-lg bg-(--popover) w-[720px] max-w-[calc(100%-64px)] max-h-[600px] p-0">
+        <div className="flex items-center justify-between px-5 pt-3 pb-3 border-b border-(--border) shrink-0 bg-(--popover)">
+          <h2 className="text-sm font-semibold">
+            Select Icon for {containerName}
+          </h2>
+          <Button variant="ghost" size="icon-sm" onClick={handleClose} aria-label="Close">
             <X size={18} />
-          </IconButton>
+          </Button>
         </div>
 
-        <div className="px-6 pb-3">
-          <TextField
-            placeholder="Search icons..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            autoFocus
-            fullWidth
-            size="small"
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search size={16} />
-                  </InputAdornment>
-                ),
-              },
-            }}
+        <div className="px-5 pt-3 pb-2 shrink-0">
+          <div className="relative">
+            <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none" />
+            <Input
+              placeholder="Search icons..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+              className="h-9 pl-8 pr-9"
+            />
+            {search && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-1 top-1/2 -translate-y-1/2"
+              >
+                <X size={14} />
+              </Button>
+            )}
+          </div>
+          <span className="mt-1 block text-xs text-(--text-disabled)">
+            Showing {filteredIcons.length} of {AVAILABLE_ICONS.length} icons
+          </span>
+        </div>
+
+        <div className="flex-1 min-h-0">
+          <IconGrid
+            filteredIcons={filteredIcons}
+            currentIcon={displayedIcon}
+            onSelect={handleTileSelect}
+            emptyMessage={`No icons found for "${search}"`}
           />
         </div>
 
-        <IconGrid
-          filteredIcons={filteredIcons}
-          currentIcon={currentIcon}
-          onSelect={handleSelect}
-          emptyMessage={`No icons found for "${search}"`}
-        />
-      </div>
-    </BottomDrawer>
+        <DialogFooter className="px-5 py-3 border-t border-(--border) bg-(--popover)">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleAutoDetect}
+            className="mr-auto text-xs text-(--muted-foreground)"
+          >
+            Use auto-detected
+          </Button>
+          <Button size="sm" variant="outline" onClick={handleClose} className="text-xs">
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleApply}
+            disabled={!pendingIcon}
+            className="text-xs"
+          >
+            Apply
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
