@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { useContainerLogs } from '../useContainerLogs';
+import { _resetLogStreams } from '@/lib/docker/log-stream-registry';
 
 // Mock EventSource
 class MockEventSource {
@@ -50,11 +51,13 @@ const originalEventSource = globalThis.EventSource;
 
 beforeEach(() => {
   MockEventSource.reset();
+  _resetLogStreams();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).EventSource = MockEventSource;
 });
 
 afterEach(() => {
+  _resetLogStreams();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).EventSource = originalEventSource;
 });
@@ -63,12 +66,14 @@ describe('useContainerLogs', () => {
   const mockTerminal = {
     writeln: mock(() => {}),
     write: mock(() => {}),
+    clear: mock(() => {}),
     dispose: mock(() => {}),
   };
 
   beforeEach(() => {
     mockTerminal.writeln.mockReset();
     mockTerminal.write.mockReset();
+    mockTerminal.clear.mockReset();
   });
 
   it('connects to the correct SSE URL', () => {
@@ -116,18 +121,29 @@ describe('useContainerLogs', () => {
     expect(result.current.isConnected).toBe(true);
   });
 
-  describe('with immediate RAF', () => {
+  describe('with queued RAF', () => {
     const origRAF = globalThis.requestAnimationFrame;
+    let rafQueue: FrameRequestCallback[] = [];
 
     beforeEach(() => {
-      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 0; }) as typeof requestAnimationFrame;
+      rafQueue = [];
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        rafQueue.push(cb);
+        return rafQueue.length;
+      }) as typeof requestAnimationFrame;
     });
 
     afterEach(() => {
       globalThis.requestAnimationFrame = origRAF;
     });
 
-    it('writes log lines to terminal on message', () => {
+    const flushRAF = () => {
+      const queue = rafQueue;
+      rafQueue = [];
+      for (const cb of queue) cb(0);
+    };
+
+    it('batches multiple lines into a single terminal write per frame', () => {
       renderHook(() =>
         useContainerLogs({
           containerId: 'abc123',
@@ -136,17 +152,19 @@ describe('useContainerLogs', () => {
         }),
       );
 
+      // Agent emits one line per SSE message; batching across messages within a
+      // single frame is the optimization we care about preserving.
       act(() => {
         MockEventSource.instances[0].onopen?.();
         MockEventSource.instances[0].onmessage?.({
-          data: JSON.stringify({
-            lines: [
-              { text: 'hello world', stream: 'stdout' },
-              { text: 'error msg', stream: 'stderr' },
-            ],
-          }),
+          data: JSON.stringify({ text: 'hello world', stream: 'stdout' }),
+        });
+        MockEventSource.instances[0].onmessage?.({
+          data: JSON.stringify({ text: 'error msg', stream: 'stderr' }),
         });
       });
+
+      act(() => { flushRAF(); });
 
       expect(mockTerminal.write).toHaveBeenCalledTimes(1);
       expect(mockTerminal.write).toHaveBeenCalledWith('hello world\nerror msg\n');
@@ -229,8 +247,8 @@ describe('useContainerLogs', () => {
     });
   });
 
-  it('handles error SSE events from the agent', () => {
-    renderHook(() =>
+  it('does not reconnect after stream_end event from agent', () => {
+    const { result } = renderHook(() =>
       useContainerLogs({
         containerId: 'abc123',
         host: 'server',
@@ -240,13 +258,50 @@ describe('useContainerLogs', () => {
 
     act(() => {
       MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].dispatchEvent('error', {
-        data: JSON.stringify({ message: 'Container not found' }),
-      });
+      MockEventSource.instances[0].dispatchEvent('stream_end', {});
+      MockEventSource.instances[0].onerror?.();
     });
 
-    expect(mockTerminal.writeln).toHaveBeenCalledWith(
-      expect.stringContaining('Container not found'),
-    );
+    // Only the initial connection, no reconnect after stream_end
+    expect(MockEventSource.instances.length).toBe(1);
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.error).toBeNull();
+    // No "Connection lost" message written to terminal after a clean stream_end
+    expect(mockTerminal.writeln).not.toHaveBeenCalled();
+  });
+
+  describe('error events with immediate RAF', () => {
+    const origRAF = globalThis.requestAnimationFrame;
+
+    beforeEach(() => {
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => { cb(0); return 0; }) as typeof requestAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.requestAnimationFrame = origRAF;
+    });
+
+    it('handles error SSE events from the agent', () => {
+      renderHook(() =>
+        useContainerLogs({
+          containerId: 'abc123',
+          host: 'server',
+          terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
+        }),
+      );
+
+      act(() => {
+        MockEventSource.instances[0].onopen?.();
+        MockEventSource.instances[0].dispatchEvent('error', {
+          data: JSON.stringify({ message: 'Container not found' }),
+        });
+      });
+
+      // Agent-emitted error events flow through the per-frame write buffer,
+      // not writeln, so the message lands in the terminal alongside log lines.
+      expect(mockTerminal.write).toHaveBeenCalledWith(
+        expect.stringContaining('Container not found'),
+      );
+    });
   });
 });

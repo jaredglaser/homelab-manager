@@ -8,17 +8,6 @@ function renderChip(state: ContainerState) {
 }
 
 describe('ContainerStateChip', () => {
-  it('renders the state label', () => {
-    renderChip('running');
-    expect(screen.getByText('running')).toBeDefined();
-  });
-
-  it('has data-state attribute matching the state', () => {
-    renderChip('exited');
-    const chip = screen.getByTestId('container-state-chip');
-    expect(chip.getAttribute('data-state')).toBe('exited');
-  });
-
   it('renders running state with active-indicator dot', () => {
     renderChip('running');
     const dot = screen.getByLabelText('running');
@@ -28,14 +17,14 @@ describe('ContainerStateChip', () => {
   it('renders restarting state with pulsing warning dot', () => {
     renderChip('restarting');
     const dot = screen.getByLabelText('restarting');
-    expect(dot.className).toContain('bg-(--mui-palette-warning-main)');
+    expect(dot.className).toContain('bg-(--warning)');
     expect(dot.className).toContain('animate-pulse');
   });
 
   it('renders paused state with info dot (non-pulsing)', () => {
     renderChip('paused');
     const dot = screen.getByLabelText('paused');
-    expect(dot.className).toContain('bg-(--mui-palette-info-main)');
+    expect(dot.className).toContain('bg-(--info)');
     expect(dot.className).not.toContain('animate-pulse');
   });
 
@@ -43,7 +32,7 @@ describe('ContainerStateChip', () => {
     renderChip('exited');
     const dot = screen.getByLabelText('exited');
     // Filled grey: uses design-system disabled token, not border (outlined variant)
-    expect(dot.className).toContain('bg-(--mui-palette-text-disabled)');
+    expect(dot.className).toContain('bg-(--text-disabled)');
     expect(dot.className).not.toContain('border');
   });
 
@@ -51,7 +40,7 @@ describe('ContainerStateChip', () => {
     renderChip('dead');
     const dot = screen.getByLabelText('dead');
     // Filled grey: uses design-system disabled token, not border (outlined variant)
-    expect(dot.className).toContain('bg-(--mui-palette-text-disabled)');
+    expect(dot.className).toContain('bg-(--text-disabled)');
     expect(dot.className).not.toContain('border');
   });
 

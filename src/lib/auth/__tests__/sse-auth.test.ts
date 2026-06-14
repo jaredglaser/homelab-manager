@@ -42,7 +42,7 @@ function makeMockRequest(cookieHeader?: string): Request {
 }
 
 // Since authenticateSSE uses dynamic imports for both auth-config and
-// session-manager, we test it by controlling the AUTH_ENABLED env var
+// session-manager, we test it by controlling the AUTH_DISABLED env var
 // and by extracting the core logic for session-manager injection.
 
 describe('authenticateSSE', () => {
@@ -58,7 +58,7 @@ describe('authenticateSSE', () => {
   });
 
   it('returns SYNTHETIC_ADMIN when auth is disabled', async () => {
-    delete process.env.AUTH_ENABLED;
+    process.env.AUTH_DISABLED = 'true';
 
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const result = await authenticateSSE(makeMockRequest());
@@ -71,7 +71,7 @@ describe('authenticateSSE', () => {
   });
 
   it('returns null when no cookie header and auth enabled', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
 
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const result = await authenticateSSE(makeMockRequest());
@@ -80,7 +80,7 @@ describe('authenticateSSE', () => {
   });
 
   it('returns null when cookie header has no session cookie', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
 
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const result = await authenticateSSE(makeMockRequest('other=abc; foo=bar'));
@@ -89,7 +89,7 @@ describe('authenticateSSE', () => {
   });
 
   it('calls buildSessionManager and validateSession when a session cookie is present', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
     const user: AuthUser = { id: 3, email: 'bob@example.com', name: 'Bob', role: 'viewer' };
     mockValidateSession.mockImplementation(async () => user);
 
@@ -101,7 +101,7 @@ describe('authenticateSSE', () => {
   });
 
   it('returns null when validateSession returns null for invalid token', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
     mockValidateSession.mockImplementation(async () => null);
 
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');

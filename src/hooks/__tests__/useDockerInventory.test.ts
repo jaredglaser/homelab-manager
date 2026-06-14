@@ -362,4 +362,18 @@ describe('useDockerInventory', () => {
     expect(result.current.inventory.has('server1/abc123')).toBe(true);
     expect(result.current.inventory.has('server2/abc123')).toBe(true);
   });
+
+  it('surfaces inventory_error events and clears the error on next data', () => {
+    const { result } = renderHook(() => useDockerInventory());
+    const es = MockEventSource.instances[0];
+
+    act(() => { es.onopen?.(); });
+    act(() => { es.fireEvent('inventory_error'); });
+
+    expect(result.current.error?.message).toBe('Inventory stream unavailable');
+
+    act(() => { sendEvent(es, { type: 'init', containers: [] }); });
+
+    expect(result.current.error).toBeNull();
+  });
 });

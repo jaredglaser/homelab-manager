@@ -1,10 +1,9 @@
 import { useCallback, useMemo } from 'react';
 import type { ColumnDef, ExpandedState } from '@tanstack/react-table';
-import { Box, CircularProgress, Typography } from '@mui/material';
-import { StaleDataAlert } from '@/components/shared-table/StaleDataAlert';
-import { DataTable, type MetricGroup } from '@/components/shared-table/DataTable';
-import { metricColumn, nameColumn } from '@/components/shared-table/columns';
-import { EMPTY_METRIC } from '@/components/shared-table';
+import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
+import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
+import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
+import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
 import type { ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
@@ -12,6 +11,7 @@ import { useGeneralSettings, useZfsSettings } from '@/hooks/useSettings';
 import ZFSEntityCell from '@/components/zfs/ZFSEntityCell';
 import PoolSubTable from '@/components/zfs/subtables/PoolSubTable';
 import { buildHostRow } from '@/components/zfs/utils/zfs-row-builders';
+import { Spinner } from '@/components/ui/spinner';
 
 /** Flattened row model for the DataTable tree structure */
 export interface ZFSTableRow {
@@ -212,7 +212,7 @@ export default function ZFSPoolsTable({
 
   const rowClassName = useCallback((row: ZFSTableRow) => {
     if (row.type === 'host') {
-      return 'bg-(--mui-palette-background-level1)!';
+      return 'bg-(--level1)!';
     }
     return '';
   }, []);
@@ -237,28 +237,28 @@ export default function ZFSPoolsTable({
 
   if (error && !hasData) {
     return (
-      <Box className="w-full">
-        <Box className="p-2">
-          <Typography color="error">
+      <div className="w-full">
+        <div className="p-2">
+          <p className="text-base text-destructive">
             Error connecting to ZFS stats: {error.message}
-          </Typography>
-        </Box>
-      </Box>
+          </p>
+        </div>
+      </div>
     );
   }
 
   if (!isConnected && !hasData) {
     return (
-      <Box className="w-full">
-        <Box className="flex justify-center p-4">
-          <CircularProgress />
-        </Box>
-      </Box>
+      <div className="w-full">
+        <div className="flex justify-center p-4">
+          <Spinner />
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box className="flex flex-col flex-1 min-h-0 w-full">
+    <div className="flex flex-col flex-1 min-h-0 w-full">
       <StaleDataAlert isStale={isStale} />
       <DataTable
         data={tableData}
@@ -271,6 +271,6 @@ export default function ZFSPoolsTable({
         rowClassName={rowClassName}
         enableSorting={false}
       />
-    </Box>
+    </div>
   );
 }

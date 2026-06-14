@@ -4,6 +4,8 @@ import type { StackRepoWriter } from '@/lib/deploy/pipeline';
 import { retry } from '@/lib/utils/backoff';
 
 export interface StartupRecoveryRepo extends WatchdogRepo {
+  // Fails ALL pending/in_progress rows, so it is safe only when exactly one
+  // web process runs against the database.
   recoverStuckDeploys(logMessage: string): Promise<StuckDeployRow[]>;
   findSucceededPostSuccessDeploys(kind: 'removeFromManifest'): Promise<PostSuccessDeployRow[]>;
 }

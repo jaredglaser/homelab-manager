@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect } from 'react'
 import { createFileRoute, Outlet, useMatchRoute, useLocation } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { queryClient } from '@/lib/query-client'
 import ContainerTable, { DOCKER_ENTITY_ICONS_QUERY_KEY } from '@/components/docker/ContainerTable'
-import ContainerHistoryPanel from '@/components/docker/ContainerHistoryPanel'
 import PageStatusBar from '@/components/PageStatusBar'
 import DockerStatusSummary from '@/components/docker/DockerStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useDockerInventory } from '@/hooks/useDockerInventory'
-import { getDockerEntityIcons, updateContainerIcon } from '@/data/docker/functions'
+import { getDockerEntityIcons, updateContainerIcon, clearContainerIcon } from '@/data/docker/functions'
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings'
 import { apiUrl } from '@/lib/utils/api-url'
 import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
@@ -56,22 +55,6 @@ function DockerContainersPage() {
     })
     return () => cancelAnimationFrame(raf)
   }, [hash])
-  const [historyTarget, setHistoryTarget] = useState<{ containerId: string; host: string } | null>(null)
-  const [historyOpen, setHistoryOpen] = useState(false)
-
-  const handleOpenHistory = useCallback((containerId: string, host: string) => {
-    setHistoryTarget({ containerId, host })
-    setHistoryOpen(true)
-  }, [])
-
-  const handleCloseHistory = useCallback(() => {
-    setHistoryOpen(false)
-  }, [])
-
-  const handleHistoryExited = useCallback(() => {
-    setHistoryTarget(null)
-  }, [])
-
   const windowSeconds = Math.max(docker.chartWindowSeconds + 10, SPARKLINE_BUFFER_SECONDS)
   const qc = useQueryClient()
 
@@ -99,8 +82,12 @@ function DockerContainersPage() {
   })
 
   const handleIconChange = useCallback(
-    async (serviceKeyEntity: string, iconSlug: string) => {
-      await updateContainerIcon({ data: { serviceKeyEntity, iconSlug } })
+    async (serviceKeyEntity: string, iconSlug: string | null) => {
+      if (iconSlug === null) {
+        await clearContainerIcon({ data: { serviceKeyEntity } });
+      } else {
+        await updateContainerIcon({ data: { serviceKeyEntity, iconSlug } });
+      }
       await qc.invalidateQueries({ queryKey: DOCKER_ENTITY_ICONS_QUERY_KEY })
     },
     [qc],
@@ -136,17 +123,7 @@ function DockerContainersPage() {
         isStale={stream.isStale}
         entityIcons={entityIcons ?? {}}
         onIconChange={handleIconChange}
-        onOpenHistory={handleOpenHistory}
       />
-      {historyTarget && (
-        <ContainerHistoryPanel
-          open={historyOpen}
-          containerId={historyTarget.containerId}
-          host={historyTarget.host}
-          onClose={handleCloseHistory}
-          onExited={handleHistoryExited}
-        />
-      )}
     </div>
   )
 }

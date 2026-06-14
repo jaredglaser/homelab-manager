@@ -222,22 +222,29 @@ export interface DockerTableHierarchy {
 }
 
 /**
- * Build hierarchical table rows from inventory and live stats.
- *
- * Inventory is the **source of truth** for which containers exist.
- * Stats are merged in for running containers; absence of stats for a
- * running container sets `isStale = true`.
+ * Inventory-only skeleton of the hierarchy: deduped containers grouped per host
+ * with final row order already applied. Stats-free so callers can memoize it on
+ * inventory changes alone; stats flush every second while inventory changes rarely.
+ */
+export interface DockerInventoryHierarchy {
+  /** Host names sorted ascending; drives host row order */
+  hostNames: string[];
+  /** Deduped containers per host, sorted by state priority then name */
+  containersByHost: Map<string, DockerInventorySnapshotContainer[]>;
+}
+
+/**
+ * Build the inventory-driven part of the hierarchy: serviceKey dedup, grouping
+ * by host, and row ordering. No stats involved.
  *
  * ServiceKey deduplication: within a host, only the most recently started
  * container per `serviceKey` is kept (max `startedAt`, fallback `updatedAt`).
  *
  * @param inventory - Map of `host/containerId` → `DockerInventorySnapshotContainer`
- * @param stats - Map of `host/containerId` → `DockerStatsFromDB`
  */
-export function buildDockerTableHierarchy(
+export function buildDockerInventoryHierarchy(
   inventory: Map<string, DockerInventorySnapshotContainer>,
-  stats: Map<string, DockerStatsFromDB>,
-): DockerTableHierarchy {
+): DockerInventoryHierarchy {
   const dedupedByHostServiceKey = new Map<string, DockerInventorySnapshotContainer>();
 
   for (const [, inv] of inventory) {
@@ -261,34 +268,49 @@ export function buildDockerTableHierarchy(
     }
   }
 
-  const hostMap = new Map<string, DockerContainerTableRow[]>();
+  const containersByHost = new Map<string, DockerInventorySnapshotContainer[]>();
 
   for (const [, inv] of dedupedByHostServiceKey) {
-    const hostName = inv.host;
-    const row = buildContainerRow(`${hostName}/${inv.containerId}`, inv, stats, hostName);
-
-    let bucket = hostMap.get(hostName);
+    let bucket = containersByHost.get(inv.host);
     if (!bucket) {
       bucket = [];
-      hostMap.set(hostName, bucket);
+      containersByHost.set(inv.host, bucket);
     }
-    bucket.push(row);
+    bucket.push(inv);
   }
 
-  for (const containers of hostMap.values()) {
+  for (const containers of containersByHost.values()) {
     containers.sort((a, b) => {
-      const stateDiff =
-        getStateSortPriority(a.inventory.state) - getStateSortPriority(b.inventory.state);
+      const stateDiff = getStateSortPriority(a.state) - getStateSortPriority(b.state);
       if (stateDiff !== 0) return stateDiff;
-      return a.inventory.name.localeCompare(b.inventory.name);
+      return a.name.localeCompare(b.name);
     });
   }
 
-  const sortedHostNames = [...hostMap.keys()].sort((a, b) => a.localeCompare(b));
-  const totalHosts = sortedHostNames.length;
+  const hostNames = [...containersByHost.keys()].sort((a, b) => a.localeCompare(b));
 
-  const hosts: DockerHostTableRow[] = sortedHostNames.map((hostName) => {
-    const containers = hostMap.get(hostName)!;
+  return { hostNames, containersByHost };
+}
+
+/**
+ * Merge live stats into an inventory hierarchy skeleton to produce table rows.
+ *
+ * Linear pass: per-container stats lookup plus host aggregates. Absence of
+ * stats for a running container sets `isStale = true`.
+ *
+ * @param hierarchy - Skeleton from {@link buildDockerInventoryHierarchy}
+ * @param stats - Map of `host/containerId` → `DockerStatsFromDB`
+ */
+export function attachStatsToHierarchy(
+  hierarchy: DockerInventoryHierarchy,
+  stats: Map<string, DockerStatsFromDB>,
+): DockerTableHierarchy {
+  const totalHosts = hierarchy.hostNames.length;
+
+  const hosts: DockerHostTableRow[] = hierarchy.hostNames.map((hostName) => {
+    const containers: DockerContainerTableRow[] = hierarchy.containersByHost
+      .get(hostName)!
+      .map((inv) => buildContainerRow(`${hostName}/${inv.containerId}`, inv, stats, hostName));
     const aggregated = computeHostAggregates(containers);
     const isStale =
       aggregated.staleContainerCount === aggregated.runningCount &&
@@ -307,4 +329,25 @@ export function buildDockerTableHierarchy(
   });
 
   return { hosts };
+}
+
+/**
+ * Build hierarchical table rows from inventory and live stats.
+ *
+ * Inventory is the **source of truth** for which containers exist.
+ * Stats are merged in for running containers; absence of stats for a
+ * running container sets `isStale = true`.
+ *
+ * Convenience composition of {@link buildDockerInventoryHierarchy} and
+ * {@link attachStatsToHierarchy}; callers on a hot path should memoize the
+ * two passes separately.
+ *
+ * @param inventory - Map of `host/containerId` → `DockerInventorySnapshotContainer`
+ * @param stats - Map of `host/containerId` → `DockerStatsFromDB`
+ */
+export function buildDockerTableHierarchy(
+  inventory: Map<string, DockerInventorySnapshotContainer>,
+  stats: Map<string, DockerStatsFromDB>,
+): DockerTableHierarchy {
+  return attachStatsToHierarchy(buildDockerInventoryHierarchy(inventory), stats);
 }

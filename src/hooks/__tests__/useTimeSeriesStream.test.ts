@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { useTimeSeriesStream, VISIBILITY_REFRESH_COOLDOWN_MS } from '../useTimeSeriesStream';
 import { MockEventSource } from '@/lib/test/mock-event-source';
@@ -87,6 +87,76 @@ describe('useTimeSeriesStream visibility refresh', () => {
     await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
     // Should NOT have called preloadFn again
+    expect(preloadFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useTimeSeriesStream reconnect refresh', () => {
+  /** Errors the live SSE connection with timers firing synchronously, then opens the replacement. */
+  async function dropAndReopenConnection() {
+    const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
+      ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout,
+    );
+    try {
+      const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+      act(() => { es.onerror?.(); });
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+    const reconnected = MockEventSource.instances[MockEventSource.instances.length - 1];
+    // Single act scope so the async refresh kicked off by onReconnect settles inside it
+    await act(async () => {
+      reconnected.onopen?.();
+      await new Promise(r => setTimeout(r, 50));
+    });
+  }
+
+  it('refreshes history when the SSE connection reopens after a failure', async () => {
+    const preloadFn = mock(() => Promise.resolve([makeRow('a', 10)]));
+
+    renderHook(() =>
+      useTimeSeriesStream({
+        sseUrl: '/api/test',
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+      })
+    );
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(preloadFn).toHaveBeenCalledTimes(1);
+
+    // Advance past the shared refresh cooldown set by the initial preload
+    const originalNow = Date.now;
+    try {
+      Date.now = () => originalNow() + VISIBILITY_REFRESH_COOLDOWN_MS + 100;
+
+      await dropAndReopenConnection();
+
+      expect(preloadFn).toHaveBeenCalledTimes(2);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  it('skips reconnect refresh when within the cooldown window', async () => {
+    const preloadFn = mock(() => Promise.resolve([makeRow('a', 10)]));
+
+    renderHook(() =>
+      useTimeSeriesStream({
+        sseUrl: '/api/test',
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+      })
+    );
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(preloadFn).toHaveBeenCalledTimes(1);
+
+    // Reconnect immediately after preload: cooldown should suppress the refresh
+    await dropAndReopenConnection();
+
     expect(preloadFn).toHaveBeenCalledTimes(1);
   });
 });
