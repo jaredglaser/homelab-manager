@@ -1,5 +1,32 @@
 import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
+import { z } from 'zod';
 import type { OidcTokens } from '@/lib/auth/types';
+
+// These payloads come from the OIDC provider over the network, so validate them like any
+// other untrusted input. Required fields must be strings; optional fields are parsed
+// leniently (`.catch`) because providers vary in what they advertise and a malformed
+// optional field should not fail discovery or token exchange.
+const discoveryResponseSchema = z.object({
+  issuer: z.string(),
+  authorization_endpoint: z.string(),
+  token_endpoint: z.string(),
+  userinfo_endpoint: z.string(),
+  jwks_uri: z.string(),
+  end_session_endpoint: z.string().optional().catch(undefined),
+  id_token_signing_alg_values_supported: z.array(z.string()).optional().catch(undefined),
+});
+
+const tokenResponseSchema = z.object({
+  access_token: z.string(),
+  id_token: z.string(),
+  refresh_token: z.string().optional().catch(undefined),
+});
+
+const userinfoResponseSchema = z
+  .object({
+    groups: z.array(z.string()).catch([]),
+  })
+  .catch({ groups: [] });
 
 export interface OidcConfig {
   issuerUrl: string;
@@ -53,37 +80,24 @@ export class OidcClient {
       throw new Error(`OIDC discovery failed (HTTP ${response.status})`);
     }
 
-    const body = await response.json();
-    const issuer = body.issuer;
-    const authEndpoint = body.authorization_endpoint;
-    const tokenEndpoint = body.token_endpoint;
-    const userinfoEndpoint = body.userinfo_endpoint;
-    const jwksUri = body.jwks_uri;
-    if (
-      typeof issuer !== 'string' ||
-      typeof authEndpoint !== 'string' ||
-      typeof tokenEndpoint !== 'string' ||
-      typeof userinfoEndpoint !== 'string' ||
-      typeof jwksUri !== 'string'
-    ) {
+    const parsed = discoveryResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
       throw new Error('OIDC discovery response missing required fields (issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri)');
     }
-    const endSessionEndpoint = typeof body.end_session_endpoint === 'string' ? body.end_session_endpoint : null;
+    const body = parsed.data;
     // 'none' is never acceptable for ID tokens; RS256 is the OIDC Core default when the
     // provider does not advertise id_token_signing_alg_values_supported.
-    const advertisedAlgs = Array.isArray(body.id_token_signing_alg_values_supported)
-      ? body.id_token_signing_alg_values_supported.filter(
-          (alg: unknown): alg is string => typeof alg === 'string' && alg !== 'none',
-        )
-      : [];
+    const advertisedAlgs = (body.id_token_signing_alg_values_supported ?? []).filter(
+      (alg) => alg !== 'none',
+    );
     const idTokenSigningAlgs = advertisedAlgs.length > 0 ? advertisedAlgs : ['RS256'];
     this.endpoints = {
-      issuer,
-      authorizationEndpoint: authEndpoint,
-      tokenEndpoint,
-      userinfoEndpoint,
-      jwksUri,
-      endSessionEndpoint,
+      issuer: body.issuer,
+      authorizationEndpoint: body.authorization_endpoint,
+      tokenEndpoint: body.token_endpoint,
+      userinfoEndpoint: body.userinfo_endpoint,
+      jwksUri: body.jwks_uri,
+      endSessionEndpoint: body.end_session_endpoint ?? null,
       idTokenSigningAlgs,
     };
     return this.endpoints;
@@ -132,14 +146,14 @@ export class OidcClient {
       throw new Error(`OIDC token exchange failed (HTTP ${response.status}): ${body}`);
     }
 
-    const body = await response.json();
-    if (typeof body.access_token !== 'string' || typeof body.id_token !== 'string') {
+    const parsed = tokenResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
       throw new Error('OIDC token response missing required fields (access_token, id_token)');
     }
     return {
-      accessToken: body.access_token,
-      refreshToken: body.refresh_token ?? null,
-      idToken: body.id_token,
+      accessToken: parsed.data.access_token,
+      refreshToken: parsed.data.refresh_token ?? null,
+      idToken: parsed.data.id_token,
     };
   }
 
@@ -154,8 +168,7 @@ export class OidcClient {
       throw new Error(`Userinfo endpoint returned HTTP ${response.status}`);
     }
 
-    const body = await response.json();
-    return Array.isArray(body.groups) ? body.groups : [];
+    return userinfoResponseSchema.parse(await response.json()).groups;
   }
 
   /**
