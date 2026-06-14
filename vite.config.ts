@@ -58,6 +58,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams', '@tanstack/start-server-core'],
+    holdUntilCrawlEnd: false,
   },
   preview: {
     host: true,
