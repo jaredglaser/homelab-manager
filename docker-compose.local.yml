@@ -155,6 +155,7 @@ services:
       AGENT_PORT: "9090"
       STACKS_DIR: "/opt/homelab-manager/stacks"
       AGENT_TRUSTED_PUBKEY_FILE: "/etc/hlm/dev-agent-pubkey.json"
+      AGENT_HOST_NAME: "localhost"
     volumes:
       - agent-stacks-local:/opt/homelab-manager/stacks
       - ./data:/etc/hlm:ro
