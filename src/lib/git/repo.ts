@@ -13,6 +13,11 @@ export class FileNotFoundError extends Error {
 
 const repoLocks = new Map<string, Promise<void>>();
 
+/**
+ * Serializes repo mutations via an in-memory promise chain, so it only guards
+ * callers within this process. A second app instance writing to the same bare
+ * repo is not protected: run one web instance per git data directory.
+ */
 export async function withRepoLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
   const previous = repoLocks.get(repoPath) ?? Promise.resolve();
   let release: () => void;

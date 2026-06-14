@@ -122,6 +122,24 @@ describe('useStackStatus', () => {
     expect(result.current.statusMap.has('server2/plex')).toBe(true);
   });
 
+  it('surfaces stack_status_error events and clears the error on next data', () => {
+    const { result } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
+
+    act(() => { es.onopen?.(); });
+    act(() => { es.fireEvent('stack_status_error'); });
+
+    expect(result.current.error).toBe('Stack status stream unavailable');
+
+    act(() => {
+      es.onmessage?.({
+        data: JSON.stringify([{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }]),
+      });
+    });
+
+    expect(result.current.error).toBeNull();
+  });
+
   it('cleans up EventSource on unmount', () => {
     const { unmount } = renderHook(() => useStackStatus());
     const es = MockEventSource.instances[0];

@@ -1,4 +1,3 @@
-import { Typography } from '@mui/material';
 import type { ProxmoxClusterOverview } from '@/types/proxmox';
 
 interface ProxmoxStatusSummaryProps {
@@ -13,21 +12,13 @@ interface Segment {
 function StatusSegment({ label, count }: Readonly<Segment>) {
   return (
     <span>
-      <Typography
-        component="span"
-        variant="inherit"
-        className="font-mono tabular-nums text-(--mui-palette-text-primary)"
-      >
+      <span className="text-base font-mono tabular-nums text-foreground">
         {count}
-      </Typography>
+      </span>
       {' '}
-      <Typography
-        component="span"
-        variant="inherit"
-        className="text-(--mui-palette-text-secondary)"
-      >
+      <span className="text-base text-(--muted-foreground)">
         {label}
-      </Typography>
+      </span>
     </span>
   );
 }
@@ -52,13 +43,9 @@ export default function ProxmoxStatusSummary({ overview }: Readonly<ProxmoxStatu
       {segments.map((seg, i) => (
         <span key={seg.label} className="flex items-center gap-2">
           {i > 0 && (
-            <Typography
-              component="span"
-              variant="inherit"
-              className="text-(--mui-palette-text-disabled) select-none"
-            >
+            <span className="text-base text-(--text-disabled) select-none">
               ·
-            </Typography>
+            </span>
           )}
           <StatusSegment label={seg.label} count={seg.count} />
         </span>

@@ -5,6 +5,7 @@ import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
 import { handleStackDeploy, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus } from './routes/stacks';
 import { handleContainerEvents } from './routes/containers-events';
+import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
 import { detectZfsCapabilities } from './lib/zfs-capabilities';
 import { handleAgentUpdate } from './routes/agent-update';
@@ -23,6 +24,13 @@ const STACKS_DIR = process.env.STACKS_DIR || '/opt/homelab-manager/stacks';
 const AGENT_CONTAINER_NAME = process.env.AGENT_CONTAINER_NAME ?? 'hlm-agent';
 const AGENT_TRUSTED_PUBKEY_FILE = process.env.AGENT_TRUSTED_PUBKEY_FILE;
 const AGENT_TRUSTED_PUBKEY_ENV = process.env.AGENT_TRUSTED_PUBKEY;
+// Managed host name; manager JWTs carry it as aud, so a token minted for
+// another host is rejected even if the keypair was reused.
+const AGENT_HOST_NAME = process.env.AGENT_HOST_NAME?.trim();
+if (!AGENT_HOST_NAME) {
+  console.error('AGENT_HOST_NAME environment variable is required');
+  process.exit(1);
+}
 const DOCKER_HOST = process.env.DOCKER_HOST;
 
 let trustedPubkeyJson: string;
@@ -124,6 +132,14 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
     if (logsMatch && request.method === 'GET') return handleLogStream(docker, logsMatch[1], request);
 
     if (url.pathname === '/containers/events' && request.method === 'GET') return handleContainerEvents(docker, request);
+
+    const containerControlMatch = /^\/containers\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)\/([a-z]+)$/.exec(url.pathname);
+    if (containerControlMatch && request.method === 'POST') {
+      const [, containerId, action] = containerControlMatch;
+      if (action === 'start') return handleContainerStart(docker, containerId, request);
+      if (action === 'stop') return handleContainerStop(docker, containerId, request);
+      if (action === 'restart') return handleContainerRestart(docker, containerId, request);
+    }
     if (url.pathname === '/stacks/deploy' && request.method === 'POST') return handleStackDeploy(request, STACKS_DIR);
     if (url.pathname === '/stacks/teardown' && request.method === 'POST') return handleStackTeardown(request, STACKS_DIR);
     if (url.pathname === '/stacks/restart' && request.method === 'POST') return handleStackRestart(request, STACKS_DIR);
@@ -176,7 +192,7 @@ Bun.serve<ExecWebSocketData>({
     try {
       const url = new URL(request.url);
 
-      const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname);
+      const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname, AGENT_HOST_NAME);
       if (authError) return authError;
 
       // WebSocket upgrade for exec sessions: must happen before matchRoute since server.upgrade() is Bun-specific

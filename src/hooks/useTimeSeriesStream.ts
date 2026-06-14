@@ -189,10 +189,19 @@ export function useTimeSeriesStream<TRow>({
     setServiceError(new Error('Database unavailable'));
   }, []);
 
+  // SSE carries snapshots without Last-Event-ID replay, so rows emitted while the
+  // connection was down are lost. Re-preload on reconnect to heal the gap instead
+  // of waiting for the periodic refresh or a visibility change (up to a minute).
+  const onReconnect = useCallback(() => {
+    if (Date.now() - lastRefreshRef.current < VISIBILITY_REFRESH_COOLDOWN_MS) return;
+    doRefreshRef.current().catch(() => {});
+  }, []);
+
   const { isConnected, error: sseError } = useEventSource<TRow[]>({
     url: sseUrl,
     onData: handleData,
     onServiceError,
+    onReconnect,
     debug,
   });
 

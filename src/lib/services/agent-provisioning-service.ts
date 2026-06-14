@@ -3,6 +3,7 @@ import { pullImage } from '@/lib/services/docker-image-utils';
 
 export interface ProvisionAgentOptions {
   hostId: number;
+  hostName: string;
   agentPort: number;
   publicJwkJson: string;
   agentImage: string;
@@ -56,6 +57,8 @@ export class AgentProvisioningService {
       Image: options.agentImage,
       Env: [
         `AGENT_TRUSTED_PUBKEY=${options.publicJwkJson}`,
+        // Must match managed_hosts.name: manager JWTs carry it as aud.
+        `AGENT_HOST_NAME=${options.hostName}`,
         `DOCKER_HOST=${options.socketProxyUrl}`,
         `AGENT_PORT=${options.agentPort}`,
       ],

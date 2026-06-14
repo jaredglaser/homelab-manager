@@ -101,6 +101,18 @@ Any reverse proxy works. [Caddy](https://caddyserver.com/docs/) is a popular hom
 
 **Authentication layer:** Since the dashboard has no built-in auth, consider placing an auth middleware in front of it. [tinyauth](https://github.com/steveiliop56/tinyauth) paired with [Pocket ID](https://github.com/stonith404/pocket-id) (a lightweight OIDC/passkey provider built for homelabs) is a clean option: Pocket ID manages your identity store, tinyauth enforces login at the proxy layer, and the dashboard itself stays unchanged. Treat this as defense-in-depth on top of network isolation, not a replacement for it.
 
+### Agent Environment
+
+These variables are set on each **agent** container (not on the dashboard or worker). The Add Host wizard generates a compose snippet for the agent; set `AGENT_HOST_NAME` on that container to the same host name you register in the wizard.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_HOST_NAME` | - | **Required.** Must equal the managed host's name as registered in **Settings → Managed Hosts**. Manager-issued JWTs carry this name as the `aud` claim, so a token minted for one host is rejected by another (protects against a reused or copy-pasted keypair). The agent exits at startup if it is unset. |
+| `AGENT_TRUSTED_PUBKEY` or `AGENT_TRUSTED_PUBKEY_FILE` | - | Trusted Ed25519 public JWK the agent verifies request JWTs against. The dashboard hands you this value during the Verify step. Set exactly one. |
+| `AGENT_PORT` | `9090` | Port the agent listens on |
+| `DOCKER_HOST` | - | Docker endpoint (socket proxy recommended, e.g. `tcp://socket-proxy:2375`). Enables the Docker capability. |
+| `TLS_CERT_PATH` / `TLS_KEY_PATH` | - | Optional TLS for the agent's listener. Set both together. |
+
 ### Docker Monitoring
 
 Docker monitoring works through agent sidecars. Deploy the agent container on each host you want to monitor, then register the host in **Settings → Managed Hosts** with the `docker` capability enabled. The worker subscribes to the agent's SSE streams for stats and container inventory; no direct Docker socket access is required on the dashboard host.
@@ -135,7 +147,7 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 
 > **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and sends the public JWK to the agent. Each deploy request carries a short-lived signed JWT; the agent verifies it against the trusted public key.
 >
-> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose snippet for the agent and handles key exchange during the Verify step. Once connectivity is confirmed, the keypair is stored and the host is ready.
+> **Adding a host:** Use **Settings → Managed Hosts → Add Host** in the dashboard. The wizard generates a compose snippet for the agent and handles key exchange during the Verify step. Set `AGENT_HOST_NAME` on the agent to the host name you enter in the wizard (see [Agent Environment](#agent-environment)). Once connectivity is confirmed, the keypair is stored and the host is ready.
 
 ### PostgreSQL Connection
 
@@ -145,13 +157,13 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 | `POSTGRES_SSL_REJECT_UNAUTHORIZED` | `true` | Verify the server's TLS certificate. Set to `false` only for self-signed certificates. This disables chain validation and exposes the connection to MITM attacks. |
 | `POSTGRES_POOL_SIZE` | `10` | Database connection pool size |
 
-### Authentication (optional, OIDC)
+### Authentication (OIDC)
 
-Off by default. Set `AUTH_ENABLED=true` to require login via an OIDC provider (designed and tested with [Pocket ID](https://github.com/stonith404/pocket-id), but works with any OIDC issuer). With auth disabled, the dashboard still relies on network isolation (see the warning above).
+On by default. Configure an OIDC provider (designed and tested with [Pocket ID](https://github.com/stonith404/pocket-id), but works with any OIDC issuer), or set `AUTH_DISABLED=true` to opt out on a trusted network. The opt-out is deliberate: an unrecognized `AUTH_DISABLED` value or the removed legacy `AUTH_ENABLED` variable fails startup instead of silently opening the app. With auth disabled, the dashboard relies on network isolation (see the warning above).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AUTH_ENABLED` | `false` | Require OIDC login for all routes and SSE streams |
+| `AUTH_DISABLED` | unset (auth required) | Set to `true` (or `1`/`yes`/`on`) to disable OIDC login for all routes and SSE streams |
 | `OIDC_ISSUER_URL` | - | OIDC discovery URL (e.g. `https://pocketid.example.com`) |
 | `OIDC_CLIENT_ID` | - | OIDC client ID registered with your provider |
 | `OIDC_CLIENT_SECRET` | - | OIDC client secret |
@@ -161,7 +173,7 @@ Off by default. Set `AUTH_ENABLED=true` to require login via an OIDC provider (d
 | `OIDC_ROLE_OPERATOR` | `homelab-operators` | OIDC group claim that maps to the `operator` role |
 | `OIDC_ROLE_VIEWER` | `homelab-viewers` | OIDC group claim that maps to the `viewer` role |
 
-If you prefer to keep auth at the proxy layer instead (tinyauth + Pocket ID), leave `AUTH_ENABLED=false`. See the [Authentication layer](#reverse-proxy) note above.
+If you prefer to keep auth at the proxy layer instead (tinyauth + Pocket ID), set `AUTH_DISABLED=true`. See the [Authentication layer](#reverse-proxy) note above.
 
 ### Deploy Watchdog (optional)
 

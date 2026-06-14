@@ -80,6 +80,7 @@ describe('AgentProvisioningService', () => {
 
   const defaultOptions: ProvisionAgentOptions = {
     hostId: 1,
+    hostName: 'test-host',
     agentPort: 9090,
     publicJwkJson: '{"kty":"OKP","crv":"Ed25519","x":"test-public-key"}',
     agentImage: 'ghcr.io/org/homelab-manager-agent:latest',
@@ -103,11 +104,12 @@ describe('AgentProvisioningService', () => {
       expect(mockDocker.createdContainers[0].name).toBe('homelab-agent-1');
     });
 
-    it('passes AGENT_TRUSTED_PUBKEY and DOCKER_HOST as env vars', async () => {
+    it('passes AGENT_TRUSTED_PUBKEY, AGENT_HOST_NAME and DOCKER_HOST as env vars', async () => {
       await service.provision(mockDocker.docker, defaultOptions);
       const config = mockDocker.createdContainers[0].config;
       const env = config.Env as string[];
       expect(env).toContainEqual(`AGENT_TRUSTED_PUBKEY=${defaultOptions.publicJwkJson}`);
+      expect(env).toContainEqual('AGENT_HOST_NAME=test-host');
       expect(env).toContainEqual('DOCKER_HOST=tcp://192.168.1.10:2375');
       expect(env).toContainEqual('AGENT_PORT=9090');
     });

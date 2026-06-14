@@ -72,6 +72,14 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <head>
+        {/* Set the color scheme before first paint to avoid a light/dark flash.
+            Mirrors the default and legacy-key logic in useColorMode. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var m=localStorage.getItem('color-scheme')||localStorage.getItem('mui-mode');if(m!=='light'&&m!=='dark')m='dark';document.documentElement.setAttribute('data-color-scheme',m);}catch(e){document.documentElement.setAttribute('data-color-scheme','dark');}})();",
+          }}
+        />
         <HeadContent />
       </head>
       <body>

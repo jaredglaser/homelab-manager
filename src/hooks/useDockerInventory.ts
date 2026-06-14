@@ -28,8 +28,10 @@ function mergeUpsert(
 
 export function useDockerInventory(): UseDockerInventoryResult {
   const [inventory, setInventory] = useState<Map<string, DockerInventorySnapshotContainer>>(new Map());
+  const [serviceError, setServiceError] = useState<Error | null>(null);
 
   const handleData = useCallback((event: DockerInventoryBroadcastEvent) => {
+    setServiceError(null);
     if (event.type === 'init') {
       const next = new Map<string, DockerInventorySnapshotContainer>();
       for (const container of event.containers) {
@@ -55,10 +57,16 @@ export function useDockerInventory(): UseDockerInventoryResult {
     }
   }, []);
 
+  const handleServiceError = useCallback(() => {
+    setServiceError(new Error('Inventory stream unavailable'));
+  }, []);
+
   const { isConnected, error } = useEventSource<DockerInventoryBroadcastEvent>({
     url: apiUrl('/api/docker-inventory'),
     onData: handleData,
+    onServiceError: handleServiceError,
+    errorEventName: 'inventory_error',
   });
 
-  return { inventory, isConnected, error };
+  return { inventory, isConnected, error: error ?? serviceError };
 }

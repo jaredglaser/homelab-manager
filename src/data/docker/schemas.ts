@@ -26,3 +26,13 @@ export const updateContainerIconSchema = z.object({
   serviceKeyEntity: z.string().min(1),
   iconSlug: z.string().min(1),
 });
+
+export const clearContainerIconSchema = z.object({
+  serviceKeyEntity: z.string().min(1),
+});
+
+export const controlContainerSchema = z.object({
+  host: z.string().min(1),
+  containerId: z.string().min(1),
+  action: z.enum(['start', 'stop', 'restart']),
+});

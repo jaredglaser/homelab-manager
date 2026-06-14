@@ -30,6 +30,7 @@ function buildAliases(): Record<string, string> {
     aliases['@/data/proxmox/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/proxmox.functions.ts', import.meta.url))
     aliases['@/data/settings/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/settings.functions.ts', import.meta.url))
     aliases['@/data/stacks/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/stacks.functions.tsx', import.meta.url))
+    aliases['@/data/auth.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/auth.functions.ts', import.meta.url))
   }
   aliases['@'] = fileURLToPath(new URL('./src', import.meta.url))
   return aliases
@@ -56,7 +57,7 @@ export default defineConfig({
     external: ['dockerode', 'ssh2', 'docker-modem', 'ssh2-streams', 'undici'],
   },
   optimizeDeps: {
-    exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams'],
+    exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams', '@tanstack/start-server-core'],
   },
   preview: {
     host: true,
