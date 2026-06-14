@@ -1,3 +1,4 @@
+import { enforceAuthConfig } from '@/lib/config/auth-config';
 import { statsPollService } from '@/lib/database/subscription-service';
 import { settingsBroadcastService } from '@/lib/settings/settings-broadcast-service';
 import { stackStatusBroadcastService } from '@/lib/stacks/stack-status-broadcast-service';
@@ -42,6 +43,11 @@ async function startDeployRecovery(): Promise<void> {
 /** Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy recovery. */
 export function initServer(): void {
   if (initialized) return;
+
+  // Validate before setting the flag so a misconfigured process keeps failing
+  // on every init attempt instead of throwing once and then serving requests.
+  enforceAuthConfig();
+
   initialized = true;
 
   const shutdown = async () => {
