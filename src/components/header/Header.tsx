@@ -57,6 +57,7 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
                   key={item.to}
                   value={item.to}
                   ref={refSetters[item.to as MenuRouteKey]}
+                  nativeButton={false}
                   render={<Link to={item.to} />}
                   aria-haspopup={item.hasMenu ? 'menu' : undefined}
                   aria-expanded={item.hasMenu ? controller.openId === item.to : undefined}
