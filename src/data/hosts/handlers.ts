@@ -245,8 +245,16 @@ export async function handleUpdateHost(
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const fields: { name?: string; agentUrl?: string } = {};
-  if (data.name !== undefined) fields.name = data.name;
+  // The host name is the cryptographic identity: it is the agent_keypairs lookup
+  // key, the JWT `aud`, and the agent container's AGENT_HOST_NAME. Changing it
+  // here would orphan the keypair and mint tokens the running agent rejects, so
+  // the name is immutable. Renaming means remove-and-re-add (which redeploys the
+  // agent container with a new AGENT_HOST_NAME anyway).
+  if (data.name !== undefined && data.name.trim() !== host.name) {
+    throw new Error('Host name cannot be changed after enrollment. To rename, remove and re-add the host.');
+  }
+
+  const fields: { agentUrl?: string } = {};
   if (data.agentUrl !== undefined) fields.agentUrl = data.agentUrl;
 
   const updated = await deps.repo.update(data.hostId, fields);

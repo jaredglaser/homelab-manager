@@ -616,17 +616,17 @@ describe('handleUpdateAgent', () => {
 });
 
 describe('handleUpdateHost', () => {
-  it('updates the host and returns mapped HostListItem', async () => {
-    const updatedRow = mockRow({ name: 'renamed', agentUrl: 'http://new-url:9090' });
+  it('updates agentUrl and returns mapped HostListItem when name is unchanged', async () => {
+    const updatedRow = mockRow({ name: 'test-host', agentUrl: 'http://new-url:9090' });
     const repo = mockRepo({ update: mock(() => Promise.resolve(updatedRow)) });
     const deps = baseDeps();
     deps.repo = repo;
 
-    const result = await handleUpdateHost(deps, { hostId: 1, name: 'renamed', agentUrl: 'http://new-url:9090' });
+    const result = await handleUpdateHost(deps, { hostId: 1, name: 'test-host', agentUrl: 'http://new-url:9090' });
 
-    expect(result.name).toBe('renamed');
+    expect(result.name).toBe('test-host');
     expect(result.agentUrl).toBe('http://new-url:9090');
-    expect(repo.update).toHaveBeenCalledWith(1, { name: 'renamed', agentUrl: 'http://new-url:9090' });
+    expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'http://new-url:9090' });
   });
 
   it('throws when host not found', async () => {
@@ -634,13 +634,34 @@ describe('handleUpdateHost', () => {
     await expect(handleUpdateHost(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 
-  it('passes only provided fields to repo.update', async () => {
+  it('rejects a changed name and does not write', async () => {
     const repo = mockRepo();
     const deps = baseDeps();
     deps.repo = repo;
 
-    await handleUpdateHost(deps, { hostId: 1, name: 'only-name' });
+    await expect(
+      handleUpdateHost(deps, { hostId: 1, name: 'renamed', agentUrl: 'http://new-url:9090' }),
+    ).rejects.toThrow(/cannot be changed after enrollment/);
+    expect(repo.update).not.toHaveBeenCalled();
+  });
 
-    expect(repo.update).toHaveBeenCalledWith(1, { name: 'only-name' });
+  it('treats a whitespace-padded matching name as unchanged', async () => {
+    const repo = mockRepo();
+    const deps = baseDeps();
+    deps.repo = repo;
+
+    await handleUpdateHost(deps, { hostId: 1, name: '  test-host  ', agentUrl: 'http://x:9090' });
+
+    expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'http://x:9090' });
+  });
+
+  it('updates agentUrl when name is omitted', async () => {
+    const repo = mockRepo();
+    const deps = baseDeps();
+    deps.repo = repo;
+
+    await handleUpdateHost(deps, { hostId: 1, agentUrl: 'http://x:9090' });
+
+    expect(repo.update).toHaveBeenCalledWith(1, { agentUrl: 'http://x:9090' });
   });
 });
