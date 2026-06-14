@@ -8,7 +8,7 @@ import {
   handleStackStatus,
   parseContainerNames,
 } from '../routes/stacks';
-import { mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
 beforeAll(() => {
@@ -94,6 +94,9 @@ describe('handleStackDeploy', () => {
     expect(existsSync(envPath)).toBe(true);
     expect(readFileSync(envPath, 'utf-8')).toBe(body.envContent);
 
+    expect(statSync(composePath).mode & 0o777).toBe(0o644);
+    expect(statSync(envPath).mode & 0o777).toBe(0o600);
+
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     expect(mockSpawn).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -102,6 +105,32 @@ describe('handleStackDeploy', () => {
         env: expect.objectContaining({ COMPOSE_PROJECT_NAME: 'plex' }),
       })
     );
+  });
+
+  test('tightens permissions on pre-existing files when overwriting', async () => {
+    const stackDir = join(TEST_STACKS_DIR, 'plex');
+    mkdirSync(stackDir, { recursive: true });
+    const composePath = join(stackDir, 'docker-compose.yml');
+    const envPath = join(stackDir, '.env');
+    // Simulate files written before mode enforcement: world-readable .env.
+    writeFileSync(composePath, 'old', { mode: 0o666 });
+    writeFileSync(envPath, 'old', { mode: 0o666 });
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        stack: 'plex',
+        composeContent: 'services:\n  plex:\n    image: plexinc/pms-docker',
+        envContent: 'PLEX_CLAIM=claim-abc123',
+      }),
+    });
+
+    const response = await handleStackDeploy(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(200);
+
+    expect(statSync(composePath).mode & 0o777).toBe(0o644);
+    expect(statSync(envPath).mode & 0o777).toBe(0o600);
   });
 
   test('returns 400 for missing stack name', async () => {
