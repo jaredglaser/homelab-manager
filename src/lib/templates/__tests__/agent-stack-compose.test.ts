@@ -13,6 +13,7 @@ const parseYaml = (input: string) => load(input) as Record<string, any>;
 const MOCK_PUBKEY = '{"kty":"OKP","crv":"Ed25519","x":"test-x-value"}';
 
 const dockerOnlyConfig: AgentStackConfig = {
+  hostName: 'test-host',
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
@@ -20,6 +21,7 @@ const dockerOnlyConfig: AgentStackConfig = {
 };
 
 const zfsOnlyConfig: AgentStackConfig = {
+  hostName: 'test-host',
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:v1.0.0',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:v1.0.0',
@@ -29,6 +31,7 @@ const zfsOnlyConfig: AgentStackConfig = {
 };
 
 const dockerZfsConfig: AgentStackConfig = {
+  hostName: 'test-host',
   agentTrustedPubkey: MOCK_PUBKEY,
   agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
   agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
@@ -77,6 +80,7 @@ describe('generateAgentStackCompose', () => {
       const result = generateAgentStackCompose(config);
       const parsed = parseYaml(result);
       expect(parsed.services.agent.environment.AGENT_TRUSTED_PUBKEY).toBe(MOCK_PUBKEY);
+      expect(parsed.services.agent.environment.AGENT_HOST_NAME).toBe('test-host');
       expect(parsed.services.agent.environment.AGENT_TOKEN_FILE).toBeUndefined();
       expect(parsed.services.agent.environment.AGENT_TOKEN).toBeUndefined();
     }
@@ -182,6 +186,7 @@ describe('generateAgentStackCompose', () => {
 
   it('neither docker nor zfs: minimal agent + updater only', () => {
     const noneConfig: AgentStackConfig = {
+      hostName: 'test-host',
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'ghcr.io/jaredglaser/homelab-manager-agent:latest',
       agentUpdaterImage: 'ghcr.io/jaredglaser/homelab-manager-agent-updater:latest',
@@ -252,6 +257,7 @@ describe('generateAgentStackEnv', () => {
 
   it('throws when zfs is true but hlmZfsUid is missing', () => {
     const bad: AgentStackConfig = {
+      hostName: 'test-host',
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',
@@ -265,6 +271,7 @@ describe('generateAgentStackEnv', () => {
 
   it('throws when zfs is true but hlmZfsGid is missing', () => {
     const bad: AgentStackConfig = {
+      hostName: 'test-host',
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',
@@ -278,6 +285,7 @@ describe('generateAgentStackEnv', () => {
 
   it('throws when docker and zfs are true but dockerGid is missing', () => {
     const bad: AgentStackConfig = {
+      hostName: 'test-host',
       agentTrustedPubkey: MOCK_PUBKEY,
       agentImage: 'img',
       agentUpdaterImage: 'upd',

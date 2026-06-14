@@ -346,7 +346,7 @@ async function tryDeleteKeypair(
 }
 
 interface AddHostDeps extends HostHandlerDeps {
-  provision: (socketProxyUrl: string, opts: { hostId: number; agentPort: number; publicJwkJson: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
+  provision: (socketProxyUrl: string, opts: { hostId: number; hostName: string; agentPort: number; publicJwkJson: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
   keypairs: KeypairsDep;
   checkHealth: (url: string) => Promise<HealthCheckOutcome>;
   removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>;
@@ -419,6 +419,7 @@ export async function handleAddHost(
   try {
     provisionResult = await deps.provision(data.socketProxyUrl, {
       hostId: host.id,
+      hostName: data.name,
       agentPort: data.agentPort,
       publicJwkJson: JSON.stringify(publicJwk),
       agentImage: getAgentImage(),

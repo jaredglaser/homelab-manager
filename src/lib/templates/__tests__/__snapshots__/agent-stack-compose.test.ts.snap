@@ -35,6 +35,7 @@ services:
       - \${HLM_AGENT_PORT:-9090}:9090
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
+      AGENT_HOST_NAME: test-host
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes: []
     networks:
@@ -79,6 +80,7 @@ services:
       - \${HLM_AGENT_PORT:-9090}:9090
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
+      AGENT_HOST_NAME: test-host
     volumes:
       - /usr/sbin/zpool:/usr/sbin/zpool:ro
       - /usr/sbin/zfs:/usr/sbin/zfs:ro
@@ -138,6 +140,7 @@ services:
       - \${HLM_AGENT_PORT:-9090}:9090
     environment:
       AGENT_TRUSTED_PUBKEY: "{\\"kty\\":\\"OKP\\",\\"crv\\":\\"Ed25519\\",\\"x\\":\\"test-x-value\\"}"
+      AGENT_HOST_NAME: test-host
       DOCKER_HOST: tcp://socket-proxy:2375
     volumes:
       - /usr/sbin/zpool:/usr/sbin/zpool:ro

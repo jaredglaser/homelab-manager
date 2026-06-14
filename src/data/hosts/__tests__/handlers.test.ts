@@ -308,6 +308,7 @@ describe('handleAddHost', () => {
     await handleAddHost(deps, { name: 'new', socketProxyUrl: 'tcp://x:2375', agentPort: 9090 });
     const provisionCall = (deps.provision as ReturnType<typeof mock>).mock.calls[0];
     expect(provisionCall[1]).toHaveProperty('publicJwkJson');
+    expect(provisionCall[1]).toHaveProperty('hostName', 'new');
     expect(provisionCall[1]).not.toHaveProperty('agentToken');
   });
 
