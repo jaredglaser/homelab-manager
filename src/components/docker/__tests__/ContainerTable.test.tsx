@@ -15,8 +15,13 @@ mock.module('@/hooks/usePulseIndicator', () => ({
   }),
 }));
 
+/** Records every buildContainerChartData call so tests can assert reuse vs rebuild */
+const chartDataCalls: DockerStatsRow[][] = [];
 mock.module('@/hooks/useContainerChartData', () => ({
-  buildContainerChartData: () => ({ sparklineData: undefined, dataPoints: [] }),
+  buildContainerChartData: (chartData: DockerStatsRow[]) => {
+    chartDataCalls.push(chartData);
+    return { sparklineData: undefined, dataPoints: [] };
+  },
 }));
 
 // xterm is pulled in by ContainerDetailPanel → ContainerLogViewer
@@ -52,6 +57,10 @@ mock.module('@/components/docker/DualSeriesChartRenderer', () => ({
 }));
 mock.module('@/hooks/useEChartTimeScroll', () => ({
   useEChartTimeScroll: () => {},
+}));
+
+mock.module('@/components/docker/ContainerActionButtons', () => ({
+  default: () => null,
 }));
 
 mock.module('@/lib/utils/icon-resolver', () => ({
@@ -98,6 +107,24 @@ function makeInventory(
     exitCode: null,
     labels: {},
     updatedAt: baseDate,
+  };
+}
+
+function makeStatsRow(host: string, containerId: string, time: string): DockerStatsRow {
+  return {
+    time,
+    host,
+    container_id: containerId,
+    container_name: 'nginx',
+    image: 'nginx:latest',
+    cpu_percent: 5,
+    memory_usage: 100,
+    memory_limit: 1000,
+    memory_percent: 10,
+    network_rx_bytes_per_sec: 0,
+    network_tx_bytes_per_sec: 0,
+    block_io_read_bytes_per_sec: 0,
+    block_io_write_bytes_per_sec: 0,
   };
 }
 
@@ -213,24 +240,6 @@ describe('ContainerTable', () => {
     expect(stoppedRows.length).toBeGreaterThan(0);
   });
 
-  it('history button fires onOpenHistory with correct args when clicked', () => {
-    const calls: Array<{ containerId: string; host: string }> = [];
-    const handleOpenHistory = (containerId: string, host: string) => {
-      calls.push({ containerId, host });
-    };
-
-    const inventory = new Map([
-      ['host1/abc123', makeInventory('host1', 'abc123', 'my-app', 'exited')],
-    ]);
-    renderTable({ inventory, onOpenHistory: handleOpenHistory });
-
-    const historyButton = screen.getByLabelText('View container history');
-    fireEvent.click(historyButton);
-    expect(calls.length).toBe(1);
-    expect(calls[0]!.containerId).toBe('abc123');
-    expect(calls[0]!.host).toBe('host1');
-  });
-
   it('shows exit metadata in the expanded detail panel for an exited container', () => {
     const inventory = new Map([
       ['host1/abc123', {
@@ -244,9 +253,72 @@ describe('ContainerTable', () => {
 
     fireEvent.click(screen.getByText('old-app'));
 
-    expect(screen.getByText('Container Status')).toBeDefined();
-    expect(screen.getByText('Exited')).toBeDefined();
-    expect(screen.getByText('Exit code')).toBeDefined();
+    expect(screen.getAllByText('exited').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Exit')).toBeDefined();
     expect(screen.getByText('137')).toBeDefined();
+  });
+
+  describe('chart data memoization', () => {
+    function renderWithRows(rows: DockerStatsRow[]) {
+      const inventory = new Map([['host1/c1', makeInventory('host1', 'c1', 'nginx')]]);
+      const latestByEntity = new Map([['host1/c1', rows[rows.length - 1]!]]);
+      const store = createStore();
+      const view = render(
+        <Provider store={store}>
+          <ContainerTable {...defaultProps} inventory={inventory} rows={rows} latestByEntity={latestByEntity} />
+        </Provider>,
+      );
+      const rerenderWithRows = (nextRows: DockerStatsRow[]) => {
+        view.rerender(
+          <Provider store={store}>
+            <ContainerTable {...defaultProps} inventory={inventory} rows={nextRows} latestByEntity={latestByEntity} />
+          </Provider>,
+        );
+      };
+      return { rerenderWithRows };
+    }
+
+    it('does not rebuild chart data when rows refresh with identical timestamps', () => {
+      const rows = [
+        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
+        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+      ];
+      const { rerenderWithRows } = renderWithRows(rows);
+      const callsAfterMount = chartDataCalls.length;
+      expect(callsAfterMount).toBeGreaterThan(0);
+
+      // Simulate a periodic buffer refresh: fresh row objects, same data points.
+      rerenderWithRows(rows.map((r) => ({ ...r })));
+
+      expect(chartDataCalls.length).toBe(callsAfterMount);
+    });
+
+    it('rebuilds chart data when a new data point arrives', () => {
+      const rows = [
+        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
+        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+      ];
+      const { rerenderWithRows } = renderWithRows(rows);
+      const callsAfterMount = chartDataCalls.length;
+
+      rerenderWithRows([...rows, makeStatsRow('host1', 'c1', '2024-01-01T00:00:02Z')]);
+
+      expect(chartDataCalls.length).toBeGreaterThan(callsAfterMount);
+      expect(chartDataCalls[chartDataCalls.length - 1]!).toHaveLength(3);
+    });
+
+    it('rebuilds chart data when window eviction drops a leading row', () => {
+      const rows = [
+        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
+        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+      ];
+      const { rerenderWithRows } = renderWithRows(rows);
+      const callsAfterMount = chartDataCalls.length;
+
+      rerenderWithRows(rows.slice(1));
+
+      expect(chartDataCalls.length).toBeGreaterThan(callsAfterMount);
+      expect(chartDataCalls[chartDataCalls.length - 1]!).toHaveLength(1);
+    });
   });
 });

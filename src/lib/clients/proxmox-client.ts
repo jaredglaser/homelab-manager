@@ -1,12 +1,9 @@
 import type { ProxmoxConfig } from '../config/proxmox-config';
 import type {
   ProxmoxResponse,
-  ProxmoxNode,
   ProxmoxClusterStatus,
-  ProxmoxVM,
-  ProxmoxContainer,
-  ProxmoxStorage,
-  ProxmoxClusterOverview,
+  ProxmoxResource,
+  ProxmoxClusterSnapshot,
 } from '../../types/proxmox';
 
 // Covers both Bun's native fetch (`tls`) and Node.js-compat/undici fetch (`dispatcher`)
@@ -98,114 +95,30 @@ export class ProxmoxClient {
   }
 
   /**
-   * Get all nodes
+   * Get all cluster resources (nodes, VMs, containers, storage) in one call
    */
-  async getNodes(): Promise<ProxmoxNode[]> {
-    return this.get<ProxmoxNode[]>('/nodes');
+  async getClusterResources(): Promise<ProxmoxResource[]> {
+    return this.get<ProxmoxResource[]>('/cluster/resources');
   }
 
   /**
-   * Get VMs for a specific node
+   * Fetch a full cluster snapshot. /cluster/resources returns every node,
+   * guest, and storage entry in one response, so a poll cycle is always 2
+   * requests regardless of node count.
    */
-  async getNodeVMs(node: string): Promise<ProxmoxVM[]> {
-    return this.get<ProxmoxVM[]>(`/nodes/${encodeURIComponent(node)}/qemu`);
-  }
-
-  /**
-   * Get containers for a specific node
-   */
-  async getNodeContainers(node: string): Promise<ProxmoxContainer[]> {
-    return this.get<ProxmoxContainer[]>(`/nodes/${encodeURIComponent(node)}/lxc`);
-  }
-
-  /**
-   * Get storage for a specific node
-   */
-  async getNodeStorage(node: string): Promise<ProxmoxStorage[]> {
-    return this.get<ProxmoxStorage[]>(
-      `/nodes/${encodeURIComponent(node)}/storage`
-    );
-  }
-
-  /**
-   * Fetch a complete cluster overview in parallel.
-   * Gets nodes, then fetches VMs, containers, and storage for each node.
-   */
-  async getClusterOverview(): Promise<ProxmoxClusterOverview> {
-    // Fetch cluster status and nodes in parallel
-    const [clusterStatusEntries, nodes] = await Promise.all([
+  async getClusterSnapshot(): Promise<ProxmoxClusterSnapshot> {
+    const [clusterStatusEntries, resources] = await Promise.all([
       this.getClusterStatus(),
-      this.getNodes(),
+      this.getClusterResources(),
     ]);
 
-    // Extract cluster info
     const clusterEntry = clusterStatusEntries.find((e) => e.type === 'cluster');
-    const clusterName = clusterEntry?.name || 'Standalone';
-    const quorate = clusterEntry?.quorate === 1;
-    const version = clusterEntry?.version || 0;
-
-    // Fetch VMs, containers, and storage for all online nodes in parallel
-    const onlineNodes = nodes.filter((n) => n.status === 'online');
-
-    const perNodeResults = await Promise.all(
-      onlineNodes.map(async (node) => {
-        const [vms, containers, storages] = await Promise.all([
-          this.getNodeVMs(node.node).catch(() => [] as ProxmoxVM[]),
-          this.getNodeContainers(node.node).catch(() => [] as ProxmoxContainer[]),
-          this.getNodeStorage(node.node).catch(() => [] as ProxmoxStorage[]),
-        ]);
-        return { node: node.node, vms, containers, storages };
-      })
-    );
-
-    // Flatten results with node attribution
-    const allVMs = perNodeResults.flatMap((r) =>
-      r.vms
-        .filter((vm) => !vm.template)
-        .map((vm) => ({ ...vm, node: r.node }))
-    );
-    const allContainers = perNodeResults.flatMap((r) =>
-      r.containers
-        .filter((ct) => !ct.template)
-        .map((ct) => ({ ...ct, node: r.node }))
-    );
-    const allStorages = perNodeResults.flatMap((r) =>
-      r.storages.map((s) => ({ ...s, node: r.node }))
-    );
-
-    // Calculate totals
-    const totalCpu = nodes.reduce((sum, n) => sum + n.maxcpu, 0);
-    const usedCpu = nodes.reduce((sum, n) => sum + n.cpu * n.maxcpu, 0);
-    const totalMemory = nodes.reduce((sum, n) => sum + n.maxmem, 0);
-    const usedMemory = nodes.reduce((sum, n) => sum + n.mem, 0);
-    const totalDisk = nodes.reduce((sum, n) => sum + n.maxdisk, 0);
-    const usedDisk = nodes.reduce((sum, n) => sum + n.disk, 0);
-
-    const runningVMs = allVMs.reduce((n, vm) => n + (vm.status === 'running' ? 1 : 0), 0);
-    const stoppedVMs = allVMs.length - runningVMs;
-    const runningContainers = allContainers.reduce((n, ct) => n + (ct.status === 'running' ? 1 : 0), 0);
-    const stoppedContainers = allContainers.length - runningContainers;
 
     return {
-      clusterName,
-      quorate,
-      version,
-      nodes,
-      vms: allVMs,
-      containers: allContainers,
-      storages: allStorages,
-      totals: {
-        totalCpu,
-        usedCpu,
-        totalMemory,
-        usedMemory,
-        totalDisk,
-        usedDisk,
-        runningVMs,
-        stoppedVMs,
-        runningContainers,
-        stoppedContainers,
-      },
+      clusterName: clusterEntry?.name || 'Standalone',
+      quorate: clusterEntry?.quorate === 1,
+      version: clusterEntry?.version || 0,
+      resources,
     };
   }
 }

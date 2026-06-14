@@ -1,15 +1,17 @@
 import { describe, it, expect } from 'bun:test';
 import { buildProxmoxOverview } from '../proxmox-overview-builder';
-import { overviewToRows } from '../proxmox-overview-converter';
-import type { ProxmoxClusterOverview, ProxmoxStatsRow } from '@/types/proxmox';
+import { snapshotToRows } from '../proxmox-overview-converter';
+import type { ProxmoxClusterSnapshot, ProxmoxStatsRow } from '@/types/proxmox';
 
-function createMockOverview(): ProxmoxClusterOverview {
+function createMockSnapshot(): ProxmoxClusterSnapshot {
   return {
     clusterName: 'test-cluster',
     quorate: true,
     version: 5,
-    nodes: [
+    resources: [
       {
+        id: 'node/pve1',
+        type: 'node',
         node: 'pve1',
         status: 'online',
         cpu: 0.25,
@@ -19,17 +21,16 @@ function createMockOverview(): ProxmoxClusterOverview {
         disk: 50_000_000_000,
         maxdisk: 500_000_000_000,
         uptime: 86400,
-        type: 'node',
-        id: 'node/pve1',
       },
-    ],
-    vms: [
       {
+        id: 'qemu/100',
+        type: 'qemu',
+        node: 'pve1',
+        status: 'running',
         vmid: 100,
         name: 'ubuntu-vm',
-        status: 'running',
         cpu: 0.5,
-        cpus: 4,
+        maxcpu: 4,
         mem: 2_000_000_000,
         maxmem: 4_000_000_000,
         disk: 10_000_000_000,
@@ -37,19 +38,16 @@ function createMockOverview(): ProxmoxClusterOverview {
         uptime: 3600,
         netin: 1_000_000,
         netout: 500_000,
-        diskread: 100,
-        diskwrite: 200,
-        node: 'pve1',
       },
-    ],
-    containers: [
       {
+        id: 'lxc/200',
+        type: 'lxc',
+        node: 'pve1',
+        status: 'running',
         vmid: 200,
         name: 'nginx-ct',
-        status: 'running',
-        type: 'lxc',
         cpu: 0.1,
-        cpus: 2,
+        maxcpu: 2,
         mem: 512_000_000,
         maxmem: 1_000_000_000,
         disk: 1_000_000_000,
@@ -57,40 +55,20 @@ function createMockOverview(): ProxmoxClusterOverview {
         uptime: 7200,
         netin: 200_000,
         netout: 100_000,
-        diskread: 50,
-        diskwrite: 25,
-        swap: 0,
-        maxswap: 512_000_000,
-        node: 'pve1',
       },
-    ],
-    storages: [
       {
-        storage: 'local',
-        type: 'dir',
-        content: 'rootdir,images',
-        active: 1,
-        enabled: 1,
-        shared: 0,
-        used: 20_000_000_000,
-        avail: 80_000_000_000,
-        total: 100_000_000_000,
-        used_fraction: 0.2,
+        id: 'storage/pve1/local',
+        type: 'storage',
         node: 'pve1',
+        status: 'available',
+        storage: 'local',
+        plugintype: 'dir',
+        content: 'rootdir,images',
+        shared: 0,
+        disk: 20_000_000_000,
+        maxdisk: 100_000_000_000,
       },
     ],
-    totals: {
-      totalCpu: 8,
-      usedCpu: 2,
-      totalMemory: 16_000_000_000,
-      usedMemory: 4_000_000_000,
-      totalDisk: 500_000_000_000,
-      usedDisk: 50_000_000_000,
-      runningVMs: 1,
-      stoppedVMs: 0,
-      runningContainers: 1,
-      stoppedContainers: 0,
-    },
   };
 }
 
@@ -110,8 +88,8 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should reconstruct cluster metadata from rows', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -122,8 +100,8 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should reconstruct nodes with correct cpu fraction', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -141,8 +119,8 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should reconstruct VMs', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -159,8 +137,8 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should reconstruct containers', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -174,8 +152,8 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should reconstruct storages', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -194,8 +172,8 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should compute totals from node rows', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -213,9 +191,9 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should handle no-quorum cluster', () => {
-    const overview = createMockOverview();
-    overview.quorate = false;
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    snapshot.quorate = false;
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -223,10 +201,10 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should count stopped VMs and containers', () => {
-    const overview = createMockOverview();
-    overview.vms[0].status = 'stopped';
-    overview.containers[0].status = 'stopped';
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    snapshot.resources.find(r => r.type === 'qemu')!.status = 'stopped';
+    snapshot.resources.find(r => r.type === 'lxc')!.status = 'stopped';
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -237,9 +215,9 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should handle inactive storage', () => {
-    const overview = createMockOverview();
-    overview.storages[0].active = 0;
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    snapshot.resources.find(r => r.type === 'storage')!.status = 'unavailable';
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;
@@ -247,9 +225,9 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should handle shared storage', () => {
-    const overview = createMockOverview();
-    overview.storages[0].shared = 1;
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    snapshot.resources.find(r => r.type === 'storage')!.shared = 1;
+    const rows = snapshotToRows(snapshot, 'host');
     const latest = rowsToLatestMap(rows);
 
     const rebuilt = buildProxmoxOverview(latest)!;

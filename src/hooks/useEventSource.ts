@@ -23,12 +23,9 @@ interface UseEventSourceResult {
 }
 
 /**
- * Manages an EventSource connection to receive server-sent JSON messages and expose connection state.
- *
- * Establishes and maintains an EventSource for the given URL, parses incoming messages as JSON
- * and forwards them to `onData`, tracks connection status and errors, and reconnects with
- * exponential backoff (1s, 2s, 4s, 8s, 16s) up to MAX_RECONNECT_ATTEMPTS.
- * Re-establishes the connection when the document becomes visible again.
+ * Reconnects with exponential backoff (1s → 2s → 4s → 8s → 16s) up to
+ * MAX_RECONNECT_ATTEMPTS, and re-establishes the connection when the document
+ * becomes visible again after being hidden.
  */
 export function useEventSource<T>({
   url,
