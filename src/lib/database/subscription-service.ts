@@ -1,6 +1,7 @@
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { StatsRepository } from '@/lib/database/repositories/stats-repository';
+import { backoffDelayMs } from '@/lib/utils/backoff';
 
 export type StatsSource = 'docker' | 'zfs' | 'proxmox';
 type StatsCallback = (rows: unknown[]) => void;
@@ -126,8 +127,8 @@ class StatsPollService {
         const failures = (this.consecutiveFailures.get(source) ?? 0) + 1;
         this.consecutiveFailures.set(source, failures);
 
-        // Double effective spacing per failure, capped at MAX_BACKOFF_MS.
-        const backoffMs = Math.min(POLL_INTERVAL_MS * 2 ** failures, MAX_BACKOFF_MS);
+        const backoffMs = backoffDelayMs(failures, { baseMs: POLL_INTERVAL_MS, capMs: MAX_BACKOFF_MS });
+        // -1 because the current (failing) tick already consumed one interval.
         this.skipTicks.set(source, backoffMs / POLL_INTERVAL_MS - 1);
 
         // Signal error once per failure episode after hitting the threshold
