@@ -440,14 +440,14 @@ describe('callbackGetHandler', () => {
   });
 
   it('redirects to / when auth is disabled', async () => {
-    delete process.env.AUTH_ENABLED;
+    process.env.AUTH_DISABLED = 'true';
     const response = await callbackGetHandler({ request: makeRouteRequest('http://localhost/api/auth/callback') });
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('/');
   });
 
   it('returns 400 when code is missing from query params', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
     process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
     process.env.OIDC_CLIENT_ID = 'homelab-manager';
     process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
@@ -456,7 +456,7 @@ describe('callbackGetHandler', () => {
   });
 
   it('returns 400 when state is missing from query params', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
     process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
     process.env.OIDC_CLIENT_ID = 'homelab-manager';
     process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
@@ -465,8 +465,8 @@ describe('callbackGetHandler', () => {
   });
 
   it('redirects to /login?error=callback_failed when an unhandled error occurs', async () => {
-    // AUTH_ENABLED=true, code+state present, but OIDC vars missing -> loadAuthConfig throws -> caught
-    process.env.AUTH_ENABLED = 'true';
+    // Auth required (AUTH_DISABLED unset), code+state present, but OIDC vars missing -> loadAuthConfig throws -> caught
+    delete process.env.AUTH_DISABLED;
     delete process.env.OIDC_ISSUER_URL;
     delete process.env.OIDC_CLIENT_ID;
     delete process.env.OIDC_REDIRECT_URI;

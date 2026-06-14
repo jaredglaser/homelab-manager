@@ -61,7 +61,7 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
     setAgentUrl(host?.agentUrl ?? '')
   }
 
-  const isValid = name.trim().length > 0 && agentUrl.trim().length > 0
+  const isValid = agentUrl.trim().length > 0
 
   function handleSave() {
     if (!host || !isValid || isUpdating) return
@@ -78,10 +78,12 @@ export function EditDialog({ open, host, isUpdating, onConfirm, onClose }: EditD
             <Input
               id="edit-host-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              disabled={isUpdating}
+              disabled
               aria-label="Edit Host Name"
             />
+            <p className="text-xs text-muted-foreground">
+              Name is fixed after enrollment. To rename, remove and re-add the host.
+            </p>
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="edit-agent-url">Agent URL</Label>

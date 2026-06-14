@@ -1,14 +1,16 @@
 import { describe, it, expect } from 'bun:test';
-import { overviewToRows } from '../proxmox-overview-converter';
-import type { ProxmoxClusterOverview } from '@/types/proxmox';
+import { snapshotToRows } from '../proxmox-overview-converter';
+import type { ProxmoxClusterSnapshot } from '@/types/proxmox';
 
-function createMockOverview(): ProxmoxClusterOverview {
+function createMockSnapshot(): ProxmoxClusterSnapshot {
   return {
     clusterName: 'test-cluster',
     quorate: true,
     version: 5,
-    nodes: [
+    resources: [
       {
+        id: 'node/pve1',
+        type: 'node',
         node: 'pve1',
         status: 'online',
         cpu: 0.25,
@@ -18,10 +20,10 @@ function createMockOverview(): ProxmoxClusterOverview {
         disk: 50_000_000_000,
         maxdisk: 500_000_000_000,
         uptime: 86400,
-        type: 'node',
-        id: 'node/pve1',
       },
       {
+        id: 'node/pve2',
+        type: 'node',
         node: 'pve2',
         status: 'offline',
         cpu: 0,
@@ -31,17 +33,16 @@ function createMockOverview(): ProxmoxClusterOverview {
         disk: 0,
         maxdisk: 250_000_000_000,
         uptime: 0,
-        type: 'node',
-        id: 'node/pve2',
       },
-    ],
-    vms: [
       {
+        id: 'qemu/100',
+        type: 'qemu',
+        node: 'pve1',
+        status: 'running',
         vmid: 100,
         name: 'ubuntu-vm',
-        status: 'running',
         cpu: 0.5,
-        cpus: 4,
+        maxcpu: 4,
         mem: 2_000_000_000,
         maxmem: 4_000_000_000,
         disk: 10_000_000_000,
@@ -51,17 +52,16 @@ function createMockOverview(): ProxmoxClusterOverview {
         netout: 500_000,
         diskread: 100,
         diskwrite: 200,
-        node: 'pve1',
       },
-    ],
-    containers: [
       {
+        id: 'lxc/200',
+        type: 'lxc',
+        node: 'pve1',
+        status: 'running',
         vmid: 200,
         name: 'nginx-ct',
-        status: 'running',
-        type: 'lxc',
         cpu: 0.1,
-        cpus: 2,
+        maxcpu: 2,
         mem: 512_000_000,
         maxmem: 1_000_000_000,
         disk: 1_000_000_000,
@@ -71,53 +71,35 @@ function createMockOverview(): ProxmoxClusterOverview {
         netout: 100_000,
         diskread: 50,
         diskwrite: 25,
-        swap: 0,
-        maxswap: 512_000_000,
-        node: 'pve1',
       },
-    ],
-    storages: [
       {
-        storage: 'local',
-        type: 'dir',
-        content: 'rootdir,images',
-        active: 1,
-        enabled: 1,
-        shared: 0,
-        used: 20_000_000_000,
-        avail: 80_000_000_000,
-        total: 100_000_000_000,
-        used_fraction: 0.2,
+        id: 'storage/pve1/local',
+        type: 'storage',
         node: 'pve1',
+        status: 'available',
+        storage: 'local',
+        plugintype: 'dir',
+        content: 'rootdir,images',
+        shared: 0,
+        disk: 20_000_000_000,
+        maxdisk: 100_000_000_000,
       },
     ],
-    totals: {
-      totalCpu: 12,
-      usedCpu: 2,
-      totalMemory: 24_000_000_000,
-      usedMemory: 4_000_000_000,
-      totalDisk: 750_000_000_000,
-      usedDisk: 50_000_000_000,
-      runningVMs: 1,
-      stoppedVMs: 0,
-      runningContainers: 1,
-      stoppedContainers: 0,
-    },
   };
 }
 
-describe('overviewToRows', () => {
+describe('snapshotToRows', () => {
   it('should produce the correct number of rows', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'proxmox-host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'proxmox-host');
 
     // 1 cluster + 2 nodes + 1 VM + 1 container + 1 storage = 6
     expect(rows).toHaveLength(6);
   });
 
-  it('should produce a cluster row with correct fields', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'proxmox-host');
+  it('should produce a cluster row with totals computed from node resources', () => {
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'proxmox-host');
     const cluster = rows.find(r => r.entity_type === 'cluster')!;
 
     expect(cluster).toBeDefined();
@@ -126,26 +108,30 @@ describe('overviewToRows', () => {
     expect(cluster.entity_name).toBe('test-cluster');
     expect(cluster.status).toBe('quorate');
     expect(cluster.cluster_version).toBe(5);
+    // usedCpu = 0.25 * 8 + 0 * 4 = 2
     expect(cluster.cpu).toBe(2);
+    // totalCpu = 8 + 4 = 12
     expect(cluster.max_cpu).toBe(12);
     expect(cluster.mem).toBe(4_000_000_000);
     expect(cluster.max_mem).toBe(24_000_000_000);
+    expect(cluster.disk).toBe(50_000_000_000);
+    expect(cluster.max_disk).toBe(750_000_000_000);
     expect(cluster.node).toBeNull();
     expect(cluster.vmid).toBeNull();
   });
 
   it('should produce a no-quorum status when not quorate', () => {
-    const overview = createMockOverview();
-    overview.quorate = false;
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    snapshot.quorate = false;
+    const rows = snapshotToRows(snapshot, 'host');
     const cluster = rows.find(r => r.entity_type === 'cluster')!;
 
     expect(cluster.status).toBe('no-quorum');
   });
 
   it('should produce node rows with correct cpu calculation', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const nodeRows = rows.filter(r => r.entity_type === 'node');
 
     expect(nodeRows).toHaveLength(2);
@@ -153,7 +139,7 @@ describe('overviewToRows', () => {
     const pve1 = nodeRows.find(r => r.entity_id === 'pve1')!;
     expect(pve1.node).toBe('pve1');
     expect(pve1.status).toBe('online');
-    // cpu field = node.cpu * node.maxcpu = 0.25 * 8 = 2
+    // cpu field = fraction * maxcpu = 0.25 * 8 = 2
     expect(pve1.cpu).toBe(2);
     expect(pve1.max_cpu).toBe(8);
     expect(pve1.mem).toBe(4_000_000_000);
@@ -165,8 +151,8 @@ describe('overviewToRows', () => {
   });
 
   it('should produce VM rows with vmid and network fields', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const vmRows = rows.filter(r => r.entity_type === 'qemu');
 
     expect(vmRows).toHaveLength(1);
@@ -174,6 +160,8 @@ describe('overviewToRows', () => {
     expect(vm.vmid).toBe(100);
     expect(vm.entity_id).toBe('100');
     expect(vm.entity_name).toBe('ubuntu-vm');
+    expect(vm.cpu).toBe(0.5);
+    expect(vm.max_cpu).toBe(4);
     expect(vm.netin).toBe(1_000_000);
     expect(vm.netout).toBe(500_000);
     expect(vm.node).toBe('pve1');
@@ -181,8 +169,8 @@ describe('overviewToRows', () => {
   });
 
   it('should produce container rows', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const ctRows = rows.filter(r => r.entity_type === 'lxc');
 
     expect(ctRows).toHaveLength(1);
@@ -192,9 +180,32 @@ describe('overviewToRows', () => {
     expect(ct.status).toBe('running');
   });
 
+  it('should filter out template guests', () => {
+    const snapshot = createMockSnapshot();
+    snapshot.resources.push(
+      { id: 'qemu/900', type: 'qemu', node: 'pve1', status: 'stopped', vmid: 900, name: 'vm-template', template: 1 },
+      { id: 'lxc/901', type: 'lxc', node: 'pve1', status: 'stopped', vmid: 901, name: 'ct-template', template: 1 },
+    );
+    const rows = snapshotToRows(snapshot, 'host');
+
+    expect(rows.filter(r => r.entity_type === 'qemu')).toHaveLength(1);
+    expect(rows.filter(r => r.entity_type === 'lxc')).toHaveLength(1);
+  });
+
+  it('should ignore sdn and pool resources', () => {
+    const snapshot = createMockSnapshot();
+    snapshot.resources.push(
+      { id: 'sdn/pve1/zone1', type: 'sdn', node: 'pve1', status: 'ok' },
+      { id: '/pool/prod', type: 'pool', status: 'ok', pool: 'prod' },
+    );
+    const rows = snapshotToRows(snapshot, 'host');
+
+    expect(rows).toHaveLength(6);
+  });
+
   it('should produce storage rows with unique entity_id', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
     const storageRows = rows.filter(r => r.entity_type === 'storage');
 
     expect(storageRows).toHaveLength(1);
@@ -206,45 +217,72 @@ describe('overviewToRows', () => {
     expect(storage.storage_shared).toBe(false);
     expect(storage.disk).toBe(20_000_000_000);
     expect(storage.max_disk).toBe(100_000_000_000);
+    // avail derived from maxdisk - disk
     expect(storage.storage_avail).toBe(80_000_000_000);
     expect(storage.status).toBe('active');
     expect(storage.cpu).toBeNull();
   });
 
-  it('should handle inactive storage', () => {
-    const overview = createMockOverview();
-    overview.storages[0].active = 0;
-    const rows = overviewToRows(overview, 'host');
+  it('should map unavailable storage to inactive status', () => {
+    const snapshot = createMockSnapshot();
+    snapshot.resources.find(r => r.type === 'storage')!.status = 'unavailable';
+    const rows = snapshotToRows(snapshot, 'host');
     const storage = rows.find(r => r.entity_type === 'storage')!;
 
     expect(storage.status).toBe('inactive');
   });
 
   it('should handle shared storage', () => {
-    const overview = createMockOverview();
-    overview.storages[0].shared = 1;
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    snapshot.resources.find(r => r.type === 'storage')!.shared = 1;
+    const rows = snapshotToRows(snapshot, 'host');
     const storage = rows.find(r => r.entity_type === 'storage')!;
 
     expect(storage.storage_shared).toBe(true);
   });
 
-  it('should handle empty overview with no VMs/containers/storages', () => {
-    const overview = createMockOverview();
-    overview.vms = [];
-    overview.containers = [];
-    overview.storages = [];
-    overview.nodes = [];
-    const rows = overviewToRows(overview, 'host');
+  it('should default missing numeric fields to 0', () => {
+    const snapshot: ProxmoxClusterSnapshot = {
+      clusterName: 'c',
+      quorate: true,
+      version: 1,
+      resources: [
+        { id: 'node/pve1', type: 'node', node: 'pve1', status: 'offline' },
+        { id: 'qemu/100', type: 'qemu', node: 'pve1', status: 'unknown', vmid: 100, name: 'vm1' },
+        { id: 'storage/pve1/local', type: 'storage', node: 'pve1', status: 'unavailable', storage: 'local' },
+      ],
+    };
+    const rows = snapshotToRows(snapshot, 'host');
 
-    // Only cluster row remains
+    const node = rows.find(r => r.entity_type === 'node')!;
+    expect(node.cpu).toBe(0);
+    expect(node.max_cpu).toBe(0);
+    expect(node.mem).toBe(0);
+    expect(node.uptime).toBe(0);
+
+    const vm = rows.find(r => r.entity_type === 'qemu')!;
+    expect(vm.cpu).toBe(0);
+    expect(vm.netin).toBe(0);
+    expect(vm.netout).toBe(0);
+
+    const storage = rows.find(r => r.entity_type === 'storage')!;
+    expect(storage.disk).toBe(0);
+    expect(storage.max_disk).toBe(0);
+    expect(storage.storage_avail).toBe(0);
+  });
+
+  it('should handle empty resources with only a cluster row', () => {
+    const snapshot = createMockSnapshot();
+    snapshot.resources = [];
+    const rows = snapshotToRows(snapshot, 'host');
+
     expect(rows).toHaveLength(1);
     expect(rows[0].entity_type).toBe('cluster');
   });
 
   it('should set all times to the same timestamp', () => {
-    const overview = createMockOverview();
-    const rows = overviewToRows(overview, 'host');
+    const snapshot = createMockSnapshot();
+    const rows = snapshotToRows(snapshot, 'host');
 
     const times = rows.map(r => new Date(r.time).getTime());
     const unique = new Set(times);

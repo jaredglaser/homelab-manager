@@ -7,42 +7,27 @@ import CopyButton from '@/components/settings/CopyButton'
 import { Spinner } from '@/components/ui/spinner';
 
 interface VerifyConnectionStepProps {
-  name: string
   agentUrl: string
   isAdding: boolean
   canVerify: boolean
   publicJwkJson: string | null
-  onNameChange: (value: string) => void
   onAgentUrlChange: (value: string) => void
   onVerify: () => void
 }
 
 export default function VerifyConnectionStep({
-  name,
   agentUrl,
   isAdding,
   canVerify,
   publicJwkJson,
-  onNameChange,
   onAgentUrlChange,
   onVerify,
 }: VerifyConnectionStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-verify">
       <p className="text-sm text-muted-foreground">
-        Enter the agent connection details and verify:
+        Enter the agent URL and verify:
       </p>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="wizard-host-name">Host Name</Label>
-        <Input
-          id="wizard-host-name"
-          value={name}
-          onChange={(e) => onNameChange(e.target.value)}
-          disabled={isAdding}
-          placeholder="dev-machine"
-          aria-label="Host Name"
-        />
-      </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="wizard-agent-url">Agent URL</Label>
         <Input

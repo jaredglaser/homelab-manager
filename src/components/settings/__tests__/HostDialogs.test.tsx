@@ -104,11 +104,21 @@ describe('EditDialog', () => {
     expect(saveBtn.hasAttribute('disabled')).toBe(false)
   })
 
-  it('Save button is disabled when Host Name is cleared', () => {
+  it('renders the Host Name field as read-only', () => {
     render(<EditDialog {...defaultProps} />)
-    fireEvent.change(screen.getByLabelText('Edit Host Name'), { target: { value: '' } })
+    const nameInput = screen.getByLabelText('Edit Host Name') as HTMLInputElement
+    expect(nameInput.disabled).toBe(true)
+  })
+
+  it('shows helper text explaining the name is fixed', () => {
+    render(<EditDialog {...defaultProps} />)
+    expect(screen.getByText(/fixed after enrollment/i)).toBeDefined()
+  })
+
+  it('keeps Save enabled even though the name field cannot be edited', () => {
+    render(<EditDialog {...defaultProps} />)
     const saveBtn = screen.getByRole('button', { name: 'Save' })
-    expect(saveBtn.hasAttribute('disabled')).toBe(true)
+    expect(saveBtn.hasAttribute('disabled')).toBe(false)
   })
 
   it('Save button is disabled when Agent URL is cleared', () => {
@@ -118,22 +128,20 @@ describe('EditDialog', () => {
     expect(saveBtn.hasAttribute('disabled')).toBe(true)
   })
 
-  it('Save button is disabled when both fields are whitespace-only', () => {
+  it('Save button is disabled when Agent URL is whitespace-only', () => {
     render(<EditDialog {...defaultProps} />)
-    fireEvent.change(screen.getByLabelText('Edit Host Name'), { target: { value: '   ' } })
     fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: '   ' } })
     const saveBtn = screen.getByRole('button', { name: 'Save' })
     expect(saveBtn.hasAttribute('disabled')).toBe(true)
   })
 
-  it('calls onConfirm with hostId, trimmed name, and trimmed agentUrl when Save is clicked', () => {
+  it('calls onConfirm with hostId, the unchanged host name, and trimmed agentUrl', () => {
     const onConfirm = mock(() => {})
     render(<EditDialog {...defaultProps} onConfirm={onConfirm} />)
-    fireEvent.change(screen.getByLabelText('Edit Host Name'), { target: { value: '  my-host  ' } })
     fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: '  http://10.0.0.1:9090  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(onConfirm).toHaveBeenCalledTimes(1)
-    expect(onConfirm).toHaveBeenCalledWith(1, 'my-host', 'http://10.0.0.1:9090')
+    expect(onConfirm).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.1:9090')
   })
 
   it('calls onClose when Cancel is clicked', () => {

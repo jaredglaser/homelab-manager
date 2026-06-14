@@ -24,6 +24,13 @@ const STACKS_DIR = process.env.STACKS_DIR || '/opt/homelab-manager/stacks';
 const AGENT_CONTAINER_NAME = process.env.AGENT_CONTAINER_NAME ?? 'hlm-agent';
 const AGENT_TRUSTED_PUBKEY_FILE = process.env.AGENT_TRUSTED_PUBKEY_FILE;
 const AGENT_TRUSTED_PUBKEY_ENV = process.env.AGENT_TRUSTED_PUBKEY;
+// Managed host name; manager JWTs carry it as aud, so a token minted for
+// another host is rejected even if the keypair was reused.
+const AGENT_HOST_NAME = process.env.AGENT_HOST_NAME?.trim();
+if (!AGENT_HOST_NAME) {
+  console.error('AGENT_HOST_NAME environment variable is required');
+  process.exit(1);
+}
 const DOCKER_HOST = process.env.DOCKER_HOST;
 
 let trustedPubkeyJson: string;
@@ -185,7 +192,7 @@ Bun.serve<ExecWebSocketData>({
     try {
       const url = new URL(request.url);
 
-      const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname);
+      const authError = await authenticateRequest(request.headers, TRUSTED_PUBKEY, url.pathname, AGENT_HOST_NAME);
       if (authError) return authError;
 
       // WebSocket upgrade for exec sessions: must happen before matchRoute since server.upgrade() is Bun-specific

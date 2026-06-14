@@ -45,6 +45,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
   const currentStepName = visibleSteps[activeStep]
 
   const agentStackConfig = useMemo(() => ({
+    hostName: name.trim(),
     agentTrustedPubkey: PUBKEY_PLACEHOLDER,
     agentImage: getAgentImage(),
     agentUpdaterImage: getAgentUpdaterImage(),
@@ -52,7 +53,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
     hlmZfsUid: parseGatedId(zfs, hlmZfsUid),
     hlmZfsGid: parseGatedId(zfs, hlmZfsGid),
     dockerGid: parseGatedId(docker && zfs, dockerGid),
-  }), [docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+  }), [name, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
 
   const composeYaml = useMemo(() => {
     try {
@@ -94,7 +95,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
     setAgentUrl('')
   }
 
-  const canProceedFromCapabilities = docker || zfs
+  const canProceedFromCapabilities = (docker || zfs) && name.trim().length > 0
   const isNonNegativeInt = (v: string) => /^\d+$/.test(v.trim())
   const canProceedFromZfs = isNonNegativeInt(hlmZfsUid) && isNonNegativeInt(hlmZfsGid)
     && (!docker || isNonNegativeInt(dockerGid))
@@ -111,8 +112,10 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
       <div className="min-h-[200px]">
         {currentStepName === 'Capabilities' && (
           <CapabilitiesStep
+            name={name}
             docker={docker}
             zfs={zfs}
+            onNameChange={setName}
             onDockerChange={setDocker}
             onZfsChange={setZfs}
           />
@@ -140,12 +143,10 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
 
         {currentStepName === 'Verify Connection' && (
           <VerifyConnectionStep
-            name={name}
             agentUrl={agentUrl}
             isAdding={isAdding}
             canVerify={canVerify}
             publicJwkJson={publicJwkJson}
-            onNameChange={setName}
             onAgentUrlChange={setAgentUrl}
             onVerify={handleVerify}
           />

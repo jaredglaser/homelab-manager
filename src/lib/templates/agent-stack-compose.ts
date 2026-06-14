@@ -1,6 +1,7 @@
 import { dump } from 'js-yaml';
 
 export interface AgentStackConfig {
+  hostName: string;
   agentTrustedPubkey: string;
   agentImage: string;
   agentUpdaterImage: string;
@@ -110,6 +111,8 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
 
   const environment: Record<string, string> = {
     AGENT_TRUSTED_PUBKEY: config.agentTrustedPubkey,
+    // Must match the managed host name: manager JWTs carry it as the aud claim.
+    AGENT_HOST_NAME: config.hostName,
   };
 
   if (docker) {

@@ -10,7 +10,7 @@ import type { AuthUser } from '@/lib/auth/types';
  *
  * @returns user - the authenticated user, or null when auth is disabled or not logged in
  * @returns loading - true until the session check resolves
- * @returns authEnabled - true when AUTH_ENABLED=true (i.e. not the synthetic-admin path)
+ * @returns authEnabled - true when authentication is on (AUTH_DISABLED not truthy, i.e. not the synthetic-admin path)
  */
 export function useAuth(): { user: AuthUser | null; loading: boolean; authEnabled: boolean } {
   const [user, setUser] = useState<AuthUser | null>(null);

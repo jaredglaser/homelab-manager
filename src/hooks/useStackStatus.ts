@@ -30,8 +30,10 @@ function shallowEqualContainers(
 export function useStackStatus() {
   const [statusMap, setStatusMap] = useState<Map<string, StackStatusEntry>>(new Map());
   const [deployVersion, setDeployVersion] = useState(0);
+  const [serviceError, setServiceError] = useState<Error | null>(null);
 
   const handleData = useCallback((data: StackSSEMessage) => {
+    setServiceError(null);
     if (isDeployChanged(data)) {
       setDeployVersion((v) => v + 1);
       return;
@@ -51,10 +53,16 @@ export function useStackStatus() {
     });
   }, []);
 
+  const handleServiceError = useCallback(() => {
+    setServiceError(new Error('Stack status stream unavailable'));
+  }, []);
+
   const { isConnected, error } = useEventSource<StackSSEMessage>({
     url: apiUrl('/api/stack-status'),
     onData: handleData,
+    onServiceError: handleServiceError,
+    errorEventName: 'stack_status_error',
   });
 
-  return { statusMap, isConnected, error: error?.message ?? null, deployVersion };
+  return { statusMap, isConnected, error: (error ?? serviceError)?.message ?? null, deployVersion };
 }

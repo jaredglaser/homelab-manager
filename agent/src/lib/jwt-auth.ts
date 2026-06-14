@@ -12,10 +12,18 @@ export async function loadTrustedPublicKey(jwkJson: string): Promise<CryptoKey> 
   return (await importJWK(parsed, 'EdDSA')) as CryptoKey;
 }
 
-export async function verifyAgentJwt(jwt: string, publicKey: CryptoKey): Promise<void> {
+/** @param expectedAudience host name the token's aud claim must match. */
+export async function verifyAgentJwt(
+  jwt: string,
+  publicKey: CryptoKey,
+  expectedAudience: string,
+): Promise<void> {
   await jwtVerify(jwt, publicKey, {
     issuer: AGENT_JWT_ISSUER,
+    audience: expectedAudience,
     algorithms: ['EdDSA'],
     maxTokenAge: '30s',
+    // Manager and agent clocks drift; allow a little skew to avoid 401s.
+    clockTolerance: '5s',
   });
 }

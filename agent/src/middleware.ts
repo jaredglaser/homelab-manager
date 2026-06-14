@@ -4,12 +4,14 @@ import { verifyAgentJwt } from './lib/jwt-auth';
  * Validates an HTTP request's Authorization Bearer JWT against the agent's
  * trusted public key. Bypasses /health.
  *
+ * @param expectedAudience host name the token's aud claim must match.
  * Returns a Response on rejection, or `null` on success.
  */
 export async function authenticateRequest(
   headers: Headers,
   trustedPublicKey: CryptoKey,
-  pathname?: string,
+  pathname: string,
+  expectedAudience: string,
 ): Promise<Response | null> {
   if (pathname === '/health') return null;
 
@@ -22,7 +24,7 @@ export async function authenticateRequest(
   }
 
   try {
-    await verifyAgentJwt(token, trustedPublicKey);
+    await verifyAgentJwt(token, trustedPublicKey, expectedAudience);
     return null;
   } catch (err) {
     console.error('JWT verification failed:', err);

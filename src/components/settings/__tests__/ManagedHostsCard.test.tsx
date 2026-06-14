@@ -34,6 +34,12 @@ function makeProps(overrides?: Partial<ManagedHostsCardProps>): ManagedHostsCard
   }
 }
 
+// The Add Host wizard collects the host name on the first step and gates Next
+// on it, so navigation tests must fill it before advancing.
+function enterHostName(value = 'server1') {
+  fireEvent.change(screen.getByLabelText('Host Name'), { target: { value } })
+}
+
 describe('ManagedHostsCard', () => {
   describe('loading state', () => {
     it('shows loading indicator when isLoading is true', () => {
@@ -213,12 +219,14 @@ describe('ManagedHostsCard', () => {
     it('Next button advances to compose step (no ZFS)', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
       // Docker is checked by default, ZFS is not, skip ZFS Setup
+      enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-compose')).toBeDefined()
     })
 
     it('Next button advances to ZFS setup when ZFS is selected', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       fireEvent.click(screen.getByLabelText('ZFS capability'))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-zfs-setup')).toBeDefined()
@@ -226,6 +234,7 @@ describe('ManagedHostsCard', () => {
 
     it('ZFS setup step shows UID/GID fields', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       fireEvent.click(screen.getByLabelText('ZFS capability'))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByLabelText('HLM_ZFS_UID')).toBeDefined()
@@ -234,6 +243,7 @@ describe('ManagedHostsCard', () => {
 
     it('ZFS setup shows DOCKER_GID when Docker is also selected', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       fireEvent.click(screen.getByLabelText('ZFS capability'))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByLabelText('DOCKER_GID')).toBeDefined()
@@ -241,30 +251,40 @@ describe('ManagedHostsCard', () => {
 
     it('Next is disabled on capabilities step when no capability selected', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       // Uncheck Docker (default checked)
       fireEvent.click(screen.getByLabelText('Docker capability'))
       const nextBtn = screen.getByRole('button', { name: 'Next' })
       expect(nextBtn.hasAttribute('disabled')).toBe(true)
     })
 
+    it('Next is disabled on capabilities step until a host name is entered', () => {
+      render(<ManagedHostsCardView {...makeProps()} />)
+      expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(true)
+      enterHostName()
+      expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('disabled')).toBe(false)
+    })
+
     it('compose step shows compose file content', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByText('docker-compose.yml')).toBeDefined()
     })
 
-    it('verify step shows Host Name and Agent URL fields', () => {
+    it('verify step shows the Agent URL field', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       // Advance through capabilities -> compose -> configuration -> verify
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      expect(screen.getByLabelText('Host Name')).toBeDefined()
       expect(screen.getByLabelText('Agent URL')).toBeDefined()
     })
 
-    it('Verify Connection button is disabled when fields are empty', () => {
+    it('Verify Connection button is disabled when the agent URL is empty', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -274,10 +294,10 @@ describe('ManagedHostsCard', () => {
 
     it('Verify Connection button is enabled when fields are filled', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: 'server1' } })
       fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: 'http://localhost:9090' } })
       const btn = screen.getByRole('button', { name: /Verify Connection/ })
       expect(btn.hasAttribute('disabled')).toBe(false)
@@ -286,10 +306,10 @@ describe('ManagedHostsCard', () => {
     it('calls onAdd with name, url, and capabilities when Verify Connection is clicked', () => {
       const onAdd = mock(() => {})
       render(<ManagedHostsCardView {...makeProps({ onAdd })} />)
+      enterHostName('  server1  ')
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
-      fireEvent.change(screen.getByLabelText('Host Name'), { target: { value: '  server1  ' } })
       fireEvent.change(screen.getByLabelText('Agent URL'), { target: { value: '  http://localhost:9090  ' } })
       fireEvent.click(screen.getByRole('button', { name: /Verify Connection/ }))
       expect(onAdd).toHaveBeenCalledTimes(1)
@@ -301,6 +321,7 @@ describe('ManagedHostsCard', () => {
 
     it('Verify Connection button is disabled while isAdding', () => {
       render(<ManagedHostsCardView {...makeProps({ isAdding: true })} />)
+      enterHostName()
       // Navigate to verify step: capabilities -> compose -> configuration -> verify
       // The Next button is not disabled by isAdding, only Back and Verify are
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -324,6 +345,7 @@ describe('ManagedHostsCard', () => {
 
     it('Back button goes to previous step', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       expect(screen.getByTestId('step-compose')).toBeDefined()
       fireEvent.click(screen.getByRole('button', { name: 'Back' }))
@@ -332,6 +354,7 @@ describe('ManagedHostsCard', () => {
 
     it('Reset button returns to first step', () => {
       render(<ManagedHostsCardView {...makeProps()} />)
+      enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
       expect(screen.getByTestId('step-capabilities')).toBeDefined()
@@ -340,6 +363,7 @@ describe('ManagedHostsCard', () => {
     it('shows public JWK after enrollment when verifyResult is set', () => {
       const publicJwk = { kty: 'OKP', crv: 'Ed25519', x: 'mock-x' }
       render(<ManagedHostsCardView {...makeProps({ verifyResult: { publicJwk } })} />)
+      enterHostName()
       // Navigate to verify step to see the JWK display
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -351,6 +375,7 @@ describe('ManagedHostsCard', () => {
 
     it('does not show JWK display when verifyResult is null', () => {
       render(<ManagedHostsCardView {...makeProps({ verifyResult: null })} />)
+      enterHostName()
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
       fireEvent.click(screen.getByRole('button', { name: 'Next' }))
@@ -385,14 +410,14 @@ describe('ManagedHostsCard', () => {
       expect(screen.queryByLabelText('Edit Socket Proxy URL')).toBeNull()
     })
 
-    it('calls onUpdate with correct values when Save is clicked', () => {
+    it('calls onUpdate with the unchanged name and edited URL when Save is clicked', () => {
       const onUpdate = mock(() => {})
       const host = makeHost()
       render(<ManagedHostsCardView {...makeProps({ hosts: [host], onUpdate })} />)
       fireEvent.click(screen.getByLabelText('edit host'))
-      fireEvent.change(screen.getByLabelText('Edit Host Name'), { target: { value: 'updated-server' } })
+      fireEvent.change(screen.getByLabelText('Edit Agent URL'), { target: { value: 'http://10.0.0.9:9090' } })
       fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-      expect(onUpdate).toHaveBeenCalledWith(1, 'updated-server', 'http://192.168.1.10:9090')
+      expect(onUpdate).toHaveBeenCalledWith(1, 'server1', 'http://10.0.0.9:9090')
     })
 
     it('does not call onUpdate when Cancel is clicked', () => {
