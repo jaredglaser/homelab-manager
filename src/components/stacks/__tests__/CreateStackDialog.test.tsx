@@ -120,8 +120,10 @@ describe('CreateStackDialog', () => {
     fireEvent.change(screen.getByLabelText('Stack Name'), { target: { value: 'myapp' } });
 
     // Open Select and choose server2
-    fireEvent.mouseDown(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByRole('combobox'));
     const option = await screen.findByRole('option', { name: 'server2' });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
     fireEvent.click(option);
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Stack' }));

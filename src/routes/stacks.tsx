@@ -1,11 +1,11 @@
 import { useEffect } from 'react'
 import { createFileRoute, Outlet } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CircularProgress, Typography } from '@mui/material'
 import { listStacks, listManagedHostNames } from '@/data/stacks/functions'
 import { useStackStatus } from '@/hooks/useStackStatus'
 import { StackListContext, StackStatusContext } from '@/components/stacks/stacks-context'
 import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { Spinner } from '@/components/ui/spinner';
 
 export const Route = createFileRoute('/stacks')({
   ssr: false,
@@ -41,9 +41,9 @@ function StacksLayout() {
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Typography color="error" variant="body2">
+        <p className="text-sm text-destructive">
           Failed to load stacks: {error.message}
-        </Typography>
+        </p>
       </div>
     )
   }
@@ -51,8 +51,8 @@ function StacksLayout() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 gap-2">
-        <CircularProgress size={16} />
-        <Typography variant="body2" className="opacity-70">Loading stacks...</Typography>
+        <Spinner className="size-4" />
+        <p className="text-sm opacity-70">Loading stacks...</p>
       </div>
     )
   }

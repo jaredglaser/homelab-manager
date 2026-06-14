@@ -1,17 +1,13 @@
-import { useColorScheme } from '@mui/material/styles';
-import { IconButton } from '@mui/material';
 import { Moon, Sun } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useColorMode } from '@/hooks/useColorMode';
 
 export default function ModeToggle() {
-  const { mode, setMode } = useColorScheme();
+  const { mode, toggle } = useColorMode();
 
   return (
-    <IconButton
-      size="small"
-      onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
-      aria-label="Toggle dark mode"
-    >
-      {mode === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-    </IconButton>
+    <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle dark mode">
+      {mode === 'dark' ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
+    </Button>
   );
 }

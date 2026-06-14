@@ -120,6 +120,45 @@ describe('useEventSource', () => {
       expect(MockEventSource.instances[1].closed).toBe(false);
     });
 
+    it('calls onReconnect on open after a prior connection failure, not on first open', () => {
+      const onReconnect = mock(() => {});
+      renderHook(() =>
+        useEventSource({ url: '/api/test', onData: () => {}, onReconnect })
+      );
+
+      const es1 = MockEventSource.instances[0];
+      act(() => { es1.onopen?.(); });
+      expect(onReconnect).not.toHaveBeenCalled();
+
+      // Error triggers an immediate reconnect (timers fire synchronously here)
+      act(() => { es1.onerror?.(); });
+      const es2 = MockEventSource.instances[MockEventSource.instances.length - 1];
+      act(() => { es2.onopen?.(); });
+
+      expect(onReconnect).toHaveBeenCalledTimes(1);
+
+      // A second open without an intervening failure must not fire again
+      act(() => { es2.onopen?.(); });
+      expect(onReconnect).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not call onReconnect on first open after url change clears a prior failure', () => {
+      const onReconnect = mock(() => {});
+      const { rerender } = renderHook(
+        ({ url }) => useEventSource({ url, onData: () => {}, onReconnect }),
+        { initialProps: { url: '/api/first' } },
+      );
+
+      act(() => { MockEventSource.instances[0].onerror?.(); });
+
+      // URL change resets the failure flag along with the retry budget
+      act(() => { rerender({ url: '/api/second' }); });
+      const latest = MockEventSource.instances[MockEventSource.instances.length - 1];
+      act(() => { latest.onopen?.(); });
+
+      expect(onReconnect).not.toHaveBeenCalled();
+    });
+
     it('resets retry budget and error state when url changes', () => {
       const { result, rerender } = renderHook(
         ({ url }) => useEventSource({ url, onData: () => {} }),

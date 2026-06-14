@@ -58,7 +58,7 @@ src/
 │   │   ├── ProxmoxHostView.tsx      # Per-node expandable sections (VMs, containers, storage)
 │   │   ├── GuestSection.tsx         # VM/LXC guest list within a node
 │   │   └── StorageSection.tsx       # Storage list within a node
-│   ├── shared-table/
+│   ├── ui/datatable/
 │   │   ├── DataTable.tsx            # Unified table (TanStack Table + CSS Grid rows, virtualizer at 150+ rows)
 │   │   ├── DataTableToolbar.tsx     # Table toolbar with search, filters, and metric group toggles
 │   │   ├── MetricCell.tsx           # Metric value cell with formatted display

@@ -1,16 +1,14 @@
 import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
-  Button,
   Dialog,
-  DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
-  FormControlLabel,
-  Radio,
-  RadioGroup,
-  Typography,
-} from '@mui/material';
+  DialogBody,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 
 type DeleteMode = 'unmanage' | 'teardown';
 
@@ -46,61 +44,49 @@ export default function DeleteStackDialog({
   }
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Delete {stackName}?</DialogTitle>
+    <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) handleClose(); }}>
       <DialogContent>
-        <FormControl component="fieldset" className="w-full">
+        <DialogTitle>Delete {stackName}?</DialogTitle>
+        <DialogBody>
           <RadioGroup
             value={mode ?? ''}
-            onChange={(e) => setMode(e.target.value as DeleteMode)}
+            onValueChange={(value) => setMode(value as DeleteMode)}
           >
-            <FormControlLabel
-              value="unmanage"
-              control={<Radio />}
-              label={
-                <div className="py-1">
-                  <Typography variant="body2" className="font-medium">
-                    Remove from management
-                  </Typography>
-                  <Typography variant="caption" className="opacity-70">
-                    Containers keep running. Removes from git repo only.
-                  </Typography>
-                </div>
-              }
-            />
-            <FormControlLabel
-              value="teardown"
-              control={<Radio />}
-              label={
-                <div className="py-1">
-                  <Typography
-                    variant="body2"
-                    className="font-medium text-(--mui-palette-error-main)!"
-                  >
-                    Tear down &amp; remove
-                  </Typography>
-                  <Typography variant="caption" className="opacity-70">
-                    Stops containers, removes from git repo.
-                  </Typography>
-                </div>
-              }
-            />
+            <Label className="flex items-start gap-3 cursor-pointer py-1" htmlFor="delete-unmanage">
+              <RadioGroupItem id="delete-unmanage" value="unmanage" className="mt-0.5" />
+              <span>
+                <span className="block text-sm font-medium">Remove from management</span>
+                <span className="block text-xs opacity-70">
+                  Containers keep running. Removes from git repo only.
+                </span>
+              </span>
+            </Label>
+            <Label className="flex items-start gap-3 cursor-pointer py-1" htmlFor="delete-teardown">
+              <RadioGroupItem id="delete-teardown" value="teardown" className="mt-0.5" />
+              <span>
+                <span className="block text-sm font-medium text-destructive">
+                  Tear down &amp; remove
+                </span>
+                <span className="block text-xs opacity-70">
+                  Stops containers, removes from git repo.
+                </span>
+              </span>
+            </Label>
           </RadioGroup>
-        </FormControl>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="ghost" className="text-foreground" onClick={handleClose} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleConfirm}
+            disabled={mode === null || isLoading}
+          >
+            Delete Stack
+          </Button>
+        </DialogFooter>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose} color="inherit" disabled={isLoading}>
-          Cancel
-        </Button>
-        <Button
-          onClick={handleConfirm}
-          variant="contained"
-          color="error"
-          disabled={mode === null || isLoading}
-        >
-          Delete Stack
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 }

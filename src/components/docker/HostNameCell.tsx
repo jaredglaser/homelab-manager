@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Chip } from '@mui/material';
+import { Badge } from '@/components/ui/badge';
 import { ChevronRight, Server, WifiOff } from 'lucide-react';
 import type { DockerHostTableRow } from '@/types/docker';
 
@@ -10,17 +10,19 @@ const HostNameCell = memo(function HostNameCell({
   row: DockerHostTableRow;
   expanded: boolean;
 }>) {
-  const { totalHosts, children, aggregated: a } = row;
+  const { children, aggregated: a } = row;
   const hasContainers = children.length > 0;
-  const canToggle = hasContainers && totalHosts > 1;
+  const canToggle = hasContainers;
 
   return (
     <div className="flex items-center gap-2">
       {canToggle && (
-        <ChevronRight
-          size={18}
-          className={`shrink-0 transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
-        />
+        <span className="inline-flex items-center justify-center p-1" aria-hidden="true">
+          <ChevronRight
+            size={18}
+            className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+          />
+        </span>
       )}
       <Server size={18} className="shrink-0" />
       {row.isStale && (
@@ -28,7 +30,7 @@ const HostNameCell = memo(function HostNameCell({
       )}
       <span className="font-bold">{row.hostName}</span>
       {a.staleContainerCount > 0 && !row.isStale && (
-        <Chip size="small" variant="filled" color="warning" label={`${a.staleContainerCount} stale`} />
+        <Badge className="bg-warning text-white">{`${a.staleContainerCount} stale`}</Badge>
       )}
     </div>
   );

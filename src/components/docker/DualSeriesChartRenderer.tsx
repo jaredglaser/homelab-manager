@@ -5,15 +5,18 @@ import type { EChartsOption } from 'echarts';
 interface DualSeriesChartRendererProps {
   option: EChartsOption;
   ref?: Ref<ReactECharts>;
+  notMerge?: boolean;
+  replaceMerge?: string | string[];
 }
 
-export default function DualSeriesChartRenderer({ option, ref }: DualSeriesChartRendererProps) {
+export default function DualSeriesChartRenderer({ option, ref, notMerge = true, replaceMerge }: DualSeriesChartRendererProps) {
   return (
     <ReactECharts
       ref={ref}
       option={option}
       opts={{ renderer: 'canvas' }}
-      notMerge={false}
+      notMerge={notMerge}
+      replaceMerge={replaceMerge}
       lazyUpdate={true}
       className="h-full! w-full!"
     />
