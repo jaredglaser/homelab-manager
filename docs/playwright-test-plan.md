@@ -103,6 +103,20 @@ are chosen on that basis. Each notes the MSW/`page.route` setup that drives it.
 - Each top-level route (`/docker`, `/stacks`, `/zfs`, `/proxmox`, `/settings`)
   loads without an error boundary.
 
+## Implementation status
+
+Implemented in `e2e/`: navigation across all routes, auth gating via `getSession`
+override (no session, real user), Docker table plus live stat streaming plus
+lifecycle controls, ZFS hierarchy plus streaming, Proxmox cluster/nodes/guests,
+Stacks list plus empty-state override plus open detail, and color-mode toggle
+with persistence.
+
+Still open (several need a small mock enhancement first):
+- Live cross-tab settings sync needs the settings handler to broadcast updates
+  (the current mock only sends an init frame), and likewise stack-status updates.
+- Container/stack action error and rollback toasts, the logs/terminal panel, icon
+  picker persistence, the virtualization threshold, and mobile metric toggles.
+
 ## Conventions
 
 - Spec files: `*.e2e.ts` run on `app`; `*.demo.e2e.ts` run on `demo`.
