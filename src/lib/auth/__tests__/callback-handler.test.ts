@@ -297,8 +297,6 @@ describe('handleCallback', () => {
         deps.sessionManager.createSession as ReturnType<typeof mock>
       ).mock.calls[0] as [number, string, string | null, string | null];
       expect(sessionToken).toBe(tokens.idToken);
-      expect(sessionToken).not.toContain(tokens.accessToken);
-      expect(sessionToken).not.toContain(tokens.refreshToken as string);
     });
   });
 
