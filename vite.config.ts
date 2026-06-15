@@ -5,6 +5,7 @@ import viteReact from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import { nitro } from 'nitro/vite'
 import tailwindcss from '@tailwindcss/vite'
+import { encodeFunctionId } from './src/lib/mock/handlers/function-id'
 
 const logger = createLogger()
 const customLogger = {
@@ -19,21 +20,13 @@ const customLogger = {
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
-const isDemoMode = process.env.VITE_DEMO_MODE === 'true'
 
 function buildAliases(): Record<string, string> {
-  const aliases: Record<string, string> = {}
-  // Demo aliases must be registered before the generic '@' prefix so Vite matches them first
-  if (isDemoMode) {
-    aliases['@/data/docker/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/docker.functions.ts', import.meta.url))
-    aliases['@/data/zfs/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/zfs.functions.ts', import.meta.url))
-    aliases['@/data/proxmox/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/proxmox.functions.ts', import.meta.url))
-    aliases['@/data/settings/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/settings.functions.ts', import.meta.url))
-    aliases['@/data/stacks/functions'] = fileURLToPath(new URL('./src/lib/mock/functions/stacks.functions.tsx', import.meta.url))
-    aliases['@/data/auth.functions'] = fileURLToPath(new URL('./src/lib/mock/functions/auth.functions.ts', import.meta.url))
+  // Demo and e2e modes no longer swap server-function modules at build time;
+  // MSW intercepts the real RPC/SSE network calls instead (see src/lib/mock).
+  return {
+    '@': fileURLToPath(new URL('./src', import.meta.url)),
   }
-  aliases['@'] = fileURLToPath(new URL('./src', import.meta.url))
-  return aliases
 }
 
 export default defineConfig({
@@ -53,6 +46,13 @@ export default defineConfig({
       importProtection: {
         behavior: 'error',
       },
+      serverFns: {
+        // Mirror the dev compiler's base64url(JSON{file,export}) id format in
+        // production builds so the MSW dispatcher decodes server-function calls
+        // the same way in the dev app target and the built demo deploy.
+        generateFunctionId: ({ filename, functionName }) =>
+          encodeFunctionId(filename, functionName),
+      },
     }),
     viteReact(),
   ],
@@ -61,6 +61,11 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['dockerode', 'ssh2', 'cpu-features', 'docker-modem', 'ssh2-streams', '@tanstack/start-server-core'],
+    // Pre-bundle MSW so demo/e2e mode does not trigger a mid-session dep
+    // re-optimization (which invalidates in-flight module hashes and 404s
+    // already-loaded dynamic imports). MSW is lazy-loaded, so without this Vite
+    // only discovers it after the first navigation.
+    include: ['msw', 'msw/browser'],
   },
   preview: {
     host: true,

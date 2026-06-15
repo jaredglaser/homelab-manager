@@ -5,6 +5,31 @@ import type {
   UpdateAgentResult,
 } from '@/data/hosts/functions';
 
+/**
+ * Build a plausible managed host from partial enrollment input. Pass `id` to
+ * reuse an existing host id (e.g. on update) instead of consuming a new one.
+ */
+function buildHost(
+  data: {
+    name: string;
+    agentUrl: string;
+    capabilities?: { docker?: boolean; zfs?: boolean };
+  },
+  id: number = nextMockId++,
+): HostListItem {
+  const now = new Date().toISOString();
+  return {
+    id,
+    name: data.name,
+    agentUrl: data.agentUrl,
+    capabilities: data.capabilities ?? {},
+    agentVersion: '0.1.0',
+    status: 'healthy',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 const mockHosts: readonly HostListItem[] = [
   {
     id: 1,
@@ -31,24 +56,38 @@ const mockHosts: readonly HostListItem[] = [
 let nextMockId = mockHosts.length + 1;
 
 /** Intentionally stateless: returns a plausible result without mutating mockHosts. Demo mode shows a fixed set of hosts. */
-export async function verifyHost(_data: {
+export async function verifyHost(data: {
   name: string;
   agentUrl: string;
   agentToken: string;
   capabilities?: { docker?: boolean; zfs?: boolean };
 }): Promise<AddHostResult> {
-  const now = new Date().toISOString();
-  const newHost: HostListItem = {
-    id: nextMockId++,
-    name: _data.name,
-    agentUrl: _data.agentUrl,
-    capabilities: _data.capabilities ?? {},
-    agentVersion: '0.1.0',
-    status: 'healthy',
-    createdAt: now,
-    updatedAt: now,
-  };
-  return { host: newHost };
+  return { host: buildHost(data) };
+}
+
+export async function addHost(data: {
+  name: string;
+  agentUrl: string;
+  capabilities?: { docker?: boolean; zfs?: boolean };
+}): Promise<AddHostResult> {
+  return { host: buildHost(data) };
+}
+
+export async function registerExistingHost(data: {
+  name: string;
+  agentUrl: string;
+  capabilities?: { docker?: boolean; zfs?: boolean };
+}): Promise<AddHostResult> {
+  return { host: buildHost(data) };
+}
+
+export async function updateHost(data: {
+  hostId: number;
+  name: string;
+  agentUrl: string;
+  capabilities?: { docker?: boolean; zfs?: boolean };
+}): Promise<HostListItem> {
+  return buildHost(data, data.hostId);
 }
 
 /** Intentionally stateless: returns success without mutating mockHosts. */

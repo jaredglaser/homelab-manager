@@ -6,4 +6,14 @@ coveragePathIgnorePatterns = [
   "src/data/*/functions.tsx",
   "src/lib/server-functions/",
   "src/components/settings/ManagedHostsCardConnected.tsx",
+  # Custom client entry: browser-only bootstrap, exercised by the e2e suite.
+  "src/client.tsx",
+  # MSW mock backend glue (service worker start + demo data sources). The pure
+  # logic (function-id, sse-stream framing, server-fn dispatch) is unit-tested;
+  # these are browser/streaming wiring covered end-to-end by Playwright instead.
+  "src/lib/mock/browser.ts",
+  "src/lib/mock/start.ts",
+  "src/lib/mock/handlers/index.ts",
+  "src/lib/mock/handlers/sse.ts",
+  "src/lib/mock/functions/",
 ]

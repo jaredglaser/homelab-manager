@@ -2,13 +2,19 @@ import { HeadContent, Outlet, Scripts, createRootRoute, useRouterState } from '@
 import { lazy } from 'react'
 import AppShell from '@/components/AppShell'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
+import { IS_MOCK_ENABLED } from '@/lib/constants/mock'
 
 import '../App.css'
 import '@fontsource/inter/index.css'
 import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
 
-const TanStackDevtools = import.meta.env.DEV
+// Skip the devtools when MSW is on (demo / e2e): they are dev-only debug UI and
+// their lazy chunk races Vite's mock-triggered dep re-optimization, surfacing as
+// a spurious "failed to load module" error in the app under test.
+const SHOW_DEVTOOLS = import.meta.env.DEV && !IS_MOCK_ENABLED
+
+const TanStackDevtools = SHOW_DEVTOOLS
   ? lazy(() =>
       import('@tanstack/react-devtools').then(mod => ({
         default: mod.TanStackDevtools,
@@ -16,7 +22,7 @@ const TanStackDevtools = import.meta.env.DEV
     )
   : () => null
 
-const TanStackRouterDevtoolsPanel = import.meta.env.DEV
+const TanStackRouterDevtoolsPanel = SHOW_DEVTOOLS
   ? lazy(() =>
       import('@tanstack/react-router-devtools').then(mod => ({
         default: mod.TanStackRouterDevtoolsPanel,
@@ -87,7 +93,7 @@ function RootDocument({ children }: Readonly<{ children: React.ReactNode }>) {
       </head>
       <body>
         {children}
-        {import.meta.env.DEV && (
+        {SHOW_DEVTOOLS && (
           <TanStackDevtools
             config={{
               position: 'bottom-right',
