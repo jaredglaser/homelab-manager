@@ -11,7 +11,9 @@ import { defineConfig, devices } from '@playwright/test';
  *   coverage only, so the deployed demo never silently breaks.
  * - `app`: the real, non-demo UI with MSW enabled via `VITE_ENABLE_MSW=true`.
  *   This is the deep-test target: it exercises production code paths and lets
- *   tests layer per-scenario overrides on top of the mocks with `page.route`.
+ *   tests layer per-scenario response overrides on top of the mocks via the
+ *   `overrideServerFn` fixture (a window-seeded map the MSW handler reads;
+ *   `page.route` can't reach `/_serverFn`, the service worker answers first).
  *
  * Specs ending in `.demo.spec.ts` run against `demo`; all other specs run
  * against `app`.

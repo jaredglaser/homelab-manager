@@ -1,4 +1,4 @@
-import { describe, it, expect, spyOn, afterEach } from 'bun:test';
+import { describe, it, expect, spyOn } from 'bun:test';
 import { toJSONAsync, fromCrossJSON } from 'seroval';
 
 import { handleServerFn } from '@/lib/mock/handlers/server-functions';
@@ -30,10 +30,6 @@ async function callGet(
 }
 
 describe('handleServerFn', () => {
-  afterEach(() => {
-    // Restore any console spies between tests.
-  });
-
   it('responds in the real server format (json + x-tss-serialized envelope)', async () => {
     const res = await callGet('getSession');
     expect(res.headers.get('content-type')).toBe('application/json');
