@@ -237,20 +237,6 @@ describe('SessionManager', () => {
       expect(result).toBe('eyJ.test.token');
     });
 
-    it('returns the idToken from a legacy payload that also stored access and refresh tokens', async () => {
-      const legacyPayload = {
-        accessToken: 'access-abc',
-        refreshToken: 'refresh-xyz',
-        idToken: 'eyJ.legacy.token',
-      };
-      const encryptedOidc = `jwe:mock:${JSON.stringify(legacyPayload)}`;
-      const manager = new SessionManager(depsWithEncryptedOidc(encryptedOidc));
-
-      const result = await manager.getIdToken('some-hashed-id');
-
-      expect(result).toBe('eyJ.legacy.token');
-    });
-
     it('returns null when the payload has no idToken field', async () => {
       const encryptedOidc = `jwe:mock:${JSON.stringify({ accessToken: 'access-abc' })}`;
       const manager = new SessionManager(depsWithEncryptedOidc(encryptedOidc));

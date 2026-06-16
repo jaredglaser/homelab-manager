@@ -51,7 +51,7 @@ export async function handleCallback(
   ipAddress: string | null,
   userAgent: string | null,
 ): Promise<Response> {
-  const stateMatch = cookieHeader.match(/(?:^|;\s*)oidc_state=([^;]*)/);
+  const stateMatch = /(?:^|;\s*)oidc_state=([^;]*)/.exec(cookieHeader);
   if (!stateMatch) {
     return new Response('Missing state cookie', { status: 400 });
   }
@@ -113,9 +113,6 @@ export async function handleCallback(
     groups: allGroups,
   });
 
-  // Only the id_token outlives the callback (logout id_token_hint). The access
-  // token is consumed above for the userinfo lookup; access and refresh tokens
-  // are never persisted.
   const rawSessionToken = await deps.sessionManager.createSession(
     user.id,
     tokens.idToken,

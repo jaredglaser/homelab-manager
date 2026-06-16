@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { AuthUser } from '@/lib/auth/types';
 import type { SessionRepository } from '@/lib/database/repositories/session-repository';
 import type { MasterKeyring } from '@/lib/crypto/master-key';
@@ -21,9 +21,8 @@ export class SessionManager {
     const rawToken = randomBytes(32).toString('hex');
     const hashedId = createHash('sha256').update(rawToken).digest('hex');
 
-    // Only the id_token is persisted: it is the sole token reused after the
-    // callback (as id_token_hint for RP-initiated logout). Access and refresh
-    // tokens are dropped so a compromised session row cannot reach the IdP APIs.
+    // Persist only the id_token (used as id_token_hint for logout); dropping the
+    // access/refresh tokens keeps a leaked session row from reaching the IdP APIs.
     const { encryptValue } = await import('@/lib/crypto/encrypted-value');
     const encryptedOidc = await encryptValue(JSON.stringify({ idToken }), this.deps.keyring);
 
@@ -59,8 +58,6 @@ export class SessionManager {
     try {
       const { decryptValue } = await import('@/lib/crypto/encrypted-value');
       const plain = await decryptValue(result.session.encryptedOidc, this.deps.keyring);
-      // Reads both the current payload ({ idToken }) and the legacy one that
-      // also carried accessToken/refreshToken; extra fields are ignored.
       const tokens = JSON.parse(plain) as { idToken?: string };
       return typeof tokens.idToken === 'string' ? tokens.idToken : null;
     } catch (err) {
