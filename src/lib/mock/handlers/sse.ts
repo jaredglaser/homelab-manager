@@ -17,10 +17,24 @@ import { createSseResponse } from '@/lib/mock/handlers/sse-stream';
 const STATS_INTERVAL_MS = 1000;
 const LOG_INTERVAL_MS = 3000;
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((v) => typeof v === 'string')
+  );
+}
+
 function loadDemoSettings(): Record<string, string> {
   try {
     const stored = localStorage.getItem(DEMO_SETTINGS_STORAGE_KEY);
-    if (stored) return JSON.parse(stored) as Record<string, string>;
+    // Hand-edited storage can hold non-object JSON or non-string values; fall
+    // back to defaults rather than feeding a malformed shape into the settings atoms.
+    if (stored) {
+      const parsed: unknown = JSON.parse(stored);
+      if (isStringRecord(parsed)) return parsed;
+    }
   } catch {
     /* ignore malformed storage */
   }

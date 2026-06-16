@@ -1,14 +1,22 @@
 /**
  * Mock git-token server functions for demo / e2e mode. The real functions read
- * and write the `git_tokens` table; here they return static, side-effect-free
- * data so the settings page renders without a database.
+ * and write the `git_tokens` table; here they keep an in-memory list and mutate
+ * it on create/revoke so the settings page works without a database. Field shapes
+ * mirror the real `GitTokenWithUser` DTO (`label`, `Date` timestamps).
  */
+
+// Single demo user the tokens belong to; mirrors the user join on the real
+// `GitTokenWithUser` DTO without standing up an auth backend.
+const DEMO_USER = { id: 1, userName: 'testuser', userEmail: 'testuser@test.com' } as const;
 
 export interface MockGitToken {
   id: number;
-  name: string;
-  createdAt: string;
-  lastUsedAt: string | null;
+  userId: number;
+  label: string;
+  createdAt: Date;
+  lastUsedAt: Date | null;
+  userName: string | null;
+  userEmail: string;
 }
 
 // Mutable so create/revoke persist for the session, matching how the real
@@ -16,9 +24,12 @@ export interface MockGitToken {
 let mockGitTokens: MockGitToken[] = [
   {
     id: 1,
-    name: 'ci-deploy',
-    createdAt: '2026-03-01T08:00:00Z',
-    lastUsedAt: '2026-06-10T12:30:00Z',
+    userId: DEMO_USER.id,
+    label: 'ci-deploy',
+    createdAt: new Date('2026-03-01T08:00:00Z'),
+    lastUsedAt: new Date('2026-06-10T12:30:00Z'),
+    userName: DEMO_USER.userName,
+    userEmail: DEMO_USER.userEmail,
   },
 ];
 let nextTokenId = mockGitTokens.length + 1;
@@ -30,12 +41,20 @@ export async function listGitTokens(): Promise<MockGitToken[]> {
 export async function createGitToken(opts?: {
   data?: { label?: string };
 }): Promise<{ token: string }> {
+  // Real endpoint validates `z.string().min(1)`; reject empty labels the same way.
+  const label = opts?.data?.label?.trim();
+  if (!label) {
+    throw new Error('label must be a non-empty string');
+  }
   mockGitTokens = [
     {
       id: nextTokenId++,
-      name: opts?.data?.label ?? 'new-token',
-      createdAt: new Date().toISOString(),
+      userId: DEMO_USER.id,
+      label,
+      createdAt: new Date(),
       lastUsedAt: null,
+      userName: DEMO_USER.userName,
+      userEmail: DEMO_USER.userEmail,
     },
     ...mockGitTokens,
   ];
