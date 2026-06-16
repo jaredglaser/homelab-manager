@@ -28,7 +28,18 @@ test('a real (non-synthetic) user surfaces the account menu', async ({ page }) =
   });
   await page.goto('/docker');
   await expect(page).toHaveURL(/\/docker$/);
-  // The synthetic-admin (auth-disabled) path hides the account menu; a real
-  // user shows it. Assert we are not bounced to /login and the app rendered.
-  await expect(page.getByRole('tab', { name: 'Docker' })).toBeVisible();
+
+  // A real user surfaces the account menu; opening it exposes the logout link.
+  const accountMenu = page.getByRole('button', { name: 'Account menu' });
+  await expect(accountMenu).toBeVisible();
+  await accountMenu.click();
+  await expect(page.getByRole('menuitem', { name: /log out/i })).toBeVisible();
+});
+
+test('the auth-disabled (synthetic admin) session hides the account menu', async ({ page }) => {
+  // The default mock session is the synthetic admin (AUTH_DISABLED path), which
+  // useAuth treats as "no real user", so the account menu must not render.
+  await page.goto('/docker');
+  await expect(page).toHaveURL(/\/docker$/);
+  await expect(page.getByRole('button', { name: 'Account menu' })).toHaveCount(0);
 });

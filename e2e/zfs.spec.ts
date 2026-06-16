@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, expectLiveTextUpdate } from './fixtures';
 
 test('renders the ZFS pool hierarchy', async ({ page }) => {
   await page.goto('/zfs');
@@ -15,9 +15,5 @@ test('streams live ZFS stats that change over time', async ({ page }) => {
   await page.goto('/zfs');
   await expect(page.getByText('nas01').first()).toBeVisible();
 
-  const body = page.locator('body');
-  const first = await body.innerText();
-  await expect
-    .poll(async () => (await body.innerText()) !== first, { timeout: 8000 })
-    .toBe(true);
+  await expectLiveTextUpdate(page.locator('body'));
 });

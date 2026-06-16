@@ -17,10 +17,14 @@ test('shows the empty state when no stacks exist', async ({ page }) => {
 });
 
 test('opens a stack to its detail view', async ({ page }) => {
-  await page.goto('/stacks');
-  // Expand a host group, then open the first stack within it.
-  await page.getByText('nas01').first().click();
-  // A stack detail exposes the compose/variables area; assert navigation away
-  // from the bare overview without asserting brittle inner copy.
+  // The dynamic stack route drives getStackDetail + getDeployHistory against the
+  // mock backend; the overview only renders per-host summaries, so the detail
+  // view is reached by its own route (also how the side-nav stack links land).
+  await page.goto('/stacks/traefik');
+
+  await expect(page.getByRole('heading', { name: 'traefik' })).toBeVisible();
+  // The detail view exposes the compose/secrets/containers/deploys panels.
+  await expect(page.getByRole('tab', { name: 'Compose' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Secrets' })).toBeVisible();
   await expect(page.getByText('Something went wrong')).toHaveCount(0);
 });

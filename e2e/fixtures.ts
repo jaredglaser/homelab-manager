@@ -1,4 +1,4 @@
-import { test as base, type Page } from '@playwright/test';
+import { test as base, expect, type Locator, type Page } from '@playwright/test';
 
 /**
  * Override the result of a server function for a test, layered on top of the
@@ -30,5 +30,22 @@ export async function overrideServerFn(
   );
 }
 
+/**
+ * Assert that the text rendered within `target` changes within `timeoutMs`,
+ * proving SSE updates reach the DOM. The stats streams push a fresh snapshot
+ * about every second, so a live page mutates while a static fixture would not;
+ * this is the end-to-end signal that EventSource plus the table merge live data,
+ * which a unit test with a frozen fixture cannot show.
+ */
+export async function expectLiveTextUpdate(
+  target: Locator,
+  timeoutMs = 8000,
+): Promise<void> {
+  const first = await target.innerText();
+  await expect
+    .poll(async () => (await target.innerText()) !== first, { timeout: timeoutMs })
+    .toBe(true);
+}
+
 export const test = base;
-export { expect } from '@playwright/test';
+export { expect };

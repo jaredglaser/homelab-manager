@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, expectLiveTextUpdate } from './fixtures';
 
 test('renders the host/container table with a status summary', async ({ page }) => {
   await page.goto('/docker');
@@ -17,15 +17,7 @@ test('streams live stats that change over time', async ({ page }) => {
   await page.goto('/docker');
   await expect(page.getByText('nginx-proxy').first()).toBeVisible();
 
-  // The docker-stats SSE pushes a fresh snapshot ~every second. Sampling the
-  // rendered metrics twice should capture movement; this is the end-to-end
-  // proof that EventSource + the table merge live data, which unit tests with a
-  // static fixture cannot show.
-  const table = page.locator('body');
-  const first = await table.innerText();
-  await expect
-    .poll(async () => (await table.innerText()) !== first, { timeout: 8000 })
-    .toBe(true);
+  await expectLiveTextUpdate(page.locator('body'));
 });
 
 test('exposes lifecycle controls on a container row', async ({ page }) => {
