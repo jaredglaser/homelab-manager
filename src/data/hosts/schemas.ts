@@ -7,7 +7,7 @@ const hostNameSchema = z.string().min(1).max(100).regex(
 
 const socketProxyUrlSchema = z.string().min(1).refine(
   (val) => /^(tcp|http|https):\/\/.+/.test(val),
-  { message: 'Must be a valid URL with tcp://, http://, or https:// scheme' }
+  { error: 'Must be a valid URL with tcp://, http://, or https:// scheme' }
 );
 
 export const addHostSchema = z.object({
@@ -40,5 +40,5 @@ export const updateHostSchema = z.object({
   agentUrl: z.string().url().optional(),
 }).refine(
   (data) => data.name !== undefined || data.agentUrl !== undefined,
-  { message: 'At least one of name or agentUrl must be provided' },
+  { error: 'At least one of name or agentUrl must be provided' },
 );

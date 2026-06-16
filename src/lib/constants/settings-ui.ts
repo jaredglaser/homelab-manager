@@ -1,12 +1,12 @@
 import type { DecimalSettings } from '@/hooks/useSettings'
 
-export const CHART_WINDOW_MARKS = [60, 120, 300, 600, 900, 1800].map(v => ({ value: v }));
+export const CHART_WINDOW_MARKS = [60, 120, 300, 600, 900, 1800];
 
-export const UPDATE_INTERVAL_MARKS = [100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000].map(v => ({ value: v }));
+export const UPDATE_INTERVAL_MARKS = [100, 250, 500, 1000, 2000, 5000, 10000, 30000, 60000];
 
-export const RAW_DATA_MARKS = [1, 2, 4, 8, 12, 24, 48, 72, 120, 168].map(v => ({ value: v }));
-export const MINUTE_AGG_MARKS = [1, 2, 3, 5, 7, 14, 21, 30].map(v => ({ value: v }));
-export const HOUR_AGG_MARKS = [1, 7, 14, 30, 60, 90, 180, 365].map(v => ({ value: v }));
+export const RAW_DATA_MARKS = [1, 2, 4, 8, 12, 24, 48, 72, 120, 168];
+export const MINUTE_AGG_MARKS = [1, 2, 3, 5, 7, 14, 21, 30];
+export const HOUR_AGG_MARKS = [1, 7, 14, 30, 60, 90, 180, 365];
 
 export function formatChartWindow(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;

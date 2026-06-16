@@ -14,6 +14,12 @@ mock.module('@xterm/xterm', () => ({
       dispose = mock(() => {});
       writeln = mock(() => {});
       write = mock(() => {});
+      resize = mock(() => {});
+      onLineFeed = mock(() => ({ dispose: mock(() => {}) }));
+      onWriteParsed = mock(() => ({ dispose: mock(() => {}) }));
+      cols = 80;
+      rows = 24;
+      buffer = { active: { length: 0, getLine: () => null, viewportY: 0, cursorY: 0 } };
       constructor() {
         mockTerminalInstances.push(this as unknown as typeof mockTerminalInstances[0]);
       }
@@ -75,9 +81,9 @@ const { default: ContainerLogViewer } = await import('../ContainerLogViewer');
 describe('ContainerLogViewer', () => {
   it('shows skeleton loading state when not ready', () => {
     mockReturnValue = { isConnected: false, error: null };
-    const { container } = render(<ContainerLogViewer containerId="abc123" host="server" />);
+    const { container } = render(<ContainerLogViewer containerId="abc123" host="server" wordWrap={false} />);
     // Skeleton elements should be present
-    expect(container.querySelectorAll('.MuiSkeleton-root').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
     // Terminal container should be invisible (opacity-0)
     const termContainer = container.querySelector('.transition-opacity');
     expect(termContainer?.className).toContain('opacity-0');
@@ -86,7 +92,7 @@ describe('ContainerLogViewer', () => {
   it('hides skeleton when connected with terminal', async () => {
     mockReturnValue = { isConnected: true, error: null };
     mockTerminalInstances.length = 0;
-    const { container } = render(<ContainerLogViewer containerId="abc123" host="server" />);
+    const { container } = render(<ContainerLogViewer containerId="abc123" host="server" wordWrap={false} />);
 
     // Wait for terminal to initialize (triggers ready state)
     await waitFor(() => {
@@ -95,7 +101,7 @@ describe('ContainerLogViewer', () => {
 
     // Once ready, skeleton should be gone and terminal visible
     await waitFor(() => {
-      expect(container.querySelectorAll('.MuiSkeleton-root').length).toBe(0);
+      expect(container.querySelectorAll('[data-slot="skeleton"]').length).toBe(0);
       const termContainer = container.querySelector('.transition-opacity');
       expect(termContainer?.className).toContain('opacity-100');
     });
@@ -106,14 +112,14 @@ describe('ContainerLogViewer', () => {
       isConnected: false,
       error: new Error('Connection refused'),
     };
-    render(<ContainerLogViewer containerId="abc123" host="server" />);
+    render(<ContainerLogViewer containerId="abc123" host="server" wordWrap={false} />);
     expect(screen.getByText('Connection refused')).toBeTruthy();
   });
 
   it('passes correct props to useContainerLogs', () => {
     mockReturnValue = { isConnected: true, error: null };
     lastCallOpts = null;
-    render(<ContainerLogViewer containerId="my-container" host="my-host" />);
+    render(<ContainerLogViewer containerId="my-container" host="my-host" wordWrap={false} />);
     expect(lastCallOpts).not.toBeNull();
     expect(lastCallOpts!.containerId).toBe('my-container');
     expect(lastCallOpts!.host).toBe('my-host');
@@ -123,7 +129,7 @@ describe('ContainerLogViewer', () => {
     mockReturnValue = { isConnected: true, error: null };
     mockTerminalInstances.length = 0;
 
-    const { unmount } = render(<ContainerLogViewer containerId="abc123" host="server" />);
+    const { unmount } = render(<ContainerLogViewer containerId="abc123" host="server" wordWrap={false} />);
 
     // Wait for async terminal initialization
     await waitFor(() => {
@@ -145,7 +151,7 @@ describe('ContainerLogViewer', () => {
     mockFitFn.mockClear();
     lastResizeCallback = null;
 
-    render(<ContainerLogViewer containerId="abc123" host="server" />);
+    render(<ContainerLogViewer containerId="abc123" host="server" wordWrap={false} />);
 
     // Wait for async terminal initialization which triggers re-render
     await waitFor(() => {

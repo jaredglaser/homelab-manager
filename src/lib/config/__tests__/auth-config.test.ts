@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'bun:test';
-import { loadAuthConfig, isAuthDisabled } from '@/lib/config/auth-config';
+import { describe, it, expect, afterEach, beforeEach, spyOn } from 'bun:test';
+import { loadAuthConfig, isAuthDisabled, enforceAuthConfig } from '@/lib/config/auth-config';
 
 describe('loadAuthConfig', () => {
   const originalEnv = { ...process.env };
@@ -118,23 +118,79 @@ describe('isAuthDisabled', () => {
     process.env = { ...originalEnv };
   });
 
-  it('returns true when AUTH_ENABLED is not set', () => {
-    delete process.env.AUTH_ENABLED;
-    expect(isAuthDisabled()).toBe(true);
-  });
-
-  it('returns true when AUTH_ENABLED is "false"', () => {
-    process.env.AUTH_ENABLED = 'false';
-    expect(isAuthDisabled()).toBe(true);
-  });
-
-  it('returns true when AUTH_ENABLED is an empty string', () => {
-    process.env.AUTH_ENABLED = '';
-    expect(isAuthDisabled()).toBe(true);
-  });
-
-  it('returns false when AUTH_ENABLED is "true"', () => {
-    process.env.AUTH_ENABLED = 'true';
+  it('returns false when AUTH_DISABLED is not set (auth required by default)', () => {
+    delete process.env.AUTH_DISABLED;
     expect(isAuthDisabled()).toBe(false);
+  });
+
+  it.each(['true', '1', 'YES', ' on '])(
+    'returns true for truthy value %p (case-insensitive, trimmed)',
+    (value) => {
+      process.env.AUTH_DISABLED = value;
+      expect(isAuthDisabled()).toBe(true);
+    },
+  );
+
+  it.each(['false', '0', 'no', 'off', ''])('returns false for falsy value %p', (value) => {
+    process.env.AUTH_DISABLED = value;
+    expect(isAuthDisabled()).toBe(false);
+  });
+
+  it('returns false for an unrecognized value (fails closed)', () => {
+    process.env.AUTH_DISABLED = 'definitely';
+    expect(isAuthDisabled()).toBe(false);
+  });
+});
+
+describe('enforceAuthConfig', () => {
+  const originalEnv = { ...process.env };
+  let warnSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    delete process.env.AUTH_ENABLED;
+    delete process.env.AUTH_DISABLED;
+    delete process.env.OIDC_ISSUER_URL;
+    delete process.env.OIDC_CLIENT_ID;
+    delete process.env.OIDC_REDIRECT_URI;
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    process.env = { ...originalEnv };
+  });
+
+  it('throws when the removed AUTH_ENABLED variable is set (any value)', () => {
+    process.env.AUTH_ENABLED = 'false';
+    expect(() => enforceAuthConfig()).toThrow(/AUTH_ENABLED was replaced by AUTH_DISABLED/);
+  });
+
+  it('throws on an unrecognized AUTH_DISABLED value, naming it and the accepted values', () => {
+    process.env.AUTH_DISABLED = 'truee';
+    expect(() => enforceAuthConfig()).toThrow(/"truee".*true\/1\/yes\/on.*false\/0\/no\/off/s);
+  });
+
+  it('warns without throwing when auth is disabled', () => {
+    process.env.AUTH_DISABLED = 'true';
+    expect(() => enforceAuthConfig()).not.toThrow();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0][0])).toContain('AUTHENTICATION IS DISABLED');
+  });
+
+  it('passes without warning when auth is required and OIDC config is complete', () => {
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+    process.env.OIDC_CLIENT_ID = 'homelab-manager';
+    process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
+
+    expect(() => enforceAuthConfig()).not.toThrow();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('throws with the AUTH_DISABLED hint when auth is required but OIDC config is incomplete', () => {
+    process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
+
+    expect(() => enforceAuthConfig()).toThrow(
+      /Authentication is required by default.*OIDC configuration incomplete.*Set AUTH_DISABLED=true/s,
+    );
   });
 });

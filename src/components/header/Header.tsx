@@ -1,11 +1,9 @@
 import { useMemo, useState } from 'react'
-import Tabs from '@mui/material/Tabs'
-import Tab from '@mui/material/Tab'
-import Popper from '@mui/material/Popper'
-import Paper from '@mui/material/Paper'
+import { Popover } from '@base-ui/react/popover'
 import { Link } from '@tanstack/react-router'
 import { ChevronDown } from 'lucide-react'
 import ModeToggle from '@/components/ModeToggle'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { IS_DEMO_MODE } from '@/lib/constants/demo'
 import type { AuthUser } from '@/lib/auth/types'
 import {
@@ -48,58 +46,55 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
     <header className="sticky top-0 z-50 px-4 pt-3 pb-2 pointer-events-none">
       <nav
         aria-label="Main navigation"
-        className="flex items-center rounded-2xl px-3 py-1 pointer-events-auto backdrop-blur-xl bg-(--mui-palette-background-paper)/75 border border-(--mui-palette-divider)/30 shadow-[0_8px_32px_var(--mui-palette-common-black)]/10"
+        className="flex items-center rounded-2xl px-3 py-1 pointer-events-auto backdrop-blur-xl bg-card/75 border border-border/30 shadow-[0_8px_32px_rgba(0,0,0,0.1)]"
       >
-        <Tabs value={currentTab ?? false} aria-label="Main navigation" className="min-h-0!">
-          {NAV_ITEMS.map((item) => {
-            const { Icon } = item
-            return (
-              <Tab
-                key={item.to}
-                value={item.to}
-                ref={refSetters[item.to as MenuRouteKey]}
-                label={
-                  <span className="inline-flex items-center gap-1">
+        <Tabs value={currentTab ?? null}>
+          <TabsList aria-label="Main navigation">
+            {NAV_ITEMS.map((item) => {
+              const { Icon } = item
+              return (
+                <TabsTrigger
+                  key={item.to}
+                  value={item.to}
+                  ref={refSetters[item.to as MenuRouteKey]}
+                  nativeButton={false}
+                  render={<Link to={item.to} />}
+                  aria-haspopup={item.hasMenu ? 'menu' : undefined}
+                  aria-expanded={item.hasMenu ? controller.openId === item.to : undefined}
+                  aria-controls={item.hasMenu ? `nav-menu-${item.to.slice(1)}` : undefined}
+                  onMouseEnter={() => {
+                    handlePrefetch(item.to)
+                    if (item.hasMenu) controller.requestOpen(item.to)
+                  }}
+                  onMouseLeave={() => {
+                    if (item.hasMenu) controller.requestClose()
+                  }}
+                  onFocus={() => {
+                    handlePrefetch(item.to)
+                    if (item.hasMenu) controller.requestOpen(item.to)
+                  }}
+                  onBlur={() => {
+                    if (item.hasMenu) controller.requestClose()
+                  }}
+                  onKeyDown={(e: React.KeyboardEvent) => {
+                    if (e.key === 'Escape' && item.hasMenu) controller.closeNow()
+                  }}
+                  className="py-2 uppercase"
+                >
+                  {SPACED_ICON_ROUTES.has(item.to)
+                    ? <span className="inline-flex mr-1"><Icon size={18} /></span>
+                    : <Icon size={18} />}
+                  <span className="inline-flex items-center gap-1 ml-1.5">
                     {item.label}
                     {item.hasMenu && <ChevronDown size={14} className="opacity-60" />}
                   </span>
-                }
-                icon={
-                  SPACED_ICON_ROUTES.has(item.to)
-                    ? <span className="inline-flex mr-1"><Icon size={18} /></span>
-                    : <Icon size={18} />
-                }
-                iconPosition="start"
-                component={Link}
-                to={item.to}
-                disableRipple
-                aria-haspopup={item.hasMenu ? 'menu' : undefined}
-                aria-expanded={item.hasMenu ? controller.openId === item.to : undefined}
-                aria-controls={item.hasMenu ? `nav-menu-${item.to.slice(1)}` : undefined}
-                onMouseEnter={() => {
-                  handlePrefetch(item.to)
-                  if (item.hasMenu) controller.requestOpen(item.to)
-                }}
-                onMouseLeave={() => {
-                  if (item.hasMenu) controller.requestClose()
-                }}
-                onFocus={() => {
-                  handlePrefetch(item.to)
-                  if (item.hasMenu) controller.requestOpen(item.to)
-                }}
-                onBlur={() => {
-                  if (item.hasMenu) controller.requestClose()
-                }}
-                onKeyDown={(e: React.KeyboardEvent) => {
-                  if (e.key === 'Escape' && item.hasMenu) controller.closeNow()
-                }}
-                className="min-h-0! py-2!"
-              />
-            )
-          })}
+                </TabsTrigger>
+              )
+            })}
+          </TabsList>
         </Tabs>
 
-        <div className="ml-auto pl-3 border-l border-(--mui-palette-divider)/30 flex items-center gap-1">
+        <div className="ml-auto pl-3 border-l border-border/30 flex items-center gap-1">
           {!IS_DEMO_MODE && user && <AccountMenu />}
           <ModeToggle />
         </div>
@@ -108,32 +103,39 @@ export default function Header({ user }: Readonly<{ user?: AuthUser | null }>) {
       {NAV_ITEMS.filter((i) => i.hasMenu).map((item) => {
         const anchor = anchors[item.to]
         return (
-          <Popper
+          <Popover.Root
             key={item.to}
             open={controller.openId === item.to && Boolean(anchor)}
-            anchorEl={anchor ?? null}
-            placement="bottom-start"
-            modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}
-            className="z-50!"
+            modal={false}
           >
-            <Paper
-              elevation={4}
-              className="rounded-xl! backdrop-blur-xl! bg-(--mui-palette-background-paper)/95! border border-(--mui-palette-divider)/30 overflow-hidden min-w-56 pointer-events-auto"
-              onMouseEnter={() => controller.requestOpen(item.to)}
-              onMouseLeave={controller.requestClose}
-              onFocus={() => controller.requestOpen(item.to)}
-              onBlur={() => controller.requestClose()}
-              onKeyDown={(e: React.KeyboardEvent) => {
-                if (e.key === 'Escape') controller.closeNow()
-              }}
-            >
-              <div id={`nav-menu-${item.to.slice(1)}`} role="menu">
-                <NavMenuCloseContext value={controller.closeNow}>
-                  <MenuContentFor to={item.to} />
-                </NavMenuCloseContext>
-              </div>
-            </Paper>
-          </Popper>
+            <Popover.Portal>
+              <Popover.Positioner
+                anchor={anchor ?? null}
+                side="bottom"
+                align="start"
+                sideOffset={8}
+                className="z-50"
+              >
+                <Popover.Popup
+                  initialFocus={false}
+                  className="rounded-xl backdrop-blur-xl bg-card/95 border border-border/30 shadow-lg overflow-hidden min-w-56 pointer-events-auto outline-none"
+                  onMouseEnter={() => controller.requestOpen(item.to)}
+                  onMouseLeave={controller.requestClose}
+                  onFocus={() => controller.requestOpen(item.to)}
+                  onBlur={() => controller.requestClose()}
+                  onKeyDown={(e: React.KeyboardEvent) => {
+                    if (e.key === 'Escape') controller.closeNow()
+                  }}
+                >
+                  <div id={`nav-menu-${item.to.slice(1)}`} role="menu">
+                    <NavMenuCloseContext value={controller.closeNow}>
+                      <MenuContentFor to={item.to} />
+                    </NavMenuCloseContext>
+                  </div>
+                </Popover.Popup>
+              </Popover.Positioner>
+            </Popover.Portal>
+          </Popover.Root>
         )
       })}
 

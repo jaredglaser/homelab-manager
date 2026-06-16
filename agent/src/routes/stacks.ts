@@ -1,4 +1,4 @@
-import { mkdirSync, existsSync, readdirSync, unlinkSync } from 'node:fs';
+import { mkdirSync, existsSync, readdirSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { join, resolve, relative } from 'node:path';
 
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
@@ -206,18 +206,32 @@ async function parseDeployBody(
   return { stack: body.stack, composeContent: body.composeContent, envContent: body.envContent, forceRecreate: body.forceRecreate };
 }
 
+const COMPOSE_FILE_MODE = 0o644;
+// .env holds decrypted stack secrets; restrict it to the agent user only.
+const ENV_FILE_MODE = 0o600;
+
+/**
+ * Write a file with an explicit mode. The mode option of writeFileSync only
+ * applies when the file is created, so chmod afterwards to also fix
+ * permissions on files that already exist from earlier deploys.
+ */
+function writeFileWithMode(path: string, content: string, mode: number): void {
+  writeFileSync(path, content, { mode });
+  chmodSync(path, mode);
+}
+
 /**
  * Write compose and optional .env files into the stack directory.
  */
-async function writeStackFiles(
+function writeStackFiles(
   stackDir: string,
   composeContent: string,
   envContent?: string,
-): Promise<void> {
+): void {
   mkdirSync(stackDir, { recursive: true });
-  await Bun.write(join(stackDir, 'docker-compose.yml'), composeContent);
+  writeFileWithMode(join(stackDir, 'docker-compose.yml'), composeContent, COMPOSE_FILE_MODE);
   if (envContent) {
-    await Bun.write(join(stackDir, '.env'), envContent);
+    writeFileWithMode(join(stackDir, '.env'), envContent, ENV_FILE_MODE);
   } else {
     const envPath = join(stackDir, '.env');
     if (existsSync(envPath)) unlinkSync(envPath);
@@ -273,7 +287,7 @@ export async function handleStackDeploy(
   }
 
   try {
-    await writeStackFiles(stackDir, parsed.composeContent, parsed.envContent);
+    writeStackFiles(stackDir, parsed.composeContent, parsed.envContent);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`Failed to write stack files for ${parsed.stack}:`, error);

@@ -86,62 +86,25 @@ describe('ProxmoxClient', () => {
     });
   });
 
-  describe('getNodes', () => {
-    it('should return nodes', async () => {
+  describe('getClusterResources', () => {
+    it('should return all resource types from a single call', async () => {
       const mockData = [
-        { node: 'pve1', status: 'online', cpu: 0.25, maxcpu: 8, mem: 4e9, maxmem: 16e9, disk: 50e9, maxdisk: 500e9, uptime: 86400, type: 'node', id: 'node/pve1' },
+        { id: 'node/pve1', type: 'node', node: 'pve1', status: 'online', cpu: 0.25, maxcpu: 8 },
+        { id: 'qemu/100', type: 'qemu', node: 'pve1', status: 'running', vmid: 100, name: 'vm1' },
+        { id: 'storage/pve1/local', type: 'storage', node: 'pve1', status: 'available', storage: 'local' },
       ];
       fetchSpy.mockResolvedValueOnce(
         new Response(JSON.stringify({ data: mockData }), { status: 200 })
       );
       const client = new ProxmoxClient(createConfig());
-      const result = await client.getNodes();
-      expect(result).toHaveLength(1);
-      expect(result[0].node).toBe('pve1');
+      const result = await client.getClusterResources();
+      expect(result).toHaveLength(3);
+      expect(fetchSpy.mock.calls[0][0]).toContain('/cluster/resources');
     });
   });
 
-  describe('getNodeVMs', () => {
-    it('should fetch VMs for a node', async () => {
-      const mockData = [{ vmid: 100, name: 'test-vm', status: 'running' }];
-      fetchSpy.mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: mockData }), { status: 200 })
-      );
-      const client = new ProxmoxClient(createConfig());
-      const result = await client.getNodeVMs('pve1');
-      expect(result).toHaveLength(1);
-      expect(result[0].vmid).toBe(100);
-    });
-  });
-
-  describe('getNodeContainers', () => {
-    it('should fetch containers for a node', async () => {
-      const mockData = [{ vmid: 200, name: 'test-ct', status: 'running', type: 'lxc' }];
-      fetchSpy.mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: mockData }), { status: 200 })
-      );
-      const client = new ProxmoxClient(createConfig());
-      const result = await client.getNodeContainers('pve1');
-      expect(result).toHaveLength(1);
-      expect(result[0].vmid).toBe(200);
-    });
-  });
-
-  describe('getNodeStorage', () => {
-    it('should fetch storage for a node', async () => {
-      const mockData = [{ storage: 'local', type: 'dir', content: 'rootdir', active: 1 }];
-      fetchSpy.mockResolvedValueOnce(
-        new Response(JSON.stringify({ data: mockData }), { status: 200 })
-      );
-      const client = new ProxmoxClient(createConfig());
-      const result = await client.getNodeStorage('pve1');
-      expect(result).toHaveLength(1);
-      expect(result[0].storage).toBe('local');
-    });
-  });
-
-  describe('getClusterOverview', () => {
-    it('should assemble cluster overview from multiple API calls', async () => {
+  describe('getClusterSnapshot', () => {
+    it('should assemble a snapshot from exactly 2 API calls', async () => {
       // Call 1: getClusterStatus
       fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
         data: [
@@ -150,134 +113,56 @@ describe('ProxmoxClient', () => {
         ],
       }), { status: 200 }));
 
-      // Call 2: getNodes
+      // Call 2: getClusterResources
       fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{
-          node: 'pve1', status: 'online', cpu: 0.5, maxcpu: 4,
-          mem: 2e9, maxmem: 8e9, disk: 10e9, maxdisk: 100e9,
-          uptime: 3600, type: 'node', id: 'node/pve1',
-        }],
-      }), { status: 200 }));
-
-      // Call 3: getNodeVMs
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{
-          vmid: 100, name: 'vm1', status: 'running', cpu: 0.1, cpus: 2,
-          mem: 1e9, maxmem: 2e9, disk: 5e9, maxdisk: 20e9, uptime: 1000,
-          netin: 100, netout: 50, diskread: 10, diskwrite: 5,
-        }],
-      }), { status: 200 }));
-
-      // Call 4: getNodeContainers
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{
-          vmid: 200, name: 'ct1', status: 'stopped', type: 'lxc', cpu: 0, cpus: 1,
-          mem: 0, maxmem: 1e9, disk: 1e9, maxdisk: 5e9, uptime: 0,
-          netin: 0, netout: 0, diskread: 0, diskwrite: 0, swap: 0, maxswap: 256e6,
-        }],
-      }), { status: 200 }));
-
-      // Call 5: getNodeStorage
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{
-          storage: 'local', type: 'dir', content: 'rootdir', active: 1,
-          enabled: 1, shared: 0, used: 5e9, avail: 15e9, total: 20e9, used_fraction: 0.25,
-        }],
+        data: [
+          {
+            id: 'node/pve1', type: 'node', node: 'pve1', status: 'online',
+            cpu: 0.5, maxcpu: 4, mem: 2e9, maxmem: 8e9, disk: 10e9, maxdisk: 100e9, uptime: 3600,
+          },
+          {
+            id: 'qemu/100', type: 'qemu', node: 'pve1', status: 'running', vmid: 100, name: 'vm1',
+            cpu: 0.1, maxcpu: 2, mem: 1e9, maxmem: 2e9, disk: 5e9, maxdisk: 20e9,
+            uptime: 1000, netin: 100, netout: 50,
+          },
+        ],
       }), { status: 200 }));
 
       const client = new ProxmoxClient(createConfig());
-      const overview = await client.getClusterOverview();
+      const snapshot = await client.getClusterSnapshot();
 
-      expect(overview.clusterName).toBe('test-cluster');
-      expect(overview.quorate).toBe(true);
-      expect(overview.version).toBe(3);
-      expect(overview.nodes).toHaveLength(1);
-      expect(overview.vms).toHaveLength(1);
-      expect(overview.containers).toHaveLength(1);
-      expect(overview.storages).toHaveLength(1);
-      expect(overview.totals.totalCpu).toBe(4);
-      expect(overview.totals.usedCpu).toBe(2); // 0.5 * 4
-      expect(overview.totals.runningVMs).toBe(1);
-      expect(overview.totals.stoppedVMs).toBe(0);
-      expect(overview.totals.stoppedContainers).toBe(1);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      const urls = fetchSpy.mock.calls.map((c: unknown[]) => c[0] as string);
+      expect(urls.some((u: string) => u.includes('/cluster/status'))).toBe(true);
+      expect(urls.some((u: string) => u.includes('/cluster/resources'))).toBe(true);
+
+      expect(snapshot.clusterName).toBe('test-cluster');
+      expect(snapshot.quorate).toBe(true);
+      expect(snapshot.version).toBe(3);
+      expect(snapshot.resources).toHaveLength(2);
     });
 
-    it('should filter out template VMs', async () => {
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{ type: 'cluster', id: 'cluster', name: 'c', version: 1, quorate: 1 }],
-      }), { status: 200 }));
-
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{
-          node: 'pve1', status: 'online', cpu: 0, maxcpu: 1,
-          mem: 0, maxmem: 1e9, disk: 0, maxdisk: 1e9, uptime: 0, type: 'node', id: 'node/pve1',
-        }],
-      }), { status: 200 }));
-
-      // VM with template=1 should be filtered
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{
-          vmid: 900, name: 'template-vm', status: 'stopped', template: 1,
-          cpu: 0, cpus: 1, mem: 0, maxmem: 1e9, disk: 0, maxdisk: 10e9,
-          uptime: 0, netin: 0, netout: 0, diskread: 0, diskwrite: 0,
-        }],
-      }), { status: 200 }));
-
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }));
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }));
-
-      const client = new ProxmoxClient(createConfig());
-      const overview = await client.getClusterOverview();
-      expect(overview.vms).toHaveLength(0);
-    });
-
-    it('should handle standalone cluster with no cluster entry', async () => {
+    it('should handle standalone host with no cluster entry', async () => {
       fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
         data: [{ type: 'node', id: 'node/pve1', name: 'pve1' }],
       }), { status: 200 }));
 
       fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{
-          node: 'pve1', status: 'online', cpu: 0, maxcpu: 1,
-          mem: 0, maxmem: 1e9, disk: 0, maxdisk: 1e9, uptime: 0, type: 'node', id: 'node/pve1',
-        }],
+        data: [{ id: 'node/pve1', type: 'node', node: 'pve1', status: 'online' }],
       }), { status: 200 }));
 
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }));
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }));
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }));
-
       const client = new ProxmoxClient(createConfig());
-      const overview = await client.getClusterOverview();
-      expect(overview.clusterName).toBe('Standalone');
-      expect(overview.quorate).toBe(false);
+      const snapshot = await client.getClusterSnapshot();
+      expect(snapshot.clusterName).toBe('Standalone');
+      expect(snapshot.quorate).toBe(false);
+      expect(snapshot.version).toBe(0);
     });
 
-    it('should handle API error for per-node requests gracefully', async () => {
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{ type: 'cluster', id: 'cluster', name: 'c', version: 1, quorate: 1 }],
-      }), { status: 200 }));
-
-      fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({
-        data: [{
-          node: 'pve1', status: 'online', cpu: 0, maxcpu: 1,
-          mem: 0, maxmem: 1e9, disk: 0, maxdisk: 1e9, uptime: 0, type: 'node', id: 'node/pve1',
-        }],
-      }), { status: 200 }));
-
-      // VMs fail
-      fetchSpy.mockRejectedValueOnce(new Error('Connection refused'));
-      // Containers fail
-      fetchSpy.mockRejectedValueOnce(new Error('Timeout'));
-      // Storage fails
-      fetchSpy.mockRejectedValueOnce(new Error('Not found'));
+    it('should propagate API errors', async () => {
+      fetchSpy.mockRejectedValue(new Error('Connection refused'));
 
       const client = new ProxmoxClient(createConfig());
-      const overview = await client.getClusterOverview();
-      // Errors are caught per-node, so empty arrays
-      expect(overview.vms).toHaveLength(0);
-      expect(overview.containers).toHaveLength(0);
-      expect(overview.storages).toHaveLength(0);
+      await expect(client.getClusterSnapshot()).rejects.toThrow('Connection refused');
     });
   });
 

@@ -41,7 +41,7 @@ describe('StackActionBar', () => {
 
   it('shows spinner when deploying', () => {
     const { container } = render(<StackActionBar {...defaultProps} isDeploying={true} />);
-    const spinner = container.querySelector('.MuiCircularProgress-root');
+    const spinner = container.querySelector('[data-slot="spinner"]');
     expect(spinner).not.toBeNull();
   });
 
@@ -69,7 +69,7 @@ describe('StackActionBar', () => {
   it('renders Force Recreate checkbox checked when forceRecreate is true', () => {
     render(<StackActionBar {...defaultProps} forceRecreate={true} />);
     const checkbox = screen.getByRole('checkbox');
-    expect((checkbox as HTMLInputElement).checked).toBe(true);
+    expect(checkbox.getAttribute('aria-checked')).toBe('true');
   });
 
   it('calls onForceRecreateChange when Force checkbox is clicked', () => {
@@ -82,6 +82,6 @@ describe('StackActionBar', () => {
   it('disables Force Recreate checkbox when isDeploying is true', () => {
     render(<StackActionBar {...defaultProps} isDeploying={true} />);
     const checkbox = screen.getByRole('checkbox');
-    expect((checkbox as HTMLInputElement).disabled).toBe(true);
+    expect(checkbox.hasAttribute('disabled') || checkbox.getAttribute('aria-disabled') === 'true' || checkbox.hasAttribute('data-disabled')).toBe(true);
   });
 });

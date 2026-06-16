@@ -4,6 +4,7 @@ import type { UserRow } from '@/lib/database/repositories/user-repository';
 export interface CallbackOidcClient {
   exchangeCode(code: string): Promise<OidcTokens>;
   getUserGroups(accessToken: string): Promise<string[]>;
+  verifyIdToken(idToken: string): Promise<Record<string, unknown>>;
 }
 
 export interface CallbackUserRepo {
@@ -27,7 +28,6 @@ export interface CallbackSessionManager {
 
 export interface CallbackHandlerDeps {
   oidcClient: CallbackOidcClient;
-  extractIdTokenClaims: (idToken: string) => Record<string, unknown>;
   mapGroupsToRole: (groups: string[], mapping: RoleMappingConfig) => Role | null;
   userRepo: CallbackUserRepo;
   sessionManager: CallbackSessionManager;
@@ -71,7 +71,16 @@ export async function handleCallback(
 
   // Providers vary on whether groups appear in userinfo or id_token; merge both.
   const userinfoGroups = await deps.oidcClient.getUserGroups(tokens.accessToken);
-  const idTokenClaims = deps.extractIdTokenClaims(tokens.idToken);
+
+  // Signature verification (issuer, audience, alg pinned to the discovery document)
+  // must happen before the nonce check, otherwise the nonce binds to a forgeable payload.
+  let idTokenClaims: Record<string, unknown>;
+  try {
+    idTokenClaims = await deps.oidcClient.verifyIdToken(tokens.idToken);
+  } catch (err) {
+    console.error('[auth/callback] ID token verification failed:', err);
+    return new Response('ID token verification failed', { status: 401 });
+  }
 
   if (idTokenClaims.nonce !== storedState.nonce) {
     return new Response('Nonce mismatch', { status: 400 });
@@ -184,7 +193,6 @@ export async function callbackGetHandler({
     return handleCallback(
       {
         oidcClient: oidc,
-        extractIdTokenClaims: OidcClient.extractIdTokenClaims,
         mapGroupsToRole,
         userRepo,
         sessionManager,

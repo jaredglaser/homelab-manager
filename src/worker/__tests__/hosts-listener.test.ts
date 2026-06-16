@@ -170,6 +170,8 @@ describe('HostsListener', () => {
     expect(() => errorCb!(new Error('lost conn'))).not.toThrow();
     expect(console.error).toHaveBeenCalled();
 
+    // Abort before the reconnect loop's first backoff sleep elapses so the
+    // background reconnect exits instead of dialing a real database.
     controller.abort();
     await listener[Symbol.asyncDispose]();
   });
@@ -237,5 +239,174 @@ describe('HostsListener', () => {
     // passed; the important thing is that we don't accidentally enable TLS.
     expect(pgClient.connectionParameters.ssl).toBeFalsy();
     controller.abort();
+  });
+
+  describe('reconnect', () => {
+    const originalConsoleInfo = console.info;
+    let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      console.info = mock(() => {});
+      // Fire backoff timers immediately so the reconnect loop runs in
+      // microtasks instead of waiting out real 500ms+ delays.
+      setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(((
+        cb: () => void,
+      ) => {
+        cb();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as never);
+    });
+
+    afterEach(() => {
+      console.info = originalConsoleInfo;
+      setTimeoutSpy.mockRestore();
+    });
+
+    // The reconnect chain (end old client, backoff sleep, connect, LISTEN,
+    // reconcile dispatch) is pure microtasks once setTimeout fires
+    // synchronously; one macrotask hop drains all of it.
+    const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+    function createFakeClient(overrides: Record<string, unknown> = {}) {
+      return {
+        connect: mock(() => Promise.resolve()),
+        query: mock(() => Promise.resolve({ rows: [] })),
+        end: mock(() => Promise.resolve()),
+        on: mock(() => {}),
+        removeAllListeners: mock(() => {}),
+        ...overrides,
+      };
+    }
+
+    function setupListenerWithErrorCapture(handler: HostChangeHandler, signal: AbortSignal) {
+      const listener = new HostsListener(createMockDbConfig(), handler, signal);
+      let errorCb: ((err: Error) => void) | undefined;
+      setupPgClientMocks(listener, (event, cb) => {
+        if (event === 'error') errorCb = cb as typeof errorCb;
+      });
+      return { listener, getErrorCb: () => errorCb };
+    }
+
+    it('reconnects after a client error, re-issues LISTEN, and dispatches a reconcile', async () => {
+      const handler: HostChangeHandler = mock(() => {});
+      const controller = new AbortController();
+      const { listener, getErrorCb } = setupListenerWithErrorCapture(handler, controller.signal);
+
+      const fakeClient = createFakeClient();
+      const createClientSpy = spyOn(
+        listener as unknown as { createClient: () => unknown },
+        'createClient',
+      ).mockReturnValue(fakeClient);
+
+      await listener.start();
+      getErrorCb()!(new Error('server closed the connection unexpectedly'));
+      await flush();
+
+      expect(createClientSpy).toHaveBeenCalledTimes(1);
+      expect(fakeClient.connect).toHaveBeenCalled();
+      expect(fakeClient.query).toHaveBeenCalledWith('LISTEN managed_hosts_change');
+      // Null payload forces a full reconcile to cover changes missed offline.
+      expect(handler).toHaveBeenCalledWith(null);
+
+      controller.abort();
+      await listener[Symbol.asyncDispose]();
+    });
+
+    it('retries with backoff until a reconnect attempt succeeds', async () => {
+      const handler: HostChangeHandler = mock(() => {});
+      const controller = new AbortController();
+      const { listener, getErrorCb } = setupListenerWithErrorCapture(handler, controller.signal);
+
+      const failingClient = createFakeClient({
+        connect: mock(() => Promise.reject(new Error('still down'))),
+      });
+      const workingClient = createFakeClient();
+      const createClientSpy = spyOn(
+        listener as unknown as { createClient: () => unknown },
+        'createClient',
+      )
+        .mockReturnValueOnce(failingClient)
+        .mockReturnValueOnce(workingClient);
+
+      await listener.start();
+      getErrorCb()!(new Error('lost conn'));
+      await flush();
+
+      expect(createClientSpy).toHaveBeenCalledTimes(2);
+      // Failed attempt must close its half-open socket before retrying.
+      expect(failingClient.end).toHaveBeenCalled();
+      expect(workingClient.query).toHaveBeenCalledWith('LISTEN managed_hosts_change');
+      expect(handler).toHaveBeenCalledWith(null);
+
+      controller.abort();
+      await listener[Symbol.asyncDispose]();
+    });
+
+    it('does not reconnect when the shutdown signal is already aborted', async () => {
+      const controller = new AbortController();
+      const { listener, getErrorCb } = setupListenerWithErrorCapture(() => {}, controller.signal);
+
+      const createClientSpy = spyOn(
+        listener as unknown as { createClient: () => unknown },
+        'createClient',
+      ).mockReturnValue(createFakeClient());
+
+      await listener.start();
+      controller.abort();
+      getErrorCb()!(new Error('lost conn during shutdown'));
+      await flush();
+
+      expect(createClientSpy).not.toHaveBeenCalled();
+      await listener[Symbol.asyncDispose]();
+    });
+
+    it('stops retrying when aborted during the backoff wait', async () => {
+      const controller = new AbortController();
+      const { listener, getErrorCb } = setupListenerWithErrorCapture(() => {}, controller.signal);
+
+      const createClientSpy = spyOn(
+        listener as unknown as { createClient: () => unknown },
+        'createClient',
+      ).mockReturnValue(createFakeClient());
+
+      // Capture the backoff timer without firing it so the loop is parked
+      // in abortableSleep when the shutdown signal arrives.
+      setTimeoutSpy.mockImplementation(
+        (() => 0 as unknown as ReturnType<typeof setTimeout>) as never,
+      );
+
+      await listener.start();
+      getErrorCb()!(new Error('lost conn'));
+      await flush();
+
+      controller.abort();
+      await flush();
+
+      expect(createClientSpy).not.toHaveBeenCalled();
+      await listener[Symbol.asyncDispose]();
+    });
+
+    it('ignores a second error event while a reconnect is already in flight', async () => {
+      const handler: HostChangeHandler = mock(() => {});
+      const controller = new AbortController();
+      const { listener, getErrorCb } = setupListenerWithErrorCapture(handler, controller.signal);
+
+      const fakeClient = createFakeClient();
+      const createClientSpy = spyOn(
+        listener as unknown as { createClient: () => unknown },
+        'createClient',
+      ).mockReturnValue(fakeClient);
+
+      await listener.start();
+      const errorCb = getErrorCb()!;
+      errorCb(new Error('first failure'));
+      errorCb(new Error('duplicate failure'));
+      await flush();
+
+      expect(createClientSpy).toHaveBeenCalledTimes(1);
+
+      controller.abort();
+      await listener[Symbol.asyncDispose]();
+    });
   });
 });

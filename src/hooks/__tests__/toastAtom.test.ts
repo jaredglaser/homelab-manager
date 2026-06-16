@@ -1,133 +1,66 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
-import { Provider } from 'jotai';
-import { createElement } from 'react';
-import { useToast, toastsAtom } from '../toastAtom';
-import { useAtomValue } from 'jotai';
 
-function createWrapper() {
-  return ({ children }: { children: React.ReactNode }) =>
-    createElement(Provider, null, children);
-}
+const mockSuccess = mock(() => {});
+const mockInfo = mock(() => {});
+const mockWarning = mock(() => {});
+const mockError = mock(() => {});
+
+mock.module('sonner', () => ({
+  toast: {
+    success: mockSuccess,
+    info: mockInfo,
+    warning: mockWarning,
+    error: mockError,
+  },
+}));
+
+const { useToast } = await import('../toastAtom');
 
 describe('useToast', () => {
-  it('should add a toast via showToast', () => {
-    const wrapper = createWrapper();
-    const { result } = renderHook(
-      () => ({
-        toast: useToast(),
-        toasts: useAtomValue(toastsAtom),
-      }),
-      { wrapper },
-    );
-
-    act(() => {
-      result.current.toast.showToast('Hello world', 'error');
-    });
-
-    expect(result.current.toasts).toHaveLength(1);
-    expect(result.current.toasts[0].message).toBe('Hello world');
-    expect(result.current.toasts[0].severity).toBe('error');
+  beforeEach(() => {
+    mockSuccess.mockClear();
+    mockInfo.mockClear();
+    mockWarning.mockClear();
+    mockError.mockClear();
   });
 
-  it('should accept a "success" severity', () => {
-    const wrapper = createWrapper();
-    const { result } = renderHook(
-      () => ({
-        toast: useToast(),
-        toasts: useAtomValue(toastsAtom),
-      }),
-      { wrapper },
-    );
-
+  it('routes error severity to sonner toast.error', () => {
+    const { result } = renderHook(() => useToast());
     act(() => {
-      result.current.toast.showToast('hi', 'success');
+      result.current.showToast('Hello world', 'error');
     });
-
-    expect(result.current.toasts[0].severity).toBe('success');
+    expect(mockError).toHaveBeenCalledWith('Hello world');
   });
 
-  it('should accept an "info" severity', () => {
-    const wrapper = createWrapper();
-    const { result } = renderHook(
-      () => ({
-        toast: useToast(),
-        toasts: useAtomValue(toastsAtom),
-      }),
-      { wrapper },
-    );
-
+  it('routes success severity to sonner toast.success', () => {
+    const { result } = renderHook(() => useToast());
     act(() => {
-      result.current.toast.showToast('hi', 'info');
+      result.current.showToast('hi', 'success');
     });
-
-    expect(result.current.toasts[0].severity).toBe('info');
+    expect(mockSuccess).toHaveBeenCalledWith('hi');
   });
 
-  it('should auto-increment toast IDs', () => {
-    const wrapper = createWrapper();
-    const { result } = renderHook(
-      () => ({
-        toast: useToast(),
-        toasts: useAtomValue(toastsAtom),
-      }),
-      { wrapper },
-    );
-
+  it('routes info severity to sonner toast.info', () => {
+    const { result } = renderHook(() => useToast());
     act(() => {
-      result.current.toast.showToast('Toast 1', 'info');
-      result.current.toast.showToast('Toast 2', 'info');
+      result.current.showToast('fyi', 'info');
     });
-
-    expect(result.current.toasts).toHaveLength(2);
-    expect(result.current.toasts[0].id).not.toBe(result.current.toasts[1].id);
-    expect(result.current.toasts[1].id).toBeGreaterThan(result.current.toasts[0].id);
+    expect(mockInfo).toHaveBeenCalledWith('fyi');
   });
 
-  it('should dismiss a specific toast by ID', () => {
-    const wrapper = createWrapper();
-    const { result } = renderHook(
-      () => ({
-        toast: useToast(),
-        toasts: useAtomValue(toastsAtom),
-      }),
-      { wrapper },
-    );
-
+  it('routes warning severity to sonner toast.warning', () => {
+    const { result } = renderHook(() => useToast());
     act(() => {
-      result.current.toast.showToast('Toast A', 'info');
-      result.current.toast.showToast('Toast B', 'info');
-      result.current.toast.showToast('Toast C', 'info');
+      result.current.showToast('careful', 'warning');
     });
-
-    const middleId = result.current.toasts[1].id;
-
-    act(() => {
-      result.current.toast.dismissToast(middleId);
-    });
-
-    expect(result.current.toasts).toHaveLength(2);
-    expect(result.current.toasts.map(t => t.message)).toEqual(['Toast A', 'Toast C']);
+    expect(mockWarning).toHaveBeenCalledWith('careful');
   });
 
-  it('should handle dismissing non-existent toast ID gracefully', () => {
-    const wrapper = createWrapper();
-    const { result } = renderHook(
-      () => ({
-        toast: useToast(),
-        toasts: useAtomValue(toastsAtom),
-      }),
-      { wrapper },
-    );
-
-    act(() => {
-      result.current.toast.showToast('Toast', 'warning');
-    });
-
-    act(() => {
-      result.current.toast.dismissToast(999999);
-    });
-
-    expect(result.current.toasts).toHaveLength(1);
+  it('keeps a stable showToast identity across renders', () => {
+    const { result, rerender } = renderHook(() => useToast());
+    const first = result.current.showToast;
+    rerender();
+    expect(result.current.showToast).toBe(first);
   });
 });

@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { Checkbox, FormControlLabel } from '@mui/material';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 
 export type MetricType = 'cpu' | 'memory' | 'blockRead' | 'blockWrite' | 'networkRx' | 'networkTx';
 
@@ -33,17 +34,17 @@ export default memo(function MetricCheckboxes({ selected, onChange }: MetricChec
   return (
     <div className="flex flex-wrap gap-3">
       {ALL_METRICS.map((metric) => (
-        <FormControlLabel
-          key={metric}
-          label={METRIC_LABELS[metric]}
-          control={
-            <Checkbox
-              checked={selected.has(metric)}
-              onChange={() => toggle(metric)}
-              size="small"
-            />
-          }
-        />
+        <div key={metric} className="flex items-center gap-2">
+          <Checkbox
+            id={`metric-${metric}`}
+            checked={selected.has(metric)}
+            onCheckedChange={() => toggle(metric)}
+            className="size-4"
+          />
+          <Label htmlFor={`metric-${metric}`} className="cursor-pointer">
+            {METRIC_LABELS[metric]}
+          </Label>
+        </div>
       ))}
     </div>
   );

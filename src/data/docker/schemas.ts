@@ -12,7 +12,7 @@ export const getContainerHistorySchema = z.object({
   toMs: z.number().int().nonnegative(),
   targetPoints: z.number().min(1).max(5000).optional(),
 }).refine((data) => data.fromMs <= data.toMs, {
-  message: 'fromMs must be less than or equal to toMs',
+  error: 'fromMs must be less than or equal to toMs',
   path: ['fromMs'],
 });
 
@@ -25,4 +25,14 @@ export const updateContainerIconSchema = z.object({
   /** Service-key entity path (host/service_key) - icon is stored here so it survives recreation. */
   serviceKeyEntity: z.string().min(1),
   iconSlug: z.string().min(1),
+});
+
+export const clearContainerIconSchema = z.object({
+  serviceKeyEntity: z.string().min(1),
+});
+
+export const controlContainerSchema = z.object({
+  host: z.string().min(1),
+  containerId: z.string().min(1),
+  action: z.enum(['start', 'stop', 'restart']),
 });

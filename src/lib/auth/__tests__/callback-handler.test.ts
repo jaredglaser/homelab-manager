@@ -51,13 +51,20 @@ function encodedStateParam(state: string, nonce: string): string {
   return encodeURIComponent(JSON.stringify({ state, nonce }));
 }
 
+function makeOidcClient(
+  overrides?: Partial<CallbackHandlerDeps['oidcClient']>,
+): CallbackHandlerDeps['oidcClient'] {
+  return {
+    exchangeCode: mock(async () => makeTokens()),
+    getUserGroups: mock(async () => ['homelab-viewers']),
+    verifyIdToken: mock(async () => makeIdTokenClaims()),
+    ...overrides,
+  };
+}
+
 function makeDeps(overrides?: Partial<CallbackHandlerDeps>): CallbackHandlerDeps {
   return {
-    oidcClient: {
-      exchangeCode: mock(async () => makeTokens()),
-      getUserGroups: mock(async () => ['homelab-viewers']),
-    },
-    extractIdTokenClaims: mock(() => makeIdTokenClaims()),
+    oidcClient: makeOidcClient(),
     mapGroupsToRole: mock(() => 'viewer' as Role | null),
     userRepo: {
       upsertFromOidc: mock(async () => makeUser()),
@@ -138,9 +145,38 @@ describe('handleCallback', () => {
       expect(response.status).not.toBe(400);
     });
 
+    it('returns 401 when ID token signature verification fails', async () => {
+      const deps = makeDeps({
+        oidcClient: makeOidcClient({
+          verifyIdToken: mock(async () => {
+            throw new Error('signature verification failed');
+          }),
+        }),
+      });
+      const originalConsoleError = console.error;
+      console.error = () => {};
+      try {
+        const response = await handleCallback(
+          deps,
+          'auth-code',
+          validState,
+          validCookieHeader(),
+          null,
+          null,
+        );
+        expect(response.status).toBe(401);
+        expect(await response.text()).toBe('ID token verification failed');
+        expect(deps.sessionManager.createSession).not.toHaveBeenCalled();
+      } finally {
+        console.error = originalConsoleError;
+      }
+    });
+
     it('returns 400 when id_token nonce does not match stored nonce', async () => {
       const deps = makeDeps({
-        extractIdTokenClaims: mock(() => makeIdTokenClaims({ nonce: 'wrong-nonce' })),
+        oidcClient: makeOidcClient({
+          verifyIdToken: mock(async () => makeIdTokenClaims({ nonce: 'wrong-nonce' })),
+        }),
       });
       const response = await handleCallback(
         deps,
@@ -156,7 +192,9 @@ describe('handleCallback', () => {
 
     it('returns 400 when id_token is missing sub claim', async () => {
       const deps = makeDeps({
-        extractIdTokenClaims: mock(() => makeIdTokenClaims({ sub: undefined })),
+        oidcClient: makeOidcClient({
+          verifyIdToken: mock(async () => makeIdTokenClaims({ sub: undefined })),
+        }),
       });
       const response = await handleCallback(
         deps,
@@ -172,7 +210,9 @@ describe('handleCallback', () => {
 
     it('returns 400 when id_token has empty sub claim', async () => {
       const deps = makeDeps({
-        extractIdTokenClaims: mock(() => makeIdTokenClaims({ sub: '' })),
+        oidcClient: makeOidcClient({
+          verifyIdToken: mock(async () => makeIdTokenClaims({ sub: '' })),
+        }),
       });
       const response = await handleCallback(
         deps,
@@ -188,7 +228,9 @@ describe('handleCallback', () => {
 
     it('returns 400 when id_token is missing email claim', async () => {
       const deps = makeDeps({
-        extractIdTokenClaims: mock(() => makeIdTokenClaims({ email: undefined })),
+        oidcClient: makeOidcClient({
+          verifyIdToken: mock(async () => makeIdTokenClaims({ email: undefined })),
+        }),
       });
       const response = await handleCallback(
         deps,
@@ -204,7 +246,9 @@ describe('handleCallback', () => {
 
     it('returns 400 when id_token has empty email claim', async () => {
       const deps = makeDeps({
-        extractIdTokenClaims: mock(() => makeIdTokenClaims({ email: '' })),
+        oidcClient: makeOidcClient({
+          verifyIdToken: mock(async () => makeIdTokenClaims({ email: '' })),
+        }),
       });
       const response = await handleCallback(
         deps,
@@ -338,13 +382,12 @@ describe('handleCallback', () => {
   describe('group merging', () => {
     it('merges groups from userinfo and id_token, deduplicating', async () => {
       const deps = makeDeps({
-        oidcClient: {
-          exchangeCode: mock(async () => makeTokens()),
+        oidcClient: makeOidcClient({
           getUserGroups: mock(async () => ['group-a', 'group-b']),
-        },
-        extractIdTokenClaims: mock(() =>
-          makeIdTokenClaims({ groups: ['group-b', 'group-c'] }),
-        ),
+          verifyIdToken: mock(async () =>
+            makeIdTokenClaims({ groups: ['group-b', 'group-c'] }),
+          ),
+        }),
         mapGroupsToRole: mock((groups: string[]) => {
           if (
             groups.includes('group-a') &&
@@ -380,11 +423,9 @@ describe('handleCallback', () => {
 
     it('handles empty id_token groups gracefully', async () => {
       const deps = makeDeps({
-        oidcClient: {
-          exchangeCode: mock(async () => makeTokens()),
-          getUserGroups: mock(async () => ['homelab-viewers']),
-        },
-        extractIdTokenClaims: mock(() => makeIdTokenClaims({ groups: undefined })),
+        oidcClient: makeOidcClient({
+          verifyIdToken: mock(async () => makeIdTokenClaims({ groups: undefined })),
+        }),
       });
 
       const response = await handleCallback(
@@ -409,7 +450,9 @@ describe('handleCallback', () => {
         groups: [],
       });
       const deps = makeDeps({
-        extractIdTokenClaims: mock(() => claims),
+        oidcClient: makeOidcClient({
+          verifyIdToken: mock(async () => claims),
+        }),
         mapGroupsToRole: mock(() => 'admin' as Role | null),
       });
 
@@ -457,14 +500,14 @@ describe('callbackGetHandler', () => {
   });
 
   it('redirects to / when auth is disabled', async () => {
-    delete process.env.AUTH_ENABLED;
+    process.env.AUTH_DISABLED = 'true';
     const response = await callbackGetHandler({ request: makeRouteRequest('http://localhost/api/auth/callback') });
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('/');
   });
 
   it('returns 400 when code is missing from query params', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
     process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
     process.env.OIDC_CLIENT_ID = 'homelab-manager';
     process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
@@ -473,7 +516,7 @@ describe('callbackGetHandler', () => {
   });
 
   it('returns 400 when state is missing from query params', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
     process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
     process.env.OIDC_CLIENT_ID = 'homelab-manager';
     process.env.OIDC_REDIRECT_URI = 'http://localhost:3000/api/auth/callback';
@@ -482,8 +525,8 @@ describe('callbackGetHandler', () => {
   });
 
   it('redirects to /login?error=callback_failed when an unhandled error occurs', async () => {
-    // AUTH_ENABLED=true, code+state present, but OIDC vars missing -> loadAuthConfig throws -> caught
-    process.env.AUTH_ENABLED = 'true';
+    // Auth required (AUTH_DISABLED unset), code+state present, but OIDC vars missing -> loadAuthConfig throws -> caught
+    delete process.env.AUTH_DISABLED;
     delete process.env.OIDC_ISSUER_URL;
     delete process.env.OIDC_CLIENT_ID;
     delete process.env.OIDC_REDIRECT_URI;

@@ -245,8 +245,16 @@ export async function handleUpdateHost(
   const host = await deps.repo.findById(data.hostId);
   if (!host) throw new Error(`Host with id ${data.hostId} not found`);
 
-  const fields: { name?: string; agentUrl?: string } = {};
-  if (data.name !== undefined) fields.name = data.name;
+  // The host name is the cryptographic identity: it is the agent_keypairs lookup
+  // key, the JWT `aud`, and the agent container's AGENT_HOST_NAME. Changing it
+  // here would orphan the keypair and mint tokens the running agent rejects, so
+  // the name is immutable. Renaming means remove-and-re-add (which redeploys the
+  // agent container with a new AGENT_HOST_NAME anyway).
+  if (data.name !== undefined && data.name.trim() !== host.name) {
+    throw new Error('Host name cannot be changed after enrollment. To rename, remove and re-add the host.');
+  }
+
+  const fields: { agentUrl?: string } = {};
   if (data.agentUrl !== undefined) fields.agentUrl = data.agentUrl;
 
   const updated = await deps.repo.update(data.hostId, fields);
@@ -263,14 +271,15 @@ export async function handleRegisterExistingHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { name: string; agentUrl: string },
 ): Promise<AddHostResult> {
+  const name = data.name.trim();
   const host = await deps.repo.create({
-    name: data.name,
+    name,
     agentUrl: data.agentUrl,
   });
 
   let publicJwk;
   try {
-    ({ publicJwk } = await deps.keypairs.createForHost(data.name));
+    ({ publicJwk } = await deps.keypairs.createForHost(name));
   } catch (err) {
     await deps.repo.delete(host.id);
     throw new Error(
@@ -294,15 +303,16 @@ export async function handleVerifyHost(
   deps: HostHandlerDeps & { keypairs: KeypairsDep },
   data: { name: string; agentUrl: string; capabilities?: { docker?: boolean; zfs?: boolean } },
 ): Promise<AddHostResult> {
+  const name = data.name.trim();
   const host = await deps.repo.create({
-    name: data.name,
+    name,
     agentUrl: data.agentUrl,
     capabilities: data.capabilities,
   });
 
   let publicJwk;
   try {
-    ({ publicJwk } = await deps.keypairs.createForHost(data.name));
+    ({ publicJwk } = await deps.keypairs.createForHost(name));
   } catch (err) {
     await deps.repo.delete(host.id);
     throw new Error(`Failed to generate agent keypair: ${err instanceof Error ? err.message : err}. Host record cleaned up.`);
@@ -346,7 +356,7 @@ async function tryDeleteKeypair(
 }
 
 interface AddHostDeps extends HostHandlerDeps {
-  provision: (socketProxyUrl: string, opts: { hostId: number; agentPort: number; publicJwkJson: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
+  provision: (socketProxyUrl: string, opts: { hostId: number; hostName: string; agentPort: number; publicJwkJson: string; agentImage: string; socketProxyUrl: string }) => Promise<{ agentUrl: string }>;
   keypairs: KeypairsDep;
   checkHealth: (url: string) => Promise<HealthCheckOutcome>;
   removeAgent: (socketProxyUrl: string, hostId: number) => Promise<void>;
@@ -400,8 +410,10 @@ async function finalizeHostRecord(
 
 export async function handleAddHost(
   deps: AddHostDeps,
-  data: AddHostInput,
+  dataInput: AddHostInput,
 ): Promise<AddHostResult> {
+  const data: AddHostInput = { ...dataInput, name: dataInput.name.trim() };
+
   const host = await deps.repo.create({
     name: data.name,
     agentUrl: '',
@@ -419,6 +431,7 @@ export async function handleAddHost(
   try {
     provisionResult = await deps.provision(data.socketProxyUrl, {
       hostId: host.id,
+      hostName: data.name,
       agentPort: data.agentPort,
       publicJwkJson: JSON.stringify(publicJwk),
       agentImage: getAgentImage(),

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'bun:test';
+import { CompactEncrypt } from 'jose';
 import { encryptValue, decryptValue } from './encrypted-value';
 import type { MasterKeyring } from './master-key';
 
@@ -49,6 +50,22 @@ describe('encryptValue / decryptValue', () => {
     const segments = jwe.split('.');
     segments[3] = 'AAAA' + segments[3].slice(4);
     await expect(decryptValue(segments.join('.'), keyring)).rejects.toThrow();
+  });
+
+  it('rejects a JWE declaring a different key management alg', async () => {
+    const keyring = await makeKeyring();
+    const jwe = await new CompactEncrypt(new TextEncoder().encode('x'))
+      .setProtectedHeader({ alg: 'A256KW', enc: 'A256GCM', kid: 'v1' })
+      .encrypt(new Uint8Array(32).fill(9));
+    await expect(decryptValue(jwe, keyring)).rejects.toThrow(/"alg".*not allowed/);
+  });
+
+  it('rejects a JWE declaring a different content encryption alg', async () => {
+    const keyring = await makeKeyring();
+    const jwe = await new CompactEncrypt(new TextEncoder().encode('x'))
+      .setProtectedHeader({ alg: 'dir', enc: 'A128GCM', kid: 'v1' })
+      .encrypt(new Uint8Array(16).fill(9));
+    await expect(decryptValue(jwe, keyring)).rejects.toThrow(/"enc".*not allowed/);
   });
 
   it('decryption fails when JWE header has empty kid', async () => {
