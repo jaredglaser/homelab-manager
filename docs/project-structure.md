@@ -65,6 +65,7 @@ src/
 │   │   ├── MetricHeaderCell.tsx     # Sortable column header for metric tables
 │   │   ├── SparklineCanvas.tsx      # Canvas-based sparkline renderer
 │   │   ├── SparklineCell.tsx        # Sparkline cell wrapper for DataTable
+│   │   ├── sparkline-accumulator-store.ts # Entity-keyed sparkline accumulator (survives virtualizer remounts)
 │   │   ├── StaleDataAlert.tsx       # Stale data warning indicator
 │   │   ├── columns.tsx              # Column factories (metricColumn, nameColumn, statusColumn, progressColumn)
 │   │   └── index.tsx                # Barrel exports
