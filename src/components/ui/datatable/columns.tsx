@@ -20,7 +20,7 @@ export function metricColumn<TRow>(opts: {
   header: string;
   getValue: (row: TRow) => { value: string; unit: string };
   getSparklineData?: (row: TRow) => { timestamp: number; value: number }[];
-  /** Host-prefixed entity id used to key the sparkline accumulator across remounts */
+  /** Host-prefixed entity id that keys the sparkline accumulator across remounts */
   getSparklineEntityId?: (row: TRow) => string | undefined;
   sparklineColor?: string;
   getIsStale?: (row: TRow) => boolean;

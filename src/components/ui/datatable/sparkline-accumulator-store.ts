@@ -6,10 +6,9 @@ export interface SparklinePoint {
 const SPARKLINE_WINDOW_MS = 35000;
 const STALE_THRESHOLD_MS = 1500;
 
-// Grace window before an entity's accumulator is dropped after its last
-// subscriber leaves. The virtualizer unmounts then immediately remounts rows
-// when it repositions; keeping state briefly lets those rows resume instead of
-// reseeding from scratch (CLAUDE.md gotcha 12).
+// Keep an accumulator briefly after its last subscriber leaves so the
+// unmount/remount the virtualizer triggers when repositioning rows resumes
+// instead of reseeding (CLAUDE.md gotcha 12).
 const EVICTION_GRACE_MS = 30000;
 
 const EMPTY: SparklinePoint[] = [];
@@ -33,13 +32,11 @@ export function getSparklinePoints(key: string): SparklinePoint[] {
 /**
  * Fold a fresh `data` window into the accumulator for `key`.
  *
- * Idempotent: replaying the same `data` leaves the stored points (and their
- * array reference) unchanged. That is what makes it safe to call during render,
- * the property the old per-instance ref mutation could not offer the React
- * Compiler. Until the latest point is fresh (within STALE_THRESHOLD_MS of
- * `now`) the series waits and renders a placeholder; the first fresh window
- * seeds it, and later windows append only points newer than the last seen
- * timestamp, dropping anything older than SPARKLINE_WINDOW_MS.
+ * Idempotent (replaying the same `data` keeps the same points array), so it is
+ * safe to call during render. A series waits and shows a placeholder until its
+ * latest point is fresh (within STALE_THRESHOLD_MS of `now`); the first fresh
+ * window seeds it, and later windows append only points newer than the last
+ * seen timestamp, dropping anything older than SPARKLINE_WINDOW_MS.
  */
 export function ingestSparklineData(key: string, data: SparklinePoint[], now: number): void {
   if (data.length === 0) return;

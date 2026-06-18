@@ -16,23 +16,18 @@ interface SparklineCellProps {
   data: SparklinePoint[];
   /** CSS variable for chart color (e.g., "--chart-cpu") */
   color: string;
-  /**
-   * Stable, host-prefixed key identifying this series (entity id + metric).
-   * The accumulator lives in an external store keyed by this value, so it
-   * survives the unmount/remount the virtualizer triggers when it repositions
-   * rows (CLAUDE.md gotcha 12).
-   */
+  /** Stable, host-prefixed key for this series (entity id + metric) */
   seriesKey: string;
 }
 
 /**
- * Self-contained sparkline with stale-data handling.
+ * Sparkline cell with stale-data handling.
  *
- * Accumulation lives in an entity-keyed external store (subscribed via
- * useSyncExternalStore) rather than per-instance refs. Ingest is idempotent and
- * runs before the store read, so the parent's data update still resolves in a
- * single commit (no second commit per SSE tick across the many on-screen
- * sparklines), while keeping render free of ref mutation.
+ * The accumulator lives in an external store keyed by seriesKey, so it survives
+ * the unmount/remount the virtualizer triggers when repositioning rows (CLAUDE.md
+ * gotcha 12). Ingest is idempotent and runs before the store read, so a data
+ * update settles in a single commit (no second commit per SSE tick across the
+ * many on-screen sparklines).
  */
 export default memo(function SparklineCell({ data, color, seriesKey }: SparklineCellProps) {
   ingestSparklineData(seriesKey, data, Date.now());
