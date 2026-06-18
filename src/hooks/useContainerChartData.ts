@@ -1,5 +1,8 @@
 import { useMemo } from 'react';
 import type { DockerStatsRow } from '@/types/docker';
+import type { SparklinePoint } from '@/components/ui/datatable/sparkline-accumulator-store';
+
+export type { SparklinePoint };
 
 /** A single time-series data point for a container's stats. */
 export interface ChartDataPoint {
@@ -10,12 +13,6 @@ export interface ChartDataPoint {
   blockIoWriteBytesPerSec: number;
   networkRxBytesPerSec: number;
   networkTxBytesPerSec: number;
-}
-
-/** A single {timestamp, value} pair used for sparkline series. */
-export interface SparklinePoint {
-  timestamp: number;
-  value: number;
 }
 
 export interface SparklineData {

@@ -13,7 +13,9 @@ const EVICTION_GRACE_MS = 30000;
 
 const EMPTY: SparklinePoint[] = [];
 
-type Phase = 'pending' | 'waiting' | 'seeded';
+// A series exists only as 'waiting' or 'seeded'. The "nothing ingested yet" state
+// is represented by the absence of a map entry, so it needs no phase literal.
+type Phase = 'waiting' | 'seeded';
 
 interface Series {
   points: SparklinePoint[];
