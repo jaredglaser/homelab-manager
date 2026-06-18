@@ -229,6 +229,61 @@ describe('AgentClient', () => {
     });
   });
 
+  describe('startContainer', () => {
+    it('sends POST to /containers/:id/start', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success' }), { status: 200 })
+      );
+
+      await client.startContainer('abc123');
+
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/containers/abc123/start');
+      expect(options.method).toBe('POST');
+      expect(options.headers['Authorization']).toBe('Bearer mock-jwt');
+    });
+
+    it('throws AgentClientError on non-200 response', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response('Container not found', { status: 404 })
+      );
+      await expect(client.startContainer('missing')).rejects.toThrow(AgentClientError);
+    });
+  });
+
+  describe('stopContainer', () => {
+    it('sends POST to /containers/:id/stop', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success' }), { status: 200 })
+      );
+
+      await client.stopContainer('abc123');
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/containers/abc123/stop');
+    });
+
+    it('throws AgentClientError when container is already stopped (409)', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'container already stopped' }), { status: 409 })
+      );
+      await expect(client.stopContainer('abc123')).rejects.toThrow(AgentClientError);
+    });
+  });
+
+  describe('restartContainer', () => {
+    it('sends POST to /containers/:id/restart', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success' }), { status: 200 })
+      );
+
+      await client.restartContainer('abc123');
+
+      const [url] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/containers/abc123/restart');
+    });
+  });
+
   describe('health', () => {
     it('returns health info from GET /health', async () => {
       fetchMock.mockResolvedValueOnce(

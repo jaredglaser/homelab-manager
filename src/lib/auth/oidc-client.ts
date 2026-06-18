@@ -1,4 +1,32 @@
+import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
+import { z } from 'zod';
 import type { OidcTokens } from '@/lib/auth/types';
+
+// These payloads come from the OIDC provider over the network, so validate them like any
+// other untrusted input. Required fields must be strings; optional fields are parsed
+// leniently (`.catch`) because providers vary in what they advertise and a malformed
+// optional field should not fail discovery or token exchange.
+const discoveryResponseSchema = z.object({
+  issuer: z.string(),
+  authorization_endpoint: z.string(),
+  token_endpoint: z.string(),
+  userinfo_endpoint: z.string(),
+  jwks_uri: z.string(),
+  end_session_endpoint: z.string().optional().catch(undefined),
+  id_token_signing_alg_values_supported: z.array(z.string()).optional().catch(undefined),
+});
+
+const tokenResponseSchema = z.object({
+  access_token: z.string(),
+  id_token: z.string(),
+  refresh_token: z.string().optional().catch(undefined),
+});
+
+const userinfoResponseSchema = z
+  .object({
+    groups: z.array(z.string()).catch([]),
+  })
+  .catch({ groups: [] });
 
 export interface OidcConfig {
   issuerUrl: string;
@@ -8,14 +36,18 @@ export interface OidcConfig {
 }
 
 interface OidcEndpoints {
+  issuer: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
   userinfoEndpoint: string;
+  jwksUri: string;
   endSessionEndpoint: string | null;
+  idTokenSigningAlgs: string[];
 }
 
 export class OidcClient {
   private endpoints: OidcEndpoints | null = null;
+  private jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
   private readonly fetchFn: typeof fetch;
 
   constructor(
@@ -48,15 +80,26 @@ export class OidcClient {
       throw new Error(`OIDC discovery failed (HTTP ${response.status})`);
     }
 
-    const body = await response.json();
-    const authEndpoint = body.authorization_endpoint;
-    const tokenEndpoint = body.token_endpoint;
-    const userinfoEndpoint = body.userinfo_endpoint;
-    if (typeof authEndpoint !== 'string' || typeof tokenEndpoint !== 'string' || typeof userinfoEndpoint !== 'string') {
-      throw new Error('OIDC discovery response missing required endpoints (authorization_endpoint, token_endpoint, userinfo_endpoint)');
+    const parsed = discoveryResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
+      throw new Error('OIDC discovery response missing required fields (issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri)');
     }
-    const endSessionEndpoint = typeof body.end_session_endpoint === 'string' ? body.end_session_endpoint : null;
-    this.endpoints = { authorizationEndpoint: authEndpoint, tokenEndpoint, userinfoEndpoint, endSessionEndpoint };
+    const body = parsed.data;
+    // 'none' is never acceptable for ID tokens; RS256 is the OIDC Core default when the
+    // provider does not advertise id_token_signing_alg_values_supported.
+    const advertisedAlgs = (body.id_token_signing_alg_values_supported ?? []).filter(
+      (alg) => alg !== 'none',
+    );
+    const idTokenSigningAlgs = advertisedAlgs.length > 0 ? advertisedAlgs : ['RS256'];
+    this.endpoints = {
+      issuer: body.issuer,
+      authorizationEndpoint: body.authorization_endpoint,
+      tokenEndpoint: body.token_endpoint,
+      userinfoEndpoint: body.userinfo_endpoint,
+      jwksUri: body.jwks_uri,
+      endSessionEndpoint: body.end_session_endpoint ?? null,
+      idTokenSigningAlgs,
+    };
     return this.endpoints;
   }
 
@@ -112,14 +155,14 @@ export class OidcClient {
       throw new Error(`OIDC token exchange failed (HTTP ${response.status}): ${body}`);
     }
 
-    const body = await response.json();
-    if (typeof body.access_token !== 'string' || typeof body.id_token !== 'string') {
+    const parsed = tokenResponseSchema.safeParse(await response.json());
+    if (!parsed.success) {
       throw new Error('OIDC token response missing required fields (access_token, id_token)');
     }
     return {
-      accessToken: body.access_token,
-      refreshToken: body.refresh_token ?? null,
-      idToken: body.id_token,
+      accessToken: parsed.data.access_token,
+      refreshToken: parsed.data.refresh_token ?? null,
+      idToken: parsed.data.id_token,
     };
   }
 
@@ -134,17 +177,25 @@ export class OidcClient {
       throw new Error(`Userinfo endpoint returned HTTP ${response.status}`);
     }
 
-    const body = await response.json();
-    return Array.isArray(body.groups) ? body.groups : [];
+    return userinfoResponseSchema.parse(await response.json()).groups;
   }
 
-  /** Decode JWT payload without verification (server already verified via token endpoint) */
-  static extractIdTokenClaims(idToken: string): Record<string, unknown> {
-    const parts = idToken.split('.');
-    if (parts.length !== 3) throw new Error('Invalid ID token format');
-    // JWT payloads are base64url-encoded (RFC 7519): replace - and _ then pad to 4-char boundary
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-    return JSON.parse(atob(padded));
+  /**
+   * Verifies the ID token signature against the provider's JWKS and returns its claims.
+   * Pins issuer, audience (client_id), and the signing algorithms advertised in the
+   * discovery document, so the nonce check downstream binds to an authenticated document.
+   * The remote JWK set is cached per client instance; jose handles refresh on key rotation.
+   */
+  async verifyIdToken(idToken: string): Promise<Record<string, unknown>> {
+    const endpoints = await this.discoverEndpoints();
+    this.jwks ??= createRemoteJWKSet(new URL(endpoints.jwksUri), {
+      [customFetch]: this.fetchFn,
+    });
+    const { payload } = await jwtVerify(idToken, this.jwks, {
+      issuer: endpoints.issuer,
+      audience: this.config.clientId,
+      algorithms: endpoints.idTokenSigningAlgs,
+    });
+    return payload;
   }
 }

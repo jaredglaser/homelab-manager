@@ -1,8 +1,138 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 @source not "../CLAUDE.md";
+
+/* shadcn components style dark mode with the `dark:` variant; the app signals
+   color scheme via the data-color-scheme attribute, set before first paint by
+   the inline script in __root.tsx and toggled at runtime by useColorMode. */
+@custom-variant dark (&:where([data-color-scheme="dark"], [data-color-scheme="dark"] *));
 
 html {
   scrollbar-gutter: auto;
+}
+
+body {
+  /* Replaces MUI CssBaseline: paint the theme background and base typography. */
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/*
+ * shadcn design tokens. Values are the literal colors that MUI's default
+ * palette generated before the Base UI migration removed MUI, so migrated
+ * screens keep their exact appearance. Dark is the default scheme (:root);
+ * light overrides live in the [data-color-scheme="light"] block below.
+ * useLightPaletteEffect rewrites the background-derived light tokens at
+ * runtime for the selectable light palettes.
+ */
+:root {
+  /* Tell the browser to render native UI (scrollbars, form controls) for the
+     dark scheme. MUI's cssVariables theme used to emit this; without it the
+     terminal's native horizontal scrollbar stays light in dark mode. */
+  color-scheme: dark;
+  --radius: 0.25rem; /* MUI shape.borderRadius (4px) */
+  --background: #121212;
+  --foreground: #fff;
+  --card: #1e1e1e;
+  --card-foreground: #fff;
+  --popover: #2a2a2a;
+  --popover-foreground: #fff;
+  --primary: #90caf9;
+  --primary-dark: #42a5f5;
+  --primary-foreground: rgba(0, 0, 0, 0.87);
+  --secondary: #252525;
+  --secondary-foreground: #fff;
+  --muted: #252525;
+  --muted-foreground: rgba(255, 255, 255, 0.7);
+  --text-disabled: rgba(255, 255, 255, 0.5);
+  --accent: rgba(255, 255, 255, 0.08);
+  --accent-foreground: #fff;
+  --action-disabled: rgba(255, 255, 255, 0.3);
+  --destructive: #f44336;
+  --destructive-foreground: #fff;
+  --success: #66bb6a;
+  --warning: #ffa726;
+  --info: #29b6f6;
+  --tooltip: #616161;
+  --tooltip-foreground: #fff;
+  --border: rgba(255, 255, 255, 0.12);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #90caf9;
+  --level1: #252525;
+  --level2: #2c2c2c;
+  --level3: #333333;
+  --chart-bg: #1a1a1a;
+}
+
+[data-color-scheme="light"] {
+  color-scheme: light;
+  --background: #e3eaf3;
+  --foreground: rgba(0, 0, 0, 0.87);
+  --card: #d8e1ee;
+  --card-foreground: rgba(0, 0, 0, 0.87);
+  --popover: #cdd8e8;
+  --popover-foreground: rgba(0, 0, 0, 0.87);
+  --primary: #1976d2;
+  --primary-dark: #1565c0;
+  --primary-foreground: #fff;
+  --secondary: #c2cfe2;
+  --secondary-foreground: rgba(0, 0, 0, 0.87);
+  --muted: #c2cfe2;
+  --muted-foreground: rgba(0, 0, 0, 0.6);
+  --text-disabled: rgba(0, 0, 0, 0.38);
+  --accent: rgba(0, 0, 0, 0.04);
+  --accent-foreground: rgba(0, 0, 0, 0.87);
+  --action-disabled: rgba(0, 0, 0, 0.26);
+  --destructive: #d32f2f;
+  --destructive-foreground: #fff;
+  --success: #2e7d32;
+  --warning: #ed6c02;
+  --info: #0288d1;
+  --tooltip: #616161;
+  --tooltip-foreground: #fff;
+  --border: rgba(0, 0, 0, 0.12);
+  --input: rgba(0, 0, 0, 0.12);
+  --ring: #1976d2;
+  --level1: #c2cfe2;
+  --level2: #b0bdd3;
+  --level3: #9dacc3;
+  --chart-bg: #edf2fb;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-tooltip: var(--tooltip);
+  --color-tooltip-foreground: var(--tooltip-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-level1: var(--level1);
+  --color-level2: var(--level2);
+  --color-level3: var(--level3);
+  --color-chart-bg: var(--chart-bg);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 /*
@@ -31,6 +161,9 @@ html {
   --chart-tooltip-text: #1e293b; /* slate-800 */
   --indicator-active: #22c55e; /* green-500 */
   --indicator-late: #f59e0b; /* amber-500 */
+  --row-hover-tint: rgba(59, 130, 246, 0.05); /* blue-500/5 */
+  --row-hover-ring: rgba(59, 130, 246, 0.3);
+  --row-stale-tint: rgba(245, 158, 11, 0.1); /* amber-500/10 */
 }
 
 /* Chart colors - dark mode */
@@ -56,24 +189,35 @@ html {
 }
 
 
-/* Themed scrollbar for drawer panels: uses MUI palette for theme adaptation */
+/* Hide xterm's vertical scrollbar inside the log viewer. The DOM renderer
+   draws its own DIV-based scrollbar (.scrollbar.vertical) inside
+   .xterm-scrollable-element, which scrolls horizontally with the rest of
+   the content. We render an overlay scrollbar outside the scroll container
+   instead so it stays pinned to the visible right edge.
+   xterm.css is dynamically imported at runtime; !important guarantees the
+   rule wins regardless of injection order. */
+.xterm-log-viewer .scrollbar.vertical {
+  display: none !important;
+}
+
+/* Themed scrollbar for drawer panels: tints the foreground token for theme adaptation */
 .themed-scrollbar {
   &::-webkit-scrollbar {
     width: 14px;
   }
   &::-webkit-scrollbar-track {
-    background: color-mix(in srgb, var(--mui-palette-text-primary) 6%, transparent);
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
     border-radius: 7px;
     margin: 4px 0;
   }
   &::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--mui-palette-text-primary) 25%, transparent);
+    background: color-mix(in srgb, var(--foreground) 25%, transparent);
     border-radius: 7px;
     border: 3px solid transparent;
     background-clip: padding-box;
   }
   &::-webkit-scrollbar-thumb:hover {
-    background: color-mix(in srgb, var(--mui-palette-text-primary) 45%, transparent);
+    background: color-mix(in srgb, var(--foreground) 45%, transparent);
     border: 3px solid transparent;
     background-clip: padding-box;
   }
@@ -81,11 +225,14 @@ html {
 
 /* View transitions: fade out then fade in.
    Painting the theme background on the root pseudo-elements prevents the
-   browser's default white overlay from flashing during the transition. */
+   browser's default white overlay from flashing during the transition.
+   NOTE: currently inert. View transitions are disabled in router.tsx (see the
+   comment there for the content-area white-flash root cause); these rules only
+   take effect once defaultViewTransition is re-enabled. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
-  background-color: var(--mui-palette-background-default);
+  background-color: var(--background);
 }
 
 /* Disable the browser's default crossfade so only the vt-fade-* keyframes run. */

@@ -89,14 +89,14 @@ describe('loginGetHandler', () => {
   });
 
   it('redirects to / when auth is disabled', async () => {
-    delete process.env.AUTH_ENABLED;
+    process.env.AUTH_DISABLED = 'true';
     const response = await loginGetHandler({ request: makeRequest('http://localhost/api/auth/login') });
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('/');
   });
 
   it('redirects to /login?error=login_failed on unhandled error', async () => {
-    process.env.AUTH_ENABLED = 'true';
+    delete process.env.AUTH_DISABLED;
     // Missing OIDC config causes loadAuthConfig to throw
     delete process.env.OIDC_ISSUER_URL;
     delete process.env.OIDC_CLIENT_ID;
@@ -116,7 +116,7 @@ describe('loginGetHandler', () => {
     const MOCK_AUTH_URL = 'https://pocketid.example.com/authorize?client_id=homelab-manager&state=abc&nonce=xyz';
 
     function setupEnv() {
-      process.env.AUTH_ENABLED = 'true';
+      delete process.env.AUTH_DISABLED;
       process.env.OIDC_ISSUER_URL = 'https://pocketid.example.com';
       process.env.OIDC_CLIENT_ID = 'homelab-manager';
       process.env.OIDC_CLIENT_SECRET = 'test-secret';

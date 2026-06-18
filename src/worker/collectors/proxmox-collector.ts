@@ -2,7 +2,7 @@ import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import { abortableSleep } from '@/lib/utils/abortable-sleep';
-import { overviewToRows } from '@/lib/utils/proxmox-overview-converter';
+import { snapshotToRows } from '@/lib/utils/proxmox-overview-converter';
 import { BaseCollector } from './base-collector';
 
 const DEFAULT_POLL_INTERVAL_MS = 10_000;
@@ -11,7 +11,7 @@ const DEFAULT_POLL_INTERVAL_MS = 10_000;
  * Background collector for Proxmox cluster stats.
  *
  * Polls the Proxmox REST API at a configurable interval, converts the
- * cluster overview to flat rows, and inserts them into the proxmox_stats
+ * cluster snapshot to flat rows, and inserts them into the proxmox_stats
  * hypertable. The poll interval can be changed at runtime via the
  * `pollInterval` setter (driven by SettingsListener).
  */
@@ -48,13 +48,12 @@ export class ProxmoxCollector extends BaseCollector {
     while (!this.signal.aborted) {
       const t0 = performance.now();
 
-      const overview = await client.getClusterOverview();
-      const rows = overviewToRows(overview, this.proxmoxConfig.host);
+      const snapshot = await client.getClusterSnapshot();
+      const rows = snapshotToRows(snapshot, this.proxmoxConfig.host);
 
       this.dbDebugLog(
         `[${this.name}] Inserting ${rows.length} rows ` +
-        `(${overview.nodes.length} nodes, ${overview.vms.length} VMs, ` +
-        `${overview.containers.length} CTs, ${overview.storages.length} storages)`
+        `from ${snapshot.resources.length} cluster resources`
       );
 
       await this.repository.insertProxmoxStats(rows);

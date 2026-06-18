@@ -119,7 +119,7 @@ export function buildProxmoxOverview(
     node: r.node ?? '',
   }));
 
-  // Compute totals from node rows (matching ProxmoxClient.getClusterOverview logic)
+  // Compute totals from node rows (matching the cluster row math in snapshotToRows)
   const totalCpu = nodes.reduce((sum, n) => sum + n.maxcpu, 0);
   const usedCpu = nodes.reduce((sum, n) => sum + n.cpu * n.maxcpu, 0);
   const totalMemory = nodes.reduce((sum, n) => sum + n.maxmem, 0);

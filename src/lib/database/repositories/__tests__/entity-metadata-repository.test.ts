@@ -22,13 +22,47 @@ describe('EntityMetadataRepository', () => {
       expect(mockPool.queries[0].params).toEqual(['host1/container1', 'icon', 'nginx.svg']);
     });
 
-    // Guards against silent-swallow regressions: AgentStatsCollector's retry path
-    // depends on this error propagating so the calling collector can back off.
     it('should propagate database errors instead of swallowing them', async () => {
       mockPool.setError(new Error('connection terminated'));
 
       await expect(
         repo.upsertEntityMetadata('host1/container1', 'icon', 'nginx.svg'),
+      ).rejects.toThrow('connection terminated');
+    });
+  });
+
+  describe('upsertEntityMetadataBatch', () => {
+    it('should skip the query for empty entries', async () => {
+      await repo.upsertEntityMetadataBatch([]);
+      expect(mockPool.queries).toHaveLength(0);
+    });
+
+    it('should upsert all entries in a single unnest statement', async () => {
+      await repo.upsertEntityMetadataBatch([
+        { entity: 'host1/c1', key: 'name', value: 'plex' },
+        { entity: 'host1/c1', key: 'image', value: 'plexinc/plex' },
+        { entity: 'host1/c1', key: 'service_key', value: 'plex' },
+      ]);
+
+      expect(mockPool.queries).toHaveLength(1);
+      expect(mockPool.queries[0].sql).toContain('unnest');
+      expect(mockPool.queries[0].sql).toContain('ON CONFLICT');
+      expect(mockPool.queries[0].sql).toContain("'docker'");
+      expect(mockPool.queries[0].params).toEqual([
+        ['host1/c1', 'host1/c1', 'host1/c1'],
+        ['name', 'image', 'service_key'],
+        ['plex', 'plexinc/plex', 'plex'],
+      ]);
+    });
+
+    // Guards against silent-swallow regressions: AgentStatsCollector's retry path
+    // depends on this error propagating so the container stays unregistered and
+    // the next event retries the upsert.
+    it('should propagate database errors instead of swallowing them', async () => {
+      mockPool.setError(new Error('connection terminated'));
+
+      await expect(
+        repo.upsertEntityMetadataBatch([{ entity: 'host1/c1', key: 'name', value: 'plex' }]),
       ).rejects.toThrow('connection terminated');
     });
   });

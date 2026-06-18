@@ -1,13 +1,20 @@
 import { databaseConnectionManager } from '@/lib/clients/database-client';
 import { loadDatabaseConfig } from '@/lib/config/database-config';
 import { StatsRepository } from '@/lib/database/repositories/stats-repository';
+import { backoffDelayMs } from '@/lib/utils/backoff';
 
 export type StatsSource = 'docker' | 'zfs' | 'proxmox';
 type StatsCallback = (rows: unknown[]) => void;
 type StatsErrorCallback = () => void;
 
+const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 5000;
 const FAILURE_THRESHOLD = 3;
+// While the database is down every poll still pays the full 5s query timeout,
+// so retrying each 1s tick keeps a failing connection pinned. Consecutive
+// failures stretch the effective spacing by skipping ticks (2s, 4s, 8s, then
+// capped at 10s) until one successful poll resets it.
+const MAX_BACKOFF_MS = 10_000;
 
 /**
  * Shared poll service that runs one setInterval per source (docker, zfs)
@@ -22,6 +29,7 @@ class StatsPollService {
   private intervals = new Map<StatsSource, ReturnType<typeof setInterval>>();
   private lastPollTime = new Map<StatsSource, Date>();
   private consecutiveFailures = new Map<StatsSource, number>();
+  private skipTicks = new Map<StatsSource, number>();
   private errorSignalled = new Set<StatsSource>();
   private stoppedSources = new Set<StatsSource>();
   private readonly dbConfig = loadDatabaseConfig();
@@ -65,6 +73,12 @@ class StatsPollService {
       const subs = this.subscribers.get(source);
       if (!subs || subs.size === 0) return;
 
+      const pendingSkips = this.skipTicks.get(source) ?? 0;
+      if (pendingSkips > 0) {
+        this.skipTicks.set(source, pendingSkips - 1);
+        return;
+      }
+
       try {
         // Rebuild the repo each tick so we pick up a fresh pg.Pool after any
         // reconnect in DatabaseConnectionManager. getClient() is cached on the
@@ -86,8 +100,9 @@ class StatsPollService {
 
         const rows = await Promise.race([rowsPromise, timeoutPromise]);
 
-        // Success - reset failure tracking
+        // Success - reset failure tracking and backoff
         this.consecutiveFailures.set(source, 0);
+        this.skipTicks.delete(source);
         this.errorSignalled.delete(source);
 
         // Only broadcast rows newer than last poll - prevents broadcasting stale data
@@ -112,6 +127,10 @@ class StatsPollService {
         const failures = (this.consecutiveFailures.get(source) ?? 0) + 1;
         this.consecutiveFailures.set(source, failures);
 
+        const backoffMs = backoffDelayMs(failures, { baseMs: POLL_INTERVAL_MS, capMs: MAX_BACKOFF_MS });
+        // -1 because the current (failing) tick already consumed one interval.
+        this.skipTicks.set(source, backoffMs / POLL_INTERVAL_MS - 1);
+
         // Signal error once per failure episode after hitting the threshold
         if (failures >= FAILURE_THRESHOLD && !this.errorSignalled.has(source)) {
           this.errorSignalled.add(source);
@@ -121,7 +140,7 @@ class StatsPollService {
           }
         }
       }
-    }, 1000);
+    }, POLL_INTERVAL_MS);
 
     this.intervals.set(source, intervalId);
   }
@@ -135,6 +154,7 @@ class StatsPollService {
     }
     this.lastPollTime.delete(source);
     this.consecutiveFailures.delete(source);
+    this.skipTicks.delete(source);
     this.errorSignalled.delete(source);
     this.errorCallbacks.delete(source);
   }

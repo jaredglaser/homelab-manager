@@ -1,12 +1,7 @@
 import { useState, useMemo } from 'react'
-import {
-  Typography,
-  Button,
-  Alert,
-  Stepper,
-  Step,
-  StepLabel,
-} from '@mui/material'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Stepper } from '@/components/ui/stepper'
 import { getAgentImage, getAgentUpdaterImage } from '@/lib/hosts/host-utils'
 import { generateAgentStackCompose, generateAgentStackEnv } from '@/lib/templates/agent-stack-compose'
 import CapabilitiesStep from '@/components/settings/wizard-steps/CapabilitiesStep'
@@ -50,6 +45,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
   const currentStepName = visibleSteps[activeStep]
 
   const agentStackConfig = useMemo(() => ({
+    hostName: name.trim(),
     agentTrustedPubkey: PUBKEY_PLACEHOLDER,
     agentImage: getAgentImage(),
     agentUpdaterImage: getAgentUpdaterImage(),
@@ -57,7 +53,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
     hlmZfsUid: parseGatedId(zfs, hlmZfsUid),
     hlmZfsGid: parseGatedId(zfs, hlmZfsGid),
     dockerGid: parseGatedId(docker && zfs, dockerGid),
-  }), [docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
+  }), [name, docker, zfs, hlmZfsUid, hlmZfsGid, dockerGid])
 
   const composeYaml = useMemo(() => {
     try {
@@ -99,7 +95,7 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
     setAgentUrl('')
   }
 
-  const canProceedFromCapabilities = docker || zfs
+  const canProceedFromCapabilities = (docker || zfs) && name.trim().length > 0
   const isNonNegativeInt = (v: string) => /^\d+$/.test(v.trim())
   const canProceedFromZfs = isNonNegativeInt(hlmZfsUid) && isNonNegativeInt(hlmZfsGid)
     && (!docker || isNonNegativeInt(dockerGid))
@@ -108,22 +104,18 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
   const publicJwkJson = verifyResult ? JSON.stringify(verifyResult.publicJwk) : null
 
   return (
-    <div className="flex flex-col gap-4 pt-4 border-t border-(--mui-palette-divider)">
-      <Typography variant="subtitle2">Add Host</Typography>
+    <div className="flex flex-col gap-4 pt-4 border-t border-border">
+      <p className="text-sm font-medium">Add Host</p>
 
-      <Stepper activeStep={activeStep} alternativeLabel>
-        {visibleSteps.map((label) => (
-          <Step key={label}>
-            <StepLabel>{label}</StepLabel>
-          </Step>
-        ))}
-      </Stepper>
+      <Stepper steps={visibleSteps} activeStep={activeStep} />
 
       <div className="min-h-[200px]">
         {currentStepName === 'Capabilities' && (
           <CapabilitiesStep
+            name={name}
             docker={docker}
             zfs={zfs}
+            onNameChange={setName}
             onDockerChange={setDocker}
             onZfsChange={setZfs}
           />
@@ -151,12 +143,10 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
 
         {currentStepName === 'Verify Connection' && (
           <VerifyConnectionStep
-            name={name}
             agentUrl={agentUrl}
             isAdding={isAdding}
             canVerify={canVerify}
             publicJwkJson={publicJwkJson}
-            onNameChange={setName}
             onAgentUrlChange={setAgentUrl}
             onVerify={handleVerify}
           />
@@ -164,27 +154,26 @@ export default function AddHostWizard({ isAdding, addError, onSubmit, verifyResu
       </div>
 
       {addError && (
-        <Alert severity="error" className="mt-1">
-          {addError}
+        <Alert variant="error" className="mt-1">
+          <AlertDescription>{addError}</AlertDescription>
         </Alert>
       )}
 
       <div className="flex justify-between">
         <div>
           {activeStep > 0 && (
-            <Button size="small" onClick={handleBack} disabled={isAdding}>
+            <Button size="sm" variant="ghost" className="text-foreground" onClick={handleBack} disabled={isAdding}>
               Back
             </Button>
           )}
         </div>
         <div className="flex gap-2">
-          <Button size="small" onClick={handleReset} disabled={isAdding}>
+          <Button size="sm" variant="ghost" className="text-foreground" onClick={handleReset} disabled={isAdding}>
             Reset
           </Button>
           {currentStepName !== 'Verify Connection' && (
             <Button
-              size="small"
-              variant="contained"
+              size="sm"
               onClick={handleNext}
               disabled={
                 (currentStepName === 'Capabilities' && !canProceedFromCapabilities)

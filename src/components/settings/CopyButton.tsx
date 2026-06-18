@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { IconButton, Tooltip } from '@mui/material'
 import { Copy, Check } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { COPY_FEEDBACK_MS } from '@/lib/constants/ui-timing'
 
 export default function CopyButton({ text, label }: { text: string; label: string }) {
@@ -14,10 +15,21 @@ export default function CopyButton({ text, label }: { text: string; label: strin
   }
 
   return (
-    <Tooltip title={copied ? 'Copied!' : `Copy ${label}`}>
-      <IconButton size="small" onClick={handleCopy} aria-label={`Copy ${label}`}>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-foreground"
+            onClick={handleCopy}
+            aria-label={`Copy ${label}`}
+          />
+        }
+      >
         {copied ? <Check size={14} /> : <Copy size={14} />}
-      </IconButton>
+      </TooltipTrigger>
+      <TooltipContent>{copied ? 'Copied!' : `Copy ${label}`}</TooltipContent>
     </Tooltip>
   )
 }

@@ -1,5 +1,5 @@
-import { Chip } from '@mui/material';
 import { CheckCircle, AlertTriangle, XCircle, HelpCircle, Loader } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import type { SyncStatus } from '@/types/stacks';
 
 const STATUS_CONFIG: Record<SyncStatus, {
@@ -42,13 +42,13 @@ export default function SyncStatusBadge({ status }: SyncStatusBadgeProps) {
   const config = STATUS_CONFIG[status];
 
   return (
-    <Chip
-      size="small"
-      variant="outlined"
-      icon={<span className="flex items-center" style={{ color: config.colorVar }}>{config.icon}</span>}
-      label={config.label}
-      className="border-current!"
+    <Badge
+      variant="outline"
+      className="border-current gap-1.5 [&>svg]:size-3.5"
       style={{ color: config.colorVar }}
-    />
+    >
+      {config.icon}
+      {config.label}
+    </Badge>
   );
 }

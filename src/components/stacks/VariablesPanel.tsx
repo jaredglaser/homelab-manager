@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import {
-  Alert,
-  Chip,
-  Paper,
-  Skeleton,
-  Typography,
-} from '@mui/material';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Key } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getStackVariables, ensureVariablesExist } from '@/data/stacks/functions';
@@ -54,22 +50,22 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
 
   if (isError) {
     return (
-      <Alert severity="error" className="text-xs">
-        Unable to load secrets. Variable management is unavailable.
+      <Alert variant="error" className="text-xs">
+        <AlertDescription>Unable to load secrets. Variable management is unavailable.</AlertDescription>
       </Alert>
     );
   }
 
   if (isLoading) {
     return (
-      <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg)! rounded-sm">
+      <div className="p-3 bg-chart-bg rounded-sm">
         <div className="space-y-2">
-          <Skeleton variant="text" width="60%" />
-          <Skeleton variant="rounded" height={36} />
-          <Skeleton variant="rounded" height={36} />
-          <Skeleton variant="rounded" height={36} />
+          <Skeleton className="h-4 w-3/5" />
+          <Skeleton className="h-9" />
+          <Skeleton className="h-9" />
+          <Skeleton className="h-9" />
         </div>
-      </Paper>
+      </div>
     );
   }
 
@@ -77,20 +73,18 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
 
   if (variableList.length === 0) {
     return (
-      <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg)! rounded-sm">
-        <Typography variant="body2" className="opacity-50">
-          No variables yet.
-        </Typography>
-      </Paper>
+      <div className="p-3 bg-chart-bg rounded-sm">
+        <p className="text-sm opacity-50">No variables yet.</p>
+      </div>
     );
   }
 
   return (
-    <Paper elevation={0} className="p-3 bg-(--mui-palette-background-chartBg)! rounded-sm">
+    <div className="p-3 bg-chart-bg rounded-sm">
       <div className="flex items-center gap-2 mb-3">
         <Key size={16} className="opacity-60" />
-        <Typography variant="subtitle2">Variables</Typography>
-        <Chip size="small" label={variableList.length} className="text-xs! h-5!" />
+        <span className="text-sm font-medium">Variables</span>
+        <Badge variant="secondary" className="text-xs h-5">{variableList.length}</Badge>
       </div>
       <div className="space-y-2">
         {variableList.map((varName) => (
@@ -103,6 +97,6 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
           />
         ))}
       </div>
-    </Paper>
+    </div>
   );
 }

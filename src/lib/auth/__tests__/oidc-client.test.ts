@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
+import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { OidcClient } from '@/lib/auth/oidc-client';
 import type { OidcConfig } from '@/lib/auth/oidc-client';
 
@@ -11,10 +12,14 @@ function asFetch(fn: (input: RequestInfo | URL, init?: RequestInit) => Promise<R
 
 const DISCOVERY_URL = 'https://auth.example.com/.well-known/openid-configuration';
 
+const JWKS_URL = 'https://auth.example.com/jwks';
+
 const DISCOVERY_BODY = {
+  issuer: 'https://auth.example.com',
   authorization_endpoint: 'https://auth.example.com/authorize',
   token_endpoint: 'https://auth.example.com/token',
   userinfo_endpoint: 'https://auth.example.com/userinfo',
+  jwks_uri: JWKS_URL,
 };
 
 const DISCOVERY_BODY_WITH_END_SESSION = {
@@ -141,22 +146,28 @@ describe('OidcClient', () => {
 
       const client = new OidcClient(config, missingFetch);
       await expect(client.discoverEndpoints()).rejects.toThrow(
-        'OIDC discovery response missing required endpoints (authorization_endpoint, token_endpoint, userinfo_endpoint)',
+        'OIDC discovery response missing required fields (issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri)',
+      );
+    });
+
+    it('throws when discovery response is missing jwks_uri', async () => {
+      const { jwks_uri: _omitted, ...withoutJwks } = DISCOVERY_BODY;
+      const missingFetch = asFetch(async () => makeResponse(withoutJwks));
+
+      const client = new OidcClient(config, missingFetch);
+      await expect(client.discoverEndpoints()).rejects.toThrow(
+        'OIDC discovery response missing required fields (issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri)',
       );
     });
 
     it('throws when discovery response has non-string endpoint fields', async () => {
       const badFetch = asFetch(async () =>
-        makeResponse({
-          authorization_endpoint: 42,
-          token_endpoint: 'https://auth.example.com/token',
-          userinfo_endpoint: 'https://auth.example.com/userinfo',
-        }),
+        makeResponse({ ...DISCOVERY_BODY, authorization_endpoint: 42 }),
       );
 
       const client = new OidcClient(config, badFetch);
       await expect(client.discoverEndpoints()).rejects.toThrow(
-        'OIDC discovery response missing required endpoints (authorization_endpoint, token_endpoint, userinfo_endpoint)',
+        'OIDC discovery response missing required fields (issuer, authorization_endpoint, token_endpoint, userinfo_endpoint, jwks_uri)',
       );
     });
   });
@@ -390,27 +401,141 @@ describe('OidcClient', () => {
     });
   });
 
-  describe('extractIdTokenClaims', () => {
-    it('decodes JWT payload without verification', () => {
-      const payload = { sub: 'user-123', email: 'user@example.com', nonce: 'abc' };
-      const encoded = btoa(JSON.stringify(payload));
-      const idToken = `header.${encoded}.signature`;
+  describe('verifyIdToken', () => {
+    interface SigningSetup {
+      client: OidcClient;
+      privateKey: CryptoKey;
+      jwksFetchCount: () => number;
+    }
 
-      const claims = OidcClient.extractIdTokenClaims(idToken);
+    async function makeSigningSetup(advertisedAlgs?: string[]): Promise<SigningSetup> {
+      const { privateKey, publicKey } = await generateKeyPair('ES256');
+      const jwk = { ...(await exportJWK(publicKey)), kid: 'test-key', alg: 'ES256', use: 'sig' };
+
+      const discovery =
+        advertisedAlgs === undefined
+          ? DISCOVERY_BODY
+          : { ...DISCOVERY_BODY, id_token_signing_alg_values_supported: advertisedAlgs };
+
+      let jwksFetches = 0;
+      const fetchFn = asFetch(async (input) => {
+        const url = input.toString();
+        if (url === DISCOVERY_URL) return makeResponse(discovery);
+        if (url === JWKS_URL) {
+          jwksFetches++;
+          return makeResponse({ keys: [jwk] });
+        }
+        return makeResponse({}, 404);
+      });
+
+      return {
+        client: new OidcClient(config, fetchFn),
+        privateKey,
+        jwksFetchCount: () => jwksFetches,
+      };
+    }
+
+    function signIdToken(
+      privateKey: CryptoKey,
+      claims: Record<string, unknown>,
+      overrides?: { issuer?: string; audience?: string },
+    ): Promise<string> {
+      return new SignJWT(claims)
+        .setProtectedHeader({ alg: 'ES256', kid: 'test-key' })
+        .setIssuer(overrides?.issuer ?? 'https://auth.example.com')
+        .setAudience(overrides?.audience ?? 'my-client')
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(privateKey);
+    }
+
+    it('returns claims for a token signed by the provider key', async () => {
+      const { client, privateKey } = await makeSigningSetup(['ES256']);
+      const idToken = await signIdToken(privateKey, {
+        sub: 'user-123',
+        email: 'user@example.com',
+        nonce: 'abc',
+      });
+
+      const claims = await client.verifyIdToken(idToken);
 
       expect(claims['sub']).toBe('user-123');
       expect(claims['email']).toBe('user@example.com');
       expect(claims['nonce']).toBe('abc');
+      expect(claims['iss']).toBe('https://auth.example.com');
+      expect(claims['aud']).toBe('my-client');
     });
 
-    it('throws on invalid JWT format (fewer than 3 parts)', () => {
-      expect(() => OidcClient.extractIdTokenClaims('header.payload')).toThrow(
-        'Invalid ID token format',
+    it('rejects a token signed by a different key', async () => {
+      const { client } = await makeSigningSetup(['ES256']);
+      const { privateKey: attackerKey } = await generateKeyPair('ES256');
+      const forged = await signIdToken(attackerKey, { sub: 'user-123' });
+
+      await expect(client.verifyIdToken(forged)).rejects.toThrow();
+    });
+
+    it('rejects a token with the wrong issuer', async () => {
+      const { client, privateKey } = await makeSigningSetup(['ES256']);
+      const idToken = await signIdToken(
+        privateKey,
+        { sub: 'user-123' },
+        { issuer: 'https://evil.example.com' },
       );
+
+      await expect(client.verifyIdToken(idToken)).rejects.toThrow();
     });
 
-    it('throws on invalid JWT format (more than 3 parts)', () => {
-      expect(() => OidcClient.extractIdTokenClaims('a.b.c.d')).toThrow('Invalid ID token format');
+    it('rejects a token with the wrong audience', async () => {
+      const { client, privateKey } = await makeSigningSetup(['ES256']);
+      const idToken = await signIdToken(
+        privateKey,
+        { sub: 'user-123' },
+        { audience: 'other-client' },
+      );
+
+      await expect(client.verifyIdToken(idToken)).rejects.toThrow();
+    });
+
+    it('rejects a token whose alg is not advertised by the provider', async () => {
+      const { client, privateKey } = await makeSigningSetup(['RS256']);
+      const idToken = await signIdToken(privateKey, { sub: 'user-123' });
+
+      await expect(client.verifyIdToken(idToken)).rejects.toThrow();
+    });
+
+    it('defaults to RS256 when the provider advertises no signing algs', async () => {
+      const { client, privateKey } = await makeSigningSetup();
+      const idToken = await signIdToken(privateKey, { sub: 'user-123' });
+
+      // ES256-signed token rejected because only the RS256 default is allowed
+      await expect(client.verifyIdToken(idToken)).rejects.toThrow();
+    });
+
+    it('never accepts alg "none" even when advertised', async () => {
+      const { client } = await makeSigningSetup(['none']);
+      const header = btoa(JSON.stringify({ alg: 'none' })).replace(/=+$/, '');
+      const payload = btoa(
+        JSON.stringify({
+          sub: 'user-123',
+          iss: 'https://auth.example.com',
+          aud: 'my-client',
+          exp: Math.floor(Date.now() / 1000) + 300,
+        }),
+      ).replace(/=+$/, '');
+      const unsigned = `${header}.${payload}.`;
+
+      await expect(client.verifyIdToken(unsigned)).rejects.toThrow();
+    });
+
+    it('caches the remote JWK set across verifications', async () => {
+      const { client, privateKey, jwksFetchCount } = await makeSigningSetup(['ES256']);
+      const first = await signIdToken(privateKey, { sub: 'user-1' });
+      const second = await signIdToken(privateKey, { sub: 'user-2' });
+
+      await client.verifyIdToken(first);
+      await client.verifyIdToken(second);
+
+      expect(jwksFetchCount()).toBe(1);
     });
   });
 });
