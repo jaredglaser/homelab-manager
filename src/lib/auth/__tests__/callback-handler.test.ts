@@ -329,10 +329,9 @@ describe('handleCallback', () => {
     it('passes only the id_token to createSession, never access or refresh tokens', async () => {
       const tokens = makeTokens();
       const deps = makeDeps({
-        oidcClient: {
+        oidcClient: makeOidcClient({
           exchangeCode: mock(async () => tokens),
-          getUserGroups: mock(async () => ['homelab-viewers']),
-        },
+        }),
       });
 
       await handleCallback(deps, 'auth-code', validState, validCookieHeader(), null, null);
