@@ -1,5 +1,5 @@
-import { createHash, randomBytes } from 'crypto';
-import type { AuthUser, OidcTokens } from '@/lib/auth/types';
+import { createHash, randomBytes } from 'node:crypto';
+import type { AuthUser } from '@/lib/auth/types';
 import type { SessionRepository } from '@/lib/database/repositories/session-repository';
 import type { MasterKeyring } from '@/lib/crypto/master-key';
 
@@ -14,15 +14,17 @@ export class SessionManager {
 
   async createSession(
     userId: number,
-    tokens: OidcTokens,
+    idToken: string,
     ipAddress: string | null,
     userAgent: string | null,
   ): Promise<string> {
     const rawToken = randomBytes(32).toString('hex');
     const hashedId = createHash('sha256').update(rawToken).digest('hex');
 
+    // Persist only the id_token (used as id_token_hint for logout); dropping the
+    // access/refresh tokens keeps a leaked session row from reaching the IdP APIs.
     const { encryptValue } = await import('@/lib/crypto/encrypted-value');
-    const encryptedOidc = await encryptValue(JSON.stringify(tokens), this.deps.keyring);
+    const encryptedOidc = await encryptValue(JSON.stringify({ idToken }), this.deps.keyring);
 
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + this.deps.sessionTtlHours);

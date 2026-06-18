@@ -20,7 +20,7 @@ export interface CallbackUserRepo {
 export interface CallbackSessionManager {
   createSession(
     userId: number,
-    tokens: OidcTokens,
+    idToken: string,
     ipAddress: string | null,
     userAgent: string | null,
   ): Promise<string>;
@@ -51,7 +51,7 @@ export async function handleCallback(
   ipAddress: string | null,
   userAgent: string | null,
 ): Promise<Response> {
-  const stateMatch = cookieHeader.match(/(?:^|;\s*)oidc_state=([^;]*)/);
+  const stateMatch = /(?:^|;\s*)oidc_state=([^;]*)/.exec(cookieHeader);
   if (!stateMatch) {
     return new Response('Missing state cookie', { status: 400 });
   }
@@ -124,7 +124,7 @@ export async function handleCallback(
 
   const rawSessionToken = await deps.sessionManager.createSession(
     user.id,
-    tokens,
+    tokens.idToken,
     ipAddress,
     userAgent,
   );
