@@ -1,10 +1,11 @@
 import { describe, it, expect, mock, afterEach, beforeEach } from 'bun:test';
-import { buildStateCookie } from '@/lib/auth/login-handler';
+import { createHash } from 'crypto';
+import { buildStateCookie, generatePkcePair } from '@/lib/auth/login-handler';
 
 // Module mocks must be registered before importing the handler so its dynamic
 // `await import()` calls receive the stubs.
 const mockGetAuthorizationUrl = mock(
-  async (_state: string, _nonce: string, _prompt?: string): Promise<string> => {
+  async (_state: string, _nonce: string, _codeChallenge: string, _prompt?: string): Promise<string> => {
     return 'https://pocketid.example.com/authorize';
   },
 );
@@ -30,7 +31,7 @@ function makeRequest(url: string): Request {
 
 describe('buildStateCookie', () => {
   it('includes HttpOnly, SameSite=Lax, Path=/api/auth, Max-Age=600', () => {
-    const cookie = buildStateCookie('state123', 'nonce456', false);
+    const cookie = buildStateCookie('state123', 'nonce456', 'verifier789', false);
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('SameSite=Lax');
     expect(cookie).toContain('Path=/api/auth');
@@ -38,23 +39,40 @@ describe('buildStateCookie', () => {
   });
 
   it('does not include Secure flag when isSecure=false', () => {
-    const cookie = buildStateCookie('s', 'n', false);
+    const cookie = buildStateCookie('s', 'n', 'v', false);
     expect(cookie).not.toContain('Secure');
   });
 
   it('includes Secure flag when isSecure=true', () => {
-    const cookie = buildStateCookie('s', 'n', true);
+    const cookie = buildStateCookie('s', 'n', 'v', true);
     expect(cookie).toContain('Secure');
   });
 
-  it('encodes state and nonce as JSON in the cookie value', () => {
-    const cookie = buildStateCookie('my-state', 'my-nonce', false);
+  it('encodes state, nonce, and code verifier as JSON in the cookie value', () => {
+    const cookie = buildStateCookie('my-state', 'my-nonce', 'my-verifier', false);
     expect(cookie).toMatch(/^oidc_state=/);
     const match = cookie.match(/^oidc_state=([^;]+)/);
     expect(match).not.toBeNull();
     const parsed = JSON.parse(decodeURIComponent(match![1]));
     expect(parsed.state).toBe('my-state');
     expect(parsed.nonce).toBe('my-nonce');
+    expect(parsed.codeVerifier).toBe('my-verifier');
+  });
+});
+
+describe('generatePkcePair', () => {
+  it('returns a 43-char base64url verifier and its S256 challenge', () => {
+    const { codeVerifier, codeChallenge } = generatePkcePair();
+    expect(codeVerifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const expected = createHash('sha256').update(codeVerifier).digest('base64url');
+    expect(codeChallenge).toBe(expected);
+  });
+
+  it('generates a unique verifier per call', () => {
+    const first = generatePkcePair();
+    const second = generatePkcePair();
+    expect(first.codeVerifier).not.toBe(second.codeVerifier);
+    expect(first.codeChallenge).not.toBe(second.codeChallenge);
   });
 });
 
@@ -113,7 +131,7 @@ describe('loginGetHandler', () => {
       setupEnv();
       await loginGetHandler({ request: makeRequest('http://localhost/api/auth/login') });
       expect(mockGetAuthorizationUrl).toHaveBeenCalledTimes(1);
-      const [, , prompt] = mockGetAuthorizationUrl.mock.calls[0] as [string, string, string | undefined];
+      const [, , , prompt] = mockGetAuthorizationUrl.mock.calls[0] as [string, string, string, string | undefined];
       expect(prompt).toBeUndefined();
     });
 
@@ -121,7 +139,7 @@ describe('loginGetHandler', () => {
       setupEnv();
       await loginGetHandler({ request: makeRequest('http://localhost/api/auth/login?prompt=login') });
       expect(mockGetAuthorizationUrl).toHaveBeenCalledTimes(1);
-      const [, , prompt] = mockGetAuthorizationUrl.mock.calls[0] as [string, string, string | undefined];
+      const [, , , prompt] = mockGetAuthorizationUrl.mock.calls[0] as [string, string, string, string | undefined];
       expect(prompt).toBe('login');
     });
 
@@ -136,11 +154,21 @@ describe('loginGetHandler', () => {
       setupEnv();
       await loginGetHandler({ request: makeRequest('http://localhost/api/auth/login') });
       expect(mockGetAuthorizationUrl).toHaveBeenCalledTimes(1);
-      const [state, nonce] = mockGetAuthorizationUrl.mock.calls[0] as [string, string];
+      const [state, nonce] = mockGetAuthorizationUrl.mock.calls[0] as [string, string, string];
       // 32 random bytes encoded as hex = 64 chars
       expect(state).toHaveLength(64);
       expect(nonce).toHaveLength(64);
       expect(state).not.toBe(nonce);
+    });
+
+    it('passes a base64url S256 code challenge to getAuthorizationUrl', async () => {
+      setupEnv();
+      await loginGetHandler({ request: makeRequest('http://localhost/api/auth/login') });
+
+      expect(mockGetAuthorizationUrl).toHaveBeenCalledTimes(1);
+      const [, , codeChallenge] = mockGetAuthorizationUrl.mock.calls[0] as [string, string, string];
+      // base64url-encoded sha256 digest = 43 chars, no padding
+      expect(codeChallenge).toMatch(/^[A-Za-z0-9_-]{43}$/);
     });
   });
 });

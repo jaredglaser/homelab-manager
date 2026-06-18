@@ -103,7 +103,12 @@ export class OidcClient {
     return this.endpoints;
   }
 
-  async getAuthorizationUrl(state: string, nonce: string, prompt?: string): Promise<string> {
+  async getAuthorizationUrl(
+    state: string,
+    nonce: string,
+    codeChallenge: string,
+    prompt?: string,
+  ): Promise<string> {
     const endpoints = await this.discoverEndpoints();
     const params = new URLSearchParams({
       client_id: this.config.clientId,
@@ -112,6 +117,9 @@ export class OidcClient {
       scope: 'openid profile email groups',
       state,
       nonce,
+      // PKCE (RFC 7636, required by RFC 9700 even for confidential clients)
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
     });
     if (prompt) params.set('prompt', prompt);
     return `${endpoints.authorizationEndpoint}?${params.toString()}`;
@@ -126,7 +134,7 @@ export class OidcClient {
     return `${endpoints.endSessionEndpoint}?${params.toString()}`;
   }
 
-  async exchangeCode(code: string): Promise<OidcTokens> {
+  async exchangeCode(code: string, codeVerifier: string): Promise<OidcTokens> {
     const endpoints = await this.discoverEndpoints();
 
     const response = await this.fetchWithTimeout(endpoints.tokenEndpoint, {
@@ -138,6 +146,7 @@ export class OidcClient {
         client_secret: this.config.clientSecret,
         redirect_uri: this.config.redirectUri,
         code,
+        code_verifier: codeVerifier,
       }),
     });
 

@@ -11,6 +11,7 @@ import type { UserRow } from '@/lib/database/repositories/user-repository';
 
 const validState = 'state-abc123';
 const validNonce = 'nonce-xyz789';
+const validCodeVerifier = 'verifier-pqr456';
 
 function makeTokens(overrides?: Partial<OidcTokens>): OidcTokens {
   return {
@@ -47,8 +48,8 @@ function makeIdTokenClaims(overrides?: Record<string, unknown>): Record<string, 
   };
 }
 
-function encodedStateParam(state: string, nonce: string): string {
-  return encodeURIComponent(JSON.stringify({ state, nonce }));
+function encodedStateParam(state: string, nonce: string, codeVerifier: string = validCodeVerifier): string {
+  return encodeURIComponent(JSON.stringify({ state, nonce, codeVerifier }));
 }
 
 function makeOidcClient(
@@ -143,6 +144,22 @@ describe('handleCallback', () => {
       );
       // Valid state — should not be a 400
       expect(response.status).not.toBe(400);
+    });
+
+    it('returns 400 when state cookie lacks a PKCE code verifier', async () => {
+      const deps = makeDeps();
+      const cookieHeader = `oidc_state=${encodeURIComponent(JSON.stringify({ state: validState, nonce: validNonce }))}`;
+      const response = await handleCallback(
+        deps,
+        'auth-code',
+        validState,
+        cookieHeader,
+        null,
+        null,
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('State cookie missing code verifier');
+      expect(deps.oidcClient.exchangeCode).not.toHaveBeenCalled();
     });
 
     it('returns 401 when ID token signature verification fails', async () => {
@@ -324,6 +341,16 @@ describe('handleCallback', () => {
       const deps = makeDeps();
       await handleCallback(deps, 'auth-code', validState, validCookieHeader(), null, null);
       expect(deps.sessionManager.createSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes the stored code verifier to exchangeCode', async () => {
+      const deps = makeDeps();
+      await handleCallback(deps, 'auth-code', validState, validCookieHeader(), null, null);
+      expect(deps.oidcClient.exchangeCode).toHaveBeenCalledTimes(1);
+      const [code, codeVerifier] = (deps.oidcClient.exchangeCode as ReturnType<typeof mock>).mock
+        .calls[0] as [string, string];
+      expect(code).toBe('auth-code');
+      expect(codeVerifier).toBe(validCodeVerifier);
     });
 
     it('passes only the id_token to createSession, never access or refresh tokens', async () => {
