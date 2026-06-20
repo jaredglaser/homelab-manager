@@ -123,14 +123,13 @@ describe('authenticateRequest (JWT)', () => {
 
   it('requires auth on /info (version and capability detail is not public)', async () => {
     const { trusted, sign } = await makeAuth();
-    const noAuth = await authenticateRequest(new Headers(), trusted, '/info', HOST);
+    const noAuth = await authenticateRequest(new Headers(), trusted, '/info');
     expect(noAuth?.status).toBe(401);
     const jwt = await sign();
     const withAuth = await authenticateRequest(
       new Headers({ Authorization: `Bearer ${jwt}` }),
       trusted,
       '/info',
-      HOST,
     );
     expect(withAuth).toBeNull();
   });
