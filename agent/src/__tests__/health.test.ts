@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
-import { handleHealth } from '../routes/health';
+import { handleHealth, handleInfo } from '../routes/health';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 import pkg from '../../package.json';
 
@@ -27,18 +27,65 @@ const zfsUnavailable: ZfsCapabilities = {
   permissions: [],
 };
 
+function mockDockerClient() {
+  return {
+    version: mock(() =>
+      Promise.resolve({
+        Version: '24.0.7',
+        ApiVersion: '1.43',
+      })
+    ),
+  };
+}
+
 describe('handleHealth', () => {
-  test('reports Docker and ZFS capabilities when both available', async () => {
+  test('returns healthy status when Docker is available', async () => {
+    const response = await handleHealth(mockDockerClient() as any, zfsUnavailable);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ status: 'healthy' });
+  });
+
+  test('returns healthy status when only ZFS is available', async () => {
+    const response = await handleHealth(null, zfsAvailable);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({ status: 'healthy' });
+  });
+
+  test('does not expose version or capability detail (endpoint is unauthenticated)', async () => {
+    const response = await handleHealth(mockDockerClient() as any, zfsWithSnapshots);
+    const body = await response.json();
+
+    expect(Object.keys(body)).toEqual(['status']);
+  });
+
+  test('returns unhealthy when neither capability is available', async () => {
+    const response = await handleHealth(null, zfsUnavailable);
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toEqual({ status: 'unhealthy' });
+  });
+
+  test('returns unhealthy when Docker unreachable and no ZFS', async () => {
     const mockDocker = {
-      version: mock(() =>
-        Promise.resolve({
-          Version: '24.0.7',
-          ApiVersion: '1.43',
-        })
-      ),
+      version: mock(() => Promise.reject(new Error('Connection refused'))),
     };
 
-    const response = await handleHealth(mockDocker as any, zfsAvailable);
+    const response = await handleHealth(mockDocker as any, zfsUnavailable);
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toEqual({ status: 'unhealthy' });
+  });
+});
+
+describe('handleInfo', () => {
+  test('reports Docker and ZFS capabilities when both available', async () => {
+    const response = await handleInfo(mockDockerClient() as any, zfsAvailable);
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -58,16 +105,7 @@ describe('handleHealth', () => {
   });
 
   test('reports only Docker when ZFS unavailable', async () => {
-    const mockDocker = {
-      version: mock(() =>
-        Promise.resolve({
-          Version: '24.0.7',
-          ApiVersion: '1.43',
-        })
-      ),
-    };
-
-    const response = await handleHealth(mockDocker as any, zfsUnavailable);
+    const response = await handleInfo(mockDockerClient() as any, zfsUnavailable);
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -77,7 +115,7 @@ describe('handleHealth', () => {
   });
 
   test('reports only ZFS when Docker is null', async () => {
-    const response = await handleHealth(null, zfsWithSnapshots);
+    const response = await handleInfo(null, zfsWithSnapshots);
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -92,7 +130,7 @@ describe('handleHealth', () => {
   });
 
   test('returns unhealthy when neither available', async () => {
-    const response = await handleHealth(null, zfsUnavailable);
+    const response = await handleInfo(null, zfsUnavailable);
     const body = await response.json();
 
     expect(response.status).toBe(503);
@@ -102,16 +140,7 @@ describe('handleHealth', () => {
   });
 
   test('returns healthy with Docker when no ZFS capabilities provided', async () => {
-    const mockDocker = {
-      version: mock(() =>
-        Promise.resolve({
-          Version: '24.0.7',
-          ApiVersion: '1.43',
-        })
-      ),
-    };
-
-    const response = await handleHealth(mockDocker as any);
+    const response = await handleInfo(mockDockerClient() as any);
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -125,7 +154,7 @@ describe('handleHealth', () => {
       version: mock(() => Promise.reject(new Error('Connection refused'))),
     };
 
-    const response = await handleHealth(mockDocker as any, zfsUnavailable);
+    const response = await handleInfo(mockDocker as any, zfsUnavailable);
     const body = await response.json();
 
     expect(response.status).toBe(503);
@@ -133,5 +162,4 @@ describe('handleHealth', () => {
     expect(body.capabilities.docker).toEqual({ available: false });
     expect(body.capabilities.zfs).toEqual({ available: false });
   });
-
 });

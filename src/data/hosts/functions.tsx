@@ -30,6 +30,25 @@ async function loadKeypairsRepo(): Promise<import('@/lib/database/repositories/a
   return new AgentKeypairsRepository(dbClient.getPool(), keyring);
 }
 
+/**
+ * Build a checkHealth function that probes the unauthenticated /health endpoint
+ * for liveness, then pulls version detail from the authenticated /info endpoint
+ * with a JWT minted from the host's keypair. Hosts without an enrolled keypair
+ * still get a liveness verdict, just without version info.
+ */
+async function buildCheckHealth(
+  keypairs: import('@/lib/database/repositories/agent-keypairs-repository').AgentKeypairsRepository,
+): Promise<(url: string, hostName: string) => Promise<import('@/lib/services/agent-health-service').AgentHealthResult>> {
+  const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+  const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
+  return (url, hostName) =>
+    checkAgentHealth(url, undefined, fetch, async () => {
+      const privateKey = await keypairs.getPrivateKeyForHost(hostName);
+      if (!privateKey) throw new Error(`No agent keypair found for host ${hostName}`);
+      return signAgentJwt(privateKey, hostName);
+    });
+}
+
 async function loadDockerClient(socketProxyUrl: string) {
   const Dockerode = (await import('dockerode')).default;
   let parsed: URL;
@@ -49,7 +68,6 @@ export const addHost = createServerFn()
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const { AgentProvisioningService } = await import('@/lib/services/agent-provisioning-service');
-    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     const keypairs = await loadKeypairsRepo();
     const provService = new AgentProvisioningService();
     return handleAddHost({
@@ -58,7 +76,7 @@ export const addHost = createServerFn()
         createForHost: (name) => keypairs.createForHost(name).then((r) => ({ publicJwk: r.publicJwk })),
         deleteForHost: (name) => keypairs.deleteForHost(name),
       },
-      checkHealth: checkAgentHealth,
+      checkHealth: await buildCheckHealth(keypairs),
       provision: async (url, opts) => {
         const docker = await loadDockerClient(url);
         return provService.provision(docker, opts);
@@ -141,7 +159,6 @@ export const updateAgent = createServerFn()
     requireRole('admin')(context.user);
     const baseDeps = await loadDeps();
     const keypairs = await loadKeypairsRepo();
-    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
     const { signAgentJwt } = await import('@/lib/crypto/agent-jwt');
     return handleUpdateAgent({
       ...baseDeps,
@@ -150,7 +167,7 @@ export const updateAgent = createServerFn()
         if (!privateKey) throw new Error(`No agent keypair found for host ${hostname}`);
         return () => signAgentJwt(privateKey, hostname);
       },
-      checkHealth: checkAgentHealth,
+      checkHealth: await buildCheckHealth(keypairs),
     }, data);
   });
 
@@ -159,8 +176,8 @@ export const checkHostHealth = createServerFn()
   .inputValidator(checkHostHealthSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
-    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
-    return handleCheckHostHealth({ ...baseDeps, checkHealth: checkAgentHealth }, data);
+    const keypairs = await loadKeypairsRepo();
+    return handleCheckHostHealth({ ...baseDeps, checkHealth: await buildCheckHealth(keypairs) }, data);
   });
 
 export const updateHost = createServerFn()

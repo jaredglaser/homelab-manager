@@ -1,4 +1,4 @@
-import type { AgentStackResponse, AgentHealthCheckResponse } from '@homelab-manager/agent/types';
+import type { AgentStackResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse } from '@/lib/deploy/types';
 import { retry } from '@/lib/utils/backoff';
 
@@ -125,11 +125,10 @@ export class AgentClient {
   }
 
   async health(): Promise<AgentHealthResponse> {
-    const raw = await this.getJson<AgentHealthCheckResponse>('/health');
-    const version = raw.status === 'healthy'
-      ? raw.agentVersion ?? raw.docker.version
-      : raw.agentVersion;
-    return { status: raw.status, version };
+    // /health is liveness-only (no version field); the authenticated /info
+    // endpoint carries the agent version, and this client always has a signer.
+    const raw = await this.getJson<AgentInfoResponse>('/info');
+    return { status: raw.status, version: raw.agentVersion };
   }
 
   async getZfsPools(): Promise<ZfsPool[]> {

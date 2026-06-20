@@ -11,24 +11,34 @@ export interface AgentStackResponse {
   exitCode?: number;
 }
 
-/** Successful /health response (HTTP 200). */
-export interface AgentHealthyResponse {
-  status: 'healthy';
+/**
+ * Liveness response from the unauthenticated /health endpoint
+ * (HTTP 200 when healthy, 503 when unhealthy). Status only:
+ * version and capability detail require the authenticated /info endpoint.
+ */
+export interface AgentHealthCheckResponse {
+  status: 'healthy' | 'unhealthy';
+}
+
+export interface AgentDockerCapability {
+  available: boolean;
+  version?: string;
+  apiVersion?: string;
+}
+
+export interface AgentZfsCapability {
+  available: boolean;
+  version?: string;
+  tier?: number;
+  permissions?: string[];
+}
+
+/** Detail response from the authenticated /info endpoint (HTTP 200 when healthy, 503 when unhealthy). */
+export interface AgentInfoResponse {
+  status: 'healthy' | 'unhealthy';
   agentVersion: string;
-  docker: {
-    version: string;
-    apiVersion: string;
+  capabilities: {
+    docker: AgentDockerCapability;
+    zfs: AgentZfsCapability;
   };
 }
-
-export type AgentUnhealthyError = 'docker_unreachable' | 'auth_failed' | 'timeout';
-
-/** Failed /health response (HTTP 503). */
-export interface AgentUnhealthyResponse {
-  status: 'unhealthy';
-  agentVersion: string;
-  error: AgentUnhealthyError;
-  detail: string;
-}
-
-export type AgentHealthCheckResponse = AgentHealthyResponse | AgentUnhealthyResponse;

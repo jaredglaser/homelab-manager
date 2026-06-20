@@ -1,6 +1,6 @@
 import Dockerode from 'dockerode';
 import { authenticateRequest } from './middleware';
-import { handleHealth } from './routes/health';
+import { handleHealth, handleInfo } from './routes/health';
 import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
 import { handleStackDeploy, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus } from './routes/stacks';
@@ -123,6 +123,7 @@ if (!docker && !zfsCapabilities.available) {
  */
 function matchRoute(request: Request, url: URL): Promise<Response> | Response | null {
   if (url.pathname === '/health' && request.method === 'GET') return handleHealth(docker, zfsCapabilities);
+  if (url.pathname === '/info' && request.method === 'GET') return handleInfo(docker, zfsCapabilities);
   if (url.pathname === '/auth/verify' && request.method === 'GET') return Response.json({ status: 'ok' });
 
   if (docker) {
