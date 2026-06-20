@@ -199,7 +199,7 @@ export async function handleUpdateAgent(
   for (const delay of HEALTH_CHECK_DELAYS_MS) {
     await new Promise((resolve) => setTimeout(resolve, delay));
     lastResult = await deps.checkHealth(host.agentUrl, host.name);
-    if (lastResult.healthy && lastResult.version !== currentVersion) {
+    if (lastResult.healthy && lastResult.version !== undefined && lastResult.version !== currentVersion) {
       newVersion = lastResult.version;
       break;
     }
