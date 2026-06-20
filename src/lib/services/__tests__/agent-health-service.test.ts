@@ -1,4 +1,4 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, spyOn } from 'bun:test';
 import { checkAgentHealth } from '../agent-health-service';
 
 // Use dependency injection (fetchFn parameter) instead of global fetch mock
@@ -112,6 +112,17 @@ describe('agent-health-service', () => {
       if (!result.healthy) expect(result.error).toContain('non-JSON response');
     });
 
+    it('returns unhealthy when /health body is JSON but missing status field', async () => {
+      const fetchFn = mock(async () =>
+        new Response(JSON.stringify({ ok: true }), { status: 200 })
+      ) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn);
+
+      expect(result.healthy).toBe(false);
+      if (!result.healthy) expect(result.error).toContain('status');
+    });
+
     it('returns unhealthy when agent URL returns a redirect (3xx)', async () => {
       const fetchFn = mock(async () =>
         new Response(null, { status: 301, headers: { Location: 'http://169.254.169.254/metadata' } })
@@ -157,7 +168,8 @@ describe('agent-health-service', () => {
       expect(headers.Authorization).toBe('Bearer jwt-123');
     });
 
-    it('stays healthy without version when /info request fails', async () => {
+    it('stays healthy without version when /info request fails, and logs the error', async () => {
+      const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
       const fetchFn = mock(async (input: string | URL | Request) => {
         const url = typeof input === 'string' ? input : input.toString();
         if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
@@ -168,9 +180,12 @@ describe('agent-health-service', () => {
 
       expect(result.healthy).toBe(true);
       if (result.healthy) expect(result.version).toBeUndefined();
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('401'));
+      consoleSpy.mockRestore();
     });
 
-    it('stays healthy without version when getToken throws (no keypair enrolled)', async () => {
+    it('stays healthy without version when getToken throws, and does not log', async () => {
+      const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
       const fetchFn = mock(async () =>
         new Response(healthBody, { status: 200 })
       ) as unknown as typeof fetch;
@@ -181,9 +196,12 @@ describe('agent-health-service', () => {
 
       expect(result.healthy).toBe(true);
       if (result.healthy) expect(result.version).toBeUndefined();
+      expect(consoleSpy).not.toHaveBeenCalled();
+      consoleSpy.mockRestore();
     });
 
-    it('stays healthy without version when /info returns non-JSON', async () => {
+    it('stays healthy without version when /info returns non-JSON, and logs the error', async () => {
+      const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
       const fetchFn = mock(async (input: string | URL | Request) => {
         const url = typeof input === 'string' ? input : input.toString();
         if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
@@ -194,6 +212,8 @@ describe('agent-health-service', () => {
 
       expect(result.healthy).toBe(true);
       if (result.healthy) expect(result.version).toBeUndefined();
+      expect(consoleSpy).toHaveBeenCalled();
+      consoleSpy.mockRestore();
     });
 
     it('does not call /info when /health already failed', async () => {

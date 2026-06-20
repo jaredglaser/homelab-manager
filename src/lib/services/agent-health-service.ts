@@ -8,9 +8,11 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 /**
  * Fetch version and capability detail from the agent's authenticated /info
- * endpoint. Best-effort: returns an empty object on any failure (no keypair
- * yet, agent too old to serve /info, network error) so liveness reporting is
- * never blocked by missing detail.
+ * endpoint. Best-effort: returns an empty object on any failure so liveness
+ * reporting is never blocked by missing detail.
+ * getToken failures are silent (expected for pending/unenrolled hosts).
+ * HTTP errors and network failures are logged so operators can diagnose why
+ * version info is missing in Settings -> Managed Hosts.
  */
 async function fetchAgentInfo(
   agentUrl: string,
@@ -18,20 +20,33 @@ async function fetchAgentInfo(
   fetchFn: typeof fetch,
   getToken: () => Promise<string>
 ): Promise<{ version?: string; dockerVersion?: string }> {
+  let token: string;
   try {
-    const token = await getToken();
+    token = await getToken();
+  } catch {
+    return {};
+  }
+
+  try {
     const response = await fetchFn(`${agentUrl}/info`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'manual',
     });
-    if (!response.ok) return {};
+    if (!response.ok) {
+      console.error(`[agent-health] /info returned ${response.status} for ${agentUrl}`);
+      return {};
+    }
     const data = (await response.json()) as AgentInfoResponse;
     return {
       version: data.agentVersion,
       dockerVersion: data.capabilities?.docker?.version,
     };
-  } catch {
+  } catch (err) {
+    console.error(
+      `[agent-health] /info request failed for ${agentUrl}:`,
+      err instanceof Error ? err.message : err
+    );
     return {};
   }
 }
@@ -69,12 +84,16 @@ export async function checkAgentHealth(
       };
     }
 
-    // Parse the body to confirm the URL points at an agent and not some other
-    // HTTP server that happens to return 200.
+    // Validate the body shape to confirm this is an agent response, not an
+    // unrelated HTTP server that happens to return 200.
+    let body: AgentHealthCheckResponse;
     try {
-      (await response.json()) as AgentHealthCheckResponse;
+      body = (await response.json()) as AgentHealthCheckResponse;
     } catch {
       return { healthy: false, error: `Agent returned non-JSON response (status ${response.status})` };
+    }
+    if (body?.status !== 'healthy') {
+      return { healthy: false, error: 'Agent /health response missing expected status field' };
     }
 
     const info = getToken
