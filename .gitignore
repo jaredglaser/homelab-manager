@@ -13,12 +13,6 @@ count.txt
 .output
 .vinxi
 todos.json
-.codex
-!/.codex/
-/.codex/*
-!/.codex/hooks.json
-!/.codex/scripts/
-!/.codex/skills/
 .claude
 !/.claude/
 /.claude/*

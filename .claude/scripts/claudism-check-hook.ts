@@ -1,14 +1,14 @@
 #!/usr/bin/env bun
-// claudism-check:disable-file - this hook documents the patterns it scans for,
-// so it must legitimately contain the banned vocabulary as examples.
+// claudism-check:disable-file - this hook references the disable-marker token in
+// its own output string, so it must opt itself out of the scan.
 
 /**
  * Claudism check hook.
  *
  * PostToolUse hook that greps the just-edited file for banned "claudism"
- * patterns (em/en dashes, HTML entity encodings, and the word "canonical")
- * per CLAUDE.md rule 15. When matches are found, emits hookSpecificOutput
- * with additionalContext so the model sees them and can fix before moving on.
+ * patterns (em/en dashes and their HTML entity encodings) per CLAUDE.md
+ * rule 15. When matches are found, emits hookSpecificOutput with
+ * additionalContext so the model sees them and can fix before moving on.
  *
  * Fails open (silent exit 0 on any error) so a broken check can't block edits.
  *
@@ -65,7 +65,6 @@ if (rel.startsWith("..") || isAbsolute(rel)) {
 
 
 // Skip directories commonly containing generated / vendor output.
-// Hook-specific (the pre-commit path gets these pre-filtered by git).
 const SKIP_DIRS = new Set([
   "node_modules", "dist", "build", ".next", ".turbo", "coverage",
   ".cache", ".bun", "out",

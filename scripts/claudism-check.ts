@@ -1,35 +1,39 @@
-// claudism-check:disable-file — this module defines the patterns, so it must
-// legitimately contain every banned character and word. Respected by the
-// Claude PostToolUse hook and the Codex Stop hook via the file-header marker.
-
 /**
- * Shared claudism-check logic: banned patterns, allowlist, and scan helper.
- * Single source of truth for the Claude PostToolUse hook and the Codex Stop
- * hook so they can't drift.
+ * Shared claudism-check logic: banned dash patterns, file allowlist, and the
+ * line scanner. Imported by the Claude PostToolUse hook
+ * (.claude/scripts/claudism-check-hook.ts) and its unit tests.
  *
- * Pattern categories (CLAUDE.md rule 15):
- *   1. Dash-like characters and HTML entity encodings (em/en dash variants).
- *   2. `canonical` - common LLM flourish in this codebase. Word-boundary
- *      anchored so `canonicalUrl` (identifier) does not match `canonical`
- *      (prose).
+ * Only mechanical, zero-false-positive patterns live here: em/en dash
+ * characters and their HTML entity encodings (named, decimal, hex). The rest of
+ * CLAUDE.md rule 15 (vocabulary tells, sign-offs) stays model judgment.
+ *
+ * Patterns are built from the Unicode codepoints (U+2014 em, U+2013 en) so this
+ * source never contains a literal banned token and needs no disable marker.
  */
 
-import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 
 export type ClaudismPattern = { label: string; regex: RegExp };
 
-export const CLAUDISM_PATTERNS: ClaudismPattern[] = [
-  { label: "em dash", regex: /—/g },
-  { label: "en dash", regex: /–/g },
-  { label: "&mdash;", regex: /&mdash;/gi },
-  { label: "&ndash;", regex: /&ndash;/gi },
-  { label: "&#8212;", regex: /&#8212;/g },
-  { label: "&#8211;", regex: /&#8211;/g },
-  { label: "&#x2014;", regex: /&#x2014;/gi },
-  { label: "&#x2013;", regex: /&#x2013;/gi },
+/**
+ * Build the four forms of a dash from its codepoint: the raw character plus the
+ * named, decimal, and hex HTML entity encodings. Entity matches are
+ * case-insensitive (e.g. &MDASH;, &#X2014;); the raw character match is not.
+ */
+function dashPatterns(human: string, name: string, code: number): ClaudismPattern[] {
+  const char = String.fromCodePoint(code);
+  const hex = code.toString(16);
+  return [
+    { label: human, regex: new RegExp(char, "g") },
+    { label: `&${name};`, regex: new RegExp(`&${name};`, "gi") },
+    { label: `&#${code};`, regex: new RegExp(`&#${code};`, "g") },
+    { label: `&#x${hex};`, regex: new RegExp(`&#x${hex};`, "gi") },
+  ];
+}
 
-  { label: 'vocab: "canonical"', regex: /\bcanonical\b/gi },
+export const CLAUDISM_PATTERNS: ClaudismPattern[] = [
+  ...dashPatterns("em dash", "mdash", 0x2014),
+  ...dashPatterns("en dash", "ndash", 0x2013),
 ];
 
 export type Hit = { line: number; label: string; text: string };
@@ -86,12 +90,3 @@ export function isScannablePath(relPath: string): boolean {
 }
 
 export const DISABLE_MARKER = "claudism-check:disable-file";
-
-/** True if the file's first 4KB contain the opt-out marker. Errors read as no-marker. */
-export function hasDisableMarker(filePath: string): boolean {
-  try {
-    return readFileSync(filePath, "utf8").slice(0, 4096).includes(DISABLE_MARKER);
-  } catch {
-    return false;
-  }
-}
