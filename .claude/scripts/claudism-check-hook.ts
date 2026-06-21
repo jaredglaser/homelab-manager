@@ -16,7 +16,7 @@
  */
 
 import { readFileSync, existsSync, statSync, appendFileSync } from "node:fs";
-import { join, resolve as resolvePath, relative, sep, isAbsolute } from "node:path";
+import { join, resolve as resolvePath, relative } from "node:path";
 import { tmpdir } from "node:os";
 import {
   DISABLE_MARKER,
@@ -57,9 +57,7 @@ if (!candidate) exitSilently("no file_path in tool_input");
 
 const filePath = resolvePath(candidate);
 const rel = relative(projectDir, filePath);
-// On Windows cross-drive paths, relative() returns an absolute path instead of
-// a "../" walk; isAbsolute(rel) catches that case alongside the Unix "../" form.
-if (rel.startsWith("..") || isAbsolute(rel)) {
+if (rel.startsWith("..")) {
   exitSilently(`outside project: ${filePath}`);
 }
 
@@ -69,7 +67,7 @@ const SKIP_DIRS = new Set([
   "node_modules", "dist", "build", ".next", ".turbo", "coverage",
   ".cache", ".bun", "out",
 ]);
-for (const part of rel.split(sep)) {
+for (const part of rel.split("/")) {
   if (SKIP_DIRS.has(part)) exitSilently(`skipped dir segment: ${part}`);
 }
 if (!isScannablePath(rel)) exitSilently(`not scannable: ${rel}`);
