@@ -18,6 +18,8 @@ todos.json
 /.claude/*
 !/.claude/scripts/
 !/.claude/settings.json
+!/.claude/agents/
+!/.claude/commands/
 nul
 .bash_profile
 .bashrc
