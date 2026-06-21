@@ -45,7 +45,10 @@
     "test:e2e": "bun run e2e:build && playwright test",
     "test:e2e:run": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "e2e:build:realapp": "bun run e2e:clean && vite build && rm -rf e2e-build/realapp && mkdir -p e2e-build && cp -r .output e2e-build/realapp",
+    "test:e2e:auth": "bun run e2e:build:realapp && bun scripts/e2e-gen-cert.ts && bun scripts/e2e-auth-seed.ts && playwright test --config=playwright.auth.config.ts",
+    "test:e2e:auth:run": "playwright test --config=playwright.auth.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.6.0",
