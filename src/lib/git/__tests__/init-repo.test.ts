@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import git from 'isomorphic-git';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { ensureRepoInitialized } from '../init-repo';

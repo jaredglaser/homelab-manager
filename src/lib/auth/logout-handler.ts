@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 /** Builds the Set-Cookie header value that clears the session cookie. */
 export function buildClearSessionCookie(isSecure: boolean): string {

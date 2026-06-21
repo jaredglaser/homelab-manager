@@ -1,5 +1,5 @@
-import { createInterface } from "readline";
-import { Readable } from "stream";
+import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
 
 /**
  * Converts a Node.js Readable stream to an async iterator

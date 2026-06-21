@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { SessionManager, resetSessionManagerState } from '../session-manager';
 import type { SessionManagerDeps } from '../session-manager';
 import type { AuthUser } from '@/lib/auth/types';

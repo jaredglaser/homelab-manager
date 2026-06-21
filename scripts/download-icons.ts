@@ -6,9 +6,9 @@
  *
  * @see https://github.com/homarr-labs/dashboard-icons
  */
-import { mkdir, writeFile, readdir, cp, rm } from 'fs/promises';
-import { existsSync } from 'fs';
-import { execSync } from 'child_process';
+import { mkdir, writeFile, readdir, cp, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 
 const ICONS_DIR = './public/icons';
 const REPO_URL = 'https://github.com/homarr-labs/dashboard-icons.git';

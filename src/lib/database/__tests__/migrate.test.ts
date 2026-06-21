@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn } from 'bun:test';
-import { readdirSync } from 'fs';
-import { join } from 'path';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { runMigrations, MIGRATIONS_ADVISORY_LOCK_KEY } from '@/lib/database/migrate';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 

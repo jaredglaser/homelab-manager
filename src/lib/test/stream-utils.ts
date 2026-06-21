@@ -1,4 +1,4 @@
-import { Readable, PassThrough } from 'stream';
+import { Readable, PassThrough } from 'node:stream';
 
 /**
  * Converts objects into a stream of Newline-Delimited JSON (NDJSON)
