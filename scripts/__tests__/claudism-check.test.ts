@@ -4,8 +4,7 @@ import { describe, it, expect } from 'bun:test';
 import { scanLinesForClaudisms } from '../claudism-check';
 
 describe('scanLinesForClaudisms', () => {
-  // Every form a dash can take, including uppercase entities, since the regexes
-  // are built from codepoints and the entity matches rely on the /i flag.
+  // Every dash form, incl. uppercase entities (entity regexes use /i).
   it.each([
     ['—', 'em dash'],
     ['–', 'en dash'],

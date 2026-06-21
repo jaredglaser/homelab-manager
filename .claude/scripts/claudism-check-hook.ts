@@ -1,19 +1,10 @@
 #!/usr/bin/env bun
-// claudism-check:disable-file - this hook references the disable-marker token in
-// its own output string, so it must opt itself out of the scan.
+// claudism-check:disable-file - references the marker token in its own output.
 
-/**
- * Claudism check hook.
- *
- * PostToolUse hook that greps the just-edited file for banned "claudism"
- * patterns (em/en dashes and their HTML entity encodings) per CLAUDE.md
- * rule 15. When matches are found, emits hookSpecificOutput with
- * additionalContext so the model sees them and can fix before moving on.
- *
- * Fails open (silent exit 0 on any error) so a broken check can't block edits.
- *
- * Set CLAUDE_CLAUDISM_HOOK_DEBUG=1 to log to $TMPDIR/claude-claudism-hook.log.
- */
+// PostToolUse hook: scans the just-edited file for em/en dashes (CLAUDE.md
+// rule 15) and reports hits via additionalContext so the model fixes them in
+// the same turn. Fails open (exit 0 on any error) so a broken check can't block
+// edits. Set CLAUDE_CLAUDISM_HOOK_DEBUG=1 to log to $TMPDIR.
 
 import { readFileSync, existsSync, statSync, appendFileSync } from "node:fs";
 import { join, resolve as resolvePath, relative } from "node:path";
@@ -61,8 +52,7 @@ if (rel.startsWith("..")) {
   exitSilently(`outside project: ${filePath}`);
 }
 
-
-// Skip directories commonly containing generated / vendor output.
+// Generated / vendor dirs.
 const SKIP_DIRS = new Set([
   "node_modules", "dist", "build", ".next", ".turbo", "coverage",
   ".cache", ".bun", "out",
@@ -77,7 +67,6 @@ if (!existsSync(filePath)) exitSilently("file does not exist post-edit");
 let st;
 try { st = statSync(filePath); } catch (e) { exitSilently(`stat failed: ${e}`); }
 if (!st.isFile()) exitSilently("not a regular file");
-// Cap at 2 MB; anything larger is almost certainly not a source file we should lint.
 if (st.size > 2 * 1024 * 1024) exitSilently(`file too large: ${st.size}b`);
 
 let contents: string;
@@ -88,10 +77,7 @@ try {
 }
 
 const preview = contents.slice(0, 4096);
-// Crude binary sniff: reject files with NUL bytes in the first 4KB.
 if (preview.includes("\0")) exitSilently("binary sniff: contains NUL");
-// Opt-out marker for files that legitimately contain the banned patterns
-// (the patterns module itself, tests that assert the rule).
 if (preview.includes(DISABLE_MARKER)) exitSilently("opt-out marker");
 
 const hits: Hit[] = scanLinesForClaudisms(contents.split(/\r?\n/));
