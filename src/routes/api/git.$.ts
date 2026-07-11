@@ -146,10 +146,6 @@ export const Route = createFileRoute('/api/git/$')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
-          return new Response('Not Found', { status: 404 });
-        }
-
         const authResult = await authenticateRequest(request);
         if (authResult instanceof Response) return authResult;
 
@@ -188,10 +184,6 @@ export const Route = createFileRoute('/api/git/$')({
       },
 
       POST: async ({ request }) => {
-        if (process.env.DOCKER_MANAGEMENT_FEATURE_FLAG !== 'true') {
-          return new Response('Not Found', { status: 404 });
-        }
-
         const authResult = await authenticateRequest(request);
         if (authResult instanceof Response) return authResult;
 

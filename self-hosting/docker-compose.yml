@@ -4,7 +4,8 @@ x-postgres-env: &postgres-env
   POSTGRES_DB: ${POSTGRES_DB}
   POSTGRES_USER: ${POSTGRES_USER}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  POSTGRES_SSL: "false"
+  POSTGRES_SSL: ${POSTGRES_SSL:-false}
+  POSTGRES_SSL_REJECT_UNAUTHORIZED: ${POSTGRES_SSL_REJECT_UNAUTHORIZED:-true}
 
 x-proxmox-env: &proxmox-env
   PROXMOX_HOST: ${PROXMOX_HOST:-}
@@ -12,6 +13,20 @@ x-proxmox-env: &proxmox-env
   PROXMOX_TOKEN_ID: ${PROXMOX_TOKEN_ID:-}
   PROXMOX_TOKEN_SECRET: ${PROXMOX_TOKEN_SECRET:-}
   PROXMOX_ALLOW_SELF_SIGNED: ${PROXMOX_ALLOW_SELF_SIGNED:-true}
+
+# Auth is required by default. Either configure OIDC or set AUTH_DISABLED=true
+# for a trusted network. These keys must be listed here: Compose only forwards
+# .env values into a container when the service's environment block names them.
+x-auth-env: &auth-env
+  AUTH_DISABLED: ${AUTH_DISABLED:-}
+  OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-}
+  OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+  OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+  OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+  SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-8}
+  OIDC_ROLE_ADMIN: ${OIDC_ROLE_ADMIN:-homelab-admins}
+  OIDC_ROLE_OPERATOR: ${OIDC_ROLE_OPERATOR:-homelab-operators}
+  OIDC_ROLE_VIEWER: ${OIDC_ROLE_VIEWER:-homelab-viewers}
 
 services:
   # PostgreSQL / TimescaleDB - persistent time-series database
@@ -35,7 +50,9 @@ services:
     networks:
       - homelab-network
 
-  # Background worker - collects stats from Docker/ZFS hosts and writes to DB
+  # Background worker - collects stats from Docker/ZFS hosts and writes to DB.
+  # Also runs database migrations on startup, so it must run at least once per
+  # install or upgrade before the web dashboard has a usable schema.
   worker:
     image: ghcr.io/jaredglaser/homelab-manager-worker:latest
     container_name: homelab-worker
@@ -45,11 +62,11 @@ services:
       MASTER_KEY: ${MASTER_KEY:-}
       MASTER_KEY_FILE: ${MASTER_KEY_FILE:-}
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
-      WORKER_ENABLED: ${WORKER_ENABLED:-true}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED:-true}
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED:-false}
       WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED:-false}
       WORKER_COLLECTION_INTERVAL_MS: ${WORKER_COLLECTION_INTERVAL_MS:-1000}
+      WORKER_LOCALHOST_AGENT: ${WORKER_LOCALHOST_AGENT:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -72,14 +89,22 @@ services:
     volumes:
       - git-repos:/data/repos
     environment:
-      <<: *postgres-env
+      <<: [*postgres-env, *auth-env]
       MASTER_KEY: ${MASTER_KEY:-}
       MASTER_KEY_FILE: ${MASTER_KEY_FILE:-}
       NODE_ENV: production
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE:-10}
       GIT_REPOS_DIR: "/data/repos"
-      GIT_SERVER_TOKEN: ${GIT_SERVER_TOKEN}
-
+      DEPLOY_WATCHDOG_INTERVAL_MS: ${DEPLOY_WATCHDOG_INTERVAL_MS:-}
+      DEPLOY_WATCHDOG_TIMEOUT_MINUTES: ${DEPLOY_WATCHDOG_TIMEOUT_MINUTES:-}
+    healthcheck:
+      # The image has no curl; bun ships in the base image and can probe the
+      # unauthenticated /api/health endpoint (checks DB reachability too).
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

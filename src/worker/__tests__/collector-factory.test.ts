@@ -27,7 +27,6 @@ function getMockInfoCalls(): unknown[] {
 
 function createWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
   return {
-    enabled: true,
     docker: { enabled: false },
     zfs: { enabled: false },
     proxmox: { enabled: false },

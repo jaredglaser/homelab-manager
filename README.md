@@ -53,7 +53,8 @@ The fastest path is the pre-built Docker images. Download the compose file and a
 ```bash
 mkdir homelab-manager && cd homelab-manager
 curl -O https://raw.githubusercontent.com/jaredglaser/homelab-manager/main/self-hosting/docker-compose.yml
-# Create a .env with POSTGRES_* and MASTER_KEY (see self-hosting guide)
+# Create a .env with POSTGRES_*, MASTER_KEY, and an auth choice
+# (OIDC or AUTH_DISABLED=true; see the self-hosting guide)
 docker compose up -d
 ```
 
@@ -74,7 +75,7 @@ Full instructions: [Self-Hosting Guide](self-hosting/README.md). For local devel
 - [x] Agent-updater sidecar for automatic container updates
 - [x] Pre-built Docker image on a container registry
 - [x] Live demo deployed to GitHub Pages
-- [~] Authentication (OIDC with Pocket ID support): code landed in `src/lib/auth/`, required by default with `AUTH_DISABLED=true` as the opt-out; integration docs pending
+- [x] Authentication (OIDC with Pocket ID support): required by default with `AUTH_DISABLED=true` as the opt-out; setup documented in the [self-hosting guide](self-hosting/README.md#authentication-oidc)
 - [ ] Return to TanStack Start streaming server functions (pending upstream abort signal fix)
 
 ## AI Disclosure

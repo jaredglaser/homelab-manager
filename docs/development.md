@@ -39,7 +39,6 @@ POSTGRES_PORT="5432"
 POSTGRES_POOL_SIZE="10"
 
 # Worker: enable Docker collection
-WORKER_ENABLED="true"
 WORKER_DOCKER_ENABLED="true"
 WORKER_COLLECTION_INTERVAL_MS="1000"
 
@@ -48,7 +47,6 @@ WEB_PORT="3000"
 
 # Docker Stack Management / Git stacks repo
 GIT_REPOS_DIR="./data/repos"
-GIT_SERVER_TOKEN="dev-git-token"
 
 # Master encryption key for stack secrets and per-agent keypairs.
 # Generate with: openssl rand -base64 32

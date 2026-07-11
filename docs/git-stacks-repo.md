@@ -17,7 +17,7 @@ The repo is accessible via Git HTTP smart protocol at:
 http://localhost:3000/api/git/stacks
 ```
 
-Authentication uses a Bearer token set via `GIT_SERVER_TOKEN` in your `.env`.
+Authentication uses per-user git tokens. Generate one in **Settings → Authentication → Generate Git Token** (visible to admins). The token is stored encrypted (JWE, master keyring) in the `git_tokens` table and shown once at creation; pushes require the token's owner to have the `admin` or `operator` role.
 
 ### Clone
 
@@ -25,10 +25,10 @@ Authentication uses a Bearer token set via `GIT_SERVER_TOKEN` in your `.env`.
 git clone http://localhost:3000/api/git/stacks stacks
 ```
 
-When prompted for credentials, use any username and the `GIT_SERVER_TOKEN` value as the password. Or configure the token in the URL:
+When prompted for credentials, use any username and your git token as the password. Or configure the token in the URL:
 
 ```bash
-git clone http://x:dev-git-token@localhost:3000/api/git/stacks ~/stacks
+git clone http://x:<your-git-token>@localhost:3000/api/git/stacks ~/stacks
 ```
 
 > **Note:** The `x` username is ignored; only the password (token) matters.
@@ -86,9 +86,8 @@ stacks:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GIT_REPOS_DIR` | `/data/repos` | Directory for bare git repos (inside the container) |
-| `GIT_SERVER_TOKEN` | (none) | Bearer token for git HTTP authentication (required) |
 
-Both must be set in your `.env`.
+Git HTTP authentication does not use an env var: tokens are generated per user in the Settings UI and stored encrypted in the database.
 
 ## Local Development
 
@@ -102,14 +101,11 @@ The repo URL is the same: `http://localhost:3000/api/git/stacks`.
 
 ## Troubleshooting
 
-**"Git server token not configured" (500)**
-Set `GIT_SERVER_TOKEN` in your `.env` and restart the web server.
-
 **"Unauthorized" (401)**
-Check that you're passing the token. With curl: `curl -H "Authorization: Bearer dev-git-token" http://localhost:3000/api/git/stacks/info/refs?service=git-upload-pack`
+Check that you're passing a valid git token generated in **Settings → Authentication**. With curl: `curl -H "Authorization: Bearer <your-git-token>" http://localhost:3000/api/git/stacks/info/refs?service=git-upload-pack`. A 401 also occurs when the token was revoked or its owner lost the `admin`/`operator` role.
 
 **Clone hangs or times out**
-Ensure the web server is running and `GIT_SERVER_TOKEN` is set.
+Ensure the web server is running and reachable.
 
 **Push succeeds but stack doesn't appear**
 Check that the stack is listed in `manifest.yaml` and the `host` value matches a managed host name.

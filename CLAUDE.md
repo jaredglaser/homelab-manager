@@ -124,7 +124,7 @@ loadSubscribe: async () => {
 }
 ```
 
-Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (auth + DB lookup + pipe-through from agent) and `git.$` (git HTTP smart protocol, not SSE).
+Hand-written routes (don't fit the factory shape): `docker-logs.$containerId` (auth + DB lookup + pipe-through from agent), `git.$` (git HTTP smart protocol, not SSE), and `health` (unauthenticated DB-reachability probe for Docker healthchecks and uptime monitors, handler in `src/lib/health/`).
 
 ### Shared DataTable (`src/components/ui/datatable/`)
 

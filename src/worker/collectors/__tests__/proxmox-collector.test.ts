@@ -21,8 +21,7 @@ function createMockDb() {
 
 function createMockConfig(): WorkerConfig {
   return {
-    enabled: true,
-    docker: { enabled: false },
+      docker: { enabled: false },
     zfs: { enabled: false },
     proxmox: { enabled: true },
     collection: { interval: 1000 },
