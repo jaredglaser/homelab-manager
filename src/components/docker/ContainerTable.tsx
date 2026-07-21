@@ -38,6 +38,9 @@ const METRIC_GROUPS: MetricGroup[] = [
 /** Shared empty array so containers without stats keep a stable chartData reference */
 const EMPTY_CHART_DATA: DockerStatsRow[] = [];
 
+/** Sparkline accumulator key source: only container rows have a per-entity series. */
+const sparklineEntityId = (row: DockerTableRow) => (row.type === 'container' ? row.id : undefined);
+
 /** Per-entity chart derivations cached by chartData array identity */
 type ChartArtifacts = { chartData: DockerStatsRow[] } & ReturnType<typeof buildContainerChartData>;
 
@@ -245,6 +248,7 @@ export default function ContainerTable({
           return formatAsPercentParts(row.stats.rates.cpuPercent / 100, docker.decimals.cpu);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.cpu ?? []) : []),
+        getSparklineEntityId: sparklineEntityId,
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -266,6 +270,7 @@ export default function ContainerTable({
             : formatAsPercentParts(row.stats.rates.memoryPercent / 100, docker.decimals.memory);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.memory ?? []) : []),
+        getSparklineEntityId: sparklineEntityId,
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -283,6 +288,7 @@ export default function ContainerTable({
           return formatBytesParts(row.stats.rates.blockIoReadBytesPerSec, true, docker.decimals.diskSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.blockRead ?? []) : []),
+        getSparklineEntityId: sparklineEntityId,
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -300,6 +306,7 @@ export default function ContainerTable({
           return formatBytesParts(row.stats.rates.blockIoWriteBytesPerSec, true, docker.decimals.diskSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.blockWrite ?? []) : []),
+        getSparklineEntityId: sparklineEntityId,
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -317,6 +324,7 @@ export default function ContainerTable({
           return formatBitsSIUnitsParts(row.stats.rates.networkRxBytesPerSec * 8, true, docker.decimals.networkSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.networkRx ?? []) : []),
+        getSparklineEntityId: sparklineEntityId,
         getIsStale: (row) => row.isStale,
       }),
       metricColumn<DockerTableRow>({
@@ -334,6 +342,7 @@ export default function ContainerTable({
           return formatBitsSIUnitsParts(row.stats.rates.networkTxBytesPerSec * 8, true, docker.decimals.networkSpeed);
         },
         getSparklineData: (row) => (row.type === 'container' ? (row.sparklineData?.networkTx ?? []) : []),
+        getSparklineEntityId: sparklineEntityId,
         getIsStale: (row) => row.isStale,
       }),
     ],

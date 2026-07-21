@@ -20,6 +20,8 @@ interface MetricCellProps {
   sparklineData?: { timestamp: number; value: number }[];
   /** CSS variable for sparkline color (e.g., "--chart-cpu") */
   sparklineColor?: string;
+  /** Stable, host-prefixed key for the sparkline accumulator (entity id + metric) */
+  sparklineKey?: string;
   /** Whether decimals are enabled - affects reserved width */
   hasDecimals?: boolean;
   /** Whether the data is stale (desaturate visuals) */
@@ -34,6 +36,7 @@ export const MetricCell = memo(function MetricCell({
   sparkline,
   sparklineData,
   sparklineColor,
+  sparklineKey,
   hasDecimals = false,
   isStale = false,
 }: Readonly<MetricCellProps>) {
@@ -48,8 +51,8 @@ export const MetricCell = memo(function MetricCell({
 
   // Render sparkline: prefer data+color props (memo-friendly), fall back to ReactNode
   // Check length to avoid creating sparklines for host/aggregate rows with empty arrays
-  const dataSparkline = sparklineData?.length && sparklineColor
-    ? <SparklineCell data={sparklineData} color={sparklineColor} />
+  const dataSparkline = sparklineData?.length && sparklineColor && sparklineKey
+    ? <SparklineCell data={sparklineData} color={sparklineColor} seriesKey={sparklineKey} />
     : null;
   const sparklineElement = showSparklines
     ? sparkline ?? dataSparkline

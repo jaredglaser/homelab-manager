@@ -130,6 +130,53 @@ describe('BaseCollector', () => {
       await collector.run();
       expect(callCount).toBe(2);
     });
+
+    it('backs off after a clean but unexpectedly fast return', async () => {
+      const controller = new AbortController();
+      const collector = new TestCollector(db as any, config, controller);
+
+      let callCount = 0;
+      collector.collectFn = async () => {
+        callCount++;
+        // First cycle returns cleanly and almost instantly (< MIN_HEALTHY_CYCLE_MS),
+        // which must throttle rather than hot-loop. Abort on the next cycle.
+        if (callCount >= 2) {
+          controller.abort(new DOMException('Done', 'AbortError'));
+        }
+      };
+
+      await collector.run();
+      expect(callCount).toBe(2);
+    });
+
+    it('reconnects immediately after a healthy-length cycle', async () => {
+      const controller = new AbortController();
+      const collector = new TestCollector(db as any, config, controller);
+
+      // Make the first cycle appear to last >= MIN_HEALTHY_CYCLE_MS so it takes
+      // the immediate-reconnect path (no backoff).
+      const originalNow = performance.now;
+      let nowCall = 0;
+      performance.now = () => {
+        nowCall += 1;
+        return nowCall === 1 ? 0 : 5000;
+      };
+
+      let callCount = 0;
+      collector.collectFn = async () => {
+        callCount++;
+        if (callCount >= 2) {
+          controller.abort(new DOMException('Done', 'AbortError'));
+        }
+      };
+
+      try {
+        await collector.run();
+      } finally {
+        performance.now = originalNow;
+      }
+      expect(callCount).toBe(2);
+    });
   });
 
   describe('debug logging', () => {

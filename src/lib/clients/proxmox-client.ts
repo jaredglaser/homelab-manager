@@ -12,6 +12,12 @@ interface CrossRuntimeRequestInit extends RequestInit {
   dispatcher?: unknown;
 }
 
+// Per-request ceiling. Without it a Proxmox host that accepts the connection
+// then stalls (network partition, overloaded node) leaves the collect loop
+// awaiting forever: no backoff runs, no data is produced, and worker shutdown
+// hangs on the in-flight fetch until the OS TCP timeout.
+const REQUEST_TIMEOUT_MS = 15_000;
+
 /**
  * Proxmox VE API client using native fetch
  *
@@ -62,6 +68,7 @@ export class ProxmoxClient {
       headers: {
         Authorization: this.authHeader,
       },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
     if (!response.ok) {

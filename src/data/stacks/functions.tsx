@@ -55,16 +55,20 @@ export const triggerDeploy = createServerFn()
 
 /** Approves a pending deploy via the pipeline's resumePending path. */
 export const resumeDeploy = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
   .inputValidator(resumeDeploySchema)
-  .handler(async ({ data }): Promise<{ deployId: number }> => {
+  .handler(async ({ data, context }): Promise<{ deployId: number }> => {
+    requireRole('admin', 'operator')(context.user);
     const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
     return resumePendingDeploy(data.deployId);
   });
 
 /** Rejects a pending deploy, marking it failed with a "Manually rejected" log. */
 export const rejectDeploy = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
   .inputValidator(rejectDeploySchema)
-  .handler(async ({ data }): Promise<{ deployId: number }> => {
+  .handler(async ({ data, context }): Promise<{ deployId: number }> => {
+    requireRole('admin', 'operator')(context.user);
     const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
     return rejectPendingDeploy(data.deployId);
   });
@@ -303,8 +307,10 @@ export const ensureVariablesExist = createServerFn({ method: 'POST' })
  * Bypasses the deploy pipeline; no deploy history record is created.
  */
 export const controlStack = createServerFn({ method: 'POST' })
+  .middleware([authMiddleware])
   .inputValidator(controlStackSchema)
-  .handler(async ({ data }): Promise<void> => {
+  .handler(async ({ data, context }): Promise<void> => {
+    requireRole('admin', 'operator')(context.user);
     const { controlStackForHost } = await import('@/lib/stacks/stack-service');
     const req: StackControlRequest = data.scope === 'service'
       ? { stack: data.stack, scope: 'service', service: data.service }

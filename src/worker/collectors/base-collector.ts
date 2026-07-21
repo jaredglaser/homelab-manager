@@ -8,6 +8,14 @@ const MAX_BACKOFF_EXPONENT = 5; // max 32s
 const MAX_BACKOFF_MS = 30_000;
 const BASE_BACKOFF_MS = 500;
 
+// A cycle that ends cleanly but faster than this is treated as a failed
+// connection, not a healthy stream that reached a refresh point. Without this
+// floor, an agent that returns HTTP 200 then immediately closes the stream
+// (e.g. its Docker daemon is down) drives a hot reconnect loop:
+// fetch -> JWT sign -> 200 -> EOF -> refetch with no delay, burning CPU and
+// hammering the agent for as long as the fault persists.
+const MIN_HEALTHY_CYCLE_MS = 1000;
+
 /**
  * Abstract base class for background stats collectors.
  * Implements AsyncDisposable for deterministic cleanup via `await using`.
@@ -62,15 +70,26 @@ export abstract class BaseCollector implements AsyncDisposable {
 
         await this.collect();
 
-        const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+        if (this.signal.aborted) break;
 
-        // Collection ended (container changes, error, or aborted) - reconnect immediately
-        if (!this.signal.aborted) {
+        const elapsedMs = performance.now() - t0;
+        if (elapsedMs >= MIN_HEALTHY_CYCLE_MS) {
+          // Stream stayed up long enough to be healthy (e.g. it ended on a
+          // container-change refresh); reconnect immediately.
           this.debugLog(
-            `[${this.name}] Collection ended after ${elapsed}s` +
+            `[${this.name}] Collection ended after ${(elapsedMs / 1000).toFixed(1)}s` +
             ` (cycle #${cycleCount}), reconnecting immediately...`
           );
           this.consecutiveErrors = 0;
+        } else {
+          // Ended almost instantly: throttle like an error to avoid a hot
+          // reconnect loop (see MIN_HEALTHY_CYCLE_MS).
+          this.consecutiveErrors++;
+          this.debugLog(
+            `[${this.name}] Collection ended after only ${Math.round(elapsedMs)}ms` +
+            ` (cycle #${cycleCount}); backing off`
+          );
+          if (!(await this.backoffSleep())) break;
         }
       } catch (err) {
         if (isAbortError(err) || this.signal.aborted) {
@@ -78,29 +97,37 @@ export abstract class BaseCollector implements AsyncDisposable {
         }
 
         this.consecutiveErrors++;
-        const backoffMs = backoffDelayMs(this.consecutiveErrors, {
-          baseMs: BASE_BACKOFF_MS,
-          capMs: MAX_BACKOFF_MS,
-          maxExponent: MAX_BACKOFF_EXPONENT,
-        });
-
         const errMsg = err instanceof Error ? err.message : String(err);
         const errCode = (err as any)?.code || 'unknown';
         console.error(
           `[${this.name}] Collection error (cycle #${cycleCount}):` +
           ` code=${errCode} message=${errMsg}`
         );
-        this.debugLog(`[${this.name}] Retrying in ${backoffMs}ms (attempt ${this.consecutiveErrors})...`);
-
-        try {
-          await abortableSleep(backoffMs, this.signal);
-        } catch {
-          break; // Abort during backoff
-        }
+        if (!(await this.backoffSleep())) break;
       }
     }
 
     console.log(`[${this.name}] Stopped gracefully after ${cycleCount} cycles`);
+  }
+
+  /**
+   * Sleep for the current exponential-backoff window (based on
+   * `consecutiveErrors`). Returns false if the signal aborted during the
+   * sleep, in which case the caller should stop the loop.
+   */
+  private async backoffSleep(): Promise<boolean> {
+    const backoffMs = backoffDelayMs(this.consecutiveErrors, {
+      baseMs: BASE_BACKOFF_MS,
+      capMs: MAX_BACKOFF_MS,
+      maxExponent: MAX_BACKOFF_EXPONENT,
+    });
+    this.debugLog(`[${this.name}] Retrying in ${backoffMs}ms (attempt ${this.consecutiveErrors})...`);
+    try {
+      await abortableSleep(backoffMs, this.signal);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Signal this collector to stop. */

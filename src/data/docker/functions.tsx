@@ -2,6 +2,7 @@ import { createServerFn } from '@tanstack/react-start';
 import type { DockerStatsRow } from '@/types/docker';
 import { databaseMiddleware } from '@/middleware/database-middleware';
 import { authMiddleware } from '@/middleware/auth-middleware';
+import { requireRole } from '@/lib/auth/require-role';
 import {
   getHistoricalDockerStatsSchema,
   getContainerHistorySchema,
@@ -138,6 +139,7 @@ export const controlContainer = createServerFn({ method: 'POST' })
   .middleware([authMiddleware, databaseMiddleware])
   .inputValidator(controlContainerSchema)
   .handler(async ({ context, data }): Promise<void> => {
+    requireRole('admin', 'operator')(context.user);
     const { HostRepository } = await import('@/lib/database/repositories/host-repository');
     const { AgentClient } = await import('@/lib/clients/agent-client');
     const { AgentKeypairsRepository } = await import('@/lib/database/repositories/agent-keypairs-repository');

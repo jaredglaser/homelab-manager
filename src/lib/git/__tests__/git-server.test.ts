@@ -149,7 +149,7 @@ describe('handleReceivePack', () => {
       },
     });
 
-    const response = await handleReceivePack(repoPath, body);
+    const { response } = await handleReceivePack(repoPath, body);
     expect(response.status).toBe(500);
   });
 
@@ -191,7 +191,7 @@ describe('request body size limit', () => {
       },
     });
 
-    const response = await handleReceivePack(repoPath, body);
+    const { response } = await handleReceivePack(repoPath, body);
     expect(response.status).toBe(413);
     expect(await response.text()).toBe('Payload too large');
   });

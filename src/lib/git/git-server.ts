@@ -66,15 +66,32 @@ export async function handleUploadPack(
   return runGitService('git-upload-pack', repoPath, body);
 }
 
+export interface ReceivePackResult {
+  response: Response;
+  /** HEAD before this push, observed under the repo lock. */
+  oldHead: string | null;
+  /** HEAD after this push, observed under the repo lock. */
+  newHead: string | null;
+}
+
 /**
  * Handle POST /git-receive-pack (client push).
- * Returns the response; post-receive logic runs after.
+ *
+ * HEAD is captured before and after the receive-pack *inside* the repo lock so
+ * the diff range reflects this push's own ref movement. Reading HEAD outside
+ * the lock lets a concurrent push's ref update bleed in: a rejected non-ff push
+ * would otherwise inherit the other push's newHead and re-trigger its deploy.
  */
 export async function handleReceivePack(
   repoPath: string,
   body: ReadableStream<Uint8Array> | null,
-): Promise<Response> {
-  return withRepoLock(repoPath, () => runGitService('git-receive-pack', repoPath, body));
+): Promise<ReceivePackResult> {
+  return withRepoLock(repoPath, async () => {
+    const oldHead = await getHeadOid(repoPath);
+    const response = await runGitService('git-receive-pack', repoPath, body);
+    const newHead = await getHeadOid(repoPath);
+    return { response, oldHead, newHead };
+  });
 }
 
 /**
@@ -161,6 +178,14 @@ function spawnGit(
       });
     });
 
+    // Guard against EPIPE: if git exits before draining stdin (malformed pack,
+    // or the SIGKILL timeout fires while a large body is still writing), the
+    // closed pipe emits an 'error' on the stream. Unhandled, a stream 'error'
+    // throws as an uncaught exception and can crash the web process; the
+    // 'close'/'error' handlers above still settle the promise.
+    proc.stdin.on('error', (err) => {
+      console.error('[git-server] spawnGit stdin error:', err);
+    });
     if (stdinData) {
       proc.stdin.write(stdinData);
     }

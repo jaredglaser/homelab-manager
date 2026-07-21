@@ -111,6 +111,36 @@ describe('StatsPollService', () => {
     querySpy.mockRestore();
   });
 
+  it('skips a tick while the previous poll for the source is still in flight', async () => {
+    const pool = createMockPool('pool-inflight');
+    const client = createMockDbClient(pool.pool);
+
+    getClientSpy = spyOn(databaseConnectionManager, 'getClient').mockResolvedValue(client as never);
+
+    // First poll's query hangs so the source stays "in flight" across ticks.
+    let resolveQuery: (rows: never[]) => void = () => {};
+    const querySpy = spyOn(StatsRepository.prototype, 'getDockerStatsSince').mockImplementation(
+      () => new Promise<never[]>((resolve) => { resolveQuery = resolve; }),
+    );
+
+    statsPollService.subscribe('docker', () => {});
+    const tick = harness.intervals[0].cb;
+
+    const first = tick();
+    // Let the first tick reach its awaited (hanging) query.
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Second tick must early-return without starting another poll.
+    await tick();
+    expect(getClientSpy).toHaveBeenCalledTimes(1);
+    expect(querySpy).toHaveBeenCalledTimes(1);
+
+    resolveQuery([]);
+    await first;
+
+    querySpy.mockRestore();
+  });
+
   it('does not throw on the healthy path when getClient returns the same client twice', async () => {
     const pool = createMockPool('pool-healthy');
     const client = createMockDbClient(pool.pool);

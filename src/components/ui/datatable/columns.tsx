@@ -20,6 +20,8 @@ export function metricColumn<TRow>(opts: {
   header: string;
   getValue: (row: TRow) => { value: string; unit: string };
   getSparklineData?: (row: TRow) => { timestamp: number; value: number }[];
+  /** Host-prefixed entity id that keys the sparkline accumulator across remounts */
+  getSparklineEntityId?: (row: TRow) => string | undefined;
   sparklineColor?: string;
   getIsStale?: (row: TRow) => boolean;
   hasDecimals?: boolean;
@@ -33,6 +35,7 @@ export function metricColumn<TRow>(opts: {
     header: () => <MetricHeaderCell>{opts.header}</MetricHeaderCell>,
     cell: ({ row }: CellContext<TRow, unknown>) => {
       const { value, unit } = opts.getValue(row.original);
+      const entityId = opts.getSparklineEntityId?.(row.original);
       return (
         <MetricCell
           value={value}
@@ -41,6 +44,7 @@ export function metricColumn<TRow>(opts: {
           useAbbreviatedUnits={opts.useAbbreviatedUnits ?? false}
           sparklineData={opts.getSparklineData?.(row.original)}
           sparklineColor={opts.sparklineColor}
+          sparklineKey={entityId ? `${entityId}:${opts.id}` : undefined}
           hasDecimals={opts.hasDecimals}
           isStale={opts.getIsStale?.(row.original)}
         />

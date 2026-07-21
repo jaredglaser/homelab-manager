@@ -160,15 +160,29 @@ describe('loadMasterKeyring', () => {
     await expect(loadMasterKeyring()).rejects.toThrow(/32 bytes/);
   });
 
-  // KIDs are sorted lexicographically: 'v9' > 'v10' because '9' > '1'.
-  // Operators needing more than 9 versions should use zero-padded names
-  // (v01, v02, ..., v10) to preserve natural ordering.
-  it('lexicographic ordering picks v9 over v10 (natural vs lex sort awareness)', async () => {
-    // Lex sort: "v10" < "v9" because "1" < "9" char comparison.
-    // The active key should be "v9" (lexicographically last).
+  // vN KIDs order numerically, so v10 outranks v9 (a plain string sort would
+  // wrongly leave v9 active and keep encrypting under the old key past the
+  // ninth rotation).
+  it('picks v10 over v9 by numeric KID ordering', async () => {
     process.env.MASTER_KEY_v10 = KEY_A;
     process.env.MASTER_KEY_v9 = KEY_B;
     const keyring = await loadMasterKeyring();
-    expect(keyring.activeKid).toBe('v9');
+    expect(keyring.activeKid).toBe('v10');
+    expect(keyring.keys.size).toBe(2);
+  });
+
+  it('ranks vN KIDs above non-version KIDs and orders non-version KIDs by byte value', async () => {
+    // Two non-version KIDs plus a vN: the vN wins, and among the non-version
+    // KIDs the lexicographically greater one would win if no vN were present.
+    process.env.MASTER_KEY_alpha = KEY_A;
+    process.env.MASTER_KEY_beta = KEY_B;
+    process.env.MASTER_KEY_v1 = KEY_C;
+    const withVersion = await loadMasterKeyring();
+    expect(withVersion.activeKid).toBe('v1');
+    expect(withVersion.keys.size).toBe(3);
+
+    delete process.env.MASTER_KEY_v1;
+    const nonVersionOnly = await loadMasterKeyring();
+    expect(nonVersionOnly.activeKid).toBe('beta');
   });
 });

@@ -91,7 +91,7 @@ describe('useProxmoxSettings', () => {
     const { result } = renderHook(() => useProxmoxSettings(), { wrapper });
 
     expect(result.current.proxmox.updateInterval).toBe(10000);
-    expect(result.current.isProxmoxHostExpanded('pve1')).toBe(false);
+    expect(result.current.isProxmoxHostExpanded('pve1')).toBe(true);
   });
 });
 

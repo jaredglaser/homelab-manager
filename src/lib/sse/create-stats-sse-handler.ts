@@ -70,6 +70,10 @@ export function createStatsSseHandler(source: StatsSource) {
         }
 
         request.signal.addEventListener('abort', teardown);
+        // If the client disconnected during the awaits above, the abort event
+        // already fired and the listener will never run; tear down now so the
+        // subscription doesn't leak.
+        if (request.signal.aborted) teardown();
       },
     });
 
