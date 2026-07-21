@@ -140,7 +140,7 @@ export class StatsRepository {
       `SELECT * FROM zfs_stats WHERE time > $1 ORDER BY time ASC`,
       [since]
     );
-    return result.rows;
+    return result.rows.map(toZFSStatsRow);
   }
 
   async getDockerStatsHistory(seconds: number): Promise<DockerStatsRow[]> {

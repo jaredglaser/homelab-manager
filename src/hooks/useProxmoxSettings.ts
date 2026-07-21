@@ -33,8 +33,13 @@ export function useProxmoxSettings(): ProxmoxSettingsValue {
     optimisticSet(SETTINGS_KEYS.proxmox.expandedHosts, prev => toggleInSet(prev, node));
   }, [optimisticSet]);
 
+  // Default expanded: the persisted set stores the *collapsed* nodes (absence
+  // = expanded), matching Docker's `isHostExpanded`. Storing expanded nodes
+  // instead would make "no saved state" indistinguishable from "everything
+  // collapsed" and force a size-based default that flips every row on the
+  // first toggle.
   const isProxmoxHostExpanded = useCallback(
-    (node: string): boolean => proxmox.expandedHosts.has(node),
+    (node: string): boolean => !proxmox.expandedHosts.has(node),
     [proxmox.expandedHosts],
   );
 
@@ -43,7 +48,7 @@ export function useProxmoxSettings(): ProxmoxSettingsValue {
   }, [optimisticSet]);
 
   const isProxmoxSectionExpanded = useCallback(
-    (key: string): boolean => proxmox.expandedSections.has(key),
+    (key: string): boolean => !proxmox.expandedSections.has(key),
     [proxmox.expandedSections],
   );
 

@@ -200,6 +200,47 @@ describe('DatabaseConnectionManager', () => {
       expect(client2.isConnected()).toBe(true);
       expect(poolInstances).toHaveLength(2);
     });
+
+    it('ends the stale pool when replacing a client that lost its connection', async () => {
+      const originalError = console.error;
+      console.error = mock(() => {});
+      try {
+        const client1 = await databaseConnectionManager.getClient(TEST_CONFIG);
+        // Simulate idle-connection loss: the pool 'error' handler flips isConnected.
+        poolInstances[0].emit('error', new Error('connection terminated'));
+        expect(client1.isConnected()).toBe(false);
+
+        const client2 = await databaseConnectionManager.getClient(TEST_CONFIG);
+
+        expect(client2).not.toBe(client1);
+        expect(client2.isConnected()).toBe(true);
+        // Old pool must be ended, not orphaned.
+        expect(poolInstances[0]._endFn).toHaveBeenCalled();
+        expect(poolInstances).toHaveLength(2);
+      } finally {
+        console.error = originalError;
+      }
+    });
+
+    it('ends the freshly built pool and rethrows when connect() fails', async () => {
+      const originalConnect = MockPool.prototype.connect;
+      const originalError = console.error;
+      console.error = mock(() => {});
+      MockPool.prototype.connect = async function (this: InstanceType<typeof MockPool>) {
+        throw new Error('connection refused');
+      };
+      try {
+        await expect(databaseConnectionManager.getClient(TEST_CONFIG)).rejects.toThrow(
+          'connection refused',
+        );
+        // The pool built inside getClient must be ended, and nothing cached.
+        expect(poolInstances[0]._endFn).toHaveBeenCalled();
+        expect((databaseConnectionManager as any).connections.size).toBe(0);
+      } finally {
+        MockPool.prototype.connect = originalConnect;
+        console.error = originalError;
+      }
+    });
   });
 
   describe('closeConnection()', () => {

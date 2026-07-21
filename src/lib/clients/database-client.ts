@@ -108,9 +108,25 @@ class DatabaseConnectionManager {
     let client = this.connections.get(key);
 
     if (!client || !client.isConnected()) {
-      client = new DatabaseClient(config);
-      await client.connect();
-      this.connections.set(key, client);
+      // Drop the stale pool before replacing it. Without this, every DB
+      // restart cycle (pool 'error' flips isConnected to false) orphans a
+      // Pool that still holds sockets, an error listener, and a connection
+      // timer for the life of the process.
+      if (client) {
+        this.connections.delete(key);
+        await client.close().catch(() => {});
+      }
+      const fresh = new DatabaseClient(config);
+      try {
+        await fresh.connect();
+      } catch (err) {
+        // connect() failed (DB still down): end the just-built pool so a
+        // failing 1s poll tick doesn't leak a Pool on every retry.
+        await fresh.close().catch(() => {});
+        throw err;
+      }
+      this.connections.set(key, fresh);
+      client = fresh;
     }
 
     return client;

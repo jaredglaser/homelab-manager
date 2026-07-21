@@ -177,7 +177,7 @@ Encrypted columns (`stack_secrets.ciphertext_jwe`, `agent_keypairs.private_jwk_j
 - `MASTER_KEY` / `MASTER_KEY_FILE`: single-key legacy pattern, treated as KID `v1`.
 - `MASTER_KEY_<KID>` / `MASTER_KEY_FILE_<KID>`: additional keys, e.g. `MASTER_KEY_v2=<base64>`.
 
-The lexicographically last KID is used for new encryptions; all loaded keys are available for decryption.
+The highest-ranked KID is used for new encryptions (`vN` KIDs compare numerically, so `v10` outranks `v9`; non-`vN` KIDs fall back to byte order and rank below any `vN`); all loaded keys are available for decryption.
 
 **Rotation procedure:**
 1. Generate a new key: `openssl rand -base64 32`

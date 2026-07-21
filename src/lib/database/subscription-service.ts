@@ -32,6 +32,12 @@ class StatsPollService {
   private skipTicks = new Map<StatsSource, number>();
   private errorSignalled = new Set<StatsSource>();
   private stoppedSources = new Set<StatsSource>();
+  // Sources with a poll still in flight. The interval fires every second
+  // regardless of how long the previous poll took, so without this guard a
+  // run of slow-but-succeeding polls (2-4s under DB load, still under the
+  // timeout) stacks several concurrent queries, each holding a pool
+  // connection. The guard sheds to one poll at a time instead.
+  private inFlight = new Set<StatsSource>();
   private readonly dbConfig = loadDatabaseConfig();
 
   subscribe(source: StatsSource, callback: StatsCallback, onError?: StatsErrorCallback): () => void {
@@ -79,6 +85,11 @@ class StatsPollService {
         return;
       }
 
+      // Skip this tick if the previous poll for this source hasn't finished.
+      if (this.inFlight.has(source)) return;
+      this.inFlight.add(source);
+
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
       try {
         // Rebuild the repo each tick so we pick up a fresh pg.Pool after any
         // reconnect in DatabaseConnectionManager. getClient() is cached on the
@@ -94,9 +105,9 @@ class StatsPollService {
             ? repo.getZFSStatsSince(since)
             : repo.getProxmoxStatsSince(since);
 
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Poll timeout')), POLL_TIMEOUT_MS)
-        );
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Poll timeout')), POLL_TIMEOUT_MS);
+        });
 
         const rows = await Promise.race([rowsPromise, timeoutPromise]);
 
@@ -139,6 +150,11 @@ class StatsPollService {
             for (const cb of errCbs) cb();
           }
         }
+      } finally {
+        // Clear the timeout timer whenever the query wins the race, otherwise a
+        // pending 5s timer leaks per successful tick and delays clean shutdown.
+        clearTimeout(timeoutId);
+        this.inFlight.delete(source);
       }
     }, POLL_INTERVAL_MS);
 
@@ -157,6 +173,7 @@ class StatsPollService {
     this.skipTicks.delete(source);
     this.errorSignalled.delete(source);
     this.errorCallbacks.delete(source);
+    this.inFlight.delete(source);
   }
 
   async stop(): Promise<void> {

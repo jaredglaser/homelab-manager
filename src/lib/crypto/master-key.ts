@@ -40,11 +40,33 @@ export async function loadMasterKeyring(): Promise<MasterKeyring> {
 
   const keys = new Map<Kid, CryptoKey>(loaded.map(({ kid, key }) => [kid, key]));
 
-  // Lexicographically last KID is the active key for new encryptions.
-  const sortedKids = [...keys.keys()].sort();
+  // Highest-ranked KID is the active key for new encryptions. `vN` KIDs (the
+  // documented rotation scheme) order numerically so v10 outranks v9; a plain
+  // string sort would leave v9 active and silently keep encrypting under the
+  // old key past the 9th rotation.
+  const sortedKids = [...keys.keys()].sort(compareKids);
   const activeKid = sortedKids[sortedKids.length - 1];
 
   return { activeKid, keys };
+}
+
+/** Rank tuple for a KID: `vN` kids compare numerically and outrank non-`vN` kids. */
+function kidRank(kid: Kid): { isVersion: number; version: number; raw: string } {
+  const match = /^v(\d+)$/.exec(kid);
+  return match
+    ? { isVersion: 1, version: Number(match[1]), raw: '' }
+    : { isVersion: 0, version: 0, raw: kid };
+}
+
+/** Total order over KIDs: numeric for `vN`, byte order for anything else. */
+function compareKids(a: Kid, b: Kid): number {
+  const ra = kidRank(a);
+  const rb = kidRank(b);
+  if (ra.isVersion !== rb.isVersion) return ra.isVersion - rb.isVersion;
+  if (ra.version !== rb.version) return ra.version - rb.version;
+  if (ra.raw < rb.raw) return -1;
+  if (ra.raw > rb.raw) return 1;
+  return 0;
 }
 
 /** Parse all key env vars and return { kid, raw } pairs. */

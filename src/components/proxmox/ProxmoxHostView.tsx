@@ -19,12 +19,8 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
     toggleProxmoxHostExpanded,
     isProxmoxSectionExpanded,
     toggleProxmoxSectionExpanded,
-    proxmox: { expandedHosts, expandedSections },
   } = useProxmoxSettings()
   const { general: { showSparklines, useAbbreviatedUnits } } = useGeneralSettings()
-
-  // On first render with no saved expansion state, default to all expanded
-  const hasExpansionState = expandedHosts.size > 0 || expandedSections.size > 0
 
   // Group data by node (memoized to avoid recomputing on expansion toggles)
   const { vmsByNode, containersByNode, storageByNode, sortedNodes } = useMemo(() => {
@@ -78,7 +74,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
         const vms = vmsByNode.get(node.node) || []
         const containers = containersByNode.get(node.node) || []
         const storages = storageByNode.get(node.node) || []
-        const hostExpanded = hasExpansionState ? isProxmoxHostExpanded(node.node) : true
+        const hostExpanded = isProxmoxHostExpanded(node.node)
 
         const cpuPercent = (node.cpu * 100).toFixed(1)
         const memPercent = node.maxmem > 0 ? ((node.mem / node.maxmem) * 100).toFixed(1) : '0'
@@ -124,7 +120,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
                 <GuestSection
                   label="Virtual Machines"
                   guests={vms}
-                  expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-vm`) : true}
+                  expanded={isProxmoxSectionExpanded(`${node.node}-vm`)}
                   onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-vm`)}
                   showSparklines={showSparklines}
                   useAbbreviatedUnits={useAbbreviatedUnits}
@@ -135,7 +131,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
                 <GuestSection
                   label="LXC Containers"
                   guests={containers}
-                  expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-ct`) : true}
+                  expanded={isProxmoxSectionExpanded(`${node.node}-ct`)}
                   onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-ct`)}
                   showSparklines={showSparklines}
                   useAbbreviatedUnits={useAbbreviatedUnits}
@@ -145,7 +141,7 @@ export default function ProxmoxHostView({ overview }: Readonly<ProxmoxHostViewPr
               {storages.length > 0 && (
                 <StorageSection
                   storages={storages}
-                  expanded={hasExpansionState ? isProxmoxSectionExpanded(`${node.node}-storage`) : true}
+                  expanded={isProxmoxSectionExpanded(`${node.node}-storage`)}
                   onToggle={() => toggleProxmoxSectionExpanded(`${node.node}-storage`)}
                   showSparklines={showSparklines}
                   useAbbreviatedUnits={useAbbreviatedUnits}

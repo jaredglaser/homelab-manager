@@ -74,8 +74,17 @@ export class DeployRepository {
   }
 
   async updateStatus(id: number, status: DeployStatus, logs?: string): Promise<void> {
+    // Stamp started_at the first time a row enters in_progress so the watchdog
+    // can age it from when it actually began, not from insert time.
     const result = await this.pool.query(
-      `UPDATE deploy_history SET status = $2, logs = $3 WHERE id = $1`,
+      `UPDATE deploy_history
+       SET status = $2,
+           logs = $3,
+           started_at = CASE
+             WHEN $2 = 'in_progress' AND started_at IS NULL THEN NOW()
+             ELSE started_at
+           END
+       WHERE id = $1`,
       [id, status, logs ?? null]
     );
     if (result.rowCount === 0) {
@@ -90,8 +99,11 @@ export class DeployRepository {
    * deploy was already claimed (or no longer exists).
    */
   async claimPending(id: number): Promise<boolean> {
+    // Stamp started_at on claim: a pending row may have sat awaiting approval
+    // for far longer than the watchdog threshold, and the watchdog ages from
+    // started_at so it doesn't fail the deploy the instant it begins.
     const result = await this.pool.query(
-      `UPDATE deploy_history SET status = 'in_progress' WHERE id = $1 AND status = 'pending'`,
+      `UPDATE deploy_history SET status = 'in_progress', started_at = NOW() WHERE id = $1 AND status = 'pending'`,
       [id]
     );
     return (result.rowCount ?? 0) > 0;
@@ -227,11 +239,13 @@ export class DeployRepository {
     thresholdMinutes: number,
     logMessage: string,
   ): Promise<StuckDeployRow[]> {
+    // Age from started_at (when the deploy entered in_progress), falling back
+    // to created_at for legacy rows written before started_at existed.
     const result = await this.pool.query(
       `UPDATE deploy_history
        SET status = 'failed', logs = $2
        WHERE status = 'in_progress'
-         AND created_at < NOW() - make_interval(mins => $1)
+         AND COALESCE(started_at, created_at) < NOW() - make_interval(mins => $1)
        RETURNING id, stack, host`,
       [thresholdMinutes, logMessage],
     );
