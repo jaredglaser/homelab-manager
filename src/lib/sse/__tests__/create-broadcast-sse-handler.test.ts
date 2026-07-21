@@ -93,6 +93,39 @@ describe('createBroadcastSseHandler', () => {
     reader.cancel();
   });
 
+  it('emits comment heartbeats on the interval to keep idle streams warm', async () => {
+    let heartbeatFn: (() => void) | null = null;
+    const intervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void) => {
+      heartbeatFn = fn;
+      return 123 as unknown as ReturnType<typeof setInterval>;
+    }) as typeof setInterval);
+    const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(() => {});
+
+    try {
+      const { handler } = setup();
+      const ac = new AbortController();
+
+      const res = await handler({ request: makeRequest(ac) });
+      const reader = readerOf(res);
+      const decoder = new TextDecoder();
+      await reader.read(); // : ok
+
+      expect(heartbeatFn).not.toBeNull();
+      heartbeatFn!();
+      const frame = await reader.read();
+      expect(decoder.decode(frame.value)).toBe(':\n\n');
+
+      ac.abort();
+      // Aborting tears down the stream, which must stop the heartbeat timer.
+      expect(clearSpy).toHaveBeenCalledWith(123);
+
+      reader.cancel();
+    } finally {
+      intervalSpy.mockRestore();
+      clearSpy.mockRestore();
+    }
+  });
+
   it('uses the caller-provided serializer verbatim', async () => {
     const serialize = mock((e: Event) => `event: custom\ndata: ${e.n}\n\n`);
     const { handler, emit } = setup(serialize);
