@@ -32,7 +32,6 @@ function createMockDb() {
 }
 
 const defaultConfig = {
-  enabled: true,
   docker: { enabled: true },
   zfs: { enabled: false },
   proxmox: { enabled: false },

@@ -45,11 +45,6 @@ async function main() {
     const dbConfig = loadDatabaseConfig();
     const workerConfig = loadWorkerConfig();
 
-    if (!workerConfig.enabled) {
-      console.info('[Worker] Worker disabled via WORKER_ENABLED=false, exiting');
-      process.exit(0);
-    }
-
     console.info('[Worker] Configuration loaded:', {
       database: `${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`,
       docker: workerConfig.docker.enabled,

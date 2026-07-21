@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 const WorkerConfigSchema = z.object({
-  enabled: z.boolean(),
   docker: z.object({
     enabled: z.boolean(),
   }),
@@ -29,7 +28,6 @@ export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
  */
 export function loadWorkerConfig(): WorkerConfig {
   const config = {
-    enabled: process.env.WORKER_ENABLED === 'true',
     docker: {
       enabled: process.env.WORKER_DOCKER_ENABLED === 'true',
     },

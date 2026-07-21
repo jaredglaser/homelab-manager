@@ -14,7 +14,6 @@ const originalConsoleLog = console.log;
 
 function makeWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
   const base: WorkerConfig = {
-    enabled: true,
     docker: { enabled: true },
     zfs: { enabled: true },
     proxmox: { enabled: false },

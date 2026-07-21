@@ -98,7 +98,6 @@ services:
     environment:
       <<: [*postgres-env, *zfs-env, *proxmox-env]
       POSTGRES_POOL_SIZE: ${POSTGRES_POOL_SIZE}
-      WORKER_ENABLED: ${WORKER_ENABLED}
       WORKER_DOCKER_ENABLED: ${WORKER_DOCKER_ENABLED}
       WORKER_ZFS_ENABLED: ${WORKER_ZFS_ENABLED}
       WORKER_PROXMOX_ENABLED: ${WORKER_PROXMOX_ENABLED}

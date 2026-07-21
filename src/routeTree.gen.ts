@@ -24,6 +24,7 @@ import { Route as ApiZfsStatsRouteImport } from './routes/api/zfs-stats'
 import { Route as ApiStackStatusRouteImport } from './routes/api/stack-status'
 import { Route as ApiSettingsRouteImport } from './routes/api/settings'
 import { Route as ApiProxmoxStatsRouteImport } from './routes/api/proxmox-stats'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiDockerStatsRouteImport } from './routes/api/docker-stats'
 import { Route as ApiDockerInventoryRouteImport } from './routes/api/docker-inventory'
 import { Route as StacksHostHostNameRouteImport } from './routes/stacks/host.$hostName'
@@ -108,6 +109,11 @@ const ApiProxmoxStatsRoute = ApiProxmoxStatsRouteImport.update({
   path: '/api/proxmox-stats',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDockerStatsRoute = ApiDockerStatsRouteImport.update({
   id: '/api/docker-stats',
   path: '/api/docker-stats',
@@ -161,6 +167,7 @@ export interface FileRoutesByFullPath {
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/stack-status': typeof ApiStackStatusRoute
@@ -185,6 +192,7 @@ export interface FileRoutesByTo {
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/stack-status': typeof ApiStackStatusRoute
@@ -211,6 +219,7 @@ export interface FileRoutesById {
   '/zfs': typeof ZfsRoute
   '/api/docker-inventory': typeof ApiDockerInventoryRoute
   '/api/docker-stats': typeof ApiDockerStatsRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/proxmox-stats': typeof ApiProxmoxStatsRoute
   '/api/settings': typeof ApiSettingsRoute
   '/api/stack-status': typeof ApiStackStatusRoute
@@ -238,6 +247,7 @@ export interface FileRouteTypes {
     | '/zfs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
+    | '/api/health'
     | '/api/proxmox-stats'
     | '/api/settings'
     | '/api/stack-status'
@@ -262,6 +272,7 @@ export interface FileRouteTypes {
     | '/zfs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
+    | '/api/health'
     | '/api/proxmox-stats'
     | '/api/settings'
     | '/api/stack-status'
@@ -287,6 +298,7 @@ export interface FileRouteTypes {
     | '/zfs'
     | '/api/docker-inventory'
     | '/api/docker-stats'
+    | '/api/health'
     | '/api/proxmox-stats'
     | '/api/settings'
     | '/api/stack-status'
@@ -313,6 +325,7 @@ export interface RootRouteChildren {
   ZfsRoute: typeof ZfsRoute
   ApiDockerInventoryRoute: typeof ApiDockerInventoryRoute
   ApiDockerStatsRoute: typeof ApiDockerStatsRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiProxmoxStatsRoute: typeof ApiProxmoxStatsRoute
   ApiSettingsRoute: typeof ApiSettingsRoute
   ApiStackStatusRoute: typeof ApiStackStatusRoute
@@ -431,6 +444,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProxmoxStatsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/docker-stats': {
       id: '/api/docker-stats'
       path: '/api/docker-stats'
@@ -527,6 +547,7 @@ const rootRouteChildren: RootRouteChildren = {
   ZfsRoute: ZfsRoute,
   ApiDockerInventoryRoute: ApiDockerInventoryRoute,
   ApiDockerStatsRoute: ApiDockerStatsRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiProxmoxStatsRoute: ApiProxmoxStatsRoute,
   ApiSettingsRoute: ApiSettingsRoute,
   ApiStackStatusRoute: ApiStackStatusRoute,
