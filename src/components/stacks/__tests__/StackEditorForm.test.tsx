@@ -72,8 +72,9 @@ mock.module('@/components/stacks/DeleteStackDialog', () => ({
 const mockShowToast = mock((_message: string, _severity: string) => {});
 mock.module('@/hooks/toastAtom', () => ({ useToast: () => ({ showToast: mockShowToast }) }));
 
+type DeleteResult = { status: 'removed'; commitSha: string } | { status: 'teardown-pending'; deployId: number };
 const mockTriggerDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
-const mockDeleteStack = mock((_args: unknown) => Promise.resolve({ status: 'removed', commitSha: 'x' }));
+const mockDeleteStack = mock((_args: unknown): Promise<DeleteResult> => Promise.resolve({ status: 'removed', commitSha: 'x' }));
 const mockUpdateSettings = mock((_args: unknown) => Promise.resolve({ commitSha: 'x' }));
 const mockResumeDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
 const mockRejectDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
@@ -125,6 +126,10 @@ describe('StackEditorForm', () => {
     mockResumeDeploy.mockClear();
     mockRejectDeploy.mockClear();
     mockTriggerDeploy.mockImplementation(() => Promise.resolve({ deployId: 1 }));
+    mockDeleteStack.mockImplementation(() => Promise.resolve({ status: 'removed', commitSha: 'x' }));
+    mockUpdateSettings.mockImplementation(() => Promise.resolve({ commitSha: 'x' }));
+    mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: 1 }));
+    mockRejectDeploy.mockImplementation(() => Promise.resolve({ deployId: 1 }));
     capturedBlockerOpts = undefined;
     blockerReturn = { status: 'idle', proceed: proceedSpy, reset: resetSpy };
   });
@@ -243,5 +248,40 @@ describe('StackEditorForm', () => {
       data: { stackName: 'web', host: 'host2', autoDeploy: true },
     }));
     expect(mockShowToast).toHaveBeenCalledWith('Stack settings updated', 'success');
+  });
+
+  it('surfaces toasts on approve, reject, and settings failures', async () => {
+    mockResumeDeploy.mockImplementation(() => Promise.reject(new Error('approve failed')));
+    mockRejectDeploy.mockImplementation(() => Promise.reject(new Error('reject failed')));
+    mockUpdateSettings.mockImplementation(() => Promise.reject(new Error('settings failed')));
+    await renderForm();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Deploys/ }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'approve' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('approve failed', 'error'));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'reject' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('reject failed', 'error'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'stack settings' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'settings-save' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('settings failed', 'error'));
+  });
+
+  it('surfaces a toast when deletion fails', async () => {
+    mockDeleteStack.mockImplementation(() => Promise.reject(new Error('delete failed')));
+    await renderForm();
+    fireEvent.click(screen.getByRole('button', { name: 'action-delete' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'confirm-delete' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('delete failed', 'error'));
+  });
+
+  it('shows a teardown-pending toast when a teardown is queued', async () => {
+    mockDeleteStack.mockImplementation(() => Promise.resolve({ status: 'teardown-pending', deployId: 5 }));
+    await renderForm();
+    fireEvent.click(screen.getByRole('button', { name: 'action-delete' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'confirm-delete' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith(
+      expect.stringContaining('Teardown queued'), 'success',
+    ));
   });
 });
