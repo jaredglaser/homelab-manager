@@ -11,6 +11,16 @@
  */
 type Unsubscribe = () => void;
 
+// These streams only emit when their broadcast source changes (a settings write,
+// a container state change), so a quiet homelab leaves them silent well past the
+// idle timeout of the runtime (Bun's HTTP default is 10s) and any reverse proxy.
+// Without traffic the socket is dropped, the browser's EventSource reconnects,
+// and the churn of short-lived streams trips Caddy's (Go net/http2) rapid-reset
+// protection, which GOAWAYs the whole HTTP/2 connection: every multiplexed
+// request dies at once. A comment heartbeat keeps the stream warm. 5s stays
+// under typical Bun/proxy idle defaults; mirrors the agent's logs route.
+const HEARTBEAT_INTERVAL_MS = 5_000;
+
 export interface BroadcastSseHandlerOptions<Event> {
   /**
    * Called once per request. Responsible for any dynamic imports of
@@ -53,10 +63,15 @@ export function createBroadcastSseHandler<Event>(
         controller.enqueue(encoder.encode(': ok\n\n'));
 
         let unsubscribe: Unsubscribe = () => {};
+        let heartbeat: ReturnType<typeof setInterval> | null = null;
 
         const teardown = () => {
           if (closed) return;
           closed = true;
+          if (heartbeat !== null) {
+            clearInterval(heartbeat);
+            heartbeat = null;
+          }
           unsubscribe();
           try {
             controller.close();
@@ -99,6 +114,22 @@ export function createBroadcastSseHandler<Event>(
         }
 
         unsubscribe = subscribe(sendEvent);
+
+        heartbeat = setInterval(() => {
+          if (closed) {
+            clearInterval(heartbeat!);
+            heartbeat = null;
+            return;
+          }
+          try {
+            controller.enqueue(encoder.encode(':\n\n'));
+          } catch (err) {
+            if (!isCloseRelatedError(err)) {
+              console.error('Unexpected error during SSE heartbeat:', err);
+            }
+            teardown();
+          }
+        }, HEARTBEAT_INTERVAL_MS);
 
         request.signal.addEventListener('abort', teardown);
         // If the client disconnected during the awaits above, the abort event
