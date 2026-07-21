@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { describe, expect, test, mock, beforeAll, beforeEach, afterEach, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { handleContainerEvents } from '../routes/containers-events';
 import { _resetBroadcasterForTesting } from '../lib/docker-events-broadcaster';
@@ -489,5 +489,60 @@ describe('handleContainerEvents: error resilience', () => {
     expect(response.status).toBe(200);
     await new Promise((r) => setTimeout(r, 20));
     ac.abort();
+  });
+});
+
+describe('handleContainerEvents: idle heartbeat', () => {
+  const realSetInterval = globalThis.setInterval;
+  const realClearInterval = globalThis.clearInterval;
+
+  afterEach(() => {
+    globalThis.setInterval = realSetInterval;
+    globalThis.clearInterval = realClearInterval;
+  });
+
+  test('enqueues a comment heartbeat to keep the idle socket alive', async () => {
+    // A quiet host emits no container events, so without this the socket sits
+    // silent past Bun's 10s HTTP idleTimeout and the worker reconnects in a loop.
+    let captured: (() => void) | null = null;
+    globalThis.setInterval = mock((cb: () => void) => {
+      captured = cb;
+      return 1 as unknown as ReturnType<typeof setInterval>;
+    }) as unknown as typeof setInterval;
+
+    const docker = makeDocker([]);
+    const ac = new AbortController();
+    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
+    const response = await handleContainerEvents(docker as any, request);
+
+    // Let start() finish broadcaster setup and register the interval.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(captured).not.toBeNull();
+
+    captured!();
+    const text = await readUntil(response, (s) => s.includes(':\n\n'));
+    ac.abort();
+
+    // Init frame plus a bare ':' comment heartbeat.
+    expect(text.split('\n\n')).toContain(':');
+  });
+
+  test('clears the heartbeat interval when the request aborts', async () => {
+    const fakeId = Symbol('hb') as unknown as ReturnType<typeof setInterval>;
+    globalThis.setInterval = mock(() => fakeId) as unknown as typeof setInterval;
+    const clearSpy = mock(() => {});
+    globalThis.clearInterval = clearSpy as unknown as typeof clearInterval;
+
+    const docker = makeDocker([]);
+    const ac = new AbortController();
+    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
+    const response = await handleContainerEvents(docker as any, request);
+
+    await new Promise((r) => setTimeout(r, 50)); // let the interval register
+    ac.abort();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(clearSpy).toHaveBeenCalledWith(fakeId);
+    void response;
   });
 });

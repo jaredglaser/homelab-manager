@@ -14,7 +14,7 @@ COPY bun.lock ./bun.lock
 # --ignore-scripts skips cpu-features' install script (node-gyp rebuild),
 # which would fail because oven/bun ships no node binary. cpu-features is an
 # optional transitive dep (dockerode > docker-modem > ssh2); ssh2 uses a JS fallback.
-RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.13 \
+RUN --mount=type=cache,target=/root/.bun/install/cache,id=bun-agent-1.3.14 \
     bun install --frozen-lockfile --production --ignore-scripts
 
 COPY src ./src

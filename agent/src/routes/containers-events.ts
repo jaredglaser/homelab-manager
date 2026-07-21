@@ -68,11 +68,13 @@ export async function handleContainerEvents(docker: Dockerode, request: Request)
   const encoder = new TextEncoder();
   const closed = { value: false };
   let unsubscribe: (() => void) | null = null;
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       request.signal.addEventListener('abort', () => {
         closed.value = true;
+        if (heartbeat) clearInterval(heartbeat);
         unsubscribe?.();
         try {
           controller.close();
@@ -115,6 +117,24 @@ export async function handleContainerEvents(docker: Dockerode, request: Request)
       }
 
       unsubscribe = sub;
+
+      // The inventory stream only emits on container state changes, so a quiet
+      // host stays silent past the agent's HTTP idleTimeout (Bun default 10s),
+      // which drops the socket and forces the worker into a reconnect loop. A
+      // comment heartbeat keeps it warm; mirrors the logs route. 5s stays under
+      // typical Bun/proxy idle defaults.
+      const hb = setInterval(() => {
+        if (closed.value) {
+          clearInterval(hb);
+          return;
+        }
+        try {
+          controller.enqueue(encoder.encode(':\n\n'));
+        } catch {
+          clearInterval(hb);
+        }
+      }, 5_000);
+      heartbeat = hb;
     },
   });
 
