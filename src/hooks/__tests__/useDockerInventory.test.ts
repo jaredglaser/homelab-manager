@@ -75,6 +75,72 @@ describe('useDockerInventory', () => {
     expect(result.current.inventory.get('server1/abc123')?.name).toBe('plex');
   });
 
+  it('rehydrates date fields to Date objects on init (SSE delivers ISO strings)', () => {
+    const { result } = renderHook(() => useDockerInventory());
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.onopen?.();
+      sendEvent(es, {
+        type: 'init',
+        containers: [
+          {
+            host: 'server1',
+            containerId: 'abc123',
+            name: 'plex',
+            image: 'img',
+            state: 'exited',
+            composeProject: null,
+            serviceKey: '',
+            startedAt: new Date('2026-04-16T10:00:00Z'),
+            finishedAt: new Date('2026-04-16T11:00:00Z'),
+            exitCode: 0,
+            labels: {},
+            updatedAt: new Date('2026-04-16T11:00:00Z'),
+          },
+        ],
+      });
+    });
+
+    const entry = result.current.inventory.get('server1/abc123')!;
+    expect(entry.startedAt).toBeInstanceOf(Date);
+    expect(entry.finishedAt).toBeInstanceOf(Date);
+    expect(entry.updatedAt).toBeInstanceOf(Date);
+    expect(entry.startedAt!.getTime()).toBe(Date.parse('2026-04-16T10:00:00Z'));
+    expect(entry.updatedAt.getTime()).toBe(Date.parse('2026-04-16T11:00:00Z'));
+  });
+
+  it('rehydrates date fields to Date objects on upsert', () => {
+    const { result } = renderHook(() => useDockerInventory());
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.onopen?.();
+      sendEvent(es, { type: 'init', containers: [] });
+      sendEvent(es, {
+        type: 'upsert',
+        container: {
+          host: 'server1',
+          containerId: 'abc123',
+          name: 'plex',
+          image: 'img',
+          state: 'running',
+          composeProject: null,
+          serviceKey: '',
+          startedAt: new Date('2026-04-16T10:00:00Z'),
+          finishedAt: null,
+          exitCode: null,
+          updatedAt: new Date('2026-04-16T10:00:00Z'),
+        },
+      });
+    });
+
+    const entry = result.current.inventory.get('server1/abc123')!;
+    expect(entry.startedAt).toBeInstanceOf(Date);
+    expect(entry.updatedAt).toBeInstanceOf(Date);
+    expect(entry.startedAt!.getTime()).toBe(Date.parse('2026-04-16T10:00:00Z'));
+  });
+
   it('replaces entire inventory on second init event', () => {
     const { result } = renderHook(() => useDockerInventory());
     const es = MockEventSource.instances[0];
