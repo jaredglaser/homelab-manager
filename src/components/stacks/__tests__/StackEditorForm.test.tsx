@@ -103,15 +103,17 @@ const detail: StackDetail = {
 };
 
 async function renderForm() {
-  const { default: StackEditorForm } = await import('../StackEditorForm');
+  const { default: StackEditorForm } = await import('@/components/stacks/StackEditorForm');
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const ui = (d: StackDetail) => (
     <QueryClientProvider client={queryClient}>
-      <StackEditorForm stackName="web" detail={detail} />
-    </QueryClientProvider>,
+      <StackEditorForm stackName="web" detail={d} />
+    </QueryClientProvider>
   );
+  const result = render(ui(detail));
+  return { ...result, rerenderWith: (d: StackDetail) => result.rerender(ui(d)) };
 }
 
 describe('StackEditorForm', () => {
@@ -155,6 +157,25 @@ describe('StackEditorForm', () => {
     await waitFor(() => expect(screen.getAllByLabelText('unsaved changes')).toHaveLength(1));
     expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true);
     expect(capturedBlockerOpts?.enableBeforeUnload?.()).toBe(true);
+  });
+
+  it('adopts newly saved compose content when the field is clean', async () => {
+    const { rerenderWith } = await renderForm();
+    const input = screen.getByLabelText('compose-input') as HTMLInputElement;
+    expect(input.value).toBe('image: nginx');
+
+    rerenderWith({ ...detail, composeContent: 'image: redis' });
+    await waitFor(() => expect(input.value).toBe('image: redis'));
+  });
+
+  it('preserves an in-progress compose draft when saved content changes underneath', async () => {
+    const { rerenderWith } = await renderForm();
+    const input = screen.getByLabelText('compose-input') as HTMLInputElement;
+    act(() => { fireEvent.change(input, { target: { value: 'image: mine' } }); });
+
+    rerenderWith({ ...detail, composeContent: 'image: redis' });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+    expect(input.value).toBe('image: mine');
   });
 
   it('tracks dirty state for edited secret values', async () => {

@@ -62,20 +62,17 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
 
   // Seed each field's clean baseline from the stored value. Skip fields the user
   // has already edited so a blind overwrite typed before load is never clobbered.
-  // `form` from useFormContext gets a fresh identity every render, so seed off
-  // `data` only (via a ref) or the resetField calls would loop each render.
-  const formRef = useRef(form);
-  formRef.current = form;
+  // `form` from useFormContext gets a fresh identity every render, but its methods
+  // are stable, so depend on those (not `form`) to avoid re-running every render.
+  const { resetField, getFieldState } = form;
   useEffect(() => {
     if (!data) return;
-    const f = formRef.current;
-    const dirty = f.formState.dirtyFields.secrets ?? {};
     for (const [name, value] of Object.entries(data)) {
-      if (!dirty[name]) {
-        f.resetField(secretFieldName(name), { defaultValue: value });
+      if (!getFieldState(secretFieldName(name)).isDirty) {
+        resetField(secretFieldName(name), { defaultValue: value });
       }
     }
-  }, [data]);
+  }, [data, resetField, getFieldState]);
 
   const { dirtyFields } = useFormState({ control: form.control, name: 'secrets' });
   const dirtySecretNames = Object.entries(dirtyFields.secrets ?? {})

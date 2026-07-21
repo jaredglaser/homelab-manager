@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
-import { useBlocker } from '@tanstack/react-router'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useBlocker } from '@tanstack/react-router'
 import { FormProvider, useForm, useFormState } from 'react-hook-form'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -27,7 +26,6 @@ import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
 import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys'
-import { parseVariables } from '@/lib/stacks/parse-variables'
 import type { StackDetail } from '@/types/stacks'
 import type { StackFormValues } from '@/components/stacks/stack-form'
 
@@ -83,7 +81,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   // covers browser refresh/close. Delete flips `bypassRef` so removing the stack
   // (which discards edits by design) isn't gated by the prompt.
   const isDirtyRef = useRef(isDirty)
-  isDirtyRef.current = isDirty
+  useEffect(() => { isDirtyRef.current = isDirty }, [isDirty])
   const bypassRef = useRef(false)
   const blocker = useBlocker({
     shouldBlockFn: () => !bypassRef.current && isDirtyRef.current,
@@ -108,18 +106,24 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] });
   }, [deployVersion, stackName, queryClient]);
 
-  const composeVars = useMemo(() => parseVariables(detail.composeContent), [detail.composeContent])
+  // Names come straight from StackDetail (server derives them from the same
+  // compose-variable regex); no need to re-parse the compose content here.
+  const composeVars = detail.variableNames
 
   const statusKey = `${detail.host}/${detail.name}`
   const containers = statusMap.get(statusKey)?.containers ?? []
+
+  function invalidateDeployAndStacks() {
+    queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
+    queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+  }
 
   const deployMutation = useMutation({
     mutationFn: (action: 'deploy' | 'teardown') =>
       triggerDeploy({ data: { stack: stackName, host: detail.host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
     onSuccess: (_data, action) => {
       showToast(`${action} triggered successfully`, 'success')
-      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
-      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      invalidateDeployAndStacks()
     },
     onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
@@ -156,8 +160,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     mutationFn: (deployId: number) => resumeDeploy({ data: { deployId } }),
     onSuccess: () => {
       showToast(`Deploy approved for ${stackName}`, 'success')
-      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
-      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      invalidateDeployAndStacks()
     },
     onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
@@ -169,8 +172,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     mutationFn: (deployId: number) => rejectDeploy({ data: { deployId } }),
     onSuccess: () => {
       showToast(`Deploy rejected for ${stackName}`, 'success')
-      queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
-      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      invalidateDeployAndStacks()
     },
     onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
