@@ -5,7 +5,6 @@ const ComposeEditor = lazy(() => import('@/components/stacks/ComposeEditor'));
 
 interface ComposeEditorLoaderProps {
   stackName: string;
-  content: string;
 }
 
 export default function ComposeEditorLoader(props: Readonly<ComposeEditorLoaderProps>) {

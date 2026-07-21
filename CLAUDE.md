@@ -83,7 +83,7 @@ bun run test:coverage:all     # Run tests in both with coverage enforcement
 - **Runtime:** Bun (pinned in `.bun-version`; package manager, test runner, runtime)
 - **Language:** TypeScript (strict mode, `noUnusedLocals`, `noUnusedParameters`)
 - **UI:** shadcn-style components on Base UI (`@base-ui/react`, vendored in `src/components/ui/`) + TailwindCSS v4 (styling, via `@tailwindcss/vite` plugin - no config file) + sonner (toasts). MUI and emotion have been fully removed.
-- **State:** Jotai (settings atoms) + TanStack Query
+- **State:** Jotai (settings atoms) + TanStack Query + react-hook-form (stack editor draft/dirty tracking)
 - **Streaming:** SSE via TanStack Router server routes
 - **Charts:** Apache ECharts
 - **Clients:** Dockerode (Docker), pg (PostgreSQL), native fetch (Proxmox)
