@@ -60,6 +60,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const [panel, setPanel] = useState<Panel>('compose')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+  const [deployConfirmOpen, setDeployConfirmOpen] = useState(false)
   const [forceRecreate, setForceRecreate] = useState(false)
 
   const form = useForm<StackFormValues>({
@@ -129,6 +130,21 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
       showToast(err instanceof Error ? err.message : String(err), 'error')
     },
   })
+
+  // Deploy uses the git-committed compose and the saved secrets, so unsaved
+  // editor edits would silently ship the previous version. Warn first when dirty.
+  function handleDeploy() {
+    if (isDirty) {
+      setDeployConfirmOpen(true)
+      return
+    }
+    deployMutation.mutate('deploy')
+  }
+
+  function confirmDeploy() {
+    setDeployConfirmOpen(false)
+    deployMutation.mutate('deploy')
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (teardown: boolean) =>
@@ -283,7 +299,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         {/* Sticky Action Bar */}
         <div className="shrink-0 border-t border-(--border) bg-(--background) px-1 py-3">
           <StackActionBar
-            onDeploy={() => deployMutation.mutate('deploy')}
+            onDeploy={handleDeploy}
             onTeardown={() => deployMutation.mutate('teardown')}
             onDelete={() => setDeleteDialogOpen(true)}
             isDeploying={deployMutation.isPending}
@@ -311,8 +327,17 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         />
         <UnsavedChangesDialog
           open={blocker.status === 'blocked'}
-          onDiscard={() => { if (blocker.status === 'blocked') blocker.proceed() }}
-          onKeepEditing={() => { if (blocker.status === 'blocked') blocker.reset() }}
+          onConfirm={() => { if (blocker.status === 'blocked') blocker.proceed() }}
+          onCancel={() => { if (blocker.status === 'blocked') blocker.reset() }}
+        />
+        <UnsavedChangesDialog
+          open={deployConfirmOpen}
+          onConfirm={confirmDeploy}
+          onCancel={() => setDeployConfirmOpen(false)}
+          title="Deploy with unsaved changes?"
+          description="Your unsaved edits aren't saved yet, so this deploy uses the last saved compose and secrets. Save them first to include your changes."
+          confirmLabel="Deploy anyway"
+          cancelLabel="Cancel"
         />
       </div>
     </FormProvider>

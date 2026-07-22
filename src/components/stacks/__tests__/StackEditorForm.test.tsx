@@ -220,7 +220,7 @@ describe('StackEditorForm', () => {
     expect(capturedBlockerOpts?.shouldBlockFn()).toBe(false);
   });
 
-  it('triggers deploy and teardown from the action bar', async () => {
+  it('deploys immediately when there are no unsaved changes', async () => {
     await renderForm();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
     await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
@@ -229,6 +229,30 @@ describe('StackEditorForm', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-teardown' })); });
     await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(2));
     expect(mockShowToast).toHaveBeenCalledWith('teardown triggered successfully', 'success');
+  });
+
+  it('warns before deploying with unsaved changes and deploys on confirm', async () => {
+    await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'action-deploy' }));
+    // Deploy is held until the warning is confirmed.
+    expect(screen.getByRole('heading', { name: 'Deploy with unsaved changes?' })).toBeDefined();
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Deploy anyway' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not deploy when the unsaved-changes warning is cancelled', async () => {
+    await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'action-deploy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
   });
 
   it('surfaces a toast when a deploy fails', async () => {

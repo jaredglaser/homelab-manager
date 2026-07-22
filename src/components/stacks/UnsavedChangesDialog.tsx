@@ -9,33 +9,42 @@ import {
 
 interface UnsavedChangesDialogProps {
   open: boolean;
-  onDiscard: () => void;
-  onKeepEditing: () => void;
+  /** Destructive/continue action (e.g. discard and leave, or deploy anyway). */
+  onConfirm: () => void;
+  /** Dismiss without continuing (also fires on backdrop-driven close). */
+  onCancel: () => void;
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
 }
 
 /**
- * Fires when the user tries to leave the stack editor with unsaved compose or
- * secret edits. Backed by AlertDialog so the choice can't be dismissed by
- * clicking the backdrop; leaving is destructive (edits are only in memory).
+ * Confirmation for actions that would drop or bypass in-memory edits: leaving
+ * the editor with unsaved changes, or deploying while edits aren't saved. Backed
+ * by AlertDialog so the choice can't be dismissed by clicking the backdrop.
+ * Defaults describe the leave-guard; pass overrides for other flows.
  */
 export default function UnsavedChangesDialog({
   open,
-  onDiscard,
-  onKeepEditing,
+  onConfirm,
+  onCancel,
+  title = 'Unsaved changes',
+  description = 'You have unsaved changes that will be lost if you leave. Save them first, or discard to continue.',
+  confirmLabel = 'Discard changes',
+  cancelLabel = 'Keep editing',
 }: Readonly<UnsavedChangesDialogProps>) {
   return (
-    <AlertDialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onKeepEditing(); }}>
+    <AlertDialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onCancel(); }}>
       <AlertDialogContent>
-        <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
-        <AlertDialogDescription>
-          You have unsaved changes that will be lost if you leave. Save them first, or discard to continue.
-        </AlertDialogDescription>
+        <AlertDialogTitle>{title}</AlertDialogTitle>
+        <AlertDialogDescription>{description}</AlertDialogDescription>
         <AlertDialogFooter>
-          <Button variant="ghost" className="text-foreground" onClick={onKeepEditing}>
-            Keep editing
+          <Button variant="ghost" className="text-foreground" onClick={onCancel}>
+            {cancelLabel}
           </Button>
-          <Button variant="destructive" onClick={onDiscard}>
-            Discard changes
+          <Button variant="destructive" onClick={onConfirm}>
+            {confirmLabel}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
