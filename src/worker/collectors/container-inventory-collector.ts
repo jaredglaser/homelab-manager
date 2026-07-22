@@ -1,6 +1,3 @@
-import type { Pool } from 'pg';
-import type { DatabaseClient } from '@/lib/clients/database-client';
-import type { WorkerConfig } from '@/lib/config/worker-config';
 import type {
   AgentContainerEvent,
   ContainerState,
@@ -27,16 +24,6 @@ interface CachedContainerState {
   state: ContainerState | null;
   eventType: 'upsert' | 'destroy';
 }
-
-/**
- * BaseCollector eagerly instantiates StatsRepository from `db.getPool()`. The
- * inventory collector persists via its own DockerContainerEventRepository
- * instead and never touches the base repository, so we hand super() a stub
- * whose pool is never dereferenced. Keeps the (host, signer, repo, ...)
- * constructor shape that callers + tests depend on.
- */
-const STUB_DB = { getPool: () => ({} as Pool) } as DatabaseClient;
-const STUB_CONFIG = {} as WorkerConfig;
 
 export class ContainerInventoryCollector extends BaseCollector {
   readonly name: string;
@@ -72,7 +59,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     parentAbortController?: AbortController,
     streamConnector?: StreamConnector,
   ) {
-    super(STUB_DB, STUB_CONFIG, parentAbortController);
+    super(undefined, undefined, parentAbortController);
     this.signal = this.abortController.signal;
     this.host = host;
     this.signer = signer;

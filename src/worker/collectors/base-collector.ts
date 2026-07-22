@@ -25,25 +25,41 @@ const MIN_HEALTHY_CYCLE_MS = 1000;
  * - `collect()` - single collection cycle (connect, stream, write)
  */
 export abstract class BaseCollector implements AsyncDisposable {
-  protected readonly repository: StatsRepository;
   protected readonly abortController: AbortController;
   readonly signal: AbortSignal;
 
   private consecutiveErrors = 0;
   private _dockerDebugLogging = false;
   private _dbFlushDebugLogging = false;
+  private _repository: StatsRepository | undefined;
 
   constructor(
-    protected readonly db: DatabaseClient,
-    protected readonly config: WorkerConfig,
+    protected readonly db: DatabaseClient | undefined,
+    protected readonly config: WorkerConfig | undefined,
     abortController?: AbortController,
   ) {
-    this.repository = new StatsRepository(db.getPool());
     this.abortController = abortController ?? new AbortController();
     this.signal = this.abortController.signal;
   }
 
   abstract readonly name: string;
+
+  /**
+   * StatsRepository backed by `db`, built on first access rather than in the
+   * constructor. Collectors that persist through a different repository
+   * (e.g. ContainerInventoryCollector writes via DockerContainerEventRepository)
+   * never touch this getter, so they can be constructed without a real
+   * DatabaseClient at all instead of fabricating one to satisfy an eager build.
+   */
+  protected get repository(): StatsRepository {
+    if (!this.db) {
+      throw new Error(`${this.constructor.name} has no DatabaseClient to build a StatsRepository from`);
+    }
+    if (!this._repository) {
+      this._repository = new StatsRepository(this.db.getPool());
+    }
+    return this._repository;
+  }
 
   /**
    * Run collection until aborted or error. Implementations should:
