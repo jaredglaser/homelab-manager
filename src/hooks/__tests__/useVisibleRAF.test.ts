@@ -211,6 +211,52 @@ describe('useVisibleRAF', () => {
     }
   });
 
+  it('starts the loop when a batched dispatch ends in isIntersecting:true', () => {
+    // Regression: sparkline canvases mount in the same commit as their
+    // content-visibility:auto row on tab return, so the observer's first
+    // dispatch can batch a stale skipped-subtree "false" entry together with
+    // the corrective "true" entry. Acting on entries[0] left the loop off and
+    // rendered blank canvases until the element next left and re-entered view.
+    const cb = mock(() => {});
+    const targetRef = makeTargetRef();
+
+    renderHook(() => useVisibleRAF(targetRef, cb));
+
+    const ioInstance = ioInstances[0];
+    ioInstance.cb(
+      [
+        { isIntersecting: false, target: targetRef.current },
+        { isIntersecting: true, target: targetRef.current },
+      ] as unknown as IntersectionObserverEntry[],
+      ioInstance as unknown as IntersectionObserver,
+    );
+
+    expect(rafCallbacks.length).toBe(1);
+    rafCallbacks[0](performance.now());
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays stopped when a batched dispatch ends in isIntersecting:false', () => {
+    const cb = mock(() => {});
+    const targetRef = makeTargetRef();
+
+    renderHook(() => useVisibleRAF(targetRef, cb));
+
+    const ioInstance = ioInstances[0];
+    ioInstance.cb(
+      [
+        { isIntersecting: true, target: targetRef.current },
+        { isIntersecting: false, target: targetRef.current },
+      ] as unknown as IntersectionObserverEntry[],
+      ioInstance as unknown as IntersectionObserver,
+    );
+
+    // The trailing "false" wins: only the latest entry is acted on, so no
+    // rAF loop starts and the callback never runs.
+    expect(rafCallbacks.length).toBe(0);
+    expect(cb).not.toHaveBeenCalled();
+  });
+
   it('does not double-schedule rAF on repeated isIntersecting:true emits', () => {
     const cb = mock(() => {});
     const targetRef = makeTargetRef();

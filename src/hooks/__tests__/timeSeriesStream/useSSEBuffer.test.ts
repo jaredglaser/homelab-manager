@@ -169,6 +169,31 @@ describe('useSSEBuffer', () => {
     expect(stats).toEqual({ bucketed: 1, liveTail: 0, total: 1 });
   });
 
+  it('first enqueue flushes immediately without waiting for the interval', () => {
+    const { result } = renderBuffer(60, 30);
+    const now = Date.now();
+
+    // No flushTick call: the first frame after connect must paint on its own.
+    act(() => result.current.enqueue([{ key: 'first', time: now, entity: 'e' }]));
+
+    expect(result.current.sortedRows.map(r => r.key)).toEqual(['first']);
+    expect(result.current.hasData).toBe(true);
+  });
+
+  it('subsequent enqueues batch until the interval fires', () => {
+    const { result } = renderBuffer(60, 30);
+    const now = Date.now();
+
+    act(() => result.current.enqueue([{ key: 'first', time: now - 1000, entity: 'e' }]));
+    act(() => result.current.enqueue([{ key: 'second', time: now, entity: 'e' }]));
+
+    // Second frame stays pending until the periodic flush.
+    expect(result.current.sortedRows.map(r => r.key)).toEqual(['first']);
+
+    act(() => { flushTick?.(); });
+    expect(result.current.sortedRows.map(r => r.key)).toEqual(['first', 'second']);
+  });
+
   it('enqueue + periodic flush deduplicates against existing rows', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
