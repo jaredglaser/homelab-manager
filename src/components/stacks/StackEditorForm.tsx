@@ -66,9 +66,14 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const form = useForm<StackFormValues>({
     defaultValues: { compose: detail.composeContent, secrets: {} },
   })
-  const { isDirty, dirtyFields } = useFormState({ control: form.control })
+  // Derive dirtiness from dirtyFields (the same signal that drives the tab dots
+  // and the compose "Unsaved changes" label), not RHF's top-level isDirty: with
+  // a Controller-bound field the two can disagree, and the guards must always
+  // match what the user sees.
+  const { dirtyFields } = useFormState({ control: form.control })
   const composeDirty = !!dirtyFields.compose
   const secretsDirty = Object.values(dirtyFields.secrets ?? {}).some(Boolean)
+  const anyDirty = composeDirty || secretsDirty
 
   // Adopt a new saved compose (background refetch, or an external edit) only when
   // the user hasn't diverged, so an in-progress draft is never overwritten.
@@ -81,8 +86,8 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   // Leave-guard. `useBlocker` intercepts router navigation; the beforeunload hook
   // covers browser refresh/close. Delete flips `bypassRef` so removing the stack
   // (which discards edits by design) isn't gated by the prompt.
-  const isDirtyRef = useRef(isDirty)
-  useEffect(() => { isDirtyRef.current = isDirty }, [isDirty])
+  const isDirtyRef = useRef(anyDirty)
+  useEffect(() => { isDirtyRef.current = anyDirty }, [anyDirty])
   const bypassRef = useRef(false)
   const blocker = useBlocker({
     shouldBlockFn: () => !bypassRef.current && isDirtyRef.current,
@@ -134,7 +139,12 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   // Deploy uses the git-committed compose and the saved secrets, so unsaved
   // editor edits would silently ship the previous version. Warn first when dirty.
   function handleDeploy() {
-    if (isDirty) {
+    // Read dirtiness live at click time (same per-field signal as the compose
+    // "Unsaved changes" label and the tab dots) so the guard never lags a render
+    // or disagrees with what the user sees.
+    const composeDirtyNow = form.getFieldState('compose').isDirty
+    const secretsDirtyNow = Object.values(form.formState.dirtyFields.secrets ?? {}).some(Boolean)
+    if (composeDirtyNow || secretsDirtyNow) {
       setDeployConfirmOpen(true)
       return
     }
