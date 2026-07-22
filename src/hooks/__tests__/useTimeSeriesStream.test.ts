@@ -159,6 +159,46 @@ describe('useTimeSeriesStream reconnect refresh', () => {
 
     expect(preloadFn).toHaveBeenCalledTimes(1);
   });
+
+  it('paints the first frame after reconnect immediately even when the refresh is suppressed', async () => {
+    // Huge interval so any paint must come from the immediate first-flush path,
+    // not the periodic timer. Non-empty preload seeds lastRefreshRef so the
+    // reconnect lands inside the cooldown and skips the re-preload.
+    const preloadFn = mock(() => Promise.resolve([makeRow('seed', 5)]));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        sseUrl: '/api/test',
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+        updateIntervalMs: 100_000,
+      })
+    );
+
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(result.current.rows).toHaveLength(1); // seed only
+
+    const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+    const now = Date.now();
+
+    // First live frame paints immediately, arming the gate.
+    act(() => { es.onmessage?.({ data: JSON.stringify([{ key: 'f1', time: now - 3000, entity: 'e' }]) }); });
+    expect(result.current.rows).toHaveLength(2);
+
+    // Second frame batches: the gate is closed and the interval effectively never fires.
+    act(() => { es.onmessage?.({ data: JSON.stringify([{ key: 'f2', time: now - 2000, entity: 'e' }]) }); });
+    expect(result.current.rows).toHaveLength(2);
+
+    // Reconnect within cooldown: refresh is suppressed, but the gate must re-arm.
+    await dropAndReopenConnection();
+    expect(preloadFn).toHaveBeenCalledTimes(1);
+
+    // First frame after reconnect paints at once, draining the batched frame with it.
+    const reconnected = MockEventSource.instances[MockEventSource.instances.length - 1];
+    act(() => { reconnected.onmessage?.({ data: JSON.stringify([{ key: 'f3', time: now - 1000, entity: 'e' }]) }); });
+    expect(result.current.rows.map(r => (r as { key: string }).key)).toEqual(['seed-5', 'f1', 'f2', 'f3']);
+  });
 });
 
 describe('useTimeSeriesStream preload', () => {

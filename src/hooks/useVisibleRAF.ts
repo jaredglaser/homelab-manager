@@ -71,7 +71,11 @@ export function useVisibleRAF(
     try {
       const observer = new IntersectionObserver(
         (entries) => {
-          const entry = entries[0];
+          // Act on the LATEST entry: a batched dispatch can carry two transitions
+          // for one target. A canvas mounting with its content-visibility:auto row
+          // on tab return arrives as a skipped-subtree 0x0 "false" then the real
+          // "true", so only the last entry is the correct current state.
+          const entry = entries[entries.length - 1];
           if (!entry) return;
           if (entry.isIntersecting) start();
           else stop();

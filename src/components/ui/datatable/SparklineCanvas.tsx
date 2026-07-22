@@ -17,7 +17,10 @@ interface SparklineCanvasProps {
 }
 
 const PADDING = 2;
-const TIME_WINDOW_MS = 30000; // 30 seconds
+// Drawable window: right edge is always Date.now(), points older than this
+// render off-screen to the left. The sparkline accumulator store derives its
+// seed gate from it.
+export const SPARKLINE_TIME_WINDOW_MS = 30000;
 const MAX_DECAY = 0.97;
 const MAX_POINTS = 128; // Pre-allocated buffer ceiling (well above the ~35 points we expect)
 
@@ -174,8 +177,8 @@ export default memo(function SparklineCanvas({
     // Time window calculation (inlined - no closure allocation)
     const timeNow = Date.now();
     const visualRightEdge = timeNow; // currentRightEdge + (timeNow - currentRightEdge)
-    const leftEdgeTime = visualRightEdge - TIME_WINDOW_MS;
-    const timeScale = drawWidth / TIME_WINDOW_MS;
+    const leftEdgeTime = visualRightEdge - SPARKLINE_TIME_WINDOW_MS;
+    const timeScale = drawWidth / SPARKLINE_TIME_WINDOW_MS;
 
     // Write x/y coordinates into pre-allocated buffers (zero allocation)
     const count = Math.min(len, MAX_POINTS);

@@ -26,9 +26,16 @@ describe('ingestSparklineData', () => {
     expect(getSparklinePoints('a')).toEqual([]);
   });
 
-  it('waits (no points) while the latest point is stale', () => {
-    ingestSparklineData('a', makePoints([-5000]), NOW);
+  it('waits (no points) while the latest point is too old to draw', () => {
+    ingestSparklineData('a', makePoints([-30000]), NOW);
     expect(getSparklinePoints('a')).toEqual([]);
+  });
+
+  it('seeds from cached data several seconds old (return from another tab)', () => {
+    // Points are seconds old but inside the canvas window, so the series seeds at
+    // once rather than shimmer while the corrective refetch lands (tab-switch case).
+    ingestSparklineData('a', makePoints([-20000, -15000, -10000]), NOW);
+    expect(getSparklinePoints('a')).toHaveLength(3);
   });
 
   it('seeds the window once a fresh point arrives', () => {
@@ -36,8 +43,8 @@ describe('ingestSparklineData', () => {
     expect(getSparklinePoints('a')).toHaveLength(2);
   });
 
-  it('transitions from waiting to seeded when fresh data follows stale data', () => {
-    ingestSparklineData('a', makePoints([-5000]), NOW);
+  it('transitions from waiting to seeded when drawable data follows undrawable data', () => {
+    ingestSparklineData('a', makePoints([-30000]), NOW);
     expect(getSparklinePoints('a')).toEqual([]);
 
     ingestSparklineData('a', makePoints([-500, 0]), NOW);
