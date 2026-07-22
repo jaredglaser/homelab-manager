@@ -199,7 +199,7 @@ Separate Bun service that monitors and updates agent containers without manual D
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration layer. Accepts `DeployRequest` objects from either `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions).
+Trigger-agnostic orchestration layer. Accepts `DeployRequest` objects assembled inline by each caller: `src/lib/git/post-receive-handler.ts` for git pushes, `src/lib/stacks/stack-service.ts` for UI actions (deploy/teardown/rollback).
 
 **Pipeline stages:**
 
@@ -287,7 +287,7 @@ flowchart TD
     I --> J[Validate manifest]
     J --> K{Stack in manifest?}
     K -->|No| L[Log: not in manifest - skip]
-    K -->|Yes| M[Build DeployRequest via GitTriggerBuilder]
+    K -->|Yes| M[Build DeployRequest inline]
     M --> N[Dispatch to DeployPipeline]
     N --> O[Record result in deploy_history]
 ```

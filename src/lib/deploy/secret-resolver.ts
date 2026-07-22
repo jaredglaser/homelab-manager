@@ -19,6 +19,57 @@ export class NoOpSecretResolver implements SecretResolver {
   }
 }
 
+/** The subset of StackSecretsRepository the resolver needs: a single-secret lookup by stack and variable name. */
+export interface StackSecretsLookup {
+  get(stackName: string, variableName: string): Promise<string | null>;
+}
+
+/**
+ * Production secret resolver. Resolves each requested variable against the
+ * stack-secrets store in parallel and classifies failures so callers get a
+ * useful error instead of a generic Promise.allSettled rejection dump.
+ *
+ * `Promise.allSettled` (not `Promise.all`) so one bad secret doesn't mask the
+ * decryption-failure message behind an unrelated first-rejection race.
+ * Decryption failures (wrong/rotated MASTER_KEY) are distinguished from other
+ * failures (DB errors, etc.) because the operator fix differs: rotate the key
+ * vs. investigate the database.
+ */
+export class StackSecretsResolver implements SecretResolver {
+  constructor(private readonly stackSecrets: StackSecretsLookup) {}
+
+  async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
+    if (variables.length === 0) return {};
+    const results = await Promise.allSettled(
+      variables.map(async (v) => [v, await this.stackSecrets.get(stack, v)] as const),
+    );
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    const decryptionFailures = rejected.filter(
+      (r) => r.reason instanceof Error && r.reason.message === 'Secret decryption failed',
+    );
+    const otherFailures = rejected.filter((r) => !decryptionFailures.includes(r));
+
+    if (otherFailures.length > 0) {
+      throw otherFailures[0].reason instanceof Error
+        ? otherFailures[0].reason
+        : new Error(String(otherFailures[0].reason));
+    }
+    if (decryptionFailures.length > 0) {
+      throw new Error(
+        `Failed to decrypt ${decryptionFailures.length} secret(s) for stack "${stack}". Check that MASTER_KEY is correct.`,
+      );
+    }
+    const entries = results
+      .filter((r): r is PromiseFulfilledResult<readonly [string, string | null]> => r.status === 'fulfilled')
+      .map((r) => r.value);
+    const secrets: Record<string, string> = {};
+    for (const [k, v] of entries) {
+      if (v !== null) secrets[k] = v;
+    }
+    return secrets;
+  }
+}
+
 /**
  * Extract variable references from Docker Compose content.
  * Matches `${VAR_NAME}` and `${VAR_NAME:-default}` (with `:`, `?`, `+`, `-` expansions).

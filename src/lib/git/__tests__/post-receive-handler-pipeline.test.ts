@@ -3,9 +3,10 @@ import { mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { generateKeyPair } from 'jose';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
+import * as repo from '../repo';
 import { initBareRepo, commitFiles } from '../repo';
 import { processPostReceive } from '../post-receive-handler';
-import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
+import { MANIFEST } from '@/lib/stacks/stack-repo-layout';
 
 // Pre-load all infrastructure modules that processPostReceive dynamically
 // imports. Because dynamic `await import()` returns the same cached module
@@ -18,8 +19,9 @@ import { HostRepository } from '@/lib/database/repositories/host-repository';
 import { AgentClient } from '@/lib/clients/agent-client';
 import { AgentKeypairsRepository } from '@/lib/database/repositories/agent-keypairs-repository';
 import { StackSecretsRepository } from '@/lib/database/repositories/stack-secrets-repository';
+import { DeployPipeline } from '@/lib/deploy/pipeline';
 import * as masterKey from '@/lib/crypto/master-key';
-import type { ManagedHost } from '@/lib/deploy/types';
+import type { ManagedHost, DeployRequest } from '@/lib/deploy/types';
 
 // Helpers
 
@@ -190,8 +192,25 @@ describe('processPostReceive (pipeline paths)', () => {
     expect(getClientSpy).not.toHaveBeenCalled();
   });
 
-  it('returns early when builder produces no deploy requests (deployRequests.length === 0)', async () => {
-    const buildSpy = spyOn(GitTriggerBuilder.prototype, 'build').mockReturnValue([]);
+  it('returns early when the manifest lookup filters out every changed stack (deployRequests.length === 0)', async () => {
+    // buildDeployRequests and processPostReceive's own inline lookup both read
+    // the manifest at the same newHead, so they normally agree. Simulate the
+    // reads disagreeing (e.g. a ref that moved between them) by having the
+    // second manifest read (inside processPostReceive itself) return a
+    // manifest that no longer lists "plex", so the inline filter drops it.
+    const originalReadFileFromRepo = repo.readFileFromRepo;
+    let manifestReadCount = 0;
+    const readSpy = spyOn(repo, 'readFileFromRepo').mockImplementation(
+      async (repoPathArg: string, filePath: string, ref?: string) => {
+        if (filePath === MANIFEST) {
+          manifestReadCount += 1;
+          if (manifestReadCount > 1) {
+            return 'stacks: {}\n';
+          }
+        }
+        return originalReadFileFromRepo(repoPathArg, filePath, ref);
+      },
+    );
 
     try {
       const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
@@ -201,7 +220,7 @@ describe('processPostReceive (pipeline paths)', () => {
       // Pipeline never initialized
       expect(getClientSpy).not.toHaveBeenCalled();
     } finally {
-      buildSpy.mockRestore();
+      readSpy.mockRestore();
     }
   });
 
@@ -221,6 +240,30 @@ describe('processPostReceive (pipeline paths)', () => {
     expect(infoSpy).toHaveBeenCalledWith(
       expect.stringContaining('[PostReceive] Deploy pipeline result for "plex": succeeded'),
     );
+  });
+
+  it('builds the exact git_push DeployRequest payload for a changed stack', async () => {
+    // Asserts the payload pipeline.execute() receives: the literal-field-mapping
+    // coverage that previously lived in a standalone builder test file.
+    const executeSpy = spyOn(DeployPipeline.prototype, 'execute');
+    const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
+
+    try {
+      await expect(processPostReceive(repoPath, sha1, sha2)).resolves.toBeUndefined();
+
+      expect(executeSpy).toHaveBeenCalledWith({
+        stack: 'plex',
+        host: 'homeserver',
+        composeContent: 'v2',
+        commitSha: sha2,
+        envContent: '',
+        action: 'deploy',
+        trigger: 'git_push',
+        autoApproved: true,
+      } satisfies DeployRequest);
+    } finally {
+      executeSpy.mockRestore();
+    }
   });
 
   it('logs error and resolves when pipeline initialization fails (outer catch)', async () => {

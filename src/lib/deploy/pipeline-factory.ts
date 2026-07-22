@@ -1,5 +1,6 @@
 import type { DeployPipeline, StackRepoWriter } from '@/lib/deploy/pipeline';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
+import { StackSecretsResolver } from '@/lib/deploy/secret-resolver';
 
 export interface DeployPipelineBundle {
   pipeline: DeployPipeline;
@@ -51,38 +52,7 @@ export async function createDeployPipeline(): Promise<DeployPipelineBundle> {
     hostsRepo: new HostRepository(pool),
     agentClientFactory: (url, signer) => new AgentClient({ agentUrl: url, signer }),
     stackRepoWriter,
-    secretResolver: {
-      async resolve(stack: string, variables: string[]): Promise<Record<string, string>> {
-        if (variables.length === 0) return {};
-        const results = await Promise.allSettled(
-          variables.map(async (v) => [v, await stackSecrets.get(stack, v)] as const),
-        );
-        const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-        const decryptionFailures = rejected.filter(
-          (r) => r.reason instanceof Error && r.reason.message === 'Secret decryption failed',
-        );
-        const otherFailures = rejected.filter((r) => !decryptionFailures.includes(r));
-
-        if (otherFailures.length > 0) {
-          throw otherFailures[0].reason instanceof Error
-            ? otherFailures[0].reason
-            : new Error(String(otherFailures[0].reason));
-        }
-        if (decryptionFailures.length > 0) {
-          throw new Error(
-            `Failed to decrypt ${decryptionFailures.length} secret(s) for stack "${stack}". Check that MASTER_KEY is correct.`,
-          );
-        }
-        const entries = results
-          .filter((r): r is PromiseFulfilledResult<readonly [string, string | null]> => r.status === 'fulfilled')
-          .map((r) => r.value);
-        const secrets: Record<string, string> = {};
-        for (const [k, v] of entries) {
-          if (v !== null) secrets[k] = v;
-        }
-        return secrets;
-      },
-    },
+    secretResolver: new StackSecretsResolver(stackSecrets),
     tokenResolver: async (host) => {
       const privateKey = await agentKeypairs.getPrivateKeyForHost(host.name);
       if (!privateKey) {

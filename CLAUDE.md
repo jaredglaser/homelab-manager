@@ -159,7 +159,7 @@ OIDC login, required by default; `AUTH_DISABLED=true` is the explicit opt-out an
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Uses `GitTriggerBuilder` (post-receive) or `UITriggerBuilder` (UI actions). Concurrency enforced via PostgreSQL partial unique index. Stuck deploys recovered on startup and via `DeployWatchdog` (default 10-min threshold) so a crashed process can't leave `in_progress` rows stranded.
+Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Each caller (`src/lib/git/post-receive-handler.ts` for git pushes, `src/lib/stacks/stack-service.ts` for UI deploys/rollbacks) assembles its own `DeployRequest` inline; there is no separate trigger-builder layer. Concurrency enforced via PostgreSQL partial unique index. Stuck deploys recovered on startup and via `DeployWatchdog` (default 10-min threshold) so a crashed process can't leave `in_progress` rows stranded.
 
 ### Git Management (`src/lib/git/`)
 
