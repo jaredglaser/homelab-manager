@@ -11,8 +11,6 @@ export interface DockerContainer {
   ioWait: number; // percentage
 }
 
-export type { ContainerStatsWithRates } from '../lib/rate-calculator';
-
 /** Wide row from docker_stats hypertable */
 export interface DockerStatsRow {
   time: string | Date;
@@ -58,8 +56,8 @@ export interface DockerStatsFromDB {
 }
 
 /**
- * Common interface for container stats that works with both
- * direct streaming (ContainerStatsWithRates) and database-backed streaming (DockerStatsFromDB)
+ * Common interface for container stats display, shared by database-backed
+ * streaming (DockerStatsFromDB) and any other rate-bearing source.
  */
 export interface ContainerStatsDisplay {
   id: string;
