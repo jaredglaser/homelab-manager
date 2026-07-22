@@ -2,6 +2,7 @@ import git from 'isomorphic-git';
 import fs from 'node:fs';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { initBareRepo, commitFiles } from '@/lib/git/repo';
+import { MANIFEST } from '@/lib/stacks/stack-repo-layout';
 
 const DEFAULT_MANIFEST = `stacks: {}
 `;
@@ -21,7 +22,7 @@ export async function ensureRepoInitialized(): Promise<void> {
   await commitFiles(repoPath, (existingFiles) => {
     if (existingFiles.size > 0) return null; // another writer initialized first
     return {
-      files: [{ path: 'manifest.yaml', content: DEFAULT_MANIFEST }],
+      files: [{ path: MANIFEST, content: DEFAULT_MANIFEST }],
       message: 'Initialize stacks repository',
       author: {
         name: 'homelab-manager',
