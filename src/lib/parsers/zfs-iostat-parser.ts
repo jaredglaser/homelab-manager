@@ -30,6 +30,16 @@ function parseIOStatValue(value: string): number {
 }
 
 /**
+ * True when the line is the "capacity  operations  bandwidth" header row that
+ * `zpool iostat -vvv` reprints at the top of every refresh cycle. Exported so
+ * collectors can use it as the cycle-boundary signal (flush + reset hierarchy
+ * state) instead of duplicating the string match themselves.
+ */
+export function isZFSIOStatCycleHeader(line: string): boolean {
+  return line.includes('capacity') && line.includes('operations') && line.includes('bandwidth');
+}
+
+/**
  * Parses a single line of zpool iostat output
  * Handles both pool-level and vdev-level statistics
  *
@@ -48,7 +58,7 @@ export function parseZFSIOStat(
 
   // Skip header lines (e.g. "capacity  operations  bandwidth" or "pool  alloc  free  read  write")
   if (
-    (line.includes('capacity') && line.includes('operations') && line.includes('bandwidth')) ||
+    isZFSIOStatCycleHeader(line) ||
     (/\bpool\b/.test(line) && /\balloc\b/.test(line) && /\bfree\b/.test(line))
   ) {
     return null;

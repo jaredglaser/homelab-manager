@@ -2,7 +2,7 @@ import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { DockerStatsRow } from '@/types/docker';
+import type { NewDockerStat } from '@/lib/database/repositories/stats-repository';
 import { BaseCollector } from './base-collector';
 import { connectAgentSseStream } from './agent-sse-stream';
 
@@ -37,22 +37,22 @@ function isAgentErrorEvent(event: AgentStatsEvent): boolean {
   return 'error' in event && !('containerId' in event);
 }
 
-/** Map an AgentStatsEvent to a DockerStatsRow */
-function toDockerStatsRow(event: AgentStatsEvent, hostName: string): DockerStatsRow {
+/** Map an AgentStatsEvent to the domain shape StatsRepository.insertDockerStats accepts */
+function toNewDockerStat(event: AgentStatsEvent, hostName: string): NewDockerStat {
   return {
     time: new Date(event.timestamp),
     host: hostName,
-    container_id: event.containerId,
-    container_name: event.containerName,
+    containerId: event.containerId,
+    containerName: event.containerName,
     image: event.image,
-    cpu_percent: event.cpuPercent,
-    memory_usage: event.memoryUsage,
-    memory_limit: event.memoryLimit,
-    memory_percent: event.memoryPercent,
-    network_rx_bytes_per_sec: event.networkRxBytesPerSec,
-    network_tx_bytes_per_sec: event.networkTxBytesPerSec,
-    block_io_read_bytes_per_sec: event.blockReadBytesPerSec,
-    block_io_write_bytes_per_sec: event.blockWriteBytesPerSec,
+    cpuPercent: event.cpuPercent,
+    memoryUsage: event.memoryUsage,
+    memoryLimit: event.memoryLimit,
+    memoryPercent: event.memoryPercent,
+    networkRxBytesPerSec: event.networkRxBytesPerSec,
+    networkTxBytesPerSec: event.networkTxBytesPerSec,
+    blockReadBytesPerSec: event.blockReadBytesPerSec,
+    blockWriteBytesPerSec: event.blockWriteBytesPerSec,
   };
 }
 
@@ -63,7 +63,7 @@ export class AgentStatsCollector extends BaseCollector {
   private readonly streamConnector: StreamConnector;
   private readonly entityMetadataRepository: EntityMetadataRepository;
   private readonly knownContainers = new Set<string>();
-  private pendingRows: DockerStatsRow[] = [];
+  private pendingRows: NewDockerStat[] = [];
 
   constructor(
     db: DatabaseClient,
@@ -110,7 +110,7 @@ export class AgentStatsCollector extends BaseCollector {
 
     await this.registerContainer(event);
 
-    this.pendingRows.push(toDockerStatsRow(event, this.host.name));
+    this.pendingRows.push(toNewDockerStat(event, this.host.name));
     return true;
   }
 

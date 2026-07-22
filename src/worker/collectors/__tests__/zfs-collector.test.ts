@@ -1,7 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { ZFSCollector } from '../zfs-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { ZFSStatsRow } from '@/types/zfs';
+import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
 import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
 
 /** Wrap a list of ZFS iostat lines as `{ line }` frames (optionally with an agent timestamp). */
@@ -11,7 +11,7 @@ function lineFrames(lines: string[], timestamp?: number): unknown[] {
 
 /** Create a mock DatabaseClient that captures insertZFSStats calls */
 function createMockDb() {
-  const insertedRows: ZFSStatsRow[][] = [];
+  const insertedRows: NewZFSStat[][] = [];
   return {
     db: {
       getPool: () => ({
@@ -22,7 +22,7 @@ function createMockDb() {
     /** Patch the repository after construction */
     patchRepository(collector: ZFSCollector) {
       const repo = (collector as any).repository;
-      repo.insertZFSStats = async (rows: ZFSStatsRow[]) => {
+      repo.insertZFSStats = async (rows: NewZFSStat[]) => {
         insertedRows.push(rows);
       };
     },
@@ -120,25 +120,25 @@ describe('ZFSCollector', () => {
 
       // Pool row (entity prefixed with host identifier from agentUrl)
       expect(rows[0].entity).toBe('192.168.1.50:9090/tank');
-      expect(rows[0].entity_type).toBe('pool');
+      expect(rows[0].entityType).toBe('pool');
       expect(rows[0].pool).toBe('tank');
       expect(rows[0].host).toBe('test-zfs');
       expect(rows[0].indent).toBe(0);
 
       // Vdev row
       expect(rows[1].entity).toBe('192.168.1.50:9090/tank/mirror-0');
-      expect(rows[1].entity_type).toBe('vdev');
+      expect(rows[1].entityType).toBe('vdev');
       expect(rows[1].pool).toBe('tank');
       expect(rows[1].indent).toBe(2);
 
       // Disk rows
       expect(rows[2].entity).toBe('192.168.1.50:9090/tank/mirror-0/sda');
-      expect(rows[2].entity_type).toBe('disk');
+      expect(rows[2].entityType).toBe('disk');
       expect(rows[2].pool).toBe('tank');
       expect(rows[2].indent).toBe(4);
 
       expect(rows[3].entity).toBe('192.168.1.50:9090/tank/mirror-0/sdb');
-      expect(rows[3].entity_type).toBe('disk');
+      expect(rows[3].entityType).toBe('disk');
     });
 
     it('should write final cycle when stream ends without trailing header', async () => {
@@ -162,7 +162,7 @@ describe('ZFSCollector', () => {
       expect(mockDb.insertedRows.length).toBe(1);
       expect(mockDb.insertedRows[0].length).toBe(1);
       expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/rpool');
-      expect(mockDb.insertedRows[0][0].entity_type).toBe('pool');
+      expect(mockDb.insertedRows[0][0].entityType).toBe('pool');
     });
 
     it('should connect with the configured agent URL, path, and signer', async () => {
