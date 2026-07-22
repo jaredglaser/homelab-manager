@@ -75,7 +75,7 @@ export function useTimeSeriesStream<TRow>({
   const preloadFnRef = useRef(preloadFn);
   preloadFnRef.current = preloadFn;
 
-  const { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime } = useSSEBuffer<TRow, RowAccessors<TRow>>({
+  const { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime, resetFirstFlush } = useSSEBuffer<TRow, RowAccessors<TRow>>({
     accessorsRef,
     windowSeconds,
     updateIntervalMs,
@@ -193,9 +193,13 @@ export function useTimeSeriesStream<TRow>({
   // connection was down are lost. Re-preload on reconnect to heal the gap instead
   // of waiting for the periodic refresh or a visibility change (up to a minute).
   const onReconnect = useCallback(() => {
+    // Re-arm the buffer's first-flush gate before any post-reconnect frame lands
+    // (onReconnect fires in onopen, ahead of onmessage) so the first frame paints
+    // immediately even when the cooldown below skips the re-preload.
+    resetFirstFlush();
     if (Date.now() - lastRefreshRef.current < VISIBILITY_REFRESH_COOLDOWN_MS) return;
     doRefreshRef.current().catch(() => {});
-  }, []);
+  }, [resetFirstFlush]);
 
   const { isConnected, error: sseError } = useEventSource<TRow[]>({
     url: sseUrl,

@@ -32,6 +32,7 @@ interface UseSSEBufferResult<TRow> {
   enqueue: (incoming: TRow[]) => void;
   replaceBuffer: (rows: TRow[], opts: ReplaceBufferOptions) => ReplaceBufferStats;
   getLastDataTime: () => number | null;
+  resetFirstFlush: () => void;
 }
 
 /**
@@ -93,6 +94,9 @@ export function useSSEBuffer<TRow, A extends BufferAccessors<TRow>>({
 
   const flushRef = useRef(flush);
   flushRef.current = flush;
+  // Gates the immediate paint of the first frame after a (re)connect. Initialized
+  // false at mount (covers tab-switch remounts); resetFirstFlush re-arms it for an
+  // in-place SSE reconnect, which keeps the same hook instance.
   const firstFlushDoneRef = useRef(false);
 
   const enqueue = useCallback((incoming: TRow[]) => {
@@ -105,6 +109,13 @@ export function useSSEBuffer<TRow, A extends BufferAccessors<TRow>>({
       firstFlushDoneRef.current = true;
       flushRef.current();
     }
+  }, []);
+
+  // Re-arm the immediate first flush so the first frame after an SSE reconnect
+  // paints at once instead of waiting for the next interval. The hook instance
+  // survives a reconnect, so the mount-time gate alone would not cover it.
+  const resetFirstFlush = useCallback(() => {
+    firstFlushDoneRef.current = false;
   }, []);
 
   const replaceBuffer = useCallback(
@@ -141,5 +152,5 @@ export function useSSEBuffer<TRow, A extends BufferAccessors<TRow>>({
 
   const getLastDataTime = useCallback(() => lastDataTimeRef.current, []);
 
-  return { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime };
+  return { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime, resetFirstFlush };
 }

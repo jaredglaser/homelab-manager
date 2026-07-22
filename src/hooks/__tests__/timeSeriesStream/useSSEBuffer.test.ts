@@ -180,6 +180,22 @@ describe('useSSEBuffer', () => {
     expect(result.current.hasData).toBe(true);
   });
 
+  it('resetFirstFlush re-arms immediate paint for the next enqueue (reconnect)', () => {
+    const { result } = renderBuffer(60, 30);
+    const now = Date.now();
+
+    // First connect: first frame paints immediately, arming the gate.
+    act(() => result.current.enqueue([{ key: 'first', time: now - 2000, entity: 'e' }]));
+    // A subsequent frame batches (gate is now closed).
+    act(() => result.current.enqueue([{ key: 'batched', time: now - 1000, entity: 'e' }]));
+    expect(result.current.sortedRows.map(r => r.key)).toEqual(['first']);
+
+    // Reconnect: re-arm the gate, then the next frame must paint without a tick.
+    act(() => result.current.resetFirstFlush());
+    act(() => result.current.enqueue([{ key: 'post-reconnect', time: now, entity: 'e' }]));
+    expect(result.current.sortedRows.map(r => r.key)).toEqual(['first', 'batched', 'post-reconnect']);
+  });
+
   it('subsequent enqueues batch until the interval fires', () => {
     const { result } = renderBuffer(60, 30);
     const now = Date.now();
