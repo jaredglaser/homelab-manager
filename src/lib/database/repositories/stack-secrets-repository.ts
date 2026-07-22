@@ -29,6 +29,28 @@ export class StackSecretsRepository {
     }
   }
 
+  /**
+   * Fetch every variable name and its decrypted value for a stack in one query,
+   * so the secrets UI can load all values without a per-variable round trip.
+   */
+  async getAll(stackName: string): Promise<Record<string, string>> {
+    const result = await this.pool.query(
+      'SELECT variable_name, ciphertext_jwe FROM stack_secrets WHERE stack_name = $1 ORDER BY variable_name ASC',
+      [stackName],
+    );
+    const entries = await Promise.all(
+      result.rows.map(async (r) => {
+        const row = r as { variable_name: string; ciphertext_jwe: string };
+        try {
+          return [row.variable_name, await decryptValue(row.ciphertext_jwe, this.keyring)] as const;
+        } catch {
+          throw new Error('Secret decryption failed');
+        }
+      }),
+    );
+    return Object.fromEntries(entries);
+  }
+
   async set(stackName: string, variableName: string, value: string): Promise<void> {
     const jwe = await encryptValue(value, this.keyring);
     await this.pool.query(

@@ -4,8 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { FormProvider, useForm } from 'react-hook-form';
 import type { StackFormValues } from '@/components/stacks/stack-form';
 
-const mockListSecrets = mock((): Promise<string[]> => Promise.resolve(['DB_URL', 'SECRET_KEY']));
-const mockGetSecret = mock((): Promise<string | null> => Promise.resolve('super-secret'));
+const mockGetValues = mock((): Promise<Record<string, string>> =>
+  Promise.resolve({ DB_URL: 'super-secret', SECRET_KEY: 'super-secret' }));
 const mockSetSecret = mock(() => Promise.resolve(undefined));
 const mockDeleteSecret = mock(() => Promise.resolve(undefined));
 const mockEnsureVariablesExist = mock(() => Promise.resolve(undefined));
@@ -14,8 +14,7 @@ const realModule = await import('@/data/stacks/functions');
 
 mock.module('@/data/stacks/functions', () => ({
   ...realModule,
-  getStackVariables: mockListSecrets,
-  getVariableValue: mockGetSecret,
+  getStackVariableValues: mockGetValues,
   setVariableValue: mockSetSecret,
   deleteVariable: mockDeleteSecret,
   ensureVariablesExist: mockEnsureVariablesExist,
@@ -54,35 +53,33 @@ async function renderPanel(stackName = 'mystack', composeVariables: string[] = [
 
 describe('VariablesPanel', () => {
   beforeEach(() => {
-    mockListSecrets.mockClear();
-    mockGetSecret.mockClear();
+    mockGetValues.mockClear();
     mockSetSecret.mockClear();
     mockDeleteSecret.mockClear();
     mockEnsureVariablesExist.mockClear();
     mockShowToast.mockClear();
-    mockListSecrets.mockImplementation(() => Promise.resolve(['DB_URL', 'SECRET_KEY']));
-    mockGetSecret.mockImplementation(() => Promise.resolve('super-secret'));
+    mockGetValues.mockImplementation(() => Promise.resolve({ DB_URL: 'super-secret', SECRET_KEY: 'super-secret' }));
     mockSetSecret.mockImplementation(() => Promise.resolve(undefined));
     mockDeleteSecret.mockImplementation(() => Promise.resolve(undefined));
     mockEnsureVariablesExist.mockImplementation(() => Promise.resolve(undefined));
   });
 
   it('renders loading skeleton while fetching', async () => {
-    let resolveVariables!: (v: string[]) => void;
-    mockListSecrets.mockImplementationOnce(
-      () => new Promise<string[]>((res) => { resolveVariables = res; }),
+    let resolveVariables!: (v: Record<string, string>) => void;
+    mockGetValues.mockImplementationOnce(
+      () => new Promise<Record<string, string>>((res) => { resolveVariables = res; }),
     );
     const { container } = await renderPanel();
     const skeletons = container.querySelectorAll('[data-slot="skeleton"]');
     expect(skeletons.length).toBeGreaterThan(0);
-    resolveVariables([]);
+    resolveVariables({});
     await waitFor(() => {
       expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0);
     });
   });
 
   it('shows error alert when secrets store is unreachable', async () => {
-    mockListSecrets.mockImplementationOnce(() => Promise.reject(new Error('Connection refused')));
+    mockGetValues.mockImplementationOnce(() => Promise.reject(new Error('Connection refused')));
     await renderPanel();
     await waitFor(() => {
       expect(screen.getByText(/Unable to load secrets/)).toBeDefined();
@@ -97,8 +94,15 @@ describe('VariablesPanel', () => {
     });
   });
 
+  it('loads every value in a single bulk request', async () => {
+    await renderPanel();
+    await waitFor(() => expect(screen.getByText('DB_URL')).toBeDefined());
+    expect(mockGetValues).toHaveBeenCalledTimes(1);
+    expect(mockGetValues).toHaveBeenCalledWith({ data: { stackName: 'mystack' } });
+  });
+
   it('renders empty state when no variables exist', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve([]));
+    mockGetValues.mockImplementation(() => Promise.resolve({}));
     await renderPanel();
     await waitFor(() => {
       expect(screen.getByText('No variables yet.')).toBeDefined();
@@ -106,8 +110,7 @@ describe('VariablesPanel', () => {
   });
 
   it('seeds field values from the secrets store', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['API_TOKEN']));
-    mockGetSecret.mockImplementation(() => Promise.resolve('tok_123'));
+    mockGetValues.mockImplementation(() => Promise.resolve({ API_TOKEN: 'tok_123' }));
     await renderPanel();
     await waitFor(() => {
       expect((screen.getByLabelText('API_TOKEN value') as HTMLInputElement).value).toBe('tok_123');
@@ -132,8 +135,7 @@ describe('VariablesPanel', () => {
   });
 
   it('fields are editable without revealing and Save changes persists edits', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['API_KEY']));
-    mockGetSecret.mockImplementation(() => Promise.resolve('original-value'));
+    mockGetValues.mockImplementation(() => Promise.resolve({ API_KEY: 'original-value' }));
     await renderPanel();
     await waitFor(() => {
       expect((screen.getByLabelText('API_KEY value') as HTMLInputElement).value).toBe('original-value');
@@ -157,8 +159,7 @@ describe('VariablesPanel', () => {
   });
 
   it('only writes the edited rows on Save changes', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['A', 'B']));
-    mockGetSecret.mockImplementation(() => Promise.resolve('v'));
+    mockGetValues.mockImplementation(() => Promise.resolve({ A: 'v', B: 'v' }));
     await renderPanel();
     await waitFor(() => expect((screen.getByLabelText('A value') as HTMLInputElement).value).toBe('v'));
 
@@ -172,8 +173,7 @@ describe('VariablesPanel', () => {
   });
 
   it('shows a toast error when Save changes fails', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['API_KEY']));
-    mockGetSecret.mockImplementation(() => Promise.resolve('original'));
+    mockGetValues.mockImplementation(() => Promise.resolve({ API_KEY: 'original' }));
     mockSetSecret.mockImplementationOnce(() => Promise.reject(new Error('write failed')));
     await renderPanel();
     await waitFor(() => expect((screen.getByLabelText('API_KEY value') as HTMLInputElement).value).toBe('original'));
@@ -186,8 +186,7 @@ describe('VariablesPanel', () => {
   });
 
   it('shows a success toast when secrets save', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['API_KEY']));
-    mockGetSecret.mockImplementation(() => Promise.resolve('original'));
+    mockGetValues.mockImplementation(() => Promise.resolve({ API_KEY: 'original' }));
     await renderPanel();
     await waitFor(() => expect((screen.getByLabelText('API_KEY value') as HTMLInputElement).value).toBe('original'));
 
@@ -198,7 +197,7 @@ describe('VariablesPanel', () => {
   });
 
   it('delete button is disabled with tooltip when variable is referenced in compose', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['DB_URL']));
+    mockGetValues.mockImplementation(() => Promise.resolve({ DB_URL: '' }));
     await renderPanel('mystack', ['DB_URL']);
     await waitFor(() => expect(screen.getByText('DB_URL')).toBeDefined());
 
@@ -207,7 +206,7 @@ describe('VariablesPanel', () => {
   });
 
   it('delete button is enabled when variable is not referenced in compose', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['ORPHAN_VAR']));
+    mockGetValues.mockImplementation(() => Promise.resolve({ ORPHAN_VAR: '' }));
     await renderPanel('mystack', []);
     await waitFor(() => expect(screen.getByText('ORPHAN_VAR')).toBeDefined());
 
@@ -216,7 +215,7 @@ describe('VariablesPanel', () => {
   });
 
   it('opens delete confirmation dialog when delete is clicked', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['OLD_VAR']));
+    mockGetValues.mockImplementation(() => Promise.resolve({ OLD_VAR: '' }));
     await renderPanel('mystack', []);
     await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
 
@@ -228,9 +227,9 @@ describe('VariablesPanel', () => {
   });
 
   it('calls deleteVariable and refreshes after confirming delete', async () => {
-    mockListSecrets
-      .mockImplementationOnce(() => Promise.resolve(['TEMP_VAR']))
-      .mockImplementationOnce(() => Promise.resolve([]));
+    mockGetValues
+      .mockImplementationOnce(() => Promise.resolve({ TEMP_VAR: '' }))
+      .mockImplementationOnce(() => Promise.resolve({}));
     await renderPanel('mystack', []);
     await waitFor(() => expect(screen.getByText('TEMP_VAR')).toBeDefined());
 
@@ -242,12 +241,12 @@ describe('VariablesPanel', () => {
     await waitFor(() => {
       expect(mockDeleteSecret).toHaveBeenCalledTimes(1);
       // onDeleted invalidates the values query, triggering a re-fetch.
-      expect(mockListSecrets).toHaveBeenCalledTimes(2);
+      expect(mockGetValues).toHaveBeenCalledTimes(2);
     });
   });
 
   it('does not call deleteVariable when Cancel is clicked in the dialog', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['OLD_VAR']));
+    mockGetValues.mockImplementation(() => Promise.resolve({ OLD_VAR: '' }));
     await renderPanel('mystack', []);
     await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
 
@@ -259,7 +258,7 @@ describe('VariablesPanel', () => {
   });
 
   it('shows error inside delete dialog when delete mutation fails', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['OLD_VAR']));
+    mockGetValues.mockImplementation(() => Promise.resolve({ OLD_VAR: '' }));
     mockDeleteSecret.mockImplementationOnce(() => Promise.reject(new Error('delete failed')));
     await renderPanel('mystack', []);
     await waitFor(() => expect(screen.getByText('OLD_VAR')).toBeDefined());
@@ -273,9 +272,9 @@ describe('VariablesPanel', () => {
   });
 
   it('calls ensureVariablesExist when compose variables are missing from the secrets store', async () => {
-    mockListSecrets
-      .mockImplementationOnce(() => Promise.resolve(['DB_URL']))
-      .mockImplementationOnce(() => Promise.resolve(['DB_URL', 'NEW_VAR']));
+    mockGetValues
+      .mockImplementationOnce(() => Promise.resolve({ DB_URL: '' }))
+      .mockImplementationOnce(() => Promise.resolve({ DB_URL: '', NEW_VAR: '' }));
     await renderPanel('mystack', ['DB_URL', 'NEW_VAR']);
 
     await waitFor(() => {
@@ -284,7 +283,7 @@ describe('VariablesPanel', () => {
   });
 
   it('does not call ensureVariablesExist when all compose variables already exist', async () => {
-    mockListSecrets.mockImplementation(() => Promise.resolve(['DB_URL', 'SECRET_KEY']));
+    mockGetValues.mockImplementation(() => Promise.resolve({ DB_URL: '', SECRET_KEY: '' }));
     await renderPanel('mystack', ['DB_URL', 'SECRET_KEY']);
     await waitFor(() => expect(screen.getByText('DB_URL')).toBeDefined());
 
@@ -292,7 +291,7 @@ describe('VariablesPanel', () => {
   });
 
   it('silently catches error when ensureVariablesExist rejects', async () => {
-    mockListSecrets.mockImplementationOnce(() => Promise.resolve(['DB_URL']));
+    mockGetValues.mockImplementationOnce(() => Promise.resolve({ DB_URL: '' }));
     mockEnsureVariablesExist.mockImplementationOnce(() => Promise.reject(new Error('secrets store unreachable')));
     await renderPanel('mystack', ['DB_URL', 'NEW_VAR']);
 

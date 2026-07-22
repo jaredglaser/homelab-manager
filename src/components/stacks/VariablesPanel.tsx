@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Eye, EyeOff, Key, Save } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getStackVariables, getVariableValue, setVariableValue, ensureVariablesExist } from '@/data/stacks/functions';
+import { getStackVariableValues, setVariableValue, ensureVariablesExist } from '@/data/stacks/functions';
 import { useToast } from '@/hooks/toastAtom';
 import VariableRow from '@/components/stacks/VariableRow';
 import { secretFieldName, type StackFormValues } from '@/components/stacks/stack-form';
@@ -34,15 +34,7 @@ export default function VariablesPanel({ stackName, composeVariables }: Readonly
 
   const { data, isLoading, isError } = useQuery({
     queryKey: [VARIABLE_VALUES_QUERY_KEY, stackName],
-    queryFn: async (): Promise<Record<string, string>> => {
-      const names = await getStackVariables({ data: { stackName } });
-      const entries = await Promise.all(
-        names.map(async (name) =>
-          [name, (await getVariableValue({ data: { stackName, variableName: name } })) ?? ''] as const,
-        ),
-      );
-      return Object.fromEntries(entries);
-    },
+    queryFn: () => getStackVariableValues({ data: { stackName } }),
   });
 
   // Auto-create compose variables missing from the secrets store (e.g., after the DB is reset)
