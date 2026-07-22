@@ -9,7 +9,6 @@ mock.module('@/data/auth.functions', () => ({
   revokeSession: mock(() => Promise.resolve()),
   revokeAllUserSessions: mock(() => Promise.resolve()),
   getSession: mock(() => Promise.resolve(null)),
-  resetAuthFunctionsState: mock(() => {}),
   getRoleMapping: mock(() => Promise.resolve({ admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' })),
 }))
 

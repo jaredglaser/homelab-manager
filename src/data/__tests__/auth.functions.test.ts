@@ -1,6 +1,15 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
-import type { AuthUser } from '@/lib/auth/types';
+
+// getRequest() requires an H3 AsyncLocalStorage context not present in tests;
+// mock it to return a controllable request object.
+const mockGetRequest = mock(() => ({
+  headers: { get: (_name: string) => null as string | null },
+}));
+
+mock.module('@tanstack/start-server-core', () => ({
+  getRequest: mockGetRequest,
+}));
 
 mock.module('@/middleware/auth-middleware', () => ({
   authMiddleware: {
@@ -22,8 +31,6 @@ mock.module('@/middleware/auth-middleware', () => ({
       this.name = 'AuthError';
     }
   },
-  parseCookie: mock((_header: string | null, _name: string) => null as string | null),
-  resetAuthMiddlewareState: () => {},
 }));
 
 const mockPool = { query: mock(async () => ({ rows: [] })) };
@@ -56,13 +63,8 @@ mock.module('@/lib/database/repositories/session-repository', () => ({
   },
 }));
 
-const mockValidateSession = mock(async (_token: string) => null as AuthUser | null);
-mock.module('@/lib/auth/session-manager', () => ({
-  buildSessionManager: mock(async () => ({ validateSession: mockValidateSession })),
-  resetSessionManagerState: () => {},
-  SessionManager: class {},
-}));
-
+// isAuthDisabled: true drives sessionReadMiddleware through the resolver's
+// AUTH_DISABLED short-circuit without needing to reach a session manager.
 mock.module('@/lib/config/auth-config', () => ({
   isAuthDisabled: () => true,
 }));
@@ -103,7 +105,6 @@ describe('auth.functions', () => {
     mockSessionFindAllWithUser.mockClear();
     mockSessionDeleteById.mockClear();
     mockSessionDeleteByUserId.mockClear();
-    mockValidateSession.mockClear();
   });
 
   describe('getSession', () => {
@@ -176,13 +177,6 @@ describe('auth.functions', () => {
     it('is callable without throwing when auth is disabled', async () => {
       const { getRoleMapping } = await import('@/data/auth.functions');
       await getRoleMapping({});
-    });
-  });
-
-  describe('resetAuthFunctionsState', () => {
-    it('clears the cached session manager without throwing', () => {
-      const { resetAuthFunctionsState } = require('@/data/auth.functions');
-      expect(() => resetAuthFunctionsState()).not.toThrow();
     });
   });
 });

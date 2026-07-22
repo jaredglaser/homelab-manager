@@ -32,8 +32,6 @@ mock.module('@/middleware/auth-middleware', () => ({
       this.name = 'AuthError';
     }
   },
-  parseCookie: () => null,
-  resetAuthMiddlewareState: () => {},
 }));
 
 // stackSecretsMiddleware is used by some stacks functions; mock it so it injects
