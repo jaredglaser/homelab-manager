@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
-import type { DockerStatsRow } from '@/types/docker';
+import type { DockerStatsRowRevived } from '@/types/docker';
 
 mock.module('@/hooks/toastAtom', () => ({
   useToast: () => ({ showToast: () => {} }),
@@ -16,9 +16,9 @@ mock.module('@/hooks/usePulseIndicator', () => ({
 }));
 
 /** Records every buildContainerChartData call so tests can assert reuse vs rebuild */
-const chartDataCalls: DockerStatsRow[][] = [];
+const chartDataCalls: DockerStatsRowRevived[][] = [];
 mock.module('@/hooks/useContainerChartData', () => ({
-  buildContainerChartData: (chartData: DockerStatsRow[]) => {
+  buildContainerChartData: (chartData: DockerStatsRowRevived[]) => {
     chartDataCalls.push(chartData);
     return { sparklineData: undefined, dataPoints: [] };
   },
@@ -110,7 +110,7 @@ function makeInventory(
   };
 }
 
-function makeStatsRow(host: string, containerId: string, time: string): DockerStatsRow {
+function makeStatsRow(host: string, containerId: string, time: number): DockerStatsRowRevived {
   return {
     time,
     host,
@@ -132,8 +132,8 @@ const defaultProps = {
   inventory: new Map<string, DockerInventorySnapshotContainer>(),
   isInventoryConnected: true,
   inventoryError: null,
-  latestByEntity: new Map<string, DockerStatsRow>(),
-  rows: [] as DockerStatsRow[],
+  latestByEntity: new Map<string, DockerStatsRowRevived>(),
+  rows: [] as DockerStatsRowRevived[],
   hasData: true,
   isConnected: true,
   error: null,
@@ -259,7 +259,7 @@ describe('ContainerTable', () => {
   });
 
   describe('chart data memoization', () => {
-    function renderWithRows(rows: DockerStatsRow[]) {
+    function renderWithRows(rows: DockerStatsRowRevived[]) {
       const inventory = new Map([['host1/c1', makeInventory('host1', 'c1', 'nginx')]]);
       const latestByEntity = new Map([['host1/c1', rows[rows.length - 1]!]]);
       const store = createStore();
@@ -268,7 +268,7 @@ describe('ContainerTable', () => {
           <ContainerTable {...defaultProps} inventory={inventory} rows={rows} latestByEntity={latestByEntity} />
         </Provider>,
       );
-      const rerenderWithRows = (nextRows: DockerStatsRow[]) => {
+      const rerenderWithRows = (nextRows: DockerStatsRowRevived[]) => {
         view.rerender(
           <Provider store={store}>
             <ContainerTable {...defaultProps} inventory={inventory} rows={nextRows} latestByEntity={latestByEntity} />
@@ -280,8 +280,8 @@ describe('ContainerTable', () => {
 
     it('does not rebuild chart data when rows refresh with identical timestamps', () => {
       const rows = [
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:00Z')),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:01Z')),
       ];
       const { rerenderWithRows } = renderWithRows(rows);
       const callsAfterMount = chartDataCalls.length;
@@ -295,13 +295,13 @@ describe('ContainerTable', () => {
 
     it('rebuilds chart data when a new data point arrives', () => {
       const rows = [
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:00Z')),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:01Z')),
       ];
       const { rerenderWithRows } = renderWithRows(rows);
       const callsAfterMount = chartDataCalls.length;
 
-      rerenderWithRows([...rows, makeStatsRow('host1', 'c1', '2024-01-01T00:00:02Z')]);
+      rerenderWithRows([...rows, makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:02Z'))]);
 
       expect(chartDataCalls.length).toBeGreaterThan(callsAfterMount);
       expect(chartDataCalls[chartDataCalls.length - 1]!).toHaveLength(3);
@@ -309,8 +309,8 @@ describe('ContainerTable', () => {
 
     it('rebuilds chart data when window eviction drops a leading row', () => {
       const rows = [
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:00Z')),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:01Z')),
       ];
       const { rerenderWithRows } = renderWithRows(rows);
       const callsAfterMount = chartDataCalls.length;

@@ -28,6 +28,14 @@ export interface DockerStatsRow {
   block_io_write_bytes_per_sec: number | null;
 }
 
+/**
+ * `DockerStatsRow` after the docker-stats channel boundary revives `time` from
+ * the wire's ISO string to an epoch-ms number (see `lib/sse/channels/docker-stats.ts`).
+ * The live dashboard (`routes/docker.tsx` and everything fed by its `useTimeSeriesStream`
+ * output) works with this shape; only the wire/DB layer still sees the raw `string | Date`.
+ */
+export type DockerStatsRowRevived = Omit<DockerStatsRow, 'time'> & { time: number };
+
 /** Docker stats reconstructed from wide table rows; only the fields the frontend needs */
 export interface DockerStatsFromDB {
   id: string;
@@ -110,7 +118,7 @@ export interface DockerContainerTableRow extends DockerTableRowBase {
   stats?: DockerStatsFromDB;
   /** True when state === 'running' but no recent stats are available */
   isStale: boolean;
-  chartData?: DockerStatsRow[];
+  chartData?: DockerStatsRowRevived[];
   sparklineData?: import('@/hooks/useContainerChartData').SparklineData;
   dataPoints?: import('@/hooks/useContainerChartData').ChartDataPoint[];
 }

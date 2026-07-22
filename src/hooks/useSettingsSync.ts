@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
 import { useSetAtom } from 'jotai';
 import { rawSettingsAtom } from './settingsAtom';
-import { useEventSource } from './useEventSource';
-import { apiUrl } from '@/lib/utils/api-url';
+import { useSseChannel } from './useSseChannel';
+import { settingsChannel } from '@/lib/sse/channels/settings';
 import type { SettingsSSEMessage } from '@/types/settings';
 
 /**
@@ -24,14 +24,13 @@ export function useSettingsSync(): void {
     }
   }, [setRaw]);
 
-  const handleServiceError = useCallback(() => {
-    console.error('[useSettingsSync] Settings stream failed on the server');
-  }, []);
-
-  useEventSource<SettingsSSEMessage>({
-    url: apiUrl('/api/settings'),
+  // This hook returns void; a server-side failure is still worth a console
+  // entry rather than silently going unnoticed. `onServiceError` fires only
+  // for the channel's own named error event, not generic connection retries.
+  useSseChannel(settingsChannel, {
     onData: handleData,
-    onServiceError: handleServiceError,
-    errorEventName: 'settings_error',
+    onServiceError: () => {
+      console.error('[useSettingsSync] Settings stream failed on the server');
+    },
   });
 }

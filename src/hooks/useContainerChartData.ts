@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { DockerStatsRow } from '@/types/docker';
+import type { DockerStatsRowRevived } from '@/types/docker';
 import type { SparklinePoint } from '@/components/ui/datatable/sparkline-accumulator-store';
 
 export type { SparklinePoint };
@@ -24,8 +24,8 @@ export interface SparklineData {
   networkTx: SparklinePoint[];
 }
 
-/** Transforms raw Docker stats rows into chart data points and sparkline arrays. */
-export function buildContainerChartData(chartData: DockerStatsRow[]): {
+/** Transforms Docker stats rows (post channel-boundary revival) into chart data points and sparkline arrays. */
+export function buildContainerChartData(chartData: DockerStatsRowRevived[]): {
   dataPoints: ChartDataPoint[];
   sparklineData: SparklineData;
 } {
@@ -39,7 +39,7 @@ export function buildContainerChartData(chartData: DockerStatsRow[]): {
 
   for (let i = 0; i < chartData.length; i++) {
     const row = chartData[i];
-    const timestamp = new Date(row.time).getTime();
+    const timestamp = row.time;
     const cpuPercent = row.cpu_percent ?? 0;
     const memoryPercent = row.memory_percent ?? 0;
     const blockIoRead = row.block_io_read_bytes_per_sec ?? 0;
@@ -63,7 +63,7 @@ export function buildContainerChartData(chartData: DockerStatsRow[]): {
  * Transforms raw Docker stats rows into typed data points and per-metric
  * sparkline arrays suitable for chart rendering.
  */
-export function useContainerChartData(chartData: DockerStatsRow[]): {
+export function useContainerChartData(chartData: DockerStatsRowRevived[]): {
   dataPoints: ChartDataPoint[];
   sparklineData: SparklineData;
 } {

@@ -1,5 +1,8 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach } from 'bun:test';
 import { createStatsSseHandler } from '../create-stats-sse-handler';
+import { dockerStatsChannel } from '../channels/docker-stats';
+import { zfsStatsChannel } from '../channels/zfs-stats';
+import { proxmoxStatsChannel } from '../channels/proxmox-stats';
 
 mock.module('@/lib/auth/sse-auth', () => ({
   authenticateSSE: mock(async () => ({ id: 1, role: 'admin' })),
@@ -72,7 +75,7 @@ describe('createStatsSseHandler', () => {
     const { authenticateSSE } = require('@/lib/auth/sse-auth') as { authenticateSSE: ReturnType<typeof mock> };
     authenticateSSE.mockImplementationOnce(async () => null);
 
-    const handler = createStatsSseHandler('docker');
+    const handler = createStatsSseHandler('docker', dockerStatsChannel);
     const ac = new AbortController();
 
     const res = await handler({ request: makeRequest(ac) });
@@ -83,7 +86,7 @@ describe('createStatsSseHandler', () => {
 
   it('subscribes to the given source and forwards rows as a data frame', async () => {
     const { sendRows } = setupStatsPollService();
-    const handler = createStatsSseHandler('docker');
+    const handler = createStatsSseHandler('docker', dockerStatsChannel);
     const ac = new AbortController();
 
     const res = await handler({ request: makeRequest(ac) });
@@ -99,8 +102,9 @@ describe('createStatsSseHandler', () => {
 
   it('subscribes with the exact source string for each stats endpoint', async () => {
     const { subscribe } = setupStatsPollService();
+    const channelsBySource = { docker: dockerStatsChannel, zfs: zfsStatsChannel, proxmox: proxmoxStatsChannel } as const;
     for (const source of ['docker', 'zfs', 'proxmox'] as const) {
-      const handler = createStatsSseHandler(source);
+      const handler = createStatsSseHandler(source, channelsBySource[source]);
       const ac = new AbortController();
       await handler({ request: makeRequest(ac) });
       ac.abort();
@@ -111,7 +115,7 @@ describe('createStatsSseHandler', () => {
 
   it('forwards the poll error callback as an "event: stats_error" frame with an empty payload', async () => {
     const { sendError } = setupStatsPollService();
-    const handler = createStatsSseHandler('zfs');
+    const handler = createStatsSseHandler('zfs', zfsStatsChannel);
     const ac = new AbortController();
 
     const res = await handler({ request: makeRequest(ac) });
@@ -127,7 +131,7 @@ describe('createStatsSseHandler', () => {
 
   it('unsubscribes from the poll service when the request aborts', async () => {
     const { unsubscribe, subscribed, unsubscribed } = setupStatsPollService();
-    const handler = createStatsSseHandler('docker');
+    const handler = createStatsSseHandler('docker', dockerStatsChannel);
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
@@ -146,7 +150,7 @@ describe('createStatsSseHandler', () => {
       statsPollService: { subscribe },
     }));
 
-    const handler = createStatsSseHandler('docker');
+    const handler = createStatsSseHandler('docker', dockerStatsChannel);
     const ac = new AbortController();
 
     const res = await handler({ request: makeRequest(ac) });
@@ -168,7 +172,7 @@ describe('createStatsSseHandler', () => {
   it('carries the shared heartbeat cadence: a comment frame follows the initial flush on an idle stream', async () => {
     const setSpy = spyOn(globalThis, 'setInterval');
     setupStatsPollService();
-    const handler = createStatsSseHandler('docker');
+    const handler = createStatsSseHandler('docker', dockerStatsChannel);
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });

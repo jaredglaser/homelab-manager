@@ -9,9 +9,8 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useDockerInventory } from '@/hooks/useDockerInventory'
 import { getDockerEntityIcons, updateContainerIcon, clearContainerIcon } from '@/data/docker/functions'
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings'
-import { apiUrl } from '@/lib/utils/api-url'
 import { PRELOAD_STALE_TIME, dockerPreloadQueryKey, dockerStatsWindowSeconds, preloadDockerStats } from '@/lib/constants/preload-queries'
-import type { DockerStatsRow } from '@/types/docker'
+import { dockerStatsChannel } from '@/lib/sse/channels/docker-stats'
 
 
 export const Route = createFileRoute('/docker')({
@@ -89,11 +88,11 @@ function DockerContainersPage() {
     [qc],
   )
 
-  const stream = useTimeSeriesStream<DockerStatsRow>({
-    sseUrl: apiUrl('/api/docker-stats'),
+  const stream = useTimeSeriesStream({
+    channel: dockerStatsChannel,
     preloadFn,
-    getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
-    getTime: (row) => new Date(row.time).getTime(),
+    getKey: (row) => `${row.time}_${row.host}_${row.container_id}`,
+    getTime: (row) => row.time,
     getEntity: (row) => `${row.host}/${row.container_id}`,
     windowSeconds,
     updateIntervalMs: general.updateIntervalMs,

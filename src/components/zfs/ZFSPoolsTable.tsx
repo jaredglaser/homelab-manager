@@ -4,7 +4,7 @@ import { StaleDataAlert } from '@/components/ui/datatable/StaleDataAlert';
 import { DataTable, type MetricGroup } from '@/components/ui/datatable/DataTable';
 import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
 import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
-import type { ZFSStatsRow, ZFSHostHierarchy } from '@/types/zfs';
+import type { ZFSStatsRowRevived, ZFSHostHierarchy } from '@/types/zfs';
 import { buildZFSHostHierarchy } from '@/lib/utils/zfs-hierarchy-builder';
 import { formatBytesParts, formatAsPercentParts } from '@/formatters/metrics';
 import { useGeneralSettings, useZfsSettings } from '@/hooks/useSettings';
@@ -59,7 +59,7 @@ function ZFSNameCell({ row }: Readonly<{ row: { original: ZFSTableRow; getIsExpa
 }
 
 interface ZFSPoolsTableProps {
-  latestByEntity: Map<string, ZFSStatsRow>;
+  latestByEntity: Map<string, ZFSStatsRowRevived>;
   hasData: boolean;
   isConnected: boolean;
   error: Error | null;

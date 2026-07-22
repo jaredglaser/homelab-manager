@@ -1,11 +1,7 @@
 import { useCallback, useState } from 'react';
-import { apiUrl } from '@/lib/utils/api-url';
+import { useSseChannel } from '@/hooks/useSseChannel';
+import { stackStatusChannel, type StackSSEMessage } from '@/lib/sse/channels/stack-status';
 import type { StackStatusEntry } from '@/types/stacks';
-import { useEventSource } from '@/hooks/useEventSource';
-
-type StackSSEMessage =
-  | StackStatusEntry[]
-  | { type: 'deploy_changed'; stack: string; host: string };
 
 function isDeployChanged(data: StackSSEMessage): data is { type: 'deploy_changed'; stack: string; host: string } {
   return !Array.isArray(data) && 'type' in data && data.type === 'deploy_changed';
@@ -30,10 +26,8 @@ function shallowEqualContainers(
 export function useStackStatus() {
   const [statusMap, setStatusMap] = useState<Map<string, StackStatusEntry>>(new Map());
   const [deployVersion, setDeployVersion] = useState(0);
-  const [serviceError, setServiceError] = useState<Error | null>(null);
 
   const handleData = useCallback((data: StackSSEMessage) => {
-    setServiceError(null);
     if (isDeployChanged(data)) {
       setDeployVersion((v) => v + 1);
       return;
@@ -53,16 +47,10 @@ export function useStackStatus() {
     });
   }, []);
 
-  const handleServiceError = useCallback(() => {
-    setServiceError(new Error('Stack status stream unavailable'));
-  }, []);
-
-  const { isConnected, error } = useEventSource<StackSSEMessage>({
-    url: apiUrl('/api/stack-status'),
+  const { isConnected, error } = useSseChannel(stackStatusChannel, {
     onData: handleData,
-    onServiceError: handleServiceError,
-    errorEventName: 'stack_status_error',
+    serviceErrorMessage: 'Stack status stream unavailable',
   });
 
-  return { statusMap, isConnected, error: (error ?? serviceError)?.message ?? null, deployVersion };
+  return { statusMap, isConnected, error: error?.message ?? null, deployVersion };
 }
