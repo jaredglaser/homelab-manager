@@ -3,14 +3,54 @@ import type { DockerStatsRow } from '@/types/docker';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
 
+/**
+ * Domain shape a docker stats collector produces after parsing an agent SSE
+ * event: no knowledge of `docker_stats` column names or types required.
+ */
+export interface NewDockerStat {
+  time: Date;
+  host: string;
+  containerId: string;
+  containerName: string | null;
+  image: string | null;
+  cpuPercent: number | null;
+  memoryUsage: number | null;
+  memoryLimit: number | null;
+  memoryPercent: number | null;
+  networkRxBytesPerSec: number | null;
+  networkTxBytesPerSec: number | null;
+  blockReadBytesPerSec: number | null;
+  blockWriteBytesPerSec: number | null;
+}
+
+/**
+ * Domain shape the ZFS collector produces after parsing one `zpool iostat`
+ * line: no knowledge of `zfs_stats` column names, bigint truncation, or the
+ * utilization derivation required.
+ */
+export interface NewZFSStat {
+  time: Date;
+  host: string;
+  pool: string;
+  entity: string;
+  entityType: string;
+  indent: number;
+  capacityAlloc: number;
+  capacityFree: number;
+  readOpsPerSec: number;
+  writeOpsPerSec: number;
+  readBytesPerSec: number;
+  writeBytesPerSec: number;
+}
+
 export class StatsRepository {
   constructor(private pool: Pool) {}
 
-  async insertDockerStats(rows: DockerStatsRow[]): Promise<void> {
+  async insertDockerStats(rows: NewDockerStat[]): Promise<void> {
     if (rows.length === 0) return;
 
     try {
-      const times: (string | Date)[] = [];
+      const times: Date[] = [];
       const hosts: string[] = [];
       const containerIds: string[] = [];
       const containerNames: (string | null)[] = [];
@@ -27,17 +67,17 @@ export class StatsRepository {
       for (const row of rows) {
         times.push(row.time);
         hosts.push(row.host);
-        containerIds.push(row.container_id);
-        containerNames.push(row.container_name);
+        containerIds.push(row.containerId);
+        containerNames.push(row.containerName);
         images.push(row.image);
-        cpuPercents.push(row.cpu_percent);
-        memoryUsages.push(row.memory_usage);
-        memoryLimits.push(row.memory_limit);
-        memoryPercents.push(row.memory_percent);
-        networkRx.push(row.network_rx_bytes_per_sec);
-        networkTx.push(row.network_tx_bytes_per_sec);
-        blockRead.push(row.block_io_read_bytes_per_sec);
-        blockWrite.push(row.block_io_write_bytes_per_sec);
+        cpuPercents.push(row.cpuPercent);
+        memoryUsages.push(row.memoryUsage);
+        memoryLimits.push(row.memoryLimit);
+        memoryPercents.push(row.memoryPercent);
+        networkRx.push(row.networkRxBytesPerSec);
+        networkTx.push(row.networkTxBytesPerSec);
+        blockRead.push(row.blockReadBytesPerSec);
+        blockWrite.push(row.blockWriteBytesPerSec);
       }
 
       await this.pool.query(
@@ -64,38 +104,44 @@ export class StatsRepository {
     }
   }
 
-  async insertZFSStats(rows: ZFSStatsRow[]): Promise<void> {
+  async insertZFSStats(rows: NewZFSStat[]): Promise<void> {
     if (rows.length === 0) return;
 
     try {
-      const times: (string | Date)[] = [];
+      const times: Date[] = [];
       const hosts: string[] = [];
       const pools: string[] = [];
       const entities: string[] = [];
       const entityTypes: string[] = [];
       const indents: number[] = [];
-      const capacityAllocs: (number | null)[] = [];
-      const capacityFrees: (number | null)[] = [];
-      const readOps: (number | null)[] = [];
-      const writeOps: (number | null)[] = [];
-      const readBytes: (number | null)[] = [];
-      const writeBytes: (number | null)[] = [];
-      const utilizations: (number | null)[] = [];
+      const capacityAllocs: number[] = [];
+      const capacityFrees: number[] = [];
+      const readOps: number[] = [];
+      const writeOps: number[] = [];
+      const readBytes: number[] = [];
+      const writeBytes: number[] = [];
+      const utilizations: number[] = [];
 
       for (const row of rows) {
         times.push(row.time);
         hosts.push(row.host);
         pools.push(row.pool);
         entities.push(row.entity);
-        entityTypes.push(row.entity_type);
+        entityTypes.push(row.entityType);
         indents.push(row.indent);
-        capacityAllocs.push(row.capacity_alloc);
-        capacityFrees.push(row.capacity_free);
-        readOps.push(row.read_ops_per_sec);
-        writeOps.push(row.write_ops_per_sec);
-        readBytes.push(row.read_bytes_per_sec);
-        writeBytes.push(row.write_bytes_per_sec);
-        utilizations.push(row.utilization_percent);
+        // capacity_alloc/capacity_free are bigint columns; zpool iostat parses
+        // K/M/G/T/P suffixes with float math, so truncate before insert.
+        capacityAllocs.push(Math.trunc(row.capacityAlloc));
+        capacityFrees.push(Math.trunc(row.capacityFree));
+        readOps.push(row.readOpsPerSec);
+        writeOps.push(row.writeOpsPerSec);
+        readBytes.push(row.readBytesPerSec);
+        writeBytes.push(row.writeBytesPerSec);
+        // zpool iostat already reports ops/bandwidth as per-second rates, so
+        // no delta-over-time math is needed; utilization is the only value
+        // actually derived here.
+        const totalCapacity = row.capacityAlloc + row.capacityFree;
+        utilizations.push(totalCapacity > 0 ? (row.capacityAlloc / totalCapacity) * 100 : 0);
       }
 
       await this.pool.query(
