@@ -2,21 +2,7 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { AgentStatsCollector } from '../agent-stats-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { DockerStatsRow } from '@/types/docker';
-
-/** Injectable stream connector so tests can hand the collector pre-parsed events. */
-type StreamConnector = (options: {
-  agentUrl: string;
-  path: string;
-  signer: () => Promise<string>;
-  signal: AbortSignal;
-}) => Promise<AsyncGenerator<unknown, void, void>>;
-
-/** Wrap a fixed list of already-parsed frames as a stream connector. */
-function fixedStream(frames: unknown[]): StreamConnector {
-  return async function* () {
-    for (const frame of frames) yield frame;
-  } as unknown as StreamConnector;
-}
+import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
 
 /** Create a mock DatabaseClient that captures insertDockerStats calls */
 function createMockDb() {

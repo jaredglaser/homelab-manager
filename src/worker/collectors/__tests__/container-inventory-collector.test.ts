@@ -3,21 +3,7 @@ import { ContainerInventoryCollector } from '../container-inventory-collector';
 import type { DockerContainerEventRepository, NewContainerEvent } from '@/lib/database/repositories/docker-container-event-repository';
 import type { ManagedHostInfo } from '../container-inventory-collector';
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
-
-/** Injectable stream connector so tests can hand the collector pre-parsed events. */
-type StreamConnector = (options: {
-  agentUrl: string;
-  path: string;
-  signer: () => Promise<string>;
-  signal: AbortSignal;
-}) => Promise<AsyncGenerator<unknown, void, void>>;
-
-/** Wrap a fixed list of already-parsed frames as a stream connector. */
-function fixedStream(frames: unknown[]): StreamConnector {
-  return async function* () {
-    for (const frame of frames) yield frame;
-  } as unknown as StreamConnector;
-}
+import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
 
 /**
  * Stream connector whose generator never completes on its own; it only ends

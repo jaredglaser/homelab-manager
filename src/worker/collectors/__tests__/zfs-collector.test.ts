@@ -2,21 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { ZFSCollector } from '../zfs-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { ZFSStatsRow } from '@/types/zfs';
-
-/** Injectable stream connector so tests can hand the collector pre-parsed events. */
-type StreamConnector = (options: {
-  agentUrl: string;
-  path: string;
-  signer: () => Promise<string>;
-  signal: AbortSignal;
-}) => Promise<AsyncGenerator<unknown, void, void>>;
-
-/** Wrap a fixed list of already-parsed frames as a stream connector. */
-function fixedStream(frames: unknown[]): StreamConnector {
-  return async function* () {
-    for (const frame of frames) yield frame;
-  } as unknown as StreamConnector;
-}
+import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
 
 /** Wrap a list of ZFS iostat lines as `{ line }` frames (optionally with an agent timestamp). */
 function lineFrames(lines: string[], timestamp?: number): unknown[] {

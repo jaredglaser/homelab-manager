@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { AgentSseStreamError, connectAgentSseStream } from '../agent-sse-stream';
+import { AgentSseStreamError, connectAgentSseStream } from '@/worker/collectors/agent-sse-stream';
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
