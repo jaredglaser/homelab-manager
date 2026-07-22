@@ -4,8 +4,13 @@ import { StatsRepository } from '@/lib/database/repositories/stats-repository';
 import { backoffDelayMs } from '@/lib/utils/backoff';
 
 export type StatsSource = 'docker' | 'zfs' | 'proxmox';
+/** Minimal shape the poll loop needs; docker/zfs/proxmox rows all satisfy this. */
+interface StatsRow {
+  time: string | Date;
+}
 type StatsCallback = (rows: unknown[]) => void;
 type StatsErrorCallback = () => void;
+type LoadRowsFn = (source: StatsSource, since: Date) => Promise<StatsRow[]>;
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 5000;
@@ -17,13 +22,36 @@ const FAILURE_THRESHOLD = 3;
 const MAX_BACKOFF_MS = 10_000;
 
 /**
+ * Rebuilds the repo on every call (not cached) so a reconnect inside
+ * DatabaseConnectionManager is picked up on the next tick instead of
+ * pinning a stale pg.Pool. getClient() is cached on the healthy path,
+ * so this costs one Map lookup plus a no-op constructor per poll.
+ */
+async function defaultLoadRows(source: StatsSource, since: Date): Promise<StatsRow[]> {
+  const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  const repo = new StatsRepository(dbClient.getPool());
+  switch (source) {
+    case 'docker':
+      return repo.getDockerStatsSince(since);
+    case 'zfs':
+      return repo.getZFSStatsSince(since);
+    case 'proxmox':
+      return repo.getProxmoxStatsSince(since);
+  }
+}
+
+export interface StatsPollServiceDeps {
+  loadRows?: LoadRowsFn;
+}
+
+/**
  * Shared poll service that runs one setInterval per source (docker, zfs)
  * and broadcasts results to all subscribed SSE clients.
  *
  * Auto-starts polling when the first subscriber joins for a source,
  * auto-stops when the last subscriber leaves.
  */
-class StatsPollService {
+export class StatsPollService {
   private subscribers = new Map<StatsSource, Set<StatsCallback>>();
   private errorCallbacks = new Map<StatsSource, Set<StatsErrorCallback>>();
   private intervals = new Map<StatsSource, ReturnType<typeof setInterval>>();
@@ -38,7 +66,11 @@ class StatsPollService {
   // timeout) stacks several concurrent queries, each holding a pool
   // connection. The guard sheds to one poll at a time instead.
   private inFlight = new Set<StatsSource>();
-  private readonly dbConfig = loadDatabaseConfig();
+  private readonly loadRows: LoadRowsFn;
+
+  constructor(deps: StatsPollServiceDeps = {}) {
+    this.loadRows = deps.loadRows ?? defaultLoadRows;
+  }
 
   subscribe(source: StatsSource, callback: StatsCallback, onError?: StatsErrorCallback): () => void {
     let subs = this.subscribers.get(source);
@@ -91,19 +123,10 @@ class StatsPollService {
 
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
       try {
-        // Rebuild the repo each tick so we pick up a fresh pg.Pool after any
-        // reconnect in DatabaseConnectionManager. getClient() is cached on the
-        // healthy path, so this costs one Map lookup + a no-op constructor.
-        const dbClient = await databaseConnectionManager.getClient(this.dbConfig);
-        const repo = new StatsRepository(dbClient.getPool());
         const last = this.lastPollTime.get(source) ?? new Date();
         const since = new Date(last.getTime() - 200); // 200ms lookback for late-committing rows
 
-        const rowsPromise = source === 'docker'
-          ? repo.getDockerStatsSince(since)
-          : source === 'zfs'
-            ? repo.getZFSStatsSince(since)
-            : repo.getProxmoxStatsSince(since);
+        const rowsPromise = this.loadRows(source, since);
 
         const timeoutPromise = new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error('Poll timeout')), POLL_TIMEOUT_MS);
@@ -119,12 +142,12 @@ class StatsPollService {
         // Only broadcast rows newer than last poll - prevents broadcasting stale data
         // when the worker is down (which would break the 30s stale detection in the frontend)
         const toMs = (value: string | Date) => new Date(value).getTime();
-        const newRows = rows.filter(r => toMs(r.time as string | Date) > last.getTime());
+        const newRows = rows.filter(r => toMs(r.time) > last.getTime());
 
         if (newRows.length > 0) {
           // Advance cursor to max observed row time (not wall-clock) to avoid skipping late-committing rows
           const maxSeenTime = rows.reduce(
-            (max, r) => Math.max(max, toMs(r.time as string | Date)),
+            (max, r) => Math.max(max, toMs(r.time)),
             last.getTime()
           );
           this.lastPollTime.set(source, new Date(maxSeenTime));

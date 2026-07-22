@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
+import { createSseStream } from '@/lib/sse/create-sse-stream';
 
 export const Route = createFileRoute('/api/docker-logs/$containerId')({
   server: {
@@ -58,45 +59,26 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
           return new Response(msg, { status: agentResponse.status });
         }
 
-        // Pipe through a local stream so we can send an initial SSE comment
-        // that forces Nitro to flush response headers immediately.
+        // Pipe the agent's already-framed SSE bytes straight through.
+        // request.signal was already handed to fetch() above, so an abort
+        // aborts the agent connection and rejects the pending read below;
+        // createSseStream's own abort listener handles the rest.
         const agentBody = agentResponse.body;
-        const encoder = new TextEncoder();
-        let closed = false;
 
-        const stream = new ReadableStream({
-          async start(controller) {
-            controller.enqueue(encoder.encode(': ok\n\n'));
-
-            request.signal.addEventListener('abort', () => {
-              closed = true;
-              try { controller.close(); } catch { /* already closed */ }
-            });
-
+        return createSseStream(request, {
+          onStart: async (emit, signal) => {
             const reader = agentBody.getReader();
             try {
               for (;;) {
                 const { done, value } = await reader.read();
-                if (done || closed) break;
-                controller.enqueue(value);
+                if (done || signal.aborted) break;
+                emit.raw(value);
               }
             } catch {
-              // Agent stream errored or client disconnected
+              // Agent stream errored or client disconnected.
             } finally {
               reader.releaseLock();
-              if (!closed) {
-                closed = true;
-                try { controller.close(); } catch { /* already closed */ }
-              }
             }
-          },
-        });
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            Connection: 'keep-alive',
           },
         });
       },

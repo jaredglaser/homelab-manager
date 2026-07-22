@@ -33,6 +33,16 @@ function makeRequest(ac: AbortController): Request {
   return new Request('http://localhost/', { signal: ac.signal });
 }
 
+/**
+ * createSseStream awaits the caller's onStart (loadSubscribe + subscribe)
+ * before registering its cleanup, one microtask hop deeper than a bare
+ * `await handler(...)` unwinds. Flush a macrotask so that chain settles
+ * before asserting on its side effects (unsubscribe calls, etc.).
+ */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 function readerOf(res: Response): ReadableStreamDefaultReader<Uint8Array> {
   if (!res.body) throw new Error('Response had no body');
   return res.body.getReader();
@@ -93,10 +103,11 @@ describe('createBroadcastSseHandler', () => {
     reader.cancel();
   });
 
-  it('emits comment heartbeats on the interval to keep idle streams warm', async () => {
+  it('emits comment heartbeats on the shared 5s cadence to keep idle streams warm', async () => {
     let heartbeatFn: (() => void) | null = null;
-    const intervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void) => {
+    const intervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms: number) => {
       heartbeatFn = fn;
+      expect(ms).toBe(5000); // the cadence now comes only from createSseStream's default
       return 123 as unknown as ReturnType<typeof setInterval>;
     }) as typeof setInterval);
     const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(() => {});
@@ -151,7 +162,9 @@ describe('createBroadcastSseHandler', () => {
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
+    await flushMicrotasks();
     ac.abort();
+    await flushMicrotasks();
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
@@ -161,7 +174,9 @@ describe('createBroadcastSseHandler', () => {
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
+    await flushMicrotasks();
     ac.abort();
+    await flushMicrotasks();
 
     expect(() => emit({ n: 99 })).not.toThrow();
   });
