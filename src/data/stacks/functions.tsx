@@ -150,6 +150,21 @@ export const getStackVariables = createServerFn({ method: 'GET' })
     return repo.list(data.stackName);
   });
 
+/**
+ * Fetch every variable name and decrypted value for a stack in one call.
+ * Backs the secrets tab, which loads all values up front for a single reveal
+ * toggle and one "save all" action.
+ */
+export const getStackVariableValues = createServerFn({ method: 'GET' })
+  .middleware([authMiddleware, stackSecretsMiddleware])
+  .inputValidator(stackVariablesSchema)
+  .handler(async ({ context, data }): Promise<Record<string, string>> => {
+    requireRole('admin', 'operator')(context.user);
+    const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
+    const repo = new StackSecretsRepository(context.pool, context.keyring);
+    return repo.getAll(data.stackName);
+  });
+
 const getVariableValueSchema = z.object({
   stackName: safePathSegment,
   variableName: safePathSegment,
@@ -162,6 +177,7 @@ export const getVariableValue = createServerFn({ method: 'GET' })
   .middleware([authMiddleware, stackSecretsMiddleware])
   .inputValidator(getVariableValueSchema)
   .handler(async ({ context, data }): Promise<string | null> => {
+    requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
     const repo = new StackSecretsRepository(context.pool, context.keyring);
     return repo.get(data.stackName, data.variableName);

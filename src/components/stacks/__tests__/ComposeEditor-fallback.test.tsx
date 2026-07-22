@@ -1,10 +1,17 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { FormProvider, useForm } from 'react-hook-form';
+import type { StackFormValues } from '@/components/stacks/stack-form';
 
 mock.module('@monaco-editor/react', () => ({
   default: () => <div data-testid="mock-editor" />,
 }));
+
+function FormHarness({ children }: { children: React.ReactNode }) {
+  const form = useForm<StackFormValues>({ defaultValues: { compose: 'image: nginx', secrets: {} } });
+  return <FormProvider {...form}>{children}</FormProvider>;
+}
 
 describe('ComposeEditor monaco load failure', () => {
   it('shows fallback message when monaco fails to load', async () => {
@@ -18,11 +25,12 @@ describe('ComposeEditor monaco load failure', () => {
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       ({ unmount } = render(
         <QueryClientProvider client={queryClient}>
-          <ComposeEditor
-            stackName="test-stack"
-            content="image: nginx"
-            _monacoLoader={() => Promise.reject(new Error('Monaco load failed'))}
-          />
+          <FormHarness>
+            <ComposeEditor
+              stackName="test-stack"
+              _monacoLoader={() => Promise.reject(new Error('Monaco load failed'))}
+            />
+          </FormHarness>
         </QueryClientProvider>,
       ));
 

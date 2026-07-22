@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Controller, useFormContext, useFormState } from 'react-hook-form';
 import { Button } from '@/components/ui/button';
 import { Save } from 'lucide-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -6,25 +7,28 @@ import Editor from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 import { saveComposeFile } from '@/data/stacks/functions';
 import { Spinner } from '@/components/ui/spinner';
+import type { StackFormValues } from '@/components/stacks/stack-form';
 
 interface ComposeEditorProps {
   stackName: string;
-  content: string;
   _monacoLoader?: () => Promise<unknown>;
   _saveCompose?: typeof saveComposeFile;
 }
 
-export default function ComposeEditor({ stackName, content, _monacoLoader, _saveCompose }: Readonly<ComposeEditorProps>) {
+/**
+ * Compose YAML editor. The draft lives in the shared stack form under the
+ * `compose` field (not local state) so switching tabs and back keeps edits.
+ * Saving commits via git, then rebaselines the field so it reads clean again.
+ */
+export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }: Readonly<ComposeEditorProps>) {
   const [monacoReady, setMonacoReady] = useState(false);
   const [monacoLoadFailed, setMonacoLoadFailed] = useState(false);
-  const [editorContent, setEditorContent] = useState(content);
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const queryClient = useQueryClient();
 
-  /** Sync editor state when the parent provides new content (e.g., switching stacks) */
-  useEffect(() => {
-    setEditorContent(content);
-  }, [stackName, content]);
+  const { control, getValues, resetField } = useFormContext<StackFormValues>();
+  const { dirtyFields } = useFormState({ control, name: 'compose' });
+  const isDirty = !!dirtyFields.compose;
 
   // Monaco setup (local workers + YAML support) is in a separate file that uses
   // Vite's ?worker imports. Must complete before Editor mounts to avoid
@@ -40,21 +44,22 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
     return () => { isMounted = false; };
   }, [_monacoLoader]);
 
-  const isDirty = editorContent !== content;
-
   const saveMutation = useMutation({
-    mutationFn: () => (_saveCompose ?? saveComposeFile)({ data: { stackName, content: editorContent } }),
-    onSuccess: async () => {
+    mutationFn: (content: string) => (_saveCompose ?? saveComposeFile)({ data: { stackName, content } }),
+    onSuccess: async (_data, content) => {
+      // Rebaseline to the saved text so the field reads clean without waiting for
+      // the refetch (which lands the same value and would otherwise flash dirty).
+      // Skip if the user kept typing while the request was in flight (the field
+      // no longer matches what we committed) so those newer edits stay dirty.
+      if (getValues('compose') === content) {
+        resetField('compose', { defaultValue: content });
+      }
       await queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
     },
   });
 
   const handleEditorMount = useCallback((editorInstance: editor.IStandaloneCodeEditor) => {
     editorRef.current = editorInstance;
-  }, []);
-
-  const handleChange = useCallback((newContent = '') => {
-    setEditorContent(newContent);
   }, []);
 
   // Reads the current theme on each render. Theme toggles trigger re-renders
@@ -76,7 +81,7 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
         )}
         <Button
           size="sm"
-          onClick={() => saveMutation.mutate()}
+          onClick={() => saveMutation.mutate(getValues('compose'))}
           disabled={!isDirty || saveMutation.isPending}
           className="normal-case"
         >
@@ -94,30 +99,36 @@ export default function ComposeEditor({ stackName, content, _monacoLoader, _save
             </p>
           </div>
         ) : monacoReady ? (
-          <Editor
-            height="400px"
-            language="yaml"
-            theme={isDark ? 'vs-dark' : 'light'}
-            value={editorContent}
-            onChange={handleChange}
-            onMount={handleEditorMount}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 13,
-              lineNumbers: 'on',
-              scrollBeyondLastLine: false,
-              wordWrap: 'on',
-              tabSize: 2,
-              automaticLayout: true,
-              padding: { top: 8, bottom: 8 },
-              renderLineHighlight: 'line',
-              fixedOverflowWidgets: true,
-            }}
-            loading={
-              <div className="flex items-center justify-center h-full">
-                <Spinner className="size-6" />
-              </div>
-            }
+          <Controller
+            control={control}
+            name="compose"
+            render={({ field }) => (
+              <Editor
+                height="400px"
+                language="yaml"
+                theme={isDark ? 'vs-dark' : 'light'}
+                value={field.value}
+                onChange={(newContent = '') => field.onChange(newContent)}
+                onMount={handleEditorMount}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  tabSize: 2,
+                  automaticLayout: true,
+                  padding: { top: 8, bottom: 8 },
+                  renderLineHighlight: 'line',
+                  fixedOverflowWidgets: true,
+                }}
+                loading={
+                  <div className="flex items-center justify-center h-full">
+                    <Spinner className="size-6" />
+                  </div>
+                }
+              />
+            )}
           />
         ) : (
           <div className="flex items-center justify-center h-[400px]">

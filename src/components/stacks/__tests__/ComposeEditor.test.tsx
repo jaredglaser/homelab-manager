@@ -1,7 +1,9 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { FormProvider, useForm } from 'react-hook-form';
 import type { saveComposeFile } from '@/data/stacks/functions';
+import type { StackFormValues } from '@/components/stacks/stack-form';
 
 /**
  * Test-only stub for saveComposeFile. Injected via the `_saveCompose` prop
@@ -50,23 +52,31 @@ mock.module('@monaco-editor/react', () => ({
 
 import { parseVariables } from '@/lib/stacks/parse-variables';
 
-function createWrapper() {
+function createWrapper(defaultCompose: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    return (
+      <QueryClientProvider client={queryClient}>
+        <FormHarness defaultCompose={defaultCompose}>{children}</FormHarness>
+      </QueryClientProvider>
+    );
   };
+}
+
+function FormHarness({ defaultCompose, children }: { defaultCompose: string; children: React.ReactNode }) {
+  const form = useForm<StackFormValues>({ defaultValues: { compose: defaultCompose, secrets: {} } });
+  return <FormProvider {...form}>{children}</FormProvider>;
 }
 
 async function renderComposeEditor(props?: Partial<{ stackName: string; content: string }>) {
   const { default: ComposeEditor } = await import('../ComposeEditor');
-  const defaultProps = {
-    stackName: 'test-stack',
-    content: 'image: nginx:latest',
-    ...props,
-  };
-  const result = render(<ComposeEditor {...defaultProps} _saveCompose={saveComposeStub} />, { wrapper: createWrapper() });
+  const stackName = props?.stackName ?? 'test-stack';
+  const content = props?.content ?? 'image: nginx:latest';
+  const result = render(<ComposeEditor stackName={stackName} _saveCompose={saveComposeStub} />, {
+    wrapper: createWrapper(content),
+  });
   // Wait for monaco-setup dynamic import to resolve and Editor to render
   await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
   return result;
@@ -167,7 +177,7 @@ describe('ComposeEditor component', () => {
     expect(screen.queryByText('Unsaved changes')).toBeNull();
 
     act(() => { mockEditorOnChange?.('image: redis'); });
-    expect(screen.getByText('Unsaved changes')).toBeDefined();
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeDefined());
   });
 
   it('enables save button when content is dirty', async () => {
@@ -177,7 +187,14 @@ describe('ComposeEditor component', () => {
     expect((saveButton as HTMLButtonElement).disabled).toBe(true);
 
     act(() => { mockEditorOnChange?.('image: redis'); });
-    expect((saveButton as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('treats an undefined editor change as empty content', async () => {
+    const { act } = await import('@testing-library/react');
+    await renderComposeEditor({ content: 'image: nginx' });
+    act(() => { mockEditorOnChange?.(undefined); });
+    await waitFor(() => expect((screen.getByTestId('mock-editor') as HTMLTextAreaElement).value).toBe(''));
   });
 
   it('handleEditorMount stores the editor instance without error', async () => {
@@ -198,19 +215,55 @@ describe('ComposeEditor component', () => {
     const { default: ComposeEditor } = await import('../ComposeEditor');
     render(
       <QueryClientProvider client={queryClient}>
-        <ComposeEditor stackName="test-stack" content="image: nginx" _saveCompose={saveComposeStub} />
+        <FormHarness defaultCompose="image: nginx">
+          <ComposeEditor stackName="test-stack" _saveCompose={saveComposeStub} />
+        </FormHarness>
       </QueryClientProvider>,
     );
     await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
 
     act(() => { mockEditorOnChange?.('image: redis'); });
     const saveButton = screen.getByRole('button', { name: /save & commit/i });
+    await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(false));
 
     await act(async () => { fireEvent.click(saveButton); });
     await waitFor(() => expect(mockSaveCompose).toHaveBeenCalledTimes(1));
 
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stack-detail', 'test-stack'] });
+
+    // Field rebaselines to the saved text, so it reads clean again.
+    await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(true));
   });
 
+  it('keeps edits made during a pending save dirty', async () => {
+    const { act } = await import('@testing-library/react');
+    let resolveSave!: (v: { commitSha: string }) => void;
+    const deferredSave = mock(() => new Promise<{ commitSha: string }>((res) => { resolveSave = res; }));
+    const deferredStub = deferredSave as unknown as typeof saveComposeFile;
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { default: ComposeEditor } = await import('../ComposeEditor');
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FormHarness defaultCompose="image: nginx">
+          <ComposeEditor stackName="test-stack" _saveCompose={deferredStub} />
+        </FormHarness>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
+
+    act(() => { mockEditorOnChange?.('image: v1'); });
+    await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => { fireEvent.click(saveButton); });
+
+    // Keep editing while the save request is still in flight.
+    act(() => { mockEditorOnChange?.('image: v2'); });
+    await act(async () => { resolveSave({ commitSha: 'abc' }); });
+
+    // Only "image: v1" was committed, so the newer edit must stay dirty.
+    await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(false));
+    expect((screen.getByTestId('mock-editor') as HTMLTextAreaElement).value).toBe('image: v2');
+  });
 });

@@ -37,10 +37,13 @@ src/
 │   │   ├── DeployHistoryRow.tsx     # Individual deploy history entry
 │   │   ├── RollbackDialog.tsx       # Rollback to previous deployment
 │   │   ├── StackActionBar.tsx       # Deploy, teardown, restart action buttons
+│   │   ├── StackEditorForm.tsx      # Tabbed stack editor; hosts the shared react-hook-form + unsaved-changes guard
 │   │   ├── StackSettingsDialog.tsx  # Stack settings editor
 │   │   ├── SyncStatusBadge.tsx      # Git sync status badge
-│   │   ├── VariableRow.tsx          # Individual variable editor row
+│   │   ├── UnsavedChangesDialog.tsx # Discard-confirmation shown when leaving with unsaved edits
+│   │   ├── VariableRow.tsx          # Individual variable editor row (form-registered value + delete)
 │   │   ├── VariablesPanel.tsx       # Stack variables editor (JWE-encrypted in stack_secrets)
+│   │   ├── stack-form.ts            # Shared react-hook-form value shape for the stack editor
 │   │   └── stacks-context.ts        # Context providers for stack data
 │   ├── settings/
 │   │   ├── AddHostWizard.tsx        # Multi-step host onboarding wizard

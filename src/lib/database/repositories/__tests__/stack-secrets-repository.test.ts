@@ -61,6 +61,30 @@ describe('StackSecretsRepository', () => {
     await expect(repo.get('s', 'V')).rejects.toThrow('Secret decryption failed');
   });
 
+  it('getAll returns decrypted name -> value map', async () => {
+    const { encryptValue } = await import('@/lib/crypto/encrypted-value');
+    const jweA = await encryptValue('val-a', keyring);
+    const jweB = await encryptValue('val-b', keyring);
+    pool.results.push({ rows: [
+      { variable_name: 'A', ciphertext_jwe: jweA },
+      { variable_name: 'B', ciphertext_jwe: jweB },
+    ] });
+    expect(await repo.getAll('mystack')).toEqual({ A: 'val-a', B: 'val-b' });
+    const call = pool.query.mock.calls[0];
+    expect(call[0]).toContain('FROM stack_secrets');
+    expect(call[1]).toEqual(['mystack']);
+  });
+
+  it('getAll returns empty object when the stack has no secrets', async () => {
+    pool.results.push({ rows: [] });
+    expect(await repo.getAll('mystack')).toEqual({});
+  });
+
+  it('getAll throws a controlled error when a value fails to decrypt', async () => {
+    pool.results.push({ rows: [{ variable_name: 'A', ciphertext_jwe: 'not.a.valid.jwe.token' }] });
+    await expect(repo.getAll('mystack')).rejects.toThrow('Secret decryption failed');
+  });
+
   it('set encrypts and upserts', async () => {
     pool.results.push({ rows: [] });
     await repo.set('s', 'V', 'plaintext');
