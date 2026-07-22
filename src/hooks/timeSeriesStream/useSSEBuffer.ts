@@ -94,26 +94,23 @@ export function useSSEBuffer<TRow, A extends BufferAccessors<TRow>>({
 
   const flushRef = useRef(flush);
   flushRef.current = flush;
-  // Gates the immediate paint of the first frame after a (re)connect. Initialized
-  // false at mount (covers tab-switch remounts); resetFirstFlush re-arms it for an
-  // in-place SSE reconnect, which keeps the same hook instance.
+  // Gates the immediate first-frame paint after a (re)connect. False at mount
+  // covers tab-switch remounts; resetFirstFlush re-arms it for in-place reconnects.
   const firstFlushDoneRef = useRef(false);
 
   const enqueue = useCallback((incoming: TRow[]) => {
     pendingRef.current.push(...incoming);
-    // First frame after connect paints immediately instead of waiting up to
-    // updateIntervalMs; after a tab switch that saves up to a full flush
-    // interval before the sparklines and values catch up. Subsequent frames
-    // keep the fixed cadence so eviction still piggybacks on batched appends.
+    // Paint the first post-connect frame at once instead of waiting up to
+    // updateIntervalMs; later frames keep the cadence so eviction piggybacks
+    // on batched appends.
     if (!firstFlushDoneRef.current) {
       firstFlushDoneRef.current = true;
       flushRef.current();
     }
   }, []);
 
-  // Re-arm the immediate first flush so the first frame after an SSE reconnect
-  // paints at once instead of waiting for the next interval. The hook instance
-  // survives a reconnect, so the mount-time gate alone would not cover it.
+  // Re-arm on reconnect: the hook instance survives, so the mount default alone
+  // would leave the first post-reconnect frame waiting a flush tick.
   const resetFirstFlush = useCallback(() => {
     firstFlushDoneRef.current = false;
   }, []);

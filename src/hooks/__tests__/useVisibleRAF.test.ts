@@ -212,11 +212,8 @@ describe('useVisibleRAF', () => {
   });
 
   it('starts the loop when a batched dispatch ends in isIntersecting:true', () => {
-    // Regression: sparkline canvases mount in the same commit as their
-    // content-visibility:auto row on tab return, so the observer's first
-    // dispatch can batch a stale skipped-subtree "false" entry together with
-    // the corrective "true" entry. Acting on entries[0] left the loop off and
-    // rendered blank canvases until the element next left and re-entered view.
+    // Regression: a batched first dispatch carries a stale "false" then the
+    // corrective "true"; the loop must key off the last entry, not the first.
     const cb = mock(() => {});
     const targetRef = makeTargetRef();
 

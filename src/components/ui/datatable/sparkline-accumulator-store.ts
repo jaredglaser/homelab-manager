@@ -6,14 +6,9 @@ export interface SparklinePoint {
 }
 
 const SPARKLINE_WINDOW_MS = 35000;
-// Seed as soon as data overlaps the canvas's drawable window (right edge = now).
-// Older seeds draw entirely off-screen and would render a blank canvas, so a
-// series keeps waiting until drawable data arrives. The 5s margin guarantees a
-// visible segment rather than a sliver about to slide off the left edge. This
-// must stay well above the pipeline's end-to-end data age (~1-2.5s: worker
-// insert cadence + poll tick + flush interval); the old 1500ms liveness gate sat
-// inside that band, so every check was a coin flip and a series reseeded on tab
-// return shimmered for many seconds waiting for a young-enough point.
+// Seed once data overlaps the canvas window. The 5s margin keeps a visible
+// segment (not a sliver at the left edge) and clears the pipeline's ~1-2.5s
+// end-to-end data age (worker insert + poll tick + flush) so the first window seeds.
 const MAX_SEED_AGE_MS = SPARKLINE_TIME_WINDOW_MS - 5_000;
 
 // Keep an accumulator briefly after its last subscriber leaves so the

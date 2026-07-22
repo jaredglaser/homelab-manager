@@ -71,13 +71,10 @@ export function useVisibleRAF(
     try {
       const observer = new IntersectionObserver(
         (entries) => {
-          // Act on the LATEST entry: deliveries are batched, and a target can
-          // transition twice within one dispatch. Sparkline canvases mount in
-          // the same commit as their content-visibility:auto row on tab
-          // return, so the observer's initial entry is a skipped-subtree 0x0
-          // "not intersecting" followed by the real "intersecting" one; acting
-          // on entries[0] discarded the correction and left the rAF loop off
-          // (blank canvases) until the element next left and re-entered view.
+          // Act on the LATEST entry: a batched dispatch can carry two transitions
+          // for one target. A canvas mounting with its content-visibility:auto row
+          // on tab return arrives as a skipped-subtree 0x0 "false" then the real
+          // "true", so only the last entry is the correct current state.
           const entry = entries[entries.length - 1];
           if (!entry) return;
           if (entry.isIntersecting) start();

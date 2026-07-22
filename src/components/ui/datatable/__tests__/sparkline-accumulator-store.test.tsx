@@ -32,9 +32,8 @@ describe('ingestSparklineData', () => {
   });
 
   it('seeds from cached data several seconds old (return from another tab)', () => {
-    // Every point is older than the old 1500ms liveness gate but still inside the
-    // canvas window, so the series must seed at once rather than shimmer while the
-    // corrective refetch lands. This is the tab-switch case the gate change fixes.
+    // Points are seconds old but inside the canvas window, so the series seeds at
+    // once rather than shimmer while the corrective refetch lands (tab-switch case).
     ingestSparklineData('a', makePoints([-20000, -15000, -10000]), NOW);
     expect(getSparklinePoints('a')).toHaveLength(3);
   });

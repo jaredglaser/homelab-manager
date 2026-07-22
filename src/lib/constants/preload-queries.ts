@@ -16,9 +16,9 @@ export function dockerStatsWindowSeconds(chartWindowSeconds: number) {
   return Math.max(chartWindowSeconds + 10, DOCKER_SPARKLINE_BUFFER_SECONDS)
 }
 
-// The docker preload key includes the window because different windows return
-// different bucket resolutions. AppShell's warm-up and the docker route must
-// build the key through this helper or they silently warm separate entries.
+// Window is part of the key because different windows return different bucket
+// resolutions. AppShell's warm-up and the route must build it through this
+// helper or they warm separate entries.
 export function dockerPreloadQueryKey(windowSeconds: number) {
   return [...DOCKER_PRELOAD_KEY, windowSeconds] as const
 }

@@ -31,16 +31,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useSettingsSync()
   useLightPaletteEffect()
   const { docker } = useDockerSettings()
-  // The docker route keys its preload by window size, so the warm-up must
-  // derive the same window or it seeds a cache entry the route never reads.
+  // The route keys its preload by window size, so the warm-up must derive the
+  // same window or it seeds a cache entry the route never reads.
   const dockerWindowSeconds = dockerStatsWindowSeconds(docker.chartWindowSeconds)
 
   // Pre-seed route data after auth resolves so tab switches are instant.
   // Gated on loading: avoids firing before the session check completes, which
   // causes 401s when auth is enabled. When auth is disabled, server functions
   // accept the synthetic admin so preloads work even with user=null.
-  // dockerWindowSeconds is a dep so a late settings sync re-warms the correct
-  // key; ensureQueryData is a no-op when the entry is already fresh.
+  // dockerWindowSeconds is a dep so a late settings sync re-warms the correct key.
   useEffect(() => {
     if (loading) return;
     // With auth enabled, only preload once the session is confirmed. If there's
