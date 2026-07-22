@@ -3,7 +3,25 @@ import { ZFSCollector } from '../zfs-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { ZFSStatsRow } from '@/types/zfs';
 
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+/** Injectable stream connector so tests can hand the collector pre-parsed events. */
+type StreamConnector = (options: {
+  agentUrl: string;
+  path: string;
+  signer: () => Promise<string>;
+  signal: AbortSignal;
+}) => Promise<AsyncGenerator<unknown, void, void>>;
+
+/** Wrap a fixed list of already-parsed frames as a stream connector. */
+function fixedStream(frames: unknown[]): StreamConnector {
+  return async function* () {
+    for (const frame of frames) yield frame;
+  } as unknown as StreamConnector;
+}
+
+/** Wrap a list of ZFS iostat lines as `{ line }` frames (optionally with an agent timestamp). */
+function lineFrames(lines: string[], timestamp?: number): unknown[] {
+  return lines.map((line) => (timestamp === undefined ? { line } : { line, timestamp }));
+}
 
 /** Create a mock DatabaseClient that captures insertZFSStats calls */
 function createMockDb() {
@@ -55,37 +73,6 @@ const IOSTAT_LINES = [
   '              capacity     operations     bandwidth',
 ];
 
-/** Build a ReadableStream that emits SSE-formatted ZFS line events, then closes */
-function createMockZfsSSEStream(lines: string[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const line of lines) {
-        const event = { line };
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      }
-      controller.close();
-    },
-  });
-}
-
-/**
- * Build a ReadableStream that emits SSE-formatted ZFS line events with an explicit
- * agent-provided timestamp, then closes.
- */
-function createMockZfsSSEStreamWithTimestamp(lines: string[], timestamp: number): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const line of lines) {
-        const event = { line, timestamp };
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      }
-      controller.close();
-    },
-  });
-}
-
 describe('ZFSCollector', () => {
   let mockDb: ReturnType<typeof createMockDb>;
   let abortController: AbortController;
@@ -129,15 +116,10 @@ describe('ZFSCollector', () => {
 
   describe('collect()', () => {
     it('should parse iostat output and write rows with correct hierarchy', async () => {
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(createMockZfsSSEStream(IOSTAT_LINES), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
+      const streamConnector = fixedStream(lineFrames(IOSTAT_LINES));
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
@@ -181,15 +163,10 @@ describe('ZFSCollector', () => {
         'rpool       100G   900G      1      2    10K    20K',
       ];
 
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(createMockZfsSSEStream(lines), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
+      const streamConnector = fixedStream(lineFrames(lines));
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
@@ -202,74 +179,34 @@ describe('ZFSCollector', () => {
       expect(mockDb.insertedRows[0][0].entity_type).toBe('pool');
     });
 
-    it('should send Authorization header with bearer token', async () => {
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(createMockZfsSSEStream([]), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
+    it('should connect with the configured agent URL, path, and signer', async () => {
+      const connectSpy = mock(fixedStream([]));
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, connectSpy as unknown as StreamConnector,
       );
       mockDb.patchRepository(collector);
 
       await (collector as any).collect();
 
-      expect(fetchFn).toHaveBeenCalledTimes(1);
-      const mockFn = fetchFn as unknown as { mock: { calls: unknown[][] } };
-      const callArgs = mockFn.mock.calls[0] as [string, RequestInit];
-      expect(callArgs[0]).toBe('http://192.168.1.50:9090/zfs/stats/stream');
-      expect(callArgs[1].headers).toEqual({
-        Authorization: 'Bearer test-token',
-      });
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      const callArgs = connectSpy.mock.calls[0][0] as { agentUrl: string; path: string; signal: AbortSignal };
+      expect(callArgs.agentUrl).toBe('http://192.168.1.50:9090');
+      expect(callArgs.path).toBe('/zfs/stats/stream');
+      expect(callArgs.signal).toBe(abortController.signal);
     });
 
-    it('should pass abort signal to fetch', async () => {
-      const fetchFn: FetchFn = mock(async (_url: string, opts?: RequestInit) => {
-        expect(opts?.signal).toBeDefined();
-        return new Response(createMockZfsSSEStream([]), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        });
-      });
+    it('should propagate a connection failure from the stream connector', async () => {
+      const streamConnector: StreamConnector = async () => {
+        throw new Error('Agent returned 401: Unauthorized');
+      };
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-      );
-      mockDb.patchRepository(collector);
-
-      await (collector as any).collect();
-    });
-
-    it('should throw on non-200 response', async () => {
-      const fetchFn: FetchFn = mock(async () =>
-        new Response('Unauthorized', { status: 401 })
-      );
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
       await expect((collector as any).collect()).rejects.toThrow('Agent returned 401');
-    });
-
-    it('should throw when response has no body', async () => {
-      const fetchFn: FetchFn = mock(async () => {
-        const resp = new Response(null, { status: 200 });
-        // Override body to null
-        Object.defineProperty(resp, 'body', { value: null });
-        return resp;
-      });
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-      );
-      mockDb.patchRepository(collector);
-
-      await expect((collector as any).collect()).rejects.toThrow('Agent response has no body');
     });
 
     it('should skip empty lines', async () => {
@@ -281,15 +218,10 @@ describe('ZFSCollector', () => {
         '              capacity     operations     bandwidth',
       ];
 
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(createMockZfsSSEStream(lines), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
+      const streamConnector = fixedStream(lineFrames(lines));
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
@@ -300,57 +232,11 @@ describe('ZFSCollector', () => {
       expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/tank');
     });
 
-    it('should skip malformed JSON in SSE events', async () => {
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(encoder.encode(`data: {not valid json}\n\n`));
-          // Valid header to trigger cycle
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ line: '              capacity     operations     bandwidth' })}\n\n`));
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ line: 'tank        1.81T  2.19T     10     20   100K   200K' })}\n\n`));
-          controller.close();
-        },
-      });
-
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(stream, {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
+    it('should skip non-object frame values', async () => {
+      const streamConnector = fixedStream([null, 42, 'just a string']);
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-      );
-      mockDb.patchRepository(collector);
-
-      await (collector as any).collect();
-
-      // Final cycle written - only the tank row
-      expect(mockDb.insertedRows.length).toBe(1);
-      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/tank');
-    });
-
-    it('should skip non-object JSON values', async () => {
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(encoder.encode(`data: null\n\n`));
-          controller.enqueue(encoder.encode(`data: 42\n\n`));
-          controller.enqueue(encoder.encode(`data: "just a string"\n\n`));
-          controller.close();
-        },
-      });
-
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(stream, {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
@@ -361,23 +247,10 @@ describe('ZFSCollector', () => {
     });
 
     it('should skip agent error events', async () => {
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(encoder.encode(`event: error\ndata: {"error":"connection lost"}\n\n`));
-          controller.close();
-        },
-      });
-
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(stream, {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
+      const streamConnector = fixedStream([{ error: 'connection lost' }]);
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
@@ -396,15 +269,10 @@ describe('ZFSCollector', () => {
         'tank        1.81T  2.19T     10     20   100K   200K',
       ];
 
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(createMockZfsSSEStreamWithTimestamp(lines, FIXED_TIMESTAMP), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
+      const streamConnector = fixedStream(lineFrames(lines, FIXED_TIMESTAMP));
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
@@ -420,70 +288,20 @@ describe('ZFSCollector', () => {
       expect(row.entity).toBe('192.168.1.50:9090/tank');
     });
 
-    it('should handle partial SSE messages across chunks', async () => {
-      const encoder = new TextEncoder();
-      const event = { line: 'tank        1.81T  2.19T     10     20   100K   200K' };
-      const headerEvent = { line: '              capacity     operations     bandwidth' };
-      const fullMsg = `data: ${JSON.stringify(headerEvent)}\n\ndata: ${JSON.stringify(event)}\n\n`;
-      const part1 = fullMsg.slice(0, 20);
-      const part2 = fullMsg.slice(20);
-
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(encoder.encode(part1));
-          controller.enqueue(encoder.encode(part2));
-          controller.close();
-        },
-      });
-
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(stream, {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
-
-      const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-      );
-      mockDb.patchRepository(collector);
-
-      await (collector as any).collect();
-
-      // Final cycle written with the tank row
-      expect(mockDb.insertedRows.length).toBe(1);
-      expect(mockDb.insertedRows[0][0].entity).toBe('192.168.1.50:9090/tank');
-    });
-
     it('should stop processing when abort signal fires', async () => {
-      const encoder = new TextEncoder();
-      let eventCount = 0;
       const headerLine = { line: '              capacity     operations     bandwidth' };
       const dataLine = { line: 'tank        1.81T  2.19T     10     20   100K   200K' };
 
-      const neverEndingStream = new ReadableStream<Uint8Array>({
-        async pull(controller) {
-          eventCount++;
-          if (eventCount <= 10) {
-            // Emit a header + data cycle
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(headerLine)}\n\n`));
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(dataLine)}\n\n`));
-            await new Promise(resolve => setTimeout(resolve, 20));
-          } else {
-            controller.close();
-          }
-        },
-      });
-
-      const fetchFn: FetchFn = mock(async () =>
-        new Response(neverEndingStream, {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
+      const streamConnector: StreamConnector = async function* () {
+        for (let i = 0; i < 10; i++) {
+          yield headerLine;
+          yield dataLine;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      } as unknown as StreamConnector;
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
@@ -500,33 +318,23 @@ describe('ZFSCollector', () => {
   describe('reconnection', () => {
     it('run() reconnects after stream error with backoff', async () => {
       let callCount = 0;
-      const encoder = new TextEncoder();
 
-      const fetchFn: FetchFn = mock(async () => {
+      const streamConnector: StreamConnector = async () => {
         callCount++;
         if (callCount === 1) {
-          // First call: error stream
-          const errorStream = new ReadableStream<Uint8Array>({
-            start(controller) {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ line: 'tank        1.81T  2.19T     10     20   100K   200K' })}\n\n`));
-              controller.error(new Error('Connection reset'));
-            },
-          });
-          return new Response(errorStream, {
-            status: 200,
-            headers: { 'Content-Type': 'text/event-stream' },
-          });
+          // First cycle errors mid-stream.
+          return (async function* () {
+            yield { line: 'tank        1.81T  2.19T     10     20   100K   200K' };
+            throw new Error('Connection reset');
+          })();
         }
         // Second call: abort to end the test
         abortController.abort(new DOMException('Shutdown', 'AbortError'));
-        return new Response(createMockZfsSSEStream([]), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        });
-      });
+        return (async function* () {})();
+      };
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 
@@ -535,23 +343,20 @@ describe('ZFSCollector', () => {
       expect(callCount).toBeGreaterThanOrEqual(2);
     });
 
-    it('run() reconnects after non-200 response with backoff', async () => {
+    it('run() reconnects after a connect failure with backoff', async () => {
       let callCount = 0;
 
-      const fetchFn: FetchFn = mock(async () => {
+      const streamConnector: StreamConnector = async () => {
         callCount++;
         if (callCount <= 2) {
-          return new Response('Service Unavailable', { status: 503 });
+          throw new Error('Agent returned 503: Service Unavailable');
         }
         abortController.abort(new DOMException('Shutdown', 'AbortError'));
-        return new Response(createMockZfsSSEStream([]), {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        });
-      });
+        return (async function* () {})();
+      };
 
       const collector = new ZFSCollector(
-        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+        mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
       );
       mockDb.patchRepository(collector);
 

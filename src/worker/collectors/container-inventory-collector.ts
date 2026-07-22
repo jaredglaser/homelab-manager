@@ -11,6 +11,7 @@ import { zAgentContainerEvent } from '@homelab-manager/agent/types/protocol';
 import type { DockerContainerEventRepository } from '@/lib/database/repositories/docker-container-event-repository';
 import { computeServiceKey } from '@/lib/utils/docker-hierarchy-builder';
 import { BaseCollector } from './base-collector';
+import { connectAgentSseStream } from './agent-sse-stream';
 
 /** Minimal host descriptor shared by agent-based collectors. */
 export interface ManagedHostInfo {
@@ -18,7 +19,8 @@ export interface ManagedHostInfo {
   agentUrl: string;
 }
 
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+/** Injectable connector so tests can supply parsed events without opening a byte stream. */
+type StreamConnector = typeof connectAgentSseStream;
 
 /** Per-container state held in memory to avoid redundant DB writes. */
 interface CachedContainerState {
@@ -52,7 +54,7 @@ export class ContainerInventoryCollector extends BaseCollector {
   private readonly host: ManagedHostInfo;
   private readonly signer: () => Promise<string>;
   private readonly eventRepository: DockerContainerEventRepository;
-  private readonly fetchFn: FetchFn;
+  private readonly streamConnector: StreamConnector;
 
   /** In-memory cache of last-written (state, eventType) per containerId on this host. */
   private readonly stateCache = new Map<string, CachedContainerState>();
@@ -68,7 +70,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     signer: () => Promise<string>,
     repository: DockerContainerEventRepository,
     parentAbortController?: AbortController,
-    fetchFn?: FetchFn,
+    streamConnector?: StreamConnector,
   ) {
     super(STUB_DB, STUB_CONFIG, parentAbortController);
     this.signal = this.abortController.signal;
@@ -76,7 +78,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     this.signer = signer;
     this.eventRepository = repository;
     this.name = `ContainerInventoryCollector[${host.name}]`;
-    this.fetchFn = fetchFn ?? globalThis.fetch;
+    this.streamConnector = streamConnector ?? connectAgentSseStream;
   }
 
   override async run(): Promise<void> {
@@ -99,8 +101,6 @@ export class ContainerInventoryCollector extends BaseCollector {
   }
 
   protected async collect(): Promise<void> {
-    const url = `${this.host.agentUrl}/containers/events`;
-
     const cycleAbort = new AbortController();
     this.collectAbort = cycleAbort;
     const onLifecycleAbort = () => cycleAbort.abort();
@@ -108,60 +108,28 @@ export class ContainerInventoryCollector extends BaseCollector {
     if (this.signal.aborted) cycleAbort.abort();
 
     try {
-      const response = await this.fetchFn(url, {
-        headers: { Authorization: `Bearer ${await this.signer()}` },
+      const stream = await this.streamConnector({
+        agentUrl: this.host.agentUrl,
+        path: '/containers/events',
+        signer: this.signer,
         signal: cycleAbort.signal,
       });
 
-      if (!response.ok) {
-        throw new Error(`Agent ${this.host.name} returned ${response.status}`);
-      }
-      if (!response.body) {
-        throw new Error(`Agent ${this.host.name} returned no body`);
-      }
-
       this.resetBackoff();
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (!cycleAbort.signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const messages = buffer.split('\n\n');
-          buffer = messages.pop() ?? '';
-
-          for (const msg of messages) {
-            if (cycleAbort.signal.aborted) break;
-            const dataLine = msg.split('\n').find((line) => line.startsWith('data: '));
-            if (!dataLine) continue;
-            const json = dataLine.slice(6);
-            let raw: unknown;
-            try {
-              raw = JSON.parse(json);
-            } catch {
-              console.warn('[ContainerInventoryCollector]', this.host.name, 'dropped malformed SSE frame:', json.slice(0, 200));
-              continue;
-            }
-            const parsed = zAgentContainerEvent.safeParse(raw);
-            if (!parsed.success) {
-              console.warn(
-                '[ContainerInventoryCollector]',
-                this.host.name,
-                'dropped SSE frame failing schema validation:',
-                parsed.error.issues,
-              );
-              continue;
-            }
-            await this.handleEvent(parsed.data);
-          }
+      for await (const raw of stream) {
+        if (cycleAbort.signal.aborted) break;
+        const parsed = zAgentContainerEvent.safeParse(raw);
+        if (!parsed.success) {
+          console.warn(
+            '[ContainerInventoryCollector]',
+            this.host.name,
+            'dropped SSE frame failing schema validation:',
+            parsed.error.issues,
+          );
+          continue;
         }
-      } finally {
-        reader.releaseLock();
+        await this.handleEvent(parsed.data);
       }
 
       // If the cycle was aborted by triggerReconnect() (not the lifecycle), throw
