@@ -45,11 +45,15 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
   }, [_monacoLoader]);
 
   const saveMutation = useMutation({
-    mutationFn: () => (_saveCompose ?? saveComposeFile)({ data: { stackName, content: getValues('compose') } }),
-    onSuccess: async () => {
+    mutationFn: (content: string) => (_saveCompose ?? saveComposeFile)({ data: { stackName, content } }),
+    onSuccess: async (_data, content) => {
       // Rebaseline to the saved text so the field reads clean without waiting for
       // the refetch (which lands the same value and would otherwise flash dirty).
-      resetField('compose', { defaultValue: getValues('compose') });
+      // Skip if the user kept typing while the request was in flight (the field
+      // no longer matches what we committed) so those newer edits stay dirty.
+      if (getValues('compose') === content) {
+        resetField('compose', { defaultValue: content });
+      }
       await queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] });
     },
   });
@@ -77,7 +81,7 @@ export default function ComposeEditor({ stackName, _monacoLoader, _saveCompose }
         )}
         <Button
           size="sm"
-          onClick={() => saveMutation.mutate()}
+          onClick={() => saveMutation.mutate(getValues('compose'))}
           disabled={!isDirty || saveMutation.isPending}
           className="normal-case"
         >

@@ -235,4 +235,35 @@ describe('ComposeEditor component', () => {
     // Field rebaselines to the saved text, so it reads clean again.
     await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(true));
   });
+
+  it('keeps edits made during a pending save dirty', async () => {
+    const { act } = await import('@testing-library/react');
+    let resolveSave!: (v: { commitSha: string }) => void;
+    const deferredSave = mock(() => new Promise<{ commitSha: string }>((res) => { resolveSave = res; }));
+    const deferredStub = deferredSave as unknown as typeof saveComposeFile;
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { default: ComposeEditor } = await import('../ComposeEditor');
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FormHarness defaultCompose="image: nginx">
+          <ComposeEditor stackName="test-stack" _saveCompose={deferredStub} />
+        </FormHarness>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('mock-editor')).toBeDefined());
+    const saveButton = screen.getByRole('button', { name: /save & commit/i });
+
+    act(() => { mockEditorOnChange?.('image: v1'); });
+    await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(false));
+    await act(async () => { fireEvent.click(saveButton); });
+
+    // Keep editing while the save request is still in flight.
+    act(() => { mockEditorOnChange?.('image: v2'); });
+    await act(async () => { resolveSave({ commitSha: 'abc' }); });
+
+    // Only "image: v1" was committed, so the newer edit must stay dirty.
+    await waitFor(() => expect((saveButton as HTMLButtonElement).disabled).toBe(false));
+    expect((screen.getByTestId('mock-editor') as HTMLTextAreaElement).value).toBe('image: v2');
+  });
 });
