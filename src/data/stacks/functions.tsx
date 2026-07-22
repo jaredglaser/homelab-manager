@@ -159,6 +159,7 @@ export const getStackVariableValues = createServerFn({ method: 'GET' })
   .middleware([authMiddleware, stackSecretsMiddleware])
   .inputValidator(stackVariablesSchema)
   .handler(async ({ context, data }): Promise<Record<string, string>> => {
+    requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
     const repo = new StackSecretsRepository(context.pool, context.keyring);
     return repo.getAll(data.stackName);
@@ -176,6 +177,7 @@ export const getVariableValue = createServerFn({ method: 'GET' })
   .middleware([authMiddleware, stackSecretsMiddleware])
   .inputValidator(getVariableValueSchema)
   .handler(async ({ context, data }): Promise<string | null> => {
+    requireRole('admin', 'operator')(context.user);
     const { StackSecretsRepository } = await import('@/lib/database/repositories/stack-secrets-repository');
     const repo = new StackSecretsRepository(context.pool, context.keyring);
     return repo.get(data.stackName, data.variableName);
