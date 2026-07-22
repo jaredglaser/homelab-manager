@@ -7,9 +7,8 @@ import PageStatusBar from '@/components/PageStatusBar'
 import ZFSStatusSummary from '@/components/zfs/ZFSStatusSummary'
 import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useGeneralSettings } from '@/hooks/useSettings'
-import { apiUrl } from '@/lib/utils/api-url'
 import { ZFS_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadZFSStats } from '@/lib/constants/preload-queries'
-import type { ZFSStatsRow } from '@/types/zfs'
+import { zfsStatsChannel } from '@/lib/sse/channels/zfs-stats'
 
 export const Route = createFileRoute('/zfs')({
   ssr: false,
@@ -27,11 +26,11 @@ function ZFSPageContent() {
     staleTime: PRELOAD_STALE_TIME,
   })
 
-  const stream = useTimeSeriesStream<ZFSStatsRow>({
-    sseUrl: apiUrl('/api/zfs-stats'),
+  const stream = useTimeSeriesStream({
+    channel: zfsStatsChannel,
     preloadFn,
-    getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.entity}`,
-    getTime: (row) => new Date(row.time).getTime(),
+    getKey: (row) => `${row.time}_${row.host}_${row.entity}`,
+    getTime: (row) => row.time,
     getEntity: (row) => row.host ? `${row.host}/${row.entity}` : row.entity,
     windowSeconds: 90,
     updateIntervalMs: general.updateIntervalMs,

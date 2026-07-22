@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { z } from 'zod';
 import { renderHook, act } from '@testing-library/react';
 import { useTimeSeriesStream, VISIBILITY_REFRESH_COOLDOWN_MS } from '../useTimeSeriesStream';
+import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import { MockEventSource } from '@/lib/test/mock-event-source';
 
 const originalEventSource = globalThis.EventSource;
@@ -19,6 +21,14 @@ interface TestRow {
 function makeRow(entity: string, timeOffset: number): TestRow {
   return { key: `${entity}-${timeOffset}`, time: Date.now() - timeOffset * 1000, entity };
 }
+
+/** Test double for a stats channel descriptor: schema matches TestRow exactly, revive is the identity (TestRow already carries a numeric `time`). */
+const testChannel = defineSseChannel({
+  url: '/api/test',
+  errorEvent: 'stats_error',
+  schema: z.array(z.object({ key: z.string(), time: z.number(), entity: z.string() })),
+  revive: (rows): TestRow[] => rows,
+});
 
 const defaultOpts = {
   getKey: (r: TestRow) => r.key,
@@ -41,7 +51,7 @@ describe('useTimeSeriesStream visibility refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -72,7 +82,7 @@ describe('useTimeSeriesStream visibility refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -116,7 +126,7 @@ describe('useTimeSeriesStream reconnect refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -144,7 +154,7 @@ describe('useTimeSeriesStream reconnect refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -168,7 +178,7 @@ describe('useTimeSeriesStream reconnect refresh', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -208,7 +218,7 @@ describe('useTimeSeriesStream preload', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -230,7 +240,7 @@ describe('useTimeSeriesStream preload', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
       })
@@ -251,7 +261,7 @@ describe('useTimeSeriesStream preload', () => {
 
       const { result } = renderHook(() =>
         useTimeSeriesStream({
-          sseUrl: '/api/test',
+          channel: testChannel,
           preloadFn,
           ...defaultOpts,
         })
@@ -277,7 +287,7 @@ describe('useTimeSeriesStream preload', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -298,7 +308,7 @@ describe('useTimeSeriesStream SSE flush', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -333,7 +343,7 @@ describe('useTimeSeriesStream SSE flush', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -368,7 +378,7 @@ describe('useTimeSeriesStream SSE flush', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -407,7 +417,7 @@ describe('useTimeSeriesStream SSE flush', () => {
 
       const { result } = renderHook(() =>
         useTimeSeriesStream({
-          sseUrl: '/api/test',
+          channel: testChannel,
           preloadFn,
           ...defaultOpts,
           updateIntervalMs: 50,
@@ -439,7 +449,7 @@ describe('useTimeSeriesStream service error', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
       })
@@ -464,7 +474,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -491,7 +501,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -526,7 +536,7 @@ describe('useTimeSeriesStream stale initialData', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         initialData: staleRows,
         ...defaultOpts,
@@ -558,7 +568,7 @@ describe('useTimeSeriesStream stale initialData', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         initialData: freshRows,
         ...defaultOpts,
@@ -584,7 +594,7 @@ describe('useTimeSeriesStream cutoff-only eviction', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -621,7 +631,7 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -658,7 +668,7 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -692,7 +702,7 @@ describe('useTimeSeriesStream preloadFn change', () => {
     const { result, rerender } = renderHook(
       ({ fn }: { fn: () => Promise<TestRow[]> }) =>
         useTimeSeriesStream({
-          sseUrl: '/api/test',
+          channel: testChannel,
           preloadFn: fn,
           ...defaultOpts,
           windowSeconds: 60,
@@ -735,7 +745,7 @@ describe('useTimeSeriesStream debug logging', () => {
       const preloadFn = mock(() => Promise.resolve([makeRow('a', 5)]));
       renderHook(() =>
         useTimeSeriesStream({
-          sseUrl: '/api/test',
+          channel: testChannel,
           preloadFn,
           ...defaultOpts,
           windowSeconds: 60,
@@ -766,7 +776,7 @@ describe('useTimeSeriesStream error composition', () => {
     try {
       const preloadFn = mock(() => Promise.reject(new Error('DB down')));
       const { result } = renderHook(() =>
-        useTimeSeriesStream({ sseUrl: '/api/test', preloadFn, ...defaultOpts }),
+        useTimeSeriesStream({ channel: testChannel, preloadFn, ...defaultOpts }),
       );
 
       // Preload fails → preloadError is set

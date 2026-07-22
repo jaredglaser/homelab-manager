@@ -4,23 +4,23 @@ import type {
   ProxmoxVM,
   ProxmoxContainer,
   ProxmoxStorage,
-  ProxmoxStatsRow,
+  ProxmoxStatsRowRevived,
 } from '@/types/proxmox';
 
 /**
- * Builds a ProxmoxClusterOverview from the latest ProxmoxStatsRow entries keyed by entity.
+ * Builds a ProxmoxClusterOverview from the latest ProxmoxStatsRowRevived entries keyed by entity.
  *
- * @param latestByEntity - Map of the most-recent `ProxmoxStatsRow` for each entity identifier
+ * @param latestByEntity - Map of the most-recent `ProxmoxStatsRowRevived` for each entity identifier
  * @returns The reconstructed `ProxmoxClusterOverview`, or `null` if neither a cluster row nor any node rows are present
  */
 export function buildProxmoxOverview(
-  latestByEntity: Map<string, ProxmoxStatsRow>,
+  latestByEntity: Map<string, ProxmoxStatsRowRevived>,
 ): ProxmoxClusterOverview | null {
-  let clusterRow: ProxmoxStatsRow | null = null;
-  const nodeRows: ProxmoxStatsRow[] = [];
-  const vmRows: ProxmoxStatsRow[] = [];
-  const containerRows: ProxmoxStatsRow[] = [];
-  const storageRows: ProxmoxStatsRow[] = [];
+  let clusterRow: ProxmoxStatsRowRevived | null = null;
+  const nodeRows: ProxmoxStatsRowRevived[] = [];
+  const vmRows: ProxmoxStatsRowRevived[] = [];
+  const containerRows: ProxmoxStatsRowRevived[] = [];
+  const storageRows: ProxmoxStatsRowRevived[] = [];
 
   for (const row of latestByEntity.values()) {
     switch (row.entity_type) {

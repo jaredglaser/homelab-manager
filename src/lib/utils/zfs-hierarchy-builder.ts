@@ -1,6 +1,6 @@
 import type {
   ZFSIOStatWithRates,
-  ZFSStatsRow,
+  ZFSStatsRowRevived,
   ZFSHierarchy,
   ZFSHostHierarchy,
   ZFSHostStats,
@@ -72,16 +72,16 @@ function nameFromEntity(entity: string): string {
 }
 
 /**
- * Convert a ZFSStatsRow (wide table row) to ZFSIOStatWithRates for UI consumption.
+ * Convert a ZFSStatsRow (post channel-boundary revival) to ZFSIOStatWithRates for UI consumption.
  * The id uses the host-prefixed entity path for multi-host deduplication.
  */
-export function rowToZFSStats(row: ZFSStatsRow): ZFSIOStatWithRates {
+export function rowToZFSStats(row: ZFSStatsRowRevived): ZFSIOStatWithRates {
   const id = row.host ? `${row.host}/${row.entity}` : row.entity;
   return {
     id,
     name: nameFromEntity(row.entity),
     indent: row.indent,
-    timestamp: new Date(row.time).getTime(),
+    timestamp: row.time,
     capacity: {
       alloc: Number(row.capacity_alloc ?? 0),
       free: Number(row.capacity_free ?? 0),
@@ -216,7 +216,7 @@ function calculateHostAggregates(pools: ZFSHierarchy): ZFSHostAggregatedStats {
  * @param rows - Flat array of ZFS stats rows for a single host
  * @returns Hierarchical Map structure: pools -> vdevs -> disks
  */
-function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
+function buildHierarchyFromRows(rows: ZFSStatsRowRevived[]): ZFSHierarchy {
   const hierarchy: ZFSHierarchy = new Map();
   const poolByEntity = new Map<string, PoolStats>();
   const vdevByEntity = new Map<string, VdevStats>();
@@ -274,9 +274,9 @@ function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
  * @param rows - Flat array of ZFS stats rows from the database
  * @returns Multi-host hierarchical structure: hosts -> pools -> vdevs -> disks
  */
-export function buildZFSHostHierarchy(rows: ZFSStatsRow[]): ZFSHostHierarchy {
+export function buildZFSHostHierarchy(rows: ZFSStatsRowRevived[]): ZFSHostHierarchy {
   // Group rows by host
-  const rowsByHost = new Map<string, ZFSStatsRow[]>();
+  const rowsByHost = new Map<string, ZFSStatsRowRevived[]>();
   for (const row of rows) {
     const hostName = row.host || '';
     let hostRows = rowsByHost.get(hostName);

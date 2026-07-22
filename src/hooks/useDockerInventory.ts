@@ -1,44 +1,16 @@
 import { useCallback, useState } from 'react';
-import { apiUrl } from '@/lib/utils/api-url';
+import { useSseChannel } from '@/hooks/useSseChannel';
+import { dockerInventoryChannel } from '@/lib/sse/channels/docker-inventory';
 import type {
   DockerInventorySnapshotContainer,
   DockerInventoryBroadcastEvent,
   DockerInventoryUpdateContainer,
 } from '@/types/docker-inventory';
-import { useEventSource } from '@/hooks/useEventSource';
 
 export interface UseDockerInventoryResult {
   inventory: Map<string, DockerInventorySnapshotContainer>;
   isConnected: boolean;
   error: Error | null;
-}
-
-/** Object carrying the Date-typed fields shared by snapshot and update containers. */
-type WithInventoryDates = {
-  startedAt: Date | null;
-  finishedAt: Date | null;
-  updatedAt: Date;
-};
-
-/**
- * Rehydrate SSE date fields from ISO strings to Date objects.
- *
- * The wire type declares these as `z.date()` and the server validates that, but
- * SSE frames are plain JSON: useEventSource parses them with `JSON.parse` and no
- * reviver, so on the client every Date arrives as a string. Coerce here, at the
- * single boundary all inventory events pass through, so downstream consumers
- * (docker-hierarchy-builder's `.getTime()` dedup, ContainerDetailPanel) get real
- * Dates that match the declared type.
- *
- * `startedAt`/`finishedAt` stay nullable; `updatedAt` is always present.
- */
-function reviveContainerDates<T extends WithInventoryDates>(container: T): T {
-  return {
-    ...container,
-    startedAt: container.startedAt ? new Date(container.startedAt) : null,
-    finishedAt: container.finishedAt ? new Date(container.finishedAt) : null,
-    updatedAt: new Date(container.updatedAt),
-  };
 }
 
 /**
@@ -56,19 +28,16 @@ function mergeUpsert(
 
 export function useDockerInventory(): UseDockerInventoryResult {
   const [inventory, setInventory] = useState<Map<string, DockerInventorySnapshotContainer>>(new Map());
-  const [serviceError, setServiceError] = useState<Error | null>(null);
 
   const handleData = useCallback((event: DockerInventoryBroadcastEvent) => {
-    setServiceError(null);
     if (event.type === 'init') {
       const next = new Map<string, DockerInventorySnapshotContainer>();
-      for (const raw of event.containers) {
-        const container = reviveContainerDates(raw);
+      for (const container of event.containers) {
         next.set(`${container.host}/${container.containerId}`, container);
       }
       setInventory(next);
     } else if (event.type === 'upsert') {
-      const container = reviveContainerDates(event.container);
+      const container = event.container;
       setInventory((prev) => {
         const next = new Map(prev);
         const key = `${container.host}/${container.containerId}`;
@@ -86,16 +55,10 @@ export function useDockerInventory(): UseDockerInventoryResult {
     }
   }, []);
 
-  const handleServiceError = useCallback(() => {
-    setServiceError(new Error('Inventory stream unavailable'));
-  }, []);
-
-  const { isConnected, error } = useEventSource<DockerInventoryBroadcastEvent>({
-    url: apiUrl('/api/docker-inventory'),
+  const { isConnected, error } = useSseChannel(dockerInventoryChannel, {
     onData: handleData,
-    onServiceError: handleServiceError,
-    errorEventName: 'inventory_error',
+    serviceErrorMessage: 'Inventory stream unavailable',
   });
 
-  return { inventory, isConnected, error: error ?? serviceError };
+  return { inventory, isConnected, error };
 }

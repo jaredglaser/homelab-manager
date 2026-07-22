@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'bun:test';
-import type { DockerStatsRow } from '@/types/docker';
+import type { DockerStatsRowRevived } from '@/types/docker';
 
 const { buildContainerChartData, useContainerChartData } = await import('@/hooks/useContainerChartData');
 const { renderHook } = await import('@testing-library/react');
 
-/** Minimal valid DockerStatsRow with all nullable fields null */
-function makeRow(overrides: Partial<DockerStatsRow> = {}): DockerStatsRow {
+/** Minimal valid DockerStatsRowRevived with all nullable fields null */
+function makeRow(overrides: Partial<DockerStatsRowRevived> = {}): DockerStatsRowRevived {
   return {
-    time: '2024-01-01T00:00:00.000Z',
+    time: Date.parse('2024-01-01T00:00:00.000Z'),
     host: 'testhost',
     container_id: 'abc123',
     container_name: 'test-container',
@@ -38,7 +38,7 @@ describe('buildContainerChartData', () => {
   });
 
   it('maps a single row to correct ChartDataPoint fields', () => {
-    const time = '2024-06-15T12:00:00.000Z';
+    const time = Date.parse('2024-06-15T12:00:00.000Z');
     const row = makeRow({
       time,
       cpu_percent: 42.5,
@@ -53,7 +53,7 @@ describe('buildContainerChartData', () => {
 
     expect(dataPoints).toHaveLength(1);
     const point = dataPoints[0];
-    expect(point.timestamp).toBe(new Date(time).getTime());
+    expect(point.timestamp).toBe(time);
     expect(point.cpuPercent).toBe(42.5);
     expect(point.memoryPercent).toBe(30.1);
     expect(point.blockIoReadBytesPerSec).toBe(1024);
@@ -72,9 +72,9 @@ describe('buildContainerChartData', () => {
 
   it('output arrays have the same length as input for multiple rows', () => {
     const rows = [
-      makeRow({ time: '2024-01-01T00:00:00.000Z', cpu_percent: 10 }),
-      makeRow({ time: '2024-01-01T00:00:01.000Z', cpu_percent: 20 }),
-      makeRow({ time: '2024-01-01T00:00:02.000Z', cpu_percent: 30 }),
+      makeRow({ time: Date.parse('2024-01-01T00:00:00.000Z'), cpu_percent: 10 }),
+      makeRow({ time: Date.parse('2024-01-01T00:00:01.000Z'), cpu_percent: 20 }),
+      makeRow({ time: Date.parse('2024-01-01T00:00:02.000Z'), cpu_percent: 30 }),
     ];
 
     const { dataPoints, sparklineData } = buildContainerChartData(rows);
@@ -90,16 +90,16 @@ describe('buildContainerChartData', () => {
 
   it('preserves timestamps in insertion order for multiple rows', () => {
     const times = [
-      '2024-01-01T00:00:00.000Z',
-      '2024-01-01T00:00:01.000Z',
-      '2024-01-01T00:00:02.000Z',
+      Date.parse('2024-01-01T00:00:00.000Z'),
+      Date.parse('2024-01-01T00:00:01.000Z'),
+      Date.parse('2024-01-01T00:00:02.000Z'),
     ];
     const rows = times.map((time) => makeRow({ time }));
 
     const { dataPoints } = buildContainerChartData(rows);
 
     times.forEach((time, i) => {
-      expect(dataPoints[i].timestamp).toBe(new Date(time).getTime());
+      expect(dataPoints[i].timestamp).toBe(time);
     });
   });
 
@@ -149,7 +149,7 @@ describe('useContainerChartData', () => {
   it('returns the same shape as buildContainerChartData for valid input', () => {
     const rows = [
       makeRow({
-        time: '2024-01-01T00:00:00.000Z',
+        time: Date.parse('2024-01-01T00:00:00.000Z'),
         cpu_percent: 50,
         memory_percent: 60,
         block_io_read_bytes_per_sec: 100,

@@ -8,7 +8,7 @@ import { metricColumn, nameColumn } from '@/components/ui/datatable/columns';
 import { EMPTY_METRIC } from '@/components/ui/datatable/MetricCell';
 import { formatAsPercentParts, formatBytesParts, formatBitsSIUnitsParts } from '@/formatters/metrics';
 import type {
-  DockerStatsRow,
+  DockerStatsRowRevived,
   DockerStatsFromDB,
   DockerContainerTableRow,
   DockerTableRow,
@@ -36,13 +36,13 @@ const METRIC_GROUPS: MetricGroup[] = [
 ];
 
 /** Shared empty array so containers without stats keep a stable chartData reference */
-const EMPTY_CHART_DATA: DockerStatsRow[] = [];
+const EMPTY_CHART_DATA: DockerStatsRowRevived[] = [];
 
 /** Sparkline accumulator key source: only container rows have a per-entity series. */
 const sparklineEntityId = (row: DockerTableRow) => (row.type === 'container' ? row.id : undefined);
 
 /** Per-entity chart derivations cached by chartData array identity */
-type ChartArtifacts = { chartData: DockerStatsRow[] } & ReturnType<typeof buildContainerChartData>;
+type ChartArtifacts = { chartData: DockerStatsRowRevived[] } & ReturnType<typeof buildContainerChartData>;
 
 interface ContainerTableProps {
   inventory: Map<string, DockerInventorySnapshotContainer>;
@@ -50,8 +50,8 @@ interface ContainerTableProps {
   isInventoryConnected: boolean;
   /** Error from the inventory SSE stream, if it permanently failed */
   inventoryError?: Error | null;
-  latestByEntity: Map<string, DockerStatsRow>;
-  rows: DockerStatsRow[];
+  latestByEntity: Map<string, DockerStatsRowRevived>;
+  rows: DockerStatsRowRevived[];
   hasData: boolean;
   isConnected: boolean;
   error: Error | null;
@@ -111,10 +111,10 @@ export default function ContainerTable({
     return next;
   }, [latestByEntity, entityIcons]);
 
-  const prevChartDataRef = useRef<Map<string, DockerStatsRow[]>>(new Map());
+  const prevChartDataRef = useRef<Map<string, DockerStatsRowRevived[]>>(new Map());
 
   const chartDataByEntityId = useMemo(() => {
-    const map = new Map<string, DockerStatsRow[]>();
+    const map = new Map<string, DockerStatsRowRevived[]>();
     for (const row of rows) {
       const entityId = `${row.host}/${row.container_id}`;
       let arr = map.get(entityId);
@@ -136,7 +136,7 @@ export default function ContainerTable({
       if (
         prevArr &&
         prevArr.length === arr.length &&
-        new Date(prevArr.at(-1)!.time).getTime() === new Date(arr.at(-1)!.time).getTime()
+        prevArr.at(-1)!.time === arr.at(-1)!.time
       ) {
         map.set(key, prevArr);
       }
