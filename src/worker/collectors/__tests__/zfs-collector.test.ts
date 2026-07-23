@@ -30,11 +30,11 @@ function createMockDb() {
 }
 
 /** Resolves when a row batch is written to `insertedRows` (first cycle flushed to the DB). */
-function watchFirstInsert(insertedRows: ZFSStatsRow[][]): Promise<void> {
+function watchFirstInsert(insertedRows: NewZFSStat[][]): Promise<void> {
   let mark = () => {};
   const written = new Promise<void>(resolve => { mark = resolve; });
   const originalPush = insertedRows.push.bind(insertedRows);
-  insertedRows.push = ((...rows: ZFSStatsRow[][]) => {
+  insertedRows.push = ((...rows: NewZFSStat[][]) => {
     const result = originalPush(...rows);
     mark();
     return result;

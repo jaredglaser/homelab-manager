@@ -34,9 +34,9 @@ function createMockDb() {
 function watchFirstPush(collector: AgentStatsCollector): Promise<void> {
   let mark = () => {};
   const queued = new Promise<void>(resolve => { mark = resolve; });
-  const pendingRows = (collector as any).pendingRows as DockerStatsRow[];
+  const pendingRows = (collector as any).pendingRows as NewDockerStat[];
   const originalPush = pendingRows.push.bind(pendingRows);
-  pendingRows.push = ((...rows: DockerStatsRow[]) => {
+  pendingRows.push = ((...rows: NewDockerStat[]) => {
     const result = originalPush(...rows);
     mark();
     return result;
