@@ -8,21 +8,10 @@ import { BaseCollector } from './base-collector';
 
 const DEFAULT_POLL_INTERVAL_MS = 10_000;
 
-/**
- * Resolves a ProxmoxClient for a given host config. Narrowed to just the
- * method the collector needs so tests can inject a fake without spying on
- * the module-level connection-pool singleton.
- */
+/** Resolves a ProxmoxClient for a host config; narrowed so tests can inject a fake without spying on the singleton. */
 type ProxmoxClientProvider = Pick<typeof proxmoxConnectionManager, 'getClient'>;
 
-/**
- * Background collector for Proxmox cluster stats.
- *
- * Polls the Proxmox REST API at a configurable interval, converts the
- * cluster snapshot to flat rows, and inserts them into the proxmox_stats
- * hypertable. The poll interval can be changed at runtime via the
- * `pollInterval` setter (driven by SettingsListener).
- */
+/** Polls the Proxmox REST API and inserts cluster snapshot rows into proxmox_stats; pollInterval is settable at runtime. */
 export class ProxmoxCollector extends BaseCollector {
   readonly name: string;
   private _pollIntervalMs: number;

@@ -8,22 +8,12 @@ const MAX_BACKOFF_EXPONENT = 5; // max 32s
 const MAX_BACKOFF_MS = 30_000;
 const BASE_BACKOFF_MS = 500;
 
-// A cycle that ends cleanly but faster than this is treated as a failed
-// connection, not a healthy stream that reached a refresh point. Without this
-// floor, an agent that returns HTTP 200 then immediately closes the stream
-// (e.g. its Docker daemon is down) drives a hot reconnect loop:
-// fetch -> JWT sign -> 200 -> EOF -> refetch with no delay, burning CPU and
-// hammering the agent for as long as the fault persists.
+// Floor below which a clean cycle end is treated as a failed connection, not a healthy
+// refresh; otherwise an agent that returns 200 then immediately closes the stream drives
+// a hot reconnect loop.
 const MIN_HEALTHY_CYCLE_MS = 1000;
 
-/**
- * Abstract base class for background stats collectors.
- * Implements AsyncDisposable for deterministic cleanup via `await using`.
- *
- * Subclasses implement:
- * - `name` - human-readable label for logging
- * - `collect()` - single collection cycle (connect, stream, write)
- */
+/** Abstract base for background stats collectors; implements AsyncDisposable for cleanup via `await using`. */
 export abstract class BaseCollector implements AsyncDisposable {
   protected readonly abortController: AbortController;
   readonly signal: AbortSignal;
@@ -44,13 +34,7 @@ export abstract class BaseCollector implements AsyncDisposable {
 
   abstract readonly name: string;
 
-  /**
-   * StatsRepository backed by `db`, built on first access rather than in the
-   * constructor. Collectors that persist through a different repository
-   * (e.g. ContainerInventoryCollector writes via DockerContainerEventRepository)
-   * never touch this getter, so they can be constructed without a real
-   * DatabaseClient at all instead of fabricating one to satisfy an eager build.
-   */
+  /** Built lazily so collectors without a DatabaseClient (e.g. ContainerInventoryCollector) don't need one. */
   protected get repository(): StatsRepository {
     if (!this.db) {
       throw new Error(`${this.constructor.name} has no DatabaseClient to build a StatsRepository from`);
@@ -61,19 +45,10 @@ export abstract class BaseCollector implements AsyncDisposable {
     return this._repository;
   }
 
-  /**
-   * Run collection until aborted or error. Implementations should:
-   * - Connect to the data source
-   * - Stream data continuously, writing rows via repository
-   * - Check `this.signal.aborted` periodically
-   * - Only return when aborted, error, or refresh needed (e.g., container changes)
-   */
+  /** Single collection cycle: connect, stream rows via repository, return only when aborted, erroring, or needing a refresh. */
   protected abstract collect(): Promise<void>;
 
-  /**
-   * Main entry point. Runs the collection loop until aborted.
-   * Handles reconnection with exponential backoff on errors.
-   */
+  /** Runs the collection loop until aborted, reconnecting with exponential backoff on errors. */
   async run(): Promise<void> {
     console.log(`[${this.name}] Starting collection`);
     let cycleCount = 0;
@@ -90,16 +65,14 @@ export abstract class BaseCollector implements AsyncDisposable {
 
         const elapsedMs = performance.now() - t0;
         if (elapsedMs >= MIN_HEALTHY_CYCLE_MS) {
-          // Stream stayed up long enough to be healthy (e.g. it ended on a
-          // container-change refresh); reconnect immediately.
+          // Healthy-length cycle (e.g. a container-change refresh); reconnect immediately.
           this.debugLog(
             `[${this.name}] Collection ended after ${(elapsedMs / 1000).toFixed(1)}s` +
             ` (cycle #${cycleCount}), reconnecting immediately...`
           );
           this.consecutiveErrors = 0;
         } else {
-          // Ended almost instantly: throttle like an error to avoid a hot
-          // reconnect loop (see MIN_HEALTHY_CYCLE_MS).
+          // Ended almost instantly: throttle like an error (see MIN_HEALTHY_CYCLE_MS).
           this.consecutiveErrors++;
           this.debugLog(
             `[${this.name}] Collection ended after only ${Math.round(elapsedMs)}ms` +
@@ -126,11 +99,7 @@ export abstract class BaseCollector implements AsyncDisposable {
     console.log(`[${this.name}] Stopped gracefully after ${cycleCount} cycles`);
   }
 
-  /**
-   * Sleep for the current exponential-backoff window (based on
-   * `consecutiveErrors`). Returns false if the signal aborted during the
-   * sleep, in which case the caller should stop the loop.
-   */
+  /** Sleeps for the current backoff window; returns false if aborted during the sleep. */
   private async backoffSleep(): Promise<boolean> {
     const backoffMs = backoffDelayMs(this.consecutiveErrors, {
       baseMs: BASE_BACKOFF_MS,
@@ -146,7 +115,6 @@ export abstract class BaseCollector implements AsyncDisposable {
     }
   }
 
-  /** Signal this collector to stop. */
   stop(): void {
     if (!this.signal.aborted) {
       this.abortController.abort(new DOMException('Collector stopped', 'AbortError'));
@@ -172,14 +140,12 @@ export abstract class BaseCollector implements AsyncDisposable {
     this._dbFlushDebugLogging = enabled;
   }
 
-  /** Log a message only when Docker debug logging is enabled */
   protected debugLog(message: string): void {
     if (this._dockerDebugLogging) {
       console.log(message);
     }
   }
 
-  /** Log a message only when database flush debug logging is enabled */
   protected dbDebugLog(message: string): void {
     if (this._dbFlushDebugLogging) {
       console.log(message);

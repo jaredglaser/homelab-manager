@@ -6,7 +6,6 @@ import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { Pool } from 'pg';
 
-// Suppress console output during tests
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 
@@ -189,7 +188,6 @@ describe('ProxmoxCollector', () => {
         clientProvider,
       );
 
-      // Mock the repository's insertProxmoxStats
       const writtenRows: any[][] = [];
       spyOn((collector as any).repository, 'insertProxmoxStats').mockImplementation(async (rows: any[]) => {
         writtenRows.push(rows);
