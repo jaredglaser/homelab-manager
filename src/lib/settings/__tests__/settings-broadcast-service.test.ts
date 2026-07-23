@@ -2,6 +2,7 @@ import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:te
 import { SettingsBroadcastService } from '../settings-broadcast-service';
 import type { SettingsSSEMessage } from '@/types/settings';
 import type { PoolClient } from 'pg';
+import { waitForCondition } from '@/lib/test/wait-for-condition';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -46,10 +47,6 @@ function createMockPoolClient(): MockPoolClient {
   return client;
 }
 
-function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 describe('SettingsBroadcastService', () => {
   let poolClient: MockPoolClient;
   let service: SettingsBroadcastService;
@@ -71,7 +68,7 @@ describe('SettingsBroadcastService', () => {
     const received: SettingsSSEMessage[] = [];
     service.subscribe((m) => received.push(m));
 
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     expect(received).toHaveLength(1);
     expect(received[0].type).toBe('init');
@@ -82,17 +79,17 @@ describe('SettingsBroadcastService', () => {
 
   it('issues LISTEN settings_change on subscribe', async () => {
     service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.querySql !== null);
     expect(poolClient.querySql).toBe('LISTEN settings_change');
   });
 
   it('broadcasts change event from NOTIFY payload', async () => {
     const received: SettingsSSEMessage[] = [];
     service.subscribe((m) => received.push(m));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', { channel: 'settings_change', payload: 'theme' });
-    await flush();
+    await waitForCondition(() => received.some((m) => m.type === 'change'));
 
     const change = received.find((m) => m.type === 'change');
     expect(change).toBeDefined();
@@ -105,21 +102,20 @@ describe('SettingsBroadcastService', () => {
   it('ignores NOTIFY on unrelated channels', async () => {
     const received: SettingsSSEMessage[] = [];
     service.subscribe((m) => received.push(m));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', { channel: 'other_channel', payload: 'theme' });
-    await flush();
-
+    // channel filter is synchronous; an unrelated channel is a same-tick no-op
     expect(received.filter((m) => m.type === 'change')).toHaveLength(0);
   });
 
   it('stops listening when last subscriber unsubscribes', async () => {
     const unsub = service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     expect(poolClient.released).toBe(false);
     unsub();
-    await flush();
+    await waitForCondition(() => poolClient.released);
     expect(poolClient.released).toBe(true);
   });
 
@@ -140,9 +136,9 @@ describe('SettingsBroadcastService', () => {
 
       try {
         service.subscribe(() => {});
-        await flush();
+        await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
-        // Filter to setTimeout calls with delay >= 100ms to ignore flush() 0ms calls.
+        // error handler schedules reconnect via synchronous setTimeout; no wait needed.
         setTimeoutSpy.mockClear();
         poolClient.emit('error', new Error('connection reset'));
 
@@ -164,7 +160,7 @@ describe('SettingsBroadcastService', () => {
         loadSingleSetting: async () => null,
       });
 
-      // Auto-fire timers synchronously so the retry chain runs inline.
+      // Auto-fire timers via microtask so the retry chain runs inline.
       setTimeoutSpy.mockImplementation(
         ((fn: TimerHandler) => {
           if (typeof fn === 'function') queueMicrotask(fn as () => void);
@@ -174,10 +170,15 @@ describe('SettingsBroadcastService', () => {
 
       const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
+      const backoffDelaysAtLeast3 = () =>
+        (setTimeoutSpy.mock.calls as Array<[unknown, unknown?]>)
+          .map(([, delay]) => delay)
+          .filter((d): d is number => typeof d === 'number' && d >= 100).length >= 3;
+
       try {
         failingService.subscribe(() => {});
         // Allow several retry cycles to elapse.
-        for (let i = 0; i < 10; i++) await flush();
+        await waitForCondition(backoffDelaysAtLeast3);
 
         const backoffDelays = (setTimeoutSpy.mock.calls as Array<[unknown, unknown?]>)
           .map(([, delay]) => delay)
@@ -200,6 +201,10 @@ describe('SettingsBroadcastService', () => {
       const client2 = createMockPoolClient();
       const client3 = createMockPoolClient();
       let connectCount = 0;
+      // `reconnecting` resets to false *before* resyncAllSubscribers() runs, so
+      // loadAllSettings call count is a safer "reconnect fully completed" proxy
+      // than connectCount, which bumps while `reconnecting` may still read true.
+      let loadAllSettingsCallCount = 0;
 
       const resetService = new SettingsBroadcastService({
         getPoolClient: async () => {
@@ -208,7 +213,7 @@ describe('SettingsBroadcastService', () => {
           if (connectCount === 2) return client2 as unknown as PoolClient;
           return client3 as unknown as PoolClient;
         },
-        loadAllSettings: async () => new Map(),
+        loadAllSettings: async () => { loadAllSettingsCallCount++; return new Map(); },
         loadSingleSetting: async () => null,
       });
 
@@ -225,12 +230,12 @@ describe('SettingsBroadcastService', () => {
 
       try {
         resetService.subscribe(() => {});
-        await flush();
+        await waitForCondition(() => client1.notificationHandlers.length > 0);
 
         // First disconnect cycle: client1 errors → retry schedules delay 500
         // → reconnect callback runs → client2 connects successfully → counter resets.
         client1.emit('error', new Error('first disconnect'));
-        for (let i = 0; i < 5; i++) await flush();
+        await waitForCondition(() => loadAllSettingsCallCount >= 2);
 
         expect(capturedDelays[0]).toBe(500);
         expect(connectCount).toBeGreaterThanOrEqual(2);
@@ -240,7 +245,7 @@ describe('SettingsBroadcastService', () => {
         // would continue from 1000ms.
         capturedDelays.length = 0;
         client2.emit('error', new Error('second disconnect'));
-        for (let i = 0; i < 5; i++) await flush();
+        await waitForCondition(() => loadAllSettingsCallCount >= 3);
 
         expect(capturedDelays[0]).toBe(500);
       } finally {

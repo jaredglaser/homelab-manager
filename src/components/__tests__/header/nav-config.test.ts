@@ -121,7 +121,10 @@ describe('handlePrefetch', () => {
     const handler = () => { unhandledRejection = true }
     process.on('unhandledRejection', handler)
     handlePrefetch('/docker')
-    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    // Wait on the promise handlePrefetch's .catch() attaches to, so the rejection is handled first.
+    const rejectingCall = mockPrefetchQuery.mock.results.at(-1)?.value as Promise<unknown> | undefined
+    expect(rejectingCall).toBeDefined()
+    await rejectingCall?.catch(() => {})
     process.off('unhandledRejection', handler)
     expect(unhandledRejection).toBe(false)
   })

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test';
 import { AgentStatsCollector } from '../agent-stats-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { NewDockerStat } from '@/lib/database/repositories/stats-repository';
@@ -28,6 +28,20 @@ function createMockDb() {
       };
     },
   };
+}
+
+/** Resolves when the collector's pendingRows buffer receives its first row. */
+function watchFirstPush(collector: AgentStatsCollector): Promise<void> {
+  let mark = () => {};
+  const queued = new Promise<void>(resolve => { mark = resolve; });
+  const pendingRows = (collector as any).pendingRows as NewDockerStat[];
+  const originalPush = pendingRows.push.bind(pendingRows);
+  pendingRows.push = ((...rows: NewDockerStat[]) => {
+    const result = originalPush(...rows);
+    mark();
+    return result;
+  }) as typeof pendingRows.push;
+  return queued;
 }
 
 const defaultConfig = {
@@ -280,25 +294,45 @@ describe('AgentStatsCollector', () => {
     );
     mockDb.patchRepository(collector);
 
-    const collectPromise = (collector as any).collect();
+    // Wait for the first row instead of sleeping past the real 150ms FLUSH_INTERVAL_MS.
+    const firstRowQueued = watchFirstPush(collector);
 
-    // Wait past the flush interval, then let the second event through
-    await new Promise(resolve => setTimeout(resolve, 250));
-    releaseSecondEvent();
-    await collectPromise;
+    // Capture the flush callback collect() registers so the test drives the real
+    // interval wiring, just without the 150ms wait.
+    let intervalFlush: (() => void) | undefined;
+    const setIntervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(
+      ((fn: () => void) => { intervalFlush = fn; return 0; }) as unknown as typeof setInterval,
+    );
+    try {
+      const collectPromise = (collector as any).collect();
 
-    // First event flushed by the interval timer, second by the final drain
+      await firstRowQueued;
+      expect(intervalFlush).toBeDefined();
+      intervalFlush!();
+
+      releaseSecondEvent();
+      await collectPromise;
+    } finally {
+      setIntervalSpy.mockRestore();
+    }
+
+    // First event flushed by the interval callback, second by the final drain
     expect(mockDb.insertedRows).toHaveLength(2);
     expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
     expect(mockDb.insertedRows[1][0].containerName).toBe('sonarr');
   });
 
   it('stops processing when abort signal fires', async () => {
-    // Emit events with a delay between them so abort can fire mid-stream
+    // Gates are pre-created so releasing one is safe even before the generator awaits it.
+    const gates = Array.from({ length: 5 }, () => {
+      let release: () => void = () => {};
+      const promise = new Promise<void>(resolve => { release = resolve; });
+      return { promise, release };
+    });
     const streamConnector: StreamConnector = async function* () {
       for (let i = 0; i < 5; i++) {
         yield sampleAgentEvent;
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await gates[i].promise;
       }
     } as unknown as StreamConnector;
 
@@ -307,11 +341,17 @@ describe('AgentStatsCollector', () => {
     );
     mockDb.patchRepository(collector);
 
-    // Abort after a short delay
-    setTimeout(() => abortController.abort(new DOMException('Shutdown', 'AbortError')), 50);
+    const firstRowQueued = watchFirstPush(collector);
+
+    const collectPromise = (collector as any).collect();
+    await firstRowQueued;
+
+    // for-await loop checks signal.aborted before processing the next frame.
+    abortController.abort(new DOMException('Shutdown', 'AbortError'));
+    gates[0].release();
 
     // collect() should return once abort fires
-    await (collector as any).collect();
+    await collectPromise;
 
     // At least one row should have been inserted before abort
     expect(mockDb.insertedRows.length).toBeGreaterThanOrEqual(1);
