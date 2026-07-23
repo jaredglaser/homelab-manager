@@ -1,7 +1,7 @@
 // src/lib/deploy/secret-resolver.ts
 
 import type { SecretResolver } from '@/lib/deploy/types';
-import { SECRET_DECRYPTION_FAILED_MESSAGE } from '@/lib/database/repositories/stack-secrets-repository';
+import { SecretDecryptionError } from '@/lib/database/repositories/stack-secrets-repository';
 
 /**
  * No-op secret resolver. Returns an empty record.
@@ -35,9 +35,7 @@ export class StackSecretsResolver implements SecretResolver {
       variables.map(async (v) => [v, await this.stackSecrets.get(stack, v)] as const),
     );
     const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
-    const decryptionFailures = rejected.filter(
-      (r) => r.reason instanceof Error && r.reason.message === SECRET_DECRYPTION_FAILED_MESSAGE,
-    );
+    const decryptionFailures = rejected.filter((r) => r.reason instanceof SecretDecryptionError);
     const otherFailures = rejected.filter((r) => !decryptionFailures.includes(r));
 
     if (otherFailures.length > 0) {

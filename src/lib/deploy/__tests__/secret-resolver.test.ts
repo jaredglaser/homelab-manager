@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { NoOpSecretResolver, StackSecretsResolver, extractVariableReferences } from '../secret-resolver';
 import type { StackSecretsLookup } from '../secret-resolver';
+import { SecretDecryptionError } from '@/lib/database/repositories/stack-secrets-repository';
 
 describe('StackSecretsResolver', () => {
   it('returns an empty record when no variables are requested', async () => {
@@ -33,10 +34,10 @@ describe('StackSecretsResolver', () => {
     expect(result).toEqual({ API_TOKEN: 'token-value' });
   });
 
-  it('throws a decryption-summary error when some lookups reject with "Secret decryption failed" (some-rejected-with-decryption-failure)', async () => {
+  it('throws a decryption-summary error when some lookups reject with a SecretDecryptionError (some-rejected-with-decryption-failure)', async () => {
     const stackSecrets: StackSecretsLookup = {
       get: mock((_stack: string, key: string) => {
-        if (key === 'BAD_KEY') return Promise.reject(new Error('Secret decryption failed'));
+        if (key === 'BAD_KEY') return Promise.reject(new SecretDecryptionError());
         return Promise.resolve('ok-value');
       }),
     };
@@ -63,7 +64,7 @@ describe('StackSecretsResolver', () => {
     const stackSecrets: StackSecretsLookup = {
       get: mock((_stack: string, key: string) => {
         if (key === 'DB_DOWN') return Promise.reject(dbError);
-        if (key === 'BAD_KEY') return Promise.reject(new Error('Secret decryption failed'));
+        if (key === 'BAD_KEY') return Promise.reject(new SecretDecryptionError());
         return Promise.resolve('ok-value');
       }),
     };
