@@ -387,6 +387,12 @@ export async function getVariableValue(opts: {
   return MOCK_VARIABLE_VALUES[opts.data.stackName]?.[opts.data.variableName] ?? '';
 }
 
+export async function getStackVariableValues(opts: {
+  data: { stackName: string };
+}): Promise<Record<string, string>> {
+  return MOCK_VARIABLE_VALUES[opts.data.stackName] ?? {};
+}
+
 export async function setVariableValue(_opts: {
   data: { stackName: string; variableName: string; value: string };
 }): Promise<void> {
