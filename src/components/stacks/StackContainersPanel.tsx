@@ -4,10 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Play, RotateCcw, ScrollText, Square, Terminal, X } from 'lucide-react';
+import { HardDrive, Play, RotateCcw, ScrollText, Square, Terminal, X } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import type { StackContainer } from '@/types/stacks';
+import type { ContainerMount, ContainerPort } from '@/types/docker-inventory';
 import { controlStack } from '@/data/stacks/functions';
+import { dedupeWildcardPorts, formatPortMapping } from '@/components/docker/ContainerPortsMounts';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ShellSelect from '@/components/docker/ShellSelect';
@@ -112,6 +114,7 @@ export default function StackContainersPanel({ containers, stackName, host }: St
               <span className="font-medium text-sm truncate min-w-0">{container.name}</span>
               <span className="opacity-50 text-xs">{container.status}</span>
               <span className="opacity-30 text-xs truncate hidden sm:block">{container.image}</span>
+              <ContainerPortsMountsInline ports={container.ports} mounts={container.mounts} />
 
               {container.service && (
                 <ServiceControls
@@ -154,6 +157,44 @@ const ACTION_PAST: Record<ControlAction, string> = {
   stop: 'stopped',
   restart: 'restarted',
 };
+
+function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[]; mounts: ContainerMount[] }) {
+  if (ports.length === 0 && mounts.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-1 min-w-0 shrink-0">
+      {dedupeWildcardPorts(ports).map((port, idx) => {
+        const published = port.hostPort !== null;
+        return (
+          <span
+            key={`${port.containerPort}/${port.protocol}/${port.hostIp ?? ''}/${port.hostPort ?? ''}/${idx}`}
+            className={`font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) shrink-0 ${published ? 'text-foreground' : 'text-(--muted-foreground)'}`}
+          >
+            {formatPortMapping(port)}
+          </span>
+        );
+      })}
+      {mounts.length > 0 && (
+        <Tooltip>
+          <TooltipTrigger
+            render={<span className="shrink-0 text-(--muted-foreground) hover:text-foreground" aria-label={`${mounts.length} mounts`} />}
+          >
+            <HardDrive size={13} />
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <div className="flex flex-col gap-0.5">
+              {mounts.map((mount, idx) => (
+                <span key={`${mount.source}/${mount.destination}/${idx}`}>
+                  {mount.source} -&gt; {mount.destination}{!mount.rw && ' [ro]'}
+                </span>
+              ))}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
 
 function ServiceControls({
   service,

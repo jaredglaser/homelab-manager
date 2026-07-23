@@ -33,6 +33,8 @@ function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer
     status: inv.state,
     image: inv.image,
     service,
+    ports: inv.ports,
+    mounts: inv.mounts,
   };
 }
 
@@ -356,7 +358,15 @@ export class StackStatusBroadcastService {
           byContainer = new Map();
           this.stackContainers.set(sk, byContainer);
         }
-        byContainer.set(`${inv.host}/${inv.containerId}`, inv);
+        const containerKey = `${inv.host}/${inv.containerId}`;
+        const prev = byContainer.get(containerKey);
+        // NOTIFY (migration 026) never carries mounts, so the previous entry's mounts always win;
+        // ports only fall back to the previous entry when the field is absent (pre-026 payload skew).
+        byContainer.set(containerKey, {
+          ...inv,
+          ports: 'ports' in parsed ? inv.ports : (prev?.ports ?? inv.ports),
+          mounts: prev?.mounts ?? inv.mounts,
+        });
       }
 
       this.broadcastStack(host, composeProject, eventAt);
