@@ -1,12 +1,23 @@
-import { describe, it, expect } from 'bun:test';
-import { render, screen, fireEvent } from '@testing-library/react';
-import ContainerPortsMounts, {
+import { describe, it, expect, mock } from 'bun:test';
+import { render, screen } from '@testing-library/react';
+import type { ReactElement, ReactNode } from 'react';
+import {
   dedupeWildcardPorts,
   formatPortMapping,
   formatMountSource,
 } from '../ContainerPortsMounts';
-import { TooltipProvider } from '@/components/ui/tooltip';
 import type { ContainerPort, ContainerMount } from '@/types/docker-inventory';
+
+// Tooltip open state is Base UI's own hover/delay machinery, not this component's
+// logic; mock it to render children unconditionally so tests assert on content, not
+// on simulating pointer hover through happy-dom.
+mock.module('@/components/ui/tooltip', () => ({
+  Tooltip: ({ children }: { children: ReactNode }) => children,
+  TooltipTrigger: ({ render: el }: { render: ReactElement }) => el,
+  TooltipContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+}));
+
+const { default: ContainerPortsMounts } = await import('../ContainerPortsMounts');
 
 describe('formatPortMapping', () => {
   it('formats a published port with a wildcard bind IP without the IP prefix', () => {
@@ -107,8 +118,8 @@ describe('ContainerPortsMounts', () => {
     ];
     render(<ContainerPortsMounts ports={[]} mounts={mounts} />);
 
-    expect(screen.getByText('/home/user/media')).not.toBeNull();
-    expect(screen.getByText('/media')).not.toBeNull();
+    expect(screen.getAllByText('/home/user/media').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('/media').length).toBeGreaterThan(0);
   });
 
   it('shows an ro badge for a read-only mount and hides it for a read-write mount', () => {
@@ -127,25 +138,16 @@ describe('ContainerPortsMounts', () => {
     ];
     render(<ContainerPortsMounts ports={[]} mounts={mounts} />);
 
-    expect(screen.getByText('app-data')).not.toBeNull();
+    expect(screen.getAllByText('app-data').length).toBeGreaterThan(0);
     expect(screen.getByText('(volume)')).not.toBeNull();
   });
 
-  it('reveals the full source -> destination mapping in a tooltip on hover', async () => {
+  it('exposes the full source -> destination mapping as the tooltip content', () => {
     const mounts: ContainerMount[] = [
       { type: 'bind', source: '/very/long/path/to/some/data/directory', destination: '/data', rw: true },
     ];
-    render(
-      <TooltipProvider delay={0}>
-        <ContainerPortsMounts ports={[]} mounts={mounts} />
-      </TooltipProvider>,
-    );
+    render(<ContainerPortsMounts ports={[]} mounts={mounts} />);
 
-    const trigger = screen.getByText('/data');
-    fireEvent.pointerEnter(trigger);
-    fireEvent.mouseEnter(trigger);
-
-    const tooltip = await screen.findByText('/very/long/path/to/some/data/directory -> /data');
-    expect(tooltip).not.toBeNull();
+    expect(screen.getByText('/very/long/path/to/some/data/directory -> /data')).not.toBeNull();
   });
 });
