@@ -109,8 +109,7 @@ describe('useContainerLogs', () => {
         }),
       );
 
-      // Agent emits one line per SSE message; batching across messages within a
-      // single frame is the optimization we care about preserving.
+      // Batching across messages within a single frame is the optimization under test.
       act(() => {
         MockEventSource.instances[0].onopen?.();
         MockEventSource.instances[0].onmessage?.({
@@ -190,9 +189,7 @@ describe('useContainerLogs', () => {
         }),
       );
 
-      // 6 iterations = initial connection failure + MAX_RECONNECT_ATTEMPTS (5) retry failures.
-      // Each onerror closes the current EventSource and (via the immediate setTimeout mock)
-      // immediately opens a new one, so we always call onerror on the latest instance.
+      // 6 iterations = initial failure + MAX_RECONNECT_ATTEMPTS (5) retries; always call onerror on the latest instance.
       for (let i = 0; i < 6; i++) {
         const es = MockEventSource.instances[MockEventSource.instances.length - 1];
         act(() => { es.onerror?.(); });
@@ -254,8 +251,7 @@ describe('useContainerLogs', () => {
         });
       });
 
-      // Agent-emitted error events flow through the per-frame write buffer,
-      // not writeln, so the message lands in the terminal alongside log lines.
+      // Flows through the per-frame write buffer, not writeln.
       expect(mockTerminal.write).toHaveBeenCalledWith(
         expect.stringContaining('Container not found'),
       );

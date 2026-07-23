@@ -3,60 +3,30 @@ const MAX_BACKOFF_MS = 16_000;
 
 export interface ReconnectingEventSourceOptions {
   url: string;
-  /** Fired when the underlying EventSource connects (initial connect or any later reconnect). */
   onOpen: () => void;
-  /** Fired for every default (unnamed) SSE message. */
   onMessage: (event: { data: string }) => void;
-  /**
-   * Fired on every connection-level failure, before any retry/give-up decision is made.
-   * Return `false` to tell the primitive not to schedule a retry for this failure (and,
-   * since the flag that triggers this is typically permanent, for any failure after it) -
-   * used by the log stream to stop reconnecting once the agent has signalled a clean
-   * stream end.
-   */
+  /** Return `false` to stop retrying (e.g. after a clean stream end). */
   onError: (event: Event) => void | false;
-  /**
-   * Named SSE event types (beyond the default 'message') to subscribe to and forward
-   * through `onNamedEvent`. Includes the literal string 'error' when a caller needs to
-   * inspect a server-sent named error payload distinct from a native connection failure:
-   * EventSource dispatches both a property-based `onerror` and any `addEventListener('error', ...)`
-   * handler for the same event, so the two don't interfere.
-   */
+  /** 'error' is valid here too: EventSource fires onerror and a named 'error' listener independently. */
   namedEvents?: string[];
   onNamedEvent?: (name: string, event: Event) => void;
-  /**
-   * Reconnect attempts allowed before giving up entirely (no further timers scheduled).
-   * Undefined retries indefinitely: some streams must recover on their own once a
-   * continuously visible tab's server comes back (#261).
-   */
+  /** Undefined retries forever (#261: a visible tab must recover once the server is back). */
   maxAttempts?: number;
-  /** Fired once, the attempt after `maxAttempts` is exceeded, when retries stop for good. */
   onGiveUp?: () => void;
-  /** Fired on every failed attempt once this many consecutive failures have occurred, without affecting retry scheduling. */
+  /** Unlike maxAttempts, crossing this doesn't stop retries; it only fires onErrorThreshold. */
   errorThreshold?: number;
   onErrorThreshold?: () => void;
-  /** Reconnect immediately when the tab becomes visible again, if currently disconnected and idle. */
   reconnectOnVisibility?: boolean;
-  /** Reconnect immediately (skipping remaining backoff) when the browser reports it is back online. */
   reconnectOnOnline?: boolean;
-  /** Debug hook: fired right before each `new EventSource(url)` call, including retries. */
   onConnecting?: () => void;
-  /** Debug hook: fired whenever a retry is scheduled, with the 1-based attempt count and delay. */
   onScheduleRetry?: (attempt: number, delayMs: number) => void;
 }
 
 export interface ReconnectingEventSourceHandle {
-  /** Tear down the connection, cancel any pending retry, and remove all listeners. */
   dispose: () => void;
 }
 
-/**
- * Owns the reconnect lifecycle for a single browser EventSource: construction, exponential
- * backoff, indefinite or capped retry, visibility/online re-triggers, and named-event
- * forwarding. Has no opinion on message parsing or fan-out: callers own that through the
- * provided callbacks, which is what lets both a single-subscriber React hook and a
- * multi-subscriber registry sit on top of the same primitive.
- */
+/** Reconnect lifecycle for one EventSource; message parsing and fan-out stay with the caller. */
 export function createReconnectingEventSource(
   options: ReconnectingEventSourceOptions,
 ): ReconnectingEventSourceHandle {
@@ -147,8 +117,7 @@ export function createReconnectingEventSource(
     }
   };
 
-  // Network came back: skip the remaining backoff delay and reconnect now with a
-  // fresh retry budget instead of waiting out a stale timer.
+  // Skip the remaining backoff on 'online': reconnect now with a fresh retry budget.
   const handleOnline = () => {
     if (current !== null) return;
     if (reconnectTimer !== null) {

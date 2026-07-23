@@ -1,27 +1,17 @@
 import { useEffect, useState, useRef } from 'react';
 import { createReconnectingEventSource } from '@/lib/streaming/reconnecting-event-source';
 
-// After this many consecutive failures the hook surfaces an error so the UI
-// can show a degraded state. Reconnect attempts continue indefinitely: a
-// continuously visible tab must recover on its own once the server is back.
+// Reconnect attempts continue indefinitely past this point (#261): a continuously
+// visible tab must recover on its own once the server is back.
 const ERROR_AFTER_ATTEMPTS = 5;
 
 interface UseEventSourceOptions<T> {
   url: string;
   onData: (data: T) => void;
   onServiceError?: () => void;
-  /**
-   * Fired on open after a prior connection failure (never on first connect).
-   * SSE here carries snapshot metrics with no Last-Event-ID replay, so callers
-   * use this to backfill the gap left by a dropped connection.
-   */
+  /** Fired on reconnect open, not first connect: SSE here has no Last-Event-ID replay, so callers backfill the gap themselves. */
   onReconnect?: () => void;
-  /**
-   * Named SSE event that signals a server-side failure for this stream.
-   * Stats endpoints emit `stats_error` (the default); broadcast endpoints
-   * emit per-route names (`settings_error`, `inventory_error`,
-   * `stack_status_error`) that consumers must pass explicitly.
-   */
+  /** Default `stats_error`; broadcast endpoints pass their own name (`settings_error`, `inventory_error`, `stack_status_error`). */
   errorEventName?: string;
   debug?: boolean;
 }
@@ -31,15 +21,7 @@ interface UseEventSourceResult {
   error: Error | null;
 }
 
-/**
- * Manages an EventSource connection to receive server-sent JSON messages and expose connection state.
- *
- * Establishes and maintains an EventSource for the given URL, parses incoming messages as JSON
- * and forwards them to `onData`, tracks connection status and errors, and reconnects with
- * exponential backoff (1s, 2s, 4s, 8s, then 16s) indefinitely, surfacing `error` after
- * ERROR_AFTER_ATTEMPTS consecutive failures. Re-establishes the connection when the document
- * becomes visible again and when the browser comes back online.
- */
+/** React wrapper over the shared reconnect primitive: JSON message parsing plus connection state. */
 export function useEventSource<T>({
   url,
   onData,
@@ -64,8 +46,7 @@ export function useEventSource<T>({
   useEffect(() => {
     let mounted = true;
 
-    // Reset retry budget and error state on each (re-)subscribe so a new URL
-    // starts fresh rather than inheriting exhausted retry state from a prior URL.
+    // A new URL starts fresh, not inheriting exhausted retry state from the prior one.
     hadErrorRef.current = false;
     setError(null);
 

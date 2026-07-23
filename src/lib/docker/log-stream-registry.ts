@@ -2,8 +2,7 @@ import { apiUrl } from '@/lib/utils/api-url';
 import { createReconnectingEventSource, type ReconnectingEventSourceHandle } from '@/lib/streaming/reconnecting-event-source';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
-// Matches xterm scrollback (2000 lines): a late-joining subscriber gets
-// the same view that the terminal can display.
+// Matches xterm scrollback: a late-joining subscriber sees what the terminal can display.
 const BUFFER_MAX_LINES = 2_000;
 
 export interface LogLine {
@@ -42,8 +41,7 @@ class LogStream {
   subscribe(subscriber: LogStreamSubscriber): () => void {
     this.subscribers.add(subscriber);
 
-    // Replay buffered lines and current state so a late joiner sees what
-    // earlier subscribers already received.
+    // Replay backlog and current state to the late joiner.
     for (const line of this.buffer) subscriber.onLine(line);
     if (this.connected) subscriber.onConnect();
     if (this.error) subscriber.onError(this.error);
@@ -67,17 +65,14 @@ class LogStream {
     return createReconnectingEventSource({
       url: this.url,
       maxAttempts: MAX_RECONNECT_ATTEMPTS,
-      // Named events must have listeners or they fall through to onmessage.
-      // 'error' carries the agent's own named error payload alongside the
-      // native connection-failure error handled separately below.
+      // 'error' carries the agent's own named payload, separate from the connection-failure onError below.
       namedEvents: ['backlog_done', 'stream_end', 'error'],
 
       onOpen: () => {
         this.connected = true;
         this.error = null;
 
-        // On reconnect the agent re-sends the backlog; drop the buffer and ask
-        // subscribers to clear their terminals so the replay doesn't duplicate.
+        // Agent re-sends the backlog on reconnect; clear ours first so the replay doesn't duplicate.
         if (this.hasConnected) {
           this.buffer = [];
           for (const sub of this.subscribers) sub.onClear();
@@ -101,13 +96,11 @@ class LogStream {
 
       onNamedEvent: (name, event) => {
         if (name === 'stream_end') {
-          // Agent signals the live follow stream ended cleanly (container stopped);
-          // suppress the reconnect loop since no more logs are coming.
+          // Container stopped normally; stop reconnecting since no more logs are coming.
           this.streamEnded = true;
           return;
         }
         if (name === 'error') {
-          // Agent-emitted named error: carries a JSON data payload describing the failure.
           const rawData = (event as unknown as Record<string, unknown>).data;
           if (typeof rawData !== 'string' || !rawData) return;
           try {
@@ -118,8 +111,6 @@ class LogStream {
             this.appendLine({ text: '\x1b[31m[Error] Log stream error\x1b[0m', stream: 'stderr' });
           }
         }
-        // 'backlog_done' needs no handling; the listener just exists so the
-        // event doesn't fall through to onmessage.
       },
 
       onError: () => {
@@ -145,17 +136,7 @@ class LogStream {
 
 const streams = new Map<string, LogStream>();
 
-/**
- * Subscribe to a container's log stream. Subscribers sharing a (host, containerId)
- * key reuse a single EventSource: the first subscriber starts the stream, late
- * joiners get the buffered backlog replayed, and the stream tears down when the
- * last subscriber unsubscribes.
- *
- * Without this, two ContainerLogViewer instances (e.g. the row's recent-logs
- * panel and the modal viewing the same container) would open duplicate
- * EventSources to the same URL, which can stall under per-origin HTTP/1.1
- * connection limits.
- */
+/** Subscribers sharing a (host, containerId) share one EventSource, avoiding per-origin HTTP/1.1 connection limits. */
 export function subscribeToContainerLogs({ host, containerId, subscriber }: SubscribeOptions): () => void {
   const key = `${host}/${containerId}`;
   let stream = streams.get(key);

@@ -82,7 +82,7 @@ describe('createReconnectingEventSource', () => {
       createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
       for (let i = 0; i < 7; i++) {
-        MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.({} as Event);
+        MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
       }
 
       expect(delays).toEqual([1_000, 2_000, 4_000, 8_000, 16_000, 16_000, 16_000]);
@@ -92,7 +92,7 @@ describe('createReconnectingEventSource', () => {
       createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
       for (let i = 0; i < 10; i++) {
-        MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.({} as Event);
+        MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
       }
 
       expect(MockEventSource.instances).toHaveLength(11);
@@ -112,15 +112,14 @@ describe('createReconnectingEventSource', () => {
 
       // Initial failure + 5 retry failures = 6 onerror calls before giving up.
       for (let i = 0; i < 6; i++) {
-        MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.({} as Event);
+        MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
       }
 
       expect(onGiveUp).toHaveBeenCalledTimes(1);
       expect(MockEventSource.instances).toHaveLength(6);
 
-      // A further failure (there won't be one in practice since nothing is
-      // scheduled) must not call onGiveUp again.
-      MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.({} as Event);
+      // Must not fire again on a further failure.
+      MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
       expect(onGiveUp).toHaveBeenCalledTimes(1);
     });
 
@@ -136,11 +135,11 @@ describe('createReconnectingEventSource', () => {
       });
 
       for (let i = 0; i < 5; i++) {
-        MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.({} as Event);
+        MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
       }
       expect(onErrorThreshold).not.toHaveBeenCalled();
 
-      MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.({} as Event);
+      MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
       expect(onErrorThreshold).toHaveBeenCalledTimes(1);
       // Retries keep going past the threshold.
       expect(MockEventSource.instances).toHaveLength(7);
@@ -160,7 +159,7 @@ describe('createReconnectingEventSource', () => {
       });
 
       MockEventSource.instances[0].fireEvent('stream_end', {});
-      MockEventSource.instances[0].onerror?.({} as Event);
+      MockEventSource.instances[0].onerror?.();
 
       expect(MockEventSource.instances).toHaveLength(1);
     });
@@ -175,12 +174,12 @@ describe('createReconnectingEventSource', () => {
 
       createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
-      MockEventSource.instances[0].onerror?.({} as Event);
-      MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.({} as Event);
+      MockEventSource.instances[0].onerror?.();
+      MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
       expect(delays).toEqual([1_000, 2_000]);
 
       MockEventSource.instances[MockEventSource.instances.length - 1].onopen?.();
-      MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.({} as Event);
+      MockEventSource.instances[MockEventSource.instances.length - 1].onerror?.();
 
       expect(delays[delays.length - 1]).toBe(1_000);
     });
@@ -192,7 +191,7 @@ describe('createReconnectingEventSource', () => {
       try {
         createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
-        MockEventSource.instances[0].onerror?.({} as Event);
+        MockEventSource.instances[0].onerror?.();
         simulateVisibilityChange('visible');
         window.dispatchEvent(new Event('online'));
 
@@ -203,9 +202,7 @@ describe('createReconnectingEventSource', () => {
     });
 
     it('reconnects when the tab becomes visible while disconnected and idle', () => {
-      // No timer is pending once maxAttempts gives up, which is the only way to
-      // reach the idle (no connection, no scheduled retry) state visibility
-      // reconnect targets: the indefinite-retry path always has a timer pending.
+      // maxAttempts: 0 is the only way to reach idle (no connection, no pending timer); indefinite retry always has a timer pending.
       createReconnectingEventSource({
         url: '/api/test',
         onOpen: () => {},
@@ -215,7 +212,7 @@ describe('createReconnectingEventSource', () => {
         reconnectOnVisibility: true,
       });
 
-      MockEventSource.instances[0].onerror?.({} as Event);
+      MockEventSource.instances[0].onerror?.();
       expect(MockEventSource.instances).toHaveLength(1);
 
       simulateVisibilityChange('visible');
@@ -249,7 +246,7 @@ describe('createReconnectingEventSource', () => {
           reconnectOnOnline: true,
         });
 
-        MockEventSource.instances[0].onerror?.({} as Event);
+        MockEventSource.instances[0].onerror?.();
         expect(MockEventSource.instances).toHaveLength(1);
 
         window.dispatchEvent(new Event('online'));
@@ -297,7 +294,7 @@ describe('createReconnectingEventSource', () => {
       try {
         const handle = createReconnectingEventSource({ url: '/api/test', onOpen: () => {}, onMessage: () => {}, onError: () => {} });
 
-        MockEventSource.instances[0].onerror?.({} as Event);
+        MockEventSource.instances[0].onerror?.();
         expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
 
         handle.dispose();
