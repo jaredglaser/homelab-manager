@@ -2,7 +2,7 @@ import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFormContext } from 'react-hook-form';
-import type { StackDetail } from '@/types/stacks';
+import type { StackDetail, DeployStatus } from '@/types/stacks';
 
 // Router hooks are the only things StackEditorForm needs from the router; stub
 // them so we can drive the blocker state and observe navigation.
@@ -73,16 +73,12 @@ const mockShowToast = mock((_message: string, _severity: string) => {});
 mock.module('@/hooks/toastAtom', () => ({ useToast: () => ({ showToast: mockShowToast }) }));
 
 type DeleteResult = { status: 'removed'; commitSha: string } | { status: 'teardown-pending'; deployId: number };
-// The deploy-outcome toast gate dedupes by deployId across the whole module (it's a
-// singleton), and its state persists across tests in this file. A fixed mock deployId
-// would make the second toast in a test (or a later test reusing the same id) silently
-// suppressed as a "duplicate". Each call gets a fresh id, matching real backend behavior
-// where every triggered deploy gets a new deploy_history row.
+// Fresh id per call: the deployToastGate singleton dedupes by id across this whole file.
 let nextDeployId = 1;
-const mockTriggerDeploy = mock((_args: unknown) => Promise.resolve({ deployId: nextDeployId++, status: 'succeeded' as const, logs: '' }));
+const mockTriggerDeploy = mock((_args: unknown): Promise<{ deployId: number; status: DeployStatus; logs: string }> => Promise.resolve({ deployId: nextDeployId++, status: 'succeeded', logs: '' }));
 const mockDeleteStack = mock((_args: unknown): Promise<DeleteResult> => Promise.resolve({ status: 'removed', commitSha: 'x' }));
 const mockUpdateSettings = mock((_args: unknown) => Promise.resolve({ commitSha: 'x' }));
-const mockResumeDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1, status: 'succeeded' as const, logs: '' }));
+const mockResumeDeploy = mock((_args: unknown): Promise<{ deployId: number; status: DeployStatus; logs: string }> => Promise.resolve({ deployId: 1, status: 'succeeded', logs: '' }));
 const mockRejectDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
 const realFns = await import('@/data/stacks/functions');
 mock.module('@/data/stacks/functions', () => ({
@@ -261,11 +257,18 @@ describe('StackEditorForm', () => {
     expect(mockTriggerDeploy).not.toHaveBeenCalled();
   });
 
-  it('surfaces a toast when a deploy fails', async () => {
+  it('surfaces a toast when a deploy fails (request rejects)', async () => {
     mockTriggerDeploy.mockImplementation(() => Promise.reject(new Error('deploy failed')));
     await renderForm();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
     await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('deploy failed', 'error'));
+  });
+
+  it('formats a failed outcome when the deploy request resolves with status failed', async () => {
+    mockTriggerDeploy.mockImplementation(() => Promise.resolve({ deployId: nextDeployId++, status: 'failed' as const, logs: 'image not found' }));
+    await renderForm();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of web failed: image not found', 'error'));
   });
 
   it('approves and rejects pending deploys from the deploys panel', async () => {
@@ -274,9 +277,36 @@ describe('StackEditorForm', () => {
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'approve' })); });
     await waitFor(() => expect(mockResumeDeploy).toHaveBeenCalledWith({ data: { deployId: 7 } }));
+    expect(mockShowToast).toHaveBeenCalledWith('Deploy of web succeeded', 'success');
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'reject' })); });
     await waitFor(() => expect(mockRejectDeploy).toHaveBeenCalledWith({ data: { deployId: 7 } }));
+  });
+
+  it('formats a failed outcome when the approve request resolves with status failed', async () => {
+    mockResumeDeploy.mockImplementation(() => Promise.resolve({ deployId: 1, status: 'failed' as const, logs: 'agent down' }));
+    await renderForm();
+    fireEvent.click(screen.getByRole('tab', { name: /Deploys/ }));
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'approve' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of web failed: agent down', 'error'));
+  });
+
+  it('cross-source dedupe through the real gate: a pre-claim suppresses the mutation toast, and the mutation claiming first suppresses a later check for the same id', async () => {
+    const { deployToastGate } = await import('@/lib/stacks/deploy-outcome-toast');
+    await renderForm();
+
+    const preClaimedId = nextDeployId;
+    deployToastGate.claim(preClaimedId);
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockShowToast).not.toHaveBeenCalledWith('Deploy of web succeeded', 'success');
+
+    mockShowToast.mockClear();
+    const secondId = nextDeployId;
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Deploy of web succeeded', 'success'));
+    expect(deployToastGate.shouldToast(secondId)).toBe(false);
   });
 
   it('reports rollback outcomes via toast', async () => {
@@ -326,13 +356,12 @@ describe('StackEditorForm', () => {
     await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('delete failed', 'error'));
   });
 
-  it('shows a teardown-started toast when a teardown is queued', async () => {
+  it('fires no optimistic toast for a teardown-pending delete: the SSE outcome owns it', async () => {
     mockDeleteStack.mockImplementation(() => Promise.resolve({ status: 'teardown-pending', deployId: 5 }));
     await renderForm();
     fireEvent.click(screen.getByRole('button', { name: 'action-delete' }));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'confirm-delete' })); });
-    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith(
-      'Teardown started for web', 'info',
-    ));
+    await waitFor(() => expect(mockDeleteStack).toHaveBeenCalledTimes(1));
+    expect(mockShowToast).not.toHaveBeenCalled();
   });
 });

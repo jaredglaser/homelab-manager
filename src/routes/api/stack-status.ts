@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { createBroadcastSseHandler } from '@/lib/sse/create-broadcast-sse-handler';
-import { stackStatusChannel } from '@/lib/sse/channels/stack-status';
+import { stackStatusChannel, serializeStackStatusEvent } from '@/lib/sse/channels/stack-status';
 import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 export const Route = createFileRoute('/api/stack-status')({
@@ -14,22 +14,7 @@ export const Route = createFileRoute('/api/stack-status')({
           );
           return (cb) => stackStatusBroadcastService.subscribe(cb);
         },
-        serialize: (event) => {
-          if (event.type === 'deploy_changed') {
-            const payload = {
-              type: 'deploy_changed',
-              stack: event.stack,
-              host: event.host,
-              ...(event.deployId !== undefined ? { deployId: event.deployId } : {}),
-              ...(event.status !== undefined ? { status: event.status } : {}),
-              ...(event.action !== undefined ? { action: event.action } : {}),
-              ...(event.trigger !== undefined ? { trigger: event.trigger } : {}),
-              ...(event.message !== undefined ? { message: event.message } : {}),
-            };
-            return `data: ${JSON.stringify(payload)}\n\n`;
-          }
-          return `data: ${JSON.stringify(event.entries)}\n\n`;
-        },
+        serialize: serializeStackStatusEvent,
         errorEvent: stackStatusChannel.errorEvent,
       }),
     },

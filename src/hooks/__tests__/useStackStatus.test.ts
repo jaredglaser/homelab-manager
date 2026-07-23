@@ -7,7 +7,7 @@ mock.module('@/hooks/toastAtom', () => ({
   useToast: () => ({ showToast: mockShowToast }),
 }));
 
-const { useStackStatus } = await import('../useStackStatus');
+const { useStackStatus } = await import('@/hooks/useStackStatus');
 
 const originalEventSource = globalThis.EventSource;
 

@@ -16,13 +16,7 @@ export interface DeployOutcomeToast {
 
 const MAX_MESSAGE_LENGTH = 200;
 
-/**
- * Take the first line of a raw message, strip control characters, and
- * truncate to 200 chars without splitting a UTF-16 surrogate pair. Mirrors
- * deploy-repository.ts's sanitizeDeployMessage so the SSE path (already
- * truncated server-side) and the mutation path (raw logs) render identical
- * copy regardless of which one wins the toast race.
- */
+/** Takes the first line, strips control characters, and truncates to 200 chars without splitting a UTF-16 surrogate pair. */
 export function truncateDeployMessage(message: string): string {
   const firstLine = message.split(/\r?\n/)[0] ?? '';
   const stripped = Array.from(firstLine)
