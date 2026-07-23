@@ -2,7 +2,7 @@ import type { AgentStackResponse, AgentHealthCheckResponse } from '@homelab-mana
 import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from '@/lib/deploy/types';
 import { retry } from '@/lib/utils/backoff';
 
-/** Pull (10 min) + up (5 min) budget on the agent's /stacks/update route. */
+/** Agent's 15-min pull+up budget on /stacks/update, plus 1 min network slack. */
 const UPDATE_TIMEOUT_MS = 960_000;
 
 export interface ZfsPool {

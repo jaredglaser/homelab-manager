@@ -62,6 +62,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [pendingConfirmAction, setPendingConfirmAction] = useState<'deploy' | 'update' | null>(null)
+  const lastConfirmActionRef = useRef<'deploy' | 'update'>('deploy')
   const [forceRecreate, setForceRecreate] = useState(false)
 
   const form = useForm<StackFormValues>({
@@ -147,8 +148,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   })
 
   // Deploy and update both use the git-committed compose and the saved secrets,
-  // so unsaved editor edits would silently ship the previous version. Warn first
-  // when dirty, remembering which action to run once the user confirms.
+  // so unsaved editor edits would silently ship the previous version.
   function triggerDeployOrUpdate(action: 'deploy' | 'update') {
     // Read dirtiness live at click time (same per-field signal as the compose
     // "Unsaved changes" label and the tab dots) so the guard never lags a render
@@ -174,6 +174,13 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     if (pendingConfirmAction) deployMutation.mutate(pendingConfirmAction)
     setPendingConfirmAction(null)
   }
+
+  // Nulling pendingConfirmAction closes the dialog; keep the last action so the
+  // copy doesn't flip to the deploy fallback mid close-animation.
+  useEffect(() => {
+    if (pendingConfirmAction !== null) lastConfirmActionRef.current = pendingConfirmAction
+  }, [pendingConfirmAction])
+  const confirmDialogAction = pendingConfirmAction ?? lastConfirmActionRef.current
 
   const deleteMutation = useMutation({
     mutationFn: (teardown: boolean) =>
@@ -391,13 +398,13 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
           open={pendingConfirmAction !== null}
           onConfirm={confirmPendingAction}
           onCancel={() => setPendingConfirmAction(null)}
-          title={pendingConfirmAction === 'update' ? 'Update images with unsaved changes?' : 'Deploy with unsaved changes?'}
+          title={confirmDialogAction === 'update' ? 'Update images with unsaved changes?' : 'Deploy with unsaved changes?'}
           description={
-            pendingConfirmAction === 'update'
+            confirmDialogAction === 'update'
               ? "Your unsaved edits aren't saved yet, so this update uses the last saved compose and secrets. Save them first to include your changes."
               : "Your unsaved edits aren't saved yet, so this deploy uses the last saved compose and secrets. Save them first to include your changes."
           }
-          confirmLabel={pendingConfirmAction === 'update' ? 'Update anyway' : 'Deploy anyway'}
+          confirmLabel={confirmDialogAction === 'update' ? 'Update anyway' : 'Deploy anyway'}
           cancelLabel="Cancel"
         />
       </div>

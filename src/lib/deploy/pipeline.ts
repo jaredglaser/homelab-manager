@@ -139,9 +139,8 @@ export class DeployPipeline {
         return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId };
       }
     } else if (request.action === 'update') {
-      // Update always executes (no change-detection short-circuit), but the hashes
-      // still must match the deploy path exactly: a later identical deploy needs to
-      // detect no_change against this row via getLatestSuccessful.
+      // Hashes must match the deploy path exactly: a later identical deploy
+      // detects no_change against this row via getLatestSuccessful.
       composeHash = computeHash(request.composeContent);
       envHash = computeHash(resolvedEnvContent);
     }
@@ -275,7 +274,7 @@ export class DeployPipeline {
           break;
         default: {
           const _exhaustive: never = request;
-          throw new Error(`Unknown deploy action: ${_exhaustive}`);
+          throw new Error(`Unknown deploy action: ${(_exhaustive as DeployRequest).action}`);
         }
       }
     } catch (err) {
