@@ -59,10 +59,7 @@ export const Route = createFileRoute('/api/docker-logs/$containerId')({
           return new Response(msg, { status: agentResponse.status });
         }
 
-        // Pipe the agent's already-framed SSE bytes straight through.
-        // request.signal was already handed to fetch() above, so an abort
-        // aborts the agent connection and rejects the pending read below;
-        // createSseStream's own abort listener handles the rest.
+        // Pipe the agent's already-framed SSE bytes through; request.signal was passed to fetch() above, so abort propagates.
         const agentBody = agentResponse.body;
 
         return createSseStream(request, {

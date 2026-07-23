@@ -5,8 +5,7 @@ mock.module('@/lib/auth/sse-auth', () => ({
   authenticateSSE: mock(async () => ({ id: 1, role: 'admin' })),
 }));
 
-// Real server-init runs deploy recovery and DB shutdown hooks on import;
-// this handler only needs the dynamic import to resolve to a no-op.
+// Real server-init runs deploy recovery and DB shutdown hooks on import; stub it to a no-op.
 mock.module('@/lib/server-init', () => ({}));
 
 type StatsCallback = (rows: unknown[]) => void;
@@ -49,9 +48,7 @@ async function readFrame(reader: ReadableStreamDefaultReader<Uint8Array>): Promi
   return new TextDecoder().decode(value);
 }
 
-/** Matches the macrotask flush used in create-sse-stream.test.ts: onStart's
- * subscribe() call needs to resolve (and register cleanup) before an abort
- * assertion can rely on it having happened. */
+/** Macrotask flush so onStart's subscribe() call resolves before an abort assertion relies on it. */
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -172,10 +169,7 @@ describe('createStatsSseHandler', () => {
 
     await handler({ request: makeRequest(ac) });
 
-    // StatsPollService only calls sendData when new rows exist, so before
-    // this handler routed through the shared primitive, an idle stream
-    // (worker down, no new rows) emitted nothing after ": ok\n\n" and hit
-    // the idle-timeout reconnect churn #323 was written to stop.
+    // StatsPollService only calls sendData on new rows, so idle streams need the shared heartbeat.
     expect(setSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
 
     setSpy.mockRestore();

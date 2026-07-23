@@ -2,13 +2,9 @@ import { createSseStream } from '@/lib/sse/create-sse-stream';
 import type { StatsSource } from '@/lib/database/subscription-service';
 
 /**
- * Factory for stats SSE route handlers.
- * All three stats endpoints (docker, zfs, proxmox) share identical logic;
- * only the source string differs. Wire mechanics (headers, flush,
- * heartbeat, abort teardown) live in `createSseStream`; StatsPollService
- * only pushes rows when it has new ones, so before the shared heartbeat
- * this stream stayed silent (past idle timeouts) whenever the worker was
- * down.
+ * Factory for stats SSE route handlers (docker, zfs, proxmox share this; only the source differs).
+ * StatsPollService only pushes on new rows, so the shared `createSseStream` heartbeat is what
+ * keeps this stream alive when the worker is down and nothing new ever arrives.
  */
 export function createStatsSseHandler(source: StatsSource) {
   return async ({ request }: { request: Request }) => {
@@ -32,8 +28,6 @@ export function createStatsSseHandler(source: StatsSource) {
             () => emit.event('stats_error', {}),
           );
         } catch {
-          // Subscribe is unrecoverable for this request: end the stream
-          // now rather than leaving it open with nothing left to send.
           emit.event('stats_error', {});
           emit.close();
         }

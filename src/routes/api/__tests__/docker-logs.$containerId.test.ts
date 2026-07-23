@@ -44,8 +44,7 @@ mock.module('@/lib/crypto/agent-jwt', () => ({
   signAgentJwt: mock(async () => 'signed.jwt.token'),
 }));
 
-// Imported after the mocks above so the route's dynamic imports resolve to
-// the mocked modules instead of hitting a real database or agent.
+// Imported after the mocks above so the route's dynamic imports resolve to them.
 const { Route } = await import('@/routes/api/docker-logs.$containerId');
 
 type RouteHandler = (args: { request: Request; params: { containerId: string } }) => Promise<Response>;
@@ -192,9 +191,6 @@ describe('GET /api/docker-logs/$containerId', () => {
       params: { containerId: 'c1' },
     });
 
-    // Before routing through createSseStream, this route had no heartbeat
-    // of its own: a quiet container's log stream would sit silent past
-    // idle timeouts, same failure mode #323 fixed for broadcast streams.
     expect(setSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
 
     setSpy.mockRestore();

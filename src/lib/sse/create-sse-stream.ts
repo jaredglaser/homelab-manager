@@ -1,25 +1,15 @@
 /**
- * Single owner of the SSE wire protocol: response headers, the initial
- * flush comment, heartbeat cadence, `data:`/`event:` frame grammar, and
- * abort/enqueue-failure teardown. Every SSE route (stats polling,
- * broadcast subscriptions, the docker-logs proxy) builds its `Response`
- * through this primitive so those wire facts exist in exactly one place
- * instead of being re-derived per adapter.
+ * Single owner of the SSE wire protocol: headers, initial flush, heartbeat,
+ * `data:`/`event:` frame grammar, and abort/enqueue-failure teardown. Every
+ * SSE route builds its `Response` through this so those facts live in one
+ * place instead of being re-derived per adapter.
  *
- * This module only touches Web Streams / Fetch APIs, so it is safe to
- * import statically from route files; server-only work (auth, DB, agent
- * fetches) stays in the caller's `onStart`.
+ * Import-safe for route files (Web Streams/Fetch only); server-only work
+ * (auth, DB, agent fetches) stays in the caller's `onStart`.
  */
 
-// A quiet stream (no rows, no broadcast event) stays silent past the idle
-// timeout of the runtime (Bun's HTTP default is 10s) and any reverse proxy.
-// Without traffic the socket drops, the browser's EventSource reconnects,
-// and the resulting churn of short-lived streams can trip a proxy's
-// rapid-reset protection (e.g. Caddy/Go net/http2, post CVE-2023-44487),
-// which GOAWAYs the whole HTTP/2 connection: every multiplexed request on
-// it dies at once. A `:\n\n` comment every 5s keeps every stream this
-// primitive builds under typical idle defaults, regardless of whether the
-// underlying source (poll, broadcast, agent proxy) ever emits real data.
+// Quiet streams go silent past idle timeouts (runtime, reverse proxy),
+// causing EventSource reconnect churn; a periodic comment keeps them warm.
 const DEFAULT_HEARTBEAT_MS = 5000;
 
 /** Frame-writing surface handed to `onStart`; no caller writes `\n\n` or `data: ` by hand. */
@@ -28,20 +18,9 @@ export interface SseEmitter {
   data(payload: unknown): void;
   /** Writes an `event: <name>\ndata: <JSON>\n\n` frame. */
   event(name: string, payload: unknown): void;
-  /**
-   * Writes a chunk verbatim, bypassing JSON encoding. Covers two cases
-   * that don't fit `data`/`event`: a caller-owned pre-formatted frame
-   * string (a serializer that already returns the full `data: ...\n\n`
-   * text), and raw bytes piped through from an upstream SSE source (the
-   * docker-logs proxy forwards the agent's already-framed stream as-is).
-   */
+  /** Writes a chunk verbatim (a pre-formatted frame string, or raw bytes piped from an upstream SSE source). */
   raw(chunk: string | Uint8Array): void;
-  /**
-   * Ends the stream immediately (clears the heartbeat, runs any
-   * `onStart` cleanup, closes the controller). Use when a stream can't
-   * recover from a setup failure and should not sit open heartbeating
-   * with nothing left to deliver, e.g. broadcast subscribe failing.
-   */
+  /** Ends the stream now (clears heartbeat, runs `onStart` cleanup, closes controller). */
   close(): void;
 }
 
@@ -53,24 +32,13 @@ export type SseOnStart = (
 ) => void | SseCleanup | Promise<void | SseCleanup>;
 
 export interface CreateSseStreamOptions {
-  /**
-   * Called once per request after the initial flush and heartbeat are
-   * armed. May return (or resolve to) a cleanup function; it runs
-   * exactly once, whenever the stream tears down, regardless of whether
-   * that happens before or after `onStart` itself resolves.
-   */
+  /** Called once per request after the flush and heartbeat are armed. May return a cleanup, run once at teardown. */
   onStart: SseOnStart;
-  /** Heartbeat cadence in ms. Defaults to 5000, matching the broadcast idle-timeout fix (#323). */
+  /** Heartbeat cadence in ms. Defaults to 5000. */
   heartbeatMs?: number;
 }
 
-/**
- * True for the TypeError Web Streams throws when enqueue/close race a
- * teardown that already closed the controller. Exported so adapters that
- * do their own work inside a subscribe callback (running a caller-supplied
- * serializer, say) can apply the same "don't log, just tear down" rule to
- * errors that never reach the primitive's own enqueue path.
- */
+/** True for the TypeError Web Streams throws on enqueue/close after the controller already closed. */
 export function isCloseRelatedError(err: unknown): boolean {
   return err instanceof TypeError && /closed/i.test(err.message);
 }
@@ -92,15 +60,10 @@ export function createSseStream(request: Request, opts: CreateSseStreamOptions):
         cleanup?.();
         try {
           controller.close();
-        } catch {
-          // Already closed.
-        }
+        } catch {}
       };
 
-      // `build` is deferred (not a plain string) so that a payload which
-      // fails to JSON.stringify (circular reference, BigInt) is caught by
-      // the same try/catch as an enqueue failure, instead of throwing
-      // synchronously out of `emit.data`/`emit.event` before this runs.
+      // Deferred build lets a JSON.stringify failure (circular ref, BigInt) hit the same catch as an enqueue failure.
       const write = (build: () => string | Uint8Array) => {
         if (closed) return;
         try {
@@ -121,14 +84,11 @@ export function createSseStream(request: Request, opts: CreateSseStreamOptions):
         close: teardown,
       };
 
-      // Forces the runtime to flush response headers immediately so
-      // clients don't stall waiting for the first byte.
+      // Flushes response headers immediately so clients don't stall on the first byte.
       write(() => ': ok\n\n');
       heartbeatTimer = setInterval(() => write(() => ':\n\n'), heartbeatMs);
 
-      // Registered before `onStart` runs so an abort during its (possibly
-      // slow, dynamic-import-laden) setup tears the stream down right
-      // away instead of waiting on setup to finish first.
+      // Registered before onStart so an abort mid-setup tears down right away.
       request.signal.addEventListener('abort', teardown);
 
       let result: void | SseCleanup = undefined;
@@ -136,23 +96,15 @@ export function createSseStream(request: Request, opts: CreateSseStreamOptions):
         result = await onStart(emit, request.signal);
       } catch (err) {
         console.error('Unexpected error in SSE onStart handler:', err);
-        // Setup itself failed: nothing will ever call emit again, so leaving
-        // the stream open would just heartbeat forever with no payload
-        // ever following. End it now instead.
         teardown();
       }
 
       if (closed) {
-        // Teardown already ran while onStart was still setting up (abort,
-        // or onStart called emit.close() itself); run its cleanup now
-        // since the teardown that already fired couldn't have known
-        // about it yet.
+        // Teardown already ran mid-setup (abort, or onStart called emit.close()); run its cleanup now.
         result?.();
       } else {
         cleanup = result ?? undefined;
-        // onStart can resolve after the request aborted mid-setup;
-        // recheck so that race doesn't leak a subscription past
-        // client disconnect.
+        // onStart can resolve after an abort mid-setup; recheck so a subscription doesn't leak past disconnect.
         if (request.signal.aborted) teardown();
       }
     },

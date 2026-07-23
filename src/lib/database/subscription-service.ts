@@ -15,18 +15,10 @@ type LoadRowsFn = (source: StatsSource, since: Date) => Promise<StatsRow[]>;
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 5000;
 const FAILURE_THRESHOLD = 3;
-// While the database is down every poll still pays the full 5s query timeout,
-// so retrying each 1s tick keeps a failing connection pinned. Consecutive
-// failures stretch the effective spacing by skipping ticks (2s, 4s, 8s, then
-// capped at 10s) until one successful poll resets it.
+// Failures double the effective spacing (2s, 4s, 8s, capped at 10s) until a poll succeeds.
 const MAX_BACKOFF_MS = 10_000;
 
-/**
- * Rebuilds the repo on every call (not cached) so a reconnect inside
- * DatabaseConnectionManager is picked up on the next tick instead of
- * pinning a stale pg.Pool. getClient() is cached on the healthy path,
- * so this costs one Map lookup plus a no-op constructor per poll.
- */
+/** Rebuilds the repo per call (not cached) so a DatabaseConnectionManager reconnect is picked up next tick. */
 async function defaultLoadRows(source: StatsSource, since: Date): Promise<StatsRow[]> {
   const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
   const repo = new StatsRepository(dbClient.getPool());
@@ -45,11 +37,8 @@ export interface StatsPollServiceDeps {
 }
 
 /**
- * Shared poll service that runs one setInterval per source (docker, zfs)
- * and broadcasts results to all subscribed SSE clients.
- *
- * Auto-starts polling when the first subscriber joins for a source,
- * auto-stops when the last subscriber leaves.
+ * Shared poll service: one setInterval per source (docker, zfs), broadcasting to subscribed SSE clients.
+ * Auto-starts on first subscriber per source, auto-stops when the last leaves.
  */
 export class StatsPollService {
   private subscribers = new Map<StatsSource, Set<StatsCallback>>();
@@ -60,11 +49,7 @@ export class StatsPollService {
   private skipTicks = new Map<StatsSource, number>();
   private errorSignalled = new Set<StatsSource>();
   private stoppedSources = new Set<StatsSource>();
-  // Sources with a poll still in flight. The interval fires every second
-  // regardless of how long the previous poll took, so without this guard a
-  // run of slow-but-succeeding polls (2-4s under DB load, still under the
-  // timeout) stacks several concurrent queries, each holding a pool
-  // connection. The guard sheds to one poll at a time instead.
+  // Sources with a poll still in flight, so a run of slow polls can't stack concurrent queries.
   private inFlight = new Set<StatsSource>();
   private readonly loadRows: LoadRowsFn;
 
@@ -117,7 +102,6 @@ export class StatsPollService {
         return;
       }
 
-      // Skip this tick if the previous poll for this source hasn't finished.
       if (this.inFlight.has(source)) return;
       this.inFlight.add(source);
 
@@ -134,38 +118,34 @@ export class StatsPollService {
 
         const rows = await Promise.race([rowsPromise, timeoutPromise]);
 
-        // Success - reset failure tracking and backoff
         this.consecutiveFailures.set(source, 0);
         this.skipTicks.delete(source);
         this.errorSignalled.delete(source);
 
-        // Only broadcast rows newer than last poll - prevents broadcasting stale data
-        // when the worker is down (which would break the 30s stale detection in the frontend)
+        // Only rows newer than the last poll: avoids rebroadcasting stale data (breaks the frontend's 30s stale detection).
         const toMs = (value: string | Date) => new Date(value).getTime();
         const newRows = rows.filter(r => toMs(r.time) > last.getTime());
 
         if (newRows.length > 0) {
-          // Advance cursor to max observed row time (not wall-clock) to avoid skipping late-committing rows
+          // Cursor advances to the max row time seen, not wall-clock, so late-committing rows aren't skipped.
           const maxSeenTime = rows.reduce(
             (max, r) => Math.max(max, toMs(r.time)),
             last.getTime()
           );
           this.lastPollTime.set(source, new Date(maxSeenTime));
           for (const cb of subs) {
-            cb(rows); // send all rows including 200ms overlap - frontend Map deduplicates
+            cb(rows); // includes the 200ms overlap; frontend Map deduplicates
           }
         }
       } catch (err) {
         console.error(`[StatsPollService] Poll failed for source "${source}":`, err);
-        // Track consecutive failures
         const failures = (this.consecutiveFailures.get(source) ?? 0) + 1;
         this.consecutiveFailures.set(source, failures);
 
         const backoffMs = backoffDelayMs(failures, { baseMs: POLL_INTERVAL_MS, capMs: MAX_BACKOFF_MS });
-        // -1 because the current (failing) tick already consumed one interval.
+        // -1: the current (failing) tick already consumed one interval.
         this.skipTicks.set(source, backoffMs / POLL_INTERVAL_MS - 1);
 
-        // Signal error once per failure episode after hitting the threshold
         if (failures >= FAILURE_THRESHOLD && !this.errorSignalled.has(source)) {
           this.errorSignalled.add(source);
           const errCbs = this.errorCallbacks.get(source);
@@ -174,8 +154,7 @@ export class StatsPollService {
           }
         }
       } finally {
-        // Clear the timeout timer whenever the query wins the race, otherwise a
-        // pending 5s timer leaks per successful tick and delays clean shutdown.
+        // Clears the race's other timer so it doesn't leak past a successful poll.
         clearTimeout(timeoutId);
         this.inFlight.delete(source);
       }

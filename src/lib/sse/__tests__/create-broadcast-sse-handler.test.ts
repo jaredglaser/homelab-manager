@@ -33,12 +33,7 @@ function makeRequest(ac: AbortController): Request {
   return new Request('http://localhost/', { signal: ac.signal });
 }
 
-/**
- * createSseStream awaits the caller's onStart (loadSubscribe + subscribe)
- * before registering its cleanup, one microtask hop deeper than a bare
- * `await handler(...)` unwinds. Flush a macrotask so that chain settles
- * before asserting on its side effects (unsubscribe calls, etc.).
- */
+/** Macrotask flush so onStart's loadSubscribe/subscribe chain settles before asserting its side effects. */
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }

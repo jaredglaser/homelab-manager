@@ -7,11 +7,7 @@ interface IntervalHandle {
   cleared: boolean;
 }
 
-/**
- * Replace setInterval/clearInterval so the heartbeat becomes a callback we
- * can fire deterministically from tests instead of waiting on wall-clock
- * time (per CLAUDE.md: spy on the timer, don't sleep).
- */
+/** Replaces setInterval/clearInterval so the heartbeat is a callback tests can fire deterministically. */
 function createIntervalHarness() {
   const intervals: IntervalHandle[] = [];
   const setSpy = spyOn(globalThis, 'setInterval').mockImplementation(((cb: () => void, ms: number) => {
@@ -47,13 +43,7 @@ async function readFrame(reader: ReadableStreamDefaultReader<Uint8Array>): Promi
   return new TextDecoder().decode(value);
 }
 
-/**
- * createSseStream's `await onStart(...)` still takes at least one microtask
- * hop even for a synchronous onStart, and more for an async one. A macrotask
- * flush drains all of them deterministically instead of guessing a tick
- * count, so tests that assert on the cleanup wiring (set only once onStart
- * resolves) aren't racing it.
- */
+/** Macrotask flush so tests don't race the microtask hops in `await onStart(...)`. */
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -225,7 +215,7 @@ describe('createSseStream', () => {
     await flushMicrotasks(); // let onStart resolve and register cleanup first
 
     ac.abort();
-    ac.abort(); // AbortController.abort() is itself idempotent, but guard the assertion anyway
+    ac.abort(); // idempotent; guards the assertion anyway
 
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
@@ -237,8 +227,7 @@ describe('createSseStream', () => {
 
     const res = createSseStream(makeRequest(ac), {
       onStart: async () => {
-        // Simulate slow setup (e.g. a dynamic import + subscribe call) that
-        // hasn't returned its cleanup by the time the client disconnects.
+        // Simulates slow setup that hasn't returned its cleanup by the time the client disconnects.
         await new Promise<void>((resolve) => {
           releaseOnStart = resolve;
         });
@@ -289,10 +278,7 @@ describe('createSseStream', () => {
     const reader = readerOf(res);
     await readFrame(reader);
 
-    // A payload whose serialization throws a close-shaped TypeError, same
-    // as what Web Streams throws for enqueue-after-close: exercises the
-    // isCloseRelatedError(err) === true branch of write()'s catch, distinct
-    // from the `closed` flag's own early-return guard.
+    // Serialization throws a close-shaped TypeError, exercising write()'s isCloseRelatedError branch.
     const payload = {
       toJSON() {
         throw new TypeError('The stream is closed');

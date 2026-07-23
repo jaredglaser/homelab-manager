@@ -7,10 +7,7 @@ interface IntervalHandle {
   cleared: boolean;
 }
 
-/**
- * Replace setInterval/clearInterval so each registered interval becomes a
- * callback we can invoke deterministically from tests (no real timers run).
- */
+/** Replaces setInterval/clearInterval so each interval is a callback tests can invoke deterministically. */
 function createIntervalHarness() {
   const intervals: IntervalHandle[] = [];
   const setSpy = spyOn(globalThis, 'setInterval').mockImplementation(((cb: () => void, ms: number) => {
@@ -63,8 +60,7 @@ describe('StatsPollService', () => {
     expect(loadRows).toHaveBeenCalledTimes(1);
     const [source, since] = loadRows.mock.calls[0] as [StatsSource, Date];
     expect(source).toBe('docker');
-    // subscribe() seeds lastPollTime to "now", so the first tick's since
-    // cursor sits 200ms behind that seed.
+    // subscribe() seeds lastPollTime to "now", so since sits 200ms behind that.
     expect(since.getTime()).toBeLessThan(Date.now());
   });
 
@@ -104,8 +100,7 @@ describe('StatsPollService', () => {
   });
 
   it('does not broadcast when loadRows returns no rows newer than the cursor', async () => {
-    // Captured before subscribe() seeds lastPollTime, so this row is not
-    // "newer than" the cursor once the poll runs.
+    // Captured before subscribe() seeds lastPollTime, so this row isn't "newer than" the cursor.
     const beforeSubscribe = new Date();
     loadRows.mockResolvedValue([statsRow(beforeSubscribe.toISOString())]);
     const received: unknown[][] = [];
@@ -130,8 +125,7 @@ describe('StatsPollService', () => {
     await tick();
 
     const secondCallSince = loadRows.mock.calls[1][1] as Date;
-    // The cursor advanced past "now" to the max row time seen on the first
-    // poll (minus the fixed 200ms lookback), not to wall-clock time.
+    // Cursor advanced to the max row time seen on the first poll, not wall-clock time.
     expect(secondCallSince.getTime()).toBeGreaterThan(Date.now());
   });
 
@@ -162,9 +156,7 @@ describe('StatsPollService', () => {
 
     const tick = harness.intervals[0].cb;
 
-    // Threshold is 3 consecutive failures: first two polls stay silent, the
-    // third trips the onError callback exactly once. Backoff skips ticks
-    // between polls, so advance until each poll actually runs.
+    // Threshold is 3 consecutive failures; backoff skips ticks, so advance until each poll actually runs.
     await ticksUntilNextPoll(tick, loadRows);
     expect(errorFired).toBe(0);
     await ticksUntilNextPoll(tick, loadRows);
@@ -172,11 +164,10 @@ describe('StatsPollService', () => {
     await ticksUntilNextPoll(tick, loadRows);
     expect(errorFired).toBe(1);
 
-    // Subsequent failures don't re-fire within the same failure episode.
+    // Subsequent failures don't re-fire within the same episode.
     await ticksUntilNextPoll(tick, loadRows);
     expect(errorFired).toBe(1);
 
-    // And each failing poll logs via console.error, preserving existing behavior.
     expect(errorSpy).toHaveBeenCalled();
   });
 
@@ -225,16 +216,12 @@ describe('StatsPollService', () => {
       skips.push(await ticksUntilNextPoll(tick, loadRows));
     }
 
-    // First poll runs immediately; spacing then doubles (2s, 4s, 8s) and caps
-    // at 10s, which means at most 9 skipped ticks between polls.
+    // Spacing doubles (2s, 4s, 8s) and caps at 10s: at most 9 skipped ticks between polls.
     expect(skips).toEqual([0, 1, 3, 7, 9, 9]);
   });
 });
 
-/**
- * Advance the polling tick until loadRows is invoked again, returning how
- * many ticks were skipped by the backoff before the poll ran.
- */
+/** Advances ticks until loadRows is invoked again, returning how many ticks were skipped. */
 async function ticksUntilNextPoll(
   tick: () => Promise<void> | void,
   loadRows: ReturnType<typeof mock>,
