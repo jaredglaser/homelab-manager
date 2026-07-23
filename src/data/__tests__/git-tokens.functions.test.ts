@@ -22,8 +22,6 @@ mock.module('@/middleware/auth-middleware', () => ({
       this.name = 'AuthError';
     }
   },
-  parseCookie: () => null,
-  resetAuthMiddlewareState: () => {},
 }));
 
 const mockPool = { query: mock(async () => ({ rows: [] })) };

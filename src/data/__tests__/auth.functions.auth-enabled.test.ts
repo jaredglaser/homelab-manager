@@ -55,14 +55,10 @@ mock.module('@/middleware/auth-middleware', () => ({
       this.name = 'AuthError';
     }
   },
-  parseCookie: (header: string | null, name: string) => {
-    if (!header) return null;
-    const match = header.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
-    return match ? decodeURIComponent(match[1]) : null;
-  },
-  resetAuthMiddlewareState: () => {},
 }));
 
+// Exercised through the real resolver (mocking only getRequest and session-manager), not a mock of
+// '@/lib/auth/resolve-user' itself, which would leak across files and break resolve-user.test.ts.
 describe('sessionReadMiddleware (auth enabled)', () => {
   const originalEnv = { ...process.env };
 
