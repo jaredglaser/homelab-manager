@@ -290,12 +290,21 @@ describe('connectAgentSseStream', () => {
     const encoder = new TextEncoder();
     const abortController = new AbortController();
     let pullCount = 0;
+    // Gates are pre-created (not assigned lazily inside pull()) so releasing
+    // one is safe even before pull() has reached the matching await; the
+    // consumer below releases pull N only after actually consuming item N,
+    // keeping producer and consumer in lockstep.
+    const gates = Array.from({ length: 5 }, () => {
+      let release: () => void = () => {};
+      const promise = new Promise<void>(resolve => { release = resolve; });
+      return { promise, release };
+    });
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
         pullCount++;
         if (pullCount <= 5) {
           controller.enqueue(encoder.encode(`data: {"n":${pullCount}}\n\n`));
-          await new Promise((resolve) => setTimeout(resolve, 10));
+          await gates[pullCount - 1].promise;
         } else {
           controller.close();
         }
@@ -313,9 +322,16 @@ describe('connectAgentSseStream', () => {
       fetchFn,
     });
 
-    setTimeout(() => abortController.abort(new DOMException('Shutdown', 'AbortError')), 15);
+    const results: unknown[] = [];
+    for await (const item of gen) {
+      results.push(item);
+      // Abort partway through: readFrames()'s while-loop checks
+      // `signal.aborted` before requesting the next chunk, so no further
+      // items are produced once this fires.
+      if (results.length === 2) abortController.abort(new DOMException('Shutdown', 'AbortError'));
+      gates[results.length - 1].release();
+    }
 
-    const results = await collect(gen);
     expect(results.length).toBeGreaterThan(0);
     expect(results.length).toBeLessThan(5);
   });

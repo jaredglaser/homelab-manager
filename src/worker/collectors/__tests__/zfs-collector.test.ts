@@ -29,6 +29,23 @@ function createMockDb() {
   };
 }
 
+/**
+ * Resolves the instant a row batch is written to `insertedRows`. Used in
+ * place of a fixed sleep to know exactly when the first cycle has actually
+ * been flushed to the DB.
+ */
+function watchFirstInsert(insertedRows: ZFSStatsRow[][]): Promise<void> {
+  let mark = () => {};
+  const written = new Promise<void>(resolve => { mark = resolve; });
+  const originalPush = insertedRows.push.bind(insertedRows);
+  insertedRows.push = ((...rows: ZFSStatsRow[][]) => {
+    const result = originalPush(...rows);
+    mark();
+    return result;
+  }) as typeof insertedRows.push;
+  return written;
+}
+
 const defaultConfig = {
   docker: { enabled: false },
   zfs: { enabled: true },
@@ -278,11 +295,20 @@ describe('ZFSCollector', () => {
       const headerLine = { line: '              capacity     operations     bandwidth' };
       const dataLine = { line: 'tank        1.81T  2.19T     10     20   100K   200K' };
 
+      // Gates are pre-created (not assigned lazily inside the generator) so
+      // releasing one is safe even before the generator has reached the
+      // matching await.
+      const gates = Array.from({ length: 10 }, () => {
+        let release: () => void = () => {};
+        const promise = new Promise<void>(resolve => { release = resolve; });
+        return { promise, release };
+      });
+
       const streamConnector: StreamConnector = async function* () {
         for (let i = 0; i < 10; i++) {
           yield headerLine;
           yield dataLine;
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          await gates[i].promise;
         }
       } as unknown as StreamConnector;
 
@@ -291,10 +317,24 @@ describe('ZFSCollector', () => {
       );
       mockDb.patchRepository(collector);
 
-      // Abort after a short delay
-      setTimeout(() => abortController.abort(new DOMException('Shutdown', 'AbortError')), 50);
+      // Resolves once the first full cycle has been flushed to the DB (on the
+      // second header line), the deterministic point at which abort mid-stream
+      // should be exercised.
+      const firstCycleWritten = watchFirstInsert(mockDb.insertedRows);
 
-      await (collector as any).collect();
+      const collectPromise = (collector as any).collect();
+
+      // Let the first cycle's header+data flow through so the second header
+      // line can trigger the flush.
+      gates[0].release();
+      await firstCycleWritten;
+
+      // Abort now: the for-await loop checks `signal.aborted` before
+      // processing the next frame (the second cycle's data line), so no
+      // further row is queued once this fires.
+      abortController.abort(new DOMException('Shutdown', 'AbortError'));
+
+      await collectPromise;
 
       // At least one cycle should have been written before abort
       expect(mockDb.insertedRows.length).toBeGreaterThanOrEqual(1);

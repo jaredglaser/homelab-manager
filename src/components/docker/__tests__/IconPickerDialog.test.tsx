@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 mock.module('@/lib/utils/icon-resolver', () => ({
   AVAILABLE_ICONS: ['nginx', 'redis', 'postgres', 'docker'],
@@ -114,10 +114,8 @@ describe('IconPickerDialog', () => {
     fireEvent.click(screen.getByText('Apply'));
     expect(onSelect).toHaveBeenCalledWith('nginx');
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1));
-    });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Component closes after SELECTION_FEEDBACK_MS via a real setTimeout; wait for the callback.
+    await waitFor(() => { expect(onClose).toHaveBeenCalledTimes(1); });
   });
 
   it('calls onSelect(null) and closes when "Use auto-detected" is clicked', async () => {
@@ -128,9 +126,7 @@ describe('IconPickerDialog', () => {
     fireEvent.click(screen.getByText('Use auto-detected'));
     expect(onSelect).toHaveBeenCalledWith(null);
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1));
-    });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Component closes after SELECTION_FEEDBACK_MS via a real setTimeout; wait for the callback.
+    await waitFor(() => { expect(onClose).toHaveBeenCalledTimes(1); });
   });
 });

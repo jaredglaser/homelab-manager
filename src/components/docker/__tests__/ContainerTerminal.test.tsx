@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 
 interface MockTerminalShape {
   options: Record<string, unknown>;
@@ -148,18 +148,19 @@ describe('ContainerTerminal', () => {
         onShellResolved={onShellResolved}
       />,
     );
-    // The useEffect that calls onShellResolved runs after render; flush with act.
-    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    // The useEffect that calls onShellResolved runs synchronously during the
+    // render() commit (RTL wraps render in act()), so it has already fired.
     expect(onShellResolved).toHaveBeenCalledWith('bash');
   });
 
   it('flips terminal.options.disableStdin to match the frozen prop on rerender', async () => {
-    // useXtermSetup creates the Terminal inside an async useEffect; wait a tick
-    // inside act() so React state updates are committed before assertions.
+    // useXtermSetup creates the Terminal inside an async useEffect (dynamic
+    // import of @xterm/xterm), so wait for the mock Terminal to actually be
+    // constructed before asserting on it.
     const { rerender } = render(
       <ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={false} wordWrap={false} />,
     );
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    await waitFor(() => { expect(mockTerminalInstances.length).toBeGreaterThan(0); });
     const term = mockTerminalInstances.at(-1);
     if (!term) throw new Error('expected mock Terminal to be constructed');
     expect(term.options.disableStdin).toBe(false);

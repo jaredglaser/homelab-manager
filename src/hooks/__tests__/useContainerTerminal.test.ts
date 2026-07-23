@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 
 // Mock WebSocket. Real WebSockets start in CONNECTING (0) and only transition
 // to OPEN (1) after the handshake; the hook gates ws.send on OPEN, so the mock
@@ -47,15 +47,10 @@ const mockTerminal = {
 
 const { useContainerTerminal } = await import('@/hooks/useContainerTerminal');
 
-/** Settle effects and transition the latest MockWebSocket to OPEN, mirroring the real handshake. */
+/** Wait for the effect to construct the WebSocket, then transition it to OPEN, mirroring the real handshake. */
 async function settleAndOpen(): Promise<void> {
-  await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
-  await act(async () => { mockWsInstances.at(-1)?.triggerOpen(); });
-}
-
-/** For tests that assert NO WebSocket is constructed (enabled=false, terminal=null). */
-async function flushMicrotasksWithoutOpening(): Promise<void> {
-  await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  await waitFor(() => { expect(mockWsInstances.length).toBeGreaterThan(0); });
+  act(() => { mockWsInstances.at(-1)?.triggerOpen(); });
 }
 
 describe('useContainerTerminal', () => {
@@ -206,9 +201,9 @@ describe('useContainerTerminal', () => {
     expect(mockWsInstances.length).toBe(1);
     act(() => { mockWsInstances[0]!.onclose?.({ code: 1000, reason: '' } as CloseEvent); });
     expect(result.current.sessionEnded).toBe(true);
-    await act(async () => { result.current.reconnect(); await new Promise((r) => setTimeout(r, 10)); });
+    act(() => { result.current.reconnect(); });
+    await waitFor(() => { expect(mockWsInstances.length).toBe(2); });
     act(() => { mockWsInstances.at(-1)?.triggerOpen(); });
-    expect(mockWsInstances.length).toBe(2);
     expect(result.current.sessionEnded).toBe(false);
   });
 
@@ -238,7 +233,8 @@ describe('useContainerTerminal', () => {
         enabled: false,
       }),
     );
-    await flushMicrotasksWithoutOpening();
+    // The effect bails out before constructing a WebSocket, so this is already
+    // settled once renderHook returns; nothing further to wait on.
     expect(mockWsInstances.length).toBe(0);
   });
 
@@ -251,7 +247,6 @@ describe('useContainerTerminal', () => {
         terminal: null,
       }),
     );
-    await flushMicrotasksWithoutOpening();
     expect(mockWsInstances.length).toBe(0);
   });
 
@@ -268,7 +263,7 @@ describe('useContainerTerminal', () => {
         terminal: mockTerminal as unknown as import('@xterm/xterm').Terminal,
       }),
     );
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    await waitFor(() => { expect(mockWsInstances.length).toBeGreaterThan(0); });
     const ws = mockWsInstances[0]!;
     // Pre-open: type before the OPEN transition.
     act(() => { listeners['data']?.('typed-before-open\r'); });

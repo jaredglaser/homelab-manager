@@ -247,8 +247,9 @@ describe('MockEventSource', () => {
         instance.onopen = () => resolve();
       });
 
-      // Wait a bit to confirm no messages arrive
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // _start() resolves the generator synchronously on open and returns
+      // without scheduling anything when the path is unrecognized, so once
+      // onopen has fired there is nothing further to wait on.
       expect(messageReceived).toBe(false);
     });
   });

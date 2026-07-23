@@ -30,6 +30,24 @@ function createMockDb() {
   };
 }
 
+/**
+ * Resolves the instant the collector's pendingRows buffer receives its first
+ * row. Used in place of a fixed sleep to know exactly when a queued event is
+ * safe to act on (manually flush, abort mid-stream, etc).
+ */
+function watchFirstPush(collector: AgentStatsCollector): Promise<void> {
+  let mark = () => {};
+  const queued = new Promise<void>(resolve => { mark = resolve; });
+  const pendingRows = (collector as any).pendingRows as DockerStatsRow[];
+  const originalPush = pendingRows.push.bind(pendingRows);
+  pendingRows.push = ((...rows: DockerStatsRow[]) => {
+    const result = originalPush(...rows);
+    mark();
+    return result;
+  }) as typeof pendingRows.push;
+  return queued;
+}
+
 const defaultConfig = {
   docker: { enabled: true },
   zfs: { enabled: false },
@@ -280,25 +298,40 @@ describe('AgentStatsCollector', () => {
     );
     mockDb.patchRepository(collector);
 
+    // Resolves the instant the first row lands in the collector's pending
+    // buffer, so the test can drive the flush deterministically instead of
+    // sleeping past the real 150ms FLUSH_INTERVAL_MS timer.
+    const firstRowQueued = watchFirstPush(collector);
+
     const collectPromise = (collector as any).collect();
 
-    // Wait past the flush interval, then let the second event through
-    await new Promise(resolve => setTimeout(resolve, 250));
+    // Drive the flush the interval timer would otherwise perform.
+    await firstRowQueued;
+    await (collector as any).flushPendingRows();
+
     releaseSecondEvent();
     await collectPromise;
 
-    // First event flushed by the interval timer, second by the final drain
+    // First event flushed by the manually-driven interval flush, second by the final drain
     expect(mockDb.insertedRows).toHaveLength(2);
     expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
     expect(mockDb.insertedRows[1][0].containerName).toBe('sonarr');
   });
 
   it('stops processing when abort signal fires', async () => {
-    // Emit events with a delay between them so abort can fire mid-stream
+    // Emit events one at a time, gated so the test controls exactly when the
+    // stream advances to the next event. Gates are pre-created (not assigned
+    // lazily inside the generator) so releasing one is safe even before the
+    // generator has reached the matching await.
+    const gates = Array.from({ length: 5 }, () => {
+      let release: () => void = () => {};
+      const promise = new Promise<void>(resolve => { release = resolve; });
+      return { promise, release };
+    });
     const streamConnector: StreamConnector = async function* () {
       for (let i = 0; i < 5; i++) {
         yield sampleAgentEvent;
-        await new Promise(resolve => setTimeout(resolve, 20));
+        await gates[i].promise;
       }
     } as unknown as StreamConnector;
 
@@ -307,11 +340,21 @@ describe('AgentStatsCollector', () => {
     );
     mockDb.patchRepository(collector);
 
-    // Abort after a short delay
-    setTimeout(() => abortController.abort(new DOMException('Shutdown', 'AbortError')), 50);
+    // Resolves once the first event has been queued into pendingRows: the
+    // deterministic point at which abort mid-stream should be exercised.
+    const firstRowQueued = watchFirstPush(collector);
+
+    const collectPromise = (collector as any).collect();
+    await firstRowQueued;
+
+    // Abort, then let the stream advance: the for-await loop checks
+    // `signal.aborted` before processing the next frame, so no further
+    // event is queued once this fires.
+    abortController.abort(new DOMException('Shutdown', 'AbortError'));
+    gates[0].release();
 
     // collect() should return once abort fires
-    await (collector as any).collect();
+    await collectPromise;
 
     // At least one row should have been inserted before abort
     expect(mockDb.insertedRows.length).toBeGreaterThanOrEqual(1);
