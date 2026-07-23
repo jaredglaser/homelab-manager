@@ -22,7 +22,7 @@ function makeRow(entity: string, timeOffset: number): TestRow {
   return { key: `${entity}-${timeOffset}`, time: Date.now() - timeOffset * 1000, entity };
 }
 
-/** Test double for a stats channel descriptor: schema matches TestRow exactly, revive is the identity (TestRow already carries a numeric `time`). */
+/** Test double: TestRow already carries a numeric `time`, so revive is the identity. */
 const testChannel = defineSseChannel({
   url: '/api/test',
   errorEvent: 'stats_error',

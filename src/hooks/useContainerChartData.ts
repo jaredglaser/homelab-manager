@@ -59,10 +59,7 @@ export function buildContainerChartData(chartData: DockerStatsRowRevived[]): {
   return { dataPoints: points, sparklineData: { cpu, memory, blockRead, blockWrite, networkRx, networkTx } };
 }
 
-/**
- * Transforms raw Docker stats rows into typed data points and per-metric
- * sparkline arrays suitable for chart rendering.
- */
+/** Memoized `buildContainerChartData`, keyed on `chartData` array identity. */
 export function useContainerChartData(chartData: DockerStatsRowRevived[]): {
   dataPoints: ChartDataPoint[];
   sparklineData: SparklineData;

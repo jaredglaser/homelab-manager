@@ -6,15 +6,9 @@ import {
 } from '@/types/docker-inventory';
 import type { DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
 
-/**
- * Wire shape for the inventory broadcast frame: the same field set as the
- * canonical schemas in `types/docker-inventory.ts`, but with the Date fields
- * re-typed as the ISO strings the frame actually carries. JSON has no Date
- * type, so `JSON.stringify` turns every Date into a string before the frame
- * reaches the wire; the canonical schemas type those fields `z.date()`
- * because they also validate pre-serialization objects server-side
- * (`docker-inventory-broadcast-service.ts`).
- */
+// Same fields as the canonical schemas, but Date fields re-typed as the ISO strings
+// JSON.stringify actually produces; the canonical schemas type them z.date() because
+// they also validate pre-serialization objects server-side.
 const zSnapshotContainerWire = zDockerInventorySnapshotContainer.extend({
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
@@ -32,7 +26,6 @@ const zDockerInventoryWireEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('destroy'), host: z.string(), containerId: z.string(), at: z.string() }),
 ]);
 
-/** Object carrying the Date-typed fields shared by snapshot and update containers on the wire. */
 type WireInventoryDates = { startedAt: string | null; finishedAt: string | null; updatedAt: string };
 type RevivedInventoryDates = { startedAt: Date | null; finishedAt: Date | null; updatedAt: Date };
 

@@ -1,21 +1,13 @@
 import type { z } from 'zod';
 
 /**
- * Structural identity for one SSE channel, shared verbatim by the server route
- * (`src/routes/api/*.ts`, via the factories in `create-broadcast-sse-handler.ts`
- * and `create-stats-sse-handler.ts`) and the client (`useSseChannel`). Before
- * this module, `url` and `errorEvent` were a matched pair of string literals
- * hand-typed once per file on each side; a rename on one side and not the
- * other (#262) compiled fine and only failed at runtime.
- *
- * `schema` validates the parsed SSE payload (already JSON.parsed by
- * `useEventSource`, still wire-shaped: any Date field is an ISO string,
- * `JSON.stringify` has no Date type to preserve). `revive` runs once, right
- * after validation, turning that wire shape into whatever shape consumers
- * actually want to work with (Dates, epoch-ms numbers, etc).
+ * Structural identity for one SSE channel, shared by the server route and the client
+ * (`useSseChannel`), so `url`/`errorEvent` can't drift between them like #262.
+ * `schema` validates the parsed (still wire-shaped, e.g. dates as ISO strings) SSE
+ * payload; `revive` turns it into the shape consumers want (Dates, epoch-ms, etc).
  */
 export interface SseChannelDescriptor<TSchema extends z.ZodTypeAny, TRevived = z.infer<TSchema>> {
-  /** Route path this channel is served from, e.g. `/api/docker-inventory`. No base-path prefix; the client applies `apiUrl()`. */
+  /** Route path, e.g. `/api/docker-inventory`. No base-path prefix; the client applies `apiUrl()`. */
   url: string;
   /** Named SSE event the server emits when the channel's data source fails. */
   errorEvent: string;
@@ -25,12 +17,7 @@ export interface SseChannelDescriptor<TSchema extends z.ZodTypeAny, TRevived = z
   revive: (raw: z.infer<TSchema>) => TRevived;
 }
 
-/**
- * Identity function with a constrained signature: gives descriptor object
- * literals full inference (including the literal `url`/`errorEvent` strings
- * and the schema's inferred type) without callers having to spell out the
- * generic parameters by hand.
- */
+/** Identity function that lets a descriptor literal infer its literal `url`/`errorEvent` and schema type without spelling out the generics. */
 export function defineSseChannel<TSchema extends z.ZodTypeAny, TRevived = z.infer<TSchema>>(
   descriptor: SseChannelDescriptor<TSchema, TRevived>,
 ): SseChannelDescriptor<TSchema, TRevived> {

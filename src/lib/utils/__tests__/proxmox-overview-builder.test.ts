@@ -73,7 +73,7 @@ function createMockSnapshot(): ProxmoxClusterSnapshot {
   };
 }
 
-/** Accepts pre-revival rows (e.g. straight from `snapshotToRows`, matching the worker's raw shape) and revives them the same way the docker-stats channel boundary does. */
+/** Revives raw rows (e.g. from `snapshotToRows`) the same way the proxmox-stats channel boundary does. */
 function rowsToLatestMap(rawRows: ProxmoxStatsRow[]): Map<string, ProxmoxStatsRowRevived> {
   const rows = proxmoxStatsChannel.revive(rawRows);
   const map = new Map<string, ProxmoxStatsRowRevived>();
