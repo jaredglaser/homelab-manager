@@ -2,8 +2,8 @@ import { buildDeployRequests } from '@/lib/git/post-receive';
 import { readFileFromRepo } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { MANIFEST } from '@/lib/stacks/stack-repo-layout';
-import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
+import type { DeployRequest } from '@/lib/deploy/types';
 
 /**
  * Process a post-receive event after a git push.
@@ -70,9 +70,23 @@ export async function processPostReceive(
     return;
   }
 
-  // Build pipeline-compatible deploy requests via GitTriggerBuilder
-  const builder = new GitTriggerBuilder();
-  const deployRequests = builder.build({ manifest, changedStacks, commitSha: newHead });
+  // Defensive: both manifest reads are pinned to newHead, so this rarely drops a stack.
+  const deployRequests: DeployRequest[] = [];
+  for (const [stackName, composeContent] of changedStacks) {
+    const manifestEntry = manifest.stacks[stackName];
+    if (!manifestEntry) continue;
+
+    deployRequests.push({
+      stack: stackName,
+      host: manifestEntry.host,
+      composeContent,
+      commitSha: newHead,
+      envContent: '',
+      action: 'deploy',
+      trigger: 'git_push',
+      autoApproved: manifestEntry.autoDeploy,
+    });
+  }
 
   if (deployRequests.length === 0) {
     return;

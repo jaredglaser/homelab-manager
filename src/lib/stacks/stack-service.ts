@@ -122,26 +122,28 @@ export async function triggerStackDeploy(params: {
 
   const { default: git } = await import('isomorphic-git');
   const fs = await import('node:fs');
-  const { UITriggerBuilder } = await import('@/lib/deploy/builders/ui-trigger-builder');
   const { createDeployPipeline } = await import('@/lib/deploy/pipeline-factory');
 
-  const builder = new UITriggerBuilder();
   const { pipeline } = await createDeployPipeline();
 
   if (params.commitSha) {
-    // Rollback: read compose from the historical commit and use buildRollback
+    // Rollback is always a full deploy with forceRecreate, regardless of the original action.
     const rollbackSha = params.commitSha;
     return handleTriggerDeploy({
       readCompose: (stack) =>
         readFileFromRepo(repoPath, composePath(stack), rollbackSha),
       getCommitSha: () => Promise.resolve(rollbackSha),
-      buildRequest: (input) =>
-        builder.buildRollback({
-          stack: input.stack,
-          host: input.host,
-          composeContent: input.composeContent,
-          commitSha: input.commitSha,
-        }),
+      buildRequest: (input): DeployRequest => ({
+        stack: input.stack,
+        host: input.host,
+        composeContent: input.composeContent,
+        commitSha: input.commitSha,
+        envContent: '',
+        action: 'deploy',
+        trigger: 'manual_rollback',
+        autoApproved: true,
+        forceRecreate: true,
+      }),
       executePipeline: (request) => pipeline.execute(request),
     }, params);
   }
@@ -149,9 +151,19 @@ export async function triggerStackDeploy(params: {
   return handleTriggerDeploy({
     readCompose: (stack) => readFileFromRepo(repoPath, composePath(stack)),
     getCommitSha: () => git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' }),
-    buildRequest: (input) => {
-      const req = builder.build(input);
-      return params.postSuccess ? { ...req, postSuccess: params.postSuccess } : req;
+    buildRequest: (input): DeployRequest => {
+      const base = {
+        stack: input.stack,
+        host: input.host,
+        commitSha: input.commitSha,
+        trigger: 'ui' as const,
+        autoApproved: true,
+        ...(params.postSuccess ? { postSuccess: params.postSuccess } : {}),
+      };
+      if (input.action === 'deploy') {
+        return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '', forceRecreate: input.forceRecreate ?? false };
+      }
+      return { ...base, action: input.action };
     },
     executePipeline: (request) => pipeline.execute(request),
   }, params);

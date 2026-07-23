@@ -1,4 +1,4 @@
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import {
   extractVariableNames,
   toStackDeployRecord,
@@ -7,8 +7,16 @@ import {
   handleTriggerDeploy,
 } from '@/lib/stacks/stack-mappers';
 import type { DeployDeps } from '@/lib/stacks/stack-mappers';
-import type { DeployRecord } from '@/lib/deploy/types';
+import type { DeployRecord, DeployRequest } from '@/lib/deploy/types';
+import type { DeployPipeline } from '@/lib/deploy/pipeline';
 import { SAFE_PATH_SEGMENT_PATTERN } from '@/lib/stacks/stack-service';
+import * as gitConfig from '@/lib/config/git-config';
+import * as pipelineFactory from '@/lib/deploy/pipeline-factory';
+import { initBareRepo, commitFiles } from '@/lib/git/repo';
+import { composePath } from '@/lib/stacks/stack-repo-layout';
+import { getTestTmpDir } from '@/lib/test/tmp-dir';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
 
 describe('extractVariableNames', () => {
   test('extracts simple variable references', () => {
@@ -187,6 +195,106 @@ describe('handleTriggerDeploy', () => {
     const call = (deps.buildRequest as ReturnType<typeof mock>).mock.calls[0] as [{ composeContent: string; commitSha: string }];
     expect(call[0].composeContent).toBe('custom compose');
     expect(call[0].commitSha).toBe('def456');
+  });
+});
+
+describe('triggerStackDeploy', () => {
+  // Real temp repo + spyOn/mockRestore, not mock.module: mock.module() isn't reliably reset across files under --isolate.
+  let testDir: string;
+  let repoPath: string;
+  let loadGitConfigSpy: ReturnType<typeof spyOn>;
+  let createDeployPipelineSpy: ReturnType<typeof spyOn>;
+  let executeMock: ReturnType<typeof mock>;
+  let headSha: string;
+
+  beforeEach(async () => {
+    testDir = mkdtempSync(join(getTestTmpDir(), 'trigger-deploy-'));
+    repoPath = join(testDir, 'test.git');
+    await initBareRepo(repoPath);
+    headSha = await commitFiles(repoPath, () => ({
+      files: [{ path: composePath('plex'), content: 'services:\n  plex:\n    image: plex' }],
+      message: 'add plex compose',
+      author: { name: 'test', email: 'test@test.com' },
+    }));
+
+    loadGitConfigSpy = spyOn(gitConfig, 'loadGitConfig').mockReturnValue({
+      reposDir: testDir,
+      repoName: 'test',
+      repoPath,
+    });
+    executeMock = mock(() => Promise.resolve({ deployId: 42 }));
+    createDeployPipelineSpy = spyOn(pipelineFactory, 'createDeployPipeline').mockResolvedValue({
+      pipeline: { execute: (request: DeployRequest) => executeMock(request) } as unknown as DeployPipeline,
+      deployRepo: {} as never,
+      stackRepoWriter: {} as never,
+    });
+  });
+
+  afterEach(() => {
+    loadGitConfigSpy.mockRestore();
+    createDeployPipelineSpy.mockRestore();
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test('builds a ui deploy DeployRequest with HEAD as commitSha', async () => {
+    const { triggerStackDeploy: freshTriggerStackDeploy } = await import('@/lib/stacks/stack-service');
+    const result = await freshTriggerStackDeploy({ stack: 'plex', host: 'homeserver', action: 'deploy' });
+
+    expect(result.deployId).toBe(42);
+    expect(executeMock).toHaveBeenCalledWith({
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha: headSha,
+      trigger: 'ui',
+      autoApproved: true,
+      action: 'deploy',
+      composeContent: 'services:\n  plex:\n    image: plex',
+      envContent: '',
+      forceRecreate: false,
+    });
+  });
+
+  test('builds a ui teardown DeployRequest with postSuccess re-attached in the same assembly', async () => {
+    const { triggerStackDeploy: freshTriggerStackDeploy } = await import('@/lib/stacks/stack-service');
+    await freshTriggerStackDeploy({
+      stack: 'plex',
+      host: 'homeserver',
+      action: 'teardown',
+      postSuccess: 'removeFromManifest',
+    });
+
+    expect(executeMock).toHaveBeenCalledWith({
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha: headSha,
+      trigger: 'ui',
+      autoApproved: true,
+      postSuccess: 'removeFromManifest',
+      action: 'teardown',
+    });
+  });
+
+  test('builds a manual_rollback DeployRequest reading compose from the historical commitSha', async () => {
+    const rollbackSha = await commitFiles(repoPath, () => ({
+      files: [{ path: composePath('plex'), content: 'services:\n  plex:\n    image: plex:old' }],
+      message: 'roll back candidate',
+      author: { name: 'test', email: 'test@test.com' },
+    }));
+
+    const { triggerStackDeploy: freshTriggerStackDeploy } = await import('@/lib/stacks/stack-service');
+    await freshTriggerStackDeploy({ stack: 'plex', host: 'homeserver', action: 'deploy', commitSha: rollbackSha });
+
+    expect(executeMock).toHaveBeenCalledWith({
+      stack: 'plex',
+      host: 'homeserver',
+      composeContent: 'services:\n  plex:\n    image: plex:old',
+      commitSha: rollbackSha,
+      envContent: '',
+      action: 'deploy',
+      trigger: 'manual_rollback',
+      autoApproved: true,
+      forceRecreate: true,
+    });
   });
 });
 
