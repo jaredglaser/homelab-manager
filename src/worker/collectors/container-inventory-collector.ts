@@ -1,6 +1,8 @@
 import type {
   AgentContainerEvent,
   ContainerState,
+  ContainerPort,
+  ContainerMount,
   InventorySnapshotContainer,
   InventoryUpdateContainer,
 } from '@/types/docker-inventory';
@@ -19,10 +21,41 @@ export interface ManagedHostInfo {
 /** Injectable connector so tests can supply parsed events without opening a byte stream. */
 type StreamConnector = typeof connectAgentSseStream;
 
+function compareStrings(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** Mirrors the agent's comparePorts (docker-events-broadcaster.ts) so canonical ordering agrees. */
+function comparePorts(a: ContainerPort, b: ContainerPort): number {
+  if (a.containerPort !== b.containerPort) return a.containerPort - b.containerPort;
+  if (a.protocol !== b.protocol) return compareStrings(a.protocol, b.protocol);
+  const aHostIp = a.hostIp ?? '';
+  const bHostIp = b.hostIp ?? '';
+  if (aHostIp !== bHostIp) return compareStrings(aHostIp, bHostIp);
+  return (a.hostPort ?? -1) - (b.hostPort ?? -1);
+}
+
+/** Mirrors the agent's compareMounts (docker-events-broadcaster.ts) so canonical ordering agrees. */
+function compareMounts(a: ContainerMount, b: ContainerMount): number {
+  return compareStrings(a.destination, b.destination);
+}
+
+/** PostgreSQL jsonb does not preserve object key order, so a hydrated DB row's ports/mounts never
+ * JSON.stringify-match a live SSE frame with the same content; canonicalize through sorted tuple
+ * arrays (positional, not key-order dependent) instead. */
+function computeDetailsFingerprint(ports: ContainerPort[], mounts: ContainerMount[]): string {
+  const portTuples = [...ports].sort(comparePorts).map((p) => [p.containerPort, p.protocol, p.hostIp, p.hostPort]);
+  const mountTuples = [...mounts].sort(compareMounts).map((m) => [m.type, m.source, m.destination, m.rw]);
+  return JSON.stringify([portTuples, mountTuples]);
+}
+
 /** Per-container state held in memory to avoid redundant DB writes. */
 interface CachedContainerState {
   state: ContainerState | null;
   eventType: 'upsert' | 'destroy';
+  detailsFingerprint: string;
 }
 
 export class ContainerInventoryCollector extends BaseCollector {
@@ -71,7 +104,10 @@ export class ContainerInventoryCollector extends BaseCollector {
       for (const row of snapshot) {
         if (row.host !== this.host.name) continue;
         const state = row.eventType === 'upsert' ? row.state : null;
-        this.stateCache.set(row.containerId, { state, eventType: row.eventType });
+        const detailsFingerprint = row.eventType === 'upsert'
+          ? computeDetailsFingerprint(row.ports, row.mounts)
+          : computeDetailsFingerprint([], []);
+        this.stateCache.set(row.containerId, { state, eventType: row.eventType, detailsFingerprint });
       }
     } catch (err) {
       console.error(`[ContainerInventoryCollector] Failed to hydrate cache for ${this.host.name}:`, err);
@@ -162,7 +198,8 @@ export class ContainerInventoryCollector extends BaseCollector {
 
     for (const container of containers) {
       const cached = this.stateCache.get(container.id);
-      if (!cached || cached.state !== container.state || cached.eventType !== 'upsert') {
+      const fingerprint = computeDetailsFingerprint(container.ports, container.mounts);
+      if (!cached || cached.state !== container.state || cached.eventType !== 'upsert' || cached.detailsFingerprint !== fingerprint) {
         await this.writeEvent(container, 'upsert');
       }
     }
@@ -187,7 +224,8 @@ export class ContainerInventoryCollector extends BaseCollector {
     const timer = globalThis.setTimeout(() => {
       this.pendingWrites.delete(container.id);
       const cached = this.stateCache.get(container.id);
-      if (cached && cached.eventType === 'upsert' && cached.state === container.state) {
+      const fingerprint = computeDetailsFingerprint(container.ports, container.mounts);
+      if (cached && cached.eventType === 'upsert' && cached.state === container.state && cached.detailsFingerprint === fingerprint) {
         return;
       }
       this.writeEvent(container, eventType).catch((err) => {
@@ -225,6 +263,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     // Streaming upserts carry no labels; serviceKey falls back to name until the next reconcileInit.
     const labels = 'labels' in container ? container.labels : {};
     const serviceKey = computeServiceKey(labels, container.name);
+    const detailsFingerprint = computeDetailsFingerprint(container.ports, container.mounts);
     try {
       await this.eventRepository.insert({
         at: new Date(),
@@ -235,12 +274,14 @@ export class ContainerInventoryCollector extends BaseCollector {
         name: container.name,
         image: container.image,
         labels,
+        ports: container.ports,
+        mounts: container.mounts,
         serviceKey,
         startedAt: container.startedAt ? new Date(container.startedAt) : null,
         finishedAt: container.finishedAt ? new Date(container.finishedAt) : null,
         exitCode: container.exitCode,
       });
-      this.stateCache.set(container.id, { state: container.state, eventType });
+      this.stateCache.set(container.id, { state: container.state, eventType, detailsFingerprint });
     } catch (err) {
       console.error(`[ContainerInventoryCollector] DB error for ${this.host.name}/${container.id}:`, err);
       throw err;
@@ -255,7 +296,7 @@ export class ContainerInventoryCollector extends BaseCollector {
         containerId,
         eventType: 'destroy',
       });
-      this.stateCache.set(containerId, { state: null, eventType: 'destroy' });
+      this.stateCache.set(containerId, { state: null, eventType: 'destroy', detailsFingerprint: computeDetailsFingerprint([], []) });
     } catch (err) {
       console.error(`[ContainerInventoryCollector] DB destroy error for ${this.host.name}/${containerId}:`, err);
       throw err;

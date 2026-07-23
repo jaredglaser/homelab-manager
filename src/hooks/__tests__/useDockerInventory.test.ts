@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { MockEventSource } from '@/lib/test/mock-event-source';
-import { useDockerInventory } from '../useDockerInventory';
-import type { DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
+import { useDockerInventory, mergeUpsert } from '../useDockerInventory';
+import type {
+  DockerInventoryBroadcastEvent,
+  DockerInventorySnapshotContainer,
+  DockerInventoryUpdateContainer,
+} from '@/types/docker-inventory';
 
 const originalEventSource = globalThis.EventSource;
 
@@ -64,6 +68,8 @@ describe('useDockerInventory', () => {
             finishedAt: null,
             exitCode: null,
             labels: { 'com.docker.compose.project': 'media' },
+            ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
+            mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
             updatedAt: new Date('2026-04-16T10:00:00Z'),
           },
         ],
@@ -96,6 +102,8 @@ describe('useDockerInventory', () => {
             finishedAt: new Date('2026-04-16T11:00:00Z'),
             exitCode: 0,
             labels: {},
+            ports: [],
+            mounts: [],
             updatedAt: new Date('2026-04-16T11:00:00Z'),
           },
         ],
@@ -130,6 +138,7 @@ describe('useDockerInventory', () => {
           startedAt: new Date('2026-04-16T10:00:00Z'),
           finishedAt: null,
           exitCode: null,
+          ports: [],
           updatedAt: new Date('2026-04-16T10:00:00Z'),
         },
       });
@@ -162,6 +171,8 @@ describe('useDockerInventory', () => {
             finishedAt: null,
             exitCode: null,
             labels: {},
+            ports: [],
+            mounts: [],
             updatedAt: new Date(),
           },
         ],
@@ -184,6 +195,8 @@ describe('useDockerInventory', () => {
             finishedAt: null,
             exitCode: null,
             labels: {},
+            ports: [],
+            mounts: [],
             updatedAt: new Date(),
           },
         ],
@@ -218,6 +231,7 @@ describe('useDockerInventory', () => {
           startedAt: null,
           finishedAt: null,
           exitCode: null,
+          ports: [],
           updatedAt: new Date(),
         },
       });
@@ -250,6 +264,8 @@ describe('useDockerInventory', () => {
             finishedAt: null,
             exitCode: null,
             labels: {},
+            ports: [],
+            mounts: [],
             updatedAt: new Date('2026-04-16T10:00:00Z'),
           },
         ],
@@ -270,6 +286,7 @@ describe('useDockerInventory', () => {
           startedAt: null,
           finishedAt: new Date('2026-04-16T11:00:00Z'),
           exitCode: 0,
+          ports: [],
           updatedAt,
         },
       });
@@ -302,6 +319,8 @@ describe('useDockerInventory', () => {
             finishedAt: null,
             exitCode: null,
             labels: {},
+            ports: [],
+            mounts: [],
             updatedAt: new Date(),
           },
         ],
@@ -404,6 +423,8 @@ describe('useDockerInventory', () => {
             finishedAt: null,
             exitCode: null,
             labels: {},
+            ports: [],
+            mounts: [],
             updatedAt: new Date(),
           },
           {
@@ -418,6 +439,8 @@ describe('useDockerInventory', () => {
             finishedAt: null,
             exitCode: null,
             labels: {},
+            ports: [],
+            mounts: [],
             updatedAt: new Date(),
           },
         ],
@@ -441,5 +464,177 @@ describe('useDockerInventory', () => {
     act(() => { sendEvent(es, { type: 'init', containers: [] }); });
 
     expect(result.current.error).toBeNull();
+  });
+
+  it('preserves the previous entry mounts on upsert', () => {
+    const { result } = renderHook(() => useDockerInventory());
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.onopen?.();
+      sendEvent(es, {
+        type: 'init',
+        containers: [
+          {
+            host: 'server1',
+            containerId: 'abc123',
+            name: 'plex',
+            image: 'img',
+            state: 'running',
+            composeProject: null,
+            serviceKey: '',
+            startedAt: null,
+            finishedAt: null,
+            exitCode: null,
+            labels: {},
+            ports: [],
+            mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
+            updatedAt: new Date(),
+          },
+        ],
+      });
+    });
+
+    act(() => {
+      sendEvent(es, {
+        type: 'upsert',
+        container: {
+          host: 'server1',
+          containerId: 'abc123',
+          name: 'plex',
+          image: 'img',
+          state: 'exited',
+          composeProject: null,
+          serviceKey: '',
+          startedAt: null,
+          finishedAt: null,
+          exitCode: 0,
+          ports: [],
+          updatedAt: new Date(),
+        },
+      });
+    });
+
+    const entry = result.current.inventory.get('server1/abc123');
+    expect(entry?.mounts).toEqual([{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }]);
+  });
+
+  it('takes ports from the upsert payload rather than the previous entry', () => {
+    const { result } = renderHook(() => useDockerInventory());
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.onopen?.();
+      sendEvent(es, {
+        type: 'init',
+        containers: [
+          {
+            host: 'server1',
+            containerId: 'abc123',
+            name: 'plex',
+            image: 'img',
+            state: 'running',
+            composeProject: null,
+            serviceKey: '',
+            startedAt: null,
+            finishedAt: null,
+            exitCode: null,
+            labels: {},
+            ports: [{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }],
+            mounts: [],
+            updatedAt: new Date(),
+          },
+        ],
+      });
+    });
+
+    act(() => {
+      sendEvent(es, {
+        type: 'upsert',
+        container: {
+          host: 'server1',
+          containerId: 'abc123',
+          name: 'plex',
+          image: 'img',
+          state: 'running',
+          composeProject: null,
+          serviceKey: '',
+          startedAt: null,
+          finishedAt: null,
+          exitCode: null,
+          ports: [{ containerPort: 443, protocol: 'tcp', hostIp: null, hostPort: 8443 }],
+          updatedAt: new Date(),
+        },
+      });
+    });
+
+    const entry = result.current.inventory.get('server1/abc123');
+    expect(entry?.ports).toEqual([{ containerPort: 443, protocol: 'tcp', hostIp: null, hostPort: 8443 }]);
+  });
+});
+
+describe('mergeUpsert', () => {
+  const baseUpdate: DockerInventoryUpdateContainer = {
+    host: 'server1',
+    containerId: 'abc123',
+    name: 'plex',
+    image: 'img',
+    state: 'running',
+    composeProject: null,
+    serviceKey: '',
+    startedAt: null,
+    finishedAt: null,
+    exitCode: null,
+    ports: [{ containerPort: 443, protocol: 'tcp', hostIp: null, hostPort: 8443 }],
+    updatedAt: new Date(),
+  };
+
+  const basePrev: DockerInventorySnapshotContainer = {
+    host: 'server1',
+    containerId: 'abc123',
+    name: 'plex',
+    image: 'img',
+    state: 'running',
+    composeProject: null,
+    serviceKey: '',
+    startedAt: null,
+    finishedAt: null,
+    exitCode: null,
+    labels: { app: 'plex' },
+    ports: [{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }],
+    mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
+    updatedAt: new Date(),
+  };
+
+  it('preserves the previous entry labels and mounts', () => {
+    const merged = mergeUpsert(basePrev, baseUpdate);
+    expect(merged.labels).toEqual(basePrev.labels);
+    expect(merged.mounts).toEqual(basePrev.mounts);
+  });
+
+  it('takes ports from the upsert payload rather than the previous entry', () => {
+    const merged = mergeUpsert(basePrev, baseUpdate);
+    expect(merged.ports).toEqual(baseUpdate.ports);
+  });
+
+  it('falls back to the previous entry ports when the payload field is absent (version skew)', () => {
+    const { ports: _ports, ...updateWithoutPorts } = baseUpdate;
+    void _ports;
+    const merged = mergeUpsert(basePrev, updateWithoutPorts as unknown as DockerInventoryUpdateContainer);
+    expect(merged.ports).toEqual(basePrev.ports);
+  });
+
+  it('defaults labels, ports, and mounts to empty for a container not yet seen', () => {
+    const merged = mergeUpsert(undefined, baseUpdate);
+    expect(merged.labels).toEqual({});
+    expect(merged.mounts).toEqual([]);
+    expect(merged.ports).toEqual(baseUpdate.ports);
+  });
+
+  it('defaults ports to empty when both the payload and the previous entry omit them', () => {
+    const { ports: _ports, ...updateWithoutPorts } = baseUpdate;
+    void _ports;
+    const merged = mergeUpsert(undefined, updateWithoutPorts as unknown as DockerInventoryUpdateContainer);
+    expect(merged.ports).toEqual([]);
   });
 });

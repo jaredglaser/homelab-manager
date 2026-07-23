@@ -13,12 +13,21 @@ export interface UseDockerInventoryResult {
   error: Error | null;
 }
 
-/** Upsert frames omit labels; preserve the existing entry's labels, or empty for a container not yet seen. */
-function mergeUpsert(
+/**
+ * Upsert frames omit labels and mounts; preserve the existing entry's values, or empty for a
+ * container not yet seen. Ports are carried on the upsert frame itself, falling back to the
+ * previous entry's ports only for version skew against an older server build.
+ */
+export function mergeUpsert(
   prev: DockerInventorySnapshotContainer | undefined,
   update: DockerInventoryUpdateContainer,
 ): DockerInventorySnapshotContainer {
-  return { ...update, labels: prev?.labels ?? {} };
+  return {
+    ...update,
+    labels: prev?.labels ?? {},
+    ports: update.ports ?? prev?.ports ?? [],
+    mounts: prev?.mounts ?? [],
+  };
 }
 
 export function useDockerInventory(): UseDockerInventoryResult {

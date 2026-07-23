@@ -60,6 +60,8 @@ const composeContainer1: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'media' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T10:00:00Z'),
 };
 
@@ -75,6 +77,8 @@ const composeContainer2: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'media' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T10:01:00Z'),
 };
 
@@ -91,6 +95,8 @@ const nonComposeContainer: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: {},
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T09:00:00Z'),
 };
 
@@ -106,6 +112,8 @@ const otherStackContainer: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'proxy' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T08:00:00Z'),
 };
 
@@ -692,6 +700,8 @@ describe('StackStatusBroadcastService', () => {
       finishedAt: null,
       exitCode: null,
       labels: { 'com.docker.compose.project': 'media' },
+      ports: [],
+      mounts: [],
       updatedAt: new Date('2026-04-16T10:00:00Z'),
     };
     const containerY: DockerInventorySnapshotContainer = {
@@ -706,6 +716,8 @@ describe('StackStatusBroadcastService', () => {
       finishedAt: null,
       exitCode: null,
       labels: { 'com.docker.compose.project': 'media' },
+      ports: [],
+      mounts: [],
       updatedAt: new Date('2026-04-16T11:00:00Z'),
     };
 

@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { ContainerState } from '@/types/docker-inventory';
+import type { ContainerState, ContainerPort, ContainerMount } from '@/types/docker-inventory';
 
 export type NewContainerEvent =
   | {
@@ -11,6 +11,8 @@ export type NewContainerEvent =
       name: string;
       image: string;
       labels: Record<string, string>;
+      ports: ContainerPort[];
+      mounts: ContainerMount[];
       serviceKey: string | null;
       startedAt: Date | null;
       finishedAt: Date | null;
@@ -32,6 +34,8 @@ export interface DockerContainerEventUpsertRow {
   name: string;
   image: string;
   labels: Record<string, string>;
+  ports: ContainerPort[];
+  mounts: ContainerMount[];
   composeProject: string | null;
   serviceKey: string | null;
   startedAt: Date | null;
@@ -67,6 +71,8 @@ function rowToEventRow(row: Record<string, unknown>): DockerContainerEventRow {
     name: row.name as string,
     image: row.image as string,
     labels: (row.labels as Record<string, string>) ?? {},
+    ports: (row.ports as ContainerPort[]) ?? [],
+    mounts: (row.mounts as ContainerMount[]) ?? [],
     composeProject: (row.compose_project as string | null) ?? null,
     serviceKey: (row.service_key as string | null) ?? null,
     startedAt: (row.started_at as Date | null) ?? null,
@@ -83,11 +89,11 @@ export class DockerContainerEventRepository {
     const isUpsert = event.eventType === 'upsert';
     const { rows } = await this.pool.query(
       `INSERT INTO docker_container_events
-         (at, host, container_id, event_type, state, name, image, labels, service_key,
-          started_at, finished_at, exit_code)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         (at, host, container_id, event_type, state, name, image, labels, ports, mounts,
+          service_key, started_at, finished_at, exit_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING
-         at, host, container_id, event_type, state, name, image, labels,
+         at, host, container_id, event_type, state, name, image, labels, ports, mounts,
          compose_project, service_key, started_at, finished_at, exit_code`,
       [
         event.at,
@@ -98,6 +104,8 @@ export class DockerContainerEventRepository {
         isUpsert ? event.name : null,
         isUpsert ? event.image : null,
         JSON.stringify(isUpsert ? event.labels : {}),
+        JSON.stringify(isUpsert ? event.ports : []),
+        JSON.stringify(isUpsert ? event.mounts : []),
         isUpsert ? event.serviceKey : null,
         isUpsert ? event.startedAt : null,
         isUpsert ? event.finishedAt : null,
@@ -111,7 +119,7 @@ export class DockerContainerEventRepository {
   async getCurrentSnapshot(): Promise<DockerContainerEventRow[]> {
     const { rows } = await this.pool.query(
       `SELECT DISTINCT ON (host, container_id)
-         at, host, container_id, event_type, state, name, image, labels,
+         at, host, container_id, event_type, state, name, image, labels, ports, mounts,
          compose_project, service_key, started_at, finished_at, exit_code
        FROM docker_container_events
        ORDER BY host, container_id, at DESC`,

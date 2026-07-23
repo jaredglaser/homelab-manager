@@ -61,6 +61,8 @@ const sampleInventory: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: {},
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2024-01-01T00:00:00Z'),
 };
 
@@ -129,6 +131,25 @@ describe('ContainerDetailPanel', () => {
     screen.getByText('137');
     screen.getByText('Finished');
     screen.getByText('Exit');
+  });
+
+  it('does not render the ports/mounts strip when both are empty', () => {
+    renderPanel();
+    expect(screen.queryByText('->')).toBeNull();
+  });
+
+  it('renders port and mount details between the status strip and the charts', () => {
+    renderPanel({
+      inventory: {
+        ...sampleInventory,
+        ports: [{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }],
+        mounts: [{ type: 'bind', source: '/srv/data', destination: '/data', rw: true }],
+      },
+    });
+
+    screen.getByText('8080->80/tcp');
+    screen.getByText('/srv/data');
+    screen.getByText('/data');
   });
 
 });

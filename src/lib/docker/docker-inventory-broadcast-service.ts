@@ -22,6 +22,8 @@ export function rowToInventory(row: DockerContainerEventUpsertRow): DockerInvent
     finishedAt: row.finishedAt,
     exitCode: row.exitCode,
     labels: row.labels ?? {},
+    ports: row.ports ?? [],
+    mounts: row.mounts ?? [],
     updatedAt: row.at,
   };
 }
@@ -61,6 +63,8 @@ export function notifyPayloadToInventory(payload: Record<string, unknown>): Dock
     finishedAt: payload.finished_at ? new Date(payload.finished_at as string) : null,
     exitCode: (payload.exit_code as number | null) ?? null,
     labels: {},
+    ports: (payload.ports as DockerInventorySnapshotContainer['ports'] | undefined) ?? [],
+    mounts: [],
     updatedAt: new Date(at),
   };
 }
