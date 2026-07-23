@@ -6,8 +6,7 @@ const VALID_SERVICE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const MAX_COMPOSE_SIZE_BYTES = 1_048_576; // 1 MB
 const MAX_ENV_SIZE_BYTES = 65_536; // 64 KB
 const COMPOSE_TIMEOUT_MS = 300_000; // 5 minutes
-// Pull is unbounded by image cache size, so it gets its own, longer budget
-// separate from the `up` budget below.
+// Pull duration depends on registry and network speed, so it gets a longer budget than `up`.
 const PULL_TIMEOUT_MS = 600_000; // 10 minutes
 
 /** Extract explicit `container_name` values from a compose YAML string. */
@@ -377,7 +376,7 @@ export async function handleStackDeploy(
  * (e.g. `nginx:latest`) actually picks up new content; a failed or timed-out pull aborts
  * before `up` runs so a partial image set is never applied.
  *
- * @param pullTimeoutMs - Timeout budget for the pull step, tracked separately from `timeoutMs` since pull time isn't bounded by image cache size.
+ * @param pullTimeoutMs - Timeout budget for the pull step.
  * @param timeoutMs - Timeout budget for the `up` step.
  */
 export async function handleStackUpdate(
@@ -408,9 +407,7 @@ export async function handleStackUpdate(
 
   let pullResult: SpawnResult;
   try {
-    // --ignore-buildable so stacks with build: sections or locally-built images
-    // don't hard-fail the update; --ignore-pull-failures is deliberately not used
-    // since a partial pull must not be followed by `up`.
+    // --ignore-buildable keeps stacks with build: sections or locally-built images working
     pullResult = await spawnWithTimeout(spawn, {
       cmd: ['docker', 'compose', '-f', composePath, 'pull', '--ignore-buildable'],
       cwd: stackDir,
