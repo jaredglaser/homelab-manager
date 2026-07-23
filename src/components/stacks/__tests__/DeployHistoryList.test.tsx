@@ -208,6 +208,35 @@ describe('DeployHistoryList', () => {
     expect(screen.getByText('Deploy output here')).toBeDefined();
   });
 
+  it('shows "Image update" label and no Rollback button for a succeeded update record', () => {
+    const updateRecord: StackDeployRecord[] = [
+      {
+        id: 20,
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'ffeeddccbbaa',
+        envHash: 'upd123',
+        status: 'succeeded',
+        trigger: 'ui',
+        action: 'update',
+        forceRecreate: false,
+        logs: 'pulled newer images',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    render(
+      <DeployHistoryList
+        records={updateRecord}
+        isLoading={false}
+        stackName="plex"
+        host="homeserver"
+      />,
+      { wrapper: createWrapper() },
+    );
+    expect(screen.getByText('Image update')).toBeDefined();
+    expect(screen.queryByText('Rollback')).toBeNull();
+  });
+
   it('shows "Force Deploy" label when forceRecreate is true', () => {
     const forceRecord: StackDeployRecord[] = [
       {

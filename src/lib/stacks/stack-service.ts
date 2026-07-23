@@ -163,6 +163,9 @@ export async function triggerStackDeploy(params: {
       if (input.action === 'deploy') {
         return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '', forceRecreate: input.forceRecreate ?? false };
       }
+      if (input.action === 'update') {
+        return { ...base, action: 'update', composeContent: input.composeContent, envContent: '' };
+      }
       return { ...base, action: input.action };
     },
     executePipeline: (request) => pipeline.execute(request),
@@ -260,7 +263,7 @@ async function buildRequestFromDeployRecord(
     postSuccess: deploy.postSuccess ?? undefined,
   };
 
-  if (deploy.action === 'deploy') {
+  if (deploy.action === 'deploy' || deploy.action === 'update') {
     const repoPath = getRepoPath();
     let composeContent = '';
     try {
@@ -272,6 +275,9 @@ async function buildRequestFromDeployRecord(
     } catch (err) {
       if (!(err instanceof FileNotFoundError)) throw err;
       console.warn(`[stack-service] compose file not found for deploy ${deploy.id}, proceeding with empty content`);
+    }
+    if (deploy.action === 'update') {
+      return { ...base, action: 'update', composeContent, envContent: '' };
     }
     return {
       ...base,

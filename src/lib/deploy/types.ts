@@ -1,4 +1,4 @@
-export type DeployAction = 'deploy' | 'teardown';
+export type DeployAction = 'deploy' | 'teardown' | 'update';
 
 export type DeployStatus =
   | 'pending'
@@ -38,7 +38,13 @@ export interface TeardownRequest extends BaseDeployRequest {
   action: 'teardown';
 }
 
-export type DeployRequest = DeployActionRequest | TeardownRequest;
+export interface UpdateRequest extends BaseDeployRequest {
+  action: 'update';
+  composeContent: string;
+  envContent: string;
+}
+
+export type DeployRequest = DeployActionRequest | TeardownRequest | UpdateRequest;
 
 export interface DeployRecord {
   id: number;
@@ -82,6 +88,12 @@ export interface AgentDeployPayload {
   envContent: string;
   action: DeployAction;
   forceRecreate?: boolean;
+}
+
+export interface AgentUpdatePayload {
+  stack: string;
+  composeContent: string;
+  envContent: string;
 }
 
 export interface AgentDeployResponse {

@@ -297,7 +297,7 @@ describe('DeployWatchdog', () => {
       delete process.env.DEPLOY_WATCHDOG_TIMEOUT_MINUTES;
       const cfg = loadDeployWatchdogConfig();
       expect(cfg.intervalMs).toBe(2 * 60 * 1000);
-      expect(cfg.thresholdMinutes).toBe(10);
+      expect(cfg.thresholdMinutes).toBe(20);
     });
 
     it('reads env vars when provided', () => {
@@ -313,7 +313,7 @@ describe('DeployWatchdog', () => {
       process.env.DEPLOY_WATCHDOG_TIMEOUT_MINUTES = '-5';
       const cfg = loadDeployWatchdogConfig();
       expect(cfg.intervalMs).toBe(2 * 60 * 1000);
-      expect(cfg.thresholdMinutes).toBe(10);
+      expect(cfg.thresholdMinutes).toBe(20);
     });
 
     it('treats 0 as invalid and falls back to defaults', () => {
@@ -321,7 +321,7 @@ describe('DeployWatchdog', () => {
       process.env.DEPLOY_WATCHDOG_TIMEOUT_MINUTES = '0';
       const cfg = loadDeployWatchdogConfig();
       expect(cfg.intervalMs).toBe(2 * 60 * 1000);
-      expect(cfg.thresholdMinutes).toBe(10);
+      expect(cfg.thresholdMinutes).toBe(20);
     });
 
     it('floors fractional values', () => {

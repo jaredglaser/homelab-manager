@@ -171,6 +171,15 @@ describe('handleTriggerDeploy', () => {
     ).rejects.toThrow(/No compose file found/);
   });
 
+  test('throws when compose missing for update action', async () => {
+    const deps = mockDeps({
+      readCompose: mock(() => Promise.reject(new Error('not found'))),
+    });
+    await expect(
+      handleTriggerDeploy(deps, { stack: 'missing', host: 'server1', action: 'update' })
+    ).rejects.toThrow(/No compose file found/);
+  });
+
   test('allows missing compose for teardown action', async () => {
     const deps = mockDeps({
       readCompose: mock(() => Promise.reject(new Error('not found'))),
@@ -275,6 +284,25 @@ describe('triggerStackDeploy', () => {
       autoApproved: true,
       postSuccess: 'removeFromManifest',
       action: 'teardown',
+    });
+  });
+
+  test('builds a ui update DeployRequest with HEAD as commitSha', async () => {
+    const { triggerStackDeploy: freshTriggerStackDeploy } = await import('@/lib/stacks/stack-service');
+    const result = await freshTriggerStackDeploy({ stack: 'plex', host: 'homeserver', action: 'update' });
+
+    expect(result.deployId).toBe(42);
+    expect(result.status).toBe('succeeded');
+    expect(result.logs).toBe('deployed ok');
+    expect(executeMock).toHaveBeenCalledWith({
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha: headSha,
+      trigger: 'ui',
+      autoApproved: true,
+      action: 'update',
+      composeContent: 'services:\n  plex:\n    image: plex',
+      envContent: '',
     });
   });
 
@@ -616,6 +644,26 @@ describe('resumePendingDeploy / rejectPendingDeploy', () => {
     const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
     const result = await resumePendingDeploy(42);
     expect(result).toEqual({ deployId: 42, status: 'succeeded', logs: 'ok' });
+  });
+
+  test('resumePendingDeploy builds an update request reading compose at the recorded commitSha', async () => {
+    pendingRecord = { ...pendingRecord, action: 'update' };
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    await resumePendingDeploy(42);
+
+    expect(mockResumePending).toHaveBeenCalledTimes(1);
+    const [, , request] = mockResumePending.mock.calls[0] as [number, unknown, DeployRequest];
+    expect(request).toEqual({
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha,
+      trigger: 'git_push',
+      autoApproved: true,
+      postSuccess: undefined,
+      action: 'update',
+      composeContent: 'services:\n  plex:\n    image: plex',
+      envContent: '',
+    });
   });
 
   test('resumePendingDeploy returns failed status instead of throwing', async () => {

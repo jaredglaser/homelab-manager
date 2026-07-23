@@ -40,6 +40,7 @@ export function truncateDeployMessage(message: string): string {
 
 function deployNoun(action: DeployAction, trigger: DeployTrigger): string {
   if (action === 'teardown') return 'Teardown';
+  if (action === 'update') return 'Image update';
   if (trigger === 'manual_rollback') return 'Rollback';
   return 'Deploy';
 }

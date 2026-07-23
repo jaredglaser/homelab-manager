@@ -102,7 +102,7 @@ export async function handleTriggerDeploy(
   try {
     composeContent = await deps.readCompose(params.stack);
   } catch {
-    if (params.action === 'deploy') {
+    if (params.action === 'deploy' || params.action === 'update') {
       throw new Error(`No compose file found for stack "${params.stack}"`);
     }
   }

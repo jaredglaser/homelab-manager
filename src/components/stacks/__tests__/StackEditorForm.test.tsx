@@ -52,9 +52,10 @@ mock.module('@/components/stacks/DeployHistoryList', () => ({
 }));
 mock.module('@/components/stacks/StackContainersPanel', () => ({ default: () => <div>containers-panel</div> }));
 mock.module('@/components/stacks/StackActionBar', () => ({
-  default: ({ onDeploy, onTeardown, onDelete }: { onDeploy: () => void; onTeardown: () => void; onDelete: () => void }) => (
+  default: ({ onDeploy, onUpdate, onTeardown, onDelete }: { onDeploy: () => void; onUpdate: () => void; onTeardown: () => void; onDelete: () => void }) => (
     <div>
       <button onClick={onDeploy}>action-deploy</button>
+      <button onClick={onUpdate}>action-update</button>
       <button onClick={onTeardown}>action-teardown</button>
       <button onClick={onDelete}>action-delete</button>
     </div>
@@ -259,6 +260,46 @@ describe('StackEditorForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'action-deploy' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(mockTriggerDeploy).not.toHaveBeenCalled();
+  });
+
+  it('updates immediately when there are no unsaved changes', async () => {
+    await renderForm();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockTriggerDeploy).toHaveBeenCalledWith({
+      data: { stack: 'web', host: 'host1', action: 'update', forceRecreate: undefined },
+    });
+    expect(mockShowToast).toHaveBeenCalledWith('Image update of web succeeded', 'success');
+  });
+
+  it('warns before updating with unsaved changes and updates on confirm', async () => {
+    await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'action-update' }));
+    expect(screen.getByRole('heading', { name: 'Update images with unsaved changes?' })).toBeDefined();
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Update anyway' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not update when the unsaved-changes warning is cancelled', async () => {
+    await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'action-update' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a toast when an update fails', async () => {
+    mockTriggerDeploy.mockImplementation(() => Promise.reject(new Error('update failed')));
+    await renderForm();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-update' })); });
+    await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('update failed', 'error'));
   });
 
   it('surfaces a toast when a deploy fails', async () => {
