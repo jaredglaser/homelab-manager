@@ -29,12 +29,7 @@ function parseIOStatValue(value: string): number {
   return num * (multipliers[unit] || 1);
 }
 
-/**
- * True when the line is the "capacity  operations  bandwidth" header row that
- * `zpool iostat -vvv` reprints at the top of every refresh cycle. Exported so
- * collectors can use it as the cycle-boundary signal (flush + reset hierarchy
- * state) instead of duplicating the string match themselves.
- */
+/** True for the "capacity operations bandwidth" header row zpool iostat reprints each cycle. */
 export function isZFSIOStatCycleHeader(line: string): boolean {
   return line.includes('capacity') && line.includes('operations') && line.includes('bandwidth');
 }

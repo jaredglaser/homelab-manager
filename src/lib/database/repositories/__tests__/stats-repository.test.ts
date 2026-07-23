@@ -73,10 +73,7 @@ describe('StatsRepository', () => {
       await repo.insertDockerStats(rows);
 
       const params = mockPool.queries[0].params;
-      // Column order matches the INSERT column list: time, host, container_id,
-      // container_name, image, cpu_percent, memory_usage, memory_limit,
-      // memory_percent, network_rx_bytes_per_sec, network_tx_bytes_per_sec,
-      // block_io_read_bytes_per_sec, block_io_write_bytes_per_sec
+      // Params follow the INSERT column order (time, host, container_id, ...).
       expect(params[3]).toEqual(['nginx']);
       expect(params[4]).toEqual(['nginx:latest']);
       expect(params[5]).toEqual([25.5]);
@@ -201,9 +198,7 @@ describe('StatsRepository', () => {
       await repo.insertZFSStats(rows);
 
       const params = mockPool.queries[0].params;
-      // Column order: time, host, pool, entity, entity_type, indent,
-      // capacity_alloc, capacity_free, read_ops_per_sec, write_ops_per_sec,
-      // read_bytes_per_sec, write_bytes_per_sec, utilization_percent
+      // Params follow the INSERT column order (..., capacity_alloc, capacity_free, ...).
       expect(params[6]).toEqual([1234]);
       expect(params[7]).toEqual([5678]);
     });

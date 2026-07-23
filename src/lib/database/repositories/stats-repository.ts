@@ -3,10 +3,7 @@ import type { DockerStatsRow } from '@/types/docker';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
 
-/**
- * Domain shape a docker stats collector produces after parsing an agent SSE
- * event: no knowledge of `docker_stats` column names or types required.
- */
+/** Domain shape docker collectors emit; no `docker_stats` column knowledge. */
 export interface NewDockerStat {
   time: Date;
   host: string;
@@ -23,11 +20,7 @@ export interface NewDockerStat {
   blockWriteBytesPerSec: number | null;
 }
 
-/**
- * Domain shape the ZFS collector produces after parsing one `zpool iostat`
- * line: no knowledge of `zfs_stats` column names, bigint truncation, or the
- * utilization derivation required.
- */
+/** Domain shape the ZFS collector emits; no `zfs_stats` column knowledge. */
 export interface NewZFSStat {
   time: Date;
   host: string;
@@ -129,17 +122,14 @@ export class StatsRepository {
         entities.push(row.entity);
         entityTypes.push(row.entityType);
         indents.push(row.indent);
-        // capacity_alloc/capacity_free are bigint columns; zpool iostat parses
-        // K/M/G/T/P suffixes with float math, so truncate before insert.
+        // capacity_alloc/capacity_free are bigint columns; truncate before insert.
         capacityAllocs.push(Math.trunc(row.capacityAlloc));
         capacityFrees.push(Math.trunc(row.capacityFree));
         readOps.push(row.readOpsPerSec);
         writeOps.push(row.writeOpsPerSec);
         readBytes.push(row.readBytesPerSec);
         writeBytes.push(row.writeBytesPerSec);
-        // zpool iostat already reports ops/bandwidth as per-second rates, so
-        // no delta-over-time math is needed; utilization is the only value
-        // actually derived here.
+        // zpool iostat values are already per-second; utilization is the only derived value.
         const totalCapacity = row.capacityAlloc + row.capacityFree;
         utilizations.push(totalCapacity > 0 ? (row.capacityAlloc / totalCapacity) * 100 : 0);
       }

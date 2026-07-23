@@ -37,7 +37,7 @@ function isAgentErrorEvent(event: AgentStatsEvent): boolean {
   return 'error' in event && !('containerId' in event);
 }
 
-/** Map an AgentStatsEvent to the domain shape StatsRepository.insertDockerStats accepts */
+/** Maps an AgentStatsEvent to a NewDockerStat */
 function toNewDockerStat(event: AgentStatsEvent, hostName: string): NewDockerStat {
   return {
     time: new Date(event.timestamp),

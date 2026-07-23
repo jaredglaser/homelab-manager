@@ -64,7 +64,7 @@ function buildEntityPath(stat: ZFSIOStatRaw, ctx: HierarchyContext): { path: str
   }
 }
 
-/** Map a parsed iostat line plus its resolved hierarchy path to the domain shape StatsRepository.insertZFSStats accepts */
+/** Maps a parsed iostat line plus its resolved hierarchy path to a NewZFSStat */
 function toNewZFSStat(stat: ZFSIOStatRaw, timestamp: number, host: string, entityPath: string, pool: string, entityType: string): NewZFSStat {
   return {
     time: new Date(timestamp),
@@ -75,8 +75,7 @@ function toNewZFSStat(stat: ZFSIOStatRaw, timestamp: number, host: string, entit
     indent: stat.indent,
     capacityAlloc: stat.capacity.alloc,
     capacityFree: stat.capacity.free,
-    // zpool iostat already reports operations/bandwidth as per-second rates
-    // (no delta-over-time math needed), so these pass through unchanged.
+    // zpool iostat already reports these as per-second rates.
     readOpsPerSec: stat.operations.read,
     writeOpsPerSec: stat.operations.write,
     readBytesPerSec: stat.bandwidth.read,
