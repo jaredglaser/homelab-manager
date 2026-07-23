@@ -8,13 +8,14 @@ import type { triggerDeploy } from '@/data/stacks/functions';
 import DeployHistoryRow from '@/components/stacks/DeployHistoryRow';
 
 type StatusFilter = DeployStatus | 'all';
+type TriggerDeployResult = Awaited<ReturnType<typeof triggerDeploy>>;
 
 interface DeployHistoryListProps {
   records: StackDeployRecord[];
   isLoading: boolean;
   stackName?: string;
   host?: string;
-  onRollbackComplete?: () => void;
+  onRollbackComplete?: (result: TriggerDeployResult) => void;
   onRollbackError?: (err: Error) => void;
   onApprove?: (deployId: number) => void;
   onReject?: (deployId: number) => void;

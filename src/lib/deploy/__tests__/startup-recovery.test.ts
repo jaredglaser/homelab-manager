@@ -68,10 +68,10 @@ describe('performStartupRecovery', () => {
     expect(msg).toContain('verify');
   });
 
-  it('notifies each recovered row on stack_change with correct args', async () => {
+  it('notifies each recovered row on stack_change with a failed outcome', async () => {
     const recovered = [
-      { id: 1, stack: 'plex', host: 'home' },
-      { id: 2, stack: 'traefik', host: 'home' },
+      { id: 1, stack: 'plex', host: 'home', action: 'deploy', trigger: 'git_push' },
+      { id: 2, stack: 'traefik', host: 'home', action: 'teardown', trigger: 'ui' },
     ];
     const notifyStackChange = mock().mockResolvedValue(undefined);
     const repo = createRepo({
@@ -82,14 +82,22 @@ describe('performStartupRecovery', () => {
     await performStartupRecovery(repo, createWatchdog());
 
     expect(notifyStackChange).toHaveBeenCalledTimes(2);
-    expect(notifyStackChange.mock.calls[0]).toEqual(['plex', 'home']);
-    expect(notifyStackChange.mock.calls[1]).toEqual(['traefik', 'home']);
+    expect(notifyStackChange.mock.calls[0]).toEqual([
+      'plex',
+      'home',
+      { deployId: 1, status: 'failed', action: 'deploy', trigger: 'git_push', message: expect.stringContaining('server restarted') },
+    ]);
+    expect(notifyStackChange.mock.calls[1]).toEqual([
+      'traefik',
+      'home',
+      { deployId: 2, status: 'failed', action: 'teardown', trigger: 'ui', message: expect.stringContaining('server restarted') },
+    ]);
   });
 
   it('swallows per-row notify errors and continues the loop', async () => {
     const recovered = [
-      { id: 1, stack: 'a', host: 'h' },
-      { id: 2, stack: 'b', host: 'h' },
+      { id: 1, stack: 'a', host: 'h', action: 'deploy', trigger: 'git_push' },
+      { id: 2, stack: 'b', host: 'h', action: 'deploy', trigger: 'git_push' },
     ];
     const notifyStackChange = mock()
       .mockRejectedValueOnce(new Error('notify blew up'))
@@ -104,7 +112,8 @@ describe('performStartupRecovery', () => {
     await performStartupRecovery(repo, watchdog);
 
     expect(notifyStackChange).toHaveBeenCalledTimes(2);
-    expect(notifyStackChange.mock.calls[1]).toEqual(['b', 'h']);
+    expect(notifyStackChange.mock.calls[1][0]).toBe('b');
+    expect(notifyStackChange.mock.calls[1][1]).toBe('h');
     expect(watchdog.startMock).toHaveBeenCalledTimes(1);
     errSpy.mockRestore();
   });

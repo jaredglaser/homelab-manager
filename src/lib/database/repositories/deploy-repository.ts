@@ -5,12 +5,45 @@ export interface StuckDeployRow {
   id: number;
   stack: string;
   host: string;
+  action: DeployAction;
+  trigger: DeployTrigger;
 }
 
 export interface PostSuccessDeployRow {
   id: number;
   stack: string;
   host: string;
+}
+
+/** Outcome attached to a deploy_change NOTIFY so subscribers can render a toast without a follow-up query. */
+export interface DeployChangeOutcome {
+  deployId: number;
+  status: DeployStatus;
+  action: DeployAction;
+  trigger: DeployTrigger;
+  message?: string;
+}
+
+const MAX_DEPLOY_MESSAGE_LENGTH = 200;
+
+/**
+ * Sanitize a deploy outcome message for the NOTIFY payload: take the first
+ * line, strip control characters (including embedded nulls), and truncate to
+ * 200 chars without splitting a UTF-16 surrogate pair.
+ */
+function sanitizeDeployMessage(message: string): string {
+  const firstLine = message.split(/\r?\n/)[0] ?? '';
+  const stripped = Array.from(firstLine)
+    .filter((ch) => {
+      const code = ch.codePointAt(0) ?? 0;
+      return code > 0x1f && code !== 0x7f;
+    })
+    .join('');
+  if (stripped.length <= MAX_DEPLOY_MESSAGE_LENGTH) return stripped;
+  let end = MAX_DEPLOY_MESSAGE_LENGTH;
+  const boundary = stripped.charCodeAt(end - 1);
+  if (boundary >= 0xd800 && boundary <= 0xdbff) end -= 1;
+  return stripped.slice(0, end);
 }
 
 interface InsertDeployParams {
@@ -209,8 +242,19 @@ export class DeployRepository {
     }));
   }
 
-  async notifyStackChange(stack: string, host: string): Promise<void> {
-    const payload = JSON.stringify({ type: 'deploy_changed', stack, host });
+  async notifyStackChange(stack: string, host: string, outcome?: DeployChangeOutcome): Promise<void> {
+    const payload = JSON.stringify({
+      type: 'deploy_changed',
+      stack,
+      host,
+      ...(outcome ? {
+        deployId: outcome.deployId,
+        status: outcome.status,
+        action: outcome.action,
+        trigger: outcome.trigger,
+        ...(outcome.message ? { message: sanitizeDeployMessage(outcome.message) } : {}),
+      } : {}),
+    });
     await this.pool.query("SELECT pg_notify('deploy_change', $1)", [payload]);
   }
 
@@ -225,7 +269,7 @@ export class DeployRepository {
       `UPDATE deploy_history
        SET status = 'failed', logs = $1
        WHERE status IN ('pending', 'in_progress')
-       RETURNING id, stack, host`,
+       RETURNING id, stack, host, action, trigger`,
       [logMessage],
     );
     return result.rows.map(toStuckDeployRow);
@@ -246,7 +290,7 @@ export class DeployRepository {
        SET status = 'failed', logs = $2
        WHERE status = 'in_progress'
          AND COALESCE(started_at, created_at) < NOW() - make_interval(mins => $1)
-       RETURNING id, stack, host`,
+       RETURNING id, stack, host, action, trigger`,
       [thresholdMinutes, logMessage],
     );
     return result.rows.map(toStuckDeployRow);
@@ -258,6 +302,8 @@ function toStuckDeployRow(row: Record<string, unknown>): StuckDeployRow {
     id: Number(row.id),
     stack: row.stack as string,
     host: row.host as string,
+    action: (row.action as DeployAction) ?? 'deploy',
+    trigger: row.trigger as DeployTrigger,
   };
 }
 

@@ -19,9 +19,33 @@ describe('stackStatusChannel', () => {
     expect(result.success).toBe(true);
   });
 
-  it('validates a deploy_changed frame', () => {
+  it('validates a deploy_changed frame without outcome fields (legacy payload)', () => {
     const result = stackStatusChannel.schema.safeParse({ type: 'deploy_changed', stack: 'plex', host: 'server1' });
     expect(result.success).toBe(true);
+  });
+
+  it('validates a deploy_changed frame with outcome fields', () => {
+    const result = stackStatusChannel.schema.safeParse({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      deployId: 42,
+      status: 'failed',
+      action: 'deploy',
+      trigger: 'git_push',
+      message: 'agent unreachable',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a deploy_changed frame with an invalid status', () => {
+    const result = stackStatusChannel.schema.safeParse({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      status: 'bogus',
+    });
+    expect(result.success).toBe(false);
   });
 
   it('rejects a container missing required fields', () => {

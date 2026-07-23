@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { StackContainer, StackStatusEntry } from '@/types/stacks';
+import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 import type {
   DockerContainerEventRow,
   DockerContainerEventUpsertRow,
@@ -11,7 +12,16 @@ import { backoffDelayMs } from '@/lib/utils/backoff';
 /** Discriminated union for events sent to SSE subscribers. */
 export type StackBroadcastEvent =
   | { type: 'status'; entries: StackStatusEntry[] }
-  | { type: 'deploy_changed'; stack: string; host: string };
+  | {
+      type: 'deploy_changed';
+      stack: string;
+      host: string;
+      deployId?: number;
+      status?: DeployStatus;
+      action?: DeployAction;
+      trigger?: DeployTrigger;
+      message?: string;
+    };
 
 type StackBroadcastCallback = (event: StackBroadcastEvent) => void;
 
@@ -382,9 +392,19 @@ export class StackStatusBroadcastService {
       if (typeof stack !== 'string' || typeof host !== 'string') {
         throw new Error('Invalid deploy_change payload: missing stack or host');
       }
+      const event: StackBroadcastEvent = {
+        type: 'deploy_changed',
+        stack,
+        host,
+        ...(typeof parsed.deployId === 'number' ? { deployId: parsed.deployId } : {}),
+        ...(typeof parsed.status === 'string' ? { status: parsed.status as DeployStatus } : {}),
+        ...(typeof parsed.action === 'string' ? { action: parsed.action as DeployAction } : {}),
+        ...(typeof parsed.trigger === 'string' ? { trigger: parsed.trigger as DeployTrigger } : {}),
+        ...(typeof parsed.message === 'string' ? { message: parsed.message } : {}),
+      };
       for (const cb of this.subscribers) {
         try {
-          cb({ type: 'deploy_changed', stack, host });
+          cb(event);
         } catch (err) {
           console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
         }

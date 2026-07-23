@@ -1,4 +1,4 @@
-import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest, DeployStatus } from '@/types/stacks';
 
 const MOCK_STACKS: StackSummary[] = [
   // nas01
@@ -302,16 +302,16 @@ export async function getStackDetail(opts: {
 
 export async function triggerDeploy(_opts: {
   data: UIDeployRequest;
-}): Promise<{ deployId: number }> {
+}): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   // Simulate a short delay
   await new Promise((resolve) => setTimeout(resolve, 500));
-  return { deployId: MOCK_DEPLOY_HISTORY.length + 1 };
+  return { deployId: MOCK_DEPLOY_HISTORY.length + 1, status: 'succeeded', logs: '' };
 }
 
 export async function resumeDeploy(opts: {
   data: { deployId: number };
-}): Promise<{ deployId: number }> {
-  return { deployId: opts.data.deployId };
+}): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
+  return { deployId: opts.data.deployId, status: 'succeeded', logs: '' };
 }
 
 export async function rejectDeploy(opts: {

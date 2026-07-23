@@ -16,7 +16,16 @@ export const Route = createFileRoute('/api/stack-status')({
         },
         serialize: (event) => {
           if (event.type === 'deploy_changed') {
-            const payload = { type: 'deploy_changed', stack: event.stack, host: event.host };
+            const payload = {
+              type: 'deploy_changed',
+              stack: event.stack,
+              host: event.host,
+              ...(event.deployId !== undefined ? { deployId: event.deployId } : {}),
+              ...(event.status !== undefined ? { status: event.status } : {}),
+              ...(event.action !== undefined ? { action: event.action } : {}),
+              ...(event.trigger !== undefined ? { trigger: event.trigger } : {}),
+              ...(event.message !== undefined ? { message: event.message } : {}),
+            };
             return `data: ${JSON.stringify(payload)}\n\n`;
           }
           return `data: ${JSON.stringify(event.entries)}\n\n`;

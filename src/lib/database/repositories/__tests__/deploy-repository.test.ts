@@ -330,6 +330,95 @@ describe('DeployRepository', () => {
       expect(mock.queries[0].sql).toContain("pg_notify('deploy_change'");
       expect(mock.queries[0].params).toEqual([JSON.stringify({ type: 'deploy_changed', stack: 'plex', host: 'homeserver' })]);
     });
+
+    it('includes outcome fields when provided', async () => {
+      await repo.notifyStackChange('plex', 'homeserver', {
+        deployId: 42,
+        status: 'succeeded',
+        action: 'deploy',
+        trigger: 'ui',
+      });
+
+      expect(mock.queries[0].params).toEqual([JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'plex',
+        host: 'homeserver',
+        deployId: 42,
+        status: 'succeeded',
+        action: 'deploy',
+        trigger: 'ui',
+      })]);
+    });
+
+    it('sanitizes and truncates the outcome message, taking the first line', async () => {
+      const rawMessage = 'first line of logs\nsecond line should be dropped';
+      await repo.notifyStackChange('plex', 'homeserver', {
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: rawMessage,
+      });
+
+      const payload = JSON.parse(mock.queries[0].params[0] as string);
+      expect(payload.message).toBe('first line of logs');
+    });
+
+    it('strips control characters including embedded nulls from the message', async () => {
+      await repo.notifyStackChange('plex', 'homeserver', {
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'ui',
+        message: 'bad' + String.fromCharCode(0) + 'value' + String.fromCharCode(1) + 'here',
+      });
+
+      const payload = JSON.parse(mock.queries[0].params[0] as string);
+      expect(payload.message).toBe('badvaluehere');
+    });
+
+    it('truncates the message to 200 chars', async () => {
+      const longMessage = 'x'.repeat(300);
+      await repo.notifyStackChange('plex', 'homeserver', {
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'ui',
+        message: longMessage,
+      });
+
+      const payload = JSON.parse(mock.queries[0].params[0] as string);
+      expect(payload.message).toHaveLength(200);
+      expect(payload.message).toBe('x'.repeat(200));
+    });
+
+    it('does not truncate mid-surrogate-pair', async () => {
+      // 199 'x' chars followed by a surrogate-pair emoji (2 UTF-16 code units)
+      // straddling the 200-char boundary: the emoji must be dropped whole.
+      const longMessage = 'x'.repeat(199) + '\u{1F600}' + 'y'.repeat(10);
+      await repo.notifyStackChange('plex', 'homeserver', {
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'ui',
+        message: longMessage,
+      });
+
+      const payload = JSON.parse(mock.queries[0].params[0] as string);
+      expect(payload.message).toBe('x'.repeat(199));
+    });
+
+    it('omits the message field when no message is given', async () => {
+      await repo.notifyStackChange('plex', 'homeserver', {
+        deployId: 42,
+        status: 'succeeded',
+        action: 'deploy',
+        trigger: 'ui',
+      });
+
+      const payload = JSON.parse(mock.queries[0].params[0] as string);
+      expect('message' in payload).toBe(false);
+    });
   });
 
   describe('recoverStuckDeploys', () => {
@@ -342,19 +431,19 @@ describe('DeployRepository', () => {
       expect(sql).toContain("SET status = 'failed'");
       expect(sql).toContain('logs = $1');
       expect(sql).toContain("status IN ('pending', 'in_progress')");
-      expect(sql).toContain('RETURNING id, stack, host');
+      expect(sql).toContain('RETURNING id, stack, host, action, trigger');
       expect(mock.queries[0].params).toEqual(['boom']);
     });
 
     it('returns the recovered rows with Number-coerced ids', async () => {
       mock.pushResult([
-        { id: '7', stack: 'plex', host: 'homeserver' },
-        { id: '8', stack: 'traefik', host: 'other' },
+        { id: '7', stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
+        { id: '8', stack: 'traefik', host: 'other', action: 'teardown', trigger: 'ui' },
       ]);
       const rows = await repo.recoverStuckDeploys('crashed');
       expect(rows).toEqual([
-        { id: 7, stack: 'plex', host: 'homeserver' },
-        { id: 8, stack: 'traefik', host: 'other' },
+        { id: 7, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
+        { id: 8, stack: 'traefik', host: 'other', action: 'teardown', trigger: 'ui' },
       ]);
     });
   });
@@ -394,17 +483,17 @@ describe('DeployRepository', () => {
       expect(sql).toContain('logs = $2');
       expect(sql).toContain("status = 'in_progress'");
       expect(sql).toContain('make_interval(mins => $1)');
-      expect(sql).toContain('RETURNING id, stack, host');
+      expect(sql).toContain('RETURNING id, stack, host, action, trigger');
       expect(mock.queries[0].params).toEqual([30, 'timed out']);
     });
 
     it('returns the timed-out rows with Number-coerced ids', async () => {
       mock.pushResult([
-        { id: '42', stack: 'plex', host: 'homeserver' },
+        { id: '42', stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
       ]);
       const rows = await repo.timeoutStuckDeploys(15, 'slow');
       expect(rows).toEqual([
-        { id: 42, stack: 'plex', host: 'homeserver' },
+        { id: 42, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
       ]);
     });
   });

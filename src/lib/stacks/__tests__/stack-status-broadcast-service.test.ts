@@ -361,6 +361,38 @@ describe('StackStatusBroadcastService', () => {
     if (deployEvent?.type === 'deploy_changed') {
       expect(deployEvent.stack).toBe('media');
       expect(deployEvent.host).toBe('server1');
+      expect(deployEvent.deployId).toBeUndefined();
+      expect(deployEvent.status).toBeUndefined();
+    }
+  });
+
+  it('forwards outcome fields from an enriched deploy_change NOTIFY', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'agent unreachable',
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.deployId).toBe(42);
+      expect(deployEvent.status).toBe('failed');
+      expect(deployEvent.action).toBe('deploy');
+      expect(deployEvent.trigger).toBe('git_push');
+      expect(deployEvent.message).toBe('agent unreachable');
     }
   });
 
