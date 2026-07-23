@@ -2,6 +2,9 @@ import type { Pool } from 'pg';
 import type { MasterKeyring } from '@/lib/crypto/master-key';
 import { encryptValue, decryptValue } from '@/lib/crypto/encrypted-value';
 
+/** Thrown when a stored secret can't be decrypted (wrong or rotated MASTER_KEY). The deploy secret resolver matches on this to classify decryption failures apart from other errors (DB, etc.), since the operator fix differs. */
+export const SECRET_DECRYPTION_FAILED_MESSAGE = 'Secret decryption failed';
+
 export class StackSecretsRepository {
   constructor(
     private readonly pool: Pool,
@@ -25,7 +28,7 @@ export class StackSecretsRepository {
     try {
       return await decryptValue((result.rows[0] as { ciphertext_jwe: string }).ciphertext_jwe, this.keyring);
     } catch {
-      throw new Error('Secret decryption failed');
+      throw new Error(SECRET_DECRYPTION_FAILED_MESSAGE);
     }
   }
 
@@ -44,7 +47,7 @@ export class StackSecretsRepository {
         try {
           return [row.variable_name, await decryptValue(row.ciphertext_jwe, this.keyring)] as const;
         } catch {
-          throw new Error('Secret decryption failed');
+          throw new Error(SECRET_DECRYPTION_FAILED_MESSAGE);
         }
       }),
     );
