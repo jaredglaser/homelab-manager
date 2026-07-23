@@ -43,10 +43,6 @@ async function readFrame(reader: ReadableStreamDefaultReader<Uint8Array>): Promi
   return new TextDecoder().decode(value);
 }
 
-/** Macrotask flush so tests don't race the microtask hops in `await onStart(...)`. */
-function flushMicrotasks(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
 
 async function readAll(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<string> {
   const decoder = new TextDecoder();
@@ -210,18 +206,22 @@ describe('createSseStream', () => {
   });
 
   it('runs the onStart-returned cleanup exactly once on abort', async () => {
-    const cleanup = mock(() => {});
+    let markCleanup = () => {};
+    const cleanupDone = new Promise<void>((resolve) => { markCleanup = resolve; });
+    const cleanup = mock(() => markCleanup());
     const { ac } = setup({ cleanup });
-    await flushMicrotasks(); // let onStart resolve and register cleanup first
 
     ac.abort();
     ac.abort(); // idempotent; guards the assertion anyway
+    await cleanupDone;
 
     expect(cleanup).toHaveBeenCalledTimes(1);
   });
 
   it('runs cleanup once even when onStart resolves after the abort already tore the stream down', async () => {
-    const cleanup = mock(() => {});
+    let markCleanup = () => {};
+    const cleanupDone = new Promise<void>((resolve) => { markCleanup = resolve; });
+    const cleanup = mock(() => markCleanup());
     const ac = new AbortController();
     let releaseOnStart: (() => void) | null = null;
 
@@ -241,7 +241,7 @@ describe('createSseStream', () => {
     expect(cleanup).not.toHaveBeenCalled();
 
     releaseOnStart!();
-    await flushMicrotasks();
+    await cleanupDone;
 
     expect(cleanup).toHaveBeenCalledTimes(1);
 

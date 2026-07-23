@@ -14,10 +14,17 @@ type StatsErrorCallback = () => void;
 function setupStatsPollService() {
   let capturedSendData: StatsCallback | null = null;
   let capturedSendError: StatsErrorCallback | null = null;
-  const unsubscribe = mock(() => {});
+  let markSubscribed = () => {};
+  let markUnsubscribed = () => {};
+  // createStatsSseHandler subscribes inside the stream's async start(); tests wait on these
+  // to know when the subscription is live and when abort teardown has unsubscribed.
+  const subscribed = new Promise<void>((resolve) => { markSubscribed = resolve; });
+  const unsubscribed = new Promise<void>((resolve) => { markUnsubscribed = resolve; });
+  const unsubscribe = mock(() => markUnsubscribed());
   const subscribe = mock((_source: string, sendData: StatsCallback, sendError?: StatsErrorCallback) => {
     capturedSendData = sendData;
     capturedSendError = sendError ?? null;
+    markSubscribed();
     return unsubscribe;
   });
 
@@ -28,6 +35,8 @@ function setupStatsPollService() {
   return {
     subscribe,
     unsubscribe,
+    subscribed,
+    unsubscribed,
     sendRows: (rows: unknown[]) => capturedSendData?.(rows),
     sendError: () => capturedSendError?.(),
   };
@@ -46,11 +55,6 @@ async function readFrame(reader: ReadableStreamDefaultReader<Uint8Array>): Promi
   const { value, done } = await reader.read();
   if (done) return '';
   return new TextDecoder().decode(value);
-}
-
-/** Macrotask flush so onStart's subscribe() call resolves before an abort assertion relies on it. */
-function flushMicrotasks(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('createStatsSseHandler', () => {
@@ -122,14 +126,14 @@ describe('createStatsSseHandler', () => {
   });
 
   it('unsubscribes from the poll service when the request aborts', async () => {
-    const { unsubscribe } = setupStatsPollService();
+    const { unsubscribe, subscribed, unsubscribed } = setupStatsPollService();
     const handler = createStatsSseHandler('docker');
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
-    await flushMicrotasks();
+    await subscribed;
     ac.abort();
-    await flushMicrotasks();
+    await unsubscribed;
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
