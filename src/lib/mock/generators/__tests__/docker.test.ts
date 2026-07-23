@@ -157,7 +157,7 @@ describe('generateDockerInventorySnapshot', () => {
 
   it('gives known demo containers plausible, non-empty ports and mounts', () => {
     const containers = generateDockerInventorySnapshot(now);
-    const plex = containers.find((c) => c.name === 'plex')!;
+    const plex = containers.find((c) => `${c.host}/${c.containerId}` === '192.168.1.10/b2c3d4e5f6a7')!;
     expect(plex.ports.length).toBeGreaterThan(0);
     expect(plex.mounts.length).toBeGreaterThan(0);
     expect(plex.ports[0]).toEqual({ containerPort: 32400, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 32400 });

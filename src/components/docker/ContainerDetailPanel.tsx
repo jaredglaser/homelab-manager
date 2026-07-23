@@ -262,7 +262,9 @@ export default memo(function ContainerDetailPanel({
         onIconClick={() => setIconPickerOpen(true)}
       />
 
-      <ContainerPortsMounts ports={inventory.ports} mounts={inventory.mounts} />
+      {(inventory.ports.length > 0 || inventory.mounts.length > 0) && (
+        <ContainerPortsMounts ports={inventory.ports} mounts={inventory.mounts} />
+      )}
 
       <div className="grid gap-3 p-3 [grid-template-rows:200px] lg:h-[232px] lg:grid-cols-2 lg:[grid-template-rows:none]">
         <ContainerMetricsChart
