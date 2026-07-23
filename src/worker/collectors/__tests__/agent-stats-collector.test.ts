@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test';
 import { AgentStatsCollector } from '../agent-stats-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { NewDockerStat } from '@/lib/database/repositories/stats-repository';
@@ -297,15 +297,26 @@ describe('AgentStatsCollector', () => {
     // Wait for the first row instead of sleeping past the real 150ms FLUSH_INTERVAL_MS.
     const firstRowQueued = watchFirstPush(collector);
 
-    const collectPromise = (collector as any).collect();
+    // Capture the flush callback collect() registers so the test drives the real
+    // interval wiring, just without the 150ms wait.
+    let intervalFlush: (() => void) | undefined;
+    const setIntervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(
+      ((fn: () => void) => { intervalFlush = fn; return 0; }) as unknown as typeof setInterval,
+    );
+    try {
+      const collectPromise = (collector as any).collect();
 
-    await firstRowQueued;
-    await (collector as any).flushPendingRows();
+      await firstRowQueued;
+      expect(intervalFlush).toBeDefined();
+      intervalFlush!();
 
-    releaseSecondEvent();
-    await collectPromise;
+      releaseSecondEvent();
+      await collectPromise;
+    } finally {
+      setIntervalSpy.mockRestore();
+    }
 
-    // First event flushed by the manually-driven interval flush, second by the final drain
+    // First event flushed by the interval callback, second by the final drain
     expect(mockDb.insertedRows).toHaveLength(2);
     expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
     expect(mockDb.insertedRows[1][0].containerName).toBe('sonarr');

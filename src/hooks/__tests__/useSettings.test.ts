@@ -821,6 +821,7 @@ type ReactNode = import('react').ReactNode;
 
             expect(result.current.general.showSparklines).toBe(false);
 
+            expect(mockUpdateSetting).toHaveBeenCalledTimes(1);
             await act(async () => {
                 await mockUpdateSetting.mock.results[0]?.value;
             });
