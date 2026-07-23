@@ -175,6 +175,23 @@ jobs:
           path: agent-updater/license-report.json
           retention-days: 30
 
+  demo-build:
+    name: Demo Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build demo
+        run: bun run build:demo
+
   sonarcloud:
     name: SonarCloud Analysis
     runs-on: ubuntu-latest
@@ -305,7 +322,7 @@ jobs:
   deploy-demo:
     name: Deploy Demo to GitHub Pages
     runs-on: ubuntu-latest
-    needs: [build-test, agent, agent-updater]
+    needs: [build-test, agent, agent-updater, demo-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     concurrency:
       group: pages
