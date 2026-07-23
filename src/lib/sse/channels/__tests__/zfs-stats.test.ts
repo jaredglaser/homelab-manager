@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { zfsStatsChannel } from '../zfs-stats';
 
 const wireRow = {
-  time: '2026-04-16T10:00:00.000Z',
+  time: Date.parse('2026-04-16T10:00:00.000Z'),
   host: 'server1',
   pool: 'tank',
   entity: 'tank',
@@ -28,9 +28,9 @@ describe('zfsStatsChannel', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts a Date instance for time (the preloadFn/ZFSStatsRow shape pre-serialization)', () => {
-    const result = zfsStatsChannel.schema.safeParse([{ ...wireRow, time: new Date() }]);
-    expect(result.success).toBe(true);
+  it('rejects a string time (repository read path now normalizes to epoch ms)', () => {
+    const result = zfsStatsChannel.schema.safeParse([{ ...wireRow, time: '2026-04-16T10:00:00.000Z' }]);
+    expect(result.success).toBe(false);
   });
 
   it('rejects a row missing required fields', () => {
@@ -38,12 +38,7 @@ describe('zfsStatsChannel', () => {
     expect(result.success).toBe(false);
   });
 
-  it('revives time to an epoch-ms number', () => {
-    const rows = zfsStatsChannel.schema.parse([wireRow]);
-    const revived = zfsStatsChannel.revive(rows);
-
-    expect(revived).toHaveLength(1);
-    expect(revived[0].time).toBe(Date.parse(wireRow.time));
-    expect(revived[0].pool).toBe('tank');
+  it('has no revive step; the schema shape matches ZFSStatsRow directly', () => {
+    expect(zfsStatsChannel.revive).toBeUndefined();
   });
 });

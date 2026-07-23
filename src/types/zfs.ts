@@ -56,7 +56,8 @@ export interface ZFSIOStatWithRates extends ZFSIOStatRaw {
 
 /** Wide row from zfs_stats hypertable */
 export interface ZFSStatsRow {
-  time: string | Date;
+  /** Epoch ms, converted at the repository read path */
+  time: number;
   host: string;
   pool: string;
   entity: string;
@@ -70,9 +71,6 @@ export interface ZFSStatsRow {
   write_bytes_per_sec: number | null;
   utilization_percent: number | null;
 }
-
-/** `ZFSStatsRow` after the zfs-stats channel boundary revives `time` to an epoch-ms number (see `lib/sse/channels/zfs-stats.ts`). */
-export type ZFSStatsRowRevived = Omit<ZFSStatsRow, 'time'> & { time: number };
 
 /**
  * Configuration for ZFS monitoring

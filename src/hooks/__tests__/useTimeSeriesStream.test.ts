@@ -30,6 +30,13 @@ const testChannel = defineSseChannel({
   revive: (rows): TestRow[] => rows,
 });
 
+/** Same wire shape as `testChannel` but omits `revive`, matching the stats channels (docker/zfs/proxmox). */
+const noReviveChannel = defineSseChannel({
+  url: '/api/test-no-revive',
+  errorEvent: 'stats_error',
+  schema: z.array(z.object({ key: z.string(), time: z.number(), entity: z.string() })),
+});
+
 const defaultOpts = {
   getKey: (r: TestRow) => r.key,
   getTime: (r: TestRow) => r.time,
@@ -274,6 +281,31 @@ describe('useTimeSeriesStream preload', () => {
     } finally {
       console.error = origError;
     }
+  });
+
+  it('passes rows through unchanged (preload, initialData, and refresh) when the channel has no revive step', async () => {
+    const now = Date.now();
+    const staleInitialData: TestRow[] = [{ key: 'seed-1', time: now - 5000, entity: 'a' }];
+    const preloadRows: TestRow[] = [{ key: 'fresh-1', time: now - 100, entity: 'a' }];
+    const preloadFn = mock(() => Promise.resolve(preloadRows));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        channel: noReviveChannel,
+        preloadFn,
+        initialData: staleInitialData,
+        ...defaultOpts,
+        windowSeconds: 60,
+      })
+    );
+
+    // initialData seeds synchronously through the no-revive path.
+    expect(result.current.rows.map(r => r.key)).toEqual(['seed-1']);
+
+    // Stale initialData schedules a refresh through the same no-revive path.
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(preloadFn).toHaveBeenCalledTimes(1);
+    expect(result.current.rows.map(r => r.key)).toContain('fresh-1');
   });
 
   it('computes latestByEntity map from preloaded rows', async () => {

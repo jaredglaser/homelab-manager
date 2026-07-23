@@ -82,7 +82,7 @@ export default memo(function HistoricalChartsGrid({
     for (const metric of selectedMetrics) {
       const config = METRIC_CONFIGS[metric];
       result[metric] = data.map((row) => ({
-        timestamp: new Date(row.time).getTime(),
+        timestamp: row.time,
         value: config.extract(row),
       }));
     }

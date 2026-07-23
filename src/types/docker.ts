@@ -13,7 +13,8 @@ export interface DockerContainer {
 
 /** Wide row from docker_stats hypertable */
 export interface DockerStatsRow {
-  time: string | Date;
+  /** Epoch ms, converted at the repository read path */
+  time: number;
   host: string;
   container_id: string;
   container_name: string | null;
@@ -27,9 +28,6 @@ export interface DockerStatsRow {
   block_io_read_bytes_per_sec: number | null;
   block_io_write_bytes_per_sec: number | null;
 }
-
-/** `DockerStatsRow` after the docker-stats channel boundary revives `time` to an epoch-ms number (see `lib/sse/channels/docker-stats.ts`). */
-export type DockerStatsRowRevived = Omit<DockerStatsRow, 'time'> & { time: number };
 
 /** Docker stats reconstructed from wide table rows; only the fields the frontend needs */
 export interface DockerStatsFromDB {
@@ -113,7 +111,7 @@ export interface DockerContainerTableRow extends DockerTableRowBase {
   stats?: DockerStatsFromDB;
   /** True when state === 'running' but no recent stats are available */
   isStale: boolean;
-  chartData?: DockerStatsRowRevived[];
+  chartData?: DockerStatsRow[];
   sparklineData?: import('@/hooks/useContainerChartData').SparklineData;
   dataPoints?: import('@/hooks/useContainerChartData').ChartDataPoint[];
 }

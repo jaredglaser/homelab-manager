@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import { STATS_ERROR_EVENT } from '@/lib/sse/channels/stats-error-event';
-import type { ZFSStatsRowRevived } from '@/types/zfs';
 
-// time: z.date() too so ZFSStatsRow[] (pg gives real Dates pre-serialization) stays
-// assignable as preloadFn's return type without a cast; wire traffic is always string.
+// time is epoch ms end to end: repository read path converts pg's timestamptz Date, so
+// this schema matches ZFSStatsRow exactly and no revive step is needed.
 const zZFSStatsWireRow = z.object({
-  time: z.union([z.string(), z.date()]),
+  time: z.number(),
   host: z.string(),
   pool: z.string(),
   entity: z.string(),
@@ -27,6 +26,4 @@ export const zfsStatsChannel = defineSseChannel({
   url: '/api/zfs-stats',
   errorEvent: STATS_ERROR_EVENT,
   schema: zZFSStatsWireRows,
-  revive: (rows): ZFSStatsRowRevived[] =>
-    rows.map((row) => ({ ...row, time: new Date(row.time).getTime() })),
 });

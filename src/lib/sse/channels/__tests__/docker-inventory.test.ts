@@ -37,7 +37,7 @@ describe('dockerInventoryChannel', () => {
 
   it('revives startedAt/finishedAt/updatedAt to Date objects on init', () => {
     const parsed = dockerInventoryChannel.schema.parse({ type: 'init', containers: [snapshotContainer] });
-    const revived = dockerInventoryChannel.revive(parsed);
+    const revived = dockerInventoryChannel.revive!(parsed);
 
     expect(revived.type).toBe('init');
     if (revived.type !== 'init') throw new Error('expected init');
@@ -51,7 +51,7 @@ describe('dockerInventoryChannel', () => {
   it('revives dates on upsert', () => {
     const { labels: _labels, ...updateContainer } = snapshotContainer;
     const parsed = dockerInventoryChannel.schema.parse({ type: 'upsert', container: updateContainer });
-    const revived = dockerInventoryChannel.revive(parsed);
+    const revived = dockerInventoryChannel.revive!(parsed);
 
     expect(revived.type).toBe('upsert');
     if (revived.type !== 'upsert') throw new Error('expected upsert');
@@ -66,7 +66,7 @@ describe('dockerInventoryChannel', () => {
       containerId: 'abc123',
       at: '2026-04-16T11:00:00.000Z',
     });
-    const revived = dockerInventoryChannel.revive(parsed);
+    const revived = dockerInventoryChannel.revive!(parsed);
 
     expect(revived.type).toBe('destroy');
     if (revived.type !== 'destroy') throw new Error('expected destroy');

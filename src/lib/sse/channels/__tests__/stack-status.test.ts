@@ -33,6 +33,6 @@ describe('stackStatusChannel', () => {
 
   it('revive is the identity (no Date fields on the wire)', () => {
     const message = [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }];
-    expect(stackStatusChannel.revive(message)).toBe(message);
+    expect(stackStatusChannel.revive!(message)).toBe(message);
   });
 });

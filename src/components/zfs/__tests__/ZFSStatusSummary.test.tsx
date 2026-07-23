@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'bun:test';
 import { render, screen } from '@testing-library/react';
 import ZFSStatusSummary from '../ZFSStatusSummary';
-import type { ZFSStatsRowRevived } from '@/types/zfs';
+import type { ZFSStatsRow } from '@/types/zfs';
 
-function makeRow(overrides: Partial<ZFSStatsRowRevived> & { host: string; entity_type: string }): ZFSStatsRowRevived {
+function makeRow(overrides: Partial<ZFSStatsRow> & { host: string; entity_type: string }): ZFSStatsRow {
   return {
     time: Date.now(),
     pool: 'tank',
@@ -20,8 +20,8 @@ function makeRow(overrides: Partial<ZFSStatsRowRevived> & { host: string; entity
   };
 }
 
-function makeMap(rows: ZFSStatsRowRevived[]): Map<string, ZFSStatsRowRevived> {
-  const map = new Map<string, ZFSStatsRowRevived>();
+function makeMap(rows: ZFSStatsRow[]): Map<string, ZFSStatsRow> {
+  const map = new Map<string, ZFSStatsRow>();
   for (const row of rows) {
     const key = row.host ? `${row.host}/${row.entity}` : row.entity;
     map.set(key, row);

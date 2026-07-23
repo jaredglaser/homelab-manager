@@ -41,8 +41,8 @@ interface UseTimeSeriesStreamResult<TRow> {
 /**
  * Time-windowed stream that preloads historical rows and merges subsequent SSE updates.
  * Composes the buffer, visibility refresh, and latest-by-entity sub-hooks; owns preload,
- * periodic refresh, and stale detection. `preloadFn`/`initialData` are revived here via
- * `channel.revive` so they land on the same row shape SSE messages already arrive in.
+ * periodic refresh, and stale detection. `preloadFn`/`initialData` are revived here (when
+ * the channel defines `revive`) so they land on the same row shape SSE messages already arrive in.
  *
  * @param options.channel - Channel descriptor for the stats SSE endpoint (`src/lib/sse/channels/*.ts`).
  * @param options.preloadFn - Fetches historical rows (e.g. bucketed history) to seed the buffer.
@@ -105,7 +105,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     } catch {
       return; // caller will retry on the next interval / visibility event
     }
-    const rows = channelRef.current.revive(raw);
+    const rows = channelRef.current.revive ? channelRef.current.revive(raw) : raw as TRow[];
     const now = Date.now();
     lastRefreshRef.current = now;
     if (rows.length === 0) return;
@@ -137,7 +137,9 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     };
 
     if (initialDataRef.current && initialDataRef.current.length > 0) {
-      const revived = channelRef.current.revive(initialDataRef.current);
+      const revived = channelRef.current.revive
+        ? channelRef.current.revive(initialDataRef.current)
+        : initialDataRef.current as TRow[];
       seedRows(revived);
       // Cached data may be stale (e.g. navigated away and back). If the newest row
       // is behind now, schedule a refresh to fill the gap.
@@ -160,7 +162,7 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     Promise.race([preloadFnRef.current(), preloadTimeout])
       .then((raw) => {
         if (preloadTimeoutId !== undefined) clearTimeout(preloadTimeoutId);
-        const rows = channelRef.current.revive(raw);
+        const rows = channelRef.current.revive ? channelRef.current.revive(raw) : raw as TRow[];
         if (debug) console.log(`[useTimeSeriesStream] Preload complete: ${rows.length} rows`);
         seedRows(rows);
       })

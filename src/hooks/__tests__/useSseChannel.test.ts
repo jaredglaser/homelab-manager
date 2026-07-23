@@ -23,6 +23,12 @@ const testChannel = defineSseChannel({
   revive: (raw) => ({ doubled: raw.value * 2 }),
 });
 
+const noReviveChannel = defineSseChannel({
+  url: '/api/no-revive-channel',
+  errorEvent: 'no_revive_channel_error',
+  schema: z.object({ value: z.number() }),
+});
+
 describe('useSseChannel', () => {
   it('connects to apiUrl(channel.url)', () => {
     renderHook(() => useSseChannel(testChannel, { onData: () => {} }));
@@ -42,6 +48,19 @@ describe('useSseChannel', () => {
     });
 
     expect(onData).toHaveBeenCalledWith({ doubled: 42 });
+  });
+
+  it('passes the parsed message through unchanged when the channel has no revive step', () => {
+    const onData = mock(() => {});
+    renderHook(() => useSseChannel(noReviveChannel, { onData }));
+
+    const es = MockEventSource.instances[0];
+    act(() => {
+      es.onopen?.();
+      es.onmessage?.({ data: JSON.stringify({ value: 21 }) });
+    });
+
+    expect(onData).toHaveBeenCalledWith({ value: 21 });
   });
 
   it('drops a message that fails schema validation and logs, without calling onData', () => {

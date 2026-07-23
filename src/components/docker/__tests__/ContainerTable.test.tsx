@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test';
 import { render, screen, fireEvent } from '@testing-library/react';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
-import type { DockerStatsRowRevived } from '@/types/docker';
+import type { DockerStatsRow } from '@/types/docker';
 
 mock.module('@/hooks/toastAtom', () => ({
   useToast: () => ({ showToast: () => {} }),
@@ -16,9 +16,9 @@ mock.module('@/hooks/usePulseIndicator', () => ({
 }));
 
 /** Records every buildContainerChartData call so tests can assert reuse vs rebuild */
-const chartDataCalls: DockerStatsRowRevived[][] = [];
+const chartDataCalls: DockerStatsRow[][] = [];
 mock.module('@/hooks/useContainerChartData', () => ({
-  buildContainerChartData: (chartData: DockerStatsRowRevived[]) => {
+  buildContainerChartData: (chartData: DockerStatsRow[]) => {
     chartDataCalls.push(chartData);
     return { sparklineData: undefined, dataPoints: [] };
   },
@@ -110,7 +110,7 @@ function makeInventory(
   };
 }
 
-function makeStatsRow(host: string, containerId: string, time: number): DockerStatsRowRevived {
+function makeStatsRow(host: string, containerId: string, time: number): DockerStatsRow {
   return {
     time,
     host,
@@ -132,8 +132,8 @@ const defaultProps = {
   inventory: new Map<string, DockerInventorySnapshotContainer>(),
   isInventoryConnected: true,
   inventoryError: null,
-  latestByEntity: new Map<string, DockerStatsRowRevived>(),
-  rows: [] as DockerStatsRowRevived[],
+  latestByEntity: new Map<string, DockerStatsRow>(),
+  rows: [] as DockerStatsRow[],
   hasData: true,
   isConnected: true,
   error: null,
@@ -259,7 +259,7 @@ describe('ContainerTable', () => {
   });
 
   describe('chart data memoization', () => {
-    function renderWithRows(rows: DockerStatsRowRevived[]) {
+    function renderWithRows(rows: DockerStatsRow[]) {
       const inventory = new Map([['host1/c1', makeInventory('host1', 'c1', 'nginx')]]);
       const latestByEntity = new Map([['host1/c1', rows[rows.length - 1]!]]);
       const store = createStore();
@@ -268,7 +268,7 @@ describe('ContainerTable', () => {
           <ContainerTable {...defaultProps} inventory={inventory} rows={rows} latestByEntity={latestByEntity} />
         </Provider>,
       );
-      const rerenderWithRows = (nextRows: DockerStatsRowRevived[]) => {
+      const rerenderWithRows = (nextRows: DockerStatsRow[]) => {
         view.rerender(
           <Provider store={store}>
             <ContainerTable {...defaultProps} inventory={inventory} rows={nextRows} latestByEntity={latestByEntity} />

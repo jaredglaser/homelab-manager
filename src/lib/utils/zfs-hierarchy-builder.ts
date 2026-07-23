@@ -1,6 +1,6 @@
 import type {
   ZFSIOStatWithRates,
-  ZFSStatsRowRevived,
+  ZFSStatsRow,
   ZFSHierarchy,
   ZFSHostHierarchy,
   ZFSHostStats,
@@ -72,10 +72,10 @@ function nameFromEntity(entity: string): string {
 }
 
 /**
- * Convert a ZFSStatsRow (post channel-boundary revival) to ZFSIOStatWithRates for UI consumption.
+ * Convert a ZFSStatsRow to ZFSIOStatWithRates for UI consumption.
  * The id uses the host-prefixed entity path for multi-host deduplication.
  */
-export function rowToZFSStats(row: ZFSStatsRowRevived): ZFSIOStatWithRates {
+export function rowToZFSStats(row: ZFSStatsRow): ZFSIOStatWithRates {
   const id = row.host ? `${row.host}/${row.entity}` : row.entity;
   return {
     id,
@@ -216,7 +216,7 @@ function calculateHostAggregates(pools: ZFSHierarchy): ZFSHostAggregatedStats {
  * @param rows - Flat array of ZFS stats rows for a single host
  * @returns Hierarchical Map structure: pools -> vdevs -> disks
  */
-function buildHierarchyFromRows(rows: ZFSStatsRowRevived[]): ZFSHierarchy {
+function buildHierarchyFromRows(rows: ZFSStatsRow[]): ZFSHierarchy {
   const hierarchy: ZFSHierarchy = new Map();
   const poolByEntity = new Map<string, PoolStats>();
   const vdevByEntity = new Map<string, VdevStats>();
@@ -274,9 +274,9 @@ function buildHierarchyFromRows(rows: ZFSStatsRowRevived[]): ZFSHierarchy {
  * @param rows - Flat array of ZFS stats rows from the database
  * @returns Multi-host hierarchical structure: hosts -> pools -> vdevs -> disks
  */
-export function buildZFSHostHierarchy(rows: ZFSStatsRowRevived[]): ZFSHostHierarchy {
+export function buildZFSHostHierarchy(rows: ZFSStatsRow[]): ZFSHostHierarchy {
   // Group rows by host
-  const rowsByHost = new Map<string, ZFSStatsRowRevived[]>();
+  const rowsByHost = new Map<string, ZFSStatsRow[]>();
   for (const row of rows) {
     const hostName = row.host || '';
     let hostRows = rowsByHost.get(hostName);

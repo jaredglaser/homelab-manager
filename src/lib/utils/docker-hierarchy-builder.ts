@@ -1,5 +1,5 @@
 import type {
-  DockerStatsRowRevived,
+  DockerStatsRow,
   DockerStatsFromDB,
   HostAggregatedStats,
   DockerHostTableRow,
@@ -27,7 +27,7 @@ export function computeServiceKey(
 }
 
 /**
- * Converts a Docker stats row (post channel-boundary revival) into a DockerStatsFromDB object tailored for UI consumption.
+ * Converts a Docker stats row into a DockerStatsFromDB object tailored for UI consumption.
  *
  * @param row - The source wide-format Docker stats row.
  * @param icon - Optional icon identifier to attach to the resulting entity.
@@ -43,7 +43,7 @@ export function computeServiceKey(
  *  - `stale` initialized to `false`.
  */
 export function rowToDockerStats(
-  row: DockerStatsRowRevived,
+  row: DockerStatsRow,
   icon: string | null = null,
   serviceKeyEntity: string | null = null,
 ): DockerStatsFromDB {

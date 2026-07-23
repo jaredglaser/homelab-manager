@@ -13,7 +13,7 @@ import { testProxmoxConnection } from '@/data/proxmox/functions'
 import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/lib/constants/preload-queries'
 import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
 import { proxmoxStatsChannel } from '@/lib/sse/channels/proxmox-stats'
-import type { ProxmoxStatsRowRevived, ProxmoxClusterOverview } from '@/types/proxmox'
+import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
 import { useProxmoxSettings } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
 import { Spinner } from '@/components/ui/spinner';
@@ -91,7 +91,7 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
   })
 
   // Update the last-update atom when new rows arrive
-  const prevLastRowRef = useRef<ProxmoxStatsRowRevived | null>(null)
+  const prevLastRowRef = useRef<ProxmoxStatsRow | null>(null)
   useEffect(() => {
     const lastRow = stream.rows.at(-1) ?? null
     if (lastRow && lastRow !== prevLastRowRef.current) {

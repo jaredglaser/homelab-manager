@@ -1,6 +1,6 @@
 import { describe, it, expect, spyOn } from 'bun:test';
 import { buildHierarchy, buildZFSHostHierarchy, rowToZFSStats, sortZFSHierarchy } from '../zfs-hierarchy-builder';
-import type { ZFSIOStatWithRates, ZFSStatsRowRevived, ZFSHierarchy } from '@/types/zfs';
+import type { ZFSIOStatWithRates, ZFSStatsRow, ZFSHierarchy } from '@/types/zfs';
 
 describe('buildHierarchy', () => {
   // Helper to create mock ZFS stats
@@ -331,7 +331,7 @@ describe('buildHierarchy', () => {
   });
 
   describe('rowToZFSStats', () => {
-    function createMockRow(overrides?: Partial<ZFSStatsRowRevived>): ZFSStatsRowRevived {
+    function createMockRow(overrides?: Partial<ZFSStatsRow>): ZFSStatsRow {
       return {
         time: Date.parse('2024-01-01T00:00:00Z'),
         host: '',
@@ -459,7 +459,7 @@ describe('buildHierarchy', () => {
 });
 
 describe('buildZFSHostHierarchy', () => {
-  function createMockRow(overrides?: Partial<ZFSStatsRowRevived>): ZFSStatsRowRevived {
+  function createMockRow(overrides?: Partial<ZFSStatsRow>): ZFSStatsRow {
     return {
       time: Date.parse('2024-01-01T00:00:00Z'),
       host: 'server1',

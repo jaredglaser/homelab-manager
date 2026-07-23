@@ -93,8 +93,8 @@ describe('createStatsSseHandler', () => {
     const reader = readerOf(res);
     expect(await readFrame(reader)).toBe(': ok\n\n');
 
-    sendRows([{ host: 'h1', time: '2026-01-01T00:00:00Z' }]);
-    expect(await readFrame(reader)).toBe('data: [{"host":"h1","time":"2026-01-01T00:00:00Z"}]\n\n');
+    sendRows([{ host: 'h1', time: Date.parse('2026-01-01T00:00:00Z') }]);
+    expect(await readFrame(reader)).toBe(`data: [{"host":"h1","time":${Date.parse('2026-01-01T00:00:00Z')}}]\n\n`);
 
     ac.abort();
     reader.cancel();

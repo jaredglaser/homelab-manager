@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { DockerStatsRowRevived } from '@/types/docker';
+import type { DockerStatsRow } from '@/types/docker';
 import type { SparklinePoint } from '@/components/ui/datatable/sparkline-accumulator-store';
 
 export type { SparklinePoint };
@@ -24,8 +24,8 @@ export interface SparklineData {
   networkTx: SparklinePoint[];
 }
 
-/** Transforms Docker stats rows (post channel-boundary revival) into chart data points and sparkline arrays. */
-export function buildContainerChartData(chartData: DockerStatsRowRevived[]): {
+/** Transforms Docker stats rows into chart data points and sparkline arrays. */
+export function buildContainerChartData(chartData: DockerStatsRow[]): {
   dataPoints: ChartDataPoint[];
   sparklineData: SparklineData;
 } {
@@ -60,7 +60,7 @@ export function buildContainerChartData(chartData: DockerStatsRowRevived[]): {
 }
 
 /** Memoized `buildContainerChartData`, keyed on `chartData` array identity. */
-export function useContainerChartData(chartData: DockerStatsRowRevived[]): {
+export function useContainerChartData(chartData: DockerStatsRow[]): {
   dataPoints: ChartDataPoint[];
   sparklineData: SparklineData;
 } {

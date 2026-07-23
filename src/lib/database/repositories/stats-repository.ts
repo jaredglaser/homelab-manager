@@ -3,6 +3,9 @@ import type { DockerStatsRow } from '@/types/docker';
 import type { ProxmoxStatsRow } from '@/types/proxmox';
 import type { ZFSStatsRow } from '@/types/zfs';
 
+/** Insert shape for proxmox_stats: same as the read row, but `time` stays a Date for the timestamptz bind. */
+export type NewProxmoxStat = Omit<ProxmoxStatsRow, 'time'> & { time: Date };
+
 /** Domain shape docker collectors emit; no `docker_stats` column knowledge. */
 export interface NewDockerStat {
   time: Date;
@@ -320,11 +323,11 @@ export class StatsRepository {
     return result.rows.map(toZFSStatsRow);
   }
 
-  async insertProxmoxStats(rows: ProxmoxStatsRow[]): Promise<void> {
+  async insertProxmoxStats(rows: NewProxmoxStat[]): Promise<void> {
     if (rows.length === 0) return;
 
     try {
-      const times: (string | Date)[] = [];
+      const times: Date[] = [];
       const hosts: string[] = [];
       const entityTypes: string[] = [];
       const nodes: (string | null)[] = [];
@@ -433,7 +436,7 @@ export class StatsRepository {
 function toDockerStatsRow(row: Record<string, unknown>): DockerStatsRow {
   const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {
-    time: row.time as string | Date,
+    time: new Date(row.time as string | Date).getTime(),
     host: row.host as string,
     container_id: row.container_id as string,
     container_name: row.container_name as string | null,
@@ -453,7 +456,7 @@ function toDockerStatsRow(row: Record<string, unknown>): DockerStatsRow {
 function toZFSStatsRow(row: Record<string, unknown>): ZFSStatsRow {
   const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {
-    time: row.time as string | Date,
+    time: new Date(row.time as string | Date).getTime(),
     host: row.host as string,
     pool: row.pool as string,
     entity: row.entity as string,
@@ -473,7 +476,7 @@ function toZFSStatsRow(row: Record<string, unknown>): ZFSStatsRow {
 function toProxmoxStatsRow(row: Record<string, unknown>): ProxmoxStatsRow {
   const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {
-    time: row.time as string | Date,
+    time: new Date(row.time as string | Date).getTime(),
     host: row.host as string,
     entity_type: row.entity_type as ProxmoxStatsRow['entity_type'],
     node: row.node as string | null,

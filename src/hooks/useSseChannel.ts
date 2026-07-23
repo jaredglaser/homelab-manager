@@ -40,7 +40,7 @@ export function useSseChannel<TSchema extends z.ZodTypeAny, TRevived>(
       return;
     }
     setServiceError(null);
-    onDataRef.current(channel.revive(parsed.data));
+    onDataRef.current(channel.revive ? channel.revive(parsed.data) : parsed.data as TRevived);
   }, [channel]);
 
   const handleServiceError = useCallback(() => {

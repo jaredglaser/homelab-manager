@@ -7,11 +7,11 @@ import {
   computeServiceKey,
   totalContainers,
 } from '../docker-hierarchy-builder';
-import type { DockerStatsFromDB, DockerStatsRowRevived } from '@/types/docker';
+import type { DockerStatsFromDB, DockerStatsRow } from '@/types/docker';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 
 describe('rowToDockerStats', () => {
-  function createMockRow(overrides?: Partial<DockerStatsRowRevived>): DockerStatsRowRevived {
+  function createMockRow(overrides?: Partial<DockerStatsRow>): DockerStatsRow {
     return {
       time: Date.parse('2024-01-01T00:00:00Z'),
       host: 'host1',

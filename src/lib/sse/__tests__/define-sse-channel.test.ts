@@ -19,4 +19,16 @@ describe('defineSseChannel', () => {
     expect(descriptor.schema).toBe(schema);
     expect(descriptor.revive).toBe(revive);
   });
+
+  it('allows revive to be omitted when the wire shape already matches consumers', () => {
+    const schema = z.object({ value: z.number() });
+
+    const descriptor = defineSseChannel({
+      url: '/api/example',
+      errorEvent: 'example_error',
+      schema,
+    });
+
+    expect(descriptor.revive).toBeUndefined();
+  });
 });

@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
-import type { ZFSStatsRowRevived } from '@/types/zfs';
+import type { ZFSStatsRow } from '@/types/zfs';
 
 interface ZFSStatusSummaryProps {
-  latestByEntity: Map<string, ZFSStatsRowRevived>;
+  latestByEntity: Map<string, ZFSStatsRow>;
 }
 
 interface Segment {

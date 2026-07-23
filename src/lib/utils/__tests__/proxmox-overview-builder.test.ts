@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'bun:test';
 import { buildProxmoxOverview } from '../proxmox-overview-builder';
 import { snapshotToRows } from '../proxmox-overview-converter';
-import { proxmoxStatsChannel } from '@/lib/sse/channels/proxmox-stats';
-import type { ProxmoxClusterSnapshot, ProxmoxStatsRow, ProxmoxStatsRowRevived } from '@/types/proxmox';
+import type { ProxmoxClusterSnapshot, ProxmoxStatsRow } from '@/types/proxmox';
+import type { NewProxmoxStat } from '@/lib/database/repositories/stats-repository';
 
 function createMockSnapshot(): ProxmoxClusterSnapshot {
   return {
@@ -73,13 +73,12 @@ function createMockSnapshot(): ProxmoxClusterSnapshot {
   };
 }
 
-/** Revives raw rows (e.g. from `snapshotToRows`) the same way the proxmox-stats channel boundary does. */
-function rowsToLatestMap(rawRows: ProxmoxStatsRow[]): Map<string, ProxmoxStatsRowRevived> {
-  const rows = proxmoxStatsChannel.revive(rawRows);
-  const map = new Map<string, ProxmoxStatsRowRevived>();
-  for (const row of rows) {
+/** Converts `snapshotToRows` insert rows to read rows the same way the repository read path does. */
+function rowsToLatestMap(rawRows: NewProxmoxStat[]): Map<string, ProxmoxStatsRow> {
+  const map = new Map<string, ProxmoxStatsRow>();
+  for (const row of rawRows) {
     const key = `${row.entity_type}/${row.entity_id}`;
-    map.set(key, row);
+    map.set(key, { ...row, time: row.time.getTime() });
   }
   return map;
 }
@@ -239,7 +238,7 @@ describe('buildProxmoxOverview', () => {
 
   it('should return overview with Standalone name when no cluster row', () => {
     // Only a node row, no cluster row
-    const nodeRow: ProxmoxStatsRowRevived = {
+    const nodeRow: ProxmoxStatsRow = {
       time: Date.now(),
       host: 'host',
       entity_type: 'node',
@@ -272,7 +271,7 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should handle node with zero max_cpu (avoid division by zero)', () => {
-    const nodeRow: ProxmoxStatsRowRevived = {
+    const nodeRow: ProxmoxStatsRow = {
       time: Date.now(),
       host: 'host',
       entity_type: 'node',
@@ -303,7 +302,7 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should handle storage with zero max_disk', () => {
-    const storageRow: ProxmoxStatsRowRevived = {
+    const storageRow: ProxmoxStatsRow = {
       time: Date.now(),
       host: 'host',
       entity_type: 'storage',
@@ -328,7 +327,7 @@ describe('buildProxmoxOverview', () => {
       cluster_version: null,
     };
 
-    const clusterRow: ProxmoxStatsRowRevived = {
+    const clusterRow: ProxmoxStatsRow = {
       time: Date.now(),
       host: 'host',
       entity_type: 'cluster',
@@ -362,7 +361,7 @@ describe('buildProxmoxOverview', () => {
   });
 
   it('should handle rows with null fields gracefully', () => {
-    const vmRow: ProxmoxStatsRowRevived = {
+    const vmRow: ProxmoxStatsRow = {
       time: Date.now(),
       host: 'host',
       entity_type: 'qemu',
@@ -387,7 +386,7 @@ describe('buildProxmoxOverview', () => {
       cluster_version: null,
     };
 
-    const clusterRow: ProxmoxStatsRowRevived = {
+    const clusterRow: ProxmoxStatsRow = {
       time: Date.now(),
       host: 'host',
       entity_type: 'cluster',

@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import { STATS_ERROR_EVENT } from '@/lib/sse/channels/stats-error-event';
-import type { DockerStatsRowRevived } from '@/types/docker';
 
-// time: z.date() too so DockerStatsRow[] (pg gives real Dates pre-serialization) stays
-// assignable as preloadFn's return type without a cast; wire traffic is always string.
+// time is epoch ms end to end: repository read path converts pg's timestamptz Date, so
+// this schema matches DockerStatsRow exactly and no revive step is needed.
 const zDockerStatsWireRow = z.object({
-  time: z.union([z.string(), z.date()]),
+  time: z.number(),
   host: z.string(),
   container_id: z.string(),
   container_name: z.string().nullable(),
@@ -27,6 +26,4 @@ export const dockerStatsChannel = defineSseChannel({
   url: '/api/docker-stats',
   errorEvent: STATS_ERROR_EVENT,
   schema: zDockerStatsWireRows,
-  revive: (rows): DockerStatsRowRevived[] =>
-    rows.map((row) => ({ ...row, time: new Date(row.time).getTime() })),
 });

@@ -24,6 +24,6 @@ describe('settingsChannel', () => {
 
   it('revive is the identity', () => {
     const message = { type: 'init' as const, settings: { a: '1' } };
-    expect(settingsChannel.revive(message)).toBe(message);
+    expect(settingsChannel.revive!(message)).toBe(message);
   });
 });

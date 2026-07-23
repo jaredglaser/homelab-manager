@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { proxmoxStatsChannel } from '../proxmox-stats';
 
 const wireRow = {
-  time: '2026-04-16T10:00:00.000Z',
+  time: Date.parse('2026-04-16T10:00:00.000Z'),
   host: 'server1',
   entity_type: 'node' as const,
   node: 'pve1',
@@ -37,9 +37,9 @@ describe('proxmoxStatsChannel', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts a Date instance for time (the preloadFn/ProxmoxStatsRow shape pre-serialization)', () => {
-    const result = proxmoxStatsChannel.schema.safeParse([{ ...wireRow, time: new Date() }]);
-    expect(result.success).toBe(true);
+  it('rejects a string time (repository read path now normalizes to epoch ms)', () => {
+    const result = proxmoxStatsChannel.schema.safeParse([{ ...wireRow, time: '2026-04-16T10:00:00.000Z' }]);
+    expect(result.success).toBe(false);
   });
 
   it('rejects an unknown entity_type', () => {
@@ -47,12 +47,7 @@ describe('proxmoxStatsChannel', () => {
     expect(result.success).toBe(false);
   });
 
-  it('revives time to an epoch-ms number', () => {
-    const rows = proxmoxStatsChannel.schema.parse([wireRow]);
-    const revived = proxmoxStatsChannel.revive(rows);
-
-    expect(revived).toHaveLength(1);
-    expect(revived[0].time).toBe(Date.parse(wireRow.time));
-    expect(revived[0].entity_id).toBe('pve1');
+  it('has no revive step; the schema shape matches ProxmoxStatsRow directly', () => {
+    expect(proxmoxStatsChannel.revive).toBeUndefined();
   });
 });

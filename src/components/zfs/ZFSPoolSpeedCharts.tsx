@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { ZFSStatsRowRevived } from '@/types/zfs';
+import type { ZFSStatsRow } from '@/types/zfs';
 import ZFSPoolSpeedChart from './ZFSPoolSpeedChart';
 
 interface TimeSeriesDataPoint {
@@ -14,7 +14,7 @@ interface PoolTimeSeriesData {
 }
 
 interface ZFSPoolSpeedChartsProps {
-  rows: ZFSStatsRowRevived[];
+  rows: ZFSStatsRow[];
 }
 
 export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {

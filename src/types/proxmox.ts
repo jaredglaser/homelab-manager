@@ -160,7 +160,8 @@ export type GuestRow = {
 
 /** Wide row from proxmox_stats hypertable */
 export interface ProxmoxStatsRow {
-  time: string | Date;
+  /** Epoch ms, converted at the repository read path */
+  time: number;
   host: string;
   entity_type: 'cluster' | 'node' | 'qemu' | 'lxc' | 'storage';
   node: string | null;
@@ -183,9 +184,6 @@ export interface ProxmoxStatsRow {
   storage_shared: boolean | null;
   cluster_version: number | null;
 }
-
-/** `ProxmoxStatsRow` after the proxmox-stats channel boundary revives `time` to an epoch-ms number (see `lib/sse/channels/proxmox-stats.ts`). */
-export type ProxmoxStatsRowRevived = Omit<ProxmoxStatsRow, 'time'> & { time: number };
 
 /** Aggregated cluster overview for the dashboard */
 export interface ProxmoxClusterOverview {

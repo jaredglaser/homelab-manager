@@ -23,7 +23,7 @@ function getDemoContainerState(idx: number): DemoContainerState {
 }
 
 /** Build a single DockerStatsRow from an entity definition at a given time. */
-function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string, sampleMs?: number): DockerStatsRow {
+function buildDockerRow(e: DockerEntityDef, timeMs: number, sampleMs?: number): DockerStatsRow {
   const entityKey = `${e.host}/${e.containerId}`;
   const cpuBase = generateSimplexMetric(timeMs, entityKey, 'cpu', e.cpu, sampleMs);
   // Skip spikes when sample interval is too coarse to represent them -
@@ -34,7 +34,7 @@ function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string, sam
   const memUsage = generateSimplexMetric(timeMs, entityKey, 'memUsage', e.memoryUsage, sampleMs);
 
   return {
-    time: timeStr,
+    time: timeMs,
     host: e.host,
     container_id: e.containerId,
     container_name: e.containerName,
@@ -56,9 +56,8 @@ function buildDockerRow(e: DockerEntityDef, timeMs: number, timeStr: string, sam
  */
 export function generateDockerSnapshot(time: Date): DockerStatsRow[] {
   const timeMs = time.getTime();
-  const timeStr = time.toISOString();
   return DOCKER_ENTITIES.flatMap((e, idx) => (
-    getDemoContainerState(idx) === 'running' ? [buildDockerRow(e, timeMs, timeStr)] : []
+    getDemoContainerState(idx) === 'running' ? [buildDockerRow(e, timeMs)] : []
   ));
 }
 
@@ -133,8 +132,7 @@ export function generateContainerHistory(
   const spanMs = toMs - fromMs;
   const step = Math.max(1000, Math.floor(spanMs / targetPoints));
   for (let t = fromMs; t <= toMs; t += step) {
-    const time = new Date(t);
-    rows.push(buildDockerRow(entity, time.getTime(), time.toISOString(), step));
+    rows.push(buildDockerRow(entity, t, step));
   }
 
   return rows;

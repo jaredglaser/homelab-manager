@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'bun:test';
-import type { DockerStatsRowRevived } from '@/types/docker';
+import type { DockerStatsRow } from '@/types/docker';
 
 const { buildContainerChartData, useContainerChartData } = await import('@/hooks/useContainerChartData');
 const { renderHook } = await import('@testing-library/react');
 
-/** Minimal valid DockerStatsRowRevived with all nullable fields null */
-function makeRow(overrides: Partial<DockerStatsRowRevived> = {}): DockerStatsRowRevived {
+/** Minimal valid DockerStatsRow with all nullable fields null */
+function makeRow(overrides: Partial<DockerStatsRow> = {}): DockerStatsRow {
   return {
     time: Date.parse('2024-01-01T00:00:00.000Z'),
     host: 'testhost',
