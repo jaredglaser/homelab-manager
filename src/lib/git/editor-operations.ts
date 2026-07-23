@@ -1,6 +1,6 @@
-import yaml from 'js-yaml';
 import { commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
+import { MANIFEST, serializeManifest } from '@/lib/stacks/stack-repo-layout';
 
 interface SaveFileOptions {
   filePath: string;
@@ -38,16 +38,16 @@ interface UpdateManifestOptions {
 }
 
 /**
- * Add or update a stack entry in manifest.yaml and commit.
+ * Add or update a stack entry in the manifest and commit.
  */
 export async function updateManifest(
   repoPath: string,
   options: UpdateManifestOptions,
 ): Promise<SaveResult> {
   const commitSha = await commitFiles(repoPath, (existingFiles) => {
-    const manifestContent = existingFiles.get('manifest.yaml');
+    const manifestContent = existingFiles.get(MANIFEST);
     if (manifestContent === undefined) {
-      throw new FileNotFoundError('manifest.yaml');
+      throw new FileNotFoundError(MANIFEST);
     }
     const manifest = parseManifest(manifestContent);
 
@@ -56,15 +56,8 @@ export async function updateManifest(
       autoDeploy: options.autoDeploy,
     };
 
-    const newContent = yaml.dump(manifest, {
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true,
-      sortKeys: true,
-    });
-
     return {
-      files: [{ path: 'manifest.yaml', content: newContent }],
+      files: [{ path: MANIFEST, content: serializeManifest(manifest) }],
       message: `Update manifest: ${options.stackName} on ${options.host}`,
       author: options.author,
     };
