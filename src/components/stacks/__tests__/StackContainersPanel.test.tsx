@@ -221,6 +221,28 @@ describe('StackContainersPanel', () => {
     expect(screen.getByRole('button', { name: 'Recreate' })).toHaveProperty('disabled', true);
   });
 
+  it('disables Start/Stop/Restart while isDeploying is true even though controlMutation is idle', () => {
+    renderPanel({ ...defaultProps, isDeploying: true });
+    expect(screen.getByRole('button', { name: 'Start' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Stop' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Restart' })).toHaveProperty('disabled', true);
+  });
+
+  it('disables Recreate while a control mutation is pending even though isDeploying is false', async () => {
+    let resolveControl!: () => void;
+    mockControlStack.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveControl = resolve; })
+    );
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /^start$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Recreate' })).toHaveProperty('disabled', true);
+    });
+
+    resolveControl();
+  });
+
   it('shows a confirmation dialog stating the recreate/removal behavior when Recreate is clicked', () => {
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'Recreate' }));

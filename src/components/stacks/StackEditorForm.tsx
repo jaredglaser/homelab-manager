@@ -35,6 +35,28 @@ type Panel = 'compose' | 'secrets' | 'containers' | 'deploys'
 type ConfirmableDeployAction = { action: 'deploy' | 'update'; forceRecreate?: boolean }
 type DeployMutationParams = { action: 'deploy' | 'teardown' | 'update'; forceRecreate?: boolean }
 
+function getUnsavedChangesConfirmCopy({ action, forceRecreate }: ConfirmableDeployAction) {
+  if (forceRecreate) {
+    return {
+      title: 'Recreate with unsaved changes?',
+      description: "Your unsaved edits aren't saved yet, so this recreates all containers from the last saved compose and secrets. Save them first to include your changes.",
+      confirmLabel: 'Recreate anyway',
+    }
+  }
+  if (action === 'update') {
+    return {
+      title: 'Update images with unsaved changes?',
+      description: "Your unsaved edits aren't saved yet, so this update uses the last saved compose and secrets. Save them first to include your changes.",
+      confirmLabel: 'Update anyway',
+    }
+  }
+  return {
+    title: 'Deploy with unsaved changes?',
+    description: "Your unsaved edits aren't saved yet, so this deploy uses the last saved compose and secrets. Save them first to include your changes.",
+    confirmLabel: 'Deploy anyway',
+  }
+}
+
 interface StackEditorFormProps {
   stackName: string
   detail: StackDetail
@@ -65,7 +87,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [pendingConfirmAction, setPendingConfirmAction] = useState<ConfirmableDeployAction | null>(null)
-  const lastConfirmActionRef = useRef<'deploy' | 'update'>('deploy')
+  const lastConfirmActionRef = useRef<ConfirmableDeployAction>({ action: 'deploy' })
 
   const form = useForm<StackFormValues>({
     defaultValues: { compose: detail.composeContent, secrets: {} },
@@ -152,6 +174,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   // Deploy, update, and recreate all use the git-committed compose and the saved
   // secrets, so unsaved editor edits would silently ship the previous version.
   function triggerDeployOrUpdate(action: 'deploy' | 'update', forceRecreate?: boolean) {
+    if (deployMutation.isPending) return
     // Read dirtiness live at click time (same per-field signal as the compose
     // "Unsaved changes" label and the tab dots) so the guard never lags a render
     // or disagrees with what the user sees.
@@ -177,16 +200,16 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   }
 
   function confirmPendingAction() {
-    if (pendingConfirmAction) deployMutation.mutate(pendingConfirmAction)
+    if (pendingConfirmAction && !deployMutation.isPending) deployMutation.mutate(pendingConfirmAction)
     setPendingConfirmAction(null)
   }
 
   // Nulling pendingConfirmAction closes the dialog; keep the last action so the
   // copy doesn't flip to the deploy fallback mid close-animation.
   useEffect(() => {
-    if (pendingConfirmAction !== null) lastConfirmActionRef.current = pendingConfirmAction.action
+    if (pendingConfirmAction !== null) lastConfirmActionRef.current = pendingConfirmAction
   }, [pendingConfirmAction])
-  const confirmDialogAction = pendingConfirmAction?.action ?? lastConfirmActionRef.current
+  const confirmDialogCopy = getUnsavedChangesConfirmCopy(pendingConfirmAction ?? lastConfirmActionRef.current)
 
   const deleteMutation = useMutation({
     mutationFn: (teardown: boolean) =>
@@ -404,13 +427,9 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
           open={pendingConfirmAction !== null}
           onConfirm={confirmPendingAction}
           onCancel={() => setPendingConfirmAction(null)}
-          title={confirmDialogAction === 'update' ? 'Update images with unsaved changes?' : 'Deploy with unsaved changes?'}
-          description={
-            confirmDialogAction === 'update'
-              ? "Your unsaved edits aren't saved yet, so this update uses the last saved compose and secrets. Save them first to include your changes."
-              : "Your unsaved edits aren't saved yet, so this deploy uses the last saved compose and secrets. Save them first to include your changes."
-          }
-          confirmLabel={confirmDialogAction === 'update' ? 'Update anyway' : 'Deploy anyway'}
+          title={confirmDialogCopy.title}
+          description={confirmDialogCopy.description}
+          confirmLabel={confirmDialogCopy.confirmLabel}
           cancelLabel="Cancel"
         />
       </div>

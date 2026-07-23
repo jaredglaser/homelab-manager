@@ -69,7 +69,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         <Button
           size="sm"
           variant="outline"
-          disabled={controlMutation.isPending || containers.length === 0}
+          disabled={controlMutation.isPending || isDeploying || containers.length === 0}
           onClick={() => trigger('start', { scope: 'stack' })}
           aria-label="Start"
         >
@@ -79,7 +79,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         <Button
           size="sm"
           variant="outline"
-          disabled={controlMutation.isPending || containers.length === 0}
+          disabled={controlMutation.isPending || isDeploying || containers.length === 0}
           onClick={() => trigger('stop', { scope: 'stack' })}
           aria-label="Stop"
         >
@@ -89,7 +89,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         <Button
           size="sm"
           variant="outline"
-          disabled={controlMutation.isPending || containers.length === 0}
+          disabled={controlMutation.isPending || isDeploying || containers.length === 0}
           onClick={() => trigger('restart', { scope: 'stack' })}
           aria-label="Restart"
         >
@@ -99,7 +99,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
         <Button
           size="sm"
           variant="outline"
-          disabled={isDeploying}
+          disabled={controlMutation.isPending || isDeploying}
           onClick={() => setRecreateConfirmOpen(true)}
           aria-label="Recreate"
         >

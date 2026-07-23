@@ -175,6 +175,45 @@ describe('DeployPipeline', () => {
       expect(agentClientFactory).not.toHaveBeenCalled();
     });
 
+    it('dispatches an unchanged git_push deploy when forceRecreate is set', async () => {
+      const previousDeploy: DeployRecord = {
+        id: 1,
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'prev',
+        composeHash: '',
+        envHash: '',
+        status: 'succeeded',
+        trigger: 'git_push',
+        action: 'deploy',
+        forceRecreate: false,
+        logs: null,
+        createdAt: new Date(),
+        postSuccess: null,
+      };
+      const { computeHash } = await import('../change-detection');
+      previousDeploy.composeHash = computeHash(testRequest.composeContent);
+      previousDeploy.envHash = computeHash(testRequest.envContent);
+
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue(previousDeploy) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const forcedGitPushRequest: DeployRequest = { ...testRequest, forceRecreate: true };
+      const result = await pipeline.execute(forcedGitPushRequest);
+
+      expect(result.status).toBe('succeeded');
+      expect(agentClientFactory).toHaveBeenCalled();
+    });
+
     it('dispatches and records succeeded with populated hashes when content is unchanged but trigger is ui', async () => {
       const previousDeploy: DeployRecord = {
         id: 1,
