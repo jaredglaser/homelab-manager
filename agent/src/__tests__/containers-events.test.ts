@@ -2,6 +2,7 @@ import { describe, expect, test, mock, beforeAll, beforeEach, afterEach, afterAl
 import { EventEmitter } from 'node:events';
 import { handleContainerEvents } from '../routes/containers-events';
 import { _resetBroadcasterForTesting } from '../lib/docker-events-broadcaster';
+import { zInventorySnapshotContainer } from '../types/protocol';
 
 const originalConsoleError = console.error;
 
@@ -489,6 +490,114 @@ describe('handleContainerEvents: error resilience', () => {
     expect(response.status).toBe(200);
     await new Promise((r) => setTimeout(r, 20));
     ac.abort();
+  });
+});
+
+describe('handleContainerEvents: ports and mounts pass-through', () => {
+  test('init event carries ports and mounts from inspect', async () => {
+    const containers = [makeContainer('c1', 'app1')];
+    const docker = makeDocker(containers, new EventEmitter(), (id) => Promise.resolve({
+      Id: id,
+      Name: '/app1',
+      State: { Status: 'running' },
+      Config: { Image: 'nginx:latest', Labels: {} },
+      NetworkSettings: { Ports: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }] } },
+      Mounts: [{ Type: 'bind', Source: '/host', Destination: '/data', RW: true }],
+    }));
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
+    const response = await handleContainerEvents(docker as any, request);
+
+    const text = await readUntil(response, (s) => s.includes('"op":"init"'));
+    ac.abort();
+
+    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const c = event.containers[0];
+    expect(c.ports).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
+    expect(c.mounts).toEqual([{ type: 'bind', source: '/host', destination: '/data', rw: true }]);
+  });
+
+  test('init event has empty ports and mounts when the container exposes none', async () => {
+    const containers = [makeContainer('c1', 'app1')];
+    const docker = makeDocker(containers);
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
+    const response = await handleContainerEvents(docker as any, request);
+
+    const text = await readUntil(response, (s) => s.includes('"op":"init"'));
+    ac.abort();
+
+    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const c = event.containers[0];
+    expect(c.ports).toEqual([]);
+    expect(c.mounts).toEqual([]);
+  });
+
+  test('upsert event carries ports and mounts from inspect', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app1')];
+    const docker = makeDocker(containers, eventsEmitter, (id) => Promise.resolve({
+      Id: id,
+      Name: '/app1',
+      State: { Status: 'running' },
+      Config: { Image: 'nginx:latest', Labels: {} },
+      NetworkSettings: { Ports: { '53/udp': [{ HostIp: '::', HostPort: '5353' }] } },
+      Mounts: [{ Type: 'volume', Source: 'vol1', Destination: '/var/data', RW: true }],
+    }));
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
+    const response = await handleContainerEvents(docker as any, request);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    eventsEmitter.emit('data', Buffer.from(JSON.stringify({
+      Type: 'container',
+      Action: 'start',
+      Actor: { ID: 'c1' },
+    }) + '\n'));
+
+    const text = await readUntil(response, (s) => {
+      const events = s.split('\n\n').filter(Boolean);
+      return events.length >= 2;
+    });
+    ac.abort();
+
+    const events = text.split('\n\n').filter(Boolean).map((line) => JSON.parse(line.replace(/^data: /, '')));
+    const upsert = events.find((e) => e.op === 'upsert');
+    expect(upsert.container.ports).toEqual([{ containerPort: 53, protocol: 'udp', hostIp: '::', hostPort: 5353 }]);
+    expect(upsert.container.mounts).toEqual([{ type: 'volume', source: 'vol1', destination: '/var/data', rw: true }]);
+  });
+});
+
+describe('zInventorySnapshotContainer: ports/mounts schema round-trip', () => {
+  const base = {
+    id: 'c1',
+    name: 'app1',
+    image: 'nginx:latest',
+    state: 'running' as const,
+    labels: {},
+    startedAt: null,
+    finishedAt: null,
+    exitCode: null,
+  };
+
+  test('defaults ports and mounts to [] when absent (version-skew with an older agent)', () => {
+    const parsed = zInventorySnapshotContainer.parse(base);
+    expect(parsed.ports).toEqual([]);
+    expect(parsed.mounts).toEqual([]);
+  });
+
+  test('passes through ports and mounts when present', () => {
+    const parsed = zInventorySnapshotContainer.parse({
+      ...base,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/host', destination: '/data', rw: true }],
+    });
+    expect(parsed.ports).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
+    expect(parsed.mounts).toEqual([{ type: 'bind', source: '/host', destination: '/data', rw: true }]);
   });
 });
 
