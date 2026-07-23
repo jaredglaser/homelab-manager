@@ -543,16 +543,21 @@ describe('notifyPayloadToInventory', () => {
     expect(result.updatedAt).toEqual(new Date('2026-04-16T11:00:00Z'));
   });
 
-  it('maps ports when present in the payload', () => {
+  it('maps a single-entry ports array to that entry', () => {
     const result = notifyPayloadToInventory(basePayload);
     expect(result.ports).toEqual(basePayload.ports);
   });
 
-  it('defaults ports to an empty array when absent from the payload', () => {
+  it('leaves ports undefined (not []) when the field is absent from the payload', () => {
     const { ports: _ports, ...withoutPorts } = basePayload;
     void _ports;
     const result = notifyPayloadToInventory(withoutPorts);
-    expect(result.ports).toEqual([]);
+    expect(result.ports).toBeUndefined();
+  });
+
+  it('leaves ports undefined (not []) when the payload carries ports: null (oversized-payload guard)', () => {
+    const result = notifyPayloadToInventory({ ...basePayload, ports: null });
+    expect(result.ports).toBeUndefined();
   });
 
   it('always returns empty mounts (NOTIFY payloads never carry mounts)', () => {

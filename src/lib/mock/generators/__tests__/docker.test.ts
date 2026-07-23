@@ -163,7 +163,7 @@ describe('generateDockerInventorySnapshot', () => {
     expect(plex.ports[0]).toEqual({ containerPort: 32400, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 32400 });
   });
 
-  it('parses successfully against the wire schema for every demo container', async () => {
+  it('parses successfully against the canonical schema for every demo container', async () => {
     const { zDockerInventorySnapshotContainer } = await import('@/types/docker-inventory');
     const containers = generateDockerInventorySnapshot(now);
     for (const c of containers) {

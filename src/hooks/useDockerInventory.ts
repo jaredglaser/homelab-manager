@@ -15,8 +15,9 @@ export interface UseDockerInventoryResult {
 
 /**
  * Upsert frames omit labels and mounts; preserve the existing entry's values, or empty for a
- * container not yet seen. Ports are carried on the upsert frame itself, falling back to the
- * previous entry's ports only for version skew against an older server build.
+ * container not yet seen. Ports are carried on the upsert frame itself, but the field is
+ * absent (not []) when the trigger dropped it for an oversized payload or an older server
+ * omitted it, so falling back to the previous entry's ports avoids clobbering real data.
  */
 export function mergeUpsert(
   prev: DockerInventorySnapshotContainer | undefined,

@@ -51,6 +51,12 @@ export function notifyPayloadToInventory(payload: Record<string, unknown>): Dock
     throw new Error(`[DockerInventoryBroadcastService] NOTIFY payload missing required field 'at': ${JSON.stringify(payload)}`);
   }
 
+  // The trigger sends 'ports', NULL when it dropped ports for the size guard; that must stay
+  // absent (not []) so the client's mergeUpsert falls back to the previously known ports.
+  const ports = Array.isArray(payload.ports)
+    ? (payload.ports as DockerInventorySnapshotContainer['ports'])
+    : undefined;
+
   return {
     host,
     containerId,
@@ -63,7 +69,7 @@ export function notifyPayloadToInventory(payload: Record<string, unknown>): Dock
     finishedAt: payload.finished_at ? new Date(payload.finished_at as string) : null,
     exitCode: (payload.exit_code as number | null) ?? null,
     labels: {},
-    ports: (payload.ports as DockerInventorySnapshotContainer['ports'] | undefined) ?? [],
+    ports: ports as DockerInventorySnapshotContainer['ports'],
     mounts: [],
     updatedAt: new Date(at),
   };

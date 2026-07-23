@@ -68,17 +68,17 @@ const zInventoryContainerBase = z.object({
   startedAt: z.date().nullable(),
   finishedAt: z.date().nullable(),
   exitCode: z.number().nullable(),
-  ports: z.array(zContainerPortWeb).default([]),
   /** Timestamp of the last state-change event. */
   updatedAt: z.date(),
 });
 
 /**
  * Snapshot shape emitted on `type: 'init'`. Populated from the DB via
- * `getCurrentSnapshot()`; labels and mounts reflect the container's real values.
+ * `getCurrentSnapshot()`; labels, ports, and mounts reflect the container's real values.
  */
 export const zDockerInventorySnapshotContainer = zInventoryContainerBase.extend({
   labels: z.record(z.string(), z.string()),
+  ports: z.array(zContainerPortWeb).default([]),
   mounts: z.array(zContainerMountWeb).default([]),
 });
 export type DockerInventorySnapshotContainer = z.infer<typeof zDockerInventorySnapshotContainer>;
@@ -87,9 +87,13 @@ export type DockerInventorySnapshotContainer = z.infer<typeof zDockerInventorySn
  * Update shape emitted on `type: 'upsert'`. Labels and mounts are intentionally absent:
  * the NOTIFY trigger in migration 026 omits them (8 kB cap on PG NOTIFY, mount paths
  * are unbounded). Consumers that need them must narrow to the snapshot shape and fetch
- * from the init / DB path.
+ * from the init / DB path. `ports` is `.optional()` (no default): the trigger also drops
+ * ports on the rare oversized-payload path, and that must stay distinguishable from a
+ * genuinely empty port list so the client falls back to the last known value.
  */
-export const zDockerInventoryUpdateContainer = zInventoryContainerBase;
+export const zDockerInventoryUpdateContainer = zInventoryContainerBase.extend({
+  ports: z.array(zContainerPortWeb).optional(),
+});
 export type DockerInventoryUpdateContainer = z.infer<typeof zDockerInventoryUpdateContainer>;
 
 /** Events fanned out from `DockerInventoryBroadcastService` to SSE subscribers. */

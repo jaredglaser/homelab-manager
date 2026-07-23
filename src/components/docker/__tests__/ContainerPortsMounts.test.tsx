@@ -8,9 +8,7 @@ import {
 } from '../ContainerPortsMounts';
 import type { ContainerPort, ContainerMount } from '@/types/docker-inventory';
 
-// Tooltip open state is Base UI's own hover/delay machinery, not this component's
-// logic; mock it to render children unconditionally so tests assert on content, not
-// on simulating pointer hover through happy-dom.
+// Mock so content renders unconditionally; simulating real hover through happy-dom to open a Base UI tooltip is unreliable.
 mock.module('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
   TooltipTrigger: ({ render: el }: { render: ReactElement }) => el,

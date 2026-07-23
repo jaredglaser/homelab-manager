@@ -26,6 +26,7 @@ BEGIN
 
   -- ports is bounded in practice but not by schema; guard against a pathological
   -- container blowing the 8 kB pg_notify cap (a failing pg_notify aborts the INSERT).
+  -- NULL (not []) keeps the fallback distinguishable from a real empty port list.
   IF octet_length(payload) > 7500 THEN
     payload := json_build_object(
       'at', NEW.at,
@@ -40,7 +41,7 @@ BEGIN
       'started_at', NEW.started_at,
       'finished_at', NEW.finished_at,
       'exit_code', NEW.exit_code,
-      'ports', '[]'::json
+      'ports', NULL
     )::text;
   END IF;
 
