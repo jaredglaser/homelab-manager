@@ -2,9 +2,6 @@ import type { AuthUser } from '@/lib/auth/types';
 
 let cachedSessionManager: import('@/lib/auth/session-manager').SessionManager | null = null;
 
-/**
- * Parses a single cookie value from a Cookie header string.
- */
 export function parseCookie(header: string | null, name: string): string | null {
   if (!header) return null;
   const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -17,15 +14,7 @@ export function parseCookie(header: string | null, name: string): string | null 
   }
 }
 
-/**
- * Resolves the current user from a request's session cookie. This is the
- * single seam for cookie-to-AuthUser resolution: cookie extraction, the
- * AUTH_DISABLED synthetic-admin short-circuit, and session validation
- * against the cached SessionManager all live here so auth fixes (PKCE,
- * id_token-only sessions, JWKS verification, aud claim) only need to land
- * once. Callers pick their own error mode (throw / null / 401 response)
- * around this return value; none of them re-implement resolution.
- */
+/** Single seam for cookie-to-AuthUser resolution; callers pick their own error mode around the result. */
 export async function resolveUserFromCookie(request: Request): Promise<AuthUser | null> {
   const { isAuthDisabled } = await import('@/lib/config/auth-config');
   if (isAuthDisabled()) {
@@ -46,9 +35,7 @@ export async function resolveUserFromCookie(request: Request): Promise<AuthUser 
   return cachedSessionManager.validateSession(sessionToken);
 }
 
-/**
- * Reset the cached session manager (for testing only).
- */
+/** Test-only reset of the cached session manager. */
 export function resetAuthResolverState(): void {
   cachedSessionManager = null;
 }

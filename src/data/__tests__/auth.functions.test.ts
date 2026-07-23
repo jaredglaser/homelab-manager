@@ -63,8 +63,7 @@ mock.module('@/lib/database/repositories/session-repository', () => ({
   },
 }));
 
-// isAuthDisabled: true drives sessionReadMiddleware through the resolver's
-// AUTH_DISABLED short-circuit without needing to reach a session manager.
+// isAuthDisabled: true drives sessionReadMiddleware through the resolver's short-circuit, skipping session-manager mocking.
 mock.module('@/lib/config/auth-config', () => ({
   isAuthDisabled: () => true,
 }));

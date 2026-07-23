@@ -13,8 +13,7 @@ const mockBuildSessionManager = mock(async () => ({ validateSession: mockValidat
 mock.module('@/lib/auth/session-manager', () => ({
   buildSessionManager: mockBuildSessionManager,
   resetSessionManagerState: () => {},
-  // Included so other test files importing this module in the same run still compile
-  // (bun applies mock.module globally across files run together).
+  // Full shape kept so mock.module leaking into other files still compiles.
   SessionManager: class MockSessionManager {
     constructor() {}
   },
@@ -30,11 +29,7 @@ function makeUser(overrides?: Partial<AuthUser>): AuthUser {
   };
 }
 
-/**
- * Create a mock Request-like object. We cannot use `new Request()` with cookie
- * headers in bun tests because Happy-DOM (test preload) registers globally and
- * strips the "cookie" header per browser forbidden-header rules.
- */
+// new Request() drops cookie headers under Happy-DOM (forbidden-header rules), so fake the shape instead.
 function makeRequest(cookieHeader?: string): Request {
   return {
     headers: {
@@ -43,9 +38,6 @@ function makeRequest(cookieHeader?: string): Request {
   } as unknown as Request;
 }
 
-// ---------------------------------------------------------------------------
-// parseCookie unit tests
-// ---------------------------------------------------------------------------
 describe('parseCookie', () => {
   it('returns the value for a matching cookie', () => {
     expect(parseCookie('session=abc123', 'session')).toBe('abc123');
@@ -73,11 +65,6 @@ describe('parseCookie', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveUserFromCookie: the single seam for cookie-to-AuthUser resolution.
-// Covers every branch adapters rely on: valid session, expired/invalid
-// session, missing cookie, and the AUTH_DISABLED synthetic-admin short-circuit.
-// ---------------------------------------------------------------------------
 describe('resolveUserFromCookie', () => {
   beforeEach(() => {
     authDisabled = false;

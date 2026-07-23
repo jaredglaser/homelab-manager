@@ -10,9 +10,6 @@ mock.module('@tanstack/start-server-core', () => ({
   getRequest: mockGetRequest,
 }));
 
-// ---------------------------------------------------------------------------
-// AuthError
-// ---------------------------------------------------------------------------
 describe('AuthError', () => {
   test('has the correct status and message', async () => {
     const { AuthError } = await import('@/middleware/auth-middleware');
@@ -29,19 +26,8 @@ describe('AuthError', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// authMiddleware: a thin adapter over resolveUserFromCookie that throws
-// AuthError on a null resolution. The resolution logic itself (cookie
-// parsing, AUTH_DISABLED, session validation) is covered by resolve-user.test.ts;
-// these tests only check the adapter's throw-on-null mapping, exercised
-// through the real resolver so no mock of '@/lib/auth/resolve-user' is
-// needed here (mock.module for that path would otherwise leak across files).
-// authMiddleware and AuthError are imported dynamically per test (not
-// statically at the top) because several other test files mock
-// '@/middleware/auth-middleware' wholesale; a static import binding here can
-// pick up that mock instead of the real module when the whole suite runs
-// together.
-// ---------------------------------------------------------------------------
+// Imported dynamically per test, not statically: other files mock '@/middleware/auth-middleware' wholesale,
+// and a static import here can bind to that mock instead of the real module.
 describe('authMiddleware', () => {
   const originalEnv = { ...process.env };
 

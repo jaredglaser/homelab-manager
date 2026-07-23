@@ -57,13 +57,8 @@ mock.module('@/middleware/auth-middleware', () => ({
   },
 }));
 
-// sessionReadMiddleware is a thin adapter over resolveUserFromCookie: it
-// passes the resolver's null/AuthUser result straight through as
-// sessionUser, never throwing. These tests exercise it through the real
-// resolver (mocking only its dependencies: getRequest and session-manager)
-// so no mock.module of '@/lib/auth/resolve-user' is needed here (that would
-// leak across files and break resolve-user.test.ts, which needs the real
-// module). The resolution logic itself is covered by resolve-user.test.ts.
+// Exercised through the real resolver (mocking only getRequest and session-manager), not a mock of
+// '@/lib/auth/resolve-user' itself, which would leak across files and break resolve-user.test.ts.
 describe('sessionReadMiddleware (auth enabled)', () => {
   const originalEnv = { ...process.env };
 

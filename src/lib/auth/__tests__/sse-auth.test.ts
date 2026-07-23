@@ -1,10 +1,6 @@
 import { describe, it, expect, afterEach } from 'bun:test';
 
-/**
- * Create a mock Request-like object. We cannot use `new Request()` with cookie
- * headers in bun tests because Happy-DOM (test preload) registers globally and
- * strips the "cookie" header per browser forbidden-header rules.
- */
+// new Request() drops cookie headers under Happy-DOM (forbidden-header rules), so fake the shape instead.
 function makeMockRequest(cookieHeader?: string): Request {
   return {
     headers: {
@@ -13,17 +9,8 @@ function makeMockRequest(cookieHeader?: string): Request {
   } as unknown as Request;
 }
 
-// authenticateSSE is a thin adapter over resolveUserFromCookie: it passes the
-// request through and returns whatever the resolver returns, unchanged. The
-// resolution logic itself (cookie parsing, AUTH_DISABLED, session validation)
-// is covered by resolve-user.test.ts; these tests only check the pass-through,
-// exercised through the real resolver so no mock of '@/lib/auth/resolve-user'
-// is needed here (mock.module for that path would otherwise leak across files).
-// The module is imported dynamically per test (not statically at the top)
-// because several other test files mock '@/lib/auth/sse-auth' wholesale
-// (create-broadcast-sse-handler.test.ts, create-stats-sse-handler.test.ts);
-// a static import binding here can pick up that mock instead of the real
-// module when the whole suite runs together.
+// Imported dynamically per test, not statically: other files mock '@/lib/auth/sse-auth' wholesale,
+// and a static import here can bind to that mock instead of the real module.
 describe('authenticateSSE', () => {
   const originalEnv = { ...process.env };
 
