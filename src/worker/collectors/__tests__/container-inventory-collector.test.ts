@@ -3,8 +3,22 @@ import { ContainerInventoryCollector } from '../container-inventory-collector';
 import type { DockerContainerEventRepository, NewContainerEvent } from '@/lib/database/repositories/docker-container-event-repository';
 import type { ManagedHostInfo } from '../container-inventory-collector';
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
+import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
 
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+/**
+ * Stream connector whose generator never completes on its own; it only ends
+ * when the caller's abort signal fires, mirroring how the real connector's
+ * `reader.read()` rejects once the underlying fetch is cancelled.
+ */
+function neverEndingStream(frames: unknown[]): StreamConnector {
+  return async function* (options: { signal: AbortSignal }) {
+    for (const frame of frames) yield frame;
+    await new Promise<void>((resolve) => {
+      if (options.signal.aborted) { resolve(); return; }
+      options.signal.addEventListener('abort', () => resolve(), { once: true });
+    });
+  } as unknown as StreamConnector;
+}
 
 const HOST: ManagedHostInfo = { name: 'homeserver', agentUrl: 'http://192.168.1.10:9090' };
 
@@ -56,38 +70,6 @@ function createMockRepo(snapshotRows: DockerContainerEventRow[] = []) {
   return { repo, inserted };
 }
 
-function createMockSSEStream(events: unknown[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const event of events) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      }
-      controller.close();
-    },
-  });
-}
-
-function createNeverEndingStream(events: unknown[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const event of events) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      }
-      // Never close; collector runs until aborted
-    },
-  });
-}
-
-function createErrorStream(error: Error): ReadableStream<Uint8Array> {
-  return new ReadableStream({
-    start(controller) {
-      controller.error(error);
-    },
-  });
-}
-
 /** Spy that makes setTimeout fire its callback immediately. */
 function spyImmediateTimeout() {
   return spyOn(globalThis, 'setTimeout').mockImplementation(
@@ -115,11 +97,9 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
   it('upsert with new state writes one row', async () => {
     const { repo, inserted } = createMockRepo();
     const upsertEvent = { op: 'upsert', container: makeContainer({ state: 'running' }) };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([upsertEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([upsertEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
@@ -131,11 +111,9 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
     const upsertEvent = { op: 'upsert', container: makeContainer({ state: 'running' }) };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([upsertEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([upsertEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -146,11 +124,9 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
     const upsertEvent = { op: 'upsert', container: makeContainer({ state: 'exited', exitCode: 0, finishedAt: '2026-04-16T10:01:00Z' }) };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([upsertEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([upsertEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -163,11 +139,9 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
     const destroyEvent = { op: 'destroy', containerId: 'abc123' };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([destroyEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([destroyEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -181,11 +155,9 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
   it('destroy event with no prior cache still writes one destroy row', async () => {
     const { repo, inserted } = createMockRepo();
     const destroyEvent = { op: 'destroy', containerId: 'abc123' };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([destroyEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([destroyEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
@@ -326,11 +298,9 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
     const initEvent = { op: 'init', containers: [makeContainer({ state: 'exited' })] };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([initEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([initEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -343,11 +313,9 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
     const initEvent = { op: 'init', containers: [] };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([initEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([initEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -360,11 +328,9 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
     const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert' })];
     const { repo, inserted } = createMockRepo(snapshot);
     const initEvent = { op: 'init', containers: [makeContainer({ state: 'running' })] };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([initEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([initEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -375,11 +341,9 @@ describe('ContainerInventoryCollector: init reconciliation', () => {
     const snapshot = [makeRow({ containerId: 'abc123', eventType: 'destroy' })];
     const { repo, inserted } = createMockRepo(snapshot);
     const initEvent = { op: 'init', containers: [] };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([initEvent]), { status: 200 })
-    );
+    const streamConnector = fixedStream([initEvent]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).hydrateCache();
     await (collector as any).collect();
 
@@ -418,16 +382,18 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
     const setTimeoutSpy = spyImmediateTimeout();
 
     const { repo } = createMockRepo();
-    const fetchFn: FetchFn = mock(async () => {
+    const streamConnector: StreamConnector = async () => {
       callCount++;
       if (callCount === 1) {
-        return new Response(createErrorStream(new Error('Connection reset')), { status: 200 });
+        return (async function* () {
+          throw new Error('Connection reset');
+        })();
       }
       abortController.abort();
-      return new Response(createMockSSEStream([]), { status: 200 });
-    });
+      return (async function* () {})();
+    };
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await collector.run();
 
     expect(callCount).toBeGreaterThanOrEqual(2);
@@ -436,31 +402,32 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
 
   it('stops cleanly when abort signal fires', async () => {
     const { repo } = createMockRepo();
-    const fetchFn: FetchFn = mock(async () => {
+    const streamConnector: StreamConnector = async () => {
       abortController.abort();
-      return new Response(createNeverEndingStream([]), { status: 200 });
-    });
+      return neverEndingStream([])({ agentUrl: '', path: '', signer: async () => '', signal: abortController.signal });
+    };
+    const connectSpy = mock(streamConnector);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, connectSpy as unknown as StreamConnector);
     await collector.run();
 
-    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(connectSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('throws on non-200 response and triggers reconnect', async () => {
+  it('throws on a connect failure and triggers reconnect', async () => {
     let callCount = 0;
     const setTimeoutSpy = spyImmediateTimeout();
     const { repo } = createMockRepo();
-    const fetchFn: FetchFn = mock(async () => {
+    const streamConnector: StreamConnector = async () => {
       callCount++;
       if (callCount <= 2) {
-        return new Response('Not Found', { status: 404 });
+        throw new Error('Agent homeserver returned 404');
       }
       abortController.abort();
-      return new Response(createMockSSEStream([]), { status: 200 });
-    });
+      return (async function* () {})();
+    };
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await collector.run();
 
     expect(callCount).toBeGreaterThanOrEqual(3);
@@ -471,12 +438,12 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
     const controller = new AbortController();
     controller.abort();
     const { repo } = createMockRepo();
-    const fetchFn: FetchFn = mock(async () => new Response(createMockSSEStream([]), { status: 200 }));
+    const streamConnector = mock(fixedStream([]));
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, controller, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, controller, streamConnector as unknown as StreamConnector);
     await collector.run();
 
-    expect(fetchFn).not.toHaveBeenCalled();
+    expect(streamConnector).not.toHaveBeenCalled();
   });
 
   it('asyncDispose aborts the collector', async () => {
@@ -489,37 +456,35 @@ describe('ContainerInventoryCollector: reconnection and abort', () => {
     expect(collector.signal.aborted).toBe(true);
   });
 
-  it('sends Authorization Bearer header', async () => {
+  it('connects with the configured agent URL, path, and signer', async () => {
     const { repo } = createMockRepo();
-    const fetchFn: FetchFn = mock(async () => {
+    const streamConnector: StreamConnector = async () => {
       abortController.abort();
-      return new Response(createMockSSEStream([]), { status: 200 });
-    });
+      return (async function* () {})();
+    };
+    const connectSpy = mock(streamConnector);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'secret-token', repo, abortController, fetchFn);
-    await (collector as any).collect().catch(() => {});
+    const collector = new ContainerInventoryCollector(
+      HOST, async () => 'secret-token', repo, abortController, connectSpy as unknown as StreamConnector,
+    );
+    await (collector as any).collect();
 
-    const mockFn = fetchFn as unknown as { mock: { calls: unknown[][] } };
-    const callArgs = mockFn.mock.calls[0] as [string, RequestInit];
-    expect(callArgs[0]).toBe('http://192.168.1.10:9090/containers/events');
-    expect((callArgs[1].headers as Record<string, string>)['Authorization']).toBe('Bearer secret-token');
+    const callArgs = connectSpy.mock.calls[0][0] as { agentUrl: string; path: string; signer: () => Promise<string> };
+    expect(callArgs.agentUrl).toBe('http://192.168.1.10:9090');
+    expect(callArgs.path).toBe('/containers/events');
+    expect(await callArgs.signer()).toBe('secret-token');
   });
 
-  it('skips malformed JSON in SSE events', async () => {
+  it('drops SSE frames failing schema validation and continues', async () => {
     const setTimeoutSpy = spyImmediateTimeout();
 
     const { repo, inserted } = createMockRepo();
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode(`data: {not valid json}\n\n`));
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ op: 'upsert', container: makeContainer() })}\n\n`));
-        controller.close();
-      },
-    });
-    const fetchFn: FetchFn = mock(async () => new Response(stream, { status: 200 }));
+    const streamConnector = fixedStream([
+      { not: 'a valid event' },
+      { op: 'upsert', container: makeContainer() },
+    ]);
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await (collector as any).collect();
 
     expect(inserted).toHaveLength(1);
@@ -564,31 +529,27 @@ describe('ContainerInventoryCollector: reconcileInit clears pending writes (Fix 
     const { repo, inserted } = createMockRepo(snapshot);
 
     let callCount = 0;
-    const fetchFn: FetchFn = mock(async () => {
+    const streamConnector: StreamConnector = async () => {
       callCount++;
       if (callCount === 1) {
-        const encoder = new TextEncoder();
         const upsertEvent = {
           op: 'upsert',
           container: makeContainer({ state: 'exited', exitCode: 0, finishedAt: '2026-04-16T10:01:00Z' }),
         };
-        const stream = new ReadableStream<Uint8Array>({
-          async start(controller) {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(upsertEvent)}\n\n`));
-            // Let the collector process the event and schedule the flap-window
-            // write before we error the stream.
-            await Promise.resolve();
-            await Promise.resolve();
-            controller.error(new Error('stream broke'));
-          },
-        });
-        return new Response(stream, { status: 200 });
+        return (async function* () {
+          yield upsertEvent;
+          // Let the collector process the event and schedule the flap-window
+          // write before we error the stream.
+          await Promise.resolve();
+          await Promise.resolve();
+          throw new Error('stream broke');
+        })();
       }
       abortController.abort();
-      return new Response(createMockSSEStream([]), { status: 200 });
-    });
+      return (async function* () {})();
+    };
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await collector.run();
 
     const flapTimers = capturedTimers.filter((t) => t.delay === 250);
@@ -653,6 +614,7 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
   it('DB insert rejection logs reconnect-intent message, aborts the current cycle controller, and purges pending writes', async () => {
     const capturedTimers: Array<{ fn: TimerHandler; id: number; delay: number }> = [];
     let idCounter = 0;
+    const cleared: number[] = [];
     const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
       ((fn: TimerHandler, delay?: number) => {
         const id = ++idCounter;
@@ -661,6 +623,7 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
       }) as unknown as typeof setTimeout,
     );
     const clearTimeoutSpy = spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
+      cleared.push(Number(id));
       const idx = capturedTimers.findIndex((t) => t.id === id);
       if (idx !== -1) capturedTimers.splice(idx, 1);
     });
@@ -704,6 +667,7 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
     const cache: Map<string, { state: string | null }> = (collector as any).stateCache;
     expect(cache.get('abc123')?.state).toBe('running');
 
+    void cleared;
     setTimeoutSpy.mockRestore();
     clearTimeoutSpy.mockRestore();
     errorSpy.mockRestore();
@@ -736,21 +700,19 @@ describe('ContainerInventoryCollector: DB-write failure triggers reconnect', () 
     } as unknown as DockerContainerEventRepository;
 
     let fetchCallCount = 0;
-    const fetchFn: FetchFn = mock(async () => {
+    const streamConnector: StreamConnector = async () => {
       fetchCallCount++;
       if (fetchCallCount === 1) {
-        return new Response(
-          createMockSSEStream([{ op: 'upsert', container: makeContainer({ state: 'exited', exitCode: 0 }) }]),
-          { status: 200 },
+        return fixedStream([{ op: 'upsert', container: makeContainer({ state: 'exited', exitCode: 0 }) }])(
+          { agentUrl: '', path: '', signer: async () => '', signal: abortController.signal },
         );
       }
-      return new Response(
-        createMockSSEStream([{ op: 'init', containers: [makeContainer({ state: 'exited', exitCode: 0 })] }]),
-        { status: 200 },
+      return fixedStream([{ op: 'init', containers: [makeContainer({ state: 'exited', exitCode: 0 })] }])(
+        { agentUrl: '', path: '', signer: async () => '', signal: abortController.signal },
       );
-    });
+    };
 
-    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, fetchFn);
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
     await collector.run();
 
     expect(fetchCallCount).toBeGreaterThanOrEqual(2);
