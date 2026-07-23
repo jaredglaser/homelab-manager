@@ -1,4 +1,5 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
+import { proxmoxConnectionManager } from '@/lib/clients/proxmox-client';
 import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import { abortableSleep } from '@/lib/utils/abortable-sleep';
@@ -7,19 +8,16 @@ import { BaseCollector } from './base-collector';
 
 const DEFAULT_POLL_INTERVAL_MS = 10_000;
 
-/**
- * Background collector for Proxmox cluster stats.
- *
- * Polls the Proxmox REST API at a configurable interval, converts the
- * cluster snapshot to flat rows, and inserts them into the proxmox_stats
- * hypertable. The poll interval can be changed at runtime via the
- * `pollInterval` setter (driven by SettingsListener).
- */
+/** Resolves a ProxmoxClient for a host config; narrowed so tests can inject a fake without spying on the singleton. */
+type ProxmoxClientProvider = Pick<typeof proxmoxConnectionManager, 'getClient'>;
+
+/** Polls the Proxmox REST API and inserts cluster snapshot rows into proxmox_stats; pollInterval is settable at runtime. */
 export class ProxmoxCollector extends BaseCollector {
   readonly name: string;
   private _pollIntervalMs: number;
   private _sleepAbortController: AbortController | null = null;
   private readonly proxmoxConfig: ProxmoxConfig;
+  private readonly clientProvider: ProxmoxClientProvider;
 
   constructor(
     db: DatabaseClient,
@@ -27,11 +25,13 @@ export class ProxmoxCollector extends BaseCollector {
     proxmoxConfig: ProxmoxConfig,
     initialPollIntervalMs: number,
     abortController?: AbortController,
+    clientProvider: ProxmoxClientProvider = proxmoxConnectionManager,
   ) {
     super(db, config, abortController);
     this.proxmoxConfig = proxmoxConfig;
     this._pollIntervalMs = initialPollIntervalMs || DEFAULT_POLL_INTERVAL_MS;
     this.name = `ProxmoxCollector[${proxmoxConfig.host}]`;
+    this.clientProvider = clientProvider;
   }
 
   set pollInterval(ms: number) {
@@ -40,8 +40,7 @@ export class ProxmoxCollector extends BaseCollector {
   }
 
   protected async collect(): Promise<void> {
-    const { proxmoxConnectionManager } = await import('@/lib/clients/proxmox-client');
-    const client = proxmoxConnectionManager.getClient(this.proxmoxConfig);
+    const client = this.clientProvider.getClient(this.proxmoxConfig);
 
     this.resetBackoff();
 

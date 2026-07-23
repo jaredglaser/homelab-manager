@@ -11,8 +11,6 @@ export interface DockerContainer {
   ioWait: number; // percentage
 }
 
-export type { ContainerStatsWithRates } from '../lib/rate-calculator';
-
 /** Wide row from docker_stats hypertable */
 export interface DockerStatsRow {
   time: string | Date;
@@ -30,10 +28,7 @@ export interface DockerStatsRow {
   block_io_write_bytes_per_sec: number | null;
 }
 
-/**
- * Docker stats reconstructed from wide table rows.
- * Contains only the fields the frontend needs.
- */
+/** Docker stats reconstructed from wide table rows; only the fields the frontend needs */
 export interface DockerStatsFromDB {
   id: string;
   /** Entity path used for icon storage: host/service_key (e.g. "myhost/media-stack/plex") */
@@ -57,10 +52,7 @@ export interface DockerStatsFromDB {
   };
 }
 
-/**
- * Common interface for container stats that works with both
- * direct streaming (ContainerStatsWithRates) and database-backed streaming (DockerStatsFromDB)
- */
+/** Common interface for container stats display, shared by DockerStatsFromDB and any other rate-bearing source */
 export interface ContainerStatsDisplay {
   id: string;
   name: string;
@@ -73,10 +65,6 @@ export interface ContainerStatsDisplay {
     blockIoWriteBytesPerSec: number;
   };
 }
-
-/**
- * Hierarchical data structures for multi-host Docker dashboard
- */
 
 /** Aggregated stats for a Docker host (calculated from containers) */
 export interface HostAggregatedStats {

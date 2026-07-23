@@ -1,6 +1,3 @@
-import type { Pool } from 'pg';
-import type { DatabaseClient } from '@/lib/clients/database-client';
-import type { WorkerConfig } from '@/lib/config/worker-config';
 import type {
   AgentContainerEvent,
   ContainerState,
@@ -28,28 +25,13 @@ interface CachedContainerState {
   eventType: 'upsert' | 'destroy';
 }
 
-/**
- * BaseCollector eagerly instantiates StatsRepository from `db.getPool()`. The
- * inventory collector persists via its own DockerContainerEventRepository
- * instead and never touches the base repository, so we hand super() a stub
- * whose pool is never dereferenced. Keeps the (host, signer, repo, ...)
- * constructor shape that callers + tests depend on.
- */
-const STUB_DB = { getPool: () => ({} as Pool) } as DatabaseClient;
-const STUB_CONFIG = {} as WorkerConfig;
-
 export class ContainerInventoryCollector extends BaseCollector {
   readonly name: string;
   /** Widen base `signal` visibility so callers can observe lifecycle abort state. */
   override readonly signal: AbortSignal;
-  /**
-   * Per-cycle controller for the in-flight SSE fetch. Distinct from BaseCollector's
-   * lifecycle `signal` so a DB-write failure can abort just the current cycle.
-   * run()'s catch path then drives reconnect via the base backoff.
-   */
+  /** Per-cycle controller for the in-flight SSE fetch, distinct from BaseCollector's lifecycle signal so a DB-write failure can abort just the current cycle. */
   private collectAbort: AbortController | null = null;
-  /** 250 ms coalesce window per container to collapse flapping state transitions. */
-  // 250ms = typical restart-loop settle window; coalesces A→B→A flap into zero writes
+  /** Coalesce window per container; collapses a restart-loop's A→B→A flap into zero writes. */
   private static readonly FLAP_WINDOW_MS = 250;
   private readonly host: ManagedHostInfo;
   private readonly signer: () => Promise<string>;
@@ -58,11 +40,7 @@ export class ContainerInventoryCollector extends BaseCollector {
 
   /** In-memory cache of last-written (state, eventType) per containerId on this host. */
   private readonly stateCache = new Map<string, CachedContainerState>();
-  /**
-   * Pending write timers keyed by containerId. Each value is the latest container
-   * snapshot. Accepts either event shape: `InventorySnapshotContainer` (from init)
-   * carries labels; `InventoryUpdateContainer` (from upsert) does not.
-   */
+  /** Pending write timers keyed by containerId, holding the latest snapshot per container. */
   private readonly pendingWrites = new Map<string, { container: InventorySnapshotContainer | InventoryUpdateContainer | null; eventType: 'upsert' | 'destroy'; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(
@@ -72,7 +50,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     parentAbortController?: AbortController,
     streamConnector?: StreamConnector,
   ) {
-    super(STUB_DB, STUB_CONFIG, parentAbortController);
+    super(undefined, undefined, parentAbortController);
     this.signal = this.abortController.signal;
     this.host = host;
     this.signer = signer;
@@ -132,14 +110,12 @@ export class ContainerInventoryCollector extends BaseCollector {
         await this.handleEvent(parsed.data);
       }
 
-      // If the cycle was aborted by triggerReconnect() (not the lifecycle), throw
-      // so run()'s catch path drives reconnect via BaseCollector's backoff.
+      // Aborted by triggerReconnect(), not the lifecycle: throw so run() drives reconnect.
       if (cycleAbort.signal.aborted && !this.signal.aborted) {
         throw new Error(`[ContainerInventoryCollector] ${this.host.name} cycle aborted to force reconnect`);
       }
     } catch (err) {
-      // Cancel pending flap-window timers so they don't fire after reconnect with
-      // stale pre-error state. reconcileInit will re-derive diffs from the new snapshot.
+      // Drop pending flap-window timers so stale pre-error state doesn't fire after reconnect.
       for (const { timer } of this.pendingWrites.values()) {
         clearTimeout(timer);
       }
@@ -151,13 +127,9 @@ export class ContainerInventoryCollector extends BaseCollector {
     }
   }
 
-  /**
-   * Force the current collect cycle to tear down and reconnect. Used when a DB write
-   * fails from a flap-window timer so reconcileInit can re-sync state from the agent.
-   */
+  /** Tears down the current cycle and reconnects; reconcileInit re-syncs state from the agent. */
   private triggerReconnect(reason: string): void {
-    // Drop pending flap-window timers; reconcileInit will reassess state from the
-    // post-reconnect snapshot, so racing more stale writes is pointless.
+    // Drop pending flap-window timers; racing more stale writes ahead of the resync is pointless.
     for (const { timer } of this.pendingWrites.values()) {
       clearTimeout(timer);
     }
@@ -171,19 +143,14 @@ export class ContainerInventoryCollector extends BaseCollector {
       // Narrowed to InventorySnapshotContainer[]; labels are authoritative here.
       await this.reconcileInit(event.containers);
     } else if (event.op === 'upsert') {
-      // Narrowed to InventoryUpdateContainer; labels intentionally absent. The
-      // writer fills an empty map. reconcileInit() re-supplies labels on reconnect.
+      // Labels intentionally absent here; reconcileInit() re-supplies them on reconnect.
       this.scheduleWrite(event.container, 'upsert');
     } else if (event.op === 'destroy') {
       this.scheduleDestroyWrite(event.containerId);
     }
   }
 
-  /**
-   * On agent reconnect, compare the fresh snapshot against the in-memory cache.
-   * Write upserts for containers whose state changed and destroys for containers
-   * that disappeared while offline.
-   */
+  /** On reconnect, diff the fresh snapshot against the cache: upsert changed containers, destroy vanished ones. */
   private async reconcileInit(containers: InventorySnapshotContainer[]): Promise<void> {
     // Cancel pending flap-window timers; they captured stale pre-reconnect state.
     for (const { timer } of this.pendingWrites.values()) {
@@ -207,11 +174,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     }
   }
 
-  /**
-   * Schedule a write with a 250 ms coalesce window.
-   * If the same container receives another event within the window, only the final
-   * state is written. If the final state matches the last-written state, nothing is written.
-   */
+  /** Schedules a write behind FLAP_WINDOW_MS; only the final state within the window is written, and only if it changed. */
   private scheduleWrite(
     container: InventorySnapshotContainer | InventoryUpdateContainer,
     eventType: 'upsert',
@@ -259,9 +222,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     container: InventorySnapshotContainer | InventoryUpdateContainer,
     eventType: 'upsert',
   ): Promise<void> {
-    // Snapshot containers carry labels; update containers (streaming upserts) do not.
-    // When labels are absent, serviceKey falls back to container name; the next
-    // reconcileInit will re-derive the full key from the snapshot labels.
+    // Streaming upserts carry no labels; serviceKey falls back to name until the next reconcileInit.
     const labels = 'labels' in container ? container.labels : {};
     const serviceKey = computeServiceKey(labels, container.name);
     try {
