@@ -10,7 +10,8 @@ import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
-import yaml from 'js-yaml';
+import { MANIFEST, composePath, serializeManifest } from '@/lib/stacks/stack-repo-layout';
+import { createStackRepoWriter } from '@/lib/deploy/stack-repo-writer';
 import {
   manifestEntryToSummary,
   manifestEntryToDetail,
@@ -27,8 +28,6 @@ export const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 export { resolveDeleteStack } from '@/lib/stacks/delete-stack-resolver';
 export type { DeleteStackDeps, DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
 
-const COMPOSE_FILENAME = 'docker-compose.yml';
-const MANIFEST_FILENAME = 'manifest.yaml';
 const SYSTEM_AUTHOR = { name: 'homelab-manager', email: 'homelab-manager@localhost' };
 
 function getRepoPath(): string {
@@ -41,7 +40,7 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
 
   let manifestContent: string;
   try {
-    manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+    manifestContent = await readFileFromRepo(repoPath, MANIFEST);
   } catch {
     return [];
   }
@@ -88,14 +87,14 @@ export async function getStackDetailByName(
 ): Promise<StackDetail | null> {
   try {
     const repoPath = getRepoPath();
-    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+    const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
     const manifest = parseManifest(manifestContent);
     const entry = manifest.stacks[stackName];
     if (!entry) return null;
 
     let composeContent = '';
     try {
-      composeContent = await readFileFromRepo(repoPath, `${stackName}/${COMPOSE_FILENAME}`);
+      composeContent = await readFileFromRepo(repoPath, composePath(stackName));
     } catch (err) {
       if (!(err instanceof FileNotFoundError)) {
         console.error(`[StackService] Unexpected error reading compose file for "${stackName}":`, err);
@@ -134,7 +133,7 @@ export async function triggerStackDeploy(params: {
     const rollbackSha = params.commitSha;
     return handleTriggerDeploy({
       readCompose: (stack) =>
-        readFileFromRepo(repoPath, `${stack}/${COMPOSE_FILENAME}`, rollbackSha),
+        readFileFromRepo(repoPath, composePath(stack), rollbackSha),
       getCommitSha: () => Promise.resolve(rollbackSha),
       buildRequest: (input) =>
         builder.buildRollback({
@@ -148,7 +147,7 @@ export async function triggerStackDeploy(params: {
   }
 
   return handleTriggerDeploy({
-    readCompose: (stack) => readFileFromRepo(repoPath, `${stack}/${COMPOSE_FILENAME}`),
+    readCompose: (stack) => readFileFromRepo(repoPath, composePath(stack)),
     getCommitSha: () => git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' }),
     buildRequest: (input) => {
       const req = builder.build(input);
@@ -252,7 +251,7 @@ async function buildRequestFromDeployRecord(
     try {
       composeContent = await readFileFromRepo(
         repoPath,
-        `${deploy.stack}/${COMPOSE_FILENAME}`,
+        composePath(deploy.stack),
         deploy.commitSha,
       );
     } catch (err) {
@@ -278,7 +277,7 @@ export async function getStackDeployHistory(
   const repoPath = getRepoPath();
   if (!repoPath) return [];
 
-  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
   const manifest = parseManifest(manifestContent);
   const entry = manifest.stacks[stackName];
   if (!entry) return [];
@@ -302,10 +301,10 @@ export async function saveStackComposeFile(
   const repoPath = getRepoPath();
 
   return saveAndCommitFile(repoPath, {
-    filePath: `${stackName}/${COMPOSE_FILENAME}`,
+    filePath: composePath(stackName),
     content,
     author: SYSTEM_AUTHOR,
-    message: `Update ${stackName}/${COMPOSE_FILENAME}`,
+    message: `Update ${composePath(stackName)}`,
   });
 }
 
@@ -332,7 +331,7 @@ export async function createStackInRepo(
   if (!managedHost) throw new Error(`Host "${host}" not found in managed_hosts`);
 
   const commitSha = await commitFiles(repoPath, (existingFiles) => {
-    const manifestContent = existingFiles.get(MANIFEST_FILENAME);
+    const manifestContent = existingFiles.get(MANIFEST);
     const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
 
     if (manifest.stacks[stackName]) {
@@ -340,17 +339,11 @@ export async function createStackInRepo(
     }
 
     manifest.stacks[stackName] = { host, autoDeploy };
-    const newManifestContent = yaml.dump(manifest, {
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true,
-      sortKeys: true,
-    });
 
     return {
       files: [
-        { path: `${stackName}/${COMPOSE_FILENAME}`, content: '' },
-        { path: MANIFEST_FILENAME, content: newManifestContent },
+        { path: composePath(stackName), content: '' },
+        { path: MANIFEST, content: serializeManifest(manifest) },
       ],
       message: `Add stack: ${stackName} on ${host}`,
       author: SYSTEM_AUTHOR,
@@ -366,7 +359,7 @@ export async function deleteStackFromRepo(
 ): Promise<DeleteStackResult> {
   const repoPath = getRepoPath();
 
-  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
   const manifest = parseManifest(manifestContent);
   const entry = manifest.stacks[stackName];
   if (!entry) throw new Error(`Stack "${stackName}" not found in manifest`);
@@ -390,45 +383,10 @@ export async function deleteStackFromRepo(
 
   return resolveDeleteStack(stackName, host, teardown, {
     triggerDeploy: (params) => triggerStackDeploy(params),
-    commitRemoveFromManifest: (sn) => commitRemoveStackFromManifest(repoPath, sn),
+    // Same implementation the async teardown path uses (stack-repo-writer.ts):
+    // one remove-stack-from-manifest sequence for both delete paths.
+    commitRemoveFromManifest: (sn) => createStackRepoWriter().removeStackFromManifest(sn),
   });
-}
-
-async function commitRemoveStackFromManifest(
-  repoPath: string,
-  stackName: string,
-): Promise<{ commitSha: string }> {
-  const commitSha = await commitFiles(repoPath, (existingFiles) => {
-    const freshManifestContent = existingFiles.get(MANIFEST_FILENAME);
-    if (freshManifestContent === undefined) {
-      throw new Error(`Stack "${stackName}" not found in manifest`);
-    }
-    const manifest = parseManifest(freshManifestContent);
-
-    if (!manifest.stacks[stackName]) {
-      throw new Error(`Stack "${stackName}" not found in manifest`);
-    }
-
-    delete manifest.stacks[stackName];
-    const newManifestContent = yaml.dump(manifest, {
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true,
-      sortKeys: true,
-    });
-
-    const stackDirPrefix = `${stackName}/`;
-    const stackFiles = Array.from(existingFiles.keys()).filter((p) => p.startsWith(stackDirPrefix));
-
-    return {
-      files: [{ path: MANIFEST_FILENAME, content: newManifestContent }],
-      filesToDelete: stackFiles,
-      message: `Remove stack: ${stackName}`,
-      author: SYSTEM_AUTHOR,
-    };
-  });
-
-  return { commitSha };
 }
 
 export async function getManagedHostNames(): Promise<string[]> {
@@ -450,7 +408,7 @@ export async function updateStackIconSlug(
   const repoPath = getRepoPath();
   if (!repoPath) return;
 
-  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
   const manifest = parseManifest(manifestContent);
   const entry = manifest.stacks[stackName];
   if (!entry) return;

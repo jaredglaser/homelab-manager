@@ -14,7 +14,9 @@ export type StackEntry = z.infer<typeof StackEntrySchema>;
 export type StackManifest = z.infer<typeof ManifestSchema>;
 
 /**
- * Parse and validate a manifest.yaml string.
+ * Parse and validate a raw stack manifest YAML string. The manifest's filename
+ * and serialization are owned by stack-repo-layout.ts; this module only knows
+ * the schema.
  *
  * @param content - Raw YAML string
  * @returns Validated StackManifest

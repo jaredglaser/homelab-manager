@@ -1,6 +1,7 @@
 import { buildDeployRequests } from '@/lib/git/post-receive';
 import { readFileFromRepo } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
+import { MANIFEST } from '@/lib/stacks/stack-repo-layout';
 import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 
@@ -9,9 +10,9 @@ import type { DeployRepository } from '@/lib/database/repositories/deploy-reposi
  * Diffs the old and new HEAD, builds deploy requests, and dispatches them
  * to the deploy pipeline.
  *
- * @throws {Error} If manifest.yaml is missing from the repo
- * @throws {YAMLException} If manifest.yaml has invalid YAML syntax
- * @throws {ZodError} If manifest.yaml structure doesn't match schema
+ * @throws {Error} If the manifest is missing from the repo
+ * @throws {YAMLException} If the manifest has invalid YAML syntax
+ * @throws {ZodError} If the manifest structure doesn't match schema
  */
 export async function processPostReceive(
   repoPath: string,
@@ -26,7 +27,7 @@ export async function processPostReceive(
   }
 
   // Read the manifest at newHead to get the authoritative stack config
-  const manifestContent = await readFileFromRepo(repoPath, 'manifest.yaml', newHead);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST, newHead);
   const manifest = parseManifest(manifestContent);
 
   // Build a map of stackName -> composeContent for changed stacks.

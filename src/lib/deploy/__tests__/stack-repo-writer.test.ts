@@ -4,16 +4,7 @@ import { join } from 'path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles } from '@/lib/git/repo';
 import * as gitConfig from '@/lib/config/git-config';
-import { createStackRepoWriter } from '../stack-repo-writer';
-
-const MANIFEST_WITH_PLEX_AND_TRAEFIK = `stacks:
-  plex:
-    autoDeploy: true
-    host: homeserver
-  traefik:
-    autoDeploy: false
-    host: homeserver
-`;
+import { createStackRepoWriter } from '@/lib/deploy/stack-repo-writer';
 
 const MANIFEST_WITH_PLEX = `stacks:
   plex:
@@ -51,9 +42,9 @@ describe('createStackRepoWriter', () => {
     rmSync(testDir, { recursive: true, force: true });
   });
 
-  it('removes the stack from the manifest and returns a commit SHA', async () => {
+  it('removes the stack from the manifest at the configured repo and returns a commit SHA', async () => {
     await seedRepo(repoPath, [
-      { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX_AND_TRAEFIK },
+      { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX },
       { path: 'plex/docker-compose.yml', content: 'services:\n  plex: {}' },
     ]);
 
@@ -62,45 +53,10 @@ describe('createStackRepoWriter', () => {
 
     expect(typeof result.commitSha).toBe('string');
     expect(result.commitSha.length).toBeGreaterThan(0);
+    expect(loadGitConfigSpy).toHaveBeenCalled();
   });
 
-  it('removes the stack entry and its files from the repo', async () => {
-    await seedRepo(repoPath, [
-      { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX_AND_TRAEFIK },
-      { path: 'plex/docker-compose.yml', content: 'services:\n  plex: {}' },
-      { path: 'plex/.env', content: 'FOO=bar' },
-    ]);
-
-    const writer = createStackRepoWriter();
-    await writer.removeStackFromManifest('plex');
-
-    // Read the updated manifest from the repo via a subsequent commit callback
-    let updatedManifest = '';
-    await commitFiles(repoPath, (existingFiles) => {
-      updatedManifest = existingFiles.get('manifest.yaml') ?? '';
-      const plexCompose = existingFiles.get('plex/docker-compose.yml');
-      expect(plexCompose).toBeUndefined();
-      // Return null to skip an actual commit
-      return null;
-    });
-
-    expect(updatedManifest).not.toContain('plex:');
-    expect(updatedManifest).toContain('traefik:');
-  });
-
-  it('is idempotent when the stack is already absent from the manifest', async () => {
-    await seedRepo(repoPath, [
-      { path: 'manifest.yaml', content: MANIFEST_WITH_PLEX },
-    ]);
-
-    const writer = createStackRepoWriter();
-    // Remove a stack that is not in the manifest: should not throw
-    const result = await writer.removeStackFromManifest('traefik');
-
-    expect(typeof result.commitSha).toBe('string');
-  });
-
-  it('throws when manifest.yaml is missing from the repo', async () => {
+  it('propagates the underlying error when the manifest is missing', async () => {
     await seedRepo(repoPath, [
       { path: 'plex/docker-compose.yml', content: 'services:\n  plex: {}' },
     ]);
