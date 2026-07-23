@@ -1,11 +1,8 @@
 /**
  * Polls `predicate` until it returns true, throwing if `timeoutMs` elapses first.
  *
- * Used in place of a fixed `setTimeout` sleep to await async side effects
- * (NOTIFY fan-out, reconnect retries, listener registration) deterministically:
- * the wait ends the instant the condition is actually met instead of hoping a
- * magic-number delay happened to be long enough, which is both slower than
- * necessary when the condition settles fast and flaky when it doesn't.
+ * For plain async services (NOTIFY fan-out, reconnect retries, listener
+ * registration) where no promise or callback exposes the awaited state.
  */
 export async function waitForCondition(
   predicate: () => boolean,

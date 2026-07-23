@@ -30,11 +30,7 @@ function createMockDb() {
   };
 }
 
-/**
- * Resolves the instant the collector's pendingRows buffer receives its first
- * row. Used in place of a fixed sleep to know exactly when a queued event is
- * safe to act on (manually flush, abort mid-stream, etc).
- */
+/** Resolves when the collector's pendingRows buffer receives its first row. */
 function watchFirstPush(collector: AgentStatsCollector): Promise<void> {
   let mark = () => {};
   const queued = new Promise<void>(resolve => { mark = resolve; });
@@ -298,14 +294,11 @@ describe('AgentStatsCollector', () => {
     );
     mockDb.patchRepository(collector);
 
-    // Resolves the instant the first row lands in the collector's pending
-    // buffer, so the test can drive the flush deterministically instead of
-    // sleeping past the real 150ms FLUSH_INTERVAL_MS timer.
+    // Wait for the first row instead of sleeping past the real 150ms FLUSH_INTERVAL_MS.
     const firstRowQueued = watchFirstPush(collector);
 
     const collectPromise = (collector as any).collect();
 
-    // Drive the flush the interval timer would otherwise perform.
     await firstRowQueued;
     await (collector as any).flushPendingRows();
 
@@ -319,10 +312,7 @@ describe('AgentStatsCollector', () => {
   });
 
   it('stops processing when abort signal fires', async () => {
-    // Emit events one at a time, gated so the test controls exactly when the
-    // stream advances to the next event. Gates are pre-created (not assigned
-    // lazily inside the generator) so releasing one is safe even before the
-    // generator has reached the matching await.
+    // Gates are pre-created so releasing one is safe even before the generator awaits it.
     const gates = Array.from({ length: 5 }, () => {
       let release: () => void = () => {};
       const promise = new Promise<void>(resolve => { release = resolve; });
@@ -340,16 +330,12 @@ describe('AgentStatsCollector', () => {
     );
     mockDb.patchRepository(collector);
 
-    // Resolves once the first event has been queued into pendingRows: the
-    // deterministic point at which abort mid-stream should be exercised.
     const firstRowQueued = watchFirstPush(collector);
 
     const collectPromise = (collector as any).collect();
     await firstRowQueued;
 
-    // Abort, then let the stream advance: the for-await loop checks
-    // `signal.aborted` before processing the next frame, so no further
-    // event is queued once this fires.
+    // for-await loop checks signal.aborted before processing the next frame.
     abortController.abort(new DOMException('Shutdown', 'AbortError'));
     gates[0].release();
 

@@ -204,11 +204,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     const unsub = slowService.subscribe((e) => received.push(e));
-    // unsub() runs synchronously here, before sendInit() ever awaits the
-    // snapshot, so `subscribers.has(callback)` is already false by the time
-    // sendInit checks it: no timing dependency, nothing to poll for. Only
-    // await the snapshot promise so the service's pending work settles
-    // cleanly before stop() below.
+    // unsub() runs before sendInit() awaits the snapshot; await it only so pending work settles before stop().
     unsub();
     resolveSnapshot([composeContainer1]);
     await slowSnapshot;
@@ -245,8 +241,7 @@ describe('StackStatusBroadcastService', () => {
       exit_code: 0,
     });
 
-    // handleContainerChange runs synchronously inside the 'notification'
-    // handler, so emit() has already broadcast by the time it returns.
+    // handleContainerChange runs synchronously, so emit() has already broadcast by the time it returns.
     poolClient.emit('notification', { channel: 'docker_container_change', payload: notifyPayload });
 
     expect(received.length).toBeGreaterThanOrEqual(2);
@@ -410,8 +405,7 @@ describe('StackStatusBroadcastService', () => {
     await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     expect(poolClient.released).toBe(false);
-    // cleanupListenerClient() releases synchronously, so no wait is needed
-    // between unsub() and the assertion.
+    // cleanupListenerClient() releases synchronously; no wait needed.
     unsub();
     expect(poolClient.released).toBe(true);
   });
@@ -434,8 +428,7 @@ describe('StackStatusBroadcastService', () => {
     service.subscribe(() => {});
     await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
-    // The 'error' handler schedules the reconnect via a synchronous
-    // setTimeout call, so no wait is needed between emit and assertion.
+    // error handler schedules reconnect via synchronous setTimeout; no wait needed.
     poolClient.emit('error', new Error('connection reset'));
 
     expect(setTimeoutSpy).toHaveBeenCalled();
@@ -795,9 +788,7 @@ describe('StackStatusBroadcastService', () => {
 
     received2.length = 0;
 
-    // Once the in-memory stack state is seeded (as it is here), sendInit()
-    // for additional subscribers builds the payload synchronously from
-    // memory and calls back immediately, so no wait is needed.
+    // Stack state is already seeded, so sendInit() for this subscriber builds from memory synchronously.
     service.subscribe(() => {});
 
     poolClient.emit('notification', {

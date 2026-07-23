@@ -75,7 +75,6 @@ describe('useTimeSeriesStream visibility refresh', () => {
 
       act(() => simulateVisibilityChange('visible'));
 
-      // Wait for the refresh triggered by the visibility change
       await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(2); });
     } finally {
       Date.now = originalNow;
@@ -96,9 +95,7 @@ describe('useTimeSeriesStream visibility refresh', () => {
 
     await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
-    // useVisibilityRefresh checks the cooldown synchronously in the event
-    // handler (no promise dispatched when within cooldown), so the outcome
-    // is already settled once this call returns.
+    // cooldown check is synchronous; nothing to await
     act(() => simulateVisibilityChange('visible'));
 
     expect(preloadFn).toHaveBeenCalledTimes(1);
@@ -143,7 +140,6 @@ describe('useTimeSeriesStream reconnect refresh', () => {
 
       dropAndReopenConnection();
 
-      // onReconnect kicks off doRefresh() fire-and-forget; wait for it to land.
       await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(2); });
     } finally {
       Date.now = originalNow;
@@ -164,9 +160,8 @@ describe('useTimeSeriesStream reconnect refresh', () => {
 
     await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
-    // Reconnect immediately after preload: onReconnect's cooldown check is
-    // synchronous and returns before dispatching another preload, so the
-    // outcome is already settled once this call returns.
+    // Reconnect immediately after preload: cooldown check is synchronous, so
+    // the outcome is settled once this call returns.
     dropAndReopenConnection();
 
     expect(preloadFn).toHaveBeenCalledTimes(1);
@@ -201,8 +196,7 @@ describe('useTimeSeriesStream reconnect refresh', () => {
     act(() => { es.onmessage?.({ data: JSON.stringify([{ key: 'f2', time: now - 2000, entity: 'e' }]) }); });
     expect(result.current.rows).toHaveLength(2);
 
-    // Reconnect within cooldown: refresh is suppressed (synchronous cooldown
-    // check, nothing async dispatched), but the gate must re-arm.
+    // Reconnect within cooldown: refresh is suppressed (synchronous check), but the gate must re-arm.
     dropAndReopenConnection();
     expect(preloadFn).toHaveBeenCalledTimes(1);
 
@@ -248,8 +242,7 @@ describe('useTimeSeriesStream preload', () => {
     );
 
     await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
-    // Empty preload never touches hasData/rows state, so there's nothing to poll
-    // for; wait on the exact promise the hook awaited so it has fully settled.
+    // Empty preload never touches state; await the preload promise directly.
     await act(async () => { await preloadFn.mock.results[0]?.value; });
 
     expect(result.current.hasData).toBe(false);
@@ -507,8 +500,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
     // Wait for initial preload
     await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
-    // Wait for at least one periodic refresh (real setInterval; waitFor polls
-    // for the actual call count instead of sleeping a guessed duration)
+    // Wait for at least one periodic refresh
     await waitFor(() => { expect(preloadFn.mock.calls.length).toBeGreaterThanOrEqual(2); });
   });
 
@@ -597,9 +589,7 @@ describe('useTimeSeriesStream stale initialData', () => {
       })
     );
 
-    // The staleness check runs synchronously in the mount effect (already
-    // flushed by the time renderHook returns): a fresh initialData never
-    // schedules the refresh, so preloadFn stays uncalled with nothing to wait on.
+    // staleness check is synchronous; nothing to await
     expect(preloadFn).toHaveBeenCalledTimes(0);
   });
 });
@@ -697,9 +687,7 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
     const firstMap = result.current.latestByEntity;
 
     // Send a duplicate row (same key as existing): should be deduped, no latest change.
-    // This is the very first SSE message on this hook instance, so the enqueue
-    // gate flushes it synchronously; the flush's `pending` array is non-empty
-    // (the duplicate itself), so `waitFor` below settles on the first poll.
+    // First SSE message on this instance flushes synchronously, so waitFor below settles on the first poll.
     const es = MockEventSource.instances[0];
     act(() => {
       es.onmessage?.({ data: JSON.stringify([{ key: 'a-1', time: now - 10000, entity: 'a' }]) });

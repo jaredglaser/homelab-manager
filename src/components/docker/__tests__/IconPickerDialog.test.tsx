@@ -114,7 +114,6 @@ describe('IconPickerDialog', () => {
     fireEvent.click(screen.getByText('Apply'));
     expect(onSelect).toHaveBeenCalledWith('nginx');
 
-    // Component closes after SELECTION_FEEDBACK_MS via a real setTimeout; wait for the callback.
     await waitFor(() => { expect(onClose).toHaveBeenCalledTimes(1); });
   });
 
@@ -126,7 +125,6 @@ describe('IconPickerDialog', () => {
     fireEvent.click(screen.getByText('Use auto-detected'));
     expect(onSelect).toHaveBeenCalledWith(null);
 
-    // Component closes after SELECTION_FEEDBACK_MS via a real setTimeout; wait for the callback.
     await waitFor(() => { expect(onClose).toHaveBeenCalledTimes(1); });
   });
 });

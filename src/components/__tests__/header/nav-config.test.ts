@@ -121,8 +121,7 @@ describe('handlePrefetch', () => {
     const handler = () => { unhandledRejection = true }
     process.on('unhandledRejection', handler)
     handlePrefetch('/docker')
-    // Wait on the exact promise handlePrefetch attaches its .catch() to, so the
-    // rejection is settled (and handled) before checking for an unhandled rejection.
+    // Wait on the promise handlePrefetch's .catch() attaches to, so the rejection is handled first.
     const rejectingCall = mockPrefetchQuery.mock.results.at(-1)?.value as Promise<unknown> | undefined
     await rejectingCall?.catch(() => {})
     process.off('unhandledRejection', handler)

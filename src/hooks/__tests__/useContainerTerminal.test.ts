@@ -233,8 +233,7 @@ describe('useContainerTerminal', () => {
         enabled: false,
       }),
     );
-    // The effect bails out before constructing a WebSocket, so this is already
-    // settled once renderHook returns; nothing further to wait on.
+    // effect bails out synchronously when disabled; nothing to await
     expect(mockWsInstances.length).toBe(0);
   });
 

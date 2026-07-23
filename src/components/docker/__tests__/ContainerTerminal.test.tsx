@@ -148,15 +148,12 @@ describe('ContainerTerminal', () => {
         onShellResolved={onShellResolved}
       />,
     );
-    // The useEffect that calls onShellResolved runs synchronously during the
-    // render() commit (RTL wraps render in act()), so it has already fired.
+    // onShellResolved fires synchronously during render (RTL wraps render in act()).
     expect(onShellResolved).toHaveBeenCalledWith('bash');
   });
 
   it('flips terminal.options.disableStdin to match the frozen prop on rerender', async () => {
-    // useXtermSetup creates the Terminal inside an async useEffect (dynamic
-    // import of @xterm/xterm), so wait for the mock Terminal to actually be
-    // constructed before asserting on it.
+    // Terminal is constructed inside an async useEffect (dynamic import of @xterm/xterm).
     const { rerender } = render(
       <ContainerTerminal containerId="abc123" host="server1" shell="bash" frozen={false} wordWrap={false} />,
     );

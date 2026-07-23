@@ -247,9 +247,7 @@ describe('MockEventSource', () => {
         instance.onopen = () => resolve();
       });
 
-      // _start() resolves the generator synchronously on open and returns
-      // without scheduling anything when the path is unrecognized, so once
-      // onopen has fired there is nothing further to wait on.
+      // unrecognized path schedules nothing after open; nothing further to await
       expect(messageReceived).toBe(false);
     });
   });

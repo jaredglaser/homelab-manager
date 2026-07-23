@@ -105,8 +105,7 @@ describe('SettingsBroadcastService', () => {
     await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', { channel: 'other_channel', payload: 'theme' });
-    // The channel filter is checked synchronously inside the notification
-    // handler, so an unrelated channel is a same-tick no-op.
+    // channel filter is synchronous; an unrelated channel is a same-tick no-op
     expect(received.filter((m) => m.type === 'change')).toHaveLength(0);
   });
 
@@ -139,8 +138,7 @@ describe('SettingsBroadcastService', () => {
         service.subscribe(() => {});
         await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
-        // The 'error' handler schedules the reconnect via a synchronous
-        // setTimeout call, so no wait is needed between emit and assertion.
+        // error handler schedules reconnect via synchronous setTimeout; no wait needed.
         setTimeoutSpy.mockClear();
         poolClient.emit('error', new Error('connection reset'));
 
@@ -162,8 +160,7 @@ describe('SettingsBroadcastService', () => {
         loadSingleSetting: async () => null,
       });
 
-      // Auto-fire timers via microtask (not real elapsed time) so the retry
-      // chain runs inline while still going through the async setTimeout path.
+      // Auto-fire timers via microtask so the retry chain runs inline.
       setTimeoutSpy.mockImplementation(
         ((fn: TimerHandler) => {
           if (typeof fn === 'function') queueMicrotask(fn as () => void);
@@ -204,11 +201,9 @@ describe('SettingsBroadcastService', () => {
       const client2 = createMockPoolClient();
       const client3 = createMockPoolClient();
       let connectCount = 0;
-      // A successful reconnect resets `reconnecting` to false *before*
-      // resyncAllSubscribers() (and its loadAllSettings() call) runs, so this
-      // count reaching 2 is a safe proxy for "the reconnect cycle fully
-      // completed", unlike client2's error handler being registered (which
-      // happens earlier, while `reconnecting` may still read true).
+      // `reconnecting` resets to false *before* resyncAllSubscribers() runs, so
+      // loadAllSettings call count is a safer "reconnect fully completed" proxy
+      // than connectCount, which bumps while `reconnecting` may still read true.
       let loadAllSettingsCallCount = 0;
 
       const resetService = new SettingsBroadcastService({

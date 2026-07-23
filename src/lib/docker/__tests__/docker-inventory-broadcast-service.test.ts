@@ -121,11 +121,7 @@ describe('DockerInventoryBroadcastService', () => {
     const received: DockerInventoryBroadcastEvent[] = [];
     const unsub = slowService.subscribe((e) => received.push(e));
 
-    // unsub() runs synchronously here, before sendInit() ever awaits the
-    // snapshot, so `subscribers.has(callback)` is already false by the time
-    // sendInit checks it: no timing dependency, nothing to poll for. Only
-    // await the snapshot promise so the service's pending work settles
-    // cleanly before stop() below.
+    // unsub() runs before sendInit() awaits the snapshot; await it only so pending work settles before stop().
     unsub();
     resolveSnapshot([container1]);
     await slowSnapshot;
@@ -179,9 +175,7 @@ describe('DockerInventoryBroadcastService', () => {
       exit_code: null,
     });
 
-    // handleNotify runs synchronously inside the 'notification' handler, so
-    // emit() has already fanned the event out to subscribers by the time it
-    // returns.
+    // handleNotify runs synchronously, so emit() has already fanned out by the time it returns.
     poolClient.emit('notification', { channel: 'docker_container_change', payload: notifyPayload });
 
     expect(received).toHaveLength(2); // init + upsert
@@ -279,8 +273,7 @@ describe('DockerInventoryBroadcastService', () => {
     await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     expect(poolClient.released).toBe(false);
-    // cleanupListenerClient() releases synchronously (no UNLISTEN await) for
-    // this service, so no wait is needed between unsub() and the assertion.
+    // cleanupListenerClient() releases synchronously; no wait needed.
     unsub();
     expect(poolClient.released).toBe(true);
   });
@@ -303,8 +296,7 @@ describe('DockerInventoryBroadcastService', () => {
     service.subscribe(() => {});
     await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
-    // The 'error' handler schedules the reconnect via a synchronous
-    // setTimeout call, so no wait is needed between emit and assertion.
+    // error handler schedules reconnect via synchronous setTimeout; no wait needed.
     poolClient.emit('error', new Error('connection reset'));
 
     expect(setTimeoutSpy).toHaveBeenCalled();
@@ -399,12 +391,9 @@ describe('DockerInventoryBroadcastService', () => {
 
     try {
       client1.emit('error', new Error('first disconnect'));
-      // Wait for client2's LISTEN query to actually complete, not just
-      // connectCount incrementing: getPoolClient() bumps the counter before
-      // the awaited connect resolves, and reconnectFailures only resets to 0
-      // right after the LISTEN query succeeds. Emitting client2's error before
-      // that reset would carry over the stale backoff counter from the first
-      // disconnect, producing 1000ms instead of the expected reset to 500ms.
+      // Wait for client2's LISTEN to complete, not just connectCount incrementing:
+      // reconnectFailures only resets after LISTEN succeeds, and emitting client2's
+      // error before that would carry over the stale backoff (1000ms instead of 500ms).
       await waitForCondition(() => client2.querySql !== null);
 
       const firstCycleBackoffs = capturedDelays.filter((d) => d >= 500);

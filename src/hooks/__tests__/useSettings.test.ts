@@ -821,7 +821,6 @@ type ReactNode = import('react').ReactNode;
 
             expect(result.current.general.showSparklines).toBe(false);
 
-            // Wait for the persist call to settle
             await act(async () => {
                 await mockUpdateSetting.mock.results[0]?.value;
             });
