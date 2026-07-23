@@ -9,9 +9,17 @@ type Event = { n: number };
 
 function setup(serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(e)}\n\n`) {
   let captured: ((event: Event) => void) | null = null;
-  const unsubscribe = mock(() => {});
+  let markSubscribed = () => {};
+  let markUnsubscribed = () => {};
+  // createSseStream runs onStart (loadSubscribe + subscribe) inside the stream's async
+  // start(), so tests wait on these instead of a timer to know when the subscription is
+  // live and when abort teardown has called unsubscribe.
+  const subscribed = new Promise<void>((resolve) => { markSubscribed = resolve; });
+  const unsubscribed = new Promise<void>((resolve) => { markUnsubscribed = resolve; });
+  const unsubscribe = mock(() => markUnsubscribed());
   const subscribe = mock((cb: (event: Event) => void) => {
     captured = cb;
+    markSubscribed();
     return unsubscribe;
   });
 
@@ -25,17 +33,14 @@ function setup(serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(
     handler,
     subscribe,
     unsubscribe,
+    subscribed,
+    unsubscribed,
     emit: (e: Event) => captured?.(e),
   };
 }
 
 function makeRequest(ac: AbortController): Request {
   return new Request('http://localhost/', { signal: ac.signal });
-}
-
-/** Macrotask flush so onStart's loadSubscribe/subscribe chain settles before asserting its side effects. */
-function flushMacrotask(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function readerOf(res: Response): ReadableStreamDefaultReader<Uint8Array> {
@@ -153,25 +158,25 @@ describe('createBroadcastSseHandler', () => {
   });
 
   it('unsubscribes when the request aborts', async () => {
-    const { handler, unsubscribe } = setup();
+    const { handler, unsubscribe, subscribed, unsubscribed } = setup();
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
-    await flushMacrotask();
+    await subscribed;
     ac.abort();
-    await flushMacrotask();
+    await unsubscribed;
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('drops events emitted after abort without throwing', async () => {
-    const { handler, emit } = setup();
+    const { handler, emit, subscribed, unsubscribed } = setup();
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
-    await flushMacrotask();
+    await subscribed;
     ac.abort();
-    await flushMacrotask();
+    await unsubscribed;
 
     expect(() => emit({ n: 99 })).not.toThrow();
   });
