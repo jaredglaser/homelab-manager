@@ -4,9 +4,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactElement, ReactNode } from 'react';
 import type { StackContainer } from '@/types/stacks';
 
-// Tooltip open state is Base UI's own hover/delay machinery, not this component's
-// logic; mock it to render children unconditionally so tests assert on content, not
-// on simulating pointer hover through happy-dom.
 mock.module('@/components/ui/tooltip', () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
   TooltipTrigger: ({ render: el }: { render: ReactElement }) => el,
@@ -259,6 +256,92 @@ describe('StackContainersPanel', () => {
 
     expect(screen.getByText('/home/user/media -> /media')).not.toBeNull();
     expect(screen.getByText('/home/user/config -> /config [ro]')).not.toBeNull();
+    expect(screen.getByLabelText('2 mounts')).not.toBeNull();
+  });
+
+  it('shows the volume name (not the raw docker path) for named-volume mounts in the tooltip', () => {
+    const containersWithVolume: StackContainer[] = [
+      {
+        id: 'abc123',
+        name: 'plex-web-1',
+        status: 'running',
+        image: 'plexinc/pms-docker',
+        service: 'web',
+        ports: [],
+        mounts: [
+          { type: 'volume', source: '/var/lib/docker/volumes/plex-config/_data', destination: '/config', rw: true },
+        ],
+      },
+    ];
+    renderPanel({ ...defaultProps, containers: containersWithVolume });
+
+    expect(screen.getByText('plex-config -> /config')).not.toBeNull();
+  });
+
+  it('pluralizes the mounts aria-label for a single mount', () => {
+    const containersWithOneMount: StackContainer[] = [
+      {
+        id: 'abc123',
+        name: 'plex-web-1',
+        status: 'running',
+        image: 'plexinc/pms-docker',
+        service: 'web',
+        ports: [],
+        mounts: [{ type: 'bind', source: '/home/user/media', destination: '/media', rw: true }],
+      },
+    ];
+    renderPanel({ ...defaultProps, containers: containersWithOneMount });
+
+    expect(screen.getByLabelText('1 mount')).not.toBeNull();
+  });
+
+  it('makes the mounts tooltip trigger keyboard-focusable', () => {
+    const containersWithMounts: StackContainer[] = [
+      {
+        id: 'abc123',
+        name: 'plex-web-1',
+        status: 'running',
+        image: 'plexinc/pms-docker',
+        service: 'web',
+        ports: [],
+        mounts: [{ type: 'bind', source: '/home/user/media', destination: '/media', rw: true }],
+      },
+    ];
+    renderPanel({ ...defaultProps, containers: containersWithMounts });
+
+    expect(screen.getByLabelText('1 mount').tabIndex).toBe(0);
+  });
+
+  it('caps visible port chips and rolls the rest into a "+n" overflow chip', () => {
+    const manyPorts = [80, 81, 82, 83, 84, 85].map((p) => ({
+      containerPort: p,
+      protocol: 'tcp',
+      hostIp: '0.0.0.0',
+      hostPort: p,
+    }));
+    const containersWithManyPorts: StackContainer[] = [
+      {
+        id: 'abc123',
+        name: 'plex-web-1',
+        status: 'running',
+        image: 'plexinc/pms-docker',
+        service: 'web',
+        ports: manyPorts,
+        mounts: [],
+      },
+    ];
+    renderPanel({ ...defaultProps, containers: containersWithManyPorts });
+
+    expect(screen.getByText('80->80/tcp')).not.toBeNull();
+    expect(screen.getByText('83->83/tcp')).not.toBeNull();
+
+    const overflowTrigger = screen.getByLabelText('2 more ports');
+    expect(overflowTrigger.textContent).toBe('+2');
+    expect(overflowTrigger.tabIndex).toBe(0);
+
+    // Overflow entries only appear inside the "+n" tooltip, not as their own top-level chips.
+    expect(screen.getByText('84->84/tcp')).not.toBeNull();
+    expect(screen.getByText('85->85/tcp')).not.toBeNull();
   });
 
   it('renders nothing extra when a container has no ports and no mounts', () => {

@@ -9,7 +9,7 @@ import { useMutation } from '@tanstack/react-query';
 import type { StackContainer } from '@/types/stacks';
 import type { ContainerMount, ContainerPort } from '@/types/docker-inventory';
 import { controlStack } from '@/data/stacks/functions';
-import { dedupeWildcardPorts, formatPortMapping } from '@/components/docker/ContainerPortsMounts';
+import { dedupeWildcardPorts, formatMountSource, formatPortMapping } from '@/components/docker/ContainerPortsMounts';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ShellSelect from '@/components/docker/ShellSelect';
@@ -158,41 +158,85 @@ const ACTION_PAST: Record<ControlAction, string> = {
   restart: 'restarted',
 };
 
+const MAX_VISIBLE_PORT_CHIPS = 4;
+
+function portKey(port: ContainerPort, idx: number): string {
+  return `${port.containerPort}/${port.protocol}/${port.hostIp ?? ''}/${port.hostPort ?? ''}/${idx}`;
+}
+
 function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[]; mounts: ContainerMount[] }) {
   if (ports.length === 0 && mounts.length === 0) return null;
 
+  const dedupedPorts = dedupeWildcardPorts(ports);
+  const visiblePorts = dedupedPorts.slice(0, MAX_VISIBLE_PORT_CHIPS);
+  const overflowPorts = dedupedPorts.slice(MAX_VISIBLE_PORT_CHIPS);
+  const mountLabel = `${mounts.length} mount${mounts.length === 1 ? '' : 's'}`;
+
   return (
-    <div className="flex items-center gap-1 min-w-0 shrink-0">
-      {dedupeWildcardPorts(ports).map((port, idx) => {
-        const published = port.hostPort !== null;
-        return (
-          <span
-            key={`${port.containerPort}/${port.protocol}/${port.hostIp ?? ''}/${port.hostPort ?? ''}/${idx}`}
-            className={`font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) shrink-0 ${published ? 'text-foreground' : 'text-(--muted-foreground)'}`}
-          >
-            {formatPortMapping(port)}
-          </span>
-        );
-      })}
-      {mounts.length > 0 && (
-        <Tooltip>
-          <TooltipTrigger
-            render={<span className="shrink-0 text-(--muted-foreground) hover:text-foreground" aria-label={`${mounts.length} mounts`} />}
-          >
-            <HardDrive size={13} />
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <div className="flex flex-col gap-0.5">
-              {mounts.map((mount, idx) => (
-                <span key={`${mount.source}/${mount.destination}/${idx}`}>
-                  {mount.source} -&gt; {mount.destination}{!mount.rw && ' [ro]'}
+    <TooltipProvider>
+      <div className="flex items-center gap-1 shrink-0">
+        {visiblePorts.map((port, idx) => {
+          const published = port.hostPort !== null;
+          return (
+            <span
+              key={portKey(port, idx)}
+              className={`font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) shrink-0 ${published ? 'text-foreground' : 'text-(--muted-foreground)'}`}
+            >
+              {formatPortMapping(port)}
+            </span>
+          );
+        })}
+        {overflowPorts.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  className="font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) text-(--muted-foreground) shrink-0"
+                  tabIndex={0}
+                  aria-label={`${overflowPorts.length} more ports`}
+                >
+                  {`+${overflowPorts.length}`}
                 </span>
-              ))}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      )}
-    </div>
+              }
+            />
+            <TooltipContent side="top">
+              <div className="flex flex-col gap-0.5">
+                {overflowPorts.map((port, idx) => (
+                  <span key={portKey(port, idx)}>{formatPortMapping(port)}</span>
+                ))}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {mounts.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  className="shrink-0 text-(--muted-foreground) hover:text-foreground"
+                  tabIndex={0}
+                  aria-label={mountLabel}
+                >
+                  <HardDrive size={13} />
+                </span>
+              }
+            />
+            <TooltipContent side="top">
+              <div className="flex flex-col gap-0.5">
+                {mounts.map((mount, idx) => {
+                  const { display } = formatMountSource(mount.source, mount.type);
+                  return (
+                    <span key={`${mount.source}/${mount.destination}/${idx}`}>
+                      {display} -&gt; {mount.destination}{!mount.rw && ' [ro]'}
+                    </span>
+                  );
+                })}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    </TooltipProvider>
   );
 }
 
