@@ -30,6 +30,8 @@ function toSnapshotContainer(c: MinimalContainerInfo): InventorySnapshotContaine
     startedAt: c.StartedAt,
     finishedAt: c.FinishedAt,
     exitCode: c.ExitCode,
+    ports: c.Ports,
+    mounts: c.Mounts,
   };
 }
 
@@ -44,6 +46,8 @@ function toUpdateContainer(c: MinimalContainerInfo): InventoryUpdateContainer {
     startedAt: c.StartedAt,
     finishedAt: c.FinishedAt,
     exitCode: c.ExitCode,
+    ports: c.Ports,
+    mounts: c.Mounts,
   };
 }
 

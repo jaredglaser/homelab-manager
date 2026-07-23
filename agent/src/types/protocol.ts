@@ -27,6 +27,22 @@ export const zContainerState = z.enum([
 ]);
 export type ContainerState = z.infer<typeof zContainerState>;
 
+export const zContainerPort = z.object({
+  containerPort: z.number(),
+  protocol: z.string(),
+  hostIp: z.string().nullable(),
+  hostPort: z.number().nullable(),
+});
+export type ContainerPort = z.infer<typeof zContainerPort>;
+
+export const zContainerMount = z.object({
+  type: z.string(),
+  source: z.string(),
+  destination: z.string(),
+  rw: z.boolean(),
+});
+export type ContainerMount = z.infer<typeof zContainerMount>;
+
 /**
  * Snapshot shape: emitted only on `op: 'init'`, sourced from `listContainers`
  * + inspect(). Labels are populated with real values.
@@ -43,6 +59,8 @@ export const zInventorySnapshotContainer = z.object({
   finishedAt: z.string().nullable(),
   /** Only meaningful when state is 'exited' or 'dead'. */
   exitCode: z.number().nullable(),
+  ports: z.array(zContainerPort).default([]),
+  mounts: z.array(zContainerMount).default([]),
 });
 export type InventorySnapshotContainer = z.infer<typeof zInventorySnapshotContainer>;
 
