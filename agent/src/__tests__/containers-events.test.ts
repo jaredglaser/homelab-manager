@@ -547,11 +547,20 @@ describe('handleContainerEvents: ports and mounts pass-through', () => {
       Mounts: [{ Type: 'volume', Source: 'vol1', Destination: '/var/data', RW: true }],
     }));
 
+    // 'newListener' fires synchronously right before the broadcaster's own
+    // listener is attached, so this resolves exactly when the events stream
+    // is ready to receive, instead of guessing with a fixed-delay sleep.
+    const dataListenerAttached = new Promise<void>((resolve) => {
+      eventsEmitter.once('newListener', (eventName) => {
+        if (eventName === 'data') resolve();
+      });
+    });
+
     const ac = new AbortController();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
     const response = await handleContainerEvents(docker as any, request);
 
-    await new Promise((r) => setTimeout(r, 50));
+    await dataListenerAttached;
 
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',

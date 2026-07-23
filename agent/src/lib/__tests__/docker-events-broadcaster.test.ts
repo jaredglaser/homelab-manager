@@ -1210,6 +1210,27 @@ describe('portCandidatesFromInspect + normalizePorts: inspect shape', () => {
     expect(normalizePorts(portCandidatesFromInspect(null))).toEqual([]);
     expect(normalizePorts(portCandidatesFromInspect(undefined))).toEqual([]);
   });
+
+  test('skips a malformed port key with no "/protocol" suffix', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      garbage: null as unknown as Array<{ HostIp: string; HostPort: string }>,
+    }));
+    expect(result).toEqual([]);
+  });
+
+  test('empty-string HostIp normalizes to null, matching the list shape', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': [{ HostIp: '', HostPort: '8080' }],
+    }));
+    expect(result).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }]);
+  });
+
+  test('empty-string HostPort normalizes to null rather than Number("") === 0', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '' }],
+    }));
+    expect(result).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: null }]);
+  });
 });
 
 describe('portCandidatesFromList + normalizePorts: list shape', () => {
@@ -1282,6 +1303,35 @@ describe('normalizeMounts', () => {
     expect(result).toEqual([{ type: 'volume', source: 'my-volume', destination: '/var/lib/data', rw: true }]);
   });
 
+  test('volume type prefers Name over Source when both are present', () => {
+    const result = normalizeMounts([{
+      Type: 'volume',
+      Name: 'my-volume',
+      Source: '/var/lib/docker/volumes/my-volume/_data',
+      Destination: '/var/lib/data',
+      RW: true,
+    }]);
+    expect(result).toEqual([{ type: 'volume', source: 'my-volume', destination: '/var/lib/data', rw: true }]);
+  });
+
+  test('equivalence: a named volume normalizes identically from the inspect shape (resolved path Source) and the list shape (empty Source)', () => {
+    const fromInspect = normalizeMounts([{
+      Type: 'volume',
+      Name: 'my-volume',
+      Source: '/var/lib/docker/volumes/my-volume/_data',
+      Destination: '/var/lib/data',
+      RW: true,
+    }]);
+    const fromList = normalizeMounts([{
+      Type: 'volume',
+      Name: 'my-volume',
+      Source: '',
+      Destination: '/var/lib/data',
+      RW: true,
+    }]);
+    expect(fromList).toEqual(fromInspect);
+  });
+
   test('sorts by destination', () => {
     const result = normalizeMounts([
       { Type: 'bind', Source: '/b', Destination: '/z', RW: true },
@@ -1352,8 +1402,16 @@ describe('subscribe: init and upsert carry ports and mounts', () => {
     };
 
     const received: BroadcasterEvent[] = [];
-    const unsub = await subscribe(docker as any, (e) => received.push(e));
-    await new Promise((r) => setTimeout(r, 20));
+    let resolveUpsert: (() => void) | null = null;
+    const upsertReceived = new Promise<void>((resolve) => {
+      resolveUpsert = resolve;
+    });
+    // subscribe() awaits startEventsSubscription internally, so by the time it
+    // resolves the 'data' listener is already attached; no need to wait before emitting.
+    const unsub = await subscribe(docker as any, (e) => {
+      received.push(e);
+      if (e.op === 'upsert') resolveUpsert?.();
+    });
 
     eventsEmitter.emit('data', Buffer.from(JSON.stringify({
       Type: 'container',
@@ -1361,7 +1419,7 @@ describe('subscribe: init and upsert carry ports and mounts', () => {
       Actor: { ID: 'c1' },
     }) + '\n'));
 
-    await new Promise((r) => setTimeout(r, 30));
+    await upsertReceived;
     unsub();
 
     const upserts = received.filter((e) => e.op === 'upsert');
