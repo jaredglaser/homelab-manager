@@ -24,17 +24,7 @@ export interface StackSecretsLookup {
   get(stackName: string, variableName: string): Promise<string | null>;
 }
 
-/**
- * Production secret resolver. Resolves each requested variable against the
- * stack-secrets store in parallel and classifies failures so callers get a
- * useful error instead of a generic Promise.allSettled rejection dump.
- *
- * `Promise.allSettled` (not `Promise.all`) so one bad secret doesn't mask the
- * decryption-failure message behind an unrelated first-rejection race.
- * Decryption failures (wrong/rotated MASTER_KEY) are distinguished from other
- * failures (DB errors, etc.) because the operator fix differs: rotate the key
- * vs. investigate the database.
- */
+/** Resolves secrets in parallel via Promise.allSettled; classifies decryption failures (bad/rotated MASTER_KEY) separately from other errors (DB, etc.) since the fix differs. */
 export class StackSecretsResolver implements SecretResolver {
   constructor(private readonly stackSecrets: StackSecretsLookup) {}
 

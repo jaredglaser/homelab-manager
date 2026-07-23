@@ -70,11 +70,7 @@ export async function processPostReceive(
     return;
   }
 
-  // Build pipeline-compatible deploy requests: one per changed stack that
-  // still exists in the manifest read above. In practice this manifest is
-  // the same one buildDeployRequests already filtered against (both reads
-  // are pinned to newHead), so the filter here rarely drops anything; it
-  // stays as a defensive guard against the two reads racing on a moving ref.
+  // Defensive: both manifest reads are pinned to newHead, so this rarely drops a stack.
   const deployRequests: DeployRequest[] = [];
   for (const [stackName, composeContent] of changedStacks) {
     const manifestEntry = manifest.stacks[stackName];

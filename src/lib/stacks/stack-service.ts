@@ -127,9 +127,7 @@ export async function triggerStackDeploy(params: {
   const { pipeline } = await createDeployPipeline();
 
   if (params.commitSha) {
-    // Rollback: read compose from the historical commit. A rollback is always
-    // a full deploy with forceRecreate, regardless of the action that produced
-    // the commit being rolled back to.
+    // Rollback is always a full deploy with forceRecreate, regardless of the original action.
     const rollbackSha = params.commitSha;
     return handleTriggerDeploy({
       readCompose: (stack) =>

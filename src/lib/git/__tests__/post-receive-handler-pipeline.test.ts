@@ -193,11 +193,7 @@ describe('processPostReceive (pipeline paths)', () => {
   });
 
   it('returns early when the manifest lookup filters out every changed stack (deployRequests.length === 0)', async () => {
-    // buildDeployRequests and processPostReceive's own inline lookup both read
-    // the manifest at the same newHead, so they normally agree. Simulate the
-    // reads disagreeing (e.g. a ref that moved between them) by having the
-    // second manifest read (inside processPostReceive itself) return a
-    // manifest that no longer lists "plex", so the inline filter drops it.
+    // Simulate the two manifest reads disagreeing so the inline filter drops "plex".
     const originalReadFileFromRepo = repo.readFileFromRepo;
     let manifestReadCount = 0;
     const readSpy = spyOn(repo, 'readFileFromRepo').mockImplementation(
@@ -243,8 +239,6 @@ describe('processPostReceive (pipeline paths)', () => {
   });
 
   it('builds the exact git_push DeployRequest payload for a changed stack', async () => {
-    // Asserts the payload pipeline.execute() receives: the literal-field-mapping
-    // coverage that previously lived in a standalone builder test file.
     const executeSpy = spyOn(DeployPipeline.prototype, 'execute');
     const { sha1, sha2 } = await buildPlexChangeCommits(repoPath);
 

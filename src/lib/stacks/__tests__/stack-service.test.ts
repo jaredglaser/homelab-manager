@@ -199,18 +199,7 @@ describe('handleTriggerDeploy', () => {
 });
 
 describe('triggerStackDeploy', () => {
-  // triggerStackDeploy assembles the full DeployRequest inline (no separate
-  // trigger-builder layer). These tests assert the exact payload
-  // pipeline.execute receives: the literal-field-mapping coverage that
-  // previously lived in a standalone builder test file.
-  //
-  // Uses a real temp bare repo (not a mocked isomorphic-git) and spyOn (not
-  // mock.module) for pipeline-factory: mock.module() replacements are not
-  // reliably reset per test file under --isolate and leaked into other
-  // files' real git/pipeline-factory tests when tried here. spyOn + the
-  // mockRestore() below cleans up after every test, matching the
-  // loadGitConfig spy pattern used elsewhere in this file and in
-  // stack-repo-writer.test.ts.
+  // Real temp repo + spyOn/mockRestore, not mock.module: mock.module() isn't reliably reset across files under --isolate.
   let testDir: string;
   let repoPath: string;
   let loadGitConfigSpy: ReturnType<typeof spyOn>;
