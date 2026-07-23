@@ -28,17 +28,17 @@ describe('StatsRepository', () => {
         {
           time: new Date('2024-01-01'),
           host: 'host1',
-          container_id: 'abc123',
-          container_name: 'nginx',
+          containerId: 'abc123',
+          containerName: 'nginx',
           image: 'nginx:latest',
-          cpu_percent: 25.5,
-          memory_usage: 1024,
-          memory_limit: 2048,
-          memory_percent: 50,
-          network_rx_bytes_per_sec: 100,
-          network_tx_bytes_per_sec: 200,
-          block_io_read_bytes_per_sec: 300,
-          block_io_write_bytes_per_sec: 400,
+          cpuPercent: 25.5,
+          memoryUsage: 1024,
+          memoryLimit: 2048,
+          memoryPercent: 50,
+          networkRxBytesPerSec: 100,
+          networkTxBytesPerSec: 200,
+          blockReadBytesPerSec: 300,
+          blockWriteBytesPerSec: 400,
         },
       ];
 
@@ -51,37 +51,72 @@ describe('StatsRepository', () => {
       expect(mockPool.queries[0].params[2]).toEqual(['abc123']);
     });
 
+    it('should map every camelCase field to its snake_case column position', async () => {
+      const rows = [
+        {
+          time: new Date('2024-01-01'),
+          host: 'host1',
+          containerId: 'abc123',
+          containerName: 'nginx',
+          image: 'nginx:latest',
+          cpuPercent: 25.5,
+          memoryUsage: 1024,
+          memoryLimit: 2048,
+          memoryPercent: 50,
+          networkRxBytesPerSec: 100,
+          networkTxBytesPerSec: 200,
+          blockReadBytesPerSec: 300,
+          blockWriteBytesPerSec: 400,
+        },
+      ];
+
+      await repo.insertDockerStats(rows);
+
+      const params = mockPool.queries[0].params;
+      // Params follow the INSERT column order (time, host, container_id, ...).
+      expect(params[3]).toEqual(['nginx']);
+      expect(params[4]).toEqual(['nginx:latest']);
+      expect(params[5]).toEqual([25.5]);
+      expect(params[6]).toEqual([1024]);
+      expect(params[7]).toEqual([2048]);
+      expect(params[8]).toEqual([50]);
+      expect(params[9]).toEqual([100]);
+      expect(params[10]).toEqual([200]);
+      expect(params[11]).toEqual([300]);
+      expect(params[12]).toEqual([400]);
+    });
+
     it('should handle multiple rows', async () => {
       const rows = [
         {
           time: new Date('2024-01-01'),
           host: 'host1',
-          container_id: 'abc',
-          container_name: 'nginx',
+          containerId: 'abc',
+          containerName: 'nginx',
           image: 'nginx:latest',
-          cpu_percent: 10,
-          memory_usage: 100,
-          memory_limit: 200,
-          memory_percent: 50,
-          network_rx_bytes_per_sec: 0,
-          network_tx_bytes_per_sec: 0,
-          block_io_read_bytes_per_sec: 0,
-          block_io_write_bytes_per_sec: 0,
+          cpuPercent: 10,
+          memoryUsage: 100,
+          memoryLimit: 200,
+          memoryPercent: 50,
+          networkRxBytesPerSec: 0,
+          networkTxBytesPerSec: 0,
+          blockReadBytesPerSec: 0,
+          blockWriteBytesPerSec: 0,
         },
         {
           time: new Date('2024-01-01'),
           host: 'host1',
-          container_id: 'def',
-          container_name: 'redis',
+          containerId: 'def',
+          containerName: 'redis',
           image: 'redis:latest',
-          cpu_percent: 5,
-          memory_usage: 50,
-          memory_limit: 100,
-          memory_percent: 50,
-          network_rx_bytes_per_sec: 0,
-          network_tx_bytes_per_sec: 0,
-          block_io_read_bytes_per_sec: 0,
-          block_io_write_bytes_per_sec: 0,
+          cpuPercent: 5,
+          memoryUsage: 50,
+          memoryLimit: 100,
+          memoryPercent: 50,
+          networkRxBytesPerSec: 0,
+          networkTxBytesPerSec: 0,
+          blockReadBytesPerSec: 0,
+          blockWriteBytesPerSec: 0,
         },
       ];
 
@@ -97,17 +132,17 @@ describe('StatsRepository', () => {
       await expect(repo.insertDockerStats([{
         time: new Date(),
         host: 'h',
-        container_id: 'c',
-        container_name: null,
+        containerId: 'c',
+        containerName: null,
         image: null,
-        cpu_percent: null,
-        memory_usage: null,
-        memory_limit: null,
-        memory_percent: null,
-        network_rx_bytes_per_sec: null,
-        network_tx_bytes_per_sec: null,
-        block_io_read_bytes_per_sec: null,
-        block_io_write_bytes_per_sec: null,
+        cpuPercent: null,
+        memoryUsage: null,
+        memoryLimit: null,
+        memoryPercent: null,
+        networkRxBytesPerSec: null,
+        networkTxBytesPerSec: null,
+        blockReadBytesPerSec: null,
+        blockWriteBytesPerSec: null,
       }])).rejects.toThrow('DB error');
     });
   });
@@ -125,15 +160,14 @@ describe('StatsRepository', () => {
           host: 'server1',
           pool: 'tank',
           entity: 'tank',
-          entity_type: 'pool',
+          entityType: 'pool',
           indent: 0,
-          capacity_alloc: 1000,
-          capacity_free: 2000,
-          read_ops_per_sec: 10,
-          write_ops_per_sec: 5,
-          read_bytes_per_sec: 1024,
-          write_bytes_per_sec: 512,
-          utilization_percent: 33.3,
+          capacityAlloc: 1000,
+          capacityFree: 2000,
+          readOpsPerSec: 10,
+          writeOpsPerSec: 5,
+          readBytesPerSec: 1024,
+          writeBytesPerSec: 512,
         },
       ];
 
@@ -141,6 +175,80 @@ describe('StatsRepository', () => {
 
       expect(mockPool.queries).toHaveLength(1);
       expect(mockPool.queries[0].sql).toContain('INSERT INTO zfs_stats');
+    });
+
+    it('should truncate capacity_alloc/capacity_free to whole numbers for the bigint columns', async () => {
+      const rows = [
+        {
+          time: new Date('2024-01-01'),
+          host: 'server1',
+          pool: 'tank',
+          entity: 'tank',
+          entityType: 'pool',
+          indent: 0,
+          capacityAlloc: 1234.9,
+          capacityFree: 5678.1,
+          readOpsPerSec: 10,
+          writeOpsPerSec: 5,
+          readBytesPerSec: 1024,
+          writeBytesPerSec: 512,
+        },
+      ];
+
+      await repo.insertZFSStats(rows);
+
+      const params = mockPool.queries[0].params;
+      // Params follow the INSERT column order (..., capacity_alloc, capacity_free, ...).
+      expect(params[6]).toEqual([1234]);
+      expect(params[7]).toEqual([5678]);
+    });
+
+    it('should derive utilization_percent from capacityAlloc/capacityFree', async () => {
+      const rows = [
+        {
+          time: new Date('2024-01-01'),
+          host: 'server1',
+          pool: 'tank',
+          entity: 'tank',
+          entityType: 'pool',
+          indent: 0,
+          capacityAlloc: 750,
+          capacityFree: 250,
+          readOpsPerSec: 0,
+          writeOpsPerSec: 0,
+          readBytesPerSec: 0,
+          writeBytesPerSec: 0,
+        },
+      ];
+
+      await repo.insertZFSStats(rows);
+
+      expect(mockPool.queries[0].params[12]).toEqual([75]);
+    });
+
+    it('should treat zero total capacity as 0% utilization instead of dividing by zero', async () => {
+      const rows = [
+        {
+          time: new Date('2024-01-01'),
+          host: 'server1',
+          pool: 'tank',
+          entity: 'tank',
+          entityType: 'pool',
+          indent: 0,
+          capacityAlloc: 0,
+          capacityFree: 0,
+          readOpsPerSec: 0,
+          writeOpsPerSec: 0,
+          readBytesPerSec: 0,
+          writeBytesPerSec: 0,
+        },
+      ];
+
+      await repo.insertZFSStats(rows);
+
+      const utilization = mockPool.queries[0].params[12] as number[];
+      expect(utilization[0]).toBe(0);
+      expect(Number.isFinite(utilization[0])).toBe(true);
     });
 
     it('should propagate errors', async () => {
@@ -151,15 +259,14 @@ describe('StatsRepository', () => {
         host: 'server1',
         pool: 'tank',
         entity: 'tank',
-        entity_type: 'pool',
+        entityType: 'pool',
         indent: 0,
-        capacity_alloc: null,
-        capacity_free: null,
-        read_ops_per_sec: null,
-        write_ops_per_sec: null,
-        read_bytes_per_sec: null,
-        write_bytes_per_sec: null,
-        utilization_percent: null,
+        capacityAlloc: 0,
+        capacityFree: 0,
+        readOpsPerSec: 0,
+        writeOpsPerSec: 0,
+        readBytesPerSec: 0,
+        writeBytesPerSec: 0,
       }])).rejects.toThrow('ZFS DB error');
     });
   });

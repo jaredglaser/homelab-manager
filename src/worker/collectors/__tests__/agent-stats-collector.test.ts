@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { AgentStatsCollector } from '../agent-stats-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { DockerStatsRow } from '@/types/docker';
+import type { NewDockerStat } from '@/lib/database/repositories/stats-repository';
 import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
 
 /** Create a mock DatabaseClient that captures insertDockerStats calls */
 function createMockDb() {
-  const insertedRows: DockerStatsRow[][] = [];
+  const insertedRows: NewDockerStat[][] = [];
   const upsertedMetadata: { entity: string; key: string; value: string }[] = [];
   return {
     db: {
@@ -20,7 +20,7 @@ function createMockDb() {
     patchRepository(collector: AgentStatsCollector) {
       const repo = (collector as any).repository;
       const metaRepo = (collector as any).entityMetadataRepository;
-      repo.insertDockerStats = async (rows: DockerStatsRow[]) => {
+      repo.insertDockerStats = async (rows: NewDockerStat[]) => {
         insertedRows.push(rows);
       };
       metaRepo.upsertEntityMetadataBatch = async (entries: { entity: string; key: string; value: string }[]) => {
@@ -79,7 +79,7 @@ describe('AgentStatsCollector', () => {
     expect(collector.name).toBe('AgentStatsCollector[homeserver]');
   });
 
-  it('shapes SSE events into DockerStatsRow', async () => {
+  it('shapes SSE events into a domain-shaped NewDockerStat', async () => {
     const streamConnector = fixedStream([sampleAgentEvent]);
 
     const collector = new AgentStatsCollector(
@@ -93,17 +93,18 @@ describe('AgentStatsCollector', () => {
     expect(mockDb.insertedRows).toHaveLength(1);
     const row = mockDb.insertedRows[0][0];
     expect(row.host).toBe('homeserver');
-    expect(row.container_id).toBe('abc123def456');
-    expect(row.container_name).toBe('plex');
+    expect(row.containerId).toBe('abc123def456');
+    expect(row.containerName).toBe('plex');
     expect(row.image).toBe('plexinc/plex-media-server:latest');
-    expect(row.cpu_percent).toBe(12.5);
-    expect(row.memory_usage).toBe(536870912);
-    expect(row.memory_limit).toBe(8589934592);
-    expect(row.memory_percent).toBe(6.25);
-    expect(row.network_rx_bytes_per_sec).toBe(1024);
-    expect(row.network_tx_bytes_per_sec).toBe(512);
-    expect(row.block_io_read_bytes_per_sec).toBe(2048);
-    expect(row.block_io_write_bytes_per_sec).toBe(1024);
+    expect(row.cpuPercent).toBe(12.5);
+    expect(row.memoryUsage).toBe(536870912);
+    expect(row.memoryLimit).toBe(8589934592);
+    expect(row.memoryPercent).toBe(6.25);
+    expect(row.networkRxBytesPerSec).toBe(1024);
+    expect(row.networkTxBytesPerSec).toBe(512);
+    expect(row.blockReadBytesPerSec).toBe(2048);
+    expect(row.blockWriteBytesPerSec).toBe(1024);
+    expect(row.time).toEqual(new Date('2026-03-13T12:00:00.000Z'));
   });
 
   it('connects with the configured agent URL, path, and signer', async () => {
@@ -174,7 +175,7 @@ describe('AgentStatsCollector', () => {
 
     expect(mockDb.insertedRows).toHaveLength(1);
     expect(mockDb.insertedRows[0]).toHaveLength(1);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
+    expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
   });
 
   it('survives a failed batch insert without throwing', async () => {
@@ -223,7 +224,7 @@ describe('AgentStatsCollector', () => {
       upsertCallCount++;
       if (upsertCallCount === 1) throw new Error('DB connection lost');
     };
-    repo.insertDockerStats = async (rows: DockerStatsRow[]) => { insertedCount.value += rows.length; };
+    repo.insertDockerStats = async (rows: NewDockerStat[]) => { insertedCount.value += rows.length; };
 
     const origError = console.error;
     console.error = () => {};
@@ -259,8 +260,8 @@ describe('AgentStatsCollector', () => {
     // Both events arrived within one flush window: one multi-row insert
     expect(mockDb.insertedRows).toHaveLength(1);
     expect(mockDb.insertedRows[0]).toHaveLength(2);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
-    expect(mockDb.insertedRows[0][1].container_name).toBe('sonarr');
+    expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
+    expect(mockDb.insertedRows[0][1].containerName).toBe('sonarr');
   });
 
   it('flushes accumulated rows on the interval while the stream stays open', async () => {
@@ -288,8 +289,8 @@ describe('AgentStatsCollector', () => {
 
     // First event flushed by the interval timer, second by the final drain
     expect(mockDb.insertedRows).toHaveLength(2);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
-    expect(mockDb.insertedRows[1][0].container_name).toBe('sonarr');
+    expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
+    expect(mockDb.insertedRows[1][0].containerName).toBe('sonarr');
   });
 
   it('stops processing when abort signal fires', async () => {

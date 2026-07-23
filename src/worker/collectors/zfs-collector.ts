@@ -1,9 +1,9 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
-import { ZFSRateCalculator } from '@/lib/utils/zfs-rate-calculator';
-import { parseZFSIOStat } from '@/lib/parsers/zfs-iostat-parser';
-import type { ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
+import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
+import { parseZFSIOStat, isZFSIOStatCycleHeader } from '@/lib/parsers/zfs-iostat-parser';
+import type { ZFSIOStatRaw } from '@/types/zfs';
 import { BaseCollector } from './base-collector';
 import { connectAgentSseStream } from './agent-sse-stream';
 
@@ -31,7 +31,7 @@ interface HierarchyContext {
  * - Vdev: "poolname/vdevname"
  * - Disk: "poolname/vdevname/diskname"
  */
-function buildEntityPath(stat: ZFSIOStatWithRates, ctx: HierarchyContext): { path: string; pool: string; entityType: string; ctx: HierarchyContext } {
+function buildEntityPath(stat: ZFSIOStatRaw, ctx: HierarchyContext): { path: string; pool: string; entityType: string; ctx: HierarchyContext } {
   const level = detectHierarchyLevel(stat.indent);
 
   switch (level) {
@@ -64,21 +64,22 @@ function buildEntityPath(stat: ZFSIOStatWithRates, ctx: HierarchyContext): { pat
   }
 }
 
-function toZFSStatsRow(stat: ZFSIOStatWithRates, host: string, entityPath: string, pool: string, entityType: string): ZFSStatsRow {
+/** Maps a parsed iostat line plus its resolved hierarchy path to a NewZFSStat */
+function toNewZFSStat(stat: ZFSIOStatRaw, timestamp: number, host: string, entityPath: string, pool: string, entityType: string): NewZFSStat {
   return {
-    time: new Date(stat.timestamp),
+    time: new Date(timestamp),
     host,
     pool,
     entity: entityPath,
-    entity_type: entityType,
+    entityType,
     indent: stat.indent,
-    capacity_alloc: Math.trunc(stat.capacity.alloc),
-    capacity_free: Math.trunc(stat.capacity.free),
-    read_ops_per_sec: stat.rates.readOpsPerSec,
-    write_ops_per_sec: stat.rates.writeOpsPerSec,
-    read_bytes_per_sec: stat.rates.readBytesPerSec,
-    write_bytes_per_sec: stat.rates.writeBytesPerSec,
-    utilization_percent: stat.rates.utilizationPercent,
+    capacityAlloc: stat.capacity.alloc,
+    capacityFree: stat.capacity.free,
+    // zpool iostat already reports these as per-second rates.
+    readOpsPerSec: stat.operations.read,
+    writeOpsPerSec: stat.operations.write,
+    readBytesPerSec: stat.bandwidth.read,
+    writeBytesPerSec: stat.bandwidth.write,
   };
 }
 
@@ -93,7 +94,6 @@ interface AgentZfsStatsEvent {
 
 export class ZFSCollector extends BaseCollector {
   readonly name: string;
-  private readonly calculator = new ZFSRateCalculator();
   private readonly host: ManagedHost;
   private readonly signer: () => Promise<string>;
   private readonly streamConnector: StreamConnector;
@@ -126,7 +126,7 @@ export class ZFSCollector extends BaseCollector {
     this.resetBackoff();
     this.debugLog(`[${this.name}] Connected, reading ZFS stats SSE stream`);
 
-    let currentCycle: ZFSStatsRow[] = [];
+    let currentCycle: NewZFSStat[] = [];
     let hierarchyCtx: HierarchyContext = { currentPool: null, currentVdev: null };
 
     try {
@@ -143,11 +143,7 @@ export class ZFSCollector extends BaseCollector {
         if (!line || !line.trim()) continue;
 
         // Detect cycle boundary (header line)
-        if (
-          line.includes('capacity') &&
-          line.includes('operations') &&
-          line.includes('bandwidth')
-        ) {
+        if (isZFSIOStatCycleHeader(line)) {
           // Write complete cycle
           if (currentCycle.length > 0) {
             const t0Write = performance.now();
@@ -163,9 +159,6 @@ export class ZFSCollector extends BaseCollector {
         const iostat = parseZFSIOStat(line);
         if (!iostat) continue;
 
-        const statsWithRates = this.calculator.calculate(iostat.name, iostat);
-        statsWithRates.timestamp = agentTimestamp;
-
         let hostId: string;
         try {
           const parsedAgentUrl = new URL(this.host.agentUrl);
@@ -173,10 +166,10 @@ export class ZFSCollector extends BaseCollector {
         } catch {
           hostId = this.host.agentUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
         }
-        const { path: entityPath, pool, entityType, ctx: newCtx } = buildEntityPath(statsWithRates, hierarchyCtx);
+        const { path: entityPath, pool, entityType, ctx: newCtx } = buildEntityPath(iostat, hierarchyCtx);
         hierarchyCtx = newCtx;
 
-        currentCycle.push(toZFSStatsRow(statsWithRates, this.host.name, `${hostId}/${entityPath}`, pool, entityType));
+        currentCycle.push(toNewZFSStat(iostat, agentTimestamp, this.host.name, `${hostId}/${entityPath}`, pool, entityType));
       }
     } finally {
       // Write final cycle

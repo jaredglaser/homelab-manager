@@ -1,6 +1,29 @@
 import { describe, it, expect } from 'bun:test';
-import { parseZFSIOStat, ZFSIOStatParser } from '../zfs-iostat-parser';
+import { parseZFSIOStat, isZFSIOStatCycleHeader, ZFSIOStatParser } from '../zfs-iostat-parser';
 import type { ZFSIOStatRaw } from '@/types/zfs';
+
+describe('isZFSIOStatCycleHeader', () => {
+  it('should detect the capacity/operations/bandwidth header line', () => {
+    expect(isZFSIOStatCycleHeader('              capacity     operations     bandwidth')).toBe(true);
+  });
+
+  it('should detect the header line regardless of leading whitespace', () => {
+    expect(isZFSIOStatCycleHeader('capacity operations bandwidth')).toBe(true);
+  });
+
+  it('should not match a data line', () => {
+    expect(isZFSIOStatCycleHeader('tank        1.81T  2.19T     10     20   100K   200K')).toBe(false);
+  });
+
+  it('should not match the second header line (pool/alloc/free)', () => {
+    expect(isZFSIOStatCycleHeader('pool        alloc   free   read  write   read  write')).toBe(false);
+  });
+
+  it('should not match when only some of the three keywords are present', () => {
+    expect(isZFSIOStatCycleHeader('capacity bandwidth')).toBe(false);
+    expect(isZFSIOStatCycleHeader('operations bandwidth')).toBe(false);
+  });
+});
 
 describe('parseIOStatValue (via parseZFSIOStat)', () => {
   it('should parse values without units', () => {
