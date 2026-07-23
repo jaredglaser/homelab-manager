@@ -41,10 +41,8 @@ interface UseTimeSeriesStreamResult<TRow> {
 /**
  * Time-windowed stream that preloads historical rows and merges subsequent SSE updates.
  * Composes the buffer, visibility refresh, and latest-by-entity sub-hooks; owns preload,
- * periodic refresh, and stale detection. Layers on `useSseChannel` for the live half, so
- * SSE messages arrive already validated and revived (see `channel.revive`); the raw
- * `preloadFn`/`initialData` results are revived here, once, so both paths land on
- * identical row shapes before either reaches the shared buffer.
+ * periodic refresh, and stale detection. `preloadFn`/`initialData` are revived here via
+ * `channel.revive` so they land on the same row shape SSE messages already arrive in.
  *
  * @param options.channel - Channel descriptor for the stats SSE endpoint (`src/lib/sse/channels/*.ts`).
  * @param options.preloadFn - Fetches historical rows (e.g. bucketed history) to seed the buffer.
@@ -195,12 +193,9 @@ export function useTimeSeriesStream<TSchema extends z.ZodType<unknown[]>, TRow>(
     lastRefreshRef,
   });
 
-  // SSE carries snapshots without Last-Event-ID replay, so rows emitted while the
-  // connection was down are lost. Re-preload on reconnect to heal the gap instead
-  // of waiting for the periodic refresh or a visibility change (up to a minute).
+  // SSE has no Last-Event-ID replay, so rows lost while disconnected need a re-preload.
   const onReconnect = useCallback(() => {
-    // Re-arm the first-flush gate (onReconnect runs in onopen, before onmessage)
-    // so the first frame paints at once even when the cooldown skips the refresh.
+    // Re-arm the first-flush gate so the first frame paints even when the cooldown skips the refresh.
     resetFirstFlush();
     if (Date.now() - lastRefreshRef.current < VISIBILITY_REFRESH_COOLDOWN_MS) return;
     doRefreshRef.current().catch(() => {});

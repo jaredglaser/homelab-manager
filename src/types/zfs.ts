@@ -71,12 +71,7 @@ export interface ZFSStatsRow {
   utilization_percent: number | null;
 }
 
-/**
- * `ZFSStatsRow` after the zfs-stats channel boundary revives `time` from the
- * wire's ISO string to an epoch-ms number (see `lib/sse/channels/zfs-stats.ts`).
- * The live dashboard (`routes/zfs.tsx` and everything fed by its `useTimeSeriesStream`
- * output) works with this shape; only the wire/DB layer still sees the raw `string | Date`.
- */
+/** `ZFSStatsRow` after the zfs-stats channel boundary revives `time` to an epoch-ms number (see `lib/sse/channels/zfs-stats.ts`). */
 export type ZFSStatsRowRevived = Omit<ZFSStatsRow, 'time'> & { time: number };
 
 /**

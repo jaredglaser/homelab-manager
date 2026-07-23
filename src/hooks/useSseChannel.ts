@@ -9,11 +9,7 @@ export interface UseSseChannelOptions<TRevived> {
   onData: (data: TRevived) => void;
   /** Fired on open after a prior connection failure; see `useEventSource`'s `onReconnect`. */
   onReconnect?: () => void;
-  /**
-   * Fired when the server emits this channel's named error event (a data-source
-   * failure, not a socket-level connection error). Use for side effects beyond
-   * the `error` this hook already returns, e.g. logging.
-   */
+  /** Fired when the server emits this channel's named error event (not a socket-level connection error). */
   onServiceError?: () => void;
   /** Message for the `Error` this hook surfaces when the server-side error event fires. */
   serviceErrorMessage?: string;
@@ -25,18 +21,7 @@ export interface UseSseChannelResult {
   error: Error | null;
 }
 
-/**
- * Typed channel layer on top of `useEventSource`'s socket core. Owns the
- * pieces every consumer hook used to reassemble by hand: parsing the raw SSE
- * payload against the channel's schema, running its `revive` step once, and
- * tracking "the server told us this channel failed" as state (cleared on the
- * next valid message, composed with the socket-level `error` `useEventSource`
- * surfaces after repeated connection failures).
- *
- * `useEventSource` itself is untouched: this hook is a consumer of it, not a
- * replacement, so its reconnect/backoff/visibility lifecycle stays exactly
- * where issue #335 will extract it from.
- */
+/** Typed channel layer on `useEventSource`: schema-validates + revives each message, and owns service-error state so consumer hooks don't each reassemble it. */
 export function useSseChannel<TSchema extends z.ZodTypeAny, TRevived>(
   channel: SseChannelDescriptor<TSchema, TRevived>,
   options: UseSseChannelOptions<TRevived>,

@@ -13,12 +13,7 @@ export interface UseDockerInventoryResult {
   error: Error | null;
 }
 
-/**
- * Merge an upsert (labels-less) into the existing entry's labels (if present),
- * or fall back to an empty label map for brand-new containers. An upsert for
- * a container that exists in `init` preserves its labels; an upsert for one
- * not yet seen leaves labels empty until the next init / snapshot fetch.
- */
+/** Upsert frames omit labels; preserve the existing entry's labels, or empty for a container not yet seen. */
 function mergeUpsert(
   prev: DockerInventorySnapshotContainer | undefined,
   update: DockerInventoryUpdateContainer,

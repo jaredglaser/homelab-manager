@@ -1,25 +1,16 @@
 import { createSseStream } from '@/lib/sse/create-sse-stream';
 import type { StatsSource } from '@/lib/database/subscription-service';
 
-/**
- * Minimal shape this factory needs from a stats channel descriptor
- * (`src/lib/sse/channels/*.ts`). Structural, not the full `SseChannelDescriptor`,
- * so this module doesn't have to import zod just to read one field: the
- * route file passes the whole descriptor and TS accepts it by shape.
- */
+// Structural, not the full SseChannelDescriptor, so this module doesn't need to import zod.
 interface StatsChannel {
-  /** Named SSE event this handler emits when `statsPollService.subscribe` fails. Sourced from the channel descriptor so it can never drift from the client's `errorEventName`. */
   errorEvent: string;
 }
 
 /**
- * Factory for stats SSE route handlers.
- * All three stats endpoints (docker, zfs, proxmox) share identical logic;
- * only the source string and channel descriptor differ. Wire mechanics
- * (headers, flush, heartbeat, abort teardown) live in `createSseStream`;
- * StatsPollService only pushes rows when it has new ones, so before the
- * shared heartbeat this stream stayed silent (past idle timeouts) whenever
- * the worker was down.
+ * Factory for stats SSE route handlers (docker/zfs/proxmox share identical logic; only
+ * the source and channel descriptor differ). StatsPollService only pushes rows when it
+ * has new ones, so without the shared heartbeat in `createSseStream` this stream stayed
+ * silent (past idle timeouts) whenever the worker was down.
  */
 export function createStatsSseHandler(source: StatsSource, channel: StatsChannel) {
   return async ({ request }: { request: Request }) => {

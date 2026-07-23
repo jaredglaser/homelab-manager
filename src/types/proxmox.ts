@@ -184,12 +184,7 @@ export interface ProxmoxStatsRow {
   cluster_version: number | null;
 }
 
-/**
- * `ProxmoxStatsRow` after the proxmox-stats channel boundary revives `time` from
- * the wire's ISO string to an epoch-ms number (see `lib/sse/channels/proxmox-stats.ts`).
- * The live dashboard (`routes/proxmox.tsx` and everything fed by its `useTimeSeriesStream`
- * output) works with this shape; only the wire/DB layer still sees the raw `string | Date`.
- */
+/** `ProxmoxStatsRow` after the proxmox-stats channel boundary revives `time` to an epoch-ms number (see `lib/sse/channels/proxmox-stats.ts`). */
 export type ProxmoxStatsRowRevived = Omit<ProxmoxStatsRow, 'time'> & { time: number };
 
 /** Aggregated cluster overview for the dashboard */
