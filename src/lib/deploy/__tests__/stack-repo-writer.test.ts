@@ -20,10 +20,6 @@ async function seedRepo(repoPath: string, files: Array<{ path: string; content: 
   }));
 }
 
-// Behavior of the underlying remove-stack-from-manifest sequence (idempotency,
-// deleting stack files, missing-manifest errors) is covered once in
-// stack-repo-layout.test.ts. These tests only confirm the StackRepoWriter port
-// wires that shared implementation to the configured repo.
 describe('createStackRepoWriter', () => {
   let testDir: string;
   let repoPath: string;
