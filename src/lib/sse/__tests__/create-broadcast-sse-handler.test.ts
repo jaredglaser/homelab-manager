@@ -9,9 +9,17 @@ type Event = { n: number };
 
 function setup(serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(e)}\n\n`) {
   let captured: ((event: Event) => void) | null = null;
-  const unsubscribe = mock(() => {});
+  let markSubscribed = () => {};
+  let markUnsubscribed = () => {};
+  // createSseStream runs onStart (loadSubscribe + subscribe) inside the stream's async
+  // start(), so tests wait on these instead of a timer to know when the subscription is
+  // live and when abort teardown has called unsubscribe.
+  const subscribed = new Promise<void>((resolve) => { markSubscribed = resolve; });
+  const unsubscribed = new Promise<void>((resolve) => { markUnsubscribed = resolve; });
+  const unsubscribe = mock(() => markUnsubscribed());
   const subscribe = mock((cb: (event: Event) => void) => {
     captured = cb;
+    markSubscribed();
     return unsubscribe;
   });
 
@@ -25,6 +33,8 @@ function setup(serialize: (e: Event) => string = (e) => `data: ${JSON.stringify(
     handler,
     subscribe,
     unsubscribe,
+    subscribed,
+    unsubscribed,
     emit: (e: Event) => captured?.(e),
   };
 }
@@ -93,10 +103,11 @@ describe('createBroadcastSseHandler', () => {
     reader.cancel();
   });
 
-  it('emits comment heartbeats on the interval to keep idle streams warm', async () => {
+  it('emits comment heartbeats on the shared 5s cadence to keep idle streams warm', async () => {
     let heartbeatFn: (() => void) | null = null;
-    const intervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void) => {
+    const intervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(((fn: () => void, ms: number) => {
       heartbeatFn = fn;
+      expect(ms).toBe(5000); // the cadence now comes only from createSseStream's default
       return 123 as unknown as ReturnType<typeof setInterval>;
     }) as typeof setInterval);
     const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(() => {});
@@ -147,21 +158,25 @@ describe('createBroadcastSseHandler', () => {
   });
 
   it('unsubscribes when the request aborts', async () => {
-    const { handler, unsubscribe } = setup();
+    const { handler, unsubscribe, subscribed, unsubscribed } = setup();
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
+    await subscribed;
     ac.abort();
+    await unsubscribed;
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
   it('drops events emitted after abort without throwing', async () => {
-    const { handler, emit } = setup();
+    const { handler, emit, subscribed, unsubscribed } = setup();
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
+    await subscribed;
     ac.abort();
+    await unsubscribed;
 
     expect(() => emit({ n: 99 })).not.toThrow();
   });
