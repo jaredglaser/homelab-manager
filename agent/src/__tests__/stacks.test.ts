@@ -1,6 +1,7 @@
 import { describe, expect, test, mock, beforeAll, beforeEach, afterEach } from 'bun:test';
 import {
   handleStackDeploy,
+  handleStackUpdate,
   handleStackTeardown,
   handleStackRestart,
   handleStackStart,
@@ -329,6 +330,46 @@ describe('handleStackDeploy: subprocess timeout', () => {
     expect(result.status).toBe('failed');
     expect(result.stderr).toContain('timed out');
   });
+
+  test('reports the actual COMPOSE_TIMEOUT_MS default when timeoutMs is not overridden', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const capturedDelays: number[] = [];
+    (globalThis as any).setTimeout = (cb: () => void, delay: number) => {
+      capturedDelays.push(delay);
+      cb();
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    };
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const body = {
+      stack: 'slow',
+      composeContent: 'services:\n  slow:\n    image: nginx',
+    };
+
+    const request = new Request('http://localhost/stacks/deploy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    try {
+      const response = await handleStackDeploy(request, TEST_STACKS_DIR, hangingSpawn as any);
+      const result = await response.json();
+
+      expect(capturedDelays).toEqual([300_000]);
+      expect(response.status).toBe(500);
+      expect(result.stderr).toContain('timed out after 300s');
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
+  });
 });
 
 describe('handleStackDeploy: spawn failure', () => {
@@ -351,6 +392,250 @@ describe('handleStackDeploy: spawn failure', () => {
     const result = await response.json();
     expect(result.error).toContain('Failed to execute docker compose');
     expect(result.error).toContain('docker: not found');
+  });
+});
+
+const streamOf = (text: string) =>
+  new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(text)); c.close(); } });
+
+describe('handleStackUpdate', () => {
+  test('writes files then pulls with --ignore-buildable before running up -d --remove-orphans', async () => {
+    const mockSpawn = mock(() => ({
+      exited: Promise.resolve(0),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+    }));
+
+    const body = {
+      stack: 'plex',
+      composeContent: 'services:\n  plex:\n    image: plexinc/pms-docker',
+      envContent: 'PLEX_CLAIM=claim-abc123',
+    };
+
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackUpdate(request, TEST_STACKS_DIR, mockSpawn as any);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.status).toBe('success');
+
+    const composePath = join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml');
+    expect(existsSync(composePath)).toBe(true);
+    expect(readFileSync(composePath, 'utf-8')).toBe(body.composeContent);
+
+    const envPath = join(TEST_STACKS_DIR, 'plex', '.env');
+    expect(existsSync(envPath)).toBe(true);
+    expect(readFileSync(envPath, 'utf-8')).toBe(body.envContent);
+
+    const stackDir = join(TEST_STACKS_DIR, 'plex');
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    expect((mockSpawn.mock.calls[0] as any)[0]).toEqual(
+      expect.objectContaining({
+        cmd: ['docker', 'compose', '-f', composePath, 'pull', '--ignore-buildable'],
+        cwd: stackDir,
+        env: expect.objectContaining({ COMPOSE_PROJECT_NAME: 'plex' }),
+      })
+    );
+    expect((mockSpawn.mock.calls[1] as any)[0]).toEqual(
+      expect.objectContaining({
+        cmd: ['docker', 'compose', '-f', composePath, 'up', '-d', '--remove-orphans'],
+        cwd: stackDir,
+        env: expect.objectContaining({ COMPOSE_PROJECT_NAME: 'plex' }),
+      })
+    );
+  });
+
+  test('ignores forceRecreate entirely: up never receives --force-recreate', async () => {
+    const mockSpawn = mock(() => ({
+      exited: Promise.resolve(0),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+    }));
+
+    const body = {
+      stack: 'plex',
+      composeContent: 'services:\n  plex:\n    image: nginx',
+      forceRecreate: true,
+    };
+
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackUpdate(request, TEST_STACKS_DIR, mockSpawn as any);
+    expect(response.status).toBe(200);
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+    const upCall = (mockSpawn.mock.calls[1] as any)[0] as { cmd: string[] };
+    expect(upCall.cmd).toEqual(['docker', 'compose', '-f', join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), 'up', '-d', '--remove-orphans']);
+  });
+
+  test('pull failure returns failed response with pull stderr and never spawns up', async () => {
+    const mockSpawn = mock(() => ({
+      exited: Promise.resolve(1),
+      stdout: emptyStream(),
+      stderr: streamOf('Error: pull access denied for private-image'),
+    }));
+
+    const body = { stack: 'plex', composeContent: 'services:\n  plex:\n    image: private-image' };
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackUpdate(request, TEST_STACKS_DIR, mockSpawn as any);
+    const result = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stderr).toContain('pull access denied');
+    expect(mockSpawn).toHaveBeenCalledTimes(1);
+  });
+
+  test('pull success followed by up failure returns failed with combined pull and up output', async () => {
+    let call = 0;
+    const mockSpawn = mock(() => {
+      call += 1;
+      if (call === 1) {
+        return {
+          exited: Promise.resolve(0),
+          stdout: streamOf('pulled nginx\n'),
+          stderr: emptyStream(),
+        };
+      }
+      return {
+        exited: Promise.resolve(1),
+        stdout: emptyStream(),
+        stderr: streamOf('Error: port already in use'),
+      };
+    });
+
+    const body = { stack: 'plex', composeContent: 'services:\n  plex:\n    image: nginx' };
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackUpdate(request, TEST_STACKS_DIR, mockSpawn as any);
+    const result = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(result.status).toBe('failed');
+    expect(result.stdout).toContain('pulled nginx');
+    expect(result.stderr).toContain('port already in use');
+    expect(mockSpawn).toHaveBeenCalledTimes(2);
+  });
+
+  test('full success concatenates pull and up stdout', async () => {
+    let call = 0;
+    const mockSpawn = mock(() => {
+      call += 1;
+      const text = call === 1 ? 'pulling nginx...\n' : 'starting nginx...\n';
+      return {
+        exited: Promise.resolve(0),
+        stdout: streamOf(text),
+        stderr: emptyStream(),
+      };
+    });
+
+    const body = { stack: 'plex', composeContent: 'services:\n  plex:\n    image: nginx' };
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const response = await handleStackUpdate(request, TEST_STACKS_DIR, mockSpawn as any);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.status).toBe('success');
+    expect(result.stdout).toBe('pulling nginx...\nstarting nginx...\n');
+  });
+
+  test('returns 400 for invalid JSON body', async () => {
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not json',
+    });
+
+    const response = await handleStackUpdate(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    const result = await response.json();
+    expect(result.error).toStartWith('Invalid JSON:');
+  });
+
+  test('rejects invalid stack names', async () => {
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: 'bad name!', composeContent: 'services: {}' }),
+    });
+
+    const response = await handleStackUpdate(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    expect(successSpawn).not.toHaveBeenCalled();
+  });
+
+  test('rejects stack names with path traversal', async () => {
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stack: '../../etc', composeContent: 'services: {}' }),
+    });
+
+    const response = await handleStackUpdate(request, TEST_STACKS_DIR, successSpawn as any);
+    expect(response.status).toBe(400);
+    expect(successSpawn).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleStackUpdate: subprocess timeout', () => {
+  test('pull timeout uses PULL_TIMEOUT_MS by default and reports it in seconds; up never spawned', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const capturedDelays: number[] = [];
+    (globalThis as any).setTimeout = (cb: () => void, delay: number) => {
+      capturedDelays.push(delay);
+      cb();
+      return 1 as unknown as ReturnType<typeof setTimeout>;
+    };
+
+    let resolveExited: (code: number) => void;
+    const hangingSpawn = mock(() => ({
+      exited: new Promise<number>((resolve) => { resolveExited = resolve; }),
+      stdout: emptyStream(),
+      stderr: emptyStream(),
+      kill: mock(() => { resolveExited(137); }),
+    }));
+
+    const body = { stack: 'slow', composeContent: 'services:\n  slow:\n    image: nginx' };
+    const request = new Request('http://localhost/stacks/update', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    try {
+      const response = await handleStackUpdate(request, TEST_STACKS_DIR, hangingSpawn as any);
+      const result = await response.json();
+
+      expect(capturedDelays).toEqual([600_000]);
+      expect(response.status).toBe(500);
+      expect(result.status).toBe('failed');
+      expect(result.stderr).toContain('timed out after 600s');
+      expect(hangingSpawn).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+    }
   });
 });
 

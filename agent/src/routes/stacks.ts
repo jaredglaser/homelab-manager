@@ -6,6 +6,9 @@ const VALID_SERVICE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 const MAX_COMPOSE_SIZE_BYTES = 1_048_576; // 1 MB
 const MAX_ENV_SIZE_BYTES = 65_536; // 64 KB
 const COMPOSE_TIMEOUT_MS = 300_000; // 5 minutes
+// Pull is unbounded by image cache size, so it gets its own, longer budget
+// separate from the `up` budget below.
+const PULL_TIMEOUT_MS = 600_000; // 10 minutes
 
 /** Extract explicit `container_name` values from a compose YAML string. */
 export function parseContainerNames(composeContent: string): string[] {
@@ -156,7 +159,7 @@ async function runComposeControl(
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  return composeResultToResponse(result);
+  return composeResultToResponse(result, timeoutMs);
 }
 
 /**
@@ -240,11 +243,13 @@ function writeStackFiles(
 
 /**
  * Convert a SpawnResult into an appropriate HTTP Response.
+ *
+ * @param timeoutMs - The timeout budget the caller actually ran the process with, used to word the timeout message.
  */
-function composeResultToResponse(result: SpawnResult): Response {
+function composeResultToResponse(result: SpawnResult, timeoutMs: number = COMPOSE_TIMEOUT_MS): Response {
   if (result.timedOut) {
     return Response.json(
-      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${COMPOSE_TIMEOUT_MS / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
+      { status: 'failed', exitCode: result.exitCode, stderr: `Process timed out after ${timeoutMs / 1000}s. ${result.stderr}`.trim(), stdout: result.stdout },
       { status: 500 }
     );
   }
@@ -362,7 +367,89 @@ export async function handleStackDeploy(
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  return composeResultToResponse(result);
+  return composeResultToResponse(result, timeoutMs);
+}
+
+/**
+ * Updates a Docker Compose stack by pulling fresh images and recreating changed services.
+ *
+ * Unlike {@link handleStackDeploy}, this always pulls first so a same-tag image refresh
+ * (e.g. `nginx:latest`) actually picks up new content; a failed or timed-out pull aborts
+ * before `up` runs so a partial image set is never applied.
+ *
+ * @param pullTimeoutMs - Timeout budget for the pull step, tracked separately from `timeoutMs` since pull time isn't bounded by image cache size.
+ * @param timeoutMs - Timeout budget for the `up` step.
+ */
+export async function handleStackUpdate(
+  request: Request,
+  stacksDir: string,
+  spawn: SpawnFn = Bun.spawn,
+  pullTimeoutMs: number = PULL_TIMEOUT_MS,
+  timeoutMs: number = COMPOSE_TIMEOUT_MS,
+): Promise<Response> {
+  const parsed = await parseDeployBody(request);
+  if (parsed instanceof Response) return parsed;
+
+  const stackDir = join(stacksDir, parsed.stack);
+  if (!isContainedInDir(stacksDir, stackDir)) {
+    return Response.json({ error: 'Invalid stack path' }, { status: 400 });
+  }
+
+  try {
+    writeStackFiles(stackDir, parsed.composeContent, parsed.envContent);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to write stack files for ${parsed.stack}:`, error);
+    return Response.json({ error: `Failed to write stack files: ${msg}` }, { status: 500 });
+  }
+
+  const composePath = join(stackDir, 'docker-compose.yml');
+  const composeEnv = { ...process.env, COMPOSE_PROJECT_NAME: parsed.stack };
+
+  let pullResult: SpawnResult;
+  try {
+    // --ignore-buildable so stacks with build: sections or locally-built images
+    // don't hard-fail the update; --ignore-pull-failures is deliberately not used
+    // since a partial pull must not be followed by `up`.
+    pullResult = await spawnWithTimeout(spawn, {
+      cmd: ['docker', 'compose', '-f', composePath, 'pull', '--ignore-buildable'],
+      cwd: stackDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: composeEnv,
+    }, pullTimeoutMs);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to execute docker compose pull for ${parsed.stack}:`, error);
+    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+  }
+
+  if (pullResult.timedOut || pullResult.exitCode !== 0) {
+    return composeResultToResponse(pullResult, pullTimeoutMs);
+  }
+
+  let upResult: SpawnResult;
+  try {
+    upResult = await spawnWithTimeout(spawn, {
+      cmd: ['docker', 'compose', '-f', composePath, 'up', '-d', '--remove-orphans'],
+      cwd: stackDir,
+      stdout: 'pipe',
+      stderr: 'pipe',
+      env: composeEnv,
+    }, timeoutMs);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to execute docker compose for ${parsed.stack}:`, error);
+    return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
+  }
+
+  const combined: SpawnResult = {
+    exitCode: upResult.exitCode,
+    timedOut: upResult.timedOut,
+    stdout: pullResult.stdout + upResult.stdout,
+    stderr: pullResult.stderr + upResult.stderr,
+  };
+  return composeResultToResponse(combined, timeoutMs);
 }
 
 /**
@@ -426,7 +513,7 @@ export async function handleStackTeardown(
     return Response.json({ error: `Failed to execute docker compose: ${msg}` }, { status: 500 });
   }
 
-  return composeResultToResponse(result);
+  return composeResultToResponse(result, timeoutMs);
 }
 
 export async function handleStackRestart(
