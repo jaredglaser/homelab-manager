@@ -35,7 +35,7 @@ describe('useStackStatus', () => {
       es.onopen?.();
       es.onmessage?.({
         data: JSON.stringify([
-          { stack: 'plex', host: 'server1', containers: [{ id: 'abc', name: 'plex', status: 'running', image: 'plexinc/pms-docker' }], updated_at: '2026-03-21T00:00:00Z' },
+          { stack: 'plex', host: 'server1', containers: [{ id: 'abc', name: 'plex', status: 'running', image: 'plexinc/pms-docker', service: null }], updated_at: '2026-03-21T00:00:00Z' },
           { stack: 'traefik', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' },
         ]),
       });
@@ -64,7 +64,7 @@ describe('useStackStatus', () => {
     const { result } = renderHook(() => useStackStatus());
     const es = MockEventSource.instances[0];
 
-    const entry = [{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'running', image: 'img' }], updated_at: '2026-03-21T00:00:00Z' }];
+    const entry = [{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'running', image: 'img', service: null }], updated_at: '2026-03-21T00:00:00Z' }];
 
     act(() => {
       es.onopen?.();
@@ -87,7 +87,7 @@ describe('useStackStatus', () => {
     act(() => {
       es.onopen?.();
       es.onmessage?.({
-        data: JSON.stringify([{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'running', image: 'img' }], updated_at: '2026-03-21T00:00:00Z' }]),
+        data: JSON.stringify([{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'running', image: 'img', service: null }], updated_at: '2026-03-21T00:00:00Z' }]),
       });
     });
 
@@ -95,7 +95,7 @@ describe('useStackStatus', () => {
 
     act(() => {
       es.onmessage?.({
-        data: JSON.stringify([{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'exited', image: 'img' }], updated_at: '2026-03-21T00:00:01Z' }]),
+        data: JSON.stringify([{ stack: 'plex', host: 'server1', containers: [{ id: 'a', name: 'plex', status: 'exited', image: 'img', service: null }], updated_at: '2026-03-21T00:00:01Z' }]),
       });
     });
 

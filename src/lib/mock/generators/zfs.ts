@@ -12,7 +12,6 @@ import { ZFS_ENTITIES } from '@/lib/mock/entities';
  */
 export function generateZFSSnapshot(time: Date): ZFSStatsRow[] {
   const timeMs = time.getTime();
-  const timeStr = time.toISOString();
 
   return ZFS_ENTITIES.map((e) => {
     // Pool-level key drives the shared activity state - all disks/vdevs in a pool
@@ -22,7 +21,7 @@ export function generateZFSSnapshot(time: Date): ZFSStatsRow[] {
     const m = generateActivityMetrics(timeMs, activityKey, noiseKey, e.activity);
 
     return {
-      time: timeStr,
+      time: timeMs,
       host: e.host,
       pool: e.pool,
       entity: e.entity,

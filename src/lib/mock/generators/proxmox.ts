@@ -12,14 +12,13 @@ const UPTIME_REFERENCE_MS = Date.now();
  */
 export function generateProxmoxSnapshot(time: Date): ProxmoxStatsRow[] {
   const timeMs = time.getTime();
-  const timeStr = time.toISOString();
   const elapsedSeconds = Math.max(0, Math.floor((timeMs - UPTIME_REFERENCE_MS) / 1000));
 
   return PROXMOX_ENTITIES.map((e) => {
     const entityKey = `${e.host}/${e.entityId}`;
 
     return {
-      time: timeStr,
+      time: timeMs,
       host: e.host,
       entity_type: e.entityType,
       node: e.node,

@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { createBroadcastSseHandler } from '@/lib/sse/create-broadcast-sse-handler';
+import { stackStatusChannel } from '@/lib/sse/channels/stack-status';
 import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 export const Route = createFileRoute('/api/stack-status')({
@@ -20,7 +21,7 @@ export const Route = createFileRoute('/api/stack-status')({
           }
           return `data: ${JSON.stringify(event.entries)}\n\n`;
         },
-        errorEvent: 'stack_status_error',
+        errorEvent: stackStatusChannel.errorEvent,
       }),
     },
   },

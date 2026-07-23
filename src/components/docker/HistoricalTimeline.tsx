@@ -41,7 +41,7 @@ export default memo(function HistoricalTimeline({
   const activeMetricConfig = TIMELINE_METRICS.find((m) => m.key === timelineMetric)!;
 
   const seriesData = useMemo<[number, number][]>(
-    () => timelineData.map((row) => [new Date(row.time).getTime(), activeMetricConfig.extract(row)]),
+    () => timelineData.map((row) => [row.time, activeMetricConfig.extract(row)]),
     [timelineData, activeMetricConfig],
   );
 

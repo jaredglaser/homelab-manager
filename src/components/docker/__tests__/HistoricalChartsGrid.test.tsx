@@ -27,7 +27,7 @@ const { default: HistoricalChartsGrid } = await import('@/components/docker/Hist
 
 function makeRow(overrides: Partial<DockerStatsRow> = {}): DockerStatsRow {
   return {
-    time: '2024-01-01T00:00:00Z',
+    time: Date.parse('2024-01-01T00:00:00Z'),
     host: 'server',
     container_id: 'abc123',
     container_name: 'nginx',
@@ -45,8 +45,8 @@ function makeRow(overrides: Partial<DockerStatsRow> = {}): DockerStatsRow {
 }
 
 const sampleData: DockerStatsRow[] = [
-  makeRow({ time: '2024-01-01T00:00:00Z' }),
-  makeRow({ time: '2024-01-01T00:00:01Z', cpu_percent: 30 }),
+  makeRow({ time: Date.parse('2024-01-01T00:00:00Z') }),
+  makeRow({ time: Date.parse('2024-01-01T00:00:01Z'), cpu_percent: 30 }),
 ];
 
 function renderGrid(overrides: Partial<ComponentProps<typeof HistoricalChartsGrid>> = {}) {

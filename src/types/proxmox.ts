@@ -160,7 +160,8 @@ export type GuestRow = {
 
 /** Wide row from proxmox_stats hypertable */
 export interface ProxmoxStatsRow {
-  time: string | Date;
+  /** Epoch ms, converted at the repository read path */
+  time: number;
   host: string;
   entity_type: 'cluster' | 'node' | 'qemu' | 'lxc' | 'storage';
   node: string | null;

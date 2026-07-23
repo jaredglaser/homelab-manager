@@ -28,7 +28,7 @@ function createIntervalHarness() {
   };
 }
 
-function statsRow(time: string) {
+function statsRow(time: number) {
   return { time };
 }
 
@@ -87,7 +87,7 @@ describe('StatsPollService', () => {
   });
 
   it('broadcasts all polled rows (including the 200ms overlap) to every subscriber', async () => {
-    loadRows.mockResolvedValue([statsRow(new Date(Date.now() + 60_000).toISOString())]);
+    loadRows.mockResolvedValue([statsRow(Date.now() + 60_000)]);
     const received: unknown[][] = [];
 
     service.subscribe('docker', (rows) => received.push(rows));
@@ -102,7 +102,7 @@ describe('StatsPollService', () => {
   it('does not broadcast when loadRows returns no rows newer than the cursor', async () => {
     // Captured before subscribe() seeds lastPollTime, so this row isn't "newer than" the cursor.
     const beforeSubscribe = new Date();
-    loadRows.mockResolvedValue([statsRow(beforeSubscribe.toISOString())]);
+    loadRows.mockResolvedValue([statsRow(beforeSubscribe.getTime())]);
     const received: unknown[][] = [];
 
     service.subscribe('docker', (rows) => received.push(rows));
@@ -114,7 +114,7 @@ describe('StatsPollService', () => {
   });
 
   it('advances the cursor to the max row time observed, not wall-clock time', async () => {
-    const farFuture = new Date(Date.now() + 5 * 60_000).toISOString();
+    const farFuture = Date.now() + 5 * 60_000;
     loadRows.mockResolvedValueOnce([statsRow(farFuture)]);
     loadRows.mockResolvedValueOnce([]);
 

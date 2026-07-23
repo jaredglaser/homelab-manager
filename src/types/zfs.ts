@@ -56,7 +56,8 @@ export interface ZFSIOStatWithRates extends ZFSIOStatRaw {
 
 /** Wide row from zfs_stats hypertable */
 export interface ZFSStatsRow {
-  time: string | Date;
+  /** Epoch ms, converted at the repository read path */
+  time: number;
   host: string;
   pool: string;
   entity: string;

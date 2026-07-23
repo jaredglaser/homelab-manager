@@ -36,7 +36,7 @@ export default function ZFSPoolSpeedCharts({ rows }: ZFSPoolSpeedChartsProps) {
         poolMap.set(key, points);
       }
       points.push({
-        timestamp: new Date(row.time).getTime(),
+        timestamp: row.time,
         readBytesPerSec: row.read_bytes_per_sec ?? 0,
         writeBytesPerSec: row.write_bytes_per_sec ?? 0,
       });

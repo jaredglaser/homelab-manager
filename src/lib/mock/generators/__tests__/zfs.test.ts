@@ -19,7 +19,7 @@ describe('generateZFSSnapshot', () => {
   it('produces valid ZFSStatsRow shapes', () => {
     const rows = generateZFSSnapshot(time);
     for (const row of rows) {
-      expect(row.time).toBe(time.toISOString());
+      expect(row.time).toBe(time.getTime());
       expect(typeof row.host).toBe('string');
       expect(typeof row.pool).toBe('string');
       expect(typeof row.entity).toBe('string');
@@ -62,9 +62,7 @@ describe('generateZFSHistory', () => {
   it('rows are ordered oldest-first', () => {
     const rows = generateZFSHistory(5);
     for (let i = 1; i < rows.length; i++) {
-      const prevTime = new Date(rows[i - 1].time as string).getTime();
-      const currTime = new Date(rows[i].time as string).getTime();
-      expect(currTime).toBeGreaterThanOrEqual(prevTime);
+      expect(rows[i].time).toBeGreaterThanOrEqual(rows[i - 1].time);
     }
   });
 });

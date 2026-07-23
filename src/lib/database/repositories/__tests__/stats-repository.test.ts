@@ -282,9 +282,10 @@ describe('StatsRepository', () => {
       expect(mockPool.queries[0].params).toEqual([since]);
     });
 
-    it('should return rows from query result', async () => {
+    it('should return rows from query result, converting time to epoch ms', async () => {
+      const rowTime = new Date();
       const mockRows = [{
-        time: new Date(), host: 'h1', container_id: 'c1',
+        time: rowTime, host: 'h1', container_id: 'c1',
         container_name: 'nginx', image: 'nginx:latest',
         cpu_percent: 10, memory_usage: 100, memory_limit: 200,
         memory_percent: 50, network_rx_bytes_per_sec: 0,
@@ -294,7 +295,7 @@ describe('StatsRepository', () => {
       mockPool.pushResult(mockRows);
 
       const result = await repo.getDockerStatsSince(new Date());
-      expect(result).toEqual(mockRows);
+      expect(result).toEqual([{ ...mockRows[0], time: rowTime.getTime() }]);
     });
   });
 
@@ -529,11 +530,12 @@ describe('StatsRepository', () => {
       expect(mockPool.queries[1].params[2]).toBe(2);
     });
 
-    it('should return rows from query result', async () => {
+    it('should return rows from query result, converting time to epoch ms', async () => {
       const from = new Date('2024-01-01T00:00:00Z');
       const to = new Date('2024-01-01T00:05:00Z');
+      const rowTime = new Date();
       const mockRows = [{
-        time: new Date(), host: 'h1', container_id: 'abc123',
+        time: rowTime, host: 'h1', container_id: 'abc123',
         container_name: 'nginx', image: 'nginx:latest',
         cpu_percent: 10, memory_usage: 100, memory_limit: 200,
         memory_percent: 50, network_rx_bytes_per_sec: 0,
@@ -545,7 +547,7 @@ describe('StatsRepository', () => {
       mockPool.pushResult(mockRows);
 
       const result = await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
-      expect(result).toEqual(mockRows);
+      expect(result).toEqual([{ ...mockRows[0], time: rowTime.getTime() }]);
     });
   });
 
@@ -765,9 +767,10 @@ describe('StatsRepository', () => {
       expect(mockPool.queries[0].params).toEqual([since]);
     });
 
-    it('should return rows from query result', async () => {
+    it('should return rows from query result, converting time to epoch ms', async () => {
+      const rowTime = new Date();
       const mockRows = [{
-        time: new Date(), host: 'h', entity_type: 'node' as const,
+        time: rowTime, host: 'h', entity_type: 'node' as const,
         node: 'pve1', entity_id: 'pve1', entity_name: 'pve1',
         status: 'online', cpu: 1, max_cpu: 4,
         mem: null, max_mem: null, disk: null, max_disk: null,
@@ -778,7 +781,7 @@ describe('StatsRepository', () => {
       mockPool.pushResult(mockRows);
 
       const result = await repo.getProxmoxStatsSince(new Date());
-      expect(result).toEqual(mockRows);
+      expect(result).toEqual([{ ...mockRows[0], time: rowTime.getTime() }]);
     });
   });
 
@@ -792,9 +795,10 @@ describe('StatsRepository', () => {
       expect(mockPool.queries[0].params).toEqual([120]);
     });
 
-    it('should return rows from query result', async () => {
+    it('should return rows from query result, converting time to epoch ms', async () => {
+      const rowTime = new Date();
       const mockRows = [{
-        time: new Date(), host: 'h', entity_type: 'cluster' as const,
+        time: rowTime, host: 'h', entity_type: 'cluster' as const,
         node: null, entity_id: 'cluster', entity_name: 'test',
         status: null, cpu: null, max_cpu: null,
         mem: null, max_mem: null, disk: null, max_disk: null,
@@ -805,7 +809,7 @@ describe('StatsRepository', () => {
       mockPool.pushResult(mockRows);
 
       const result = await repo.getProxmoxStatsHistory(60);
-      expect(result).toEqual(mockRows);
+      expect(result).toEqual([{ ...mockRows[0], time: rowTime.getTime() }]);
     });
   });
 

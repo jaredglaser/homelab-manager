@@ -1,8 +1,8 @@
 import type {
   ProxmoxClusterSnapshot,
   ProxmoxResource,
-  ProxmoxStatsRow,
 } from '@/types/proxmox';
+import type { NewProxmoxStat } from '@/lib/database/repositories/stats-repository';
 
 /**
  * Map a guest resource (qemu or lxc) from /cluster/resources to a stats row.
@@ -13,7 +13,7 @@ function guestToRow(
   entityType: 'qemu' | 'lxc',
   host: string,
   now: Date,
-): ProxmoxStatsRow {
+): NewProxmoxStat {
   return {
     time: now,
     host,
@@ -41,21 +41,21 @@ function guestToRow(
 }
 
 /**
- * Convert a ProxmoxClusterSnapshot into a flat array of ProxmoxStatsRow, producing one row for the cluster and one row per node, VM, container, and storage.
+ * Convert a ProxmoxClusterSnapshot into a flat array of insert rows, producing one row for the cluster and one row per node, VM, container, and storage.
  *
  * Entity IDs are stable (cluster=name, node=node name, qemu/lxc=String(vmid),
  * storage=node/name) so rows join to existing hypertable history.
  *
  * @param snapshot - Cluster snapshot from ProxmoxClient.getClusterSnapshot()
  * @param host - Host identifier to set on every produced row
- * @returns An array of ProxmoxStatsRow: the first element is the cluster row, followed by node rows, VM rows (entity_type 'qemu'), container rows (entity_type 'lxc'), and storage rows
+ * @returns An array of insert rows: the first element is the cluster row, followed by node rows, VM rows (entity_type 'qemu'), container rows (entity_type 'lxc'), and storage rows
  */
 export function snapshotToRows(
   snapshot: ProxmoxClusterSnapshot,
   host: string,
-): ProxmoxStatsRow[] {
+): NewProxmoxStat[] {
   const now = new Date();
-  const rows: ProxmoxStatsRow[] = [];
+  const rows: NewProxmoxStat[] = [];
 
   const nodes: ProxmoxResource[] = [];
   const vms: ProxmoxResource[] = [];

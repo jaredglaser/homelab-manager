@@ -1,10 +1,8 @@
 import { apiUrl } from '@/lib/utils/api-url';
+import { createReconnectingEventSource, type ReconnectingEventSourceHandle } from '@/lib/streaming/reconnecting-event-source';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
-const BASE_BACKOFF_MS = 1_000;
-const MAX_BACKOFF_MS = 16_000;
-// Matches xterm scrollback (2000 lines): a late-joining subscriber gets
-// the same view that the terminal can display.
+// Matches xterm scrollback: a late-joining subscriber sees what the terminal can display.
 const BUFFER_MAX_LINES = 2_000;
 
 export interface LogLine {
@@ -30,24 +28,20 @@ export interface SubscribeOptions {
 class LogStream {
   private readonly subscribers = new Set<LogStreamSubscriber>();
   private buffer: LogLine[] = [];
-  private eventSource: EventSource | null = null;
-  private reconnectAttempts = 0;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private handle: ReconnectingEventSourceHandle;
   private streamEnded = false;
   private hasConnected = false;
   private connected = false;
   private error: Error | null = null;
-  private disposed = false;
 
   constructor(private readonly url: string) {
-    this.connect();
+    this.handle = this.connect();
   }
 
   subscribe(subscriber: LogStreamSubscriber): () => void {
     this.subscribers.add(subscriber);
 
-    // Replay buffered lines and current state so a late joiner sees what
-    // earlier subscribers already received.
+    // Replay backlog and current state to the late joiner.
     for (const line of this.buffer) subscriber.onLine(line);
     if (this.connected) subscriber.onConnect();
     if (this.error) subscriber.onError(this.error);
@@ -62,105 +56,75 @@ class LogStream {
   }
 
   dispose(): void {
-    this.disposed = true;
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.eventSource?.close();
-    this.eventSource = null;
+    this.handle.dispose();
     this.subscribers.clear();
     this.buffer = [];
   }
 
-  private connect(): void {
-    if (this.disposed) return;
-    const eventSource = new EventSource(this.url);
-    this.eventSource = eventSource;
-    this.connected = false;
-    this.error = null;
+  private connect(): ReconnectingEventSourceHandle {
+    return createReconnectingEventSource({
+      url: this.url,
+      maxAttempts: MAX_RECONNECT_ATTEMPTS,
+      // 'error' carries the agent's own named payload, separate from the connection-failure onError below.
+      namedEvents: ['backlog_done', 'stream_end', 'error'],
 
-    eventSource.onopen = () => {
-      if (this.disposed) return;
-      this.connected = true;
-      this.error = null;
-      this.reconnectAttempts = 0;
+      onOpen: () => {
+        this.connected = true;
+        this.error = null;
 
-      // On reconnect the agent re-sends the backlog; drop the buffer and ask
-      // subscribers to clear their terminals so the replay doesn't duplicate.
-      if (this.hasConnected) {
-        this.buffer = [];
-        for (const sub of this.subscribers) sub.onClear();
-      }
-      this.hasConnected = true;
+        // Agent re-sends the backlog on reconnect; clear ours first so the replay doesn't duplicate.
+        if (this.hasConnected) {
+          this.buffer = [];
+          for (const sub of this.subscribers) sub.onClear();
+        }
+        this.hasConnected = true;
 
-      for (const sub of this.subscribers) sub.onConnect();
-    };
+        for (const sub of this.subscribers) sub.onConnect();
+      },
 
-    eventSource.onmessage = (event) => {
-      if (this.disposed) return;
-      try {
-        const data = JSON.parse(event.data) as
-          | { lines: LogLine[] }
-          | LogLine;
-        const lines = 'lines' in data ? data.lines : [data];
-        for (const line of lines) this.appendLine(line);
-      } catch (err) {
-        console.error('[log-stream-registry] Failed to parse message:', err instanceof Error ? err.message : String(err), `payloadLength=${String(event.data ?? '').length}`);
-      }
-    };
+      onMessage: (event) => {
+        try {
+          const data = JSON.parse(event.data) as
+            | { lines: LogLine[] }
+            | LogLine;
+          const lines = 'lines' in data ? data.lines : [data];
+          for (const line of lines) this.appendLine(line);
+        } catch (err) {
+          console.error('[log-stream-registry] Failed to parse message:', err instanceof Error ? err.message : String(err), `payloadLength=${String(event.data ?? '').length}`);
+        }
+      },
 
-    // Named events must have listeners or they fall through to onmessage.
-    eventSource.addEventListener('backlog_done', () => {});
+      onNamedEvent: (name, event) => {
+        if (name === 'stream_end') {
+          // Container stopped normally; stop reconnecting since no more logs are coming.
+          this.streamEnded = true;
+          return;
+        }
+        if (name === 'error') {
+          const rawData = (event as unknown as Record<string, unknown>).data;
+          if (typeof rawData !== 'string' || !rawData) return;
+          try {
+            const data = JSON.parse(rawData) as { message?: string; error?: string };
+            const msg = data.message ?? data.error ?? 'Log stream error';
+            this.appendLine({ text: `\x1b[31m[Error] ${msg}\x1b[0m`, stream: 'stderr' });
+          } catch {
+            this.appendLine({ text: '\x1b[31m[Error] Log stream error\x1b[0m', stream: 'stderr' });
+          }
+        }
+      },
 
-    // Agent signals the live follow stream ended cleanly (container stopped);
-    // suppress the reconnect loop since no more logs are coming.
-    eventSource.addEventListener('stream_end', () => {
-      this.streamEnded = true;
-    });
+      onError: () => {
+        this.connected = false;
+        for (const sub of this.subscribers) sub.onDisconnect(this.streamEnded);
+        if (this.streamEnded) return false;
+      },
 
-    // Agent-emitted named error: carries a JSON data payload describing the failure.
-    eventSource.addEventListener('error', (event) => {
-      if (this.disposed) return;
-      const rawData = (event as unknown as Record<string, unknown>).data;
-      if (typeof rawData !== 'string' || !rawData) return;
-      try {
-        const data = JSON.parse(rawData) as { message?: string; error?: string };
-        const msg = data.message ?? data.error ?? 'Log stream error';
-        this.appendLine({ text: `\x1b[31m[Error] ${msg}\x1b[0m`, stream: 'stderr' });
-      } catch {
-        this.appendLine({ text: '\x1b[31m[Error] Log stream error\x1b[0m', stream: 'stderr' });
-      }
-    });
-
-    eventSource.onerror = () => {
-      if (this.disposed) return;
-      this.connected = false;
-      eventSource.close();
-      this.eventSource = null;
-
-      for (const sub of this.subscribers) sub.onDisconnect(this.streamEnded);
-
-      if (this.streamEnded) return;
-
-      if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      onGiveUp: () => {
         const err = new Error('Log stream disconnected after multiple reconnect attempts. Check that the agent for this host is running and the container still exists.');
         this.error = err;
         for (const sub of this.subscribers) sub.onError(err);
-        return;
-      }
-
-      this.reconnectAttempts++;
-      const delay = Math.min(
-        BASE_BACKOFF_MS * 2 ** (this.reconnectAttempts - 1),
-        MAX_BACKOFF_MS,
-      );
-
-      this.reconnectTimer = setTimeout(() => {
-        this.reconnectTimer = null;
-        this.connect();
-      }, delay);
-    };
+      },
+    });
   }
 
   private appendLine(line: LogLine): void {
@@ -172,17 +136,7 @@ class LogStream {
 
 const streams = new Map<string, LogStream>();
 
-/**
- * Subscribe to a container's log stream. Subscribers sharing a (host, containerId)
- * key reuse a single EventSource: the first subscriber starts the stream, late
- * joiners get the buffered backlog replayed, and the stream tears down when the
- * last subscriber unsubscribes.
- *
- * Without this, two ContainerLogViewer instances (e.g. the row's recent-logs
- * panel and the modal viewing the same container) would open duplicate
- * EventSources to the same URL, which can stall under per-origin HTTP/1.1
- * connection limits.
- */
+/** Subscribers sharing a (host, containerId) share one EventSource, avoiding per-origin HTTP/1.1 connection limits. */
 export function subscribeToContainerLogs({ host, containerId, subscriber }: SubscribeOptions): () => void {
   const key = `${host}/${containerId}`;
   let stream = streams.get(key);

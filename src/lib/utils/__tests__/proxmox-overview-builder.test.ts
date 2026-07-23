@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { buildProxmoxOverview } from '../proxmox-overview-builder';
 import { snapshotToRows } from '../proxmox-overview-converter';
 import type { ProxmoxClusterSnapshot, ProxmoxStatsRow } from '@/types/proxmox';
+import type { NewProxmoxStat } from '@/lib/database/repositories/stats-repository';
 
 function createMockSnapshot(): ProxmoxClusterSnapshot {
   return {
@@ -72,11 +73,12 @@ function createMockSnapshot(): ProxmoxClusterSnapshot {
   };
 }
 
-function rowsToLatestMap(rows: ProxmoxStatsRow[]): Map<string, ProxmoxStatsRow> {
+/** Converts `snapshotToRows` insert rows to read rows the same way the repository read path does. */
+function rowsToLatestMap(rawRows: NewProxmoxStat[]): Map<string, ProxmoxStatsRow> {
   const map = new Map<string, ProxmoxStatsRow>();
-  for (const row of rows) {
+  for (const row of rawRows) {
     const key = `${row.entity_type}/${row.entity_id}`;
-    map.set(key, row);
+    map.set(key, { ...row, time: row.time.getTime() });
   }
   return map;
 }
@@ -237,7 +239,7 @@ describe('buildProxmoxOverview', () => {
   it('should return overview with Standalone name when no cluster row', () => {
     // Only a node row, no cluster row
     const nodeRow: ProxmoxStatsRow = {
-      time: new Date(),
+      time: Date.now(),
       host: 'host',
       entity_type: 'node',
       node: 'pve1',
@@ -270,7 +272,7 @@ describe('buildProxmoxOverview', () => {
 
   it('should handle node with zero max_cpu (avoid division by zero)', () => {
     const nodeRow: ProxmoxStatsRow = {
-      time: new Date(),
+      time: Date.now(),
       host: 'host',
       entity_type: 'node',
       node: 'pve1',
@@ -301,7 +303,7 @@ describe('buildProxmoxOverview', () => {
 
   it('should handle storage with zero max_disk', () => {
     const storageRow: ProxmoxStatsRow = {
-      time: new Date(),
+      time: Date.now(),
       host: 'host',
       entity_type: 'storage',
       node: 'pve1',
@@ -326,7 +328,7 @@ describe('buildProxmoxOverview', () => {
     };
 
     const clusterRow: ProxmoxStatsRow = {
-      time: new Date(),
+      time: Date.now(),
       host: 'host',
       entity_type: 'cluster',
       node: null,
@@ -360,7 +362,7 @@ describe('buildProxmoxOverview', () => {
 
   it('should handle rows with null fields gracefully', () => {
     const vmRow: ProxmoxStatsRow = {
-      time: new Date(),
+      time: Date.now(),
       host: 'host',
       entity_type: 'qemu',
       node: null,
@@ -385,7 +387,7 @@ describe('buildProxmoxOverview', () => {
     };
 
     const clusterRow: ProxmoxStatsRow = {
-      time: new Date(),
+      time: Date.now(),
       host: 'host',
       entity_type: 'cluster',
       node: null,

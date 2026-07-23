@@ -6,7 +6,7 @@ import { backoffDelayMs } from '@/lib/utils/backoff';
 export type StatsSource = 'docker' | 'zfs' | 'proxmox';
 /** Minimal shape the poll loop needs; docker/zfs/proxmox rows all satisfy this. */
 interface StatsRow {
-  time: string | Date;
+  time: number;
 }
 type StatsCallback = (rows: unknown[]) => void;
 type StatsErrorCallback = () => void;
@@ -123,13 +123,12 @@ export class StatsPollService {
         this.errorSignalled.delete(source);
 
         // Only rows newer than the last poll: avoids rebroadcasting stale data (breaks the frontend's 30s stale detection).
-        const toMs = (value: string | Date) => new Date(value).getTime();
-        const newRows = rows.filter(r => toMs(r.time) > last.getTime());
+        const newRows = rows.filter(r => r.time > last.getTime());
 
         if (newRows.length > 0) {
           // Cursor advances to the max row time seen, not wall-clock, so late-committing rows aren't skipped.
           const maxSeenTime = rows.reduce(
-            (max, r) => Math.max(max, toMs(r.time)),
+            (max, r) => Math.max(max, r.time),
             last.getTime()
           );
           this.lastPollTime.set(source, new Date(maxSeenTime));

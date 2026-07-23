@@ -6,7 +6,7 @@ import type { MetricType } from '@/components/docker/MetricCheckboxes';
 /** Minimal valid DockerStatsRow with all nullable fields null */
 function makeRow(overrides: Partial<DockerStatsRow> = {}): DockerStatsRow {
   return {
-    time: '2024-01-01T00:00:00.000Z',
+    time: Date.parse('2024-01-01T00:00:00.000Z'),
     host: 'testhost',
     container_id: 'abc123',
     container_name: 'test-container',

@@ -13,7 +13,8 @@ export interface DockerContainer {
 
 /** Wide row from docker_stats hypertable */
 export interface DockerStatsRow {
-  time: string | Date;
+  /** Epoch ms, converted at the repository read path */
+  time: number;
   host: string;
   container_id: string;
   container_name: string | null;
