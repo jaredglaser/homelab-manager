@@ -34,7 +34,7 @@ function makeRequest(ac: AbortController): Request {
 }
 
 /** Macrotask flush so onStart's loadSubscribe/subscribe chain settles before asserting its side effects. */
-function flushMicrotasks(): Promise<void> {
+function flushMacrotask(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
@@ -157,9 +157,9 @@ describe('createBroadcastSseHandler', () => {
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
-    await flushMicrotasks();
+    await flushMacrotask();
     ac.abort();
-    await flushMicrotasks();
+    await flushMacrotask();
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
@@ -169,9 +169,9 @@ describe('createBroadcastSseHandler', () => {
     const ac = new AbortController();
 
     await handler({ request: makeRequest(ac) });
-    await flushMicrotasks();
+    await flushMacrotask();
     ac.abort();
-    await flushMicrotasks();
+    await flushMacrotask();
 
     expect(() => emit({ n: 99 })).not.toThrow();
   });
