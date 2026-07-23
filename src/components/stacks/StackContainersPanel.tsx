@@ -4,19 +4,22 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Play, RotateCcw, ScrollText, Square, Terminal, X } from 'lucide-react';
+import { Play, RotateCcw, RotateCw, ScrollText, Square, Terminal, X } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import type { StackContainer } from '@/types/stacks';
 import { controlStack } from '@/data/stacks/functions';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ShellSelect from '@/components/docker/ShellSelect';
+import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog';
 import { useDockerSettings } from '@/hooks/useDockerSettings';
 
 interface StackContainersPanelProps {
   containers: StackContainer[];
   stackName: string;
   host: string;
+  onRecreate: () => void;
+  isDeploying: boolean;
 }
 
 type ControlAction = 'start' | 'stop' | 'restart';
@@ -28,9 +31,10 @@ type ActiveKey = string;
 
 type ModalView = 'logs' | 'terminal';
 
-export default function StackContainersPanel({ containers, stackName, host }: StackContainersPanelProps) {
+export default function StackContainersPanel({ containers, stackName, host, onRecreate, isDeploying }: StackContainersPanelProps) {
   const [modalState, setModalState] = useState<{ container: StackContainer; view: ModalView } | null>(null);
   const [activeKey, setActiveKey] = useState<ActiveKey | null>(null);
+  const [recreateConfirmOpen, setRecreateConfirmOpen] = useState(false);
 
   const controlMutation = useMutation({
     mutationFn: ({ action, target }: { action: ControlAction; target: ControlTarget }) => {
@@ -92,6 +96,16 @@ export default function StackContainersPanel({ containers, stackName, host }: St
           {activeKey === 'stack:restart' ? <Spinner className="size-3 text-current" /> : <RotateCcw size={13} />}
           Restart
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isDeploying}
+          onClick={() => setRecreateConfirmOpen(true)}
+          aria-label="Recreate"
+        >
+          {isDeploying ? <Spinner className="size-3 text-current" /> : <RotateCw size={13} />}
+          Recreate
+        </Button>
       </div>
 
       {containers.length === 0 ? (
@@ -145,6 +159,19 @@ export default function StackContainersPanel({ containers, stackName, host }: St
           </div>
         </DialogContent>
       </Dialog>
+
+      <UnsavedChangesDialog
+        open={recreateConfirmOpen}
+        onConfirm={() => {
+          setRecreateConfirmOpen(false);
+          onRecreate();
+        }}
+        onCancel={() => setRecreateConfirmOpen(false)}
+        title={`Recreate ${stackName}?`}
+        description="Recreates all containers in this stack from the current images, even if their configuration is unchanged, and removes any containers with the same name even if they belong to other compose projects."
+        confirmLabel="Recreate now"
+        cancelLabel="Cancel"
+      />
     </div>
   );
 }

@@ -35,7 +35,7 @@ const ACTION_LABEL: Record<DeployAction, string> = {
 };
 
 function getActionLabel(record: StackDeployRecord): string {
-  if (record.action === 'deploy' && record.forceRecreate) return 'Force Deploy';
+  if (record.action === 'deploy' && record.forceRecreate) return 'Recreate';
   return ACTION_LABEL[record.action];
 }
 

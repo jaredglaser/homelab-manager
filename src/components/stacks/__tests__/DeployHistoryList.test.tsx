@@ -237,7 +237,7 @@ describe('DeployHistoryList', () => {
     expect(screen.queryByText('Rollback')).toBeNull();
   });
 
-  it('shows "Force Deploy" label when forceRecreate is true', () => {
+  it('shows "Recreate" label when forceRecreate is true', () => {
     const forceRecord: StackDeployRecord[] = [
       {
         id: 10,
@@ -254,7 +254,7 @@ describe('DeployHistoryList', () => {
       },
     ];
     render(<DeployHistoryList records={forceRecord} isLoading={false} />, { wrapper: createWrapper() });
-    expect(screen.getByText('Force Deploy')).toBeDefined();
+    expect(screen.getByText('Recreate')).toBeDefined();
   });
 
   it('calls onRollbackComplete after successful rollback', async () => {

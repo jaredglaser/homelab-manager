@@ -50,7 +50,14 @@ mock.module('@/components/stacks/DeployHistoryList', () => ({
     </div>
   ),
 }));
-mock.module('@/components/stacks/StackContainersPanel', () => ({ default: () => <div>containers-panel</div> }));
+mock.module('@/components/stacks/StackContainersPanel', () => ({
+  default: ({ onRecreate }: { onRecreate: () => void }) => (
+    <div>
+      containers-panel
+      <button onClick={onRecreate}>containers-recreate</button>
+    </div>
+  ),
+}));
 mock.module('@/components/stacks/StackActionBar', () => ({
   default: ({ onDeploy, onUpdate, onTeardown, onDelete }: { onDeploy: () => void; onUpdate: () => void; onTeardown: () => void; onDelete: () => void }) => (
     <div>
@@ -291,6 +298,45 @@ describe('StackEditorForm', () => {
     await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
 
     fireEvent.click(screen.getByRole('button', { name: 'action-update' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+  });
+
+  it('recreates through the deploy mutation with forceRecreate true when there are no unsaved changes', async () => {
+    await renderForm();
+    fireEvent.click(screen.getByRole('tab', { name: /Containers/ }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'containers-recreate' })); });
+
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockTriggerDeploy).toHaveBeenCalledWith({
+      data: { stack: 'web', host: 'host1', action: 'deploy', forceRecreate: true },
+    });
+  });
+
+  it('warns before recreating with unsaved changes and recreates on confirm', async () => {
+    await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('tab', { name: /Containers/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'containers-recreate' }));
+    expect(screen.getByRole('heading', { name: 'Deploy with unsaved changes?' })).toBeDefined();
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Deploy anyway' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockTriggerDeploy).toHaveBeenCalledWith({
+      data: { stack: 'web', host: 'host1', action: 'deploy', forceRecreate: true },
+    });
+  });
+
+  it('does not recreate when the unsaved-changes warning is cancelled', async () => {
+    await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('tab', { name: /Containers/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'containers-recreate' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(mockTriggerDeploy).not.toHaveBeenCalled();
   });

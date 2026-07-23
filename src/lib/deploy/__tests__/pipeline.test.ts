@@ -172,6 +172,96 @@ describe('DeployPipeline', () => {
         action: 'deploy',
         trigger: 'git_push',
       });
+      expect(agentClientFactory).not.toHaveBeenCalled();
+    });
+
+    it('dispatches and records succeeded with populated hashes when content is unchanged but trigger is ui', async () => {
+      const previousDeploy: DeployRecord = {
+        id: 1,
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'prev',
+        composeHash: '',
+        envHash: '',
+        status: 'succeeded',
+        trigger: 'ui',
+        action: 'deploy',
+        forceRecreate: false,
+        logs: null,
+        createdAt: new Date(),
+        postSuccess: null,
+      };
+      const { computeHash } = await import('../change-detection');
+      previousDeploy.composeHash = computeHash(testRequest.composeContent);
+      previousDeploy.envHash = computeHash(testRequest.envContent);
+
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue(previousDeploy) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const uiRequest: DeployRequest = { ...testRequest, trigger: 'ui' };
+      const result = await pipeline.execute(uiRequest);
+
+      expect(result.status).toBe('succeeded');
+      expect(agentClientFactory).toHaveBeenCalled();
+      const insertCall = (deployRepo.insertDeployIfNoActive as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(insertCall.composeHash).toBe(computeHash(testRequest.composeContent));
+      expect(insertCall.envHash).toBe(computeHash(testRequest.envContent));
+    });
+
+    it('records failed when an unchanged ui deploy is dispatched to a failing agent', async () => {
+      const previousDeploy: DeployRecord = {
+        id: 1,
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'prev',
+        composeHash: '',
+        envHash: '',
+        status: 'succeeded',
+        trigger: 'ui',
+        action: 'deploy',
+        forceRecreate: false,
+        logs: null,
+        createdAt: new Date(),
+        postSuccess: null,
+      };
+      const { computeHash } = await import('../change-detection');
+      previousDeploy.composeHash = computeHash(testRequest.composeContent);
+      previousDeploy.envHash = computeHash(testRequest.envContent);
+
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue(previousDeploy) as any,
+      });
+      const failAgent = createMockAgentClient(false);
+      agentClientFactory = mock().mockReturnValue(failAgent);
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const uiRequest: DeployRequest = { ...testRequest, trigger: 'ui' };
+      const result = await pipeline.execute(uiRequest);
+
+      expect(result.status).toBe('failed');
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 1,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'ui',
+        message: 'deploy failed',
+      });
     });
 
     it('fails validation when host is not found', async () => {
