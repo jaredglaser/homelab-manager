@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { createReconnectingEventSource } from '@/lib/streaming/reconnecting-event-source';
 
-// Reconnect attempts continue indefinitely past this point (#261): a continuously
-// visible tab must recover on its own once the server is back.
+// After this many failed attempts the error surfaces to the caller, but reconnect
+// attempts continue indefinitely: a continuously visible tab must recover on its
+// own once the server is back, however long that takes.
 const ERROR_AFTER_ATTEMPTS = 5;
 
 interface UseEventSourceOptions<T> {

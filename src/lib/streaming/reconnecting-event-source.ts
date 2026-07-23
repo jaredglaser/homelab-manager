@@ -10,7 +10,7 @@ export interface ReconnectingEventSourceOptions {
   /** 'error' is valid here too: EventSource fires onerror and a named 'error' listener independently. */
   namedEvents?: string[];
   onNamedEvent?: (name: string, event: Event) => void;
-  /** Undefined retries forever (#261: a visible tab must recover once the server is back). */
+  /** Undefined retries forever: a visible tab must recover once the server is back, however long that takes. */
   maxAttempts?: number;
   onGiveUp?: () => void;
   /** Unlike maxAttempts, crossing this doesn't stop retries; it only fires onErrorThreshold. */
