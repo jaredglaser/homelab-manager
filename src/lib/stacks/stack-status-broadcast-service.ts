@@ -360,9 +360,7 @@ export class StackStatusBroadcastService {
         }
         const containerKey = `${inv.host}/${inv.containerId}`;
         const prev = byContainer.get(containerKey);
-        // NOTIFY (migration 026) never carries mounts, so the previous entry's mounts always win;
-        // ports only fall back to the previous entry when the field is absent (pre-026 skew) or
-        // null (oversized-payload size guard), not when it's genuinely [].
+        // NOTIFY omits mounts and nulls oversized ports (migration 026); keep prev's for those, but honor a genuine [].
         byContainer.set(containerKey, {
           ...inv,
           ports: parsed.ports != null ? inv.ports : (prev?.ports ?? inv.ports),
