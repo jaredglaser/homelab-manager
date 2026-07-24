@@ -15,10 +15,12 @@ Start by reading `CLAUDE.md`, then inspect only the files relevant to the reques
 - `self-hosting/README.md`
 - `docs/architecture.md`
 - `docs/development.md`
+- `docs/dev-oidc.md`
 - `docs/tech-stack.md`
 - `docs/project-structure.md`
 - `docs/git-stacks-repo.md`
 - `CLAUDE.md`
+- `AGENTS.md`
 - `docker-compose.yml`
 - `docker-compose.dev.yml`
 - `docker-compose.local.yml`

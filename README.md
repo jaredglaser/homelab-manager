@@ -28,7 +28,8 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 | [Architecture](docs/architecture.md) | System diagrams, data streaming pipeline, and how the two-stage collection works |
 | [Development Guide](docs/development.md) | Prerequisites, environment setup, running locally, and testing |
 | [Local OIDC Dev](docs/dev-oidc.md) | Pocket ID setup, dev users, one-time login URLs, and token refresh |
-| [Project Structure](docs/project-structure.md) | Full directory tree with file descriptions |
+| [Git Stacks Repo](docs/git-stacks-repo.md) | In-app git repository: cloning, tokens, manifest schema, push-to-deploy |
+| [Project Structure](docs/project-structure.md) | Directory-level map of the packages and src/ subsystems |
 | [Tech Stack](docs/tech-stack.md) | All technologies and their roles |
 | [Self-Hosting Guide](self-hosting/README.md) | Deploy with pre-built Docker images |
 
@@ -43,6 +44,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 - **TimescaleDB Persistence** - 1-second collection interval with automatic compression and indefinite retention
 - **Live-Updating UI** - SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
 - **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated SSE channel
+- **Theming** - Dark/light color modes with selectable light-mode palettes
 - **Virtualized Tables** - Shared DataTable with CSS Grid + conditional contained virtualization for large datasets
 - **Stale Detection** - Per-entity amber highlighting when a host or container stops reporting
 

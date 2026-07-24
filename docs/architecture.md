@@ -206,7 +206,7 @@ Separate Bun service that monitors and updates agent containers without manual D
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration layer. Accepts `DeployRequest` objects assembled inline by each caller: `src/lib/git/post-receive-handler.ts` for git pushes, `src/lib/stacks/stack-service.ts` for UI actions (deploy/teardown/rollback).
+Trigger-agnostic orchestration layer. Accepts `DeployRequest` objects assembled inline by each caller: `src/lib/git/post-receive-handler.ts` for git pushes, `src/lib/stacks/stack-service.ts` for UI actions (deploy/teardown/rollback). There is no separate trigger-builder layer.
 
 **Pipeline stages:**
 
@@ -217,6 +217,7 @@ DeployRequest -> Validate -> Resolve Secrets -> Dispatch to Agent -> Record Resu
 - **Change detection:** Content hashing to skip no-op deploys
 - **Secret resolution:** Pluggable `SecretResolver` interface. Resolves `${SECRET:name}` variable references in compose files; values are stored JWE-encrypted in the `stack_secrets` table
 - **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host
+- **Stuck-deploy recovery:** `startup-recovery.ts` fails stranded `in_progress` rows at boot; `DeployWatchdog` rescans on an interval (default 20-minute threshold via `DEPLOY_WATCHDOG_TIMEOUT_MINUTES`)
 - **Agent client:** HTTP wrapper for communicating with agents (deploy/teardown/restart)
 
 **Database tables:**
