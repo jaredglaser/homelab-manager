@@ -9,6 +9,7 @@ export const DEPLOY_STATUS_VALUES = [
   'succeeded',
   'failed',
   'no_change',
+  'queued',
 ] as const;
 export type DeployStatus = (typeof DEPLOY_STATUS_VALUES)[number];
 

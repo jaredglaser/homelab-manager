@@ -217,13 +217,14 @@ DeployRequest -> Validate -> Resolve Secrets -> Dispatch to Agent -> Record Resu
 
 - **Change detection:** Content hashing to skip no-op deploys
 - **Secret resolution:** Pluggable `SecretResolver` interface. Resolves `${SECRET:name}` variable references in compose files; values are stored JWE-encrypted in the `stack_secrets` table
-- **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host
+- **Concurrency control:** PostgreSQL partial unique index prevents concurrent deploys to the same stack+host. A git push blocked by an active deploy is persisted in `deploy_queue` (newest per stack+host wins) and dispatched once the active deploy reaches a terminal state, unless a newer commit already deployed successfully in the meantime; blocked UI deploys still get an immediate failed response
 - **Stuck-deploy recovery:** `startup-recovery.ts` fails stranded `in_progress` rows at boot; `DeployWatchdog` rescans on an interval (default 20-minute threshold via `DEPLOY_WATCHDOG_TIMEOUT_MINUTES`)
 - **Agent client:** HTTP wrapper for communicating with agents (deploy/teardown/restart)
 
 **Database tables:**
 - `managed_hosts`: registered Docker hosts with agent connection details and capabilities
-- `deploy_history`: deploy records with status tracking (pending -> in_progress -> succeeded/failed/no_change)
+- `deploy_history`: deploy records with status tracking (pending -> in_progress -> succeeded/failed/no_change). A blocked git push is recorded as `queued`, which the active-deploy partial unique index excludes so the marker can coexist with the deploy it waits on
+- `deploy_queue`: newest git-push deploy request blocked by an active deploy, one row per stack+host, drained when the active deploy completes
 - `docker_container_events`: per-host container inventory events from agent `/containers/events`
 
 ### Stack Status Pipeline

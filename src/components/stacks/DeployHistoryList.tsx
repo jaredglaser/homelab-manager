@@ -76,6 +76,7 @@ export default function DeployHistoryList({
             <ToggleGroupItem value="pending" className="normal-case px-3">Pending</ToggleGroupItem>
             <ToggleGroupItem value="in_progress" className="normal-case px-3">In Progress</ToggleGroupItem>
             <ToggleGroupItem value="no_change" className="normal-case px-3">No Changes</ToggleGroupItem>
+            <ToggleGroupItem value="queued" className="normal-case px-3">Queued</ToggleGroupItem>
           </ToggleGroup>
           {filtered.length !== records.length && (
             <span className="text-xs opacity-50">

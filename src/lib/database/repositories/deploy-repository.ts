@@ -1,6 +1,11 @@
 import type { Pool } from 'pg';
-import type { DeployAction, DeployChangeOutcome, DeployPostSuccess, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployAction, DeployChangeOutcome, DeployPostSuccess, DeployRecord, DeployRequest, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 import { truncateDeployMessage } from '@/lib/stacks/deploy-outcome-toast';
+
+export interface QueuedDeploy {
+  request: DeployRequest;
+  queuedAt: Date;
+}
 
 export interface StuckDeployRow {
   id: number;
@@ -16,7 +21,7 @@ export interface PostSuccessDeployRow {
   host: string;
 }
 
-interface InsertDeployParams {
+export interface InsertDeployParams {
   stack: string;
   host: string;
   commitSha: string;
@@ -163,6 +168,73 @@ export class DeployRepository {
        WHERE stack = $1 AND host = $2 AND status = $3 AND id != $4`,
       [stack, host, 'pending', keepId]
     );
+  }
+
+  /**
+   * Queue a git-push deploy request that was blocked by an active deploy.
+   * One row per stack+host (PK): a newer request replaces the queued one, so
+   * only the newest blocked push survives. The conditional upsert keeps the
+   * row with the later queued_at, so a drained request that gets re-enqueued
+   * after losing a race cannot replace a newer queued push.
+   *
+   * @returns false when a newer queued request won and this one was dropped.
+   */
+  async enqueueDeploy(request: DeployRequest, queuedAt?: Date): Promise<boolean> {
+    const result = await this.pool.query(
+      `INSERT INTO deploy_queue (stack, host, request, queued_at)
+       VALUES ($1, $2, $3, COALESCE($4, NOW()))
+       ON CONFLICT (stack, host) DO UPDATE
+         SET request = EXCLUDED.request, queued_at = EXCLUDED.queued_at
+         WHERE deploy_queue.queued_at <= EXCLUDED.queued_at
+       RETURNING stack`,
+      [request.stack, request.host, JSON.stringify(request), queuedAt ?? null]
+    );
+    return result.rows.length > 0;
+  }
+
+  /** Remove and return the queued deploy for stack+host, or null when none is queued. */
+  async dequeueDeploy(stack: string, host: string): Promise<QueuedDeploy | null> {
+    const result = await this.pool.query(
+      `DELETE FROM deploy_queue
+       WHERE stack = $1 AND host = $2
+       RETURNING request, queued_at`,
+      [stack, host]
+    );
+    if (result.rows.length === 0) return null;
+    return {
+      request: result.rows[0].request as DeployRequest,
+      queuedAt: result.rows[0].queued_at as Date,
+    };
+  }
+
+  /**
+   * Insert the `queued` deploy_history marker that makes a blocked push visible
+   * in the history list, replacing any marker the superseded push left behind.
+   */
+  async recordQueuedDeploy(params: InsertDeployParams): Promise<number> {
+    await this.clearQueuedDeploy(params.stack, params.host);
+    return this.insertDeploy({ ...params, status: 'queued' });
+  }
+
+  async clearQueuedDeploy(stack: string, host: string): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM deploy_history
+       WHERE stack = $1 AND host = $2 AND status = 'queued'`,
+      [stack, host]
+    );
+  }
+
+  /** Resolve the `queued` marker to a terminal status. Returns its id, or null when no marker exists. */
+  async failQueuedDeploy(stack: string, host: string, logs: string): Promise<number | null> {
+    const result = await this.pool.query(
+      `UPDATE deploy_history
+       SET status = 'failed', logs = $3
+       WHERE stack = $1 AND host = $2 AND status = 'queued'
+       RETURNING id`,
+      [stack, host, logs]
+    );
+    if (result.rows.length === 0) return null;
+    return Number(result.rows[0].id);
   }
 
   async getPendingDeploys(): Promise<DeployRecord[]> {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { DeployRepository } from '../deploy-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
+import type { DeployRequest } from '@/lib/deploy/types';
 
 describe('DeployRepository', () => {
   let repo: DeployRepository;
@@ -256,13 +257,105 @@ describe('DeployRepository', () => {
     });
   });
 
-  describe('deduplicatePending', () => {
-    it('deletes older pending deploys for the same stack and host, keeping the latest', async () => {
-      mock.pushResult([]);
-      await repo.deduplicatePending('plex', 'homeserver', 42);
+  describe('enqueueDeploy', () => {
+    const request: DeployRequest = {
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha: 'abc123',
+      trigger: 'git_push',
+      autoApproved: true,
+      action: 'deploy',
+      composeContent: 'services: {}',
+      envContent: '',
+    };
 
+    it('upserts the request keyed by stack and host so the newest push wins', async () => {
+      mock.pushResult([]);
+      await repo.enqueueDeploy(request);
+
+      expect(mock.queries[0].sql).toContain('INSERT INTO deploy_queue');
+      expect(mock.queries[0].sql).toContain('ON CONFLICT (stack, host) DO UPDATE');
+      // Conditional update: an older request must not replace a newer queued one
+      expect(mock.queries[0].sql).toContain('deploy_queue.queued_at <= EXCLUDED.queued_at');
+      expect(mock.queries[0].params).toEqual([
+        'plex', 'homeserver', JSON.stringify(request), null,
+      ]);
+    });
+
+    it('passes the original queued_at when re-enqueueing a drained request', async () => {
+      mock.pushResult([]);
+      const queuedAt = new Date('2026-06-01T00:00:00Z');
+      await repo.enqueueDeploy(request, queuedAt);
+
+      expect(mock.queries[0].params[3]).toBe(queuedAt);
+    });
+
+    it('reports whether the request won the queue slot', async () => {
+      mock.pushResult([{ stack: 'plex' }]);
+      expect(await repo.enqueueDeploy(request)).toBe(true);
+
+      mock.pushResult([]);
+      expect(await repo.enqueueDeploy(request)).toBe(false);
+    });
+  });
+
+  describe('queued history markers', () => {
+    it('replaces any prior marker before inserting the new one', async () => {
+      mock.pushResult([]);
+      mock.pushResult([{ id: '77' }]);
+      const id = await repo.recordQueuedDeploy({
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'abc123',
+        composeHash: 'hash1',
+        envHash: 'hash2',
+        status: 'pending',
+        trigger: 'git_push',
+        action: 'deploy',
+      });
+
+      expect(id).toBe(77);
       expect(mock.queries[0].sql).toContain('DELETE FROM deploy_history');
-      expect(mock.queries[0].params).toEqual(['plex', 'homeserver', 'pending', 42]);
+      expect(mock.queries[0].sql).toContain("status = 'queued'");
+      expect(mock.queries[1].sql).toContain('INSERT INTO deploy_history');
+      expect(mock.queries[1].params[5]).toBe('queued');
+    });
+
+    it('resolves the marker to failed and returns its id', async () => {
+      mock.pushResult([{ id: '77' }]);
+      const id = await repo.failQueuedDeploy('plex', 'homeserver', 'superseded');
+
+      expect(id).toBe(77);
+      expect(mock.queries[0].sql).toContain('UPDATE deploy_history');
+      expect(mock.queries[0].params).toEqual(['plex', 'homeserver', 'superseded']);
+    });
+
+    it('returns null when there is no marker to resolve', async () => {
+      mock.pushResult([]);
+      expect(await repo.failQueuedDeploy('plex', 'homeserver', 'superseded')).toBeNull();
+    });
+  });
+
+  describe('dequeueDeploy', () => {
+    it('returns null when nothing is queued', async () => {
+      mock.pushResult([]);
+      const result = await repo.dequeueDeploy('plex', 'homeserver');
+
+      expect(result).toBeNull();
+      expect(mock.queries[0].sql).toContain('DELETE FROM deploy_queue');
+      expect(mock.queries[0].params).toEqual(['plex', 'homeserver']);
+    });
+
+    it('removes and returns the queued request with its timestamp', async () => {
+      const queuedAt = new Date('2026-06-01T00:00:00Z');
+      mock.pushResult([
+        { request: { stack: 'plex', host: 'homeserver', commitSha: 'def456' }, queued_at: queuedAt },
+      ]);
+
+      const result = await repo.dequeueDeploy('plex', 'homeserver');
+      expect(result).not.toBeNull();
+      expect(result!.request.commitSha).toBe('def456');
+      expect(result!.queuedAt).toBe(queuedAt);
     });
   });
 
