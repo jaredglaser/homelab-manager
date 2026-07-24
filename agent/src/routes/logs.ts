@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
+import { createSseStream } from '../lib/sse-stream';
 import { isContainerGone } from './stats';
 
 /**
@@ -24,23 +25,14 @@ export function handleLogStream(
   containerId: string,
   request: Request
 ): Response {
-  let closed = false;
-  let activeStream: Readable | null = null;
-  const encoder = new TextEncoder();
-
-  const stream = new ReadableStream({
-    async start(controller) {
-      request.signal.addEventListener('abort', () => {
-        closed = true;
+  return createSseStream(request, {
+    onStart: async (emit, signal) => {
+      let activeStream: Readable | null = null;
+      const destroyActiveStream = () => {
         if (typeof activeStream?.destroy === 'function') {
           activeStream.destroy();
         }
-        try {
-          controller.close();
-        } catch {
-          // controller already closed
-        }
-      });
+      };
 
       try {
         const container = docker.getContainer(containerId);
@@ -50,7 +42,7 @@ export function handleLogStream(
         let muxedRemainder: Buffer = Buffer.alloc(0);
         let lastTimestamp: string | null = null;
 
-        /** Process a chunk and enqueue parsed lines. Returns parsed lines for timestamp tracking. */
+        /** Process a chunk and emit parsed lines. Returns parsed lines for timestamp tracking. */
         function processChunk(chunk: Buffer): LogLine[] {
           let lines: LogLine[];
           if (isTty) {
@@ -64,16 +56,8 @@ export function handleLogStream(
             muxedRemainder = result.remainder;
           }
 
-          try {
-            for (const line of lines) {
-              if (!closed) {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify(line)}\n\n`)
-                );
-              }
-            }
-          } catch (err) {
-            if (!(err instanceof TypeError)) console.error('Unexpected error enqueuing log line:', err);
+          for (const line of lines) {
+            emit.data(line);
           }
 
           return lines;
@@ -97,18 +81,14 @@ export function handleLogStream(
           ? backlogResult
           : Buffer.from(String(backlogResult));
 
-        if (!closed) {
-          const lines = processChunk(backlogBuffer);
-          for (const line of lines) {
-            const ts = extractTimestamp(line.text);
-            if (ts) lastTimestamp = ts;
-          }
+        for (const line of processChunk(backlogBuffer)) {
+          const ts = extractTimestamp(line.text);
+          if (ts) lastTimestamp = ts;
         }
 
-        if (closed) return;
+        if (signal.aborted) return destroyActiveStream;
 
-        // Emit backlog_done separator
-        controller.enqueue(encoder.encode('event: backlog_done\ndata: {}\n\n'));
+        emit.event('backlog_done', {});
 
         // Reset muxed remainder for the live phase
         muxedRemainder = Buffer.alloc(0);
@@ -121,16 +101,8 @@ export function handleLogStream(
           : fallbackSinceSeconds;
 
         /** Live phase: follow new logs from the last backlog timestamp. */
-        let liveStream: Readable | null = null;
-        const onAbortDuringAwait = () => {
-          if (liveStream && typeof liveStream.destroy === 'function') {
-            liveStream.destroy();
-          }
-        };
-        request.signal.addEventListener('abort', onAbortDuringAwait);
-
         // @types/dockerode 4.0.1 types logs() stream result as any; cast required to use Readable API
-        liveStream = (await container.logs({
+        const liveStream = (await container.logs({
           follow: true,
           stdout: true,
           stderr: true,
@@ -138,91 +110,41 @@ export function handleLogStream(
           timestamps: true,
         })) as unknown as Readable;
 
-        request.signal.removeEventListener('abort', onAbortDuringAwait);
         activeStream = liveStream;
 
-        if (request.signal.aborted) {
+        if (signal.aborted) {
           liveStream.destroy();
-          return;
+          return destroyActiveStream;
         }
 
-        // Send periodic heartbeat to prevent idle socket timeouts from killing
-        // the connection. Must be shorter than any intermediary timeout (Bun
-        // fetch, Nitro, reverse proxies); 5 s is safe for typical defaults.
-        controller.enqueue(encoder.encode(':\n\n'));
-        const heartbeatInterval = setInterval(() => {
-          if (closed) { clearInterval(heartbeatInterval); return; }
-          try {
-            controller.enqueue(encoder.encode(':\n\n'));
-          } catch {
-            clearInterval(heartbeatInterval);
-          }
-        }, 5_000);
-
         liveStream.on('data', (chunk: Buffer) => {
-          if (closed) return;
           processChunk(chunk);
         });
 
         liveStream.on('end', () => {
-          clearInterval(heartbeatInterval);
-          if (!closed) {
-            // Signal to the client that the stream ended cleanly (container stopped)
-            // so it can suppress the reconnect loop.
-            controller.enqueue(encoder.encode('event: stream_end\ndata: {}\n\n'));
-            closed = true;
-            controller.close();
-          }
+          // Signal to the client that the stream ended cleanly (container stopped)
+          // so it can suppress the reconnect loop.
+          emit.event('stream_end', {});
+          emit.close();
         });
 
         liveStream.on('error', (error: Error) => {
-          clearInterval(heartbeatInterval);
           console.error(`Log stream error for container ${containerId}:`, error);
-          if (!closed) {
-            controller.enqueue(
-              encoder.encode(
-                `event: error\ndata: ${JSON.stringify({ error: error.message })}\n\n`
-              )
-            );
-            closed = true;
-            controller.close();
-          }
+          emit.event('error', { error: error.message });
+          emit.close();
         });
+
+        return destroyActiveStream;
       } catch (error) {
         if (error instanceof Error && isContainerGone(error)) {
-          try {
-            controller.enqueue(
-              encoder.encode(
-                `event: error\ndata: ${JSON.stringify({ error: 'Container not found', gone: true })}\n\n`
-              )
-            );
-            closed = true;
-            controller.close();
-          } catch { /* controller already closed */ }
-          return;
+          emit.event('error', { error: 'Container not found', gone: true });
+        } else {
+          console.error(`Failed to start log stream for container ${containerId}:`, error);
+          emit.event('error', { error: error instanceof Error ? error.message : String(error) });
         }
-        console.error(`Failed to start log stream for container ${containerId}:`, error);
-        const msg = error instanceof Error ? error.message : String(error);
-        try {
-          controller.enqueue(
-            encoder.encode(
-              `event: error\ndata: ${JSON.stringify({ error: msg })}\n\n`
-            )
-          );
-          closed = true;
-          controller.close();
-        } catch {
-          // controller already closed
-        }
+        emit.close();
+        return destroyActiveStream;
       }
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
     },
   });
 }

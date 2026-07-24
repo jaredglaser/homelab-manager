@@ -623,4 +623,33 @@ describe('handleStatsStream: container refresh', () => {
     expect(text).toContain('"type":"refresh_failed"');
     expect(text).toContain('"error":"Docker daemon down"');
   });
+
+  test('emits a comment heartbeat when the host runs no containers', async () => {
+    // With nothing running there are no stats frames at all, so the stream would
+    // otherwise sit silent past Bun's 10s HTTP idleTimeout.
+    const realSetInterval = globalThis.setInterval;
+    const ticks: Array<{ cb: () => void; ms: number }> = [];
+    globalThis.setInterval = mock((cb: () => void, ms: number) => {
+      ticks.push({ cb, ms });
+      return ticks.length as unknown as ReturnType<typeof setInterval>;
+    }) as unknown as typeof setInterval;
+
+    try {
+      const mockDocker = { listContainers: mock(() => Promise.resolve([])) };
+      const ac = new AbortController();
+      const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+      const response = handleStatsStream(mockDocker as any, request, fastOptions);
+
+      expect(ticks).toHaveLength(1);
+      expect(ticks[0].ms).toBe(5000);
+
+      ticks[0].cb();
+      const text = await readUntil(response, (s) => s.split('\n\n').includes(':'));
+      ac.abort();
+
+      expect(text.split('\n\n')).toContain(':');
+    } finally {
+      globalThis.setInterval = realSetInterval;
+    }
+  });
 });

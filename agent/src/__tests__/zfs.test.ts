@@ -55,6 +55,14 @@ async function readUntil(
   return text;
 }
 
+/** Parse the `data:` frames out of SSE text, ignoring the seam's flush and heartbeat comments. */
+function parseDataFrames(text: string): any[] {
+  return text
+    .split('\n\n')
+    .filter((frame) => frame.startsWith('data: '))
+    .map((frame) => JSON.parse(frame.slice('data: '.length)));
+}
+
 describe('handleZfsStatsStream', () => {
   test('returns 503 when ZFS is not available', () => {
     const request = new Request('http://localhost/zfs/stats/stream');
@@ -126,13 +134,7 @@ describe('handleZfsStatsStream', () => {
 
     expect(text).toContain('data:');
     // Each non-empty line should be a separate SSE event
-    const events = text
-      .split('\n\n')
-      .filter(Boolean)
-      .map((e) => {
-        const json = e.replace(/^data:\s*/, '');
-        return JSON.parse(json);
-      });
+    const events = parseDataFrames(text);
 
     expect(events.length).toBeGreaterThanOrEqual(1);
     const tankEvent = events.find((e: { line: string }) => e.line.includes('tank'));
@@ -270,10 +272,44 @@ describe('handleZfsStatsStream', () => {
     ac.abort();
 
     // Only the non-empty line should appear
-    const events = text.split('\n\n').filter(Boolean);
+    const events = parseDataFrames(text);
     expect(events.length).toBe(1);
-    const parsed = JSON.parse(events[0].replace(/^data:\s*/, ''));
-    expect(parsed.line).toBe('actual data line');
+    expect(events[0].line).toBe('actual data line');
+  });
+
+  test('emits a comment heartbeat while zpool produces no output', async () => {
+    // `zpool iostat -v 1` normally ticks every second, but a degraded pool with
+    // a hung disk can stall it well past Bun's 10s HTTP idleTimeout.
+    const realSetInterval = globalThis.setInterval;
+    const ticks: Array<{ cb: () => void; ms: number }> = [];
+    globalThis.setInterval = mock((cb: () => void, ms: number) => {
+      ticks.push({ cb, ms });
+      return ticks.length as unknown as ReturnType<typeof setInterval>;
+    }) as unknown as typeof setInterval;
+
+    Bun.spawn = mock(() => ({
+      stdout: new ReadableStream<Uint8Array>({ start() {} }),
+      stderr: new ReadableStream(),
+      kill: mock(() => {}),
+      exited: new Promise(() => {}),
+    })) as any;
+
+    try {
+      const ac = new AbortController();
+      const request = new Request('http://localhost/zfs/stats/stream', { signal: ac.signal });
+      const response = handleZfsStatsStream(request, zfsAvailable);
+
+      expect(ticks).toHaveLength(1);
+      expect(ticks[0].ms).toBe(5000);
+
+      ticks[0].cb();
+      const text = await readUntil(response, (s) => s.split('\n\n').includes(':'));
+      ac.abort();
+
+      expect(text.split('\n\n')).toContain(':');
+    } finally {
+      globalThis.setInterval = realSetInterval;
+    }
   });
 });
 

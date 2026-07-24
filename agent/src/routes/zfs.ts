@@ -1,4 +1,39 @@
+import { createSseStream, type SseEmitter } from '../lib/sse-stream';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
+
+/** Forward each non-empty `zpool iostat` line as a `{ line, timestamp }` frame until the stream stops. */
+async function pumpZpoolOutput(
+  emit: SseEmitter,
+  stdout: ReadableStream<Uint8Array>,
+  isStopped: () => boolean,
+): Promise<void> {
+  const reader = stdout.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (!isStopped()) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        if (isStopped()) break;
+        if (!line.trim()) continue;
+        emit.data({ line, timestamp: Date.now() });
+      }
+    }
+  } catch (err) {
+    if (!isStopped()) {
+      console.error('ZFS stats stream error:', err);
+    }
+  } finally {
+    emit.close();
+  }
+}
 
 /**
  * GET /zfs/stats/stream: SSE endpoint that streams `zpool iostat -v 1` output.
@@ -17,80 +52,24 @@ export function handleZfsStatsStream(
     );
   }
 
-  const encoder = new TextEncoder();
+  return createSseStream(request, {
+    onStart: (emit) => {
+      const proc = Bun.spawn(['zpool', 'iostat', '-v', '1'], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
 
-  return new Response(
-    new ReadableStream({
-      async start(controller) {
-        const proc = Bun.spawn(['zpool', 'iostat', '-v', '1'], {
-          stdout: 'pipe',
-          stderr: 'pipe',
-        });
+      let stopped = false;
+      // Not awaited: the cleanup below has to be registered before the read
+      // loop blocks, or a teardown mid-loop would never kill the subprocess.
+      void pumpZpoolOutput(emit, proc.stdout, () => stopped);
 
-        let closed = false;
-
-        request.signal.addEventListener('abort', () => {
-          closed = true;
-          proc.kill();
-          try {
-            controller.close();
-          } catch {
-            // controller already closed
-          }
-        });
-
-        try {
-          const reader = proc.stdout.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          while (!closed) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() ?? '';
-
-            for (const line of lines) {
-              if (closed) break;
-              if (!line.trim()) continue;
-
-              try {
-                controller.enqueue(
-                  encoder.encode(`data: ${JSON.stringify({ line, timestamp: Date.now() })}\n\n`),
-                );
-              } catch {
-                closed = true;
-                break;
-              }
-            }
-          }
-        } catch (err) {
-          if (!closed) {
-            console.error('ZFS stats stream error:', err);
-          }
-        } finally {
-          proc.kill();
-          if (!closed) {
-            closed = true;
-            try {
-              controller.close();
-            } catch {
-              // controller already closed
-            }
-          }
-        }
-      },
-    }),
-    {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
+      return () => {
+        stopped = true;
+        proc.kill();
+      };
     },
-  );
+  });
 }
 
 /**
