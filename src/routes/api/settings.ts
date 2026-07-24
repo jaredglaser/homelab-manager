@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { createBroadcastSseHandler } from '@/lib/sse/create-broadcast-sse-handler';
+import { settingsChannel } from '@/lib/sse/channels/settings';
 import type { SettingsSSEMessage } from '@/types/settings';
 
 export const Route = createFileRoute('/api/settings')({
@@ -14,7 +15,7 @@ export const Route = createFileRoute('/api/settings')({
           return (cb) => settingsBroadcastService.subscribe(cb);
         },
         serialize: (message) => `data: ${JSON.stringify(message)}\n\n`,
-        errorEvent: 'settings_error',
+        errorEvent: settingsChannel.errorEvent,
       }),
     },
   },

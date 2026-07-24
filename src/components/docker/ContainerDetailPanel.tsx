@@ -8,6 +8,7 @@ import ContainerMetricsChart, { type MetricKey } from '@/components/docker/Conta
 import ContainerModal, { type ModalTab } from '@/components/docker/ContainerModal';
 import ContainerActionButtons from '@/components/docker/ContainerActionButtons';
 import IconPickerDialog from '@/components/docker/IconPickerDialog';
+import ContainerPortsMounts from '@/components/docker/ContainerPortsMounts';
 import { useToast } from '@/hooks/toastAtom';
 import type { ChartDataPoint } from '@/hooks/useContainerChartData';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
@@ -260,6 +261,10 @@ export default memo(function ContainerDetailPanel({
         onAction={openModal}
         onIconClick={() => setIconPickerOpen(true)}
       />
+
+      {(inventory.ports.length > 0 || inventory.mounts.length > 0) && (
+        <ContainerPortsMounts ports={inventory.ports} mounts={inventory.mounts} />
+      )}
 
       <div className="grid gap-3 p-3 [grid-template-rows:200px] lg:h-[232px] lg:grid-cols-2 lg:[grid-template-rows:none]">
         <ContainerMetricsChart

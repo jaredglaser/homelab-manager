@@ -9,7 +9,7 @@ const handleRangeChange = mock((_from: number, _to: number) => {});
 const handlePresetChange = mock((_ms: number) => {});
 const handleCustomRangeChange = mock((_from: number, _to: number) => {});
 
-const sampleRow = { time: '2024-01-01T00:00:00Z', host: 'server', container_id: 'abc' } as DockerStatsRow;
+const sampleRow = { time: Date.parse('2024-01-01T00:00:00Z'), host: 'server', container_id: 'abc' } as DockerStatsRow;
 
 function makeHookData(overrides: Partial<ContainerHistoryData> = {}): ContainerHistoryData {
   return {

@@ -111,6 +111,75 @@ describe('AgentClient', () => {
     });
   });
 
+  describe('update', () => {
+    it('sends POST to /stacks/update with stack, composeContent, envContent (no forceRecreate)', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: 'pulled + up', stderr: '' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const result = await client.update({
+        stack: 'plex',
+        composeContent: 'version: "3"',
+        envContent: 'KEY=val',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.logs).toBe('pulled + up');
+
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/stacks/update');
+      expect(options.method).toBe('POST');
+      const body = JSON.parse(options.body);
+      expect(body).toEqual({ stack: 'plex', composeContent: 'version: "3"', envContent: 'KEY=val' });
+      expect(body.forceRecreate).toBeUndefined();
+    });
+
+    it('maps a 404 to a friendly "agent does not support image updates" message', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+
+      let thrown: unknown;
+      try {
+        await client.update({ stack: 'plex', composeContent: 'x', envContent: '' });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).message).toBe(
+        'Agent on agent:9090 does not support image updates. Update the agent container and retry.',
+      );
+      expect((thrown as AgentClientError).statusCode).toBe(404);
+    });
+
+    it('passes through non-404 errors unchanged', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
+
+      let thrown: unknown;
+      try {
+        await client.update({ stack: 'plex', composeContent: 'x', envContent: '' });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).statusCode).toBe(500);
+      expect((thrown as AgentClientError).message).not.toContain('does not support image updates');
+    });
+
+    it('uses the 960_000ms (16 min) per-attempt timeout', async () => {
+      const abortSpy = spyOn(AbortSignal, 'timeout');
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: 'ok', stderr: '' }), { status: 200 })
+      );
+
+      await client.update({ stack: 'plex', composeContent: 'x', envContent: '' });
+
+      expect(abortSpy).toHaveBeenCalledWith(960_000);
+      abortSpy.mockRestore();
+    });
+  });
+
   describe('teardown', () => {
     it('sends POST to /stacks/teardown', async () => {
       fetchMock.mockResolvedValueOnce(
@@ -392,133 +461,9 @@ describe('AgentClient', () => {
     });
   });
 
-  describe('streamZfsStats', () => {
-    it('yields parsed SSE events from stream', async () => {
-      const events = [
-        { line: 'tank  1.00G  512M  512M  -  -  5%  51%  1.00x  ONLINE  -', timestamp: 1000 },
-        { line: 'data  2.00G  100M  1.90G  -  -  0%  5%  1.00x  ONLINE  -', timestamp: 2000 },
-      ];
-
-      const sseBody = events.map(e => `data: ${JSON.stringify(e)}\n`).join('\n') + '\n';
-      const encoder = new TextEncoder();
-      const encoded = encoder.encode(sseBody);
-
-      let offset = 0;
-      const readable = new ReadableStream({
-        pull(controller) {
-          if (offset < encoded.length) {
-            controller.enqueue(encoded.slice(offset));
-            offset = encoded.length;
-          } else {
-            controller.close();
-          }
-        },
-      });
-
-      fetchMock.mockResolvedValueOnce(
-        new Response(readable, {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
-
-      const controller = new AbortController();
-      const results: typeof events = [];
-      for await (const event of client.streamZfsStats(controller.signal)) {
-        results.push(event);
-      }
-
-      expect(results).toEqual(events);
-    });
-
-    it('throws AgentClientError on non-200 response', async () => {
-      fetchMock.mockResolvedValueOnce(
-        new Response('Unauthorized', { status: 401 })
-      );
-
-      const controller = new AbortController();
-      const gen = client.streamZfsStats(controller.signal);
-      await expect(gen.next()).rejects.toThrow(AgentClientError);
-    });
-
-    it('throws AgentClientError when agent URL returns a redirect (3xx)', async () => {
-      fetchMock.mockResolvedValueOnce(
-        new Response(null, { status: 302, headers: { Location: 'http://169.254.169.254/metadata' } })
-      );
-
-      const controller = new AbortController();
-      const gen = client.streamZfsStats(controller.signal);
-      await expect(gen.next()).rejects.toThrow(/redirect/);
-      const [, options] = fetchMock.mock.calls[0];
-      expect(options.redirect).toBe('manual');
-    });
-
-    it('throws AgentClientError when response has no body', async () => {
-      fetchMock.mockResolvedValueOnce(
-        new Response(null, { status: 200 })
-      );
-
-      const controller = new AbortController();
-      const gen = client.streamZfsStats(controller.signal);
-      await expect(gen.next()).rejects.toThrow(AgentClientError);
-    });
-
-    it('handles stream end gracefully with no events', async () => {
-      const readable = new ReadableStream({
-        start(controller) {
-          controller.close();
-        },
-      });
-
-      fetchMock.mockResolvedValueOnce(
-        new Response(readable, {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
-
-      const controller = new AbortController();
-      const results = [];
-      for await (const event of client.streamZfsStats(controller.signal)) {
-        results.push(event);
-      }
-
-      expect(results).toHaveLength(0);
-    });
-
-    it('skips malformed SSE events', async () => {
-      const sseBody = 'data: {valid: json}\ndata: {"line":"ok","timestamp":999}\n\n';
-      const encoder = new TextEncoder();
-      const encoded = encoder.encode(sseBody);
-
-      const readable = new ReadableStream({
-        start(controller) {
-          controller.enqueue(encoded);
-          controller.close();
-        },
-      });
-
-      fetchMock.mockResolvedValueOnce(
-        new Response(readable, {
-          status: 200,
-          headers: { 'Content-Type': 'text/event-stream' },
-        })
-      );
-
-      const controller = new AbortController();
-      const results = [];
-      for await (const event of client.streamZfsStats(controller.signal)) {
-        results.push(event);
-      }
-
-      expect(results).toHaveLength(1);
-      expect(results[0]).toEqual({ line: 'ok', timestamp: 999 });
-    });
-  });
-
   describe('retry behaviour', () => {
     // Collapse retry backoff sleeps so we don't wait real 1s/2s intervals.
-    // Scoped to this block so stream tests above keep real setTimeout.
+    // Scoped to this block so other describe blocks keep real setTimeout.
     let setTimeoutSpy: ReturnType<typeof spyOn>;
     let capturedDelays: number[];
 

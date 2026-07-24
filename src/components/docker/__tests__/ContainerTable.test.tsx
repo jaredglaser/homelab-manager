@@ -106,11 +106,13 @@ function makeInventory(
     finishedAt: null,
     exitCode: null,
     labels: {},
+    ports: [],
+    mounts: [],
     updatedAt: baseDate,
   };
 }
 
-function makeStatsRow(host: string, containerId: string, time: string): DockerStatsRow {
+function makeStatsRow(host: string, containerId: string, time: number): DockerStatsRow {
   return {
     time,
     host,
@@ -280,8 +282,8 @@ describe('ContainerTable', () => {
 
     it('does not rebuild chart data when rows refresh with identical timestamps', () => {
       const rows = [
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:00Z')),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:01Z')),
       ];
       const { rerenderWithRows } = renderWithRows(rows);
       const callsAfterMount = chartDataCalls.length;
@@ -295,13 +297,13 @@ describe('ContainerTable', () => {
 
     it('rebuilds chart data when a new data point arrives', () => {
       const rows = [
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:00Z')),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:01Z')),
       ];
       const { rerenderWithRows } = renderWithRows(rows);
       const callsAfterMount = chartDataCalls.length;
 
-      rerenderWithRows([...rows, makeStatsRow('host1', 'c1', '2024-01-01T00:00:02Z')]);
+      rerenderWithRows([...rows, makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:02Z'))]);
 
       expect(chartDataCalls.length).toBeGreaterThan(callsAfterMount);
       expect(chartDataCalls[chartDataCalls.length - 1]!).toHaveLength(3);
@@ -309,8 +311,8 @@ describe('ContainerTable', () => {
 
     it('rebuilds chart data when window eviction drops a leading row', () => {
       const rows = [
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:00Z'),
-        makeStatsRow('host1', 'c1', '2024-01-01T00:00:01Z'),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:00Z')),
+        makeStatsRow('host1', 'c1', Date.parse('2024-01-01T00:00:01Z')),
       ];
       const { rerenderWithRows } = renderWithRows(rows);
       const callsAfterMount = chartDataCalls.length;

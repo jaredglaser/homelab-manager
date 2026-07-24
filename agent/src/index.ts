@@ -3,7 +3,7 @@ import { authenticateRequest } from './middleware';
 import { handleHealth } from './routes/health';
 import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
-import { handleStackDeploy, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus } from './routes/stacks';
+import { handleStackDeploy, handleStackUpdate, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus } from './routes/stacks';
 import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
@@ -141,6 +141,7 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
       if (action === 'restart') return handleContainerRestart(docker, containerId, request);
     }
     if (url.pathname === '/stacks/deploy' && request.method === 'POST') return handleStackDeploy(request, STACKS_DIR);
+    if (url.pathname === '/stacks/update' && request.method === 'POST') return handleStackUpdate(request, STACKS_DIR);
     if (url.pathname === '/stacks/teardown' && request.method === 'POST') return handleStackTeardown(request, STACKS_DIR);
     if (url.pathname === '/stacks/restart' && request.method === 'POST') return handleStackRestart(request, STACKS_DIR);
     if (url.pathname === '/stacks/start' && request.method === 'POST') return handleStackStart(request, STACKS_DIR);

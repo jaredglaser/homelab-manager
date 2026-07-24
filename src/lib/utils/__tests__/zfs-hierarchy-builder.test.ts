@@ -333,7 +333,7 @@ describe('buildHierarchy', () => {
   describe('rowToZFSStats', () => {
     function createMockRow(overrides?: Partial<ZFSStatsRow>): ZFSStatsRow {
       return {
-        time: '2024-01-01T00:00:00Z',
+        time: Date.parse('2024-01-01T00:00:00Z'),
         host: '',
         pool: 'tank',
         entity: 'tank',
@@ -461,7 +461,7 @@ describe('buildHierarchy', () => {
 describe('buildZFSHostHierarchy', () => {
   function createMockRow(overrides?: Partial<ZFSStatsRow>): ZFSStatsRow {
     return {
-      time: '2024-01-01T00:00:00Z',
+      time: Date.parse('2024-01-01T00:00:00Z'),
       host: 'server1',
       pool: 'tank',
       entity: 'tank',

@@ -5,7 +5,7 @@
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord, SyncStatus } from '@/types/stacks';
-import type { DeployAction, DeployRecord, DeployRequest } from '@/lib/deploy/types';
+import type { DeployAction, DeployRecord, DeployRequest, DeployStatus } from '@/lib/deploy/types';
 import type { StackEntry } from '@/lib/git/manifest';
 
 /**
@@ -90,19 +90,19 @@ export interface DeployDeps {
   readCompose: (stack: string) => Promise<string>;
   getCommitSha: () => Promise<string>;
   buildRequest: (input: { stack: string; host: string; composeContent: string; commitSha: string; action: DeployAction; forceRecreate?: boolean }) => DeployRequest;
-  executePipeline: (request: DeployRequest) => Promise<{ deployId?: number; logs?: string }>;
+  executePipeline: (request: DeployRequest) => Promise<{ deployId?: number; logs: string; status: DeployStatus }>;
 }
 
 /** Testable deploy handler: takes deps instead of importing them. */
 export async function handleTriggerDeploy(
   deps: DeployDeps,
   params: { stack: string; host: string; action: DeployAction; forceRecreate?: boolean },
-): Promise<{ deployId: number }> {
+): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   let composeContent = '';
   try {
     composeContent = await deps.readCompose(params.stack);
   } catch {
-    if (params.action === 'deploy') {
+    if (params.action === 'deploy' || params.action === 'update') {
       throw new Error(`No compose file found for stack "${params.stack}"`);
     }
   }
@@ -122,5 +122,5 @@ export async function handleTriggerDeploy(
   if (result.deployId === undefined) {
     throw new Error(`Deploy could not be queued: ${result.logs}`);
   }
-  return { deployId: result.deployId };
+  return { deployId: result.deployId, status: result.status, logs: result.logs };
 }

@@ -1,10 +1,15 @@
+import { SPARKLINE_TIME_WINDOW_MS } from '@/components/ui/datatable/SparklineCanvas';
+
 export interface SparklinePoint {
   timestamp: number;
   value: number;
 }
 
 const SPARKLINE_WINDOW_MS = 35000;
-const STALE_THRESHOLD_MS = 1500;
+// Seed once data overlaps the canvas window. The 5s margin keeps a visible
+// segment (not a sliver at the left edge) and clears the pipeline's ~1-2.5s
+// end-to-end data age (worker insert + poll tick + flush) so the first window seeds.
+const MAX_SEED_AGE_MS = SPARKLINE_TIME_WINDOW_MS - 5_000;
 
 // Keep an accumulator briefly after its last subscriber leaves so the
 // unmount/remount the virtualizer triggers when repositioning rows resumes
@@ -35,10 +40,11 @@ export function getSparklinePoints(key: string): SparklinePoint[] {
  * Fold a fresh `data` window into the accumulator for `key`.
  *
  * Idempotent (replaying the same `data` keeps the same points array), so it is
- * safe to call during render. A series waits and shows a placeholder until its
- * latest point is fresh (within STALE_THRESHOLD_MS of `now`); the first fresh
- * window seeds it, and later windows append only points newer than the last
- * seen timestamp, dropping anything older than SPARKLINE_WINDOW_MS.
+ * safe to call during render. A series waits and shows a placeholder only while
+ * its latest point is too old to draw inside the canvas window (older than
+ * MAX_SEED_AGE_MS); the first drawable window seeds it, and later windows append
+ * only points newer than the last seen timestamp, dropping anything older than
+ * SPARKLINE_WINDOW_MS.
  */
 export function ingestSparklineData(key: string, data: SparklinePoint[], now: number): void {
   if (data.length === 0) return;
@@ -47,7 +53,7 @@ export function ingestSparklineData(key: string, data: SparklinePoint[], now: nu
   const latest = data[data.length - 1].timestamp;
 
   if (!prev || prev.phase !== 'seeded') {
-    if (now - latest > STALE_THRESHOLD_MS) {
+    if (now - latest > MAX_SEED_AGE_MS) {
       if (prev?.phase !== 'waiting') {
         seriesByKey.set(key, { points: prev?.points ?? EMPTY, maxTs: prev?.maxTs ?? 0, phase: 'waiting' });
       }

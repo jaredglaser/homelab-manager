@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord, DeployStatus } from '@/types/stacks';
 import { stackSecretsMiddleware } from '@/middleware/stack-secrets-middleware';
 import type { StackControlRequest } from '@/lib/clients/agent-client';
 import { authMiddleware } from '@/middleware/auth-middleware';
@@ -47,7 +47,7 @@ export const getStackDetail = createServerFn()
 export const triggerDeploy = createServerFn()
   .middleware([authMiddleware])
   .inputValidator(triggerDeploySchema)
-  .handler(async ({ data, context }): Promise<{ deployId: number }> => {
+  .handler(async ({ data, context }): Promise<{ deployId: number; status: DeployStatus; logs: string }> => {
     requireRole('admin', 'operator')(context.user);
     const { triggerStackDeploy } = await import('@/lib/stacks/stack-service');
     return triggerStackDeploy(data);
@@ -57,7 +57,7 @@ export const triggerDeploy = createServerFn()
 export const resumeDeploy = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
   .inputValidator(resumeDeploySchema)
-  .handler(async ({ data, context }): Promise<{ deployId: number }> => {
+  .handler(async ({ data, context }): Promise<{ deployId: number; status: DeployStatus; logs: string }> => {
     requireRole('admin', 'operator')(context.user);
     const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
     return resumePendingDeploy(data.deployId);
@@ -254,8 +254,8 @@ const deleteStackSchema = z.object({
 });
 
 /**
- * Delete a stack from the git repo. If `teardown` is true, queues an async
- * teardown via the deploy pipeline and returns immediately; the pipeline's
+ * Delete a stack from the git repo. If `teardown` is true, dispatches a
+ * teardown via the deploy pipeline and awaits its completion; the pipeline's
  * postSuccess hook removes the manifest entry once the agent reports success.
  * If `teardown` is false, removes the stack from the manifest synchronously.
  */

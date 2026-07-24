@@ -27,7 +27,7 @@ export function computeServiceKey(
 }
 
 /**
- * Converts a raw DockerStatsRow into a DockerStatsFromDB object tailored for UI consumption.
+ * Converts a Docker stats row into a DockerStatsFromDB object tailored for UI consumption.
  *
  * @param row - The source wide-format Docker stats row.
  * @param icon - Optional icon identifier to attach to the resulting entity.

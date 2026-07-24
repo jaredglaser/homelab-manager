@@ -57,7 +57,7 @@ jobs:
 
       - name: Upload license report
         if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: license-report
           path: license-report.json
@@ -113,7 +113,7 @@ jobs:
 
       - name: Upload license report
         if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: agent-license-report
           path: agent/license-report.json
@@ -169,11 +169,28 @@ jobs:
 
       - name: Upload license report
         if: github.event_name == 'push' || steps.changes.outputs.dependencies == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: agent-updater-license-report
           path: agent-updater/license-report.json
           retention-days: 30
+
+  demo-build:
+    name: Demo Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build demo
+        run: bun run build:demo
 
   sonarcloud:
     name: SonarCloud Analysis
@@ -188,7 +205,7 @@ jobs:
           fetch-depth: 0
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v8.1.0
+        uses: SonarSource/sonarqube-scan-action@v8.2.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
@@ -206,7 +223,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -260,7 +277,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: production
@@ -271,7 +288,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push worker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: base
@@ -282,7 +299,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push agent image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./agent
           target: base
@@ -293,7 +310,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=agent
 
       - name: Build and push agent-updater image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./agent-updater
           push: true
@@ -305,7 +322,7 @@ jobs:
   deploy-demo:
     name: Deploy Demo to GitHub Pages
     runs-on: ubuntu-latest
-    needs: [build-test, agent, agent-updater]
+    needs: [build-test, agent, agent-updater, demo-build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     concurrency:
       group: pages

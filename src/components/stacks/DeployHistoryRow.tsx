@@ -8,6 +8,8 @@ import type { StackDeployRecord, DeployAction, DeployStatus } from '@/types/stac
 import { triggerDeploy } from '@/data/stacks/functions';
 import RollbackDialog from '@/components/stacks/RollbackDialog';
 
+type TriggerDeployResult = Awaited<ReturnType<typeof triggerDeploy>>;
+
 const PENDING_APPROVAL_LABEL = 'Pending approval';
 
 const STATUS_COLOR: Record<DeployStatus, string> = {
@@ -29,6 +31,7 @@ const STATUS_LABEL: Record<DeployStatus, string> = {
 const ACTION_LABEL: Record<DeployAction, string> = {
   deploy: 'Deploy',
   teardown: 'Teardown',
+  update: 'Image update',
 };
 
 function getActionLabel(record: StackDeployRecord): string {
@@ -42,7 +45,7 @@ interface DeployHistoryRowProps {
   record: StackDeployRecord;
   stackName?: string;
   host?: string;
-  onRollbackComplete?: () => void;
+  onRollbackComplete?: (result: TriggerDeployResult) => void;
   onRollbackError?: (err: Error) => void;
   onApprove?: (deployId: number) => void;
   onReject?: (deployId: number) => void;
@@ -63,7 +66,7 @@ export default function DeployHistoryRow({ record, stackName, host, onRollbackCo
   const rollbackMutation = useMutation({
     mutationFn: () =>
       (_triggerDeploy ?? triggerDeploy)({ data: { stack: stackName!, host: host!, action: 'deploy', commitSha: record.commitSha } }),
-    onSuccess: () => onRollbackComplete?.(),
+    onSuccess: (data) => onRollbackComplete?.(data),
     onError: (err) => onRollbackError?.(err instanceof Error ? err : new Error(String(err))),
   });
 

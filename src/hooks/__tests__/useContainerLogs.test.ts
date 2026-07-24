@@ -2,50 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { useContainerLogs } from '../useContainerLogs';
 import { _resetLogStreams } from '@/lib/docker/log-stream-registry';
-
-// Mock EventSource
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-  url: string;
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onerror: (() => void) | null = null;
-  private listeners = new Map<string, ((event: unknown) => void)[]>();
-  readyState = 0; // CONNECTING
-  closed = false;
-
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-
-  addEventListener(type: string, handler: (event: unknown) => void) {
-    const handlers = this.listeners.get(type) ?? [];
-    handlers.push(handler);
-    this.listeners.set(type, handlers);
-  }
-
-  removeEventListener(type: string, handler: (event: unknown) => void) {
-    const handlers = this.listeners.get(type) ?? [];
-    this.listeners.set(type, handlers.filter(h => h !== handler));
-  }
-
-  dispatchEvent(type: string, data: unknown) {
-    const handlers = this.listeners.get(type) ?? [];
-    for (const handler of handlers) {
-      handler(data);
-    }
-  }
-
-  close() {
-    this.closed = true;
-    this.readyState = 2; // CLOSED
-  }
-
-  static reset() {
-    MockEventSource.instances = [];
-  }
-}
+import { MockEventSource } from '@/lib/test/mock-event-source';
 
 const originalEventSource = globalThis.EventSource;
 
@@ -152,8 +109,7 @@ describe('useContainerLogs', () => {
         }),
       );
 
-      // Agent emits one line per SSE message; batching across messages within a
-      // single frame is the optimization we care about preserving.
+      // Batching across messages within a single frame is the optimization under test.
       act(() => {
         MockEventSource.instances[0].onopen?.();
         MockEventSource.instances[0].onmessage?.({
@@ -233,9 +189,7 @@ describe('useContainerLogs', () => {
         }),
       );
 
-      // 6 iterations = initial connection failure + MAX_RECONNECT_ATTEMPTS (5) retry failures.
-      // Each onerror closes the current EventSource and (via the immediate setTimeout mock)
-      // immediately opens a new one, so we always call onerror on the latest instance.
+      // 6 iterations = initial failure + MAX_RECONNECT_ATTEMPTS (5) retries; always call onerror on the latest instance.
       for (let i = 0; i < 6; i++) {
         const es = MockEventSource.instances[MockEventSource.instances.length - 1];
         act(() => { es.onerror?.(); });
@@ -258,7 +212,7 @@ describe('useContainerLogs', () => {
 
     act(() => {
       MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].dispatchEvent('stream_end', {});
+      MockEventSource.instances[0].fireEvent('stream_end', {});
       MockEventSource.instances[0].onerror?.();
     });
 
@@ -292,13 +246,12 @@ describe('useContainerLogs', () => {
 
       act(() => {
         MockEventSource.instances[0].onopen?.();
-        MockEventSource.instances[0].dispatchEvent('error', {
+        MockEventSource.instances[0].fireEvent('error', {
           data: JSON.stringify({ message: 'Container not found' }),
         });
       });
 
-      // Agent-emitted error events flow through the per-frame write buffer,
-      // not writeln, so the message lands in the terminal alongside log lines.
+      // Flows through the per-frame write buffer, not writeln.
       expect(mockTerminal.write).toHaveBeenCalledWith(
         expect.stringContaining('Container not found'),
       );

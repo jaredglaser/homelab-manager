@@ -65,7 +65,7 @@ describe('SparklineCell', () => {
     });
   });
 
-  describe('fresh data (within STALE_THRESHOLD_MS)', () => {
+  describe('drawable data (inside the canvas window)', () => {
     it('seeds and renders SparklineCanvas', () => {
       const data = makePoints([-1000, -500, 0]);
 
@@ -77,13 +77,13 @@ describe('SparklineCell', () => {
     });
   });
 
-  describe('stale data (older than STALE_THRESHOLD_MS)', () => {
+  describe('undrawable data (older than the canvas window)', () => {
     it('renders PulseLine in waiting state', () => {
-      const data = makePoints([-5000]);
+      const data = makePoints([-30000]);
 
       const { container } = render(<SparklineCell data={data} color="--chart-memory" seriesKey={nextKey()} />);
 
-      // Stale data should not render canvas
+      // Data too old to draw should not render canvas
       expect(container.querySelector('canvas')).toBeNull();
 
       const outerDiv = container.firstElementChild as HTMLElement;
@@ -91,11 +91,13 @@ describe('SparklineCell', () => {
     });
   });
 
-  describe('stale then fresh data transition', () => {
-    it('transitions from waiting to seeded when fresh data arrives', () => {
+  describe('undrawable then drawable data transition', () => {
+    it('transitions from waiting to seeded when drawable data arrives', () => {
       const key = nextKey();
-      const staleData = makePoints([-5000]);
-      const { container, rerender } = render(<SparklineCell data={staleData} color="--chart-cpu" seriesKey={key} />);
+      const undrawableData = makePoints([-30000]);
+      const { container, rerender } = render(
+        <SparklineCell data={undrawableData} color="--chart-cpu" seriesKey={key} />,
+      );
       expect(container.querySelector('canvas')).toBeNull();
 
       const freshData = makePoints([-1000, -500, 0]);
@@ -135,7 +137,7 @@ describe('SparklineCell', () => {
     });
 
     it('drops points older than the 35s window when accumulating', () => {
-      // Seed with a fresh initial point (within STALE_THRESHOLD_MS)
+      // Seed with a fresh initial point (inside the canvas window)
       const key = nextKey();
       const initialData = makePoints([-1000, 0]);
       const { container, rerender } = render(<SparklineCell data={initialData} color="--chart-cpu" seriesKey={key} />);

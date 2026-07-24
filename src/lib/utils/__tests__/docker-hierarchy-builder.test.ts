@@ -13,7 +13,7 @@ import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory'
 describe('rowToDockerStats', () => {
   function createMockRow(overrides?: Partial<DockerStatsRow>): DockerStatsRow {
     return {
-      time: '2024-01-01T00:00:00Z',
+      time: Date.parse('2024-01-01T00:00:00Z'),
       host: 'host1',
       container_id: 'abc123def456',
       container_name: 'nginx',
@@ -133,6 +133,8 @@ function makeInventory(
     finishedAt: null,
     exitCode: null,
     labels: {},
+    ports: [],
+    mounts: [],
     updatedAt: baseDate,
     ...overrides,
   };

@@ -1,11 +1,18 @@
+import { createSseStream } from '@/lib/sse/create-sse-stream';
 import type { StatsSource } from '@/lib/database/subscription-service';
 
+// Structural, not the full SseChannelDescriptor, so this module doesn't need to import zod.
+interface StatsChannel {
+  errorEvent: string;
+}
+
 /**
- * Factory for stats SSE route handlers.
- * All three stats endpoints (docker, zfs, proxmox) share identical logic;
- * only the source string differs.
+ * Factory for stats SSE route handlers (docker/zfs/proxmox share identical logic; only
+ * the source and channel descriptor differ). StatsPollService only pushes rows when it
+ * has new ones, so without the shared heartbeat in `createSseStream` this stream stayed
+ * silent (past idle timeouts) whenever the worker was down.
  */
-export function createStatsSseHandler(source: StatsSource) {
+export function createStatsSseHandler(source: StatsSource, channel: StatsChannel) {
   return async ({ request }: { request: Request }) => {
     const { authenticateSSE } = await import('@/lib/auth/sse-auth');
     const user = await authenticateSSE(request);
@@ -18,70 +25,20 @@ export function createStatsSseHandler(source: StatsSource) {
       '@/lib/database/subscription-service'
     );
 
-    const encoder = new TextEncoder();
-    let closed = false;
-
-    const stream = new ReadableStream({
-      start(controller) {
-        // SSE heartbeat forces Nitro to flush response headers immediately
-        controller.enqueue(encoder.encode(': ok\n\n'));
-
-        let unsubscribe: () => void = () => {};
-
-        // Tear down polling + close the stream once the consumer is gone
-        // (either via request abort, or because controller.enqueue threw).
-        const teardown = () => {
-          if (closed) return;
-          closed = true;
-          unsubscribe();
-          try {
-            controller.close();
-          } catch {
-            // Already closed
-          }
-        };
-
-        const sendData = (rows: unknown[]) => {
-          if (closed) return;
-          try {
-            const message = `data: ${JSON.stringify(rows)}\n\n`;
-            controller.enqueue(encoder.encode(message));
-          } catch {
-            teardown();
-          }
-        };
-
-        const sendError = () => {
-          if (closed) return;
-          try {
-            controller.enqueue(encoder.encode(`event: stats_error\ndata: {}\n\n`));
-          } catch {
-            teardown();
-          }
-        };
-
+    return createSseStream(request, {
+      onStart: (emit) => {
         try {
-          unsubscribe = statsPollService.subscribe(source, sendData, sendError);
+          return statsPollService.subscribe(
+            source,
+            (rows) => emit.data(rows),
+            () => emit.event(channel.errorEvent, {}),
+          );
         } catch {
-          sendError();
-          closed = true;
-          try { controller.close(); } catch { /* already closed */ }
-          return;
+          // Subscribe is unrecoverable for this request: end the stream
+          // now rather than leaving it open with nothing left to send.
+          emit.event(channel.errorEvent, {});
+          emit.close();
         }
-
-        request.signal.addEventListener('abort', teardown);
-        // If the client disconnected during the awaits above, the abort event
-        // already fired and the listener will never run; tear down now so the
-        // subscription doesn't leak.
-        if (request.signal.aborted) teardown();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
       },
     });
   };

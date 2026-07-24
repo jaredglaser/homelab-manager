@@ -4,13 +4,14 @@
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
-import type { DeployAction, DeployRecord, DeployRequest } from '@/lib/deploy/types';
+import type { DeployAction, DeployRecord, DeployRequest, DeployStatus } from '@/lib/deploy/types';
 import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-client';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
 import { saveAndCommitFile } from '@/lib/git/editor-operations';
-import yaml from 'js-yaml';
+import { MANIFEST, composePath, serializeManifest } from '@/lib/stacks/stack-repo-layout';
+import { createStackRepoWriter } from '@/lib/deploy/stack-repo-writer';
 import {
   manifestEntryToSummary,
   manifestEntryToDetail,
@@ -27,8 +28,6 @@ export const SAFE_PATH_SEGMENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 export { resolveDeleteStack } from '@/lib/stacks/delete-stack-resolver';
 export type { DeleteStackDeps, DeleteStackResult } from '@/lib/stacks/delete-stack-resolver';
 
-const COMPOSE_FILENAME = 'docker-compose.yml';
-const MANIFEST_FILENAME = 'manifest.yaml';
 const SYSTEM_AUTHOR = { name: 'homelab-manager', email: 'homelab-manager@localhost' };
 
 function getRepoPath(): string {
@@ -41,7 +40,7 @@ export async function getStackSummaries(): Promise<StackSummary[]> {
 
   let manifestContent: string;
   try {
-    manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+    manifestContent = await readFileFromRepo(repoPath, MANIFEST);
   } catch {
     return [];
   }
@@ -88,14 +87,14 @@ export async function getStackDetailByName(
 ): Promise<StackDetail | null> {
   try {
     const repoPath = getRepoPath();
-    const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+    const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
     const manifest = parseManifest(manifestContent);
     const entry = manifest.stacks[stackName];
     if (!entry) return null;
 
     let composeContent = '';
     try {
-      composeContent = await readFileFromRepo(repoPath, `${stackName}/${COMPOSE_FILENAME}`);
+      composeContent = await readFileFromRepo(repoPath, composePath(stackName));
     } catch (err) {
       if (!(err instanceof FileNotFoundError)) {
         console.error(`[StackService] Unexpected error reading compose file for "${stackName}":`, err);
@@ -118,41 +117,56 @@ export async function triggerStackDeploy(params: {
   commitSha?: string;
   forceRecreate?: boolean;
   postSuccess?: 'removeFromManifest';
-}): Promise<{ deployId: number }> {
+}): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   const repoPath = getRepoPath();
 
   const { default: git } = await import('isomorphic-git');
   const fs = await import('node:fs');
-  const { UITriggerBuilder } = await import('@/lib/deploy/builders/ui-trigger-builder');
   const { createDeployPipeline } = await import('@/lib/deploy/pipeline-factory');
 
-  const builder = new UITriggerBuilder();
   const { pipeline } = await createDeployPipeline();
 
   if (params.commitSha) {
-    // Rollback: read compose from the historical commit and use buildRollback
+    // Rollback is always a full deploy with forceRecreate, regardless of the original action.
     const rollbackSha = params.commitSha;
     return handleTriggerDeploy({
       readCompose: (stack) =>
-        readFileFromRepo(repoPath, `${stack}/${COMPOSE_FILENAME}`, rollbackSha),
+        readFileFromRepo(repoPath, composePath(stack), rollbackSha),
       getCommitSha: () => Promise.resolve(rollbackSha),
-      buildRequest: (input) =>
-        builder.buildRollback({
-          stack: input.stack,
-          host: input.host,
-          composeContent: input.composeContent,
-          commitSha: input.commitSha,
-        }),
+      buildRequest: (input): DeployRequest => ({
+        stack: input.stack,
+        host: input.host,
+        composeContent: input.composeContent,
+        commitSha: input.commitSha,
+        envContent: '',
+        action: 'deploy',
+        trigger: 'manual_rollback',
+        autoApproved: true,
+        forceRecreate: true,
+      }),
       executePipeline: (request) => pipeline.execute(request),
     }, params);
   }
 
   return handleTriggerDeploy({
-    readCompose: (stack) => readFileFromRepo(repoPath, `${stack}/${COMPOSE_FILENAME}`),
+    readCompose: (stack) => readFileFromRepo(repoPath, composePath(stack)),
     getCommitSha: () => git.resolveRef({ fs, gitdir: repoPath, ref: 'HEAD' }),
-    buildRequest: (input) => {
-      const req = builder.build(input);
-      return params.postSuccess ? { ...req, postSuccess: params.postSuccess } : req;
+    buildRequest: (input): DeployRequest => {
+      const base = {
+        stack: input.stack,
+        host: input.host,
+        commitSha: input.commitSha,
+        trigger: 'ui' as const,
+        autoApproved: true,
+        ...(params.postSuccess ? { postSuccess: params.postSuccess } : {}),
+      };
+      if (input.action === 'deploy') {
+        return { ...base, action: 'deploy', composeContent: input.composeContent, envContent: '', forceRecreate: input.forceRecreate ?? false };
+      }
+      if (input.action === 'update') {
+        return { ...base, action: 'update', composeContent: input.composeContent, envContent: '' };
+      }
+      return { ...base, action: input.action };
     },
     executePipeline: (request) => pipeline.execute(request),
   }, params);
@@ -163,7 +177,7 @@ export async function triggerStackDeploy(params: {
  * Rebuilds the `DeployRequest` from the stored deploy record, reading the compose
  * file at the record's commitSha so the exact configuration that was pending is what gets deployed.
  */
-export async function resumePendingDeploy(deployId: number): Promise<{ deployId: number }> {
+export async function resumePendingDeploy(deployId: number): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
@@ -193,12 +207,9 @@ export async function resumePendingDeploy(deployId: number): Promise<{ deployId:
   const { pipeline } = await createDeployPipeline();
   const result = await pipeline.resumePending(deployId, host, request);
   // resumePending returns failed (instead of throwing) when claimPending loses a
-  // race or the dispatch fails. Surface either case to the caller so the UI
-  // shows an error toast instead of a misleading "Deploy approved" success.
-  if (result.status === 'failed') {
-    throw new Error(result.logs);
-  }
-  return { deployId: result.deployId ?? deployId };
+  // race or the dispatch fails. The caller toasts the outcome from the returned
+  // status rather than treating every non-throw as success.
+  return { deployId: result.deployId ?? deployId, status: result.status, logs: result.logs };
 }
 
 /**
@@ -227,7 +238,13 @@ export async function rejectPendingDeploy(deployId: number): Promise<{ deployId:
     throw new Error(`Deploy ${deployId} is no longer pending (approved or rejected by another client)`);
   }
   try {
-    await deployRepo.notifyStackChange(deploy.stack, deploy.host);
+    await deployRepo.notifyStackChange(deploy.stack, deploy.host, {
+      deployId,
+      status: 'failed',
+      action: deploy.action,
+      trigger: deploy.trigger,
+      message: 'Manually rejected',
+    });
   } catch (err) {
     console.error(`Failed to notify stack change after rejecting deploy ${deployId}:`, err);
   }
@@ -246,18 +263,21 @@ async function buildRequestFromDeployRecord(
     postSuccess: deploy.postSuccess ?? undefined,
   };
 
-  if (deploy.action === 'deploy') {
+  if (deploy.action === 'deploy' || deploy.action === 'update') {
     const repoPath = getRepoPath();
     let composeContent = '';
     try {
       composeContent = await readFileFromRepo(
         repoPath,
-        `${deploy.stack}/${COMPOSE_FILENAME}`,
+        composePath(deploy.stack),
         deploy.commitSha,
       );
     } catch (err) {
       if (!(err instanceof FileNotFoundError)) throw err;
       console.warn(`[stack-service] compose file not found for deploy ${deploy.id}, proceeding with empty content`);
+    }
+    if (deploy.action === 'update') {
+      return { ...base, action: 'update', composeContent, envContent: '' };
     }
     return {
       ...base,
@@ -278,7 +298,7 @@ export async function getStackDeployHistory(
   const repoPath = getRepoPath();
   if (!repoPath) return [];
 
-  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
   const manifest = parseManifest(manifestContent);
   const entry = manifest.stacks[stackName];
   if (!entry) return [];
@@ -302,10 +322,10 @@ export async function saveStackComposeFile(
   const repoPath = getRepoPath();
 
   return saveAndCommitFile(repoPath, {
-    filePath: `${stackName}/${COMPOSE_FILENAME}`,
+    filePath: composePath(stackName),
     content,
     author: SYSTEM_AUTHOR,
-    message: `Update ${stackName}/${COMPOSE_FILENAME}`,
+    message: `Update ${composePath(stackName)}`,
   });
 }
 
@@ -332,7 +352,7 @@ export async function createStackInRepo(
   if (!managedHost) throw new Error(`Host "${host}" not found in managed_hosts`);
 
   const commitSha = await commitFiles(repoPath, (existingFiles) => {
-    const manifestContent = existingFiles.get(MANIFEST_FILENAME);
+    const manifestContent = existingFiles.get(MANIFEST);
     const manifest = manifestContent ? parseManifest(manifestContent) : { stacks: {} };
 
     if (manifest.stacks[stackName]) {
@@ -340,17 +360,11 @@ export async function createStackInRepo(
     }
 
     manifest.stacks[stackName] = { host, autoDeploy };
-    const newManifestContent = yaml.dump(manifest, {
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true,
-      sortKeys: true,
-    });
 
     return {
       files: [
-        { path: `${stackName}/${COMPOSE_FILENAME}`, content: '' },
-        { path: MANIFEST_FILENAME, content: newManifestContent },
+        { path: composePath(stackName), content: '' },
+        { path: MANIFEST, content: serializeManifest(manifest) },
       ],
       message: `Add stack: ${stackName} on ${host}`,
       author: SYSTEM_AUTHOR,
@@ -366,7 +380,7 @@ export async function deleteStackFromRepo(
 ): Promise<DeleteStackResult> {
   const repoPath = getRepoPath();
 
-  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
   const manifest = parseManifest(manifestContent);
   const entry = manifest.stacks[stackName];
   if (!entry) throw new Error(`Stack "${stackName}" not found in manifest`);
@@ -390,45 +404,10 @@ export async function deleteStackFromRepo(
 
   return resolveDeleteStack(stackName, host, teardown, {
     triggerDeploy: (params) => triggerStackDeploy(params),
-    commitRemoveFromManifest: (sn) => commitRemoveStackFromManifest(repoPath, sn),
+    // Same implementation the async teardown path uses (stack-repo-writer.ts):
+    // one remove-stack-from-manifest sequence for both delete paths.
+    commitRemoveFromManifest: (sn) => createStackRepoWriter().removeStackFromManifest(sn),
   });
-}
-
-async function commitRemoveStackFromManifest(
-  repoPath: string,
-  stackName: string,
-): Promise<{ commitSha: string }> {
-  const commitSha = await commitFiles(repoPath, (existingFiles) => {
-    const freshManifestContent = existingFiles.get(MANIFEST_FILENAME);
-    if (freshManifestContent === undefined) {
-      throw new Error(`Stack "${stackName}" not found in manifest`);
-    }
-    const manifest = parseManifest(freshManifestContent);
-
-    if (!manifest.stacks[stackName]) {
-      throw new Error(`Stack "${stackName}" not found in manifest`);
-    }
-
-    delete manifest.stacks[stackName];
-    const newManifestContent = yaml.dump(manifest, {
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true,
-      sortKeys: true,
-    });
-
-    const stackDirPrefix = `${stackName}/`;
-    const stackFiles = Array.from(existingFiles.keys()).filter((p) => p.startsWith(stackDirPrefix));
-
-    return {
-      files: [{ path: MANIFEST_FILENAME, content: newManifestContent }],
-      filesToDelete: stackFiles,
-      message: `Remove stack: ${stackName}`,
-      author: SYSTEM_AUTHOR,
-    };
-  });
-
-  return { commitSha };
 }
 
 export async function getManagedHostNames(): Promise<string[]> {
@@ -450,7 +429,7 @@ export async function updateStackIconSlug(
   const repoPath = getRepoPath();
   if (!repoPath) return;
 
-  const manifestContent = await readFileFromRepo(repoPath, MANIFEST_FILENAME);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST);
   const manifest = parseManifest(manifestContent);
   const entry = manifest.stacks[stackName];
   if (!entry) return;

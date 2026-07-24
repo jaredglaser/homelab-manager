@@ -3,6 +3,7 @@ import { StackStatusBroadcastService } from '../stack-status-broadcast-service';
 import type { StackBroadcastEvent } from '../stack-status-broadcast-service';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { PoolClient } from 'pg';
+import { waitForCondition } from '@/lib/test/wait-for-condition';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -47,10 +48,6 @@ function createMockPoolClient(): MockPoolClient {
   return client;
 }
 
-function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 const composeContainer1: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'abc123',
@@ -63,6 +60,8 @@ const composeContainer1: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'media' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T10:00:00Z'),
 };
 
@@ -78,6 +77,8 @@ const composeContainer2: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'media' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T10:01:00Z'),
 };
 
@@ -94,6 +95,8 @@ const nonComposeContainer: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: {},
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T09:00:00Z'),
 };
 
@@ -109,6 +112,8 @@ const otherStackContainer: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'proxy' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T08:00:00Z'),
 };
 
@@ -134,7 +139,7 @@ describe('StackStatusBroadcastService', () => {
   it('sends init with only compose rows grouped by (host, stack)', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     expect(received).toHaveLength(1);
     const init = received[0];
@@ -156,7 +161,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0];
     expect(init.type).toBe('status');
@@ -174,7 +179,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0];
     expect(init.type).toBe('status');
@@ -188,7 +193,7 @@ describe('StackStatusBroadcastService', () => {
   it('excludes non-compose containers from init payload', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0];
     if (init.type === 'status') {
@@ -207,9 +212,10 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     const unsub = slowService.subscribe((e) => received.push(e));
+    // unsub() runs before sendInit() awaits the snapshot; await it only so pending work settles before stop().
     unsub();
     resolveSnapshot([composeContainer1]);
-    await flush();
+    await slowSnapshot;
 
     expect(received).toHaveLength(0);
     await slowService.stop();
@@ -217,7 +223,7 @@ describe('StackStatusBroadcastService', () => {
 
   it('issues LISTEN for both docker_container_change and deploy_change', async () => {
     service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.issuedQueries.includes('LISTEN deploy_change'));
 
     expect(poolClient.issuedQueries).toContain('LISTEN docker_container_change');
     expect(poolClient.issuedQueries).toContain('LISTEN deploy_change');
@@ -226,7 +232,7 @@ describe('StackStatusBroadcastService', () => {
   it('broadcasts stack status update when compose container upserted', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const notifyPayload = JSON.stringify({
       at: '2026-04-16T11:00:00Z',
@@ -243,6 +249,7 @@ describe('StackStatusBroadcastService', () => {
       exit_code: 0,
     });
 
+    // handleContainerChange runs synchronously, so emit() has already broadcast by the time it returns.
     poolClient.emit('notification', { channel: 'docker_container_change', payload: notifyPayload });
 
     expect(received.length).toBeGreaterThanOrEqual(2);
@@ -258,7 +265,7 @@ describe('StackStatusBroadcastService', () => {
   it('ignores upsert of non-compose container (null compose_project)', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const countBefore = received.length;
 
@@ -291,7 +298,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -321,7 +328,7 @@ describe('StackStatusBroadcastService', () => {
   it('broadcasts empty containers array when last container in stack is destroyed', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -350,7 +357,7 @@ describe('StackStatusBroadcastService', () => {
   it('forwards deploy_change NOTIFY as deploy_changed event', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     poolClient.emit('notification', {
       channel: 'deploy_change',
@@ -362,6 +369,107 @@ describe('StackStatusBroadcastService', () => {
     if (deployEvent?.type === 'deploy_changed') {
       expect(deployEvent.stack).toBe('media');
       expect(deployEvent.host).toBe('server1');
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('forwards a nested outcome object from an enriched deploy_change NOTIFY', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: {
+          deployId: 42,
+          status: 'failed',
+          action: 'deploy',
+          trigger: 'git_push',
+          message: 'agent unreachable',
+        },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toEqual({
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'agent unreachable',
+      });
+    }
+  });
+
+  it('drops an outcome object missing a required field instead of forwarding it partially', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 42, status: 'failed', action: 'deploy' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('drops an outcome with an invalid enum value but still forwards the frame', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 42, status: 'bogus', action: 'deploy', trigger: 'ui' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('drops an outcome with a non-positive deployId', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 0, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
     }
   });
 
@@ -370,7 +478,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const countBefore = received.length;
     poolClient.emit('notification', {
@@ -388,7 +496,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const countBefore = received.length;
     poolClient.emit('notification', {
@@ -403,9 +511,10 @@ describe('StackStatusBroadcastService', () => {
 
   it('auto-starts on first subscriber and auto-stops on last unsubscribe', async () => {
     const unsub = service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     expect(poolClient.released).toBe(false);
+    // cleanupListenerClient() releases synchronously; no wait needed.
     unsub();
     expect(poolClient.released).toBe(true);
   });
@@ -413,7 +522,7 @@ describe('StackStatusBroadcastService', () => {
   it('keeps listening when one of multiple subscribers unsubscribes', async () => {
     const unsub1 = service.subscribe(() => {});
     const unsub2 = service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     unsub1();
     expect(poolClient.released).toBe(false);
@@ -426,8 +535,9 @@ describe('StackStatusBroadcastService', () => {
     const setTimeoutSpy = spyOn(globalThis, 'setTimeout');
 
     service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
+    // error handler schedules reconnect via synchronous setTimeout; no wait needed.
     poolClient.emit('error', new Error('connection reset'));
 
     expect(setTimeoutSpy).toHaveBeenCalled();
@@ -450,10 +560,10 @@ describe('StackStatusBroadcastService', () => {
     });
 
     reconnectService.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => connectCount >= 1);
 
     poolClient.emit('error', new Error('transient error'));
-    await flush();
+    await waitForCondition(() => connectCount >= 2);
 
     expect(connectCount).toBeGreaterThanOrEqual(2);
 
@@ -464,7 +574,7 @@ describe('StackStatusBroadcastService', () => {
   it('ignores notifications on unrecognized channels', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const countBefore = received.length;
     poolClient.emit('notification', {
@@ -481,7 +591,7 @@ describe('StackStatusBroadcastService', () => {
 
     service.subscribe((e) => received1.push(e));
     service.subscribe((e) => received2.push(e));
-    await flush();
+    await waitForCondition(() => received1.length > 0 && received2.length > 0);
 
     poolClient.emit('notification', {
       channel: 'deploy_change',
@@ -500,7 +610,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0];
     if (init.type === 'status') {
@@ -512,7 +622,7 @@ describe('StackStatusBroadcastService', () => {
   it('produces StackStatusRow with correct container fields', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0];
     if (init.type === 'status') {
@@ -539,7 +649,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     noPrefixService.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0];
     if (init.type === 'status') {
@@ -561,7 +671,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     emptyKeyService.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0];
     if (init.type === 'status') {
@@ -584,7 +694,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     trailingSlashService.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0];
     if (init.type === 'status') {
@@ -596,7 +706,7 @@ describe('StackStatusBroadcastService', () => {
   it('updated_at is an ISO string', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     const init = received[0] as Extract<StackBroadcastEvent, { type: 'status' }>;
     expect(typeof init.entries[0].updated_at).toBe('string');
@@ -606,7 +716,7 @@ describe('StackStatusBroadcastService', () => {
   it('broadcasts empty-stack destroy with event at timestamp as ISO string', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -641,7 +751,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     // Real Docker destroy events carry labels: {} so compose_project is null,
     // so removal must still find the container via its in-memory stack entry.
@@ -691,6 +801,8 @@ describe('StackStatusBroadcastService', () => {
       finishedAt: null,
       exitCode: null,
       labels: { 'com.docker.compose.project': 'media' },
+      ports: [],
+      mounts: [],
       updatedAt: new Date('2026-04-16T10:00:00Z'),
     };
     const containerY: DockerInventorySnapshotContainer = {
@@ -705,6 +817,8 @@ describe('StackStatusBroadcastService', () => {
       finishedAt: null,
       exitCode: null,
       labels: { 'com.docker.compose.project': 'media' },
+      ports: [],
+      mounts: [],
       updatedAt: new Date('2026-04-16T11:00:00Z'),
     };
 
@@ -723,7 +837,7 @@ describe('StackStatusBroadcastService', () => {
 
     const received: StackBroadcastEvent[] = [];
     reconnectService.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     expect(received.length).toBeGreaterThanOrEqual(1);
     const initStatus = received[0] as Extract<StackBroadcastEvent, { type: 'status' }>;
@@ -739,7 +853,7 @@ describe('StackStatusBroadcastService', () => {
 
     try {
       firstClient.emit('error', new Error('connection lost'));
-      for (let i = 0; i < 20; i++) await flush();
+      await waitForCondition(() => connectCount >= 3 && snapshotCallCount >= 2);
 
       expect(connectCount).toBeGreaterThanOrEqual(3);
       expect(snapshotCallCount).toBeGreaterThanOrEqual(2);
@@ -783,12 +897,12 @@ describe('StackStatusBroadcastService', () => {
       throw new Error('subscriber 1 is broken');
     });
     service.subscribe((e) => received2.push(e));
-    await flush();
+    await waitForCondition(() => received2.length > 0);
 
     received2.length = 0;
 
+    // Stack state is already seeded, so sendInit() for this subscriber builds from memory synchronously.
     service.subscribe(() => {});
-    await flush();
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -817,13 +931,189 @@ describe('StackStatusBroadcastService', () => {
     consoleSpy.mockRestore();
   });
 
+  it('carries ports and mounts from the init snapshot into stack entries', async () => {
+    const containerWithPortsAndMounts: DockerInventorySnapshotContainer = {
+      ...composeContainer1,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+    };
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [containerWithPortsAndMounts],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    const init = received[0] as Extract<StackBroadcastEvent, { type: 'status' }>;
+    const container = init.entries[0].containers[0];
+    expect(container.ports).toEqual(containerWithPortsAndMounts.ports);
+    expect(container.mounts).toEqual(containerWithPortsAndMounts.mounts);
+  });
+
+  it('a NOTIFY upsert with ports updates ports and preserves the previous mounts', async () => {
+    const seeded: DockerInventorySnapshotContainer = {
+      ...composeContainer1,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+    };
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [seeded],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'running',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        compose_project: 'media',
+        service_key: 'media/plex',
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+        ports: [{ containerPort: 443, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8443 }],
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    const container = lastStatus.entries[0].containers[0];
+    expect(container.ports).toEqual([{ containerPort: 443, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8443 }]);
+    expect(container.mounts).toEqual(seeded.mounts);
+  });
+
+  it('a NOTIFY upsert without a ports field preserves both ports and mounts', async () => {
+    const seeded: DockerInventorySnapshotContainer = {
+      ...composeContainer1,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+    };
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [seeded],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'running',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        compose_project: 'media',
+        service_key: 'media/plex',
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+        // no ports field: simulates an older worker payload predating migration 026
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    const container = lastStatus.entries[0].containers[0];
+    expect(container.ports).toEqual(seeded.ports);
+    expect(container.mounts).toEqual(seeded.mounts);
+  });
+
+  it('a NOTIFY upsert with ports: null preserves the previous entry\'s ports', async () => {
+    const seeded: DockerInventorySnapshotContainer = {
+      ...composeContainer1,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+    };
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [seeded],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'running',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        compose_project: 'media',
+        service_key: 'media/plex',
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+        ports: null, // size guard: NOTIFY payload exceeded the 8kB cap and dropped ports
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    const container = lastStatus.entries[0].containers[0];
+    expect(container.ports).toEqual(seeded.ports);
+    expect(container.mounts).toEqual(seeded.mounts);
+  });
+
+  it('a brand-new container via NOTIFY (no previous entry) gets the payload ports and empty mounts', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'newcontainer1',
+        event_type: 'upsert',
+        state: 'running',
+        name: 'radarr',
+        image: 'linuxserver/radarr:latest',
+        compose_project: 'media',
+        service_key: 'media/radarr',
+        started_at: '2026-04-16T11:00:00Z',
+        finished_at: null,
+        exit_code: null,
+        ports: [{ containerPort: 7878, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 7878 }],
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    const container = lastStatus.entries[0].containers.find((c) => c.id === 'newcontainer1');
+    expect(container).toBeDefined();
+    expect(container?.ports).toEqual([{ containerPort: 7878, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 7878 }]);
+    expect(container?.mounts).toEqual([]);
+  });
+
   it('stopListening cancels pending reconnect timer on stop', async () => {
     const capturedTimers: Array<() => void> = [];
     const originalSetTimeout = globalThis.setTimeout;
     let timerSet = false;
 
     service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     (globalThis as any).setTimeout = (fn: () => void) => {
       capturedTimers.push(fn);
@@ -879,8 +1169,7 @@ describe('default dependency implementations', () => {
     const service = new StackStatusBroadcastService();
     const received: unknown[] = [];
     const unsub = service.subscribe((event) => { received.push(event); });
-    await flush();
-    await flush();
+    await waitForCondition(() => received.some((e) => (e as { type: string }).type === 'status'));
     unsub();
     await service.stop();
     // sendInit fires a 'status' event with an empty entries list (snapshot is empty)

@@ -32,6 +32,7 @@ interface UseSSEBufferResult<TRow> {
   enqueue: (incoming: TRow[]) => void;
   replaceBuffer: (rows: TRow[], opts: ReplaceBufferOptions) => ReplaceBufferStats;
   getLastDataTime: () => number | null;
+  resetFirstFlush: () => void;
 }
 
 /**
@@ -53,8 +54,65 @@ export function useSSEBuffer<TRow, A extends BufferAccessors<TRow>>({
   const [hasData, setHasData] = useState(false);
   const lastDataTimeRef = useRef<number | null>(null);
 
+  // Flush pending rows into the sorted array.
+  // O(k log k + log n) per flush vs O(n log n) with full re-sort:
+  //   - new rows (k) are sorted among themselves and appended at the end
+  //   - expired rows are evicted from the front via binary search
+  const flush = useCallback(() => {
+    const pending = pendingRef.current;
+    if (pending.length === 0) return;
+    pendingRef.current = [];
+
+    const now = Date.now();
+    const cutoff = now - windowSeconds * 1000;
+    const dedup = dedupRef.current;
+    const sorted = sortedRef.current;
+    const { key, time } = accessorsRef.current;
+
+    const newRows: TRow[] = [];
+    for (const row of pending) {
+      const k = key(row);
+      if (!dedup.has(k)) {
+        dedup.add(k);
+        newRows.push(row);
+      }
+    }
+
+    newRows.sort((a, b) => time(a) - time(b));
+
+    const { next, cutoffIdx } = mergeWithEviction(sorted, newRows, cutoff, time);
+
+    for (let i = 0; i < cutoffIdx; i++) {
+      dedup.delete(key(sorted[i]));
+    }
+
+    sortedRef.current = next;
+    setSortedRows(next);
+    setHasData(true);
+    lastDataTimeRef.current = now;
+  }, [windowSeconds, accessorsRef]);
+
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  // Gates the immediate first-frame paint after a (re)connect. False at mount
+  // covers tab-switch remounts; resetFirstFlush re-arms it for in-place reconnects.
+  const firstFlushDoneRef = useRef(false);
+
   const enqueue = useCallback((incoming: TRow[]) => {
     pendingRef.current.push(...incoming);
+    // Paint the first post-connect frame at once instead of waiting up to
+    // updateIntervalMs; later frames keep the cadence so eviction piggybacks
+    // on batched appends.
+    if (!firstFlushDoneRef.current) {
+      firstFlushDoneRef.current = true;
+      flushRef.current();
+    }
+  }, []);
+
+  // Re-arm on reconnect: the hook instance survives, so the mount default alone
+  // would leave the first post-reconnect frame waiting a flush tick.
+  const resetFirstFlush = useCallback(() => {
+    firstFlushDoneRef.current = false;
   }, []);
 
   const replaceBuffer = useCallback(
@@ -84,48 +142,12 @@ export function useSSEBuffer<TRow, A extends BufferAccessors<TRow>>({
     [accessorsRef],
   );
 
-  // Flush pending rows into the sorted array on a fixed interval.
-  // O(k log k + log n) per flush vs O(n log n) with full re-sort:
-  //   - new rows (k) are sorted among themselves and appended at the end
-  //   - expired rows are evicted from the front via binary search
   useEffect(() => {
-    const id = setInterval(() => {
-      const pending = pendingRef.current;
-      if (pending.length === 0) return;
-      pendingRef.current = [];
-
-      const now = Date.now();
-      const cutoff = now - windowSeconds * 1000;
-      const dedup = dedupRef.current;
-      const sorted = sortedRef.current;
-      const { key, time } = accessorsRef.current;
-
-      const newRows: TRow[] = [];
-      for (const row of pending) {
-        const k = key(row);
-        if (!dedup.has(k)) {
-          dedup.add(k);
-          newRows.push(row);
-        }
-      }
-
-      newRows.sort((a, b) => time(a) - time(b));
-
-      const { next, cutoffIdx } = mergeWithEviction(sorted, newRows, cutoff, time);
-
-      for (let i = 0; i < cutoffIdx; i++) {
-        dedup.delete(key(sorted[i]));
-      }
-
-      sortedRef.current = next;
-      setSortedRows(next);
-      setHasData(true);
-      lastDataTimeRef.current = now;
-    }, updateIntervalMs);
+    const id = setInterval(() => flushRef.current(), updateIntervalMs);
     return () => clearInterval(id);
-  }, [windowSeconds, updateIntervalMs, accessorsRef]);
+  }, [updateIntervalMs]);
 
   const getLastDataTime = useCallback(() => lastDataTimeRef.current, []);
 
-  return { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime };
+  return { sortedRows, hasData, enqueue, replaceBuffer, getLastDataTime, resetFirstFlush };
 }

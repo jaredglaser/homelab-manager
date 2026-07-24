@@ -1,11 +1,11 @@
 import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
+import type { ProxmoxClient } from '@/lib/clients/proxmox-client';
 import { ProxmoxCollector } from '../proxmox-collector';
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ProxmoxConfig } from '@/lib/config/proxmox-config';
 import type { Pool } from 'pg';
 
-// Suppress console output during tests
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 
@@ -160,23 +160,7 @@ describe('ProxmoxCollector', () => {
     it('should poll and insert rows then sleep', async () => {
       const db = createMockDb();
       const controller = new AbortController();
-      const collector = new ProxmoxCollector(
-        db as unknown as DatabaseClient,
-        createMockConfig(),
-        createProxmoxConfig(),
-        10000,
-        controller,
-      );
 
-      // Mock the repository's insertProxmoxStats
-      const writtenRows: any[][] = [];
-      spyOn((collector as any).repository, 'insertProxmoxStats').mockImplementation(async (rows: any[]) => {
-        writtenRows.push(rows);
-        // Abort after first insert to stop the loop
-        controller.abort();
-      });
-
-      // Mock proxmoxConnectionManager via dynamic import
       const mockSnapshot = {
         clusterName: 'test-cluster',
         quorate: true,
@@ -191,21 +175,34 @@ describe('ProxmoxCollector', () => {
       const mockClient = {
         getClusterSnapshot: mock(async () => mockSnapshot),
       };
+      const clientProvider = {
+        getClient: mock(() => mockClient as unknown as ProxmoxClient),
+      };
 
-      // We need to mock the dynamic import of proxmox-client
-      const { proxmoxConnectionManager } = await import('@/lib/clients/proxmox-client');
-      spyOn(proxmoxConnectionManager, 'getClient').mockReturnValue(mockClient as any);
+      const collector = new ProxmoxCollector(
+        db as unknown as DatabaseClient,
+        createMockConfig(),
+        createProxmoxConfig(),
+        10000,
+        controller,
+        clientProvider,
+      );
+
+      const writtenRows: any[][] = [];
+      spyOn((collector as any).repository, 'insertProxmoxStats').mockImplementation(async (rows: any[]) => {
+        writtenRows.push(rows);
+        // Abort after first insert to stop the loop
+        controller.abort();
+      });
 
       await (collector as any).collect().catch(() => {});
 
+      expect(clientProvider.getClient).toHaveBeenCalledWith(createProxmoxConfig());
       expect(writtenRows.length).toBeGreaterThanOrEqual(1);
       // Should have cluster + 1 node = 2 rows
       expect(writtenRows[0].length).toBe(2);
       expect(writtenRows[0][0].entity_type).toBe('cluster');
       expect(writtenRows[0][1].entity_type).toBe('node');
-
-      // Restore
-      (proxmoxConnectionManager.getClient as ReturnType<typeof spyOn>).mockRestore();
     });
   });
 

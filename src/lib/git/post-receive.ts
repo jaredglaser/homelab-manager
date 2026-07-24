@@ -1,5 +1,6 @@
 import { diffCommits, readFileFromRepo } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
+import { MANIFEST, composePath } from '@/lib/stacks/stack-repo-layout';
 
 export interface DeployRequest {
   stack: string;
@@ -44,7 +45,7 @@ export async function buildDeployRequests(
     return [];
   }
 
-  const manifestContent = await readFileFromRepo(repoPath, 'manifest.yaml', toOid);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST, toOid);
   const manifest = parseManifest(manifestContent);
 
   const requests: DeployRequest[] = [];
@@ -59,7 +60,7 @@ export async function buildDeployRequests(
     requests.push({
       stack: stackName,
       host: stackConfig.host,
-      composePath: `${stackName}/docker-compose.yml`,
+      composePath: composePath(stackName),
       commitSha: toOid,
       secrets: {},
       action: 'deploy',

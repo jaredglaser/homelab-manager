@@ -63,7 +63,7 @@ const { RANGE_PRESETS, TIMELINE_METRICS } = await import('@/lib/charts/timeline-
 
 function makeRow(timeMs: number, cpu: number): DockerStatsRow {
   return {
-    time: new Date(timeMs).toISOString(),
+    time: timeMs,
     cpu_percent: cpu,
     memory_percent: cpu / 2,
     block_io_read_bytes_per_sec: 0,

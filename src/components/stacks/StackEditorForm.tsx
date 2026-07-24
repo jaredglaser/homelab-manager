@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Settings2 } from 'lucide-react'
 import { useStackStatusContext } from '@/components/stacks/stacks-context'
 import { useToast } from '@/hooks/toastAtom'
+import { deployToastGate, formatDeployOutcome } from '@/lib/stacks/deploy-outcome-toast'
 import {
   getDeployHistory,
   triggerDeploy,
@@ -60,7 +61,8 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const [panel, setPanel] = useState<Panel>('compose')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-  const [deployConfirmOpen, setDeployConfirmOpen] = useState(false)
+  const [pendingConfirmAction, setPendingConfirmAction] = useState<'deploy' | 'update' | null>(null)
+  const lastConfirmActionRef = useRef<'deploy' | 'update'>('deploy')
   const [forceRecreate, setForceRecreate] = useState(false)
 
   const form = useForm<StackFormValues>({
@@ -125,10 +127,19 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   }
 
   const deployMutation = useMutation({
-    mutationFn: (action: 'deploy' | 'teardown') =>
+    mutationFn: (action: 'deploy' | 'teardown' | 'update') =>
       triggerDeploy({ data: { stack: stackName, host: detail.host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
-    onSuccess: (_data, action) => {
-      showToast(`${action} triggered successfully`, 'success')
+    onSuccess: (data, action) => {
+      if (deployToastGate.shouldToast(data.deployId)) {
+        const outcome = formatDeployOutcome({
+          stack: stackName,
+          action,
+          status: data.status,
+          trigger: 'ui',
+          message: data.logs,
+        })
+        if (outcome) showToast(outcome.message, outcome.severity)
+      }
       invalidateDeployAndStacks()
     },
     onError: (err) => {
@@ -136,34 +147,48 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     },
   })
 
-  // Deploy uses the git-committed compose and the saved secrets, so unsaved
-  // editor edits would silently ship the previous version. Warn first when dirty.
-  function handleDeploy() {
+  // Deploy and update both use the git-committed compose and the saved secrets,
+  // so unsaved editor edits would silently ship the previous version.
+  function triggerDeployOrUpdate(action: 'deploy' | 'update') {
     // Read dirtiness live at click time (same per-field signal as the compose
     // "Unsaved changes" label and the tab dots) so the guard never lags a render
     // or disagrees with what the user sees.
     const composeDirtyNow = form.getFieldState('compose').isDirty
     const secretsDirtyNow = Object.values(form.formState.dirtyFields.secrets ?? {}).some(Boolean)
     if (composeDirtyNow || secretsDirtyNow) {
-      setDeployConfirmOpen(true)
+      setPendingConfirmAction(action)
       return
     }
-    deployMutation.mutate('deploy')
+    deployMutation.mutate(action)
   }
 
-  function confirmDeploy() {
-    setDeployConfirmOpen(false)
-    deployMutation.mutate('deploy')
+  function handleDeploy() {
+    triggerDeployOrUpdate('deploy')
   }
+
+  function handleUpdate() {
+    triggerDeployOrUpdate('update')
+  }
+
+  function confirmPendingAction() {
+    if (pendingConfirmAction) deployMutation.mutate(pendingConfirmAction)
+    setPendingConfirmAction(null)
+  }
+
+  // Nulling pendingConfirmAction closes the dialog; keep the last action so the
+  // copy doesn't flip to the deploy fallback mid close-animation.
+  useEffect(() => {
+    if (pendingConfirmAction !== null) lastConfirmActionRef.current = pendingConfirmAction
+  }, [pendingConfirmAction])
+  const confirmDialogAction = pendingConfirmAction ?? lastConfirmActionRef.current
 
   const deleteMutation = useMutation({
     mutationFn: (teardown: boolean) =>
       deleteStack({ data: { stackName, teardown } }),
-    onSuccess: (result) => {
+    // The SSE outcome toast in useStackStatus covers this: deleteStack awaits the
+    // full teardown, so its terminal NOTIFY beats this response.
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
-      if (result.status === 'teardown-pending') {
-        showToast(`Teardown queued for ${stackName}: the stack will be removed when the agent finishes.`, 'success')
-      }
     },
     onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
@@ -171,11 +196,8 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   })
 
   function handleDeleteConfirm(teardown: boolean) {
-    // Fire the mutation without awaiting; for teardown the server returns
-    // immediately with a deployId and the pipeline handles the manifest delete
-    // asynchronously. Close the dialog and navigate right away so the user
-    // isn't held up waiting for the agent. Bypass the unsaved-changes guard
-    // since deleting the stack intentionally discards any in-progress edits.
+    // Navigate away without awaiting the mutation, and bypass the unsaved-changes
+    // guard: deleting the stack intentionally discards in-progress edits.
     bypassRef.current = true
     deleteMutation.mutate(teardown)
     setDeleteDialogOpen(false)
@@ -184,11 +206,25 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const approveMutation = useMutation({
     mutationFn: (deployId: number) => resumeDeploy({ data: { deployId } }),
-    onSuccess: () => {
-      showToast(`Deploy approved for ${stackName}`, 'success')
+    // Claim before the SSE outcome for the same deployId can arrive.
+    onMutate: (deployId: number) => {
+      deployToastGate.claim(deployId)
+    },
+    onSuccess: (data) => {
+      const outcome = formatDeployOutcome({
+        stack: stackName,
+        action: 'deploy',
+        status: data.status,
+        trigger: 'ui',
+        message: data.logs,
+      })
+      if (outcome) showToast(outcome.message, outcome.severity)
       invalidateDeployAndStacks()
     },
-    onError: (err) => {
+    // Release the pre-claim: if the server did resume the deploy, its terminal SSE
+    // outcome must still be free to toast rather than being suppressed by the claim.
+    onError: (err, deployId) => {
+      deployToastGate.release(deployId)
       showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
@@ -196,11 +232,16 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const rejectMutation = useMutation({
     mutationFn: (deployId: number) => rejectDeploy({ data: { deployId } }),
+    // Claim before the SSE "Manually rejected" outcome for the same deployId can arrive.
+    onMutate: (deployId: number) => {
+      deployToastGate.claim(deployId)
+    },
     onSuccess: () => {
       showToast(`Deploy rejected for ${stackName}`, 'success')
       invalidateDeployAndStacks()
     },
-    onError: (err) => {
+    onError: (err, deployId) => {
+      deployToastGate.release(deployId)
       showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
@@ -289,8 +330,17 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 isLoading={historyLoading}
                 stackName={stackName}
                 host={detail.host}
-                onRollbackComplete={() => {
-                  showToast('Rollback triggered successfully', 'success')
+                onRollbackComplete={(result) => {
+                  if (deployToastGate.shouldToast(result.deployId)) {
+                    const outcome = formatDeployOutcome({
+                      stack: stackName,
+                      action: 'deploy',
+                      status: result.status,
+                      trigger: 'manual_rollback',
+                      message: result.logs,
+                    })
+                    if (outcome) showToast(outcome.message, outcome.severity)
+                  }
                   queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                   queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
                 }}
@@ -310,6 +360,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
         <div className="shrink-0 border-t border-(--border) bg-(--background) px-1 py-3">
           <StackActionBar
             onDeploy={handleDeploy}
+            onUpdate={handleUpdate}
             onTeardown={() => deployMutation.mutate('teardown')}
             onDelete={() => setDeleteDialogOpen(true)}
             isDeploying={deployMutation.isPending}
@@ -341,12 +392,16 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
           onCancel={() => { if (blocker.status === 'blocked') blocker.reset() }}
         />
         <UnsavedChangesDialog
-          open={deployConfirmOpen}
-          onConfirm={confirmDeploy}
-          onCancel={() => setDeployConfirmOpen(false)}
-          title="Deploy with unsaved changes?"
-          description="Your unsaved edits aren't saved yet, so this deploy uses the last saved compose and secrets. Save them first to include your changes."
-          confirmLabel="Deploy anyway"
+          open={pendingConfirmAction !== null}
+          onConfirm={confirmPendingAction}
+          onCancel={() => setPendingConfirmAction(null)}
+          title={confirmDialogAction === 'update' ? 'Update images with unsaved changes?' : 'Deploy with unsaved changes?'}
+          description={
+            confirmDialogAction === 'update'
+              ? "Your unsaved edits aren't saved yet, so this update uses the last saved compose and secrets. Save them first to include your changes."
+              : "Your unsaved edits aren't saved yet, so this deploy uses the last saved compose and secrets. Save them first to include your changes."
+          }
+          confirmLabel={confirmDialogAction === 'update' ? 'Update anyway' : 'Deploy anyway'}
           cancelLabel="Cancel"
         />
       </div>

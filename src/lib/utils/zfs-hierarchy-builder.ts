@@ -72,7 +72,7 @@ function nameFromEntity(entity: string): string {
 }
 
 /**
- * Convert a ZFSStatsRow (wide table row) to ZFSIOStatWithRates for UI consumption.
+ * Convert a ZFSStatsRow to ZFSIOStatWithRates for UI consumption.
  * The id uses the host-prefixed entity path for multi-host deduplication.
  */
 export function rowToZFSStats(row: ZFSStatsRow): ZFSIOStatWithRates {
@@ -81,7 +81,7 @@ export function rowToZFSStats(row: ZFSStatsRow): ZFSIOStatWithRates {
     id,
     name: nameFromEntity(row.entity),
     indent: row.indent,
-    timestamp: new Date(row.time).getTime(),
+    timestamp: row.time,
     capacity: {
       alloc: Number(row.capacity_alloc ?? 0),
       free: Number(row.capacity_free ?? 0),

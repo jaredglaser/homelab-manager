@@ -26,7 +26,7 @@ describe('generateDockerSnapshot', () => {
   it('produces valid DockerStatsRow shapes', () => {
     const rows = generateDockerSnapshot(time);
     for (const row of rows) {
-      expect(row.time).toBe(time.toISOString());
+      expect(row.time).toBe(time.getTime());
       expect(typeof row.host).toBe('string');
       expect(typeof row.container_id).toBe('string');
       expect(typeof row.container_name).toBe('string');
@@ -146,6 +146,31 @@ describe('generateDockerInventorySnapshot', () => {
       expect(c.startedAt!.getTime()).toBeLessThan(now.getTime());
     }
   });
+
+  it('gives every container an array for ports and mounts', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    for (const c of containers) {
+      expect(Array.isArray(c.ports)).toBe(true);
+      expect(Array.isArray(c.mounts)).toBe(true);
+    }
+  });
+
+  it('gives known demo containers plausible, non-empty ports and mounts', () => {
+    const containers = generateDockerInventorySnapshot(now);
+    const plex = containers.find((c) => `${c.host}/${c.containerId}` === '192.168.1.10/b2c3d4e5f6a7')!;
+    expect(plex.ports.length).toBeGreaterThan(0);
+    expect(plex.mounts.length).toBeGreaterThan(0);
+    expect(plex.ports[0]).toEqual({ containerPort: 32400, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 32400 });
+  });
+
+  it('parses successfully against the canonical schema for every demo container', async () => {
+    const { zDockerInventorySnapshotContainer } = await import('@/types/docker-inventory');
+    const containers = generateDockerInventorySnapshot(now);
+    for (const c of containers) {
+      const result = zDockerInventorySnapshotContainer.safeParse(c);
+      expect(result.success).toBe(true);
+    }
+  });
 });
 
 describe('generateDockerHistory', () => {
@@ -159,9 +184,7 @@ describe('generateDockerHistory', () => {
   it('rows are ordered oldest-first', () => {
     const rows = generateDockerHistory(10);
     for (let i = 1; i < rows.length; i++) {
-      const prevTime = new Date(rows[i - 1].time as string).getTime();
-      const currTime = new Date(rows[i].time as string).getTime();
-      expect(currTime).toBeGreaterThanOrEqual(prevTime);
+      expect(rows[i].time).toBeGreaterThanOrEqual(rows[i - 1].time);
     }
   });
 });

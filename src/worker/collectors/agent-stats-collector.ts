@@ -2,8 +2,9 @@ import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import { EntityMetadataRepository } from '@/lib/database/repositories/entity-metadata-repository';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { DockerStatsRow } from '@/types/docker';
+import type { NewDockerStat } from '@/lib/database/repositories/stats-repository';
 import { BaseCollector } from './base-collector';
+import { connectAgentSseStream } from './agent-sse-stream';
 
 /** Shape of SSE events emitted by the agent's GET /stats/stream endpoint */
 interface AgentStatsEvent {
@@ -21,7 +22,8 @@ interface AgentStatsEvent {
   timestamp: string;
 }
 
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+/** Injectable connector so tests can supply parsed events without opening a byte stream. */
+type StreamConnector = typeof connectAgentSseStream;
 
 /**
  * Pending-row flush cadence. TimescaleDB ingest guidance favors multi-row
@@ -30,37 +32,27 @@ type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
  */
 const FLUSH_INTERVAL_MS = 150;
 
-/** Extract the JSON payload from an SSE message, returning null if invalid.
- *  Skips named events (e.g. "event: containers"): only default events carry stats data. */
-function extractDataLine(message: string): string | null {
-  if (!message.trim()) return null;
-  const lines = message.split('\n');
-  if (lines.some(line => line.startsWith('event:'))) return null;
-  const dataLine = lines.find(line => line.startsWith('data: '));
-  return dataLine ? dataLine.slice(6) : null;
-}
-
 /** Return true if the event is an error-only event (no container data) */
 function isAgentErrorEvent(event: AgentStatsEvent): boolean {
   return 'error' in event && !('containerId' in event);
 }
 
-/** Map an AgentStatsEvent to a DockerStatsRow */
-function toDockerStatsRow(event: AgentStatsEvent, hostName: string): DockerStatsRow {
+/** Maps an AgentStatsEvent to a NewDockerStat */
+function toNewDockerStat(event: AgentStatsEvent, hostName: string): NewDockerStat {
   return {
     time: new Date(event.timestamp),
     host: hostName,
-    container_id: event.containerId,
-    container_name: event.containerName,
+    containerId: event.containerId,
+    containerName: event.containerName,
     image: event.image,
-    cpu_percent: event.cpuPercent,
-    memory_usage: event.memoryUsage,
-    memory_limit: event.memoryLimit,
-    memory_percent: event.memoryPercent,
-    network_rx_bytes_per_sec: event.networkRxBytesPerSec,
-    network_tx_bytes_per_sec: event.networkTxBytesPerSec,
-    block_io_read_bytes_per_sec: event.blockReadBytesPerSec,
-    block_io_write_bytes_per_sec: event.blockWriteBytesPerSec,
+    cpuPercent: event.cpuPercent,
+    memoryUsage: event.memoryUsage,
+    memoryLimit: event.memoryLimit,
+    memoryPercent: event.memoryPercent,
+    networkRxBytesPerSec: event.networkRxBytesPerSec,
+    networkTxBytesPerSec: event.networkTxBytesPerSec,
+    blockReadBytesPerSec: event.blockReadBytesPerSec,
+    blockWriteBytesPerSec: event.blockWriteBytesPerSec,
   };
 }
 
@@ -68,10 +60,10 @@ export class AgentStatsCollector extends BaseCollector {
   readonly name: string;
   private readonly host: ManagedHost;
   private readonly signer: () => Promise<string>;
-  private readonly fetchFn: FetchFn;
+  private readonly streamConnector: StreamConnector;
   private readonly entityMetadataRepository: EntityMetadataRepository;
   private readonly knownContainers = new Set<string>();
-  private pendingRows: DockerStatsRow[] = [];
+  private pendingRows: NewDockerStat[] = [];
 
   constructor(
     db: DatabaseClient,
@@ -79,13 +71,13 @@ export class AgentStatsCollector extends BaseCollector {
     host: ManagedHost,
     signer: () => Promise<string>,
     abortController?: AbortController,
-    fetchFn?: FetchFn,
+    streamConnector?: StreamConnector,
   ) {
     super(db, config, abortController);
     this.host = host;
     this.signer = signer;
     this.name = `AgentStatsCollector[${host.name}]`;
-    this.fetchFn = fetchFn ?? globalThis.fetch;
+    this.streamConnector = streamConnector ?? connectAgentSseStream;
     this.entityMetadataRepository = new EntityMetadataRepository(db.getPool());
   }
 
@@ -109,24 +101,16 @@ export class AgentStatsCollector extends BaseCollector {
     }
   }
 
-  /** Parse a single SSE event and queue its row for the next flush, returning true if queued */
-  private async processMessage(message: string): Promise<boolean> {
-    const jsonStr = extractDataLine(message);
-    if (!jsonStr) return false;
-
-    let event: AgentStatsEvent;
-    try {
-      event = JSON.parse(jsonStr);
-    } catch {
-      console.error(`[${this.name}] Failed to parse SSE event: ${jsonStr.substring(0, 100)}`);
-      return false;
-    }
+  /** Shape and queue a single already-parsed SSE frame, returning true if queued */
+  private async processFrame(frame: unknown): Promise<boolean> {
+    if (typeof frame !== 'object' || frame === null) return false;
+    const event = frame as AgentStatsEvent;
 
     if (isAgentErrorEvent(event)) return false;
 
     await this.registerContainer(event);
 
-    this.pendingRows.push(toDockerStatsRow(event, this.host.name));
+    this.pendingRows.push(toNewDockerStat(event, this.host.name));
     return true;
   }
 
@@ -153,27 +137,18 @@ export class AgentStatsCollector extends BaseCollector {
   }
 
   protected async collect(): Promise<void> {
-    const url = `${this.host.agentUrl}/stats/stream`;
-    this.debugLog(`[${this.name}] Connecting to ${url}`);
+    this.debugLog(`[${this.name}] Connecting to ${this.host.agentUrl}/stats/stream`);
 
-    const response = await this.fetchFn(url, {
-      headers: { Authorization: `Bearer ${await this.signer()}` },
+    const stream = await this.streamConnector({
+      agentUrl: this.host.agentUrl,
+      path: '/stats/stream',
+      signer: this.signer,
       signal: this.signal,
     });
-
-    if (!response.ok) {
-      throw new Error(`Agent returned ${response.status}: ${response.statusText}`);
-    }
-    if (!response.body) {
-      throw new Error('Agent response has no body');
-    }
 
     this.resetBackoff();
     this.debugLog(`[${this.name}] Connected, reading SSE stream`);
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
     let statsReceived = 0;
 
     // Interval flush (instead of per-event INSERTs) batches all rows that
@@ -181,23 +156,13 @@ export class AgentStatsCollector extends BaseCollector {
     const flushTimer = setInterval(() => { void this.flushPendingRows(); }, FLUSH_INTERVAL_MS);
 
     try {
-      while (!this.signal.aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const messages = buffer.split('\n\n');
-        buffer = messages.pop() ?? '';
-
-        for (const message of messages) {
-          if (this.signal.aborted) break;
-          const queued = await this.processMessage(message);
-          if (queued) statsReceived++;
-        }
+      for await (const frame of stream) {
+        if (this.signal.aborted) break;
+        const queued = await this.processFrame(frame);
+        if (queued) statsReceived++;
       }
     } finally {
       clearInterval(flushTimer);
-      reader.releaseLock();
       // Final drain so rows queued since the last interval survive stream end
       // and worker shutdown (abort).
       await this.flushPendingRows();

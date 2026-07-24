@@ -1,4 +1,4 @@
-import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest, DeployStatus } from '@/types/stacks';
 
 const MOCK_STACKS: StackSummary[] = [
   // nas01
@@ -221,6 +221,19 @@ volumes:
 
 const MOCK_DEPLOY_HISTORY: StackDeployRecord[] = [
   {
+    id: 5,
+    stack: 'plex',
+    host: 'nas01',
+    commitSha: 'b2c3d4e',
+    envHash: 'jkl012',
+    status: 'succeeded',
+    trigger: 'ui',
+    action: 'update',
+    forceRecreate: false,
+    logs: '$ docker compose pull --ignore-buildable\nplex Pulled\n$ docker compose up -d --remove-orphans\nContainer plex-app-1  Recreating\nContainer plex-app-1  Started\n',
+    createdAt: new Date(Date.now() - 3_600_000 / 4).toISOString(),
+  },
+  {
     id: 4,
     stack: 'plex',
     host: 'nas01',
@@ -302,16 +315,16 @@ export async function getStackDetail(opts: {
 
 export async function triggerDeploy(_opts: {
   data: UIDeployRequest;
-}): Promise<{ deployId: number }> {
+}): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   // Simulate a short delay
   await new Promise((resolve) => setTimeout(resolve, 500));
-  return { deployId: MOCK_DEPLOY_HISTORY.length + 1 };
+  return { deployId: MOCK_DEPLOY_HISTORY.length + 1, status: 'succeeded', logs: '' };
 }
 
 export async function resumeDeploy(opts: {
   data: { deployId: number };
-}): Promise<{ deployId: number }> {
-  return { deployId: opts.data.deployId };
+}): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
+  return { deployId: opts.data.deployId, status: 'succeeded', logs: '' };
 }
 
 export async function rejectDeploy(opts: {
@@ -385,6 +398,12 @@ export async function getVariableValue(opts: {
   data: { stackName: string; variableName: string };
 }): Promise<string | null> {
   return MOCK_VARIABLE_VALUES[opts.data.stackName]?.[opts.data.variableName] ?? '';
+}
+
+export async function getStackVariableValues(opts: {
+  data: { stackName: string };
+}): Promise<Record<string, string>> {
+  return MOCK_VARIABLE_VALUES[opts.data.stackName] ?? {};
 }
 
 export async function setVariableValue(_opts: {

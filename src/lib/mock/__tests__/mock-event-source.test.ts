@@ -247,8 +247,7 @@ describe('MockEventSource', () => {
         instance.onopen = () => resolve();
       });
 
-      // Wait a bit to confirm no messages arrive
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // unrecognized path schedules nothing after open; nothing further to await
       expect(messageReceived).toBe(false);
     });
   });

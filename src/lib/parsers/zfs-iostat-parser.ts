@@ -29,6 +29,11 @@ function parseIOStatValue(value: string): number {
   return num * (multipliers[unit] || 1);
 }
 
+/** True for the "capacity operations bandwidth" header row zpool iostat reprints each cycle. */
+export function isZFSIOStatCycleHeader(line: string): boolean {
+  return line.includes('capacity') && line.includes('operations') && line.includes('bandwidth');
+}
+
 /**
  * Parses a single line of zpool iostat output
  * Handles both pool-level and vdev-level statistics
@@ -48,7 +53,7 @@ export function parseZFSIOStat(
 
   // Skip header lines (e.g. "capacity  operations  bandwidth" or "pool  alloc  free  read  write")
   if (
-    (line.includes('capacity') && line.includes('operations') && line.includes('bandwidth')) ||
+    isZFSIOStatCycleHeader(line) ||
     (/\bpool\b/.test(line) && /\balloc\b/.test(line) && /\bfree\b/.test(line))
   ) {
     return null;

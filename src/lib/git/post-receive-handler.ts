@@ -1,17 +1,18 @@
 import { buildDeployRequests } from '@/lib/git/post-receive';
 import { readFileFromRepo } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
-import { GitTriggerBuilder } from '@/lib/deploy/builders/git-trigger-builder';
+import { MANIFEST } from '@/lib/stacks/stack-repo-layout';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
+import type { DeployRequest } from '@/lib/deploy/types';
 
 /**
  * Process a post-receive event after a git push.
  * Diffs the old and new HEAD, builds deploy requests, and dispatches them
  * to the deploy pipeline.
  *
- * @throws {Error} If manifest.yaml is missing from the repo
- * @throws {YAMLException} If manifest.yaml has invalid YAML syntax
- * @throws {ZodError} If manifest.yaml structure doesn't match schema
+ * @throws {Error} If the manifest is missing from the repo
+ * @throws {YAMLException} If the manifest has invalid YAML syntax
+ * @throws {ZodError} If the manifest structure doesn't match schema
  */
 export async function processPostReceive(
   repoPath: string,
@@ -26,7 +27,7 @@ export async function processPostReceive(
   }
 
   // Read the manifest at newHead to get the authoritative stack config
-  const manifestContent = await readFileFromRepo(repoPath, 'manifest.yaml', newHead);
+  const manifestContent = await readFileFromRepo(repoPath, MANIFEST, newHead);
   const manifest = parseManifest(manifestContent);
 
   // Build a map of stackName -> composeContent for changed stacks.
@@ -69,9 +70,23 @@ export async function processPostReceive(
     return;
   }
 
-  // Build pipeline-compatible deploy requests via GitTriggerBuilder
-  const builder = new GitTriggerBuilder();
-  const deployRequests = builder.build({ manifest, changedStacks, commitSha: newHead });
+  // Defensive: both manifest reads are pinned to newHead, so this rarely drops a stack.
+  const deployRequests: DeployRequest[] = [];
+  for (const [stackName, composeContent] of changedStacks) {
+    const manifestEntry = manifest.stacks[stackName];
+    if (!manifestEntry) continue;
+
+    deployRequests.push({
+      stack: stackName,
+      host: manifestEntry.host,
+      composeContent,
+      commitSha: newHead,
+      envContent: '',
+      action: 'deploy',
+      trigger: 'git_push',
+      autoApproved: manifestEntry.autoDeploy,
+    });
+  }
 
   if (deployRequests.length === 0) {
     return;

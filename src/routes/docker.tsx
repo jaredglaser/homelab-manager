@@ -9,9 +9,8 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { useDockerInventory } from '@/hooks/useDockerInventory'
 import { getDockerEntityIcons, updateContainerIcon, clearContainerIcon } from '@/data/docker/functions'
 import { useDockerSettings, useGeneralSettings } from '@/hooks/useSettings'
-import { apiUrl } from '@/lib/utils/api-url'
-import { DOCKER_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadDockerStats } from '@/lib/constants/preload-queries'
-import type { DockerStatsRow } from '@/types/docker'
+import { PRELOAD_STALE_TIME, dockerPreloadQueryKey, dockerStatsWindowSeconds, preloadDockerStats } from '@/lib/constants/preload-queries'
+import { dockerStatsChannel } from '@/lib/sse/channels/docker-stats'
 
 
 export const Route = createFileRoute('/docker')({
@@ -32,10 +31,6 @@ function DockerLayout() {
   return <DockerContainersPage />
 }
 
-// Sparklines always show the last 35s (with 10s padding = 45s buffer).
-// The stream window must cover both the chart and sparkline requirements.
-const SPARKLINE_BUFFER_SECONDS = 45
-
 function DockerContainersPage() {
   const { general, developer } = useGeneralSettings()
   const { docker } = useDockerSettings()
@@ -55,10 +50,10 @@ function DockerContainersPage() {
     })
     return () => cancelAnimationFrame(raf)
   }, [hash])
-  const windowSeconds = Math.max(docker.chartWindowSeconds + 10, SPARKLINE_BUFFER_SECONDS)
+  const windowSeconds = dockerStatsWindowSeconds(docker.chartWindowSeconds)
   const qc = useQueryClient()
 
-  const dockerQueryKey = [...DOCKER_PRELOAD_KEY, windowSeconds] as const
+  const dockerQueryKey = dockerPreloadQueryKey(windowSeconds)
 
   const preloadFn = useCallback(
     () => qc.fetchQuery({
@@ -93,11 +88,11 @@ function DockerContainersPage() {
     [qc],
   )
 
-  const stream = useTimeSeriesStream<DockerStatsRow>({
-    sseUrl: apiUrl('/api/docker-stats'),
+  const stream = useTimeSeriesStream({
+    channel: dockerStatsChannel,
     preloadFn,
-    getKey: (row) => `${new Date(row.time).getTime()}_${row.host}_${row.container_id}`,
-    getTime: (row) => new Date(row.time).getTime(),
+    getKey: (row) => `${row.time}_${row.host}_${row.container_id}`,
+    getTime: (row) => row.time,
     getEntity: (row) => `${row.host}/${row.container_id}`,
     windowSeconds,
     updateIntervalMs: general.updateIntervalMs,

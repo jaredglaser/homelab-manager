@@ -85,4 +85,21 @@ describe('StackEditorForm deploy guard (real ComposeEditor)', () => {
     expect(screen.getByRole('heading', { name: 'Deploy with unsaved changes?' })).toBeDefined();
     expect(mockTriggerDeploy).not.toHaveBeenCalled();
   });
+
+  it('updates images immediately when the compose draft is unchanged', async () => {
+    await renderForm();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Update images' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+  });
+
+  it('warns before updating images after the compose YAML is edited', async () => {
+    await renderForm();
+    act(() => { mockEditorOnChange?.('image: redis'); });
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeDefined());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update images' }));
+
+    expect(screen.getByRole('heading', { name: 'Update images with unsaved changes?' })).toBeDefined();
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+  });
 });

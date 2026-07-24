@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { StackContainer, StackStatusEntry } from '@/types/stacks';
+import { zDeployChangeOutcome, type DeployChangeOutcome } from '@/lib/deploy/types';
 import type {
   DockerContainerEventRow,
   DockerContainerEventUpsertRow,
@@ -11,7 +12,7 @@ import { backoffDelayMs } from '@/lib/utils/backoff';
 /** Discriminated union for events sent to SSE subscribers. */
 export type StackBroadcastEvent =
   | { type: 'status'; entries: StackStatusEntry[] }
-  | { type: 'deploy_changed'; stack: string; host: string };
+  | { type: 'deploy_changed'; stack: string; host: string; outcome?: DeployChangeOutcome };
 
 type StackBroadcastCallback = (event: StackBroadcastEvent) => void;
 
@@ -33,6 +34,8 @@ function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer
     status: inv.state,
     image: inv.image,
     service,
+    ports: inv.ports,
+    mounts: inv.mounts,
   };
 }
 
@@ -51,6 +54,12 @@ function toStackEntry(host: string, stack: string, containers: DockerInventorySn
  */
 function stackKey(host: string, composeProject: string): string {
   return `${host}/${composeProject}`;
+}
+
+/** A malformed or partial outcome is dropped rather than forwarded half-populated. */
+function parseDeployChangeOutcome(raw: unknown): DeployChangeOutcome | undefined {
+  const parsed = zDeployChangeOutcome.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 async function defaultGetPoolClient(): Promise<PoolClient> {
@@ -356,7 +365,14 @@ export class StackStatusBroadcastService {
           byContainer = new Map();
           this.stackContainers.set(sk, byContainer);
         }
-        byContainer.set(`${inv.host}/${inv.containerId}`, inv);
+        const containerKey = `${inv.host}/${inv.containerId}`;
+        const prev = byContainer.get(containerKey);
+        // NOTIFY omits mounts and nulls oversized ports (migration 026); keep prev's for those, but honor a genuine [].
+        byContainer.set(containerKey, {
+          ...inv,
+          ports: parsed.ports != null ? inv.ports : (prev?.ports ?? inv.ports),
+          mounts: prev?.mounts ?? inv.mounts,
+        });
       }
 
       this.broadcastStack(host, composeProject, eventAt);
@@ -382,9 +398,16 @@ export class StackStatusBroadcastService {
       if (typeof stack !== 'string' || typeof host !== 'string') {
         throw new Error('Invalid deploy_change payload: missing stack or host');
       }
+      const outcome = parseDeployChangeOutcome(parsed.outcome);
+      const event: StackBroadcastEvent = {
+        type: 'deploy_changed',
+        stack,
+        host,
+        ...(outcome ? { outcome } : {}),
+      };
       for (const cb of this.subscribers) {
         try {
-          cb({ type: 'deploy_changed', stack, host });
+          cb(event);
         } catch (err) {
           console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
         }

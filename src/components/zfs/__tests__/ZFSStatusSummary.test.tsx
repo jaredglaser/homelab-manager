@@ -5,7 +5,7 @@ import type { ZFSStatsRow } from '@/types/zfs';
 
 function makeRow(overrides: Partial<ZFSStatsRow> & { host: string; entity_type: string }): ZFSStatsRow {
   return {
-    time: new Date().toISOString(),
+    time: Date.now(),
     pool: 'tank',
     entity: 'tank',
     indent: 0,

@@ -24,7 +24,7 @@ export interface SparklineData {
   networkTx: SparklinePoint[];
 }
 
-/** Transforms raw Docker stats rows into chart data points and sparkline arrays. */
+/** Transforms Docker stats rows into chart data points and sparkline arrays. */
 export function buildContainerChartData(chartData: DockerStatsRow[]): {
   dataPoints: ChartDataPoint[];
   sparklineData: SparklineData;
@@ -39,7 +39,7 @@ export function buildContainerChartData(chartData: DockerStatsRow[]): {
 
   for (let i = 0; i < chartData.length; i++) {
     const row = chartData[i];
-    const timestamp = new Date(row.time).getTime();
+    const timestamp = row.time;
     const cpuPercent = row.cpu_percent ?? 0;
     const memoryPercent = row.memory_percent ?? 0;
     const blockIoRead = row.block_io_read_bytes_per_sec ?? 0;
@@ -59,10 +59,7 @@ export function buildContainerChartData(chartData: DockerStatsRow[]): {
   return { dataPoints: points, sparklineData: { cpu, memory, blockRead, blockWrite, networkRx, networkTx } };
 }
 
-/**
- * Transforms raw Docker stats rows into typed data points and per-metric
- * sparkline arrays suitable for chart rendering.
- */
+/** Memoized `buildContainerChartData`, keyed on `chartData` array identity. */
 export function useContainerChartData(chartData: DockerStatsRow[]): {
   dataPoints: ChartDataPoint[];
   sparklineData: SparklineData;

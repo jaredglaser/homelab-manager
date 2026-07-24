@@ -3,6 +3,7 @@ import { DockerInventoryBroadcastService, rowToInventory, notifyPayloadToInvento
 import type { DockerInventorySnapshotContainer, DockerInventoryBroadcastEvent } from '@/types/docker-inventory';
 import type { DockerContainerEventRow } from '@/lib/database/repositories/docker-container-event-repository';
 import type { PoolClient } from 'pg';
+import { waitForCondition } from '@/lib/test/wait-for-condition';
 
 type NotificationHandler = (msg: { channel: string; payload?: string }) => void;
 type ErrorHandler = (err: Error) => void;
@@ -47,10 +48,6 @@ function createMockPoolClient(): MockPoolClient {
   return client;
 }
 
-function flush(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 const container1: DockerInventorySnapshotContainer = {
   host: 'server1',
   containerId: 'abc123',
@@ -63,6 +60,8 @@ const container1: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'media' },
+  ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
+  mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
   updatedAt: new Date('2026-04-16T10:00:00Z'),
 };
 
@@ -78,6 +77,8 @@ const container2: DockerInventorySnapshotContainer = {
   finishedAt: new Date('2026-04-16T09:00:00Z'),
   exitCode: 1,
   labels: {},
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T09:00:00Z'),
 };
 
@@ -104,7 +105,7 @@ describe('DockerInventoryBroadcastService', () => {
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
 
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     expect(received).toHaveLength(1);
     expect(received[0].type).toBe('init');
@@ -124,9 +125,10 @@ describe('DockerInventoryBroadcastService', () => {
     const received: DockerInventoryBroadcastEvent[] = [];
     const unsub = slowService.subscribe((e) => received.push(e));
 
+    // unsub() runs before sendInit() awaits the snapshot; await it only so pending work settles before stop().
     unsub();
     resolveSnapshot([container1]);
-    await flush();
+    await slowSnapshot;
 
     expect(received).toHaveLength(0);
 
@@ -142,7 +144,7 @@ describe('DockerInventoryBroadcastService', () => {
 
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     expect(received[0].type).toBe('init');
     if (received[0].type === 'init') {
@@ -153,14 +155,14 @@ describe('DockerInventoryBroadcastService', () => {
 
   it('issues LISTEN docker_container_change on subscribe', async () => {
     service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.querySql !== null);
     expect(poolClient.querySql).toBe('LISTEN docker_container_change');
   });
 
   it('broadcasts upsert event from NOTIFY payload', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     const notifyPayload = JSON.stringify({
       at: '2026-04-16T11:00:00Z',
@@ -177,6 +179,7 @@ describe('DockerInventoryBroadcastService', () => {
       exit_code: null,
     });
 
+    // handleNotify runs synchronously, so emit() has already fanned out by the time it returns.
     poolClient.emit('notification', { channel: 'docker_container_change', payload: notifyPayload });
 
     expect(received).toHaveLength(2); // init + upsert
@@ -192,7 +195,7 @@ describe('DockerInventoryBroadcastService', () => {
   it('upsert events omit labels (NOTIFY payload omits labels)', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -222,7 +225,7 @@ describe('DockerInventoryBroadcastService', () => {
   it('broadcasts destroy event from NOTIFY payload', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -256,7 +259,7 @@ describe('DockerInventoryBroadcastService', () => {
 
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -271,9 +274,10 @@ describe('DockerInventoryBroadcastService', () => {
 
   it('stops listening when last subscriber unsubscribes', async () => {
     const unsub = service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     expect(poolClient.released).toBe(false);
+    // cleanupListenerClient() releases synchronously; no wait needed.
     unsub();
     expect(poolClient.released).toBe(true);
   });
@@ -281,7 +285,7 @@ describe('DockerInventoryBroadcastService', () => {
   it('keeps listening when one of multiple subscribers unsubscribes', async () => {
     const unsub1 = service.subscribe(() => {});
     const unsub2 = service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     unsub1();
     expect(poolClient.released).toBe(false);
@@ -294,8 +298,9 @@ describe('DockerInventoryBroadcastService', () => {
     const setTimeoutSpy = spyOn(globalThis, 'setTimeout');
 
     service.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
+    // error handler schedules reconnect via synchronous setTimeout; no wait needed.
     poolClient.emit('error', new Error('connection reset'));
 
     expect(setTimeoutSpy).toHaveBeenCalled();
@@ -319,10 +324,10 @@ describe('DockerInventoryBroadcastService', () => {
     });
 
     multiConnectService.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => connectCount >= 1);
 
     poolClient.emit('error', new Error('transient error'));
-    await flush();
+    await waitForCondition(() => connectCount >= 2);
 
     expect(connectCount).toBeGreaterThanOrEqual(2);
 
@@ -336,7 +341,7 @@ describe('DockerInventoryBroadcastService', () => {
 
     service.subscribe((e) => received1.push(e));
     service.subscribe((e) => received2.push(e));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -377,7 +382,7 @@ describe('DockerInventoryBroadcastService', () => {
     });
 
     resetService.subscribe(() => {});
-    await flush();
+    await waitForCondition(() => client1.notificationHandlers.length > 0);
 
     const capturedDelays: number[] = [];
     const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
@@ -390,8 +395,10 @@ describe('DockerInventoryBroadcastService', () => {
 
     try {
       client1.emit('error', new Error('first disconnect'));
-      await flush();
-      await flush();
+      // Wait for client2's LISTEN to complete, not just connectCount incrementing:
+      // reconnectFailures only resets after LISTEN succeeds, and emitting client2's
+      // error before that would carry over the stale backoff (1000ms instead of 500ms).
+      await waitForCondition(() => client2.querySql !== null);
 
       const firstCycleBackoffs = capturedDelays.filter((d) => d >= 500);
       expect(firstCycleBackoffs[0]).toBe(500);
@@ -401,7 +408,7 @@ describe('DockerInventoryBroadcastService', () => {
       // delay would be 1000ms (500 * 2) rather than the base 500ms.
       capturedDelays.length = 0;
       client2.emit('error', new Error('second disconnect'));
-      await flush();
+      await waitForCondition(() => capturedDelays.some((d) => d >= 500));
 
       const secondCycleBackoffs = capturedDelays.filter((d) => d >= 500);
       expect(secondCycleBackoffs[0]).toBe(500);
@@ -414,7 +421,7 @@ describe('DockerInventoryBroadcastService', () => {
   it('ignores notifications on other channels', async () => {
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', {
       channel: 'some_other_channel',
@@ -432,7 +439,7 @@ describe('DockerInventoryBroadcastService', () => {
 
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    await flush();
+    await waitForCondition(() => received.length > 0);
 
     expect(received[0].type).toBe('init');
     if (received[0].type === 'init') {
@@ -451,6 +458,8 @@ describe('rowToInventory', () => {
     name: 'plex',
     image: 'plexinc/pms-docker:latest',
     labels: { 'com.docker.compose.project': 'media' },
+    ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
+    mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
     composeProject: 'media',
     serviceKey: 'media/plex',
     startedAt: new Date('2026-04-16T09:50:00Z'),
@@ -476,6 +485,8 @@ describe('rowToInventory', () => {
     expect(result.finishedAt).toBeNull();
     expect(result.exitCode).toBeNull();
     expect(result.labels).toEqual({ 'com.docker.compose.project': 'media' });
+    expect(result.ports).toEqual(baseRow.ports);
+    expect(result.mounts).toEqual(baseRow.mounts);
     expect(result.updatedAt).toEqual(new Date('2026-04-16T10:00:00Z'));
   });
 
@@ -489,6 +500,14 @@ describe('rowToInventory', () => {
       asUpsert({ ...baseRow, labels: null as unknown as Record<string, string> }),
     );
     expect(result.labels).toEqual({});
+  });
+
+  it('defaults null ports and mounts to empty arrays', () => {
+    const result = rowToInventory(
+      asUpsert({ ...baseRow, ports: null as unknown as typeof baseRow.ports, mounts: null as unknown as typeof baseRow.mounts }),
+    );
+    expect(result.ports).toEqual([]);
+    expect(result.mounts).toEqual([]);
   });
 });
 
@@ -506,6 +525,7 @@ describe('notifyPayloadToInventory', () => {
     started_at: '2026-04-16T10:00:00Z',
     finished_at: null,
     exit_code: null,
+    ports: [{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }],
   };
 
   it('maps all fields from a NOTIFY payload', () => {
@@ -521,6 +541,28 @@ describe('notifyPayloadToInventory', () => {
     expect(result.exitCode).toBeNull();
     expect(result.labels).toEqual({});
     expect(result.updatedAt).toEqual(new Date('2026-04-16T11:00:00Z'));
+  });
+
+  it('maps a single-entry ports array to that entry', () => {
+    const result = notifyPayloadToInventory(basePayload);
+    expect(result.ports).toEqual(basePayload.ports);
+  });
+
+  it('leaves ports undefined (not []) when the field is absent from the payload', () => {
+    const { ports: _ports, ...withoutPorts } = basePayload;
+    void _ports;
+    const result = notifyPayloadToInventory(withoutPorts);
+    expect(result.ports).toBeUndefined();
+  });
+
+  it('leaves ports undefined (not []) when the payload carries ports: null (oversized-payload guard)', () => {
+    const result = notifyPayloadToInventory({ ...basePayload, ports: null });
+    expect(result.ports).toBeUndefined();
+  });
+
+  it('always returns empty mounts (NOTIFY payloads never carry mounts)', () => {
+    const result = notifyPayloadToInventory(basePayload);
+    expect(result.mounts).toEqual([]);
   });
 
   it('defaults null nullable fields to empty values', () => {
@@ -595,8 +637,7 @@ describe('DockerInventoryBroadcastService: malformed NOTIFY does not crash', () 
 
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    const flush = () => new Promise<void>((r) => setTimeout(r, 0));
-    await flush();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     poolClient.emit('notification', {
       channel: 'docker_container_change',
@@ -700,9 +741,7 @@ describe('DockerInventoryBroadcastService: connection failure retry', () => {
     try {
       service.subscribe(() => {});
       // Allow the retry loop to complete.
-      await new Promise<void>((r) => queueMicrotask(r));
-      await new Promise<void>((r) => queueMicrotask(r));
-      await new Promise<void>((r) => queueMicrotask(r));
+      await waitForCondition(() => connectAttempts >= 2);
 
       // The service should have retried and connected on the second attempt.
       expect(connectAttempts).toBeGreaterThanOrEqual(2);
@@ -726,8 +765,7 @@ describe('DockerInventoryBroadcastService: zod validation at NOTIFY boundary', (
 
     const received: DockerInventoryBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
-    const flushLocal = () => new Promise<void>((r) => setTimeout(r, 0));
-    await flushLocal();
+    await waitForCondition(() => poolClient.notificationHandlers.length > 0);
 
     // NOTIFY payload with event_type 'upsert' but an invalid state value:
     // notifyPayloadToInventory builds an object, then zod rejects it.

@@ -1,44 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { subscribeToContainerLogs, _resetLogStreams, type LogStreamSubscriber } from '@/lib/docker/log-stream-registry';
-
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-  url: string;
-  onopen: (() => void) | null = null;
-  onmessage: ((event: { data: string }) => void) | null = null;
-  onerror: (() => void) | null = null;
-  private listeners = new Map<string, ((event: unknown) => void)[]>();
-  closed = false;
-
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
-  }
-
-  addEventListener(type: string, handler: (event: unknown) => void) {
-    const handlers = this.listeners.get(type) ?? [];
-    handlers.push(handler);
-    this.listeners.set(type, handlers);
-  }
-
-  removeEventListener(type: string, handler: (event: unknown) => void) {
-    const handlers = this.listeners.get(type) ?? [];
-    this.listeners.set(type, handlers.filter((h) => h !== handler));
-  }
-
-  dispatchEvent(type: string, data: unknown) {
-    const handlers = this.listeners.get(type) ?? [];
-    for (const handler of handlers) handler(data);
-  }
-
-  close() {
-    this.closed = true;
-  }
-
-  static reset() {
-    MockEventSource.instances = [];
-  }
-}
+import { MockEventSource } from '@/lib/test/mock-event-source';
 
 const originalEventSource = globalThis.EventSource;
 
@@ -235,7 +197,7 @@ describe('log-stream-registry', () => {
       subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
 
       MockEventSource.instances[0].onopen?.();
-      MockEventSource.instances[0].dispatchEvent('stream_end', {});
+      MockEventSource.instances[0].fireEvent('stream_end', {});
       MockEventSource.instances[0].onerror?.();
 
       expect(MockEventSource.instances.length).toBe(1);
@@ -247,7 +209,7 @@ describe('log-stream-registry', () => {
     const sub = makeSubscriber();
     subscribeToContainerLogs({ host: 'server', containerId: 'abc', subscriber: sub });
 
-    MockEventSource.instances[0].dispatchEvent('error', {
+    MockEventSource.instances[0].fireEvent('error', {
       data: JSON.stringify({ message: 'Container not found' }),
     });
 

@@ -17,6 +17,7 @@ async function startDeployRecovery(): Promise<void> {
   const { loadGitConfig } = await import('@/lib/config/git-config');
   const { readFileFromRepo } = await import('@/lib/git/repo');
   const { parseManifest } = await import('@/lib/git/manifest');
+  const { MANIFEST } = await import('@/lib/stacks/stack-repo-layout');
 
   const dbClient = await dbm.getClient(loadDatabaseConfig());
   const repo = new DeployRepository(dbClient.getPool());
@@ -25,7 +26,7 @@ async function startDeployRecovery(): Promise<void> {
     async listStackNames(): Promise<Set<string>> {
       try {
         const { repoPath } = loadGitConfig();
-        const content = await readFileFromRepo(repoPath, 'manifest.yaml');
+        const content = await readFileFromRepo(repoPath, MANIFEST);
         return new Set(Object.keys(parseManifest(content).stacks));
       } catch {
         // No repo, no manifest, nothing to orphan-sweep against.

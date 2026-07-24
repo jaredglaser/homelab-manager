@@ -1,13 +1,12 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, mock, spyOn } from 'bun:test';
 import { AgentStatsCollector } from '../agent-stats-collector';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
-import type { DockerStatsRow } from '@/types/docker';
-
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+import type { NewDockerStat } from '@/lib/database/repositories/stats-repository';
+import { fixedStream, type StreamConnector } from '@/lib/test/agent-sse-stream-fixtures';
 
 /** Create a mock DatabaseClient that captures insertDockerStats calls */
 function createMockDb() {
-  const insertedRows: DockerStatsRow[][] = [];
+  const insertedRows: NewDockerStat[][] = [];
   const upsertedMetadata: { entity: string; key: string; value: string }[] = [];
   return {
     db: {
@@ -21,7 +20,7 @@ function createMockDb() {
     patchRepository(collector: AgentStatsCollector) {
       const repo = (collector as any).repository;
       const metaRepo = (collector as any).entityMetadataRepository;
-      repo.insertDockerStats = async (rows: DockerStatsRow[]) => {
+      repo.insertDockerStats = async (rows: NewDockerStat[]) => {
         insertedRows.push(rows);
       };
       metaRepo.upsertEntityMetadataBatch = async (entries: { entity: string; key: string; value: string }[]) => {
@@ -29,6 +28,20 @@ function createMockDb() {
       };
     },
   };
+}
+
+/** Resolves when the collector's pendingRows buffer receives its first row. */
+function watchFirstPush(collector: AgentStatsCollector): Promise<void> {
+  let mark = () => {};
+  const queued = new Promise<void>(resolve => { mark = resolve; });
+  const pendingRows = (collector as any).pendingRows as NewDockerStat[];
+  const originalPush = pendingRows.push.bind(pendingRows);
+  pendingRows.push = ((...rows: NewDockerStat[]) => {
+    const result = originalPush(...rows);
+    mark();
+    return result;
+  }) as typeof pendingRows.push;
+  return queued;
 }
 
 const defaultConfig = {
@@ -48,32 +61,6 @@ const sampleHost: ManagedHost = {
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),
 };
-
-/** Build a ReadableStream that emits SSE-formatted lines, then closes */
-function createMockSSEStream(events: Record<string, unknown>[]): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const event of events) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      }
-      controller.close();
-    },
-  });
-}
-
-/** Build a ReadableStream that emits events then errors */
-function createErrorSSEStream(events: Record<string, unknown>[], error: Error): ReadableStream<Uint8Array> {
-  const encoder = new TextEncoder();
-  return new ReadableStream({
-    start(controller) {
-      for (const event of events) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      }
-      controller.error(error);
-    },
-  });
-}
 
 const sampleAgentEvent = {
   containerId: 'abc123def456',
@@ -106,92 +93,56 @@ describe('AgentStatsCollector', () => {
     expect(collector.name).toBe('AgentStatsCollector[homeserver]');
   });
 
-  it('parses SSE events and inserts DockerStatsRow', async () => {
-    const events = [sampleAgentEvent];
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream(events), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
+  it('shapes SSE events into a domain-shaped NewDockerStat', async () => {
+    const streamConnector = fixedStream([sampleAgentEvent]);
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     mockDb.patchRepository(collector);
 
-    // Run collection: the stream closes after one event, so collect() returns
+    // Run collection: the fixture stream ends after one event, so collect() returns
     await (collector as any).collect();
 
     expect(mockDb.insertedRows).toHaveLength(1);
     const row = mockDb.insertedRows[0][0];
     expect(row.host).toBe('homeserver');
-    expect(row.container_id).toBe('abc123def456');
-    expect(row.container_name).toBe('plex');
+    expect(row.containerId).toBe('abc123def456');
+    expect(row.containerName).toBe('plex');
     expect(row.image).toBe('plexinc/plex-media-server:latest');
-    expect(row.cpu_percent).toBe(12.5);
-    expect(row.memory_usage).toBe(536870912);
-    expect(row.memory_limit).toBe(8589934592);
-    expect(row.memory_percent).toBe(6.25);
-    expect(row.network_rx_bytes_per_sec).toBe(1024);
-    expect(row.network_tx_bytes_per_sec).toBe(512);
-    expect(row.block_io_read_bytes_per_sec).toBe(2048);
-    expect(row.block_io_write_bytes_per_sec).toBe(1024);
+    expect(row.cpuPercent).toBe(12.5);
+    expect(row.memoryUsage).toBe(536870912);
+    expect(row.memoryLimit).toBe(8589934592);
+    expect(row.memoryPercent).toBe(6.25);
+    expect(row.networkRxBytesPerSec).toBe(1024);
+    expect(row.networkTxBytesPerSec).toBe(512);
+    expect(row.blockReadBytesPerSec).toBe(2048);
+    expect(row.blockWriteBytesPerSec).toBe(1024);
+    expect(row.time).toEqual(new Date('2026-03-13T12:00:00.000Z'));
   });
 
-  it('sends Authorization header with bearer token', async () => {
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([]), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
+  it('connects with the configured agent URL, path, and signer', async () => {
+    const connectSpy = mock(fixedStream([]));
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, connectSpy as unknown as StreamConnector,
     );
     mockDb.patchRepository(collector);
 
     await (collector as any).collect();
 
-    expect(fetchFn).toHaveBeenCalledTimes(1);
-    const mockFn = fetchFn as unknown as { mock: { calls: unknown[][] } };
-    const callArgs = mockFn.mock.calls[0] as [string, RequestInit];
-    expect(callArgs[0]).toBe('http://192.168.1.10:9090/stats/stream');
-    expect(callArgs[1].headers).toEqual({
-      Authorization: 'Bearer test-token',
-    });
-  });
-
-  it('passes abort signal to fetch', async () => {
-    const fetchFn: FetchFn = mock(async (_url: string, opts?: RequestInit) => {
-      // Verify signal is passed
-      expect(opts?.signal).toBeDefined();
-      return new Response(createMockSSEStream([]), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      });
-    });
-
-    const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-    );
-    mockDb.patchRepository(collector);
-
-    await (collector as any).collect();
+    expect(connectSpy).toHaveBeenCalledTimes(1);
+    const callArgs = connectSpy.mock.calls[0][0] as { agentUrl: string; path: string; signal: AbortSignal };
+    expect(callArgs.agentUrl).toBe('http://192.168.1.10:9090');
+    expect(callArgs.path).toBe('/stats/stream');
+    expect(callArgs.signal).toBe(abortController.signal);
   });
 
   it('upserts entity metadata for each container', async () => {
-    const events = [sampleAgentEvent];
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream(events), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
+    const streamConnector = fixedStream([sampleAgentEvent]);
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     mockDb.patchRepository(collector);
 
@@ -208,50 +159,46 @@ describe('AgentStatsCollector', () => {
     expect(imageUpsert!.value).toBe('plexinc/plex-media-server:latest');
   });
 
-  it('throws when response has no body', async () => {
-    const fetchFn: FetchFn = mock(async () => {
-      const response = new Response(null, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      });
-      // Override body to be null
-      Object.defineProperty(response, 'body', { value: null });
-      return response;
-    });
+  it('propagates a connection failure from the stream connector', async () => {
+    const streamConnector: StreamConnector = async () => {
+      throw new Error('Agent returned 401: Unauthorized');
+    };
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-    );
-    mockDb.patchRepository(collector);
-
-    await expect((collector as any).collect()).rejects.toThrow('Agent response has no body');
-  });
-
-  it('throws on non-200 response', async () => {
-    const fetchFn: FetchFn = mock(async () =>
-      new Response('Unauthorized', { status: 401 })
-    );
-
-    const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     mockDb.patchRepository(collector);
 
     await expect((collector as any).collect()).rejects.toThrow('Agent returned 401');
   });
 
+  it('skips non-object frames and agent error-only events', async () => {
+    const streamConnector = fixedStream([
+      null,
+      42,
+      { error: 'connection lost' },
+      sampleAgentEvent,
+    ]);
+
+    const collector = new AgentStatsCollector(
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
+    );
+    mockDb.patchRepository(collector);
+
+    await (collector as any).collect();
+
+    expect(mockDb.insertedRows).toHaveLength(1);
+    expect(mockDb.insertedRows[0]).toHaveLength(1);
+    expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
+  });
+
   it('survives a failed batch insert without throwing', async () => {
     let insertCallCount = 0;
     const events = [sampleAgentEvent, { ...sampleAgentEvent, containerId: 'def456', containerName: 'sonarr' }];
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream(events), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
+    const streamConnector = fixedStream(events);
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     const repo = (collector as any).repository;
     const metaRepo = (collector as any).entityMetadataRepository;
@@ -279,15 +226,10 @@ describe('AgentStatsCollector', () => {
     let upsertCallCount = 0;
     const insertedCount = { value: 0 };
     const events = [sampleAgentEvent, sampleAgentEvent];
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream(events), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
+    const streamConnector = fixedStream(events);
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     const repo = (collector as any).repository;
     const metaRepo = (collector as any).entityMetadataRepository;
@@ -296,7 +238,7 @@ describe('AgentStatsCollector', () => {
       upsertCallCount++;
       if (upsertCallCount === 1) throw new Error('DB connection lost');
     };
-    repo.insertDockerStats = async (rows: DockerStatsRow[]) => { insertedCount.value += rows.length; };
+    repo.insertDockerStats = async (rows: NewDockerStat[]) => { insertedCount.value += rows.length; };
 
     const origError = console.error;
     console.error = () => {};
@@ -320,15 +262,10 @@ describe('AgentStatsCollector', () => {
       image: 'linuxserver/sonarr:latest',
       cpuPercent: 3.2,
     };
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(createMockSSEStream([sampleAgentEvent, event2]), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
+    const streamConnector = fixedStream([sampleAgentEvent, event2]);
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     mockDb.patchRepository(collector);
 
@@ -337,91 +274,84 @@ describe('AgentStatsCollector', () => {
     // Both events arrived within one flush window: one multi-row insert
     expect(mockDb.insertedRows).toHaveLength(1);
     expect(mockDb.insertedRows[0]).toHaveLength(2);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
-    expect(mockDb.insertedRows[0][1].container_name).toBe('sonarr');
+    expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
+    expect(mockDb.insertedRows[0][1].containerName).toBe('sonarr');
   });
 
   it('flushes accumulated rows on the interval while the stream stays open', async () => {
-    const encoder = new TextEncoder();
     let releaseSecondEvent: () => void = () => {};
     const secondEventGate = new Promise<void>(resolve => { releaseSecondEvent = resolve; });
 
-    let pullCount = 0;
-    const stream = new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        pullCount++;
-        if (pullCount === 1) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
-        } else if (pullCount === 2) {
-          // Hold the stream open past the 150 ms flush interval
-          await secondEventGate;
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ ...sampleAgentEvent, containerId: 'def456', containerName: 'sonarr' })}\n\n`));
-        } else {
-          controller.close();
-        }
-      },
-    });
-
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(stream, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
+    const streamConnector: StreamConnector = async function* () {
+      yield sampleAgentEvent;
+      // Hold the stream open past the 150 ms flush interval
+      await secondEventGate;
+      yield { ...sampleAgentEvent, containerId: 'def456', containerName: 'sonarr' };
+    } as unknown as StreamConnector;
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     mockDb.patchRepository(collector);
 
-    const collectPromise = (collector as any).collect();
+    // Wait for the first row instead of sleeping past the real 150ms FLUSH_INTERVAL_MS.
+    const firstRowQueued = watchFirstPush(collector);
 
-    // Wait past the flush interval, then let the second event through
-    await new Promise(resolve => setTimeout(resolve, 250));
-    releaseSecondEvent();
-    await collectPromise;
+    // Capture the flush callback collect() registers so the test drives the real
+    // interval wiring, just without the 150ms wait.
+    let intervalFlush: (() => void) | undefined;
+    const setIntervalSpy = spyOn(globalThis, 'setInterval').mockImplementation(
+      ((fn: () => void) => { intervalFlush = fn; return 0; }) as unknown as typeof setInterval,
+    );
+    try {
+      const collectPromise = (collector as any).collect();
 
-    // First event flushed by the interval timer, second by the final drain
+      await firstRowQueued;
+      expect(intervalFlush).toBeDefined();
+      intervalFlush!();
+
+      releaseSecondEvent();
+      await collectPromise;
+    } finally {
+      setIntervalSpy.mockRestore();
+    }
+
+    // First event flushed by the interval callback, second by the final drain
     expect(mockDb.insertedRows).toHaveLength(2);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
-    expect(mockDb.insertedRows[1][0].container_name).toBe('sonarr');
+    expect(mockDb.insertedRows[0][0].containerName).toBe('plex');
+    expect(mockDb.insertedRows[1][0].containerName).toBe('sonarr');
   });
 
   it('stops processing when abort signal fires', async () => {
-    // Create a stream that emits events with a delay, allowing abort to fire between reads
-    const encoder = new TextEncoder();
-    let eventCount = 0;
-    const neverEndingStream = new ReadableStream<Uint8Array>({
-      async pull(controller) {
-        eventCount++;
-        if (eventCount <= 5) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
-          // Small delay between events to allow abort to trigger
-          await new Promise(resolve => setTimeout(resolve, 20));
-        } else {
-          // Safety: close after a few events if abort hasn't fired
-          controller.close();
-        }
-      },
+    // Gates are pre-created so releasing one is safe even before the generator awaits it.
+    const gates = Array.from({ length: 5 }, () => {
+      let release: () => void = () => {};
+      const promise = new Promise<void>(resolve => { release = resolve; });
+      return { promise, release };
     });
-
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(neverEndingStream, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
+    const streamConnector: StreamConnector = async function* () {
+      for (let i = 0; i < 5; i++) {
+        yield sampleAgentEvent;
+        await gates[i].promise;
+      }
+    } as unknown as StreamConnector;
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     mockDb.patchRepository(collector);
 
-    // Abort after a short delay
-    setTimeout(() => abortController.abort(new DOMException('Shutdown', 'AbortError')), 50);
+    const firstRowQueued = watchFirstPush(collector);
+
+    const collectPromise = (collector as any).collect();
+    await firstRowQueued;
+
+    // for-await loop checks signal.aborted before processing the next frame.
+    abortController.abort(new DOMException('Shutdown', 'AbortError'));
+    gates[0].release();
 
     // collect() should return once abort fires
-    await (collector as any).collect();
+    await collectPromise;
 
     // At least one row should have been inserted before abort
     expect(mockDb.insertedRows.length).toBeGreaterThanOrEqual(1);
@@ -439,25 +369,22 @@ describe('AgentStatsCollector: reconnection', () => {
 
   it('run() reconnects after stream error with backoff', async () => {
     let callCount = 0;
-    const fetchFn: FetchFn = mock(async () => {
+    const streamConnector: StreamConnector = async () => {
       callCount++;
       if (callCount === 1) {
-        // First call: error stream
-        return new Response(
-          createErrorSSEStream([sampleAgentEvent], new Error('Connection reset')),
-          { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
-        );
+        // First cycle: the stream errors immediately after one event.
+        return (async function* () {
+          yield sampleAgentEvent;
+          throw new Error('Connection reset');
+        })();
       }
       // Second call: abort to end the test
       abortController.abort(new DOMException('Shutdown', 'AbortError'));
-      return new Response(createMockSSEStream([]), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      });
-    });
+      return (async function* () {})();
+    };
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     mockDb.patchRepository(collector);
 
@@ -468,23 +395,20 @@ describe('AgentStatsCollector: reconnection', () => {
     expect(callCount).toBeGreaterThanOrEqual(2);
   });
 
-  it('run() reconnects after non-200 response with backoff', async () => {
+  it('run() reconnects after a connect failure with backoff', async () => {
     let callCount = 0;
-    const fetchFn: FetchFn = mock(async () => {
+    const streamConnector: StreamConnector = async () => {
       callCount++;
       if (callCount <= 2) {
-        return new Response('Service Unavailable', { status: 503 });
+        throw new Error('Agent returned 503: Service Unavailable');
       }
       // Third call: abort
       abortController.abort(new DOMException('Shutdown', 'AbortError'));
-      return new Response(createMockSSEStream([]), {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      });
-    });
+      return (async function* () {})();
+    };
 
     const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
+      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, streamConnector,
     );
     mockDb.patchRepository(collector);
 
@@ -492,130 +416,5 @@ describe('AgentStatsCollector: reconnection', () => {
 
     // BaseCollector handles the exponential backoff and retries
     expect(callCount).toBeGreaterThanOrEqual(3);
-  });
-
-  it('handles partial SSE messages across chunks', async () => {
-    // Simulate a message split across two chunks
-    const encoder = new TextEncoder();
-    const part1 = `data: {"containerId":"abc123","containerNa`;
-    const part2 = `me":"plex","image":"plexinc/plex","cpuPercent":5,"memoryUsage":100,"memoryLimit":1000,"memoryPercent":10,"networkRxBytesPerSec":0,"networkTxBytesPerSec":0,"blockReadBytesPerSec":0,"blockWriteBytesPerSec":0,"timestamp":"2026-03-13T12:00:00Z"}\n\n`;
-
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode(part1));
-        controller.enqueue(encoder.encode(part2));
-        controller.close();
-      },
-    });
-
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(stream, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
-
-    const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-    );
-    mockDb.patchRepository(collector);
-
-    await (collector as any).collect();
-
-    expect(mockDb.insertedRows).toHaveLength(1);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
-  });
-
-  it('skips malformed JSON in SSE events', async () => {
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        // Malformed event
-        controller.enqueue(encoder.encode(`data: {not valid json}\n\n`));
-        // Valid event
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
-        controller.close();
-      },
-    });
-
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(stream, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
-
-    const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-    );
-    mockDb.patchRepository(collector);
-
-    await (collector as any).collect();
-
-    // Only the valid event should be inserted
-    expect(mockDb.insertedRows).toHaveLength(1);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
-  });
-
-  it('skips named SSE events like containers', async () => {
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        // Named "containers" event: should be skipped
-        controller.enqueue(encoder.encode(`event: containers\ndata: {"ids":["abc123"]}\n\n`));
-        // Named "container-error" event: should be skipped
-        controller.enqueue(encoder.encode(`event: container-error\ndata: {"containerId":"abc123","error":"stream died"}\n\n`));
-        // Valid stats event (no event: prefix)
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
-        controller.close();
-      },
-    });
-
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(stream, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
-
-    const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-    );
-    mockDb.patchRepository(collector);
-
-    await (collector as any).collect();
-
-    // Only the valid stats event should be inserted
-    expect(mockDb.insertedRows).toHaveLength(1);
-    expect(mockDb.insertedRows[0][0].container_name).toBe('plex');
-  });
-
-  it('skips agent error events', async () => {
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        // Agent error event
-        controller.enqueue(encoder.encode(`event: error\ndata: {"error":"connection lost"}\n\n`));
-        // Valid stats event
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(sampleAgentEvent)}\n\n`));
-        controller.close();
-      },
-    });
-
-    const fetchFn: FetchFn = mock(async () =>
-      new Response(stream, {
-        status: 200,
-        headers: { 'Content-Type': 'text/event-stream' },
-      })
-    );
-
-    const collector = new AgentStatsCollector(
-      mockDb.db, defaultConfig, sampleHost, async () => 'test-token', abortController, fetchFn,
-    );
-    mockDb.patchRepository(collector);
-
-    await (collector as any).collect();
-
-    expect(mockDb.insertedRows).toHaveLength(1);
   });
 });

@@ -1,4 +1,4 @@
-import { HelpCircle, Play, Square, Trash2 } from 'lucide-react';
+import { HelpCircle, Play, RefreshCw, Square, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 interface StackActionBarProps {
   onDeploy: () => void;
+  onUpdate: () => void;
   onTeardown: () => void;
   onDelete: () => void;
   isDeploying: boolean;
@@ -16,6 +17,7 @@ interface StackActionBarProps {
 
 export default function StackActionBar({
   onDeploy,
+  onUpdate,
   onTeardown,
   onDelete,
   isDeploying,
@@ -71,6 +73,26 @@ export default function StackActionBar({
           </TooltipContent>
         </Tooltip>
       </div>
+
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={isDeploying}
+              onClick={onUpdate}
+            />
+          }
+        >
+          <RefreshCw size={14} />
+          Update images
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          Pulls newer images for every service and recreates containers whose image changed.
+          Also applies any undeployed compose changes.
+        </TooltipContent>
+      </Tooltip>
 
       <Button
         variant="outline"

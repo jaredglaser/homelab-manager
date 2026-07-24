@@ -821,9 +821,9 @@ type ReactNode = import('react').ReactNode;
 
             expect(result.current.general.showSparklines).toBe(false);
 
-            // Give the promise time to resolve
+            expect(mockUpdateSetting).toHaveBeenCalledTimes(1);
             await act(async () => {
-                await new Promise(resolve => setTimeout(resolve, 10));
+                await mockUpdateSetting.mock.results[0]?.value;
             });
 
             // Still false - no rollback

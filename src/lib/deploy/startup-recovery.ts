@@ -63,7 +63,13 @@ export async function performStartupRecovery(
       console.info(`[Server] Recovered ${recovered.length} stuck deploy(s) on startup`);
       for (const r of recovered) {
         try {
-          await repo.notifyStackChange(r.stack, r.host);
+          await repo.notifyStackChange(r.stack, r.host, {
+            deployId: r.id,
+            status: 'failed',
+            action: r.action,
+            trigger: r.trigger,
+            message: STARTUP_RECOVERY_MESSAGE,
+          });
         } catch (err) {
           console.error(`[Server] Failed to notify stack change for ${r.stack}/${r.host}:`, err);
         }

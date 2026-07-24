@@ -1,6 +1,9 @@
 import type { AgentStackResponse, AgentHealthCheckResponse } from '@homelab-manager/agent/types';
-import type { AgentDeployPayload, AgentDeployResponse } from '@/lib/deploy/types';
+import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from '@/lib/deploy/types';
 import { retry } from '@/lib/utils/backoff';
+
+/** Agent's 15-min pull+up budget on /stacks/update, plus 1 min network slack. */
+const UPDATE_TIMEOUT_MS = 960_000;
 
 export interface ZfsPool {
   name: string;
@@ -11,11 +14,6 @@ export interface ZfsPool {
   capacity: number;
   dedup: number;
   health: string;
-}
-
-export interface ZfsStatsEvent {
-  line: string;
-  timestamp: number;
 }
 
 export class AgentClientError extends Error {
@@ -92,6 +90,25 @@ export class AgentClient {
     return adaptDeployResponse(raw);
   }
 
+  async update(payload: AgentUpdatePayload): Promise<AgentDeployResponse> {
+    let raw: AgentStackResponse;
+    try {
+      raw = await this.postJson<AgentStackResponse>('/stacks/update', payload, UPDATE_TIMEOUT_MS);
+    } catch (err) {
+      if (err instanceof AgentClientError && err.statusCode === 404) {
+        const host = safeHost(this.agentUrl);
+        throw new AgentClientError(
+          `Agent on ${host} does not support image updates. Update the agent container and retry.`,
+          err.statusCode,
+          err.agentUrl,
+          err.wasTimeout,
+        );
+      }
+      throw err;
+    }
+    return adaptDeployResponse(raw);
+  }
+
   async teardown(stack: string): Promise<AgentDeployResponse> {
     const raw = await this.postJson<AgentStackResponse>('/stacks/teardown', { stack });
     return adaptDeployResponse(raw);
@@ -135,68 +152,6 @@ export class AgentClient {
   async getZfsPools(): Promise<ZfsPool[]> {
     const result = await this.getJson<{ pools: ZfsPool[] }>('/zfs/pools');
     return result.pools;
-  }
-
-  async *streamZfsStats(signal: AbortSignal): AsyncGenerator<ZfsStatsEvent> {
-    const url = `${this.agentUrl}/zfs/stats/stream`;
-    const jwt = await this.signer();
-    let response: Response;
-    try {
-      response = await this.fetchFn(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${jwt}` },
-        signal,
-        redirect: 'manual',
-      });
-    } catch (err) {
-      throw new AgentClientError(
-        `Agent request failed: ${err instanceof Error ? err.message : String(err)}`,
-        undefined,
-        url,
-        false,
-      );
-    }
-
-    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-      throw new AgentClientError('Agent URL returned an unexpected redirect', response.status, url, false);
-    }
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new AgentClientError(`Agent returned ${response.status}: ${body}`, response.status, url, false);
-    }
-
-    if (!response.body) {
-      throw new AgentClientError('No response body for SSE stream', undefined, url, false);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            try {
-              yield JSON.parse(data) as ZfsStatsEvent;
-            } catch {
-              // Skip malformed events
-            }
-          }
-        }
-      }
-    } finally {
-      reader.releaseLock();
-    }
   }
 
   private async postJson<T>(path: string, body: unknown, timeoutMs?: number): Promise<T> {
@@ -299,6 +254,14 @@ export class AgentClient {
         false,
       );
     }
+  }
+}
+
+function safeHost(agentUrl: string): string {
+  try {
+    return new URL(agentUrl).host;
+  } catch {
+    return agentUrl;
   }
 }
 

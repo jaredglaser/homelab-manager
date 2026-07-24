@@ -1,13 +1,35 @@
-export type DeployAction = 'deploy' | 'teardown';
+import { z } from 'zod';
 
-export type DeployStatus =
-  | 'pending'
-  | 'in_progress'
-  | 'succeeded'
-  | 'failed'
-  | 'no_change';
+export const DEPLOY_ACTION_VALUES = ['deploy', 'teardown', 'update'] as const;
+export type DeployAction = (typeof DEPLOY_ACTION_VALUES)[number];
 
-export type DeployTrigger = 'git_push' | 'ui' | 'manual_rollback';
+export const DEPLOY_STATUS_VALUES = [
+  'pending',
+  'in_progress',
+  'succeeded',
+  'failed',
+  'no_change',
+] as const;
+export type DeployStatus = (typeof DEPLOY_STATUS_VALUES)[number];
+
+export const DEPLOY_TRIGGER_VALUES = ['git_push', 'ui', 'manual_rollback'] as const;
+export type DeployTrigger = (typeof DEPLOY_TRIGGER_VALUES)[number];
+
+/**
+ * Wire shape for a deploy lifecycle outcome, broadcast over the `deploy_change`
+ * NOTIFY channel and forwarded on the stack-status SSE stream. Single source of
+ * truth for both the server-side broadcast parse and the client-side channel
+ * schema, so the two can't drift.
+ */
+export const zDeployChangeOutcome = z.object({
+  deployId: z.number().int().positive(),
+  status: z.enum(DEPLOY_STATUS_VALUES),
+  action: z.enum(DEPLOY_ACTION_VALUES),
+  trigger: z.enum(DEPLOY_TRIGGER_VALUES),
+  message: z.string().optional(),
+});
+
+export type DeployChangeOutcome = z.infer<typeof zDeployChangeOutcome>;
 
 /**
  * Action to run inside the pipeline after a deploy reaches a terminal-success
@@ -38,7 +60,13 @@ export interface TeardownRequest extends BaseDeployRequest {
   action: 'teardown';
 }
 
-export type DeployRequest = DeployActionRequest | TeardownRequest;
+export interface UpdateRequest extends BaseDeployRequest {
+  action: 'update';
+  composeContent: string;
+  envContent: string;
+}
+
+export type DeployRequest = DeployActionRequest | TeardownRequest | UpdateRequest;
 
 export interface DeployRecord {
   id: number;
@@ -82,6 +110,12 @@ export interface AgentDeployPayload {
   envContent: string;
   action: DeployAction;
   forceRecreate?: boolean;
+}
+
+export interface AgentUpdatePayload {
+  stack: string;
+  composeContent: string;
+  envContent: string;
 }
 
 export interface AgentDeployResponse {

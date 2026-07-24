@@ -1,10 +1,11 @@
 import type { DatabaseClient } from '@/lib/clients/database-client';
 import type { WorkerConfig } from '@/lib/config/worker-config';
 import type { ManagedHost } from '@/lib/database/repositories/host-repository';
-import { ZFSRateCalculator } from '@/lib/utils/zfs-rate-calculator';
-import { parseZFSIOStat } from '@/lib/parsers/zfs-iostat-parser';
-import type { ZFSIOStatWithRates, ZFSStatsRow } from '@/types/zfs';
+import type { NewZFSStat } from '@/lib/database/repositories/stats-repository';
+import { parseZFSIOStat, isZFSIOStatCycleHeader } from '@/lib/parsers/zfs-iostat-parser';
+import type { ZFSIOStatRaw } from '@/types/zfs';
 import { BaseCollector } from './base-collector';
+import { connectAgentSseStream } from './agent-sse-stream';
 
 /**
  * Detects the hierarchy level based on indentation from zpool iostat -vvv output
@@ -30,7 +31,7 @@ interface HierarchyContext {
  * - Vdev: "poolname/vdevname"
  * - Disk: "poolname/vdevname/diskname"
  */
-function buildEntityPath(stat: ZFSIOStatWithRates, ctx: HierarchyContext): { path: string; pool: string; entityType: string; ctx: HierarchyContext } {
+function buildEntityPath(stat: ZFSIOStatRaw, ctx: HierarchyContext): { path: string; pool: string; entityType: string; ctx: HierarchyContext } {
   const level = detectHierarchyLevel(stat.indent);
 
   switch (level) {
@@ -63,25 +64,27 @@ function buildEntityPath(stat: ZFSIOStatWithRates, ctx: HierarchyContext): { pat
   }
 }
 
-function toZFSStatsRow(stat: ZFSIOStatWithRates, host: string, entityPath: string, pool: string, entityType: string): ZFSStatsRow {
+/** Maps a parsed iostat line plus its resolved hierarchy path to a NewZFSStat */
+function toNewZFSStat(stat: ZFSIOStatRaw, timestamp: number, host: string, entityPath: string, pool: string, entityType: string): NewZFSStat {
   return {
-    time: new Date(stat.timestamp),
+    time: new Date(timestamp),
     host,
     pool,
     entity: entityPath,
-    entity_type: entityType,
+    entityType,
     indent: stat.indent,
-    capacity_alloc: Math.trunc(stat.capacity.alloc),
-    capacity_free: Math.trunc(stat.capacity.free),
-    read_ops_per_sec: stat.rates.readOpsPerSec,
-    write_ops_per_sec: stat.rates.writeOpsPerSec,
-    read_bytes_per_sec: stat.rates.readBytesPerSec,
-    write_bytes_per_sec: stat.rates.writeBytesPerSec,
-    utilization_percent: stat.rates.utilizationPercent,
+    capacityAlloc: stat.capacity.alloc,
+    capacityFree: stat.capacity.free,
+    // zpool iostat already reports these as per-second rates.
+    readOpsPerSec: stat.operations.read,
+    writeOpsPerSec: stat.operations.write,
+    readBytesPerSec: stat.bandwidth.read,
+    writeBytesPerSec: stat.bandwidth.write,
   };
 }
 
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+/** Injectable connector so tests can supply parsed events without opening a byte stream. */
+type StreamConnector = typeof connectAgentSseStream;
 
 /** Shape of SSE events emitted by the agent's GET /zfs/stats/stream endpoint */
 interface AgentZfsStatsEvent {
@@ -91,10 +94,9 @@ interface AgentZfsStatsEvent {
 
 export class ZFSCollector extends BaseCollector {
   readonly name: string;
-  private readonly calculator = new ZFSRateCalculator();
   private readonly host: ManagedHost;
   private readonly signer: () => Promise<string>;
-  private readonly fetchFn: FetchFn;
+  private readonly streamConnector: StreamConnector;
 
   constructor(
     db: DatabaseClient,
@@ -102,132 +104,74 @@ export class ZFSCollector extends BaseCollector {
     host: ManagedHost,
     signer: () => Promise<string>,
     abortController?: AbortController,
-    fetchFn?: FetchFn,
+    streamConnector?: StreamConnector,
   ) {
     super(db, config, abortController);
     this.host = host;
     this.signer = signer;
     this.name = `ZFSCollector[${host.name}]`;
-    this.fetchFn = fetchFn ?? globalThis.fetch;
+    this.streamConnector = streamConnector ?? connectAgentSseStream;
   }
 
   protected async collect(): Promise<void> {
-    let url: string;
-    try {
-      const parsed = new URL(this.host.agentUrl);
-      parsed.pathname = parsed.pathname.replace(/\/$/, '') + '/zfs/stats/stream';
-      url = parsed.toString();
-    } catch {
-      url = `${this.host.agentUrl}/zfs/stats/stream`;
-    }
-    this.debugLog(`[${this.name}] Connecting to ${url}`);
+    this.debugLog(`[${this.name}] Connecting to ${this.host.agentUrl}/zfs/stats/stream`);
 
-    const response = await this.fetchFn(url, {
-      headers: {
-        Authorization: `Bearer ${await this.signer()}`,
-      },
+    const stream = await this.streamConnector({
+      agentUrl: this.host.agentUrl,
+      path: '/zfs/stats/stream',
+      signer: this.signer,
       signal: this.signal,
     });
-
-    if (!response.ok) {
-      throw new Error(`Agent returned ${response.status}: ${response.statusText}`);
-    }
-
-    if (!response.body) {
-      throw new Error('Agent response has no body');
-    }
 
     this.resetBackoff();
     this.debugLog(`[${this.name}] Connected, reading ZFS stats SSE stream`);
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let currentCycle: ZFSStatsRow[] = [];
+    let currentCycle: NewZFSStat[] = [];
     let hierarchyCtx: HierarchyContext = { currentPool: null, currentVdev: null };
 
     try {
-      while (!this.signal.aborted) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      for await (const frame of stream) {
+        if (this.signal.aborted) break;
+        if (typeof frame !== 'object' || frame === null) continue;
 
-        buffer += decoder.decode(value, { stream: true });
+        // Skip error events from the agent
+        if ('error' in frame && !('line' in frame)) continue;
 
-        // Process complete SSE messages (separated by double newlines)
-        const messages = buffer.split('\n\n');
-        // Keep the last incomplete chunk in the buffer
-        buffer = messages.pop() ?? '';
+        const event = frame as AgentZfsStatsEvent;
+        const agentTimestamp = event.timestamp ?? Date.now();
+        const line = event.line;
+        if (!line || !line.trim()) continue;
 
-        for (const message of messages) {
-          if (this.signal.aborted) break;
-          if (!message.trim()) continue;
-
-          // Extract data from SSE "data: " prefix
-          const dataLine = message
-            .split('\n')
-            .find(ln => ln.startsWith('data: '));
-
-          if (!dataLine) continue;
-
-          const jsonStr = dataLine.slice(6); // Remove "data: " prefix
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(jsonStr);
-          } catch {
-            console.error(`[${this.name}] Failed to parse SSE event: ${jsonStr.substring(0, 100)}`);
-            continue;
+        // Detect cycle boundary (header line)
+        if (isZFSIOStatCycleHeader(line)) {
+          // Write complete cycle
+          if (currentCycle.length > 0) {
+            const t0Write = performance.now();
+            await this.repository.insertZFSStats(currentCycle);
+            const writeMs = (performance.now() - t0Write).toFixed(1);
+            this.dbDebugLog(`[${this.name}] Wrote ${currentCycle.length} ZFS rows in ${writeMs}ms`);
           }
-
-          if (typeof parsed !== 'object' || parsed === null) continue;
-
-          // Skip error events from the agent
-          if ('error' in parsed && !('line' in parsed)) continue;
-
-          const event = parsed as AgentZfsStatsEvent;
-          const agentTimestamp = event.timestamp ?? Date.now();
-          const line = event.line;
-          if (!line || !line.trim()) continue;
-
-          // Detect cycle boundary (header line)
-          if (
-            line.includes('capacity') &&
-            line.includes('operations') &&
-            line.includes('bandwidth')
-          ) {
-            // Write complete cycle
-            if (currentCycle.length > 0) {
-              const t0Write = performance.now();
-              await this.repository.insertZFSStats(currentCycle);
-              const writeMs = (performance.now() - t0Write).toFixed(1);
-              this.dbDebugLog(`[${this.name}] Wrote ${currentCycle.length} ZFS rows in ${writeMs}ms`);
-            }
-            currentCycle = [];
-            hierarchyCtx = { currentPool: null, currentVdev: null };
-            continue;
-          }
-
-          const iostat = parseZFSIOStat(line);
-          if (!iostat) continue;
-
-          const statsWithRates = this.calculator.calculate(iostat.name, iostat);
-          statsWithRates.timestamp = agentTimestamp;
-
-          let hostId: string;
-          try {
-            const parsed = new URL(this.host.agentUrl);
-            hostId = parsed.hostname + (parsed.port ? `:${parsed.port}` : '');
-          } catch {
-            hostId = this.host.agentUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
-          }
-          const { path: entityPath, pool, entityType, ctx: newCtx } = buildEntityPath(statsWithRates, hierarchyCtx);
-          hierarchyCtx = newCtx;
-
-          currentCycle.push(toZFSStatsRow(statsWithRates, this.host.name, `${hostId}/${entityPath}`, pool, entityType));
+          currentCycle = [];
+          hierarchyCtx = { currentPool: null, currentVdev: null };
+          continue;
         }
+
+        const iostat = parseZFSIOStat(line);
+        if (!iostat) continue;
+
+        let hostId: string;
+        try {
+          const parsedAgentUrl = new URL(this.host.agentUrl);
+          hostId = parsedAgentUrl.hostname + (parsedAgentUrl.port ? `:${parsedAgentUrl.port}` : '');
+        } catch {
+          hostId = this.host.agentUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+        }
+        const { path: entityPath, pool, entityType, ctx: newCtx } = buildEntityPath(iostat, hierarchyCtx);
+        hierarchyCtx = newCtx;
+
+        currentCycle.push(toNewZFSStat(iostat, agentTimestamp, this.host.name, `${hostId}/${entityPath}`, pool, entityType));
       }
     } finally {
-      reader.releaseLock();
-
       // Write final cycle
       if (currentCycle.length > 0) {
         await this.repository.insertZFSStats(currentCycle);

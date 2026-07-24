@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
-import { renderHook, act } from '@testing-library/react';
+import { z } from 'zod';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useTimeSeriesStream, VISIBILITY_REFRESH_COOLDOWN_MS } from '../useTimeSeriesStream';
+import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import { MockEventSource } from '@/lib/test/mock-event-source';
 
 const originalEventSource = globalThis.EventSource;
@@ -19,6 +21,21 @@ interface TestRow {
 function makeRow(entity: string, timeOffset: number): TestRow {
   return { key: `${entity}-${timeOffset}`, time: Date.now() - timeOffset * 1000, entity };
 }
+
+/** Test double: TestRow already carries a numeric `time`, so revive is the identity. */
+const testChannel = defineSseChannel({
+  url: '/api/test',
+  errorEvent: 'stats_error',
+  schema: z.array(z.object({ key: z.string(), time: z.number(), entity: z.string() })),
+  revive: (rows): TestRow[] => rows,
+});
+
+/** Same wire shape as `testChannel` but omits `revive`, matching the stats channels (docker/zfs/proxmox). */
+const noReviveChannel = defineSseChannel({
+  url: '/api/test-no-revive',
+  errorEvent: 'stats_error',
+  schema: z.array(z.object({ key: z.string(), time: z.number(), entity: z.string() })),
+});
 
 const defaultOpts = {
   getKey: (r: TestRow) => r.key,
@@ -41,7 +58,7 @@ describe('useTimeSeriesStream visibility refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -49,8 +66,7 @@ describe('useTimeSeriesStream visibility refresh', () => {
     );
 
     // Wait for initial preload
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    expect(preloadFn).toHaveBeenCalledTimes(1);
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
     // Advance past cooldown
     const originalNow = Date.now;
@@ -59,9 +75,7 @@ describe('useTimeSeriesStream visibility refresh', () => {
 
       act(() => simulateVisibilityChange('visible'));
 
-      // Wait for async refresh
-      await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-      expect(preloadFn).toHaveBeenCalledTimes(2);
+      await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(2); });
     } finally {
       Date.now = originalNow;
     }
@@ -72,28 +86,25 @@ describe('useTimeSeriesStream visibility refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    expect(preloadFn).toHaveBeenCalledTimes(1);
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
-    // Immediately trigger visibility (within cooldown)
+    // cooldown check is synchronous; nothing to await
     act(() => simulateVisibilityChange('visible'));
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
 
-    // Should NOT have called preloadFn again
     expect(preloadFn).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('useTimeSeriesStream reconnect refresh', () => {
   /** Errors the live SSE connection with timers firing synchronously, then opens the replacement. */
-  async function dropAndReopenConnection() {
+  function dropAndReopenConnection() {
     const setTimeoutSpy = spyOn(globalThis, 'setTimeout').mockImplementation(
       ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout,
     );
@@ -104,11 +115,8 @@ describe('useTimeSeriesStream reconnect refresh', () => {
       setTimeoutSpy.mockRestore();
     }
     const reconnected = MockEventSource.instances[MockEventSource.instances.length - 1];
-    // Single act scope so the async refresh kicked off by onReconnect settles inside it
-    await act(async () => {
-      reconnected.onopen?.();
-      await new Promise(r => setTimeout(r, 50));
-    });
+    act(() => { reconnected.onopen?.(); });
+    return reconnected;
   }
 
   it('refreshes history when the SSE connection reopens after a failure', async () => {
@@ -116,24 +124,23 @@ describe('useTimeSeriesStream reconnect refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    expect(preloadFn).toHaveBeenCalledTimes(1);
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
     // Advance past the shared refresh cooldown set by the initial preload
     const originalNow = Date.now;
     try {
       Date.now = () => originalNow() + VISIBILITY_REFRESH_COOLDOWN_MS + 100;
 
-      await dropAndReopenConnection();
+      dropAndReopenConnection();
 
-      expect(preloadFn).toHaveBeenCalledTimes(2);
+      await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(2); });
     } finally {
       Date.now = originalNow;
     }
@@ -144,20 +151,59 @@ describe('useTimeSeriesStream reconnect refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
+
+    // Reconnect immediately after preload: cooldown check is synchronous, so
+    // the outcome is settled once this call returns.
+    dropAndReopenConnection();
+
+    expect(preloadFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('paints the first frame after reconnect immediately even when the refresh is suppressed', async () => {
+    // Huge interval so any paint must come from the immediate first-flush path,
+    // not the periodic timer. Non-empty preload seeds lastRefreshRef so the
+    // reconnect lands inside the cooldown and skips the re-preload.
+    const preloadFn = mock(() => Promise.resolve([makeRow('seed', 5)]));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        channel: testChannel,
+        preloadFn,
+        ...defaultOpts,
+        windowSeconds: 60,
+        updateIntervalMs: 100_000,
+      })
+    );
+
+    await waitFor(() => { expect(result.current.rows).toHaveLength(1); }); // seed only
+
+    const es = MockEventSource.instances[MockEventSource.instances.length - 1];
+    const now = Date.now();
+
+    // First live frame paints immediately, arming the gate.
+    act(() => { es.onmessage?.({ data: JSON.stringify([{ key: 'f1', time: now - 3000, entity: 'e' }]) }); });
+    expect(result.current.rows).toHaveLength(2);
+
+    // Second frame batches: the gate is closed and the interval effectively never fires.
+    act(() => { es.onmessage?.({ data: JSON.stringify([{ key: 'f2', time: now - 2000, entity: 'e' }]) }); });
+    expect(result.current.rows).toHaveLength(2);
+
+    // Reconnect within cooldown: refresh is suppressed (synchronous check), but the gate must re-arm.
+    dropAndReopenConnection();
     expect(preloadFn).toHaveBeenCalledTimes(1);
 
-    // Reconnect immediately after preload: cooldown should suppress the refresh
-    await dropAndReopenConnection();
-
-    expect(preloadFn).toHaveBeenCalledTimes(1);
+    // First frame after reconnect paints at once, draining the batched frame with it.
+    const reconnected = MockEventSource.instances[MockEventSource.instances.length - 1];
+    act(() => { reconnected.onmessage?.({ data: JSON.stringify([{ key: 'f3', time: now - 1000, entity: 'e' }]) }); });
+    expect(result.current.rows.map(r => (r as { key: string }).key)).toEqual(['seed-5', 'f1', 'f2', 'f3']);
   });
 });
 
@@ -168,16 +214,15 @@ describe('useTimeSeriesStream preload', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(result.current.hasData).toBe(true); });
 
-    expect(result.current.hasData).toBe(true);
     expect(result.current.rows).toHaveLength(3);
     // Should be sorted ascending by time
     for (let i = 1; i < result.current.rows.length; i++) {
@@ -190,13 +235,15 @@ describe('useTimeSeriesStream preload', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
+    // Empty preload never touches state; await the preload promise directly.
+    await act(async () => { await preloadFn.mock.results[0]?.value; });
 
     expect(result.current.hasData).toBe(false);
     expect(result.current.rows).toHaveLength(0);
@@ -211,19 +258,43 @@ describe('useTimeSeriesStream preload', () => {
 
       const { result } = renderHook(() =>
         useTimeSeriesStream({
-          sseUrl: '/api/test',
+          channel: testChannel,
           preloadFn,
           ...defaultOpts,
         })
       );
 
-      await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+      await waitFor(() => { expect(result.current.error).not.toBeNull(); });
 
-      expect(result.current.error).not.toBeNull();
       expect(result.current.error?.message).toBe('DB down');
     } finally {
       console.error = origError;
     }
+  });
+
+  it('passes rows through unchanged (preload, initialData, and refresh) when the channel has no revive step', async () => {
+    const now = Date.now();
+    const staleInitialData: TestRow[] = [{ key: 'seed-1', time: now - 5000, entity: 'a' }];
+    const preloadRows: TestRow[] = [{ key: 'fresh-1', time: now - 100, entity: 'a' }];
+    const preloadFn = mock(() => Promise.resolve(preloadRows));
+
+    const { result } = renderHook(() =>
+      useTimeSeriesStream({
+        channel: noReviveChannel,
+        preloadFn,
+        initialData: staleInitialData,
+        ...defaultOpts,
+        windowSeconds: 60,
+      })
+    );
+
+    // initialData seeds synchronously through the no-revive path.
+    expect(result.current.rows.map(r => r.key)).toEqual(['seed-1']);
+
+    // Stale initialData schedules a refresh through the same no-revive path.
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    expect(preloadFn).toHaveBeenCalledTimes(1);
+    expect(result.current.rows.map(r => r.key)).toContain('fresh-1');
   });
 
   it('computes latestByEntity map from preloaded rows', async () => {
@@ -237,16 +308,15 @@ describe('useTimeSeriesStream preload', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(result.current.latestByEntity.size).toBe(2); });
 
-    expect(result.current.latestByEntity.size).toBe(2);
     expect(result.current.latestByEntity.get('a')?.key).toBe('a-2');
     expect(result.current.latestByEntity.get('b')?.key).toBe('b-1');
   });
@@ -258,7 +328,7 @@ describe('useTimeSeriesStream SSE flush', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -266,7 +336,8 @@ describe('useTimeSeriesStream SSE flush', () => {
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
+    await act(async () => { await preloadFn.mock.results[0]?.value; });
 
     // Send data via SSE (useEventSource's onmessage handler parses JSON → calls handleData)
     const es = MockEventSource.instances[0];
@@ -277,10 +348,7 @@ describe('useTimeSeriesStream SSE flush', () => {
     ];
     act(() => { es.onmessage?.({ data: JSON.stringify(sseRows) }); });
 
-    // Wait for flush interval
-    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
-
-    expect(result.current.rows.length).toBeGreaterThanOrEqual(2);
+    await waitFor(() => { expect(result.current.rows.length).toBeGreaterThanOrEqual(2); });
     expect(result.current.hasData).toBe(true);
   });
 
@@ -293,7 +361,7 @@ describe('useTimeSeriesStream SSE flush', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -301,8 +369,7 @@ describe('useTimeSeriesStream SSE flush', () => {
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    expect(result.current.rows).toHaveLength(1);
+    await waitFor(() => { expect(result.current.rows).toHaveLength(1); });
 
     // SSE sends same key + a new one
     const es = MockEventSource.instances[0];
@@ -312,10 +379,8 @@ describe('useTimeSeriesStream SSE flush', () => {
     ];
     act(() => { es.onmessage?.({ data: JSON.stringify(sseRows) }); });
 
-    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
-
     // Should have 2 rows (original + new), not 3
-    expect(result.current.rows).toHaveLength(2);
+    await waitFor(() => { expect(result.current.rows).toHaveLength(2); });
   });
 
   it('evicts rows outside the time window', async () => {
@@ -328,7 +393,7 @@ describe('useTimeSeriesStream SSE flush', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -336,7 +401,9 @@ describe('useTimeSeriesStream SSE flush', () => {
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    // Seed includes 'old' too: replaceBuffer's seed mode doesn't evict, only the
+    // SSE-driven flush below does.
+    await waitFor(() => { expect(result.current.rows).toHaveLength(2); });
 
     // Send a new SSE row to trigger flush (which also evicts)
     const es = MockEventSource.instances[0];
@@ -344,13 +411,13 @@ describe('useTimeSeriesStream SSE flush', () => {
       es.onmessage?.({ data: JSON.stringify([{ key: 'new', time: now, entity: 'a' }]) });
     });
 
-    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
-
     // The old row should have been evicted
-    const keys = result.current.rows.map(r => r.key);
-    expect(keys).not.toContain('old');
-    expect(keys).toContain('recent');
-    expect(keys).toContain('new');
+    await waitFor(() => {
+      const keys = result.current.rows.map(r => r.key);
+      expect(keys).not.toContain('old');
+      expect(keys).toContain('recent');
+      expect(keys).toContain('new');
+    });
   });
 
   it('clears preload error when SSE data arrives', async () => {
@@ -367,15 +434,14 @@ describe('useTimeSeriesStream SSE flush', () => {
 
       const { result } = renderHook(() =>
         useTimeSeriesStream({
-          sseUrl: '/api/test',
+          channel: testChannel,
           preloadFn,
           ...defaultOpts,
           updateIntervalMs: 50,
         })
       );
 
-      await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-      expect(result.current.error?.message).toBe('DB down');
+      await waitFor(() => { expect(result.current.error?.message).toBe('DB down'); });
 
       // SSE data arrives: should clear the preload error
       const es = MockEventSource.instances[0];
@@ -384,9 +450,7 @@ describe('useTimeSeriesStream SSE flush', () => {
         es.onmessage?.({ data: JSON.stringify([{ key: 'x-1', time: now, entity: 'x' }]) });
       });
 
-      await act(async () => { await new Promise(r => setTimeout(r, 100)); });
-
-      expect(result.current.error).toBeNull();
+      await waitFor(() => { expect(result.current.error).toBeNull(); });
     } finally {
       console.error = origError;
     }
@@ -399,13 +463,14 @@ describe('useTimeSeriesStream service error', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
+    await act(async () => { await preloadFn.mock.results[0]?.value; });
 
     // Dispatch stats_error event on MockEventSource
     const es = MockEventSource.instances[0];
@@ -424,7 +489,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -433,12 +498,10 @@ describe('useTimeSeriesStream periodic refresh', () => {
     );
 
     // Wait for initial preload
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    expect(preloadFn).toHaveBeenCalledTimes(1);
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
     // Wait for at least one periodic refresh
-    await act(async () => { await new Promise(r => setTimeout(r, 150)); });
-    expect(preloadFn.mock.calls.length).toBeGreaterThanOrEqual(2);
+    await waitFor(() => { expect(preloadFn.mock.calls.length).toBeGreaterThanOrEqual(2); });
   });
 
   it('doRefresh silently ignores errors', async () => {
@@ -451,7 +514,7 @@ describe('useTimeSeriesStream periodic refresh', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -459,11 +522,10 @@ describe('useTimeSeriesStream periodic refresh', () => {
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    expect(result.current.hasData).toBe(true);
+    await waitFor(() => { expect(result.current.hasData).toBe(true); });
 
     // Wait for periodic refresh that fails
-    await act(async () => { await new Promise(r => setTimeout(r, 150)); });
+    await waitFor(() => { expect(callCount).toBeGreaterThanOrEqual(2); });
 
     // Error should not propagate; data should still be intact
     expect(result.current.rows.length).toBeGreaterThan(0);
@@ -486,7 +548,7 @@ describe('useTimeSeriesStream stale initialData', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         initialData: staleRows,
         ...defaultOpts,
@@ -499,13 +561,14 @@ describe('useTimeSeriesStream stale initialData', () => {
     expect(result.current.rows).toHaveLength(2);
 
     // Wait for the stale-data refresh (setTimeout 0 + preloadFn)
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(preloadFn).toHaveBeenCalledTimes(1); });
 
     // preloadFn should have been called, and the buffer should now contain the fresh rows.
-    expect(preloadFn).toHaveBeenCalledTimes(1);
-    const keys = result.current.rows.map(r => r.key);
-    expect(keys).toContain('a-2');
-    expect(keys).toContain('b-2');
+    await waitFor(() => {
+      const keys = result.current.rows.map(r => r.key);
+      expect(keys).toContain('a-2');
+      expect(keys).toContain('b-2');
+    });
   });
 
   it('does not refresh when initialData is fresh', async () => {
@@ -518,7 +581,7 @@ describe('useTimeSeriesStream stale initialData', () => {
 
     renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         initialData: freshRows,
         ...defaultOpts,
@@ -526,9 +589,7 @@ describe('useTimeSeriesStream stale initialData', () => {
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-
-    // preloadFn should NOT have been called; initialData was fresh
+    // staleness check is synchronous; nothing to await
     expect(preloadFn).toHaveBeenCalledTimes(0);
   });
 });
@@ -544,7 +605,7 @@ describe('useTimeSeriesStream cutoff-only eviction', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -552,8 +613,7 @@ describe('useTimeSeriesStream cutoff-only eviction', () => {
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-    expect(result.current.rows).toHaveLength(2);
+    await waitFor(() => { expect(result.current.rows).toHaveLength(2); });
 
     // Send a duplicate row: triggers flush with pending > 0, but newRows is empty after dedup.
     // This exercises the cutoff-only branch (hasCutoff && !hasNew).
@@ -562,11 +622,11 @@ describe('useTimeSeriesStream cutoff-only eviction', () => {
       es.onmessage?.({ data: JSON.stringify([{ key: 'recent', time: now - 5000, entity: 'a' }]) });
     });
 
-    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
-
-    const keys = result.current.rows.map(r => r.key);
-    expect(keys).not.toContain('old');
-    expect(keys).toContain('recent');
+    await waitFor(() => {
+      const keys = result.current.rows.map(r => r.key);
+      expect(keys).not.toContain('old');
+      expect(keys).toContain('recent');
+    });
   });
 });
 
@@ -581,7 +641,7 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -589,9 +649,8 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(result.current.latestByEntity.size).toBe(2); });
     const firstMap = result.current.latestByEntity;
-    expect(firstMap.size).toBe(2);
 
     // Send SSE data for entity 'a' only - entity 'b' should keep the same row reference
     const es = MockEventSource.instances[0];
@@ -599,11 +658,9 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
       es.onmessage?.({ data: JSON.stringify([{ key: 'a-2', time: now - 1000, entity: 'a' }]) });
     });
 
-    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+    await waitFor(() => { expect(result.current.latestByEntity.get('a')?.key).toBe('a-2'); });
     const secondMap = result.current.latestByEntity;
 
-    // Map reference changes (entity 'a' updated)
-    expect(secondMap.get('a')?.key).toBe('a-2');
     // But entity 'b' row reference should be the same object
     expect(secondMap.get('b')).toBe(firstMap.get('b'));
   });
@@ -618,7 +675,7 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
 
     const { result } = renderHook(() =>
       useTimeSeriesStream({
-        sseUrl: '/api/test',
+        channel: testChannel,
         preloadFn,
         ...defaultOpts,
         windowSeconds: 60,
@@ -626,20 +683,18 @@ describe('useTimeSeriesStream latestByEntity stability', () => {
       })
     );
 
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(result.current.latestByEntity.size).toBe(2); });
     const firstMap = result.current.latestByEntity;
-    expect(firstMap.size).toBe(2);
 
-    // Send a duplicate row (same key as existing): should be deduped, no latest change
+    // Send a duplicate row (same key as existing): should be deduped, no latest change.
+    // First SSE message on this instance flushes synchronously, so waitFor below settles on the first poll.
     const es = MockEventSource.instances[0];
     act(() => {
       es.onmessage?.({ data: JSON.stringify([{ key: 'a-1', time: now - 10000, entity: 'a' }]) });
     });
 
-    await act(async () => { await new Promise(r => setTimeout(r, 100)); });
-
     // Map reference should be identical: no entity's latest changed
-    expect(result.current.latestByEntity).toBe(firstMap);
+    await waitFor(() => { expect(result.current.latestByEntity).toBe(firstMap); });
   });
 });
 
@@ -652,7 +707,7 @@ describe('useTimeSeriesStream preloadFn change', () => {
     const { result, rerender } = renderHook(
       ({ fn }: { fn: () => Promise<TestRow[]> }) =>
         useTimeSeriesStream({
-          sseUrl: '/api/test',
+          channel: testChannel,
           preloadFn: fn,
           ...defaultOpts,
           windowSeconds: 60,
@@ -662,26 +717,26 @@ describe('useTimeSeriesStream preloadFn change', () => {
     );
 
     // Initial preload completes; buffer has 'a-1'.
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(result.current.rows).toHaveLength(1); });
     expect(firstFn).toHaveBeenCalledTimes(1);
-    expect(result.current.rows).toHaveLength(1);
 
     // An SSE row arrives that is newer than the (upcoming) refresh snapshot's max.
     const es = MockEventSource.instances[0];
     act(() => {
       es.onmessage?.({ data: JSON.stringify([{ key: 'live', time: now + 5_000, entity: 'a' }]) });
     });
-    await act(async () => { await new Promise(r => setTimeout(r, 60)); });
-    expect(result.current.rows.map(r => r.key)).toContain('live');
+    await waitFor(() => { expect(result.current.rows.map(r => r.key)).toContain('live'); });
 
     // Change preloadFn (e.g. window size changed via settings) → triggers a refresh, not a fresh seed.
     rerender({ fn: secondFn });
-    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+    await waitFor(() => { expect(secondFn).toHaveBeenCalledTimes(1); });
 
-    expect(secondFn).toHaveBeenCalledTimes(1);
     // The live-tail row must survive the refresh; that's the preserveLiveTail contract.
-    expect(result.current.rows.map(r => r.key)).toContain('live');
-    expect(result.current.rows.map(r => r.key)).toContain('a-1');
+    await waitFor(() => {
+      const keys = result.current.rows.map(r => r.key);
+      expect(keys).toContain('live');
+      expect(keys).toContain('a-1');
+    });
   });
 });
 
@@ -695,7 +750,7 @@ describe('useTimeSeriesStream debug logging', () => {
       const preloadFn = mock(() => Promise.resolve([makeRow('a', 5)]));
       renderHook(() =>
         useTimeSeriesStream({
-          sseUrl: '/api/test',
+          channel: testChannel,
           preloadFn,
           ...defaultOpts,
           windowSeconds: 60,
@@ -704,7 +759,9 @@ describe('useTimeSeriesStream debug logging', () => {
         })
       );
 
-      await act(async () => { await new Promise(r => setTimeout(r, 150)); });
+      await waitFor(() => {
+        expect(messages.some(m => m.includes('Buffer refresh'))).toBe(true);
+      });
 
       expect(messages.some(m => m.includes('Starting preload'))).toBe(true);
       expect(messages.some(m => m.includes('Preload complete'))).toBe(true);
@@ -726,12 +783,11 @@ describe('useTimeSeriesStream error composition', () => {
     try {
       const preloadFn = mock(() => Promise.reject(new Error('DB down')));
       const { result } = renderHook(() =>
-        useTimeSeriesStream({ sseUrl: '/api/test', preloadFn, ...defaultOpts }),
+        useTimeSeriesStream({ channel: testChannel, preloadFn, ...defaultOpts }),
       );
 
       // Preload fails → preloadError is set
-      await act(async () => { await new Promise(r => setTimeout(r, 50)); });
-      expect(result.current.error?.message).toBe('DB down');
+      await waitFor(() => { expect(result.current.error?.message).toBe('DB down'); });
 
       // Fire stats_error → serviceError is set. Composed error should switch to "Database unavailable".
       const es = MockEventSource.instances[0];

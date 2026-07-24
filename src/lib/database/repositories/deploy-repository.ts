@@ -1,10 +1,13 @@
 import type { Pool } from 'pg';
-import type { DeployAction, DeployPostSuccess, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployAction, DeployChangeOutcome, DeployPostSuccess, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import { truncateDeployMessage } from '@/lib/stacks/deploy-outcome-toast';
 
 export interface StuckDeployRow {
   id: number;
   stack: string;
   host: string;
+  action: DeployAction;
+  trigger: DeployTrigger;
 }
 
 export interface PostSuccessDeployRow {
@@ -209,8 +212,21 @@ export class DeployRepository {
     }));
   }
 
-  async notifyStackChange(stack: string, host: string): Promise<void> {
-    const payload = JSON.stringify({ type: 'deploy_changed', stack, host });
+  async notifyStackChange(stack: string, host: string, outcome?: DeployChangeOutcome): Promise<void> {
+    const payload = JSON.stringify({
+      type: 'deploy_changed',
+      stack,
+      host,
+      ...(outcome ? {
+        outcome: {
+          deployId: outcome.deployId,
+          status: outcome.status,
+          action: outcome.action,
+          trigger: outcome.trigger,
+          ...(outcome.message ? { message: truncateDeployMessage(outcome.message) } : {}),
+        },
+      } : {}),
+    });
     await this.pool.query("SELECT pg_notify('deploy_change', $1)", [payload]);
   }
 
@@ -225,7 +241,7 @@ export class DeployRepository {
       `UPDATE deploy_history
        SET status = 'failed', logs = $1
        WHERE status IN ('pending', 'in_progress')
-       RETURNING id, stack, host`,
+       RETURNING id, stack, host, action, trigger`,
       [logMessage],
     );
     return result.rows.map(toStuckDeployRow);
@@ -246,7 +262,7 @@ export class DeployRepository {
        SET status = 'failed', logs = $2
        WHERE status = 'in_progress'
          AND COALESCE(started_at, created_at) < NOW() - make_interval(mins => $1)
-       RETURNING id, stack, host`,
+       RETURNING id, stack, host, action, trigger`,
       [thresholdMinutes, logMessage],
     );
     return result.rows.map(toStuckDeployRow);
@@ -258,6 +274,8 @@ function toStuckDeployRow(row: Record<string, unknown>): StuckDeployRow {
     id: Number(row.id),
     stack: row.stack as string,
     host: row.host as string,
+    action: row.action as DeployAction,
+    trigger: row.trigger as DeployTrigger,
   };
 }
 

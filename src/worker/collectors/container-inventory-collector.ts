@@ -1,9 +1,8 @@
-import type { Pool } from 'pg';
-import type { DatabaseClient } from '@/lib/clients/database-client';
-import type { WorkerConfig } from '@/lib/config/worker-config';
 import type {
   AgentContainerEvent,
   ContainerState,
+  ContainerPort,
+  ContainerMount,
   InventorySnapshotContainer,
   InventoryUpdateContainer,
 } from '@/types/docker-inventory';
@@ -11,6 +10,7 @@ import { zAgentContainerEvent } from '@homelab-manager/agent/types/protocol';
 import type { DockerContainerEventRepository } from '@/lib/database/repositories/docker-container-event-repository';
 import { computeServiceKey } from '@/lib/utils/docker-hierarchy-builder';
 import { BaseCollector } from './base-collector';
+import { connectAgentSseStream } from './agent-sse-stream';
 
 /** Minimal host descriptor shared by agent-based collectors. */
 export interface ManagedHostInfo {
@@ -18,49 +18,62 @@ export interface ManagedHostInfo {
   agentUrl: string;
 }
 
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+/** Injectable connector so tests can supply parsed events without opening a byte stream. */
+type StreamConnector = typeof connectAgentSseStream;
+
+function compareStrings(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** Mirrors the agent's comparePorts (docker-events-broadcaster.ts) so canonical ordering agrees. */
+function comparePorts(a: ContainerPort, b: ContainerPort): number {
+  if (a.containerPort !== b.containerPort) return a.containerPort - b.containerPort;
+  if (a.protocol !== b.protocol) return compareStrings(a.protocol, b.protocol);
+  const aHostIp = a.hostIp ?? '';
+  const bHostIp = b.hostIp ?? '';
+  if (aHostIp !== bHostIp) return compareStrings(aHostIp, bHostIp);
+  return (a.hostPort ?? -1) - (b.hostPort ?? -1);
+}
+
+/** Mirrors the agent's compareMounts (docker-events-broadcaster.ts) so canonical ordering agrees. */
+function compareMounts(a: ContainerMount, b: ContainerMount): number {
+  return compareStrings(a.destination, b.destination);
+}
+
+/** PostgreSQL jsonb does not preserve object key order, so a hydrated DB row's ports/mounts never
+ * JSON.stringify-match a live SSE frame with the same content; canonicalize through sorted tuple
+ * arrays (positional, not key-order dependent) instead. */
+function computeDetailsFingerprint(ports: ContainerPort[], mounts: ContainerMount[]): string {
+  const portTuples = [...ports].sort(comparePorts).map((p) => [p.containerPort, p.protocol, p.hostIp, p.hostPort]);
+  const mountTuples = [...mounts].sort(compareMounts).map((m) => [m.type, m.source, m.destination, m.rw]);
+  return JSON.stringify([portTuples, mountTuples]);
+}
 
 /** Per-container state held in memory to avoid redundant DB writes. */
 interface CachedContainerState {
   state: ContainerState | null;
   eventType: 'upsert' | 'destroy';
+  detailsFingerprint: string;
 }
-
-/**
- * BaseCollector eagerly instantiates StatsRepository from `db.getPool()`. The
- * inventory collector persists via its own DockerContainerEventRepository
- * instead and never touches the base repository, so we hand super() a stub
- * whose pool is never dereferenced. Keeps the (host, signer, repo, ...)
- * constructor shape that callers + tests depend on.
- */
-const STUB_DB = { getPool: () => ({} as Pool) } as DatabaseClient;
-const STUB_CONFIG = {} as WorkerConfig;
 
 export class ContainerInventoryCollector extends BaseCollector {
   readonly name: string;
   /** Widen base `signal` visibility so callers can observe lifecycle abort state. */
   override readonly signal: AbortSignal;
-  /**
-   * Per-cycle controller for the in-flight SSE fetch. Distinct from BaseCollector's
-   * lifecycle `signal` so a DB-write failure can abort just the current cycle.
-   * run()'s catch path then drives reconnect via the base backoff.
-   */
+  /** Per-cycle controller for the in-flight SSE fetch, distinct from BaseCollector's lifecycle signal so a DB-write failure can abort just the current cycle. */
   private collectAbort: AbortController | null = null;
-  /** 250 ms coalesce window per container to collapse flapping state transitions. */
-  // 250ms = typical restart-loop settle window; coalesces A→B→A flap into zero writes
+  /** Coalesce window per container; collapses a restart-loop's A→B→A flap into zero writes. */
   private static readonly FLAP_WINDOW_MS = 250;
   private readonly host: ManagedHostInfo;
   private readonly signer: () => Promise<string>;
   private readonly eventRepository: DockerContainerEventRepository;
-  private readonly fetchFn: FetchFn;
+  private readonly streamConnector: StreamConnector;
 
   /** In-memory cache of last-written (state, eventType) per containerId on this host. */
   private readonly stateCache = new Map<string, CachedContainerState>();
-  /**
-   * Pending write timers keyed by containerId. Each value is the latest container
-   * snapshot. Accepts either event shape: `InventorySnapshotContainer` (from init)
-   * carries labels; `InventoryUpdateContainer` (from upsert) does not.
-   */
+  /** Pending write timers keyed by containerId, holding the latest snapshot per container. */
   private readonly pendingWrites = new Map<string, { container: InventorySnapshotContainer | InventoryUpdateContainer | null; eventType: 'upsert' | 'destroy'; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(
@@ -68,15 +81,15 @@ export class ContainerInventoryCollector extends BaseCollector {
     signer: () => Promise<string>,
     repository: DockerContainerEventRepository,
     parentAbortController?: AbortController,
-    fetchFn?: FetchFn,
+    streamConnector?: StreamConnector,
   ) {
-    super(STUB_DB, STUB_CONFIG, parentAbortController);
+    super(undefined, undefined, parentAbortController);
     this.signal = this.abortController.signal;
     this.host = host;
     this.signer = signer;
     this.eventRepository = repository;
     this.name = `ContainerInventoryCollector[${host.name}]`;
-    this.fetchFn = fetchFn ?? globalThis.fetch;
+    this.streamConnector = streamConnector ?? connectAgentSseStream;
   }
 
   override async run(): Promise<void> {
@@ -91,7 +104,10 @@ export class ContainerInventoryCollector extends BaseCollector {
       for (const row of snapshot) {
         if (row.host !== this.host.name) continue;
         const state = row.eventType === 'upsert' ? row.state : null;
-        this.stateCache.set(row.containerId, { state, eventType: row.eventType });
+        const detailsFingerprint = row.eventType === 'upsert'
+          ? computeDetailsFingerprint(row.ports, row.mounts)
+          : computeDetailsFingerprint([], []);
+        this.stateCache.set(row.containerId, { state, eventType: row.eventType, detailsFingerprint });
       }
     } catch (err) {
       console.error(`[ContainerInventoryCollector] Failed to hydrate cache for ${this.host.name}:`, err);
@@ -99,8 +115,6 @@ export class ContainerInventoryCollector extends BaseCollector {
   }
 
   protected async collect(): Promise<void> {
-    const url = `${this.host.agentUrl}/containers/events`;
-
     const cycleAbort = new AbortController();
     this.collectAbort = cycleAbort;
     const onLifecycleAbort = () => cycleAbort.abort();
@@ -108,70 +122,36 @@ export class ContainerInventoryCollector extends BaseCollector {
     if (this.signal.aborted) cycleAbort.abort();
 
     try {
-      const response = await this.fetchFn(url, {
-        headers: { Authorization: `Bearer ${await this.signer()}` },
+      const stream = await this.streamConnector({
+        agentUrl: this.host.agentUrl,
+        path: '/containers/events',
+        signer: this.signer,
         signal: cycleAbort.signal,
       });
 
-      if (!response.ok) {
-        throw new Error(`Agent ${this.host.name} returned ${response.status}`);
-      }
-      if (!response.body) {
-        throw new Error(`Agent ${this.host.name} returned no body`);
-      }
-
       this.resetBackoff();
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      try {
-        while (!cycleAbort.signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const messages = buffer.split('\n\n');
-          buffer = messages.pop() ?? '';
-
-          for (const msg of messages) {
-            if (cycleAbort.signal.aborted) break;
-            const dataLine = msg.split('\n').find((line) => line.startsWith('data: '));
-            if (!dataLine) continue;
-            const json = dataLine.slice(6);
-            let raw: unknown;
-            try {
-              raw = JSON.parse(json);
-            } catch {
-              console.warn('[ContainerInventoryCollector]', this.host.name, 'dropped malformed SSE frame:', json.slice(0, 200));
-              continue;
-            }
-            const parsed = zAgentContainerEvent.safeParse(raw);
-            if (!parsed.success) {
-              console.warn(
-                '[ContainerInventoryCollector]',
-                this.host.name,
-                'dropped SSE frame failing schema validation:',
-                parsed.error.issues,
-              );
-              continue;
-            }
-            await this.handleEvent(parsed.data);
-          }
+      for await (const raw of stream) {
+        if (cycleAbort.signal.aborted) break;
+        const parsed = zAgentContainerEvent.safeParse(raw);
+        if (!parsed.success) {
+          console.warn(
+            '[ContainerInventoryCollector]',
+            this.host.name,
+            'dropped SSE frame failing schema validation:',
+            parsed.error.issues,
+          );
+          continue;
         }
-      } finally {
-        reader.releaseLock();
+        await this.handleEvent(parsed.data);
       }
 
-      // If the cycle was aborted by triggerReconnect() (not the lifecycle), throw
-      // so run()'s catch path drives reconnect via BaseCollector's backoff.
+      // Aborted by triggerReconnect(), not the lifecycle: throw so run() drives reconnect.
       if (cycleAbort.signal.aborted && !this.signal.aborted) {
         throw new Error(`[ContainerInventoryCollector] ${this.host.name} cycle aborted to force reconnect`);
       }
     } catch (err) {
-      // Cancel pending flap-window timers so they don't fire after reconnect with
-      // stale pre-error state. reconcileInit will re-derive diffs from the new snapshot.
+      // Drop pending flap-window timers so stale pre-error state doesn't fire after reconnect.
       for (const { timer } of this.pendingWrites.values()) {
         clearTimeout(timer);
       }
@@ -183,13 +163,9 @@ export class ContainerInventoryCollector extends BaseCollector {
     }
   }
 
-  /**
-   * Force the current collect cycle to tear down and reconnect. Used when a DB write
-   * fails from a flap-window timer so reconcileInit can re-sync state from the agent.
-   */
+  /** Tears down the current cycle and reconnects; reconcileInit re-syncs state from the agent. */
   private triggerReconnect(reason: string): void {
-    // Drop pending flap-window timers; reconcileInit will reassess state from the
-    // post-reconnect snapshot, so racing more stale writes is pointless.
+    // Drop pending flap-window timers; racing more stale writes ahead of the resync is pointless.
     for (const { timer } of this.pendingWrites.values()) {
       clearTimeout(timer);
     }
@@ -203,19 +179,14 @@ export class ContainerInventoryCollector extends BaseCollector {
       // Narrowed to InventorySnapshotContainer[]; labels are authoritative here.
       await this.reconcileInit(event.containers);
     } else if (event.op === 'upsert') {
-      // Narrowed to InventoryUpdateContainer; labels intentionally absent. The
-      // writer fills an empty map. reconcileInit() re-supplies labels on reconnect.
+      // Labels intentionally absent here; reconcileInit() re-supplies them on reconnect.
       this.scheduleWrite(event.container, 'upsert');
     } else if (event.op === 'destroy') {
       this.scheduleDestroyWrite(event.containerId);
     }
   }
 
-  /**
-   * On agent reconnect, compare the fresh snapshot against the in-memory cache.
-   * Write upserts for containers whose state changed and destroys for containers
-   * that disappeared while offline.
-   */
+  /** On reconnect, diff the fresh snapshot against the cache: upsert changed containers, destroy vanished ones. */
   private async reconcileInit(containers: InventorySnapshotContainer[]): Promise<void> {
     // Cancel pending flap-window timers; they captured stale pre-reconnect state.
     for (const { timer } of this.pendingWrites.values()) {
@@ -227,7 +198,8 @@ export class ContainerInventoryCollector extends BaseCollector {
 
     for (const container of containers) {
       const cached = this.stateCache.get(container.id);
-      if (!cached || cached.state !== container.state || cached.eventType !== 'upsert') {
+      const fingerprint = computeDetailsFingerprint(container.ports, container.mounts);
+      if (!cached || cached.state !== container.state || cached.eventType !== 'upsert' || cached.detailsFingerprint !== fingerprint) {
         await this.writeEvent(container, 'upsert');
       }
     }
@@ -239,11 +211,7 @@ export class ContainerInventoryCollector extends BaseCollector {
     }
   }
 
-  /**
-   * Schedule a write with a 250 ms coalesce window.
-   * If the same container receives another event within the window, only the final
-   * state is written. If the final state matches the last-written state, nothing is written.
-   */
+  /** Schedules a write behind FLAP_WINDOW_MS; only the final state within the window is written, and only if it changed. */
   private scheduleWrite(
     container: InventorySnapshotContainer | InventoryUpdateContainer,
     eventType: 'upsert',
@@ -256,7 +224,8 @@ export class ContainerInventoryCollector extends BaseCollector {
     const timer = globalThis.setTimeout(() => {
       this.pendingWrites.delete(container.id);
       const cached = this.stateCache.get(container.id);
-      if (cached && cached.eventType === 'upsert' && cached.state === container.state) {
+      const fingerprint = computeDetailsFingerprint(container.ports, container.mounts);
+      if (cached && cached.eventType === 'upsert' && cached.state === container.state && cached.detailsFingerprint === fingerprint) {
         return;
       }
       this.writeEvent(container, eventType).catch((err) => {
@@ -291,11 +260,10 @@ export class ContainerInventoryCollector extends BaseCollector {
     container: InventorySnapshotContainer | InventoryUpdateContainer,
     eventType: 'upsert',
   ): Promise<void> {
-    // Snapshot containers carry labels; update containers (streaming upserts) do not.
-    // When labels are absent, serviceKey falls back to container name; the next
-    // reconcileInit will re-derive the full key from the snapshot labels.
+    // Streaming upserts carry no labels; serviceKey falls back to name until the next reconcileInit.
     const labels = 'labels' in container ? container.labels : {};
     const serviceKey = computeServiceKey(labels, container.name);
+    const detailsFingerprint = computeDetailsFingerprint(container.ports, container.mounts);
     try {
       await this.eventRepository.insert({
         at: new Date(),
@@ -306,12 +274,14 @@ export class ContainerInventoryCollector extends BaseCollector {
         name: container.name,
         image: container.image,
         labels,
+        ports: container.ports,
+        mounts: container.mounts,
         serviceKey,
         startedAt: container.startedAt ? new Date(container.startedAt) : null,
         finishedAt: container.finishedAt ? new Date(container.finishedAt) : null,
         exitCode: container.exitCode,
       });
-      this.stateCache.set(container.id, { state: container.state, eventType });
+      this.stateCache.set(container.id, { state: container.state, eventType, detailsFingerprint });
     } catch (err) {
       console.error(`[ContainerInventoryCollector] DB error for ${this.host.name}/${container.id}:`, err);
       throw err;
@@ -326,7 +296,7 @@ export class ContainerInventoryCollector extends BaseCollector {
         containerId,
         eventType: 'destroy',
       });
-      this.stateCache.set(containerId, { state: null, eventType: 'destroy' });
+      this.stateCache.set(containerId, { state: null, eventType: 'destroy', detailsFingerprint: computeDetailsFingerprint([], []) });
     } catch (err) {
       console.error(`[ContainerInventoryCollector] DB destroy error for ${this.host.name}/${containerId}:`, err);
       throw err;

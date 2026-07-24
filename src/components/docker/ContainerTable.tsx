@@ -136,7 +136,7 @@ export default function ContainerTable({
       if (
         prevArr &&
         prevArr.length === arr.length &&
-        new Date(prevArr.at(-1)!.time).getTime() === new Date(arr.at(-1)!.time).getTime()
+        prevArr.at(-1)!.time === arr.at(-1)!.time
       ) {
         map.set(key, prevArr);
       }

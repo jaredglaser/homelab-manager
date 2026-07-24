@@ -12,7 +12,7 @@ import { useTimeSeriesStream } from '@/hooks/useTimeSeriesStream'
 import { testProxmoxConnection } from '@/data/proxmox/functions'
 import { PROXMOX_PRELOAD_KEY, PRELOAD_STALE_TIME, preloadProxmoxStats } from '@/lib/constants/preload-queries'
 import { buildProxmoxOverview } from '@/lib/utils/proxmox-overview-builder'
-import { apiUrl } from '@/lib/utils/api-url'
+import { proxmoxStatsChannel } from '@/lib/sse/channels/proxmox-stats'
 import type { ProxmoxStatsRow, ProxmoxClusterOverview } from '@/types/proxmox'
 import { useProxmoxSettings } from '@/hooks/useSettings'
 import { proxmoxLastUpdateAtom } from '@/hooks/settingsAtom'
@@ -79,11 +79,11 @@ function ProxmoxContent({ onOverviewChange }: Readonly<ProxmoxContentProps>) {
     staleTime: PRELOAD_STALE_TIME,
   })
 
-  const stream = useTimeSeriesStream<ProxmoxStatsRow>({
-    sseUrl: apiUrl('/api/proxmox-stats'),
+  const stream = useTimeSeriesStream({
+    channel: proxmoxStatsChannel,
     preloadFn,
-    getKey: (r) => `${r.entity_type}/${r.entity_id}/${new Date(r.time).getTime()}`,
-    getTime: (r) => new Date(r.time).getTime(),
+    getKey: (r) => `${r.entity_type}/${r.entity_id}/${r.time}`,
+    getTime: (r) => r.time,
     getEntity: (r) => `${r.entity_type}/${r.entity_id}`,
     windowSeconds: WINDOW_SECONDS,
     updateIntervalMs: 1000,
