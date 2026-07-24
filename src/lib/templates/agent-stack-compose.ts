@@ -24,7 +24,7 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
   }
 
   services['agent'] = buildAgent(config);
-  services['agent-updater'] = buildAgentUpdater();
+  services['agent-updater'] = buildAgentUpdater(config);
 
   const doc: Record<string, unknown> = { services };
 
@@ -155,8 +155,8 @@ function buildAgent(config: AgentStackConfig): Record<string, unknown> {
   return agent;
 }
 
-function buildAgentUpdater(): Record<string, unknown> {
-  return {
+function buildAgentUpdater(config: AgentStackConfig): Record<string, unknown> {
+  const agentUpdater: Record<string, unknown> = {
     image: '${AGENT_UPDATER_IMAGE}',
     container_name: 'hlm-agent-updater',
     restart: 'unless-stopped',
@@ -165,7 +165,14 @@ function buildAgentUpdater(): Record<string, unknown> {
       HLM_WATCH_CONTAINER: 'hlm-agent',
       HLM_WATCH_IMAGE: '${AGENT_IMAGE}',
       HLM_CHECK_INTERVAL: '${HLM_CHECK_INTERVAL:-6h}',
+      HLM_AGENT_URL: 'http://hlm-agent:9090',
     },
     labels: ['hlm.managed=true', 'hlm.role=agent-updater'],
   };
+
+  if (config.capabilities.docker) {
+    agentUpdater['networks'] = ['agent-public'];
+  }
+
+  return agentUpdater;
 }
