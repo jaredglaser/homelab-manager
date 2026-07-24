@@ -1,8 +1,75 @@
 import type { DockerStatsRow } from '@/types/docker';
-import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
+import type { ContainerPort, ContainerMount, DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import { generateSimplexMetric, spike } from '@/lib/mock/patterns';
 import { DOCKER_ENTITIES, type DockerEntityDef } from '@/lib/mock/entities';
 import { mulberry32, hashCode } from '@/lib/mock/prng';
+
+/** Plausible ports/mounts per demo container, keyed by containerName, so the demo build exercises the ports/mounts UI. */
+const DEMO_PORTS_MOUNTS: Record<string, { ports: ContainerPort[]; mounts: ContainerMount[] }> = {
+  'nginx-proxy': {
+    ports: [
+      { containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 80 },
+      { containerPort: 443, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 443 },
+    ],
+    mounts: [
+      { type: 'bind', source: '/opt/nginx/conf.d', destination: '/etc/nginx/conf.d', rw: false },
+      { type: 'volume', source: '/var/lib/docker/volumes/nginx-cache/_data', destination: '/var/cache/nginx', rw: true },
+    ],
+  },
+  plex: {
+    ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 32400 }],
+    mounts: [
+      { type: 'volume', source: '/var/lib/docker/volumes/plex-config/_data', destination: '/config', rw: true },
+      { type: 'bind', source: '/mnt/media', destination: '/media', rw: false },
+    ],
+  },
+  homeassistant: {
+    ports: [{ containerPort: 8123, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8123 }],
+    mounts: [{ type: 'volume', source: '/var/lib/docker/volumes/ha-config/_data', destination: '/config', rw: true }],
+  },
+  postgres: {
+    ports: [{ containerPort: 5432, protocol: 'tcp', hostIp: '127.0.0.1', hostPort: 5432 }],
+    mounts: [{ type: 'volume', source: '/var/lib/docker/volumes/postgres-data/_data', destination: '/var/lib/postgresql/data', rw: true }],
+  },
+  grafana: {
+    ports: [{ containerPort: 3000, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 3000 }],
+    mounts: [{ type: 'volume', source: '/var/lib/docker/volumes/grafana-data/_data', destination: '/var/lib/grafana', rw: true }],
+  },
+  traefik: {
+    ports: [
+      { containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 80 },
+      { containerPort: 443, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 443 },
+      { containerPort: 8080, protocol: 'tcp', hostIp: null, hostPort: null },
+    ],
+    mounts: [{ type: 'bind', source: '/opt/traefik/traefik.yml', destination: '/etc/traefik/traefik.yml', rw: false }],
+  },
+  jellyfin: {
+    ports: [{ containerPort: 8096, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8096 }],
+    mounts: [
+      { type: 'volume', source: '/var/lib/docker/volumes/jellyfin-config/_data', destination: '/config', rw: true },
+      { type: 'bind', source: '/mnt/media', destination: '/media', rw: false },
+    ],
+  },
+  vaultwarden: {
+    ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '127.0.0.1', hostPort: 8080 }],
+    mounts: [{ type: 'volume', source: '/var/lib/docker/volumes/vaultwarden-data/_data', destination: '/data', rw: true }],
+  },
+  pihole: {
+    ports: [
+      { containerPort: 53, protocol: 'udp', hostIp: '0.0.0.0', hostPort: 53 },
+      { containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8081 },
+    ],
+    mounts: [{ type: 'volume', source: '/var/lib/docker/volumes/pihole-config/_data', destination: '/etc/pihole', rw: true }],
+  },
+  portainer: {
+    ports: [{ containerPort: 9000, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 9000 }],
+    mounts: [{ type: 'volume', source: '/var/lib/docker/volumes/portainer-data/_data', destination: '/data', rw: true }],
+  },
+};
+
+function getDemoPortsAndMounts(containerName: string): { ports: ContainerPort[]; mounts: ContainerMount[] } {
+  return DEMO_PORTS_MOUNTS[containerName] ?? { ports: [], mounts: [] };
+}
 
 type DemoContainerState = DockerInventorySnapshotContainer['state'];
 
@@ -90,6 +157,7 @@ export function generateDockerInventorySnapshot(now: Date): DockerInventorySnaps
       finishedAt,
       exitCode: state === 'exited' ? DEMO_EXITED_EXIT_CODE : null,
       labels: {},
+      ...getDemoPortsAndMounts(e.containerName),
       updatedAt: startedAt,
     };
   });

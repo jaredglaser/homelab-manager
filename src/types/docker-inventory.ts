@@ -39,6 +39,24 @@ const zContainerStateWeb = z.enum([
   'unknown',
 ]);
 
+/** Duplicated from the agent protocol's `zContainerPort` to keep agent zod out of the client bundle. */
+const zContainerPortWeb = z.object({
+  containerPort: z.number(),
+  protocol: z.string(),
+  hostIp: z.string().nullable(),
+  hostPort: z.number().nullable(),
+});
+export type ContainerPort = z.infer<typeof zContainerPortWeb>;
+
+/** Duplicated from the agent protocol's `zContainerMount` to keep agent zod out of the client bundle. */
+const zContainerMountWeb = z.object({
+  type: z.string(),
+  source: z.string(),
+  destination: z.string(),
+  rw: z.boolean(),
+});
+export type ContainerMount = z.infer<typeof zContainerMountWeb>;
+
 const zInventoryContainerBase = z.object({
   host: z.string(),
   containerId: z.string(),
@@ -56,20 +74,26 @@ const zInventoryContainerBase = z.object({
 
 /**
  * Snapshot shape emitted on `type: 'init'`. Populated from the DB via
- * `getCurrentSnapshot()`; labels reflect the container's real label map.
+ * `getCurrentSnapshot()`; labels, ports, and mounts reflect the container's real values.
  */
 export const zDockerInventorySnapshotContainer = zInventoryContainerBase.extend({
   labels: z.record(z.string(), z.string()),
+  ports: z.array(zContainerPortWeb).default([]),
+  mounts: z.array(zContainerMountWeb).default([]),
 });
 export type DockerInventorySnapshotContainer = z.infer<typeof zDockerInventorySnapshotContainer>;
 
 /**
- * Update shape emitted on `type: 'upsert'`. Labels are intentionally absent:
- * the NOTIFY trigger in migration 018 omits them (8 kB cap on PG NOTIFY).
- * Consumers that need labels must narrow to the snapshot shape and fetch from
- * the init / DB path.
+ * Update shape emitted on `type: 'upsert'`. Labels and mounts are intentionally absent:
+ * the NOTIFY trigger in migration 026 omits them (8 kB cap on PG NOTIFY, mount paths
+ * are unbounded). Consumers that need them must narrow to the snapshot shape and fetch
+ * from the init / DB path. `ports` is `.optional()` (no default): the trigger also drops
+ * ports on the rare oversized-payload path, and that must stay distinguishable from a
+ * genuinely empty port list so the client falls back to the last known value.
  */
-export const zDockerInventoryUpdateContainer = zInventoryContainerBase;
+export const zDockerInventoryUpdateContainer = zInventoryContainerBase.extend({
+  ports: z.array(zContainerPortWeb).optional(),
+});
 export type DockerInventoryUpdateContainer = z.infer<typeof zDockerInventoryUpdateContainer>;
 
 /** Events fanned out from `DockerInventoryBroadcastService` to SSE subscribers. */

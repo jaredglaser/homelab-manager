@@ -60,6 +60,8 @@ const composeContainer1: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'media' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T10:00:00Z'),
 };
 
@@ -75,6 +77,8 @@ const composeContainer2: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'media' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T10:01:00Z'),
 };
 
@@ -91,6 +95,8 @@ const nonComposeContainer: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: {},
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T09:00:00Z'),
 };
 
@@ -106,6 +112,8 @@ const otherStackContainer: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'proxy' },
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T08:00:00Z'),
 };
 
@@ -361,12 +369,11 @@ describe('StackStatusBroadcastService', () => {
     if (deployEvent?.type === 'deploy_changed') {
       expect(deployEvent.stack).toBe('media');
       expect(deployEvent.host).toBe('server1');
-      expect(deployEvent.deployId).toBeUndefined();
-      expect(deployEvent.status).toBeUndefined();
+      expect(deployEvent.outcome).toBeUndefined();
     }
   });
 
-  it('forwards outcome fields from an enriched deploy_change NOTIFY', async () => {
+  it('forwards a nested outcome object from an enriched deploy_change NOTIFY', async () => {
     const received: StackBroadcastEvent[] = [];
     service.subscribe((e) => received.push(e));
     await waitForCondition(() => received.length > 0);
@@ -377,22 +384,92 @@ describe('StackStatusBroadcastService', () => {
         type: 'deploy_changed',
         stack: 'media',
         host: 'server1',
-        deployId: 42,
-        status: 'failed',
-        action: 'deploy',
-        trigger: 'git_push',
-        message: 'agent unreachable',
+        outcome: {
+          deployId: 42,
+          status: 'failed',
+          action: 'deploy',
+          trigger: 'git_push',
+          message: 'agent unreachable',
+        },
       }),
     });
 
     const deployEvent = received.find((e) => e.type === 'deploy_changed');
     expect(deployEvent).toBeDefined();
     if (deployEvent?.type === 'deploy_changed') {
-      expect(deployEvent.deployId).toBe(42);
-      expect(deployEvent.status).toBe('failed');
-      expect(deployEvent.action).toBe('deploy');
-      expect(deployEvent.trigger).toBe('git_push');
-      expect(deployEvent.message).toBe('agent unreachable');
+      expect(deployEvent.outcome).toEqual({
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'agent unreachable',
+      });
+    }
+  });
+
+  it('drops an outcome object missing a required field instead of forwarding it partially', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 42, status: 'failed', action: 'deploy' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('drops an outcome with an invalid enum value but still forwards the frame', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 42, status: 'bogus', action: 'deploy', trigger: 'ui' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('drops an outcome with a non-positive deployId', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 0, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
     }
   });
 
@@ -724,6 +801,8 @@ describe('StackStatusBroadcastService', () => {
       finishedAt: null,
       exitCode: null,
       labels: { 'com.docker.compose.project': 'media' },
+      ports: [],
+      mounts: [],
       updatedAt: new Date('2026-04-16T10:00:00Z'),
     };
     const containerY: DockerInventorySnapshotContainer = {
@@ -738,6 +817,8 @@ describe('StackStatusBroadcastService', () => {
       finishedAt: null,
       exitCode: null,
       labels: { 'com.docker.compose.project': 'media' },
+      ports: [],
+      mounts: [],
       updatedAt: new Date('2026-04-16T11:00:00Z'),
     };
 

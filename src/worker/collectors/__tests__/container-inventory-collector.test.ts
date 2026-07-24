@@ -32,6 +32,8 @@ function makeRow(overrides: Partial<DockerContainerEventRow> = {}): DockerContai
     name: 'plex',
     image: 'plexinc/pms-docker:latest',
     labels: {},
+    ports: [],
+    mounts: [],
     composeProject: null,
     serviceKey: 'plex',
     startedAt: null,
@@ -48,6 +50,8 @@ function makeContainer(overrides: Record<string, unknown> = {}) {
     image: 'plexinc/pms-docker:latest',
     state: 'running' as const,
     labels: {},
+    ports: [],
+    mounts: [],
     startedAt: null,
     finishedAt: null,
     exitCode: null,
@@ -162,6 +166,132 @@ describe('ContainerInventoryCollector: state-change dedup', () => {
 
     expect(inserted).toHaveLength(1);
     expect(inserted[0].eventType).toBe('destroy');
+  });
+});
+
+describe('ContainerInventoryCollector: ports/mounts fingerprinting', () => {
+  let abortController: AbortController;
+  let setTimeoutSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    abortController = new AbortController();
+    setTimeoutSpy = spyImmediateTimeout();
+  });
+
+  afterEach(() => {
+    setTimeoutSpy.mockRestore();
+    abortController.abort();
+  });
+
+  it('insert carries ports and mounts from the live frame', async () => {
+    const { repo, inserted } = createMockRepo();
+    const container = makeContainer({
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }],
+      mounts: [{ type: 'volume', source: 'app-data', destination: '/data', rw: true }],
+    });
+    const streamConnector = fixedStream([{ op: 'upsert', container }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
+    await (collector as any).collect();
+
+    expect(inserted).toHaveLength(1);
+    const event = inserted[0];
+    if (event.eventType !== 'upsert') throw new Error('expected upsert row');
+    expect(event.ports).toEqual(container.ports);
+    expect(event.mounts).toEqual(container.mounts);
+  });
+
+  it('hydrated cache fingerprint matches a live frame with the same content but reordered jsonb keys', async () => {
+    // Simulates a DB row where jsonb round-trip reordered object keys; values are identical
+    // to the live frame below but property insertion order differs.
+    const dbRowPort = { hostPort: 8080, hostIp: null, protocol: 'tcp', containerPort: 80 };
+    const dbRowMount = { rw: true, destination: '/data', source: 'app-data', type: 'volume' };
+    const snapshot = [makeRow({
+      containerId: 'abc123',
+      state: 'running',
+      eventType: 'upsert',
+      ports: [dbRowPort],
+      mounts: [dbRowMount],
+    })];
+    const { repo, inserted } = createMockRepo(snapshot);
+
+    const liveContainer = makeContainer({
+      state: 'running',
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }],
+      mounts: [{ type: 'volume', source: 'app-data', destination: '/data', rw: true }],
+    });
+    const streamConnector = fixedStream([{ op: 'upsert', container: liveContainer }]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
+    await (collector as any).hydrateCache();
+    await (collector as any).collect();
+
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('reconcileInit writes exactly once when fingerprint differs from a legacy empty-array row', async () => {
+    const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert', ports: [], mounts: [] })];
+    const { repo, inserted } = createMockRepo(snapshot);
+    const container = makeContainer({
+      state: 'running',
+      ports: [{ containerPort: 443, protocol: 'tcp', hostIp: null, hostPort: 443 }],
+    });
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
+    await (collector as any).hydrateCache();
+    await (collector as any).reconcileInit([container]);
+
+    expect(inserted).toHaveLength(1);
+    const event = inserted[0];
+    if (event.eventType !== 'upsert') throw new Error('expected upsert row');
+    expect(event.ports).toEqual(container.ports);
+  });
+
+  it('reconcileInit writes nothing when state and fingerprint both match', async () => {
+    const snapshot = [makeRow({
+      containerId: 'abc123',
+      state: 'running',
+      eventType: 'upsert',
+      ports: [{ containerPort: 443, protocol: 'tcp', hostIp: null, hostPort: 443 }],
+      mounts: [],
+    })];
+    const { repo, inserted } = createMockRepo(snapshot);
+    const container = makeContainer({
+      state: 'running',
+      ports: [{ containerPort: 443, protocol: 'tcp', hostIp: null, hostPort: 443 }],
+    });
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController);
+    await (collector as any).hydrateCache();
+    await (collector as any).reconcileInit([container]);
+
+    expect(inserted).toHaveLength(0);
+  });
+
+  it('old-agent frame lacking ports/mounts fields defaults to [] and causes no write against a [] cached row', async () => {
+    const snapshot = [makeRow({ containerId: 'abc123', state: 'running', eventType: 'upsert', ports: [], mounts: [] })];
+    const { repo, inserted } = createMockRepo(snapshot);
+    // Raw frame with no ports/mounts keys at all, as an old agent would send; zod fills [] defaults.
+    const legacyFrame = {
+      op: 'upsert',
+      container: {
+        id: 'abc123',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        state: 'running',
+        labels: {},
+        startedAt: null,
+        finishedAt: null,
+        exitCode: null,
+      },
+    };
+    const streamConnector = fixedStream([legacyFrame]);
+
+    const collector = new ContainerInventoryCollector(HOST, async () => 'tok', repo, abortController, streamConnector);
+    await (collector as any).hydrateCache();
+    await (collector as any).collect();
+
+    expect(inserted).toHaveLength(0);
   });
 });
 
