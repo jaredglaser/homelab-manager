@@ -35,20 +35,8 @@ export function useStackStatus() {
   const handleData = useCallback((data: StackSSEMessage) => {
     if (isDeployChanged(data)) {
       setDeployVersion((v) => v + 1);
-      if (
-        data.deployId !== undefined &&
-        data.status !== undefined &&
-        data.action !== undefined &&
-        data.trigger !== undefined &&
-        deployToastGate.shouldToast(data.deployId)
-      ) {
-        const outcome = formatDeployOutcome({
-          stack: data.stack,
-          action: data.action,
-          status: data.status,
-          trigger: data.trigger,
-          message: data.message,
-        });
+      if (data.outcome !== undefined && deployToastGate.shouldToast(data.outcome.deployId)) {
+        const outcome = formatDeployOutcome({ stack: data.stack, ...data.outcome });
         if (outcome) showToast(outcome.message, outcome.severity);
       }
       return;

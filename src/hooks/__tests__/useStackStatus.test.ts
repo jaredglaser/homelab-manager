@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { renderHook, act } from '@testing-library/react';
 import { MockEventSource } from '@/lib/test/mock-event-source';
 
@@ -93,10 +93,7 @@ describe('useStackStatus', () => {
           type: 'deploy_changed',
           stack: 'plex',
           host: 'server1',
-          deployId: 101,
-          status: 'succeeded',
-          action: 'deploy',
-          trigger: 'ui',
+          outcome: { deployId: 101, status: 'succeeded', action: 'deploy', trigger: 'ui' },
         }),
       });
     });
@@ -117,17 +114,35 @@ describe('useStackStatus', () => {
           type: 'deploy_changed',
           stack: 'plex',
           host: 'server1',
-          deployId: 102,
-          status: 'failed',
-          action: 'deploy',
-          trigger: 'git_push',
-          message: 'image not found',
+          outcome: { deployId: 102, status: 'failed', action: 'deploy', trigger: 'git_push', message: 'image not found' },
         }),
       });
     });
 
     expect(result.current.deployVersion).toBe(1);
     expect(mockShowToast).toHaveBeenCalledWith('Deploy of plex (git push) failed: image not found', 'error');
+  });
+
+  it('drops a frame whose outcome is missing a required field: no version bump, no toast', () => {
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    const { result } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
+
+    act(() => {
+      es.onopen?.();
+      es.onmessage?.({
+        data: JSON.stringify({
+          type: 'deploy_changed',
+          stack: 'plex',
+          host: 'server1',
+          outcome: { deployId: 104, status: 'failed', action: 'deploy' },
+        }),
+      });
+    });
+
+    expect(result.current.deployVersion).toBe(0);
+    expect(mockShowToast).not.toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 
   it('toasts a duplicate deployId only once, even across separate SSE messages', () => {
@@ -138,10 +153,7 @@ describe('useStackStatus', () => {
       type: 'deploy_changed',
       stack: 'plex',
       host: 'server1',
-      deployId: 103,
-      status: 'succeeded',
-      action: 'deploy',
-      trigger: 'ui',
+      outcome: { deployId: 103, status: 'succeeded', action: 'deploy', trigger: 'ui' },
     });
 
     act(() => {

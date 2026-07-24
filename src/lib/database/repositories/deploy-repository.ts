@@ -227,11 +227,13 @@ export class DeployRepository {
       stack,
       host,
       ...(outcome ? {
-        deployId: outcome.deployId,
-        status: outcome.status,
-        action: outcome.action,
-        trigger: outcome.trigger,
-        ...(outcome.message ? { message: truncateDeployMessage(outcome.message) } : {}),
+        outcome: {
+          deployId: outcome.deployId,
+          status: outcome.status,
+          action: outcome.action,
+          trigger: outcome.trigger,
+          ...(outcome.message ? { message: truncateDeployMessage(outcome.message) } : {}),
+        },
       } : {}),
     });
     await this.pool.query("SELECT pg_notify('deploy_change', $1)", [payload]);

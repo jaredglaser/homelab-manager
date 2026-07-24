@@ -331,7 +331,7 @@ describe('DeployRepository', () => {
       expect(mock.queries[0].params).toEqual([JSON.stringify({ type: 'deploy_changed', stack: 'plex', host: 'homeserver' })]);
     });
 
-    it('includes outcome fields when provided', async () => {
+    it('nests outcome fields under a single outcome object when provided', async () => {
       await repo.notifyStackChange('plex', 'homeserver', {
         deployId: 42,
         status: 'succeeded',
@@ -343,10 +343,12 @@ describe('DeployRepository', () => {
         type: 'deploy_changed',
         stack: 'plex',
         host: 'homeserver',
-        deployId: 42,
-        status: 'succeeded',
-        action: 'deploy',
-        trigger: 'ui',
+        outcome: {
+          deployId: 42,
+          status: 'succeeded',
+          action: 'deploy',
+          trigger: 'ui',
+        },
       })]);
     });
 
@@ -361,7 +363,7 @@ describe('DeployRepository', () => {
       });
 
       const payload = JSON.parse(mock.queries[0].params[0] as string);
-      expect(payload.message).toBe('first line of logs');
+      expect(payload.outcome.message).toBe('first line of logs');
     });
 
     it('strips control characters including embedded nulls from the message', async () => {
@@ -374,7 +376,7 @@ describe('DeployRepository', () => {
       });
 
       const payload = JSON.parse(mock.queries[0].params[0] as string);
-      expect(payload.message).toBe('badvaluehere');
+      expect(payload.outcome.message).toBe('badvaluehere');
     });
 
     it('truncates the message to 200 chars', async () => {
@@ -388,8 +390,8 @@ describe('DeployRepository', () => {
       });
 
       const payload = JSON.parse(mock.queries[0].params[0] as string);
-      expect(payload.message).toHaveLength(200);
-      expect(payload.message).toBe('x'.repeat(200));
+      expect(payload.outcome.message).toHaveLength(200);
+      expect(payload.outcome.message).toBe('x'.repeat(200));
     });
 
     it('does not truncate mid-surrogate-pair', async () => {
@@ -405,7 +407,7 @@ describe('DeployRepository', () => {
       });
 
       const payload = JSON.parse(mock.queries[0].params[0] as string);
-      expect(payload.message).toBe('x'.repeat(199));
+      expect(payload.outcome.message).toBe('x'.repeat(199));
     });
 
     it('omits the message field when no message is given', async () => {
@@ -417,7 +419,7 @@ describe('DeployRepository', () => {
       });
 
       const payload = JSON.parse(mock.queries[0].params[0] as string);
-      expect('message' in payload).toBe(false);
+      expect('message' in payload.outcome).toBe(false);
     });
   });
 

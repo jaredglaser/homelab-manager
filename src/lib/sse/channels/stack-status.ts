@@ -2,21 +2,13 @@ import { z } from 'zod';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import type { StackStatusEntry } from '@/types/stacks';
 import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployChangeOutcome } from '@/lib/database/repositories/deploy-repository';
 import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 /** Discriminated union for stack-status SSE messages (the wire shape has no Date fields, so `revive` is the identity). */
 export type StackSSEMessage =
   | StackStatusEntry[]
-  | {
-      type: 'deploy_changed';
-      stack: string;
-      host: string;
-      deployId?: number;
-      status?: DeployStatus;
-      action?: DeployAction;
-      trigger?: DeployTrigger;
-      message?: string;
-    };
+  | { type: 'deploy_changed'; stack: string; host: string; outcome?: DeployChangeOutcome };
 
 const zStackContainer = z.object({
   id: z.string(),
@@ -41,17 +33,21 @@ const zDeployStatus = z.enum(DEPLOY_STATUS_VALUES);
 const zDeployAction = z.enum(DEPLOY_ACTION_VALUES);
 const zDeployTrigger = z.enum(DEPLOY_TRIGGER_VALUES);
 
+const zDeployChangeOutcome = z.object({
+  deployId: z.number(),
+  status: zDeployStatus,
+  action: zDeployAction,
+  trigger: zDeployTrigger,
+  message: z.string().optional(),
+});
+
 const zStackStatusWireMessage = z.union([
   z.array(zStackStatusEntry),
   z.object({
     type: z.literal('deploy_changed'),
     stack: z.string(),
     host: z.string(),
-    deployId: z.number().optional(),
-    status: zDeployStatus.optional(),
-    action: zDeployAction.optional(),
-    trigger: zDeployTrigger.optional(),
-    message: z.string().optional(),
+    outcome: zDeployChangeOutcome.optional(),
   }),
 ]);
 
@@ -62,18 +58,14 @@ export const stackStatusChannel = defineSseChannel({
   revive: (message): StackSSEMessage => message,
 });
 
-/** Drops unset outcome fields instead of sending them as null/undefined. */
+/** Omits `outcome` entirely rather than sending it as null/undefined when absent. */
 export function serializeStackStatusEvent(event: StackBroadcastEvent): string {
   if (event.type === 'deploy_changed') {
     const payload = {
       type: 'deploy_changed',
       stack: event.stack,
       host: event.host,
-      ...(event.deployId !== undefined ? { deployId: event.deployId } : {}),
-      ...(event.status !== undefined ? { status: event.status } : {}),
-      ...(event.action !== undefined ? { action: event.action } : {}),
-      ...(event.trigger !== undefined ? { trigger: event.trigger } : {}),
-      ...(event.message !== undefined ? { message: event.message } : {}),
+      ...(event.outcome !== undefined ? { outcome: event.outcome } : {}),
     };
     return `data: ${JSON.stringify(payload)}\n\n`;
   }
