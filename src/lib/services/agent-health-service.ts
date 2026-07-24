@@ -1,7 +1,7 @@
 import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
 
 export type AgentHealthResult =
-  | { healthy: true; version?: string; dockerVersion?: string }
+  | { healthy: true; version?: string; dockerVersion?: string; infoSupported?: boolean }
   | { healthy: false; error: string };
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
@@ -13,13 +13,16 @@ const HEALTH_CHECK_TIMEOUT_MS = 5000;
  * getToken failures are silent (expected for pending/unenrolled hosts).
  * HTTP errors and network failures are logged so operators can diagnose why
  * version info is missing in Settings -> Managed Hosts.
+ *
+ * @returns `infoSupported: false` when the agent predates /info (404), which
+ * callers use to tell "version unknown" apart from "version unchanged".
  */
 async function fetchAgentInfo(
   agentUrl: string,
   timeoutMs: number,
   fetchFn: typeof fetch,
   getToken: () => Promise<string>
-): Promise<{ version?: string; dockerVersion?: string }> {
+): Promise<{ version?: string; dockerVersion?: string; infoSupported?: boolean }> {
   let token: string;
   try {
     token = await getToken();
@@ -33,6 +36,12 @@ async function fetchAgentInfo(
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'manual',
     });
+    if (response.status === 404) {
+      console.info(
+        `[agent-health] ${agentUrl} has no /info endpoint; agent predates authenticated version reporting`
+      );
+      return { infoSupported: false };
+    }
     if (!response.ok) {
       console.error(`[agent-health] /info returned ${response.status} for ${agentUrl}`);
       return {};
@@ -41,6 +50,7 @@ async function fetchAgentInfo(
     return {
       version: data.agentVersion,
       dockerVersion: data.capabilities?.docker?.version,
+      infoSupported: true,
     };
   } catch (err) {
     console.error(

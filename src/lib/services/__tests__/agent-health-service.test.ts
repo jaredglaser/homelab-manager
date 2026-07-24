@@ -216,6 +216,54 @@ describe('agent-health-service', () => {
       consoleSpy.mockRestore();
     });
 
+    it('reports infoSupported false and logs at info level when /info 404s', async () => {
+      const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+      const infoSpy = spyOn(console, 'info').mockImplementation(() => {});
+      const fetchFn = mock(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
+        return new Response('Not Found', { status: 404 });
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn, async () => 'jwt-123');
+
+      expect(result.healthy).toBe(true);
+      if (result.healthy) {
+        expect(result.version).toBeUndefined();
+        expect(result.infoSupported).toBe(false);
+      }
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining('no /info endpoint'));
+      errorSpy.mockRestore();
+      infoSpy.mockRestore();
+    });
+
+    it('reports infoSupported true when /info answers', async () => {
+      const fetchFn = mock(async (input: string | URL | Request) => {
+        const url = typeof input === 'string' ? input : input.toString();
+        if (url.endsWith('/health')) return new Response(healthBody, { status: 200 });
+        return new Response(infoBody(), { status: 200 });
+      }) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn, async () => 'jwt-123');
+
+      expect(result.healthy).toBe(true);
+      if (result.healthy) expect(result.infoSupported).toBe(true);
+    });
+
+    it('leaves infoSupported undefined when getToken throws', async () => {
+      const fetchFn = mock(async () =>
+        new Response(healthBody, { status: 200 })
+      ) as unknown as typeof fetch;
+
+      const result = await checkAgentHealth('http://agent:9090', undefined, fetchFn, async () => {
+        throw new Error('No agent keypair found for host x');
+      });
+
+      expect(result.healthy).toBe(true);
+      if (result.healthy) expect(result.infoSupported).toBeUndefined();
+    });
+
     it('does not call /info when /health already failed', async () => {
       const calls: string[] = [];
       const fetchFn = mock(async (input: string | URL | Request) => {

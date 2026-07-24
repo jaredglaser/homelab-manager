@@ -49,6 +49,25 @@ async function buildCheckHealth(
     });
 }
 
+/**
+ * checkHealth for read-only probes. The keypair repo needs a master key a deployment
+ * may not have, so an unusable keyring degrades to liveness instead of throwing.
+ */
+async function buildProbeCheckHealth(): Promise<
+  (url: string, hostName: string) => Promise<import('@/lib/services/agent-health-service').AgentHealthResult>
+> {
+  try {
+    return await buildCheckHealth(await loadKeypairsRepo());
+  } catch (err) {
+    console.info(
+      '[hosts] Agent keypairs unavailable, probing liveness without version detail:',
+      err instanceof Error ? err.message : err,
+    );
+    const { checkAgentHealth } = await import('@/lib/services/agent-health-service');
+    return (url) => checkAgentHealth(url);
+  }
+}
+
 async function loadDockerClient(socketProxyUrl: string) {
   const Dockerode = (await import('dockerode')).default;
   let parsed: URL;
@@ -176,8 +195,7 @@ export const checkHostHealth = createServerFn()
   .inputValidator(checkHostHealthSchema)
   .handler(async ({ data }): Promise<HostOperationResult> => {
     const baseDeps = await loadDeps();
-    const keypairs = await loadKeypairsRepo();
-    return handleCheckHostHealth({ ...baseDeps, checkHealth: await buildCheckHealth(keypairs) }, data);
+    return handleCheckHostHealth({ ...baseDeps, checkHealth: await buildProbeCheckHealth() }, data);
   });
 
 export const updateHost = createServerFn()

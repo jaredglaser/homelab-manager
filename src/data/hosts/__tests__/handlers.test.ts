@@ -626,6 +626,46 @@ describe('handleUpdateAgent', () => {
     fetchSpy.mockRestore();
   });
 
+  it('treats a pre-update /info 404 followed by a readable version as a successful upgrade', async () => {
+    let callCount = 0;
+    const checkHealth = mock((): Promise<HealthCheckOutcome> => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ healthy: true, infoSupported: false });
+      return Promise.resolve({ healthy: true, version: '2.0.0', infoSupported: true });
+    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const deps = updateDeps(undefined, { checkHealth });
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(true);
+    if (result.healthy) expect(result.version).toBe('2.0.0');
+    fetchSpy.mockRestore();
+  });
+
+  it('does not claim success when the pre-update version was unreadable for a reason other than a 404', async () => {
+    let callCount = 0;
+    const checkHealth = mock((): Promise<HealthCheckOutcome> => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ healthy: true, version: undefined });
+      return Promise.resolve({ healthy: true, version: '2.0.0', infoSupported: true });
+    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const repo = mockRepo();
+    const deps = updateDeps(undefined, { checkHealth });
+    deps.repo = repo;
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.error).toContain('could not be confirmed');
+      expect(result.suggestions).toBeDefined();
+    }
+    expect(repo.updateAgentVersion).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it('returns unhealthy with suggestions when POST to agent update endpoint throws', async () => {
     const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
     const deps = updateDeps();
