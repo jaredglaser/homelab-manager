@@ -1,8 +1,7 @@
 import type { PoolClient } from 'pg';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { StackContainer, StackStatusEntry } from '@/types/stacks';
-import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
-import type { DeployChangeOutcome } from '@/lib/database/repositories/deploy-repository';
+import { zDeployChangeOutcome, type DeployChangeOutcome } from '@/lib/deploy/types';
 import type {
   DockerContainerEventRow,
   DockerContainerEventUpsertRow,
@@ -55,20 +54,10 @@ function stackKey(host: string, composeProject: string): string {
   return `${host}/${composeProject}`;
 }
 
-/** A partial outcome (missing a required field) is not forwarded rather than sent half-populated. */
+/** A malformed or partial outcome is dropped rather than forwarded half-populated. */
 function parseDeployChangeOutcome(raw: unknown): DeployChangeOutcome | undefined {
-  if (typeof raw !== 'object' || raw === null) return undefined;
-  const o = raw as Record<string, unknown>;
-  if (typeof o.deployId !== 'number' || typeof o.status !== 'string' || typeof o.action !== 'string' || typeof o.trigger !== 'string') {
-    return undefined;
-  }
-  return {
-    deployId: o.deployId,
-    status: o.status as DeployStatus,
-    action: o.action as DeployAction,
-    trigger: o.trigger as DeployTrigger,
-    ...(typeof o.message === 'string' ? { message: o.message } : {}),
-  };
+  const parsed = zDeployChangeOutcome.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 async function defaultGetPoolClient(): Promise<PoolClient> {

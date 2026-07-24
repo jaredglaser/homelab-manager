@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { DeployAction, DeployPostSuccess, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployAction, DeployChangeOutcome, DeployPostSuccess, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 import { truncateDeployMessage } from '@/lib/stacks/deploy-outcome-toast';
 
 export interface StuckDeployRow {
@@ -14,15 +14,6 @@ export interface PostSuccessDeployRow {
   id: number;
   stack: string;
   host: string;
-}
-
-/** Outcome attached to a deploy_change NOTIFY so subscribers can render a toast without a follow-up query. */
-export interface DeployChangeOutcome {
-  deployId: number;
-  status: DeployStatus;
-  action: DeployAction;
-  trigger: DeployTrigger;
-  message?: string;
 }
 
 interface InsertDeployParams {

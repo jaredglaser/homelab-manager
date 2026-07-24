@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import type { StackStatusEntry } from '@/types/stacks';
-import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
-import type { DeployChangeOutcome } from '@/lib/database/repositories/deploy-repository';
+import { zDeployChangeOutcome, type DeployChangeOutcome } from '@/lib/deploy/types';
 import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 /** Discriminated union for stack-status SSE messages (the wire shape has no Date fields, so `revive` is the identity). */
@@ -23,22 +22,6 @@ const zStackStatusEntry = z.object({
   host: z.string(),
   containers: z.array(zStackContainer),
   updated_at: z.string(),
-});
-
-const DEPLOY_STATUS_VALUES = ['pending', 'in_progress', 'succeeded', 'failed', 'no_change'] as const satisfies readonly DeployStatus[];
-const DEPLOY_ACTION_VALUES = ['deploy', 'teardown'] as const satisfies readonly DeployAction[];
-const DEPLOY_TRIGGER_VALUES = ['git_push', 'ui', 'manual_rollback'] as const satisfies readonly DeployTrigger[];
-
-const zDeployStatus = z.enum(DEPLOY_STATUS_VALUES);
-const zDeployAction = z.enum(DEPLOY_ACTION_VALUES);
-const zDeployTrigger = z.enum(DEPLOY_TRIGGER_VALUES);
-
-const zDeployChangeOutcome = z.object({
-  deployId: z.number(),
-  status: zDeployStatus,
-  action: zDeployAction,
-  trigger: zDeployTrigger,
-  message: z.string().optional(),
 });
 
 const zStackStatusWireMessage = z.union([

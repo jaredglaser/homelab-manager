@@ -166,6 +166,34 @@ describe('useStackStatus', () => {
     expect(mockShowToast).toHaveBeenCalledTimes(1);
   });
 
+  it('a non-terminal outcome does not consume the gate, so the later terminal outcome still toasts', () => {
+    const { result } = renderHook(() => useStackStatus());
+    const es = MockEventSource.instances[0];
+
+    const pending = JSON.stringify({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: { deployId: 200, status: 'in_progress', action: 'deploy', trigger: 'ui' },
+    });
+    const succeeded = JSON.stringify({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: { deployId: 200, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+    });
+
+    act(() => {
+      es.onopen?.();
+      es.onmessage?.({ data: pending });
+      es.onmessage?.({ data: succeeded });
+    });
+
+    expect(result.current.deployVersion).toBe(2);
+    expect(mockShowToast).toHaveBeenCalledTimes(1);
+    expect(mockShowToast).toHaveBeenCalledWith('Deploy of plex succeeded', 'success');
+  });
+
   it('never toasts for the init status-entries array', () => {
     const { result } = renderHook(() => useStackStatus());
     const es = MockEventSource.instances[0];

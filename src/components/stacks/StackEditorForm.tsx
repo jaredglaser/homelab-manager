@@ -205,7 +205,10 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
       if (outcome) showToast(outcome.message, outcome.severity)
       invalidateDeployAndStacks()
     },
-    onError: (err) => {
+    // Release the pre-claim: if the server did resume the deploy, its terminal SSE
+    // outcome must still be free to toast rather than being suppressed by the claim.
+    onError: (err, deployId) => {
+      deployToastGate.release(deployId)
       showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
@@ -221,7 +224,8 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
       showToast(`Deploy rejected for ${stackName}`, 'success')
       invalidateDeployAndStacks()
     },
-    onError: (err) => {
+    onError: (err, deployId) => {
+      deployToastGate.release(deployId)
       showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },

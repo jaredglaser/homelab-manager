@@ -18,7 +18,7 @@ const MAX_MESSAGE_LENGTH = 200;
 
 /** Takes the first line, strips control characters, and truncates to 200 chars without splitting a UTF-16 surrogate pair. */
 export function truncateDeployMessage(message: string): string {
-  const firstLine = message.split(/\r?\n/)[0] ?? '';
+  const firstLine = message.split(/\r\n?|\n/)[0] ?? '';
   const stripped = Array.from(firstLine)
     .filter((ch) => {
       const code = ch.codePointAt(0) ?? 0;
@@ -70,6 +70,8 @@ export interface DeployToastGate {
   shouldToast(deployId: number): boolean;
   /** Alias for shouldToast, used at mutation onMutate time to pre-claim a deployId before the SSE outcome can arrive. */
   claim(deployId: number): boolean;
+  /** Undo a claim so a later SSE outcome can still toast; used when the mutation that pre-claimed fails client-side. */
+  release(deployId: number): void;
 }
 
 /** Factory for tests; production code uses the singleton `deployToastGate` below. */
@@ -80,7 +82,10 @@ export function createDeployToastGate(): DeployToastGate {
     seen.add(deployId);
     return true;
   }
-  return { shouldToast, claim: shouldToast };
+  function release(deployId: number): void {
+    seen.delete(deployId);
+  }
+  return { shouldToast, claim: shouldToast, release };
 }
 
 export const deployToastGate = createDeployToastGate();

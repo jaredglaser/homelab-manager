@@ -35,9 +35,13 @@ export function useStackStatus() {
   const handleData = useCallback((data: StackSSEMessage) => {
     if (isDeployChanged(data)) {
       setDeployVersion((v) => v + 1);
-      if (data.outcome !== undefined && deployToastGate.shouldToast(data.outcome.deployId)) {
+      if (data.outcome !== undefined) {
         const outcome = formatDeployOutcome({ stack: data.stack, ...data.outcome });
-        if (outcome) showToast(outcome.message, outcome.severity);
+        // Gate only when there is a toast to show; a non-terminal frame must not
+        // consume the deployId's one-shot gate and suppress the later terminal toast.
+        if (outcome && deployToastGate.shouldToast(data.outcome.deployId)) {
+          showToast(outcome.message, outcome.severity);
+        }
       }
       return;
     }

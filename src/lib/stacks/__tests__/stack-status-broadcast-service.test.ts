@@ -421,6 +421,50 @@ describe('StackStatusBroadcastService', () => {
     }
   });
 
+  it('drops an outcome with an invalid enum value but still forwards the frame', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 42, status: 'bogus', action: 'deploy', trigger: 'ui' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('drops an outcome with a non-positive deployId', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 0, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
   it('swallows malformed deploy_change payload without crashing', async () => {
     const consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
 
