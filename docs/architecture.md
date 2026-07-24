@@ -253,7 +253,7 @@ Server-side git repository using isomorphic-git for repo operations and git CLI 
 
 **Initialization (lazy, on the first git HTTP request):**
 
-```
+```text
 First request to /api/git/stacks/...
   -> ensureRepoInitialized()
     -> initBareRepo (create /data/repos/stacks.git if needed)
@@ -330,7 +330,7 @@ stacks:
 | `manifest.ts` | YAML manifest parsing and validation |
 | `post-receive.ts` | Change detection and deploy request builder |
 | `post-receive-handler.ts` | Post-receive orchestration with pipeline dispatch |
-| `init-repo.ts` | Startup initialization with seed manifest |
+| `init-repo.ts` | Lazy repo initialization (first git request) with seed manifest |
 | `editor-operations.ts` | In-app file save/commit and manifest updates |
 | `git-server-functions.ts` | File tree builder for UI |
 

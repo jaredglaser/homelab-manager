@@ -86,10 +86,10 @@ The stacks feature uses an in-app git repo to store Docker Compose files. Clone 
 
 **Docker monitoring:** The local compose file seeds a localhost agent (via `HOMELAB_DEV_SEED=true`, which generates a dev Ed25519 keypair and writes the public JWK to `data/dev-agent-pubkey.json` for the agent to read) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams; it does not connect to Docker directly. No host port is needed for the Docker socket.
 
-Cloning requires a per-user git token. Log in as `dev-admin` using a one-time URL from `data/dev-oidc-logins.txt` (see [docs/dev-oidc.md](dev-oidc.md)), then generate a token under **Settings → Auth Management → Generate Git Token**. Use it as the password when cloning:
+Cloning requires a per-user git token. Log in as `dev-admin` using a one-time URL from `data/dev-oidc-logins.txt` (see [docs/dev-oidc.md](dev-oidc.md)), then generate a token under **Settings → Auth Management → Generate Git Token**. When git prompts for credentials, enter any username and the token as the password (keeping the token out of shell history and `.git/config`):
 
 ```bash
-git clone http://x:<your-git-token>@localhost:3000/api/git/stacks ~/stacks
+git clone http://localhost:3000/api/git/stacks ~/stacks
 cd ~/stacks
 ```
 
