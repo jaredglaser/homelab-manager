@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { stackStatusChannel } from '../stack-status';
+import { stackStatusChannel, serializeStackStatusEvent } from '../stack-status';
+import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 describe('stackStatusChannel', () => {
   it('exposes the url and errorEvent used by the route and the client', () => {
@@ -7,7 +8,7 @@ describe('stackStatusChannel', () => {
     expect(stackStatusChannel.errorEvent).toBe('stack_status_error');
   });
 
-  it('validates a status-entries array frame', () => {
+  it('validates a status-entries array frame without ports/mounts (skew-safe defaults)', () => {
     const result = stackStatusChannel.schema.safeParse([
       {
         stack: 'plex',
@@ -17,33 +18,92 @@ describe('stackStatusChannel', () => {
       },
     ]);
     expect(result.success).toBe(true);
+    if (result.success) {
+      const frame = result.data as Array<{ containers: Array<{ ports: unknown[]; mounts: unknown[] }> }>;
+      expect(frame[0].containers[0].ports).toEqual([]);
+      expect(frame[0].containers[0].mounts).toEqual([]);
+    }
   });
 
-  it('validates a deploy_changed frame without outcome fields (legacy payload)', () => {
+  it('validates a status-entries array frame with ports/mounts populated', () => {
+    const result = stackStatusChannel.schema.safeParse([
+      {
+        stack: 'plex',
+        host: 'server1',
+        containers: [
+          {
+            id: 'abc',
+            name: 'plex',
+            status: 'running',
+            image: 'plexinc/pms-docker',
+            service: 'plex',
+            ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 32400 }],
+            mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+          },
+        ],
+        updated_at: '2026-03-21T00:00:00Z',
+      },
+    ]);
+    expect(result.success).toBe(true);
+  });
+
+  it('validates a deploy_changed frame without an outcome (legacy payload)', () => {
     const result = stackStatusChannel.schema.safeParse({ type: 'deploy_changed', stack: 'plex', host: 'server1' });
     expect(result.success).toBe(true);
   });
 
-  it('validates a deploy_changed frame with outcome fields', () => {
+  it('validates a deploy_changed frame with a complete outcome', () => {
     const result = stackStatusChannel.schema.safeParse({
       type: 'deploy_changed',
       stack: 'plex',
       host: 'server1',
-      deployId: 42,
-      status: 'failed',
-      action: 'deploy',
-      trigger: 'git_push',
-      message: 'agent unreachable',
+      outcome: {
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'agent unreachable',
+      },
     });
     expect(result.success).toBe(true);
   });
 
-  it('rejects a deploy_changed frame with an invalid status', () => {
+  it('validates a deploy_changed frame with an outcome that omits the optional message', () => {
     const result = stackStatusChannel.schema.safeParse({
       type: 'deploy_changed',
       stack: 'plex',
       host: 'server1',
-      status: 'bogus',
+      outcome: { deployId: 42, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects an outcome with an invalid status', () => {
+    const result = stackStatusChannel.schema.safeParse({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: { deployId: 42, status: 'bogus', action: 'deploy', trigger: 'ui' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an outcome missing a required field (deployId), the core contract this schema enforces', () => {
+    const result = stackStatusChannel.schema.safeParse({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: { status: 'failed', action: 'deploy', trigger: 'git_push' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an outcome missing trigger', () => {
+    const result = stackStatusChannel.schema.safeParse({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: { deployId: 42, status: 'failed', action: 'deploy' },
     });
     expect(result.success).toBe(false);
   });
@@ -58,5 +118,51 @@ describe('stackStatusChannel', () => {
   it('revive is the identity (no Date fields on the wire)', () => {
     const message = [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }];
     expect(stackStatusChannel.revive!(message)).toBe(message);
+  });
+});
+
+describe('serializeStackStatusEvent', () => {
+  it('serializes a status event as the bare entries array', () => {
+    const event: StackBroadcastEvent = {
+      type: 'status',
+      entries: [{ stack: 'plex', host: 'server1', containers: [], updated_at: '2026-03-21T00:00:00Z' }],
+    };
+    expect(serializeStackStatusEvent(event)).toBe(`data: ${JSON.stringify(event.entries)}\n\n`);
+  });
+
+  it('serializes a legacy deploy_changed event without an outcome', () => {
+    const event: StackBroadcastEvent = { type: 'deploy_changed', stack: 'plex', host: 'server1' };
+    const frame = serializeStackStatusEvent(event);
+    const payload = JSON.parse(frame.slice('data: '.length).trim());
+    expect(payload).toEqual({ type: 'deploy_changed', stack: 'plex', host: 'server1' });
+  });
+
+  it('serializes an enriched deploy_changed event with the outcome nested as one object', () => {
+    const event: StackBroadcastEvent = {
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: {
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'agent unreachable',
+      },
+    };
+    const frame = serializeStackStatusEvent(event);
+    const payload = JSON.parse(frame.slice('data: '.length).trim());
+    expect(payload).toEqual({
+      type: 'deploy_changed',
+      stack: 'plex',
+      host: 'server1',
+      outcome: {
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'agent unreachable',
+      },
+    });
   });
 });

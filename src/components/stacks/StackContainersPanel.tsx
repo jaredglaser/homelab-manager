@@ -4,10 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Play, RotateCcw, RotateCw, ScrollText, Square, Terminal, X } from 'lucide-react';
+import { HardDrive, Play, RotateCcw, RotateCw, ScrollText, Square, Terminal, X } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import type { StackContainer } from '@/types/stacks';
+import type { ContainerMount, ContainerPort } from '@/types/docker-inventory';
 import { controlStack } from '@/data/stacks/functions';
+import { dedupeWildcardPorts, formatMountSource, formatPortMapping } from '@/components/docker/ContainerPortsMounts';
 import ContainerLogViewer from '@/components/docker/ContainerLogViewer';
 import ContainerTerminal from '@/components/docker/ContainerTerminal';
 import ShellSelect from '@/components/docker/ShellSelect';
@@ -126,6 +128,7 @@ export default function StackContainersPanel({ containers, stackName, host, onRe
               <span className="font-medium text-sm truncate min-w-0">{container.name}</span>
               <span className="opacity-50 text-xs">{container.status}</span>
               <span className="opacity-30 text-xs truncate hidden sm:block">{container.image}</span>
+              <ContainerPortsMountsInline ports={container.ports} mounts={container.mounts} />
 
               {container.service && (
                 <ServiceControls
@@ -181,6 +184,88 @@ const ACTION_PAST: Record<ControlAction, string> = {
   stop: 'stopped',
   restart: 'restarted',
 };
+
+const MAX_VISIBLE_PORT_CHIPS = 4;
+
+function portKey(port: ContainerPort, idx: number): string {
+  return `${port.containerPort}/${port.protocol}/${port.hostIp ?? ''}/${port.hostPort ?? ''}/${idx}`;
+}
+
+function ContainerPortsMountsInline({ ports, mounts }: { ports: ContainerPort[]; mounts: ContainerMount[] }) {
+  if (ports.length === 0 && mounts.length === 0) return null;
+
+  const dedupedPorts = dedupeWildcardPorts(ports);
+  const visiblePorts = dedupedPorts.slice(0, MAX_VISIBLE_PORT_CHIPS);
+  const overflowPorts = dedupedPorts.slice(MAX_VISIBLE_PORT_CHIPS);
+  const mountLabel = `${mounts.length} mount${mounts.length === 1 ? '' : 's'}`;
+
+  return (
+    <TooltipProvider>
+      <div className="flex items-center gap-1 shrink-0">
+        {visiblePorts.map((port, idx) => {
+          const published = port.hostPort !== null;
+          return (
+            <span
+              key={portKey(port, idx)}
+              className={`font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) shrink-0 ${published ? 'text-foreground' : 'text-(--muted-foreground)'}`}
+            >
+              {formatPortMapping(port)}
+            </span>
+          );
+        })}
+        {overflowPorts.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  className="font-mono text-[10px] px-1 py-0.5 rounded bg-(--chart-bg) text-(--muted-foreground) shrink-0"
+                  tabIndex={0}
+                  aria-label={`${overflowPorts.length} more ports`}
+                >
+                  {`+${overflowPorts.length}`}
+                </span>
+              }
+            />
+            <TooltipContent side="top">
+              <div className="flex flex-col gap-0.5">
+                {overflowPorts.map((port, idx) => (
+                  <span key={portKey(port, idx)}>{formatPortMapping(port)}</span>
+                ))}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {mounts.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  className="shrink-0 text-(--muted-foreground) hover:text-foreground"
+                  tabIndex={0}
+                  aria-label={mountLabel}
+                >
+                  <HardDrive size={13} />
+                </span>
+              }
+            />
+            <TooltipContent side="top">
+              <div className="flex flex-col gap-0.5">
+                {mounts.map((mount, idx) => {
+                  const { display } = formatMountSource(mount.source, mount.type);
+                  return (
+                    <span key={`${mount.source}/${mount.destination}/${idx}`}>
+                      {display} -&gt; {mount.destination}{!mount.rw && ' [ro]'}
+                    </span>
+                  );
+                })}
+              </div>
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    </TooltipProvider>
+  );
+}
 
 function ServiceControls({
   service,

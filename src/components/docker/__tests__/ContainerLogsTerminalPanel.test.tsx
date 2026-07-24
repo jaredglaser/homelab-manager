@@ -56,6 +56,8 @@ const runningInventory: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: {},
+  ports: [],
+  mounts: [],
   updatedAt: new Date(),
 };
 

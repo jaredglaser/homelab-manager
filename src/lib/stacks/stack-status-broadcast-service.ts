@@ -1,7 +1,7 @@
 import type { PoolClient } from 'pg';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { StackContainer, StackStatusEntry } from '@/types/stacks';
-import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import { zDeployChangeOutcome, type DeployChangeOutcome } from '@/lib/deploy/types';
 import type {
   DockerContainerEventRow,
   DockerContainerEventUpsertRow,
@@ -12,16 +12,7 @@ import { backoffDelayMs } from '@/lib/utils/backoff';
 /** Discriminated union for events sent to SSE subscribers. */
 export type StackBroadcastEvent =
   | { type: 'status'; entries: StackStatusEntry[] }
-  | {
-      type: 'deploy_changed';
-      stack: string;
-      host: string;
-      deployId?: number;
-      status?: DeployStatus;
-      action?: DeployAction;
-      trigger?: DeployTrigger;
-      message?: string;
-    };
+  | { type: 'deploy_changed'; stack: string; host: string; outcome?: DeployChangeOutcome };
 
 type StackBroadcastCallback = (event: StackBroadcastEvent) => void;
 
@@ -43,6 +34,8 @@ function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer
     status: inv.state,
     image: inv.image,
     service,
+    ports: inv.ports,
+    mounts: inv.mounts,
   };
 }
 
@@ -61,6 +54,12 @@ function toStackEntry(host: string, stack: string, containers: DockerInventorySn
  */
 function stackKey(host: string, composeProject: string): string {
   return `${host}/${composeProject}`;
+}
+
+/** A malformed or partial outcome is dropped rather than forwarded half-populated. */
+function parseDeployChangeOutcome(raw: unknown): DeployChangeOutcome | undefined {
+  const parsed = zDeployChangeOutcome.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 async function defaultGetPoolClient(): Promise<PoolClient> {
@@ -366,7 +365,14 @@ export class StackStatusBroadcastService {
           byContainer = new Map();
           this.stackContainers.set(sk, byContainer);
         }
-        byContainer.set(`${inv.host}/${inv.containerId}`, inv);
+        const containerKey = `${inv.host}/${inv.containerId}`;
+        const prev = byContainer.get(containerKey);
+        // NOTIFY omits mounts and nulls oversized ports (migration 026); keep prev's for those, but honor a genuine [].
+        byContainer.set(containerKey, {
+          ...inv,
+          ports: parsed.ports != null ? inv.ports : (prev?.ports ?? inv.ports),
+          mounts: prev?.mounts ?? inv.mounts,
+        });
       }
 
       this.broadcastStack(host, composeProject, eventAt);
@@ -392,15 +398,12 @@ export class StackStatusBroadcastService {
       if (typeof stack !== 'string' || typeof host !== 'string') {
         throw new Error('Invalid deploy_change payload: missing stack or host');
       }
+      const outcome = parseDeployChangeOutcome(parsed.outcome);
       const event: StackBroadcastEvent = {
         type: 'deploy_changed',
         stack,
         host,
-        ...(typeof parsed.deployId === 'number' ? { deployId: parsed.deployId } : {}),
-        ...(typeof parsed.status === 'string' ? { status: parsed.status as DeployStatus } : {}),
-        ...(typeof parsed.action === 'string' ? { action: parsed.action as DeployAction } : {}),
-        ...(typeof parsed.trigger === 'string' ? { trigger: parsed.trigger as DeployTrigger } : {}),
-        ...(typeof parsed.message === 'string' ? { message: parsed.message } : {}),
+        ...(outcome ? { outcome } : {}),
       };
       for (const cb of this.subscribers) {
         try {

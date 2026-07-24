@@ -1,6 +1,7 @@
 // Re-export canonical types from deploy layer to avoid duplication (Issue 12)
 export type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
 import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { ContainerPort, ContainerMount } from '@/types/docker-inventory';
 
 // Issue 15: use underscores consistently (in_sync, not in-sync)
 export type SyncStatus = 'in_sync' | 'pending' | 'in_progress' | 'failed' | 'unknown';
@@ -57,6 +58,8 @@ export interface StackContainer {
   image: string;
   /** Docker Compose service name from the container label, or null if the container has no compose service association. */
   service: string | null;
+  ports: ContainerPort[];
+  mounts: ContainerMount[];
 }
 
 /** Live status entry for a stack as received from the SSE endpoint. */

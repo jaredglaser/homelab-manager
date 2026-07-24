@@ -148,6 +148,14 @@ describe('truncateDeployMessage', () => {
     expect(truncateDeployMessage('first line\nsecond line\nthird line')).toBe('first line');
   });
 
+  test('stops at a bare carriage return (compose progress output uses \\r without \\n)', () => {
+    expect(truncateDeployMessage('pulling 50%\rpulling 100%\rdone')).toBe('pulling 50%');
+  });
+
+  test('stops at the first line of CRLF-delimited text', () => {
+    expect(truncateDeployMessage('first line\r\nsecond line')).toBe('first line');
+  });
+
   test('strips control characters including embedded nulls', () => {
     const raw = 'bad' + String.fromCharCode(0) + 'value' + String.fromCharCode(1) + 'here';
     expect(truncateDeployMessage(raw)).toBe('badvaluehere');
@@ -195,6 +203,19 @@ describe('createDeployToastGate', () => {
     const gate = createDeployToastGate();
     expect(gate.claim(5)).toBe(true);
     expect(gate.shouldToast(5)).toBe(false);
+  });
+
+  test('release undoes a claim so a later shouldToast can fire again', () => {
+    const gate = createDeployToastGate();
+    expect(gate.claim(7)).toBe(true);
+    gate.release(7);
+    expect(gate.shouldToast(7)).toBe(true);
+  });
+
+  test('release of an unknown deployId is a no-op', () => {
+    const gate = createDeployToastGate();
+    gate.release(99);
+    expect(gate.shouldToast(99)).toBe(true);
   });
 
   test('factory instances are independent of each other and of the singleton', () => {

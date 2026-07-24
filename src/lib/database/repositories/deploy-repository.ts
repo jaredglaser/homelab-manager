@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
-import type { DeployAction, DeployPostSuccess, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import type { DeployAction, DeployChangeOutcome, DeployPostSuccess, DeployRecord, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import { truncateDeployMessage } from '@/lib/stacks/deploy-outcome-toast';
 
 export interface StuckDeployRow {
   id: number;
@@ -13,37 +14,6 @@ export interface PostSuccessDeployRow {
   id: number;
   stack: string;
   host: string;
-}
-
-/** Outcome attached to a deploy_change NOTIFY so subscribers can render a toast without a follow-up query. */
-export interface DeployChangeOutcome {
-  deployId: number;
-  status: DeployStatus;
-  action: DeployAction;
-  trigger: DeployTrigger;
-  message?: string;
-}
-
-const MAX_DEPLOY_MESSAGE_LENGTH = 200;
-
-/**
- * Sanitize a deploy outcome message for the NOTIFY payload: take the first
- * line, strip control characters (including embedded nulls), and truncate to
- * 200 chars without splitting a UTF-16 surrogate pair.
- */
-function sanitizeDeployMessage(message: string): string {
-  const firstLine = message.split(/\r?\n/)[0] ?? '';
-  const stripped = Array.from(firstLine)
-    .filter((ch) => {
-      const code = ch.codePointAt(0) ?? 0;
-      return code > 0x1f && code !== 0x7f;
-    })
-    .join('');
-  if (stripped.length <= MAX_DEPLOY_MESSAGE_LENGTH) return stripped;
-  let end = MAX_DEPLOY_MESSAGE_LENGTH;
-  const boundary = stripped.charCodeAt(end - 1);
-  if (boundary >= 0xd800 && boundary <= 0xdbff) end -= 1;
-  return stripped.slice(0, end);
 }
 
 interface InsertDeployParams {
@@ -248,11 +218,13 @@ export class DeployRepository {
       stack,
       host,
       ...(outcome ? {
-        deployId: outcome.deployId,
-        status: outcome.status,
-        action: outcome.action,
-        trigger: outcome.trigger,
-        ...(outcome.message ? { message: sanitizeDeployMessage(outcome.message) } : {}),
+        outcome: {
+          deployId: outcome.deployId,
+          status: outcome.status,
+          action: outcome.action,
+          trigger: outcome.trigger,
+          ...(outcome.message ? { message: truncateDeployMessage(outcome.message) } : {}),
+        },
       } : {}),
     });
     await this.pool.query("SELECT pg_notify('deploy_change', $1)", [payload]);
@@ -302,7 +274,7 @@ function toStuckDeployRow(row: Record<string, unknown>): StuckDeployRow {
     id: Number(row.id),
     stack: row.stack as string,
     host: row.host as string,
-    action: (row.action as DeployAction) ?? 'deploy',
+    action: row.action as DeployAction,
     trigger: row.trigger as DeployTrigger,
   };
 }

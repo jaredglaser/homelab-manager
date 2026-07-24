@@ -1,21 +1,29 @@
 import { z } from 'zod';
 import { defineSseChannel } from '@/lib/sse/define-sse-channel';
 import type { StackStatusEntry } from '@/types/stacks';
-import type { DeployAction, DeployStatus, DeployTrigger } from '@/lib/deploy/types';
+import { zDeployChangeOutcome, type DeployChangeOutcome } from '@/lib/deploy/types';
+import type { StackBroadcastEvent } from '@/lib/stacks/stack-status-broadcast-service';
 
 /** Discriminated union for stack-status SSE messages (the wire shape has no Date fields, so `revive` is the identity). */
 export type StackSSEMessage =
   | StackStatusEntry[]
-  | {
-      type: 'deploy_changed';
-      stack: string;
-      host: string;
-      deployId?: number;
-      status?: DeployStatus;
-      action?: DeployAction;
-      trigger?: DeployTrigger;
-      message?: string;
-    };
+  | { type: 'deploy_changed'; stack: string; host: string; outcome?: DeployChangeOutcome };
+
+/** Duplicated from docker-inventory.ts's zContainerPortWeb to keep the schemas co-located per channel. */
+const zStackContainerPort = z.object({
+  containerPort: z.number(),
+  protocol: z.string(),
+  hostIp: z.string().nullable(),
+  hostPort: z.number().nullable(),
+});
+
+/** Duplicated from docker-inventory.ts's zContainerMountWeb to keep the schemas co-located per channel. */
+const zStackContainerMount = z.object({
+  type: z.string(),
+  source: z.string(),
+  destination: z.string(),
+  rw: z.boolean(),
+});
 
 const zStackContainer = z.object({
   id: z.string(),
@@ -23,6 +31,8 @@ const zStackContainer = z.object({
   status: z.string(),
   image: z.string(),
   service: z.string().nullable(),
+  ports: z.array(zStackContainerPort).default([]),
+  mounts: z.array(zStackContainerMount).default([]),
 });
 
 const zStackStatusEntry = z.object({
@@ -32,21 +42,13 @@ const zStackStatusEntry = z.object({
   updated_at: z.string(),
 });
 
-const zDeployStatus = z.enum(['pending', 'in_progress', 'succeeded', 'failed', 'no_change']);
-const zDeployAction = z.enum(['deploy', 'teardown']);
-const zDeployTrigger = z.enum(['git_push', 'ui', 'manual_rollback']);
-
 const zStackStatusWireMessage = z.union([
   z.array(zStackStatusEntry),
   z.object({
     type: z.literal('deploy_changed'),
     stack: z.string(),
     host: z.string(),
-    deployId: z.number().optional(),
-    status: zDeployStatus.optional(),
-    action: zDeployAction.optional(),
-    trigger: zDeployTrigger.optional(),
-    message: z.string().optional(),
+    outcome: zDeployChangeOutcome.optional(),
   }),
 ]);
 
@@ -56,3 +58,17 @@ export const stackStatusChannel = defineSseChannel({
   schema: zStackStatusWireMessage,
   revive: (message): StackSSEMessage => message,
 });
+
+/** Omits `outcome` entirely rather than sending it as null/undefined when absent. */
+export function serializeStackStatusEvent(event: StackBroadcastEvent): string {
+  if (event.type === 'deploy_changed') {
+    const payload = {
+      type: 'deploy_changed',
+      stack: event.stack,
+      host: event.host,
+      ...(event.outcome !== undefined ? { outcome: event.outcome } : {}),
+    };
+    return `data: ${JSON.stringify(payload)}\n\n`;
+  }
+  return `data: ${JSON.stringify(event.entries)}\n\n`;
+}
