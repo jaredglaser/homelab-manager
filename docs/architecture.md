@@ -175,9 +175,15 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 | GET | `/stats/stream` | SSE container stats with pre-computed metrics |
 | GET | `/logs/:containerId` | SSE container log streaming (backlog + live phases) |
 | GET | `/containers/events` | SSE container inventory stream |
+| POST | `/containers/:containerId/start` | Start a container |
+| POST | `/containers/:containerId/stop` | Stop a container |
+| POST | `/containers/:containerId/restart` | Restart a container |
 | POST | `/stacks/deploy` | Run `docker compose up -d` |
+| POST | `/stacks/update` | Pull images and recreate changed services |
 | POST | `/stacks/teardown` | Run `docker compose down` |
 | POST | `/stacks/restart` | Run `docker compose restart` |
+| POST | `/stacks/start` | Run `docker compose up -d` |
+| POST | `/stacks/stop` | Run `docker compose stop` |
 | GET | `/stacks/status` | List stacks in working directory |
 | GET | `/zfs/stats/stream` | SSE `zpool iostat -v 1` output as `{ line, timestamp }` events |
 | GET | `/zfs/pools` | Parsed pool status (name, size, allocated, free, capacity, health) |
@@ -190,12 +196,13 @@ A separate Bun package that runs as a sidecar container alongside each managed D
 Separate Bun service that monitors and updates agent containers without manual Docker commands. Connects directly to the Docker socket proxy (bypasses the agent, which cannot replace its own container).
 
 **Update sequence:**
-1. Pull new agent image from registry
-2. Inspect existing container to capture environment and host config
+1. Inspect existing container to capture environment and host config
+2. Pull new agent image from registry
 3. Stop and remove old container
 4. Create new container with same config but new image
 5. Start new container
-6. Verify health with exponential backoff (500ms, 1s, 2s delays)
+6. Poll the Docker healthcheck at a fixed interval, then verify the agent's HTTP `/health` endpoint
+7. Roll back to the previous image if either health check fails
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
@@ -244,10 +251,10 @@ flowchart LR
 
 Server-side git repository using isomorphic-git for repo operations and git CLI for HTTP smart protocol.
 
-**Startup:**
+**Initialization (lazy, on the first git HTTP request):**
 
-```
-Server boots
+```text
+First request to /api/git/stacks/...
   -> ensureRepoInitialized()
     -> initBareRepo (create /data/repos/stacks.git if needed)
     -> No commits? Seed manifest.yaml with "stacks: {}"
@@ -318,18 +325,18 @@ stacks:
 | Module | Purpose |
 |--------|---------|
 | `repo.ts` | Bare repo init, commit, read, list, log, diff (isomorphic-git) |
-| `git-server.ts` | HTTP smart protocol handlers via `Bun.spawn` |
+| `git-server.ts` | HTTP smart protocol handlers via `child_process.spawn` (Node-compatible for Vite SSR dev) |
 | `git-http.ts` | Path parsing and request type classification |
 | `manifest.ts` | YAML manifest parsing and validation |
 | `post-receive.ts` | Change detection and deploy request builder |
 | `post-receive-handler.ts` | Post-receive orchestration with pipeline dispatch |
-| `init-repo.ts` | Startup initialization with seed manifest |
+| `init-repo.ts` | Lazy repo initialization (first git request) with seed manifest |
 | `editor-operations.ts` | In-app file save/commit and manifest updates |
 | `git-server-functions.ts` | File tree builder for UI |
 
 ### Secrets and Keypairs
 
-At-rest encryption uses a symmetric `MASTER_KEY` (base64, 256-bit) resolved at startup from the `MASTER_KEY` env var or `MASTER_KEY_FILE`.
+At-rest encryption uses a versioned keyring of symmetric keys (base64, 256-bit) resolved at startup: `MASTER_KEY`/`MASTER_KEY_FILE` maps to KID `v1`, and `MASTER_KEY_<KID>` variants enroll additional keys for rotation (see the self-hosting guide's Master Key Rotation section).
 
 - **Stack secrets** (`stack_secrets` table): name/value pairs stored as JWE-encrypted blobs. The deploy pipeline resolves `${SECRET:name}` references in compose files before dispatching to agents (`src/lib/crypto/encrypted-value.ts`)
 - **Agent keypairs** (`agent_keypairs` table): per-host Ed25519 keypairs. The private JWK is stored JWE-encrypted; the public JWK is injected into the agent container as the `AGENT_TRUSTED_PUBKEY` env var when the dashboard provisions the agent (`src/lib/services/agent-provisioning-service.ts`). The dev compose flow writes the JWK to `data/dev-agent-pubkey.json` and the agent loads it via `AGENT_TRUSTED_PUBKEY_FILE`. Each deploy request carries a short-lived JWT signed by the private key (`src/lib/crypto/agent-jwt.ts`)

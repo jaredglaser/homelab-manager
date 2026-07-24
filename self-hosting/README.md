@@ -206,7 +206,7 @@ Stack management lets you deploy and manage Docker Compose stacks on your hosts 
 Two separate credentials are involved, neither of which is an env var:
 
 - **Dashboard-to-agent:** each deploy request carries a short-lived JWT signed by a per-host Ed25519 keypair stored encrypted in the database; no token file is distributed to hosts.
-- **Git pushes:** authenticated with per-user git tokens. Generate one in **Settings → Authentication → Generate Git Token** (admin only; the token is shown once). Use it as the password on `git push`; pushes require the `admin` or `operator` role.
+- **Git pushes:** authenticated with per-user git tokens. Generate one in **Settings → Auth Management → Generate Git Token** (admin only; the token is shown once). Use it as the password on `git push`; pushes require the `admin` or `operator` role.
 
 > **How it works:** Each managed Docker host runs a lightweight agent container that the dashboard communicates with for deploy operations. When you enroll a host, the dashboard generates an Ed25519 keypair, encrypts the private key with `MASTER_KEY`, and sends the public JWK to the agent. Each deploy request carries a short-lived signed JWT; the agent verifies it against the trusted public key.
 >
@@ -227,7 +227,7 @@ Runs inside the web container; scans for deploys stuck `in_progress` (e.g. after
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEPLOY_WATCHDOG_INTERVAL_MS` | `120000` | How often to scan for stuck deploys |
-| `DEPLOY_WATCHDOG_TIMEOUT_MINUTES` | `10` | Deploys still `in_progress` past this threshold are failed |
+| `DEPLOY_WATCHDOG_TIMEOUT_MINUTES` | `20` | Deploys still `in_progress` past this threshold are failed |
 
 ### Worker Behavior
 
@@ -245,7 +245,7 @@ The worker always runs and applies database migrations on startup; individual co
 
 ## Master Key Rotation
 
-Encrypted columns use a versioned keyring so a new master key can be enrolled without breaking existing ciphertext. `MASTER_KEY` is treated as key ID `v1`; additional keys use `MASTER_KEY_<KID>` (e.g. `MASTER_KEY_v2`). The lexicographically last KID encrypts new secrets; all loaded keys decrypt.
+Encrypted columns use a versioned keyring so a new master key can be enrolled without breaking existing ciphertext. `MASTER_KEY` is treated as key ID `v1`; additional keys use `MASTER_KEY_<KID>` (e.g. `MASTER_KEY_v2`). The highest-ranked KID encrypts new secrets (`vN` KIDs compare numerically, so `v10` outranks `v9`); all loaded keys decrypt.
 
 1. Generate a new key: `openssl rand -base64 32`
 2. Add `MASTER_KEY_v2=<new-base64>` to `.env` (keep the old `MASTER_KEY` in place), **and** add `MASTER_KEY_v2: ${MASTER_KEY_v2:-}` to the `environment:` blocks of both the `web` and `worker` services in `docker-compose.yml`. Compose only forwards variables that the service block names.
@@ -258,7 +258,7 @@ Encrypted columns use a versioned keyring so a new master key can be enrolled wi
 
 5. Remove the old key from `.env` (and its compose line if you added one), then `docker compose up -d` again.
 
-The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window.
+The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window. It covers `stack_secrets`, `agent_keypairs`, and `git_tokens`; active login sessions are not re-encrypted, so a login that predates the rotation may need to sign in again after step 5 removes the old key.
 
 ## Backup and Restore
 

@@ -55,7 +55,9 @@ MASTER_KEY="<generated>"
 # Local-dev-only seeder: provisions a "localhost" managed host and dev keypair on first run.
 HOMELAB_DEV_SEED="true"
 
-# Start management profile services (agent, socket-proxy)
+# Compose profiles for direct `docker compose` invocations only. The dev:local:*
+# scripts pass --profile management --profile oidc explicitly, which overrides
+# this variable, so it cannot be used to opt out of Pocket ID (see docs/dev-oidc.md).
 COMPOSE_PROFILES="management"
 ```
 
@@ -76,6 +78,7 @@ This starts:
 - **Worker**: background stats collector (generates a dev Ed25519 keypair for `localhost` on first run via `HOMELAB_DEV_SEED=true`)
 - **Socket proxy**: safe Docker API access
 - **Agent**: sidecar that streams container stats and handles deploys (reads the public JWK from `data/dev-agent-pubkey.json`)
+- **Pocket ID + seeder**: local OIDC provider with dev users and one-time login URLs (always started; the `dev:local:*` scripts pass `--profile oidc` explicitly, see [docs/dev-oidc.md](dev-oidc.md))
 
 ### Step 3: Add Sample Containers via the Stacks Repo
 
@@ -83,8 +86,10 @@ The stacks feature uses an in-app git repo to store Docker Compose files. Clone 
 
 **Docker monitoring:** The local compose file seeds a localhost agent (via `HOMELAB_DEV_SEED=true`, which generates a dev Ed25519 keypair and writes the public JWK to `data/dev-agent-pubkey.json` for the agent to read) that reaches Docker through a socket proxy on the internal `agent-internal` network. The worker subscribes to the agent's SSE streams; it does not connect to Docker directly. No host port is needed for the Docker socket.
 
+Cloning requires a per-user git token. Log in as `dev-admin` using a one-time URL from `data/dev-oidc-logins.txt` (see [docs/dev-oidc.md](dev-oidc.md)), then generate a token under **Settings → Auth Management → Generate Git Token**. When git prompts for credentials, enter any username and the token as the password (keeping the token out of shell history and `.git/config`):
+
 ```bash
-git clone http://x:dev-git-token@localhost:3000/api/git/stacks ~/stacks
+git clone http://localhost:3000/api/git/stacks ~/stacks
 cd ~/stacks
 ```
 
@@ -206,7 +211,7 @@ Tests use [Bun's built-in test runner](https://bun.sh/docs/cli/test), organized 
 # homelab-manager only
 bun test --isolate          # Run homelab-manager tests (no coverage enforcement)
 bun test --isolate --watch  # Watch mode (no coverage enforcement)
-bun run test                # Tests + coverage enforcement (95% functions / 98% lines)
+bun run test                # Tests + coverage enforcement
 bun run test:coverage       # Coverage report only (no enforcement)
 
 # Agent only
@@ -220,8 +225,7 @@ bun run test:coverage:all   # Run tests in both with coverage thresholds
 
 ### Coverage Requirements
 
-- Minimum **95% function coverage**
-- Minimum **98% line coverage**
+- Function and line minimums live in the `THRESHOLDS` object in `scripts/check-coverage.js`. That file is the single source of truth for all three packages (homelab-manager, agent, agent-updater all pipe into it), so check the values there instead of relying on a number copied into docs.
 - Enforced by `bun run test` (which pipes `--coverage` to `scripts/check-coverage.js`) and CI. Bare `bun test --isolate` does NOT enforce the thresholds.
 
 Test files use `*.test.ts` naming in `__tests__/` directories co-located with source (e.g., `src/lib/__tests__/stream-utils.test.ts`).
