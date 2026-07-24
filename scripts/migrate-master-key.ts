@@ -18,7 +18,7 @@
  * the old key is still in the keyring and can decrypt them on the next run.
  */
 import { readFileSync } from 'node:fs';
-import { Pool } from 'pg';
+import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { compactDecrypt, CompactEncrypt } from 'jose';
 
 // ---- CLI arg parsing -------------------------------------------------------
@@ -142,43 +142,49 @@ function buildPool(): Pool {
 
 // ---- Migration logic --------------------------------------------------------
 
-async function migrateStackSecrets(
+interface KeyContext {
+  fromKid: string;
+  toKid: string;
+  fromKey: CryptoKey;
+  toKey: CryptoKey;
+}
+
+interface TableMigration<Row extends QueryResultRow> {
+  table: string;
+  select: string;
+  ciphertextOf: (row: Row) => string | null;
+  describe: (row: Row) => string;
+  update: (client: PoolClient, row: Row, newJwe: string) => Promise<unknown>;
+}
+
+async function migrateTable<Row extends QueryResultRow>(
   pool: Pool,
-  fromKid: string,
-  toKid: string,
-  fromKey: CryptoKey,
-  toKey: CryptoKey,
+  keys: KeyContext,
+  spec: TableMigration<Row>,
 ): Promise<number> {
-  const result = await pool.query<{ stack_name: string; variable_name: string; ciphertext_jwe: string }>(
-    'SELECT stack_name, variable_name, ciphertext_jwe FROM stack_secrets',
-  );
+  const result = await pool.query<Row>(spec.select);
 
   let count = 0;
 
   for (const row of result.rows) {
-    if (extractKid(row.ciphertext_jwe) !== fromKid) continue;
+    const ciphertext = spec.ciphertextOf(row);
+    if (ciphertext === null) continue;
+    if (extractKid(ciphertext) !== keys.fromKid) continue;
 
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
 
-      const plaintext = await decryptJwe(row.ciphertext_jwe, fromKey);
-      const newJwe = await encryptJwe(plaintext, toKid, toKey);
+      const plaintext = await decryptJwe(ciphertext, keys.fromKey);
+      const newJwe = await encryptJwe(plaintext, keys.toKid, keys.toKey);
 
-      await client.query(
-        `UPDATE stack_secrets
-            SET ciphertext_jwe = $1, updated_at = now()
-          WHERE stack_name = $2 AND variable_name = $3`,
-        [newJwe, row.stack_name, row.variable_name],
-      );
+      await spec.update(client, row, newJwe);
 
       await client.query('COMMIT');
       count++;
     } catch (err) {
       await client.query('ROLLBACK');
-      throw new Error(
-        `Failed to migrate stack_secrets(${row.stack_name}, ${row.variable_name}): ${String(err)}`,
-      );
+      throw new Error(`Failed to migrate ${spec.table}(${spec.describe(row)}): ${String(err)}`);
     } finally {
       client.release();
     }
@@ -187,95 +193,51 @@ async function migrateStackSecrets(
   return count;
 }
 
-async function migrateAgentKeypairs(
-  pool: Pool,
-  fromKid: string,
-  toKid: string,
-  fromKey: CryptoKey,
-  toKey: CryptoKey,
-): Promise<number> {
-  const result = await pool.query<{ host_name: string; private_jwk_jwe: string }>(
-    'SELECT host_name, private_jwk_jwe FROM agent_keypairs',
-  );
+const STACK_SECRETS: TableMigration<{
+  stack_name: string;
+  variable_name: string;
+  ciphertext_jwe: string;
+}> = {
+  table: 'stack_secrets',
+  select: 'SELECT stack_name, variable_name, ciphertext_jwe FROM stack_secrets',
+  ciphertextOf: row => row.ciphertext_jwe,
+  describe: row => `${row.stack_name}, ${row.variable_name}`,
+  update: (client, row, newJwe) =>
+    client.query(
+      `UPDATE stack_secrets
+          SET ciphertext_jwe = $1, updated_at = now()
+        WHERE stack_name = $2 AND variable_name = $3`,
+      [newJwe, row.stack_name, row.variable_name],
+    ),
+};
 
-  let count = 0;
+const AGENT_KEYPAIRS: TableMigration<{ host_name: string; private_jwk_jwe: string }> = {
+  table: 'agent_keypairs',
+  select: 'SELECT host_name, private_jwk_jwe FROM agent_keypairs',
+  ciphertextOf: row => row.private_jwk_jwe,
+  describe: row => row.host_name,
+  update: (client, row, newJwe) =>
+    client.query(
+      `UPDATE agent_keypairs
+          SET private_jwk_jwe = $1, rotated_at = now()
+        WHERE host_name = $2`,
+      [newJwe, row.host_name],
+    ),
+};
 
-  for (const row of result.rows) {
-    if (extractKid(row.private_jwk_jwe) !== fromKid) continue;
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const plaintext = await decryptJwe(row.private_jwk_jwe, fromKey);
-      const newJwe = await encryptJwe(plaintext, toKid, toKey);
-
-      await client.query(
-        `UPDATE agent_keypairs
-            SET private_jwk_jwe = $1, rotated_at = now()
-          WHERE host_name = $2`,
-        [newJwe, row.host_name],
-      );
-
-      await client.query('COMMIT');
-      count++;
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw new Error(
-        `Failed to migrate agent_keypairs(${row.host_name}): ${String(err)}`,
-      );
-    } finally {
-      client.release();
-    }
-  }
-
-  return count;
-}
-
-async function migrateGitTokens(
-  pool: Pool,
-  fromKid: string,
-  toKid: string,
-  fromKey: CryptoKey,
-  toKey: CryptoKey,
-): Promise<number> {
-  const result = await pool.query<{ id: number; encrypted_token: string }>(
-    'SELECT id, encrypted_token FROM git_tokens',
-  );
-
-  let count = 0;
-
-  for (const row of result.rows) {
-    if (extractKid(row.encrypted_token) !== fromKid) continue;
-
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const plaintext = await decryptJwe(row.encrypted_token, fromKey);
-      const newJwe = await encryptJwe(plaintext, toKid, toKey);
-
-      await client.query(
-        `UPDATE git_tokens
-            SET encrypted_token = $1
-          WHERE id = $2`,
-        [newJwe, row.id],
-      );
-
-      await client.query('COMMIT');
-      count++;
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw new Error(
-        `Failed to migrate git_tokens(${row.id}): ${String(err)}`,
-      );
-    } finally {
-      client.release();
-    }
-  }
-
-  return count;
-}
+const GIT_TOKENS: TableMigration<{ id: number; encrypted_token: string }> = {
+  table: 'git_tokens',
+  select: 'SELECT id, encrypted_token FROM git_tokens',
+  ciphertextOf: row => row.encrypted_token,
+  describe: row => String(row.id),
+  update: (client, row, newJwe) =>
+    client.query(
+      `UPDATE git_tokens
+          SET encrypted_token = $1
+        WHERE id = $2`,
+      [newJwe, row.id],
+    ),
+};
 
 // ---- Entry point ------------------------------------------------------------
 
@@ -292,9 +254,11 @@ async function main(): Promise<void> {
     await pool.query('SELECT 1');
     console.info('Database connected.');
 
-    const secretsMigrated = await migrateStackSecrets(pool, fromKid, toKid, fromKey, toKey);
-    const keypairsMigrated = await migrateAgentKeypairs(pool, fromKid, toKid, fromKey, toKey);
-    const tokensMigrated = await migrateGitTokens(pool, fromKid, toKid, fromKey, toKey);
+    const keys: KeyContext = { fromKid, toKid, fromKey, toKey };
+
+    const secretsMigrated = await migrateTable(pool, keys, STACK_SECRETS);
+    const keypairsMigrated = await migrateTable(pool, keys, AGENT_KEYPAIRS);
+    const tokensMigrated = await migrateTable(pool, keys, GIT_TOKENS);
 
     console.info(`Migration complete: ${secretsMigrated} secret(s), ${keypairsMigrated} keypair(s), ${tokensMigrated} git token(s) migrated.`);
   } catch (err) {
