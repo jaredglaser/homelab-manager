@@ -57,10 +57,10 @@ This stops all containers and deletes all volumes, including the Pocket ID data 
 
 ## Opting out
 
-To skip Pocket ID entirely, remove `oidc` from `COMPOSE_PROFILES` in your `.env`:
+The `dev:local:*` scripts pass `--profile management --profile oidc` explicitly, which overrides `COMPOSE_PROFILES` from `.env`, so editing that variable cannot skip Pocket ID. To run without it, invoke docker compose directly with only the management profile:
 
-```env
-COMPOSE_PROFILES=management
+```bash
+docker compose --env-file ~/.config/homelab-manager/.env -f docker-compose.local.yml --profile management up -d --build
 ```
 
-Without the `oidc` profile, `.env.development.local` will not be generated. Keep `AUTH_DISABLED=true` in your `.env` (the dev template default) so the app starts without OIDC; auth is otherwise required by default.
+Keep `AUTH_DISABLED=true` in your `.env` (the dev template default) so the app starts without OIDC, and delete `.env.development.local` if a previous seeder run created it (it sets `AUTH_DISABLED=false`, which `bun dev` would still pick up). `bun run dev:local:wipe` also removes it.

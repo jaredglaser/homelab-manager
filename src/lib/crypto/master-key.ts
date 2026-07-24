@@ -19,7 +19,8 @@ const LEGACY_KID: Kid = 'v1';
  *   MASTER_KEY_<KID> / MASTER_KEY_FILE_<KID>  →  additional keys by explicit KID
  *   e.g. MASTER_KEY_v2=<base64>
  *
- * The active key is the lexicographically last KID across all loaded keys.
+ * The active key is the highest-ranked KID across all loaded keys (vN KIDs
+ * rank numerically, so v10 outranks v9; see kidRank below).
  * During rotation both keys are present, so old ciphertext decrypts with the old
  * key while new encryptions use the new key. After running the migration CLI and
  * removing the old env var, only the new key remains.

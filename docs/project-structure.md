@@ -158,12 +158,8 @@ src/
 │   │   ├── subscription-service.ts  # StatsPollService - shared 1s poll, broadcasts to SSE clients
 │   │   └── migrate.ts               # Database migration runner
 │   ├── deploy/
-│   │   ├── builders/
-│   │   │   ├── git-trigger-builder.ts  # Builds DeployRequest from git post-receive
-│   │   │   ├── ui-trigger-builder.ts   # Builds DeployRequest from UI actions
-│   │   │   └── index.ts               # Barrel exports
 │   │   ├── change-detection.ts      # Content hashing to skip no-op deploys
-│   │   ├── deploy-watchdog.ts       # Recovers stuck in_flight deploys (default 10-min threshold)
+│   │   ├── deploy-watchdog.ts       # Recovers stuck in_progress deploys (default 20-min threshold)
 │   │   ├── pipeline.ts              # Deploy pipeline orchestrator (validate → resolve secrets → dispatch)
 │   │   ├── pipeline-factory.ts      # Factory for building configured pipeline instances
 │   │   ├── secret-resolver.ts       # Pluggable secret resolution interface
@@ -173,7 +169,7 @@ src/
 │   │   └── index.ts                 # Barrel exports
 │   ├── git/
 │   │   ├── repo.ts                  # Bare repo init, commit, read, list, log, diff (isomorphic-git)
-│   │   ├── git-server.ts            # HTTP smart protocol handlers via Bun.spawn
+│   │   ├── git-server.ts            # HTTP smart protocol handlers via child_process.spawn
 │   │   ├── git-http.ts              # Path parsing and request type classification
 │   │   ├── git-server-functions.ts  # File tree builder for UI
 │   │   ├── manifest.ts              # YAML manifest parsing and validation
