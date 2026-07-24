@@ -45,6 +45,13 @@ export const rejectDeploySchema = z.object({
   deployId: z.number().int().positive(),
 });
 
+export const resolveDriftSchema = z.object({
+  stack: stackNameField,
+  host: z.string().min(1),
+  kind: z.enum(['ghost', 'untracked', 'content']),
+  resolution: z.enum(['trust_repo', 'trust_agent', 'remove']),
+});
+
 export const controlStackSchema = z.discriminatedUnion('scope', [
   z.object({
     stack: stackNameField,

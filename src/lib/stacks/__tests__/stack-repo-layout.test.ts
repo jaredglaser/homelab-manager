@@ -6,6 +6,7 @@ import { initBareRepo, commitFiles } from '@/lib/git/repo';
 import {
   MANIFEST,
   composePath,
+  driftRecoveryPath,
   stackFiles,
   serializeManifest,
   removeStackFromManifest,
@@ -135,5 +136,24 @@ describe('removeStackFromManifest', () => {
     await expect(commitFiles(repoPath, removeStackFromManifest('plex'))).rejects.toThrow(
       'manifest.yaml not found',
     );
+  });
+});
+
+describe('driftRecoveryPath', () => {
+  it('nests archives by host and stack under the recovery directory', () => {
+    expect(driftRecoveryPath('alpha', 'plex', '2026-07-24T10:20:30.400Z')).toBe(
+      '.drift-recovery/alpha/plex/2026-07-24T10-20-30-400Z-docker-compose.yml',
+    );
+  });
+
+  it('keeps an IP-address host name usable as a path segment', () => {
+    expect(driftRecoveryPath('192.168.1.10:2375', 'plex', '2026-07-24T10:20:30.400Z')).toStartWith(
+      '.drift-recovery/192.168.1.10_2375/plex/',
+    );
+  });
+
+  it('stays outside every stack directory, so deleting a stack never sweeps its archives', () => {
+    const path = driftRecoveryPath('alpha', 'plex', '2026-07-24T10:20:30.400Z');
+    expect(stackFiles([path, composePath('plex')], 'plex')).toEqual([composePath('plex')]);
   });
 });

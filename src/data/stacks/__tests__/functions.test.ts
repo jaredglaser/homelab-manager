@@ -1,7 +1,8 @@
-import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, spyOn } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
 import { withStartContext } from '@/lib/test/start-context';
+import * as requireRoleModule from '@/lib/auth/require-role';
 
 // Inject a synthetic admin user so requireRole checks pass in tests.
 // `activeUser` is read at call time, so `withUser` can swap the role for one call.
@@ -95,6 +96,15 @@ const mockScanStackDrift = mock(() => Promise.resolve({
   summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
   scanErrors: [],
 }));
+const mockResolveStackDriftItem = mock((input: { host: string; stack: string; kind: string; resolution: string }) =>
+  Promise.resolve({
+    ...input,
+    recoveryCommitSha: null,
+    commitSha: null,
+    deployId: null,
+    deployStatus: null,
+  }),
+);
 
 mock.module('@/lib/stacks/stack-service', () => ({
   getStackSummaries: mockGetStackSummaries,
@@ -111,6 +121,7 @@ mock.module('@/lib/stacks/stack-service', () => ({
   rejectPendingDeploy: mockRejectPendingDeploy,
   controlStackForHost: mockControlStackForHost,
   scanStackDrift: mockScanStackDrift,
+  resolveStackDriftItem: mockResolveStackDriftItem,
 }));
 
 /**
@@ -140,6 +151,7 @@ describe('stacks.functions module', () => {
     mockRejectPendingDeploy.mockClear();
     mockControlStackForHost.mockClear();
     mockScanStackDrift.mockClear();
+    mockResolveStackDriftItem.mockClear();
   });
 
   describe('exports', () => {
@@ -256,6 +268,48 @@ describe('stacks.functions module', () => {
         withUser(viewer, () => withStartContext(() => scanDrift())),
       ).rejects.toThrow('Insufficient permissions');
       expect(mockScanStackDrift).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resolveDrift', () => {
+    it('delegates the validated payload to resolveStackDriftItem', async () => {
+      const { resolveDrift } = await import('../functions');
+      await withStartContext(() =>
+        resolveDrift({ data: { host: 'server1', stack: 'nginx', kind: 'untracked', resolution: 'remove' } }),
+      );
+      expect(mockResolveStackDriftItem).toHaveBeenCalledWith({
+        host: 'server1',
+        stack: 'nginx',
+        kind: 'untracked',
+        resolution: 'remove',
+      });
+    });
+
+    it('gates on the operator role', async () => {
+      const requireRoleSpy = spyOn(requireRoleModule, 'requireRole');
+      const { resolveDrift } = await import('../functions');
+      await withStartContext(() =>
+        resolveDrift({ data: { host: 'server1', stack: 'nginx', kind: 'ghost', resolution: 'trust_repo' } }),
+      );
+      expect(requireRoleSpy).toHaveBeenCalledWith('admin', 'operator');
+      requireRoleSpy.mockRestore();
+    });
+
+    it('refuses a viewer', async () => {
+      const requireRoleSpy = spyOn(requireRoleModule, 'requireRole').mockReturnValue(() => {
+        throw new requireRoleModule.ForbiddenError();
+      });
+      const { resolveDrift } = await import('../functions');
+      try {
+        await expect(
+          withStartContext(() =>
+            resolveDrift({ data: { host: 'server1', stack: 'nginx', kind: 'ghost', resolution: 'trust_repo' } }),
+          ),
+        ).rejects.toThrow(/Insufficient permissions/);
+      } finally {
+        requireRoleSpy.mockRestore();
+      }
+      expect(mockResolveStackDriftItem).not.toHaveBeenCalled();
     });
   });
 

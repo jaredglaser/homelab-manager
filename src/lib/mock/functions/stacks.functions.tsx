@@ -1,4 +1,14 @@
-import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest, DeployStatus, StackDriftReport } from '@/types/stacks';
+import type {
+  StackSummary,
+  StackDetail,
+  StackDeployRecord,
+  UIDeployRequest,
+  DeployStatus,
+  StackDriftKind,
+  StackDriftReport,
+  StackDriftResolution,
+  StackDriftResolutionResult,
+} from '@/types/stacks';
 
 const MOCK_STACKS: StackSummary[] = [
   // nas01
@@ -449,10 +459,6 @@ export async function ensureVariablesExist(_opts: {
   // No-op in demo mode
 }
 
-export async function scanDrift(): Promise<StackDriftReport> {
-  return { items: [], summary: { total: 0, ghost: 0, untracked: 0, content: 0 }, scanErrors: [] };
-}
-
 export async function controlStack(_opts: {
   data:
     | { host: string; stack: string; action: 'start' | 'stop' | 'restart'; scope: 'stack' }
@@ -465,4 +471,21 @@ export async function controlStack(_opts: {
       };
 }): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 300));
+}
+
+export async function scanDrift(): Promise<StackDriftReport> {
+  return { items: [], summary: { total: 0, ghost: 0, untracked: 0, content: 0 }, scanErrors: [] };
+}
+
+export async function resolveDrift(opts: {
+  data: { stack: string; host: string; kind: StackDriftKind; resolution: StackDriftResolution };
+}): Promise<StackDriftResolutionResult> {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  return {
+    ...opts.data,
+    recoveryCommitSha: null,
+    commitSha: null,
+    deployId: null,
+    deployStatus: null,
+  };
 }
