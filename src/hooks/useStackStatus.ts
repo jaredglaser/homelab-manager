@@ -1,9 +1,13 @@
 import { useCallback, useState } from 'react';
 import { useSseChannel } from '@/hooks/useSseChannel';
 import { stackStatusChannel, type StackSSEMessage } from '@/lib/sse/channels/stack-status';
+import { useToast } from '@/hooks/toastAtom';
+import { deployToastGate, formatDeployOutcome } from '@/lib/stacks/deploy-outcome-toast';
 import type { StackStatusEntry } from '@/types/stacks';
 
-function isDeployChanged(data: StackSSEMessage): data is { type: 'deploy_changed'; stack: string; host: string } {
+type DeployChangedMessage = Extract<StackSSEMessage, { type: 'deploy_changed' }>;
+
+function isDeployChanged(data: StackSSEMessage): data is DeployChangedMessage {
   return !Array.isArray(data) && 'type' in data && data.type === 'deploy_changed';
 }
 
@@ -26,10 +30,19 @@ function shallowEqualContainers(
 export function useStackStatus() {
   const [statusMap, setStatusMap] = useState<Map<string, StackStatusEntry>>(new Map());
   const [deployVersion, setDeployVersion] = useState(0);
+  const { showToast } = useToast();
 
   const handleData = useCallback((data: StackSSEMessage) => {
     if (isDeployChanged(data)) {
       setDeployVersion((v) => v + 1);
+      if (data.outcome !== undefined) {
+        const outcome = formatDeployOutcome({ stack: data.stack, ...data.outcome });
+        // Gate only when there is a toast to show; a non-terminal frame must not
+        // consume the deployId's one-shot gate and suppress the later terminal toast.
+        if (outcome && deployToastGate.shouldToast(data.outcome.deployId)) {
+          showToast(outcome.message, outcome.severity);
+        }
+      }
       return;
     }
 
@@ -45,7 +58,7 @@ export function useStackStatus() {
       }
       return changed ? next : prev;
     });
-  }, []);
+  }, [showToast]);
 
   const { isConnected, error } = useSseChannel(stackStatusChannel, {
     onData: handleData,

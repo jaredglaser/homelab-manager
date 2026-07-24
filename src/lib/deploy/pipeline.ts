@@ -110,7 +110,13 @@ export class DeployPipeline {
               console.error('[Pipeline] Failed to record postSuccess failure status:', updateErr);
             }
             try {
-              await this.deployRepo.notifyStackChange(request.stack, request.host);
+              await this.deployRepo.notifyStackChange(request.stack, request.host, {
+                deployId,
+                status: 'failed',
+                action: request.action,
+                trigger: request.trigger,
+                message: errMsg,
+              });
             } catch (notifyErr) {
               console.error(`Failed to notify stack change for "${request.stack}":`, notifyErr);
             }
@@ -119,7 +125,14 @@ export class DeployPipeline {
         }
 
         try {
-          await this.deployRepo.notifyStackChange(request.stack, request.host);
+          // deployId is always set here: the only early return above (insertDeploy
+          // failure) happens inside the try/catch before this point.
+          await this.deployRepo.notifyStackChange(request.stack, request.host, {
+            deployId: deployId as number,
+            status: 'no_change',
+            action: request.action,
+            trigger: request.trigger,
+          });
         } catch (err) {
           console.error(`Failed to notify stack change for "${request.stack}":`, err);
         }
@@ -197,7 +210,13 @@ export class DeployPipeline {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
       }
       try {
-        await this.deployRepo.notifyStackChange(request.stack, request.host);
+        await this.deployRepo.notifyStackChange(request.stack, request.host, {
+          deployId,
+          status: 'failed',
+          action: request.action,
+          trigger: request.trigger,
+          message: errorMsg,
+        });
       } catch (notifyErr) {
         console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${request.host}"):`, notifyErr);
       }
@@ -251,7 +270,13 @@ export class DeployPipeline {
         console.error(`Failed to record deploy failure for deploy ${deployId}:`, dbErr);
       }
       try {
-        await this.deployRepo.notifyStackChange(request.stack, host.name);
+        await this.deployRepo.notifyStackChange(request.stack, host.name, {
+          deployId,
+          status: 'failed',
+          action: request.action,
+          trigger: request.trigger,
+          message: errorMsg,
+        });
       } catch (notifyErr) {
         console.error(`Failed to notify stack change for deploy ${deployId} ("${request.stack}" on "${host.name}"):`, notifyErr);
       }
@@ -292,7 +317,13 @@ export class DeployPipeline {
           console.error('[Pipeline] Failed to record postSuccess failure status:', updateErr);
         }
         try {
-          await this.deployRepo.notifyStackChange(request.stack, host.name);
+          await this.deployRepo.notifyStackChange(request.stack, host.name, {
+            deployId,
+            status: 'failed',
+            action: request.action,
+            trigger: request.trigger,
+            message: errMsg,
+          });
         } catch (notifyErr) {
           console.error(`Failed to notify stack change for "${request.stack}":`, notifyErr);
         }
@@ -301,7 +332,13 @@ export class DeployPipeline {
     }
 
     try {
-      await this.deployRepo.notifyStackChange(request.stack, host.name);
+      await this.deployRepo.notifyStackChange(request.stack, host.name, {
+        deployId,
+        status: finalStatus,
+        action: request.action,
+        trigger: request.trigger,
+        ...(finalStatus === 'failed' ? { message: result.logs } : {}),
+      });
     } catch (err) {
       console.error(`Failed to notify stack change for "${request.stack}":`, err);
     }

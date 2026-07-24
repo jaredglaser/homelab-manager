@@ -94,7 +94,13 @@ export class DeployWatchdog {
       );
       for (const row of timedOut) {
         try {
-          await deployRepo.notifyStackChange(row.stack, row.host);
+          await deployRepo.notifyStackChange(row.stack, row.host, {
+            deployId: row.id,
+            status: 'failed',
+            action: row.action,
+            trigger: row.trigger,
+            message,
+          });
         } catch (err) {
           console.error(
             `[DeployWatchdog] Failed to notify stack change for ${row.stack}/${row.host}:`,

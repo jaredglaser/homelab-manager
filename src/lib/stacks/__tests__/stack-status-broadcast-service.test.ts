@@ -361,6 +361,107 @@ describe('StackStatusBroadcastService', () => {
     if (deployEvent?.type === 'deploy_changed') {
       expect(deployEvent.stack).toBe('media');
       expect(deployEvent.host).toBe('server1');
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('forwards a nested outcome object from an enriched deploy_change NOTIFY', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: {
+          deployId: 42,
+          status: 'failed',
+          action: 'deploy',
+          trigger: 'git_push',
+          message: 'agent unreachable',
+        },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toEqual({
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'agent unreachable',
+      });
+    }
+  });
+
+  it('drops an outcome object missing a required field instead of forwarding it partially', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 42, status: 'failed', action: 'deploy' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('drops an outcome with an invalid enum value but still forwards the frame', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 42, status: 'bogus', action: 'deploy', trigger: 'ui' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
+    }
+  });
+
+  it('drops an outcome with a non-positive deployId', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'deploy_change',
+      payload: JSON.stringify({
+        type: 'deploy_changed',
+        stack: 'media',
+        host: 'server1',
+        outcome: { deployId: 0, status: 'succeeded', action: 'deploy', trigger: 'ui' },
+      }),
+    });
+
+    const deployEvent = received.find((e) => e.type === 'deploy_changed');
+    expect(deployEvent).toBeDefined();
+    if (deployEvent?.type === 'deploy_changed') {
+      expect(deployEvent.outcome).toBeUndefined();
     }
   });
 

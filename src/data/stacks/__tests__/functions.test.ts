@@ -59,7 +59,7 @@ const mockGetStackDetailByName = mock(() => Promise.resolve({
   composeContent: 'version: "3"',
   variables: {},
 }));
-const mockTriggerStackDeploy = mock(() => Promise.resolve({ deployId: 42 }));
+const mockTriggerStackDeploy = mock(() => Promise.resolve({ deployId: 42, status: 'succeeded' as const, logs: 'deployed ok' }));
 const mockGetStackDeployHistory = mock(() => Promise.resolve([
   { id: 1, stack: 'nginx', action: 'deploy', status: 'success', timestamp: '2026-01-01T00:00:00Z' },
 ]));
@@ -73,7 +73,7 @@ const mockGetManagedHostNames = mock(() => Promise.resolve(['server1']));
 const mockResolveDeleteStack = mock(() =>
   Promise.resolve({ status: 'removed' as const, commitSha: 'abc123' }),
 );
-const mockResumePendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
+const mockResumePendingDeploy = mock(() => Promise.resolve({ deployId: 7, status: 'succeeded' as const, logs: 'ok' }));
 const mockRejectPendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
 const mockControlStackForHost = mock(() => Promise.resolve(undefined));
 

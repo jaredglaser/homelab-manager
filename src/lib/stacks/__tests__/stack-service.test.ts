@@ -145,7 +145,7 @@ describe('handleTriggerDeploy', () => {
         autoApproved: true,
         envContent: '',
       })),
-      executePipeline: mock(() => Promise.resolve({ deployId: 42 })),
+      executePipeline: mock(() => Promise.resolve({ deployId: 42, status: 'succeeded' as const, logs: 'deployed ok' })),
       ...overrides,
     };
   }
@@ -154,6 +154,8 @@ describe('handleTriggerDeploy', () => {
     const deps = mockDeps();
     const result = await handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' });
     expect(result.deployId).toBe(42);
+    expect(result.status).toBe('succeeded');
+    expect(result.logs).toBe('deployed ok');
     expect(deps.readCompose).toHaveBeenCalledWith('myapp');
     expect(deps.getCommitSha).toHaveBeenCalledTimes(1);
     expect(deps.buildRequest).toHaveBeenCalledTimes(1);
@@ -179,7 +181,7 @@ describe('handleTriggerDeploy', () => {
 
   test('throws when pipeline returns no deployId', async () => {
     const deps = mockDeps({
-      executePipeline: mock(() => Promise.resolve({})),
+      executePipeline: mock(() => Promise.resolve({ status: 'failed' as const, logs: 'no active host' })),
     });
     await expect(
       handleTriggerDeploy(deps, { stack: 'myapp', host: 'server1', action: 'deploy' })
@@ -222,7 +224,7 @@ describe('triggerStackDeploy', () => {
       repoName: 'test',
       repoPath,
     });
-    executeMock = mock(() => Promise.resolve({ deployId: 42 }));
+    executeMock = mock(() => Promise.resolve({ deployId: 42, status: 'succeeded' as const, logs: 'deployed ok' }));
     createDeployPipelineSpy = spyOn(pipelineFactory, 'createDeployPipeline').mockResolvedValue({
       pipeline: { execute: (request: DeployRequest) => executeMock(request) } as unknown as DeployPipeline,
       deployRepo: {} as never,
@@ -241,6 +243,8 @@ describe('triggerStackDeploy', () => {
     const result = await freshTriggerStackDeploy({ stack: 'plex', host: 'homeserver', action: 'deploy' });
 
     expect(result.deployId).toBe(42);
+    expect(result.status).toBe('succeeded');
+    expect(result.logs).toBe('deployed ok');
     expect(executeMock).toHaveBeenCalledWith({
       stack: 'plex',
       host: 'homeserver',
@@ -516,5 +520,123 @@ describe('resolveDeleteStack', () => {
     expect(triggerDeploy).not.toHaveBeenCalled();
     expect(commitRemove).toHaveBeenCalledWith('plex');
     expect(result).toEqual({ status: 'removed', commitSha: 'sha-xyz' });
+  });
+});
+
+describe('resumePendingDeploy / rejectPendingDeploy', () => {
+  let testDir: string;
+  let repoPath: string;
+  let loadGitConfigSpy: ReturnType<typeof spyOn>;
+  let createDeployPipelineSpy: ReturnType<typeof spyOn>;
+  let commitSha: string;
+  let pendingRecord: DeployRecord;
+  let mockResumePending: ReturnType<typeof mock>;
+
+  const mockGetById = mock(() => Promise.resolve(pendingRecord));
+  const mockFindByName = mock(() => Promise.resolve({ name: 'homeserver', agentUrl: 'http://agent:9090' }));
+  const mockRejectPending = mock(() => Promise.resolve(true));
+  const mockNotifyStackChange = mock(() => Promise.resolve(undefined));
+
+  beforeEach(async () => {
+    // Re-registered every test (not just once at collection time): mock.module
+    // replacements for these paths persist across describes in this file, so
+    // each block must reassert its own before importing stack-service fresh.
+    mock.module('@/lib/clients/database-client', () => ({
+      databaseConnectionManager: {
+        getClient: mock(() => Promise.resolve({ getPool: () => ({}) })),
+      },
+    }));
+    mock.module('@/lib/config/database-config', () => ({
+      loadDatabaseConfig: mock(() => ({})),
+    }));
+    mock.module('@/lib/database/repositories/deploy-repository', () => ({
+      DeployRepository: class {
+        getById = mockGetById;
+        rejectPending = mockRejectPending;
+        notifyStackChange = mockNotifyStackChange;
+      },
+    }));
+    mock.module('@/lib/database/repositories/host-repository', () => ({
+      HostRepository: class {
+        findByName = mockFindByName;
+      },
+    }));
+
+    testDir = mkdtempSync(join(getTestTmpDir(), 'resume-reject-deploy-'));
+    repoPath = join(testDir, 'test.git');
+    await initBareRepo(repoPath);
+    commitSha = await commitFiles(repoPath, () => ({
+      files: [{ path: composePath('plex'), content: 'services:\n  plex:\n    image: plex' }],
+      message: 'add plex compose',
+      author: { name: 'test', email: 'test@test.com' },
+    }));
+
+    loadGitConfigSpy = spyOn(gitConfig, 'loadGitConfig').mockReturnValue({
+      reposDir: testDir,
+      repoName: 'test',
+      repoPath,
+    });
+
+    pendingRecord = {
+      id: 42,
+      stack: 'plex',
+      host: 'homeserver',
+      commitSha,
+      composeHash: '',
+      envHash: '',
+      status: 'pending',
+      trigger: 'git_push',
+      action: 'deploy',
+      forceRecreate: false,
+      logs: null,
+      createdAt: new Date(),
+      postSuccess: null,
+    };
+
+    mockResumePending = mock(() => Promise.resolve({ status: 'succeeded' as const, logs: 'ok', deployId: 42 }));
+    createDeployPipelineSpy = spyOn(pipelineFactory, 'createDeployPipeline').mockResolvedValue({
+      pipeline: { resumePending: (id: number, host: unknown, req: unknown) => mockResumePending(id, host, req) } as unknown as DeployPipeline,
+      deployRepo: {} as never,
+      stackRepoWriter: {} as never,
+    });
+
+    mockGetById.mockClear();
+    mockFindByName.mockClear();
+    mockRejectPending.mockClear();
+    mockNotifyStackChange.mockClear();
+  });
+
+  afterEach(() => {
+    loadGitConfigSpy.mockRestore();
+    createDeployPipelineSpy.mockRestore();
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test('resumePendingDeploy returns succeeded status without throwing', async () => {
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    const result = await resumePendingDeploy(42);
+    expect(result).toEqual({ deployId: 42, status: 'succeeded', logs: 'ok' });
+  });
+
+  test('resumePendingDeploy returns failed status instead of throwing', async () => {
+    mockResumePending.mockImplementationOnce(() =>
+      Promise.resolve({ status: 'failed' as const, logs: 'agent down', deployId: 42 }),
+    );
+    const { resumePendingDeploy } = await import('@/lib/stacks/stack-service');
+    const result = await resumePendingDeploy(42);
+    expect(result).toEqual({ deployId: 42, status: 'failed', logs: 'agent down' });
+  });
+
+  test('rejectPendingDeploy passes a failed outcome with action/trigger/message to notifyStackChange', async () => {
+    const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
+    const result = await rejectPendingDeploy(42);
+    expect(result).toEqual({ deployId: 42 });
+    expect(mockNotifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+      deployId: 42,
+      status: 'failed',
+      action: 'deploy',
+      trigger: 'git_push',
+      message: 'Manually rejected',
+    });
   });
 });
