@@ -277,7 +277,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push web image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: production
@@ -288,7 +288,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push worker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           target: base
@@ -299,7 +299,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push agent image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./agent
           target: base
@@ -310,7 +310,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=agent
 
       - name: Build and push agent-updater image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./agent-updater
           push: true
