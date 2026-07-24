@@ -201,7 +201,7 @@ The agent image does not ship ZFS tooling; the ZFS capability requires bind-moun
 
 ### Docker Stack Management
 
-Stack management lets you deploy and manage Docker Compose stacks on your hosts via the dashboard, either from the UI or by pushing to the built-in git repository at `/api/git/stacks`.
+Stack management lets you deploy and manage Docker Compose stacks on your hosts via the dashboard, either from the UI or by pushing to the built-in git repository at `/api/git/stacks`. Full repo, token, and manifest reference: [Git Stacks Repository](../docs/git-stacks-repo.md).
 
 Two separate credentials are involved, neither of which is an env var:
 

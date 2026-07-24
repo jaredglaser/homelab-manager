@@ -167,11 +167,11 @@ OIDC login, required by default; `AUTH_DISABLED=true` is the explicit opt-out an
 
 ### Deploy Pipeline (`src/lib/deploy/`)
 
-Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Each caller (`src/lib/git/post-receive-handler.ts` for git pushes, `src/lib/stacks/stack-service.ts` for UI deploys/rollbacks) assembles its own `DeployRequest` inline; there is no separate trigger-builder layer. Concurrency enforced via PostgreSQL partial unique index. Stuck deploys recovered on startup and via `DeployWatchdog` (default 20-min threshold) so a crashed process can't leave `in_progress` rows stranded.
+Trigger-agnostic orchestration: `DeployRequest` → validate → resolve secrets → dispatch to agent → record result. Each caller (`src/lib/git/post-receive-handler.ts` for git pushes, `src/lib/stacks/stack-service.ts` for UI deploys/rollbacks) assembles its own `DeployRequest` inline; there is no separate trigger-builder layer. Concurrency enforced via PostgreSQL partial unique index. Stuck deploys recovered on startup and via `DeployWatchdog` (default 20-min threshold) so a crashed process can't leave `in_progress` rows stranded. Details: [Deploy Pipeline](docs/architecture.md#deploy-pipeline-srclibdeploy).
 
 ### Git Management (`src/lib/git/`)
 
-Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/git/stacks/...` via `child_process.spawn` (not `Bun.spawn`; Vite SSR dev runs under Node). Post-receive hook diffs commits, identifies changed stacks, and builds deploy requests. Commits serialized per-repo via async mutex.
+Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/git/stacks/...` via `child_process.spawn` (not `Bun.spawn`; Vite SSR dev runs under Node). Post-receive hook diffs commits, identifies changed stacks, and builds deploy requests. Commits serialized per-repo via async mutex. Details: [Git Management](docs/architecture.md#git-management-srclibgit).
 
 ### Database Tables
 
@@ -179,27 +179,7 @@ Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`, `docker_container_eve
 
 ### Key Rotation
 
-Encrypted columns (`stack_secrets.ciphertext_jwe`, `agent_keypairs.private_jwk_jwe`) use a versioned keyring so a new master key can be enrolled without breaking existing ciphertext.
-
-**Env var patterns:**
-- `MASTER_KEY` / `MASTER_KEY_FILE`: single-key legacy pattern, treated as KID `v1`.
-- `MASTER_KEY_<KID>` / `MASTER_KEY_FILE_<KID>`: additional keys, e.g. `MASTER_KEY_v2=<base64>`.
-
-The highest-ranked KID is used for new encryptions (`vN` KIDs compare numerically, so `v10` outranks `v9`; non-`vN` KIDs fall back to byte order and rank below any `vN`); all loaded keys are available for decryption.
-
-**Rotation procedure:**
-1. Generate a new key: `openssl rand -base64 32`
-2. Add it alongside the old key: set `MASTER_KEY_v2=<new-base64>` (keep `MASTER_KEY`/`MASTER_KEY_v1` in place).
-3. Restart the app: new secrets encrypt under `v2`, old secrets still decrypt via `v1`.
-4. Run the migration CLI to re-encrypt existing rows:
-
-   ```bash
-   bun run migrate-secrets --from v1 --to v2
-   ```
-
-5. Remove the old key env var (`MASTER_KEY` or `MASTER_KEY_v1`) and restart.
-
-The migration script exits non-zero on any failure. Partially migrated rows are safe because both keys remain in the keyring during the rotation window. The CLI re-encrypts `stack_secrets`, `agent_keypairs`, and `git_tokens`; session rows are excluded on purpose (they expire on their own TTL, and an undecryptable session only forces a re-login).
+Encrypted columns (`stack_secrets.ciphertext_jwe`, `agent_keypairs.private_jwk_jwe`) use a versioned keyring: `MASTER_KEY`/`MASTER_KEY_FILE` is KID `v1`; additional keys use `MASTER_KEY_<KID>` (e.g. `MASTER_KEY_v2`). The highest-ranked KID encrypts new data (`vN` KIDs compare numerically, so `v10` outranks `v9`; non-`vN` KIDs fall back to byte order and rank below any `vN`); all loaded keys decrypt. Re-encrypt existing rows with `bun run migrate-secrets --from v1 --to v2` (covers `stack_secrets`, `agent_keypairs`, and `git_tokens`; sessions are excluded on purpose and just force a re-login). Operator procedure: [Master Key Rotation](self-hosting/README.md#master-key-rotation).
 
 ## Gotchas
 

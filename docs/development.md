@@ -166,20 +166,7 @@ bun run dev:local:logs:worker  # Worker logs only
 bun run dev:local:logs:agent   # Agent logs only
 ```
 
-### Stopping
-
-```bash
-bun run dev:local:down
-
-# Stop sample containers if running standalone
-docker compose -f ~/stacks/samples/docker-compose.yml down
-```
-
-To wipe all data and start fresh (includes database and all persisted volumes):
-
-```bash
-bun run dev:local:wipe
-```
+If the sample containers were started standalone, stop them with `docker compose -f ~/stacks/samples/docker-compose.yml down`.
 
 ---
 
