@@ -8,6 +8,14 @@ on:
   pull_request:
     branches: [main]
 
+# One run per ref: a newer push cancels the in-progress run for the same branch or
+# PR, so rapid merges to main (e.g. a batch of Dependabot PRs) don't each run CI to
+# completion. Keyed on github.ref so distinct PRs stay independent and release-tag
+# builds (refs/tags/v*) are never canceled by a main push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     name: Build, Test & License Check
