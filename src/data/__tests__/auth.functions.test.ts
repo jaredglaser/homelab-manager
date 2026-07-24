@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
+import { withStartContext } from '@/lib/test/start-context';
 
 // getRequest() requires an H3 AsyncLocalStorage context not present in tests;
 // mock it to return a controllable request object.
@@ -110,20 +111,20 @@ describe('auth.functions', () => {
     it('is defined and callable without throwing', async () => {
       const { getSession } = await import('@/data/auth.functions');
       expect(typeof getSession).toBe('function');
-      await getSession();
+      await withStartContext(() => getSession());
     });
   });
 
   describe('listUsers', () => {
     it('delegates to UserRepository.findAll', async () => {
       const { listUsers } = await import('@/data/auth.functions');
-      await listUsers({});
+      await withStartContext(() => listUsers({}));
       expect(mockUserFindAll).toHaveBeenCalledTimes(1);
     });
 
     it('creates a UserRepository using the db pool', async () => {
       const { listUsers } = await import('@/data/auth.functions');
-      await listUsers({});
+      await withStartContext(() => listUsers({}));
       expect(mockGetClient).toHaveBeenCalledTimes(1);
     });
   });
@@ -131,13 +132,13 @@ describe('auth.functions', () => {
   describe('listSessions', () => {
     it('delegates to SessionRepository.findAllWithUser', async () => {
       const { listSessions } = await import('@/data/auth.functions');
-      await listSessions({});
+      await withStartContext(() => listSessions({}));
       expect(mockSessionFindAllWithUser).toHaveBeenCalledTimes(1);
     });
 
     it('creates a SessionRepository using the db pool', async () => {
       const { listSessions } = await import('@/data/auth.functions');
-      await listSessions({});
+      await withStartContext(() => listSessions({}));
       expect(mockGetClient).toHaveBeenCalledTimes(1);
     });
   });
@@ -145,14 +146,14 @@ describe('auth.functions', () => {
   describe('revokeSession', () => {
     it('calls deleteById with the given sessionId', async () => {
       const { revokeSession } = await import('@/data/auth.functions');
-      await revokeSession({ data: { sessionId: 'abc123' } });
+      await withStartContext(() => revokeSession({ data: { sessionId: 'abc123' } }));
       expect(mockSessionDeleteById).toHaveBeenCalledTimes(1);
       expect(mockSessionDeleteById).toHaveBeenCalledWith('abc123');
     });
 
     it('passes a different sessionId through correctly', async () => {
       const { revokeSession } = await import('@/data/auth.functions');
-      await revokeSession({ data: { sessionId: 'session-xyz' } });
+      await withStartContext(() => revokeSession({ data: { sessionId: 'session-xyz' } }));
       expect(mockSessionDeleteById).toHaveBeenCalledWith('session-xyz');
     });
   });
@@ -160,14 +161,14 @@ describe('auth.functions', () => {
   describe('revokeAllUserSessions', () => {
     it('calls deleteByUserId with the given userId', async () => {
       const { revokeAllUserSessions } = await import('@/data/auth.functions');
-      await revokeAllUserSessions({ data: { userId: 42 } });
+      await withStartContext(() => revokeAllUserSessions({ data: { userId: 42 } }));
       expect(mockSessionDeleteByUserId).toHaveBeenCalledTimes(1);
       expect(mockSessionDeleteByUserId).toHaveBeenCalledWith(42);
     });
 
     it('passes a different userId through correctly', async () => {
       const { revokeAllUserSessions } = await import('@/data/auth.functions');
-      await revokeAllUserSessions({ data: { userId: 99 } });
+      await withStartContext(() => revokeAllUserSessions({ data: { userId: 99 } }));
       expect(mockSessionDeleteByUserId).toHaveBeenCalledWith(99);
     });
   });
@@ -175,7 +176,7 @@ describe('auth.functions', () => {
   describe('getRoleMapping', () => {
     it('is callable without throwing when auth is disabled', async () => {
       const { getRoleMapping } = await import('@/data/auth.functions');
-      await getRoleMapping({});
+      await withStartContext(() => getRoleMapping({}));
     });
   });
 });

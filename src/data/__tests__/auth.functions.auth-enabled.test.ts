@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
+import { withStartContext } from '@/lib/test/start-context';
 
 // Test the auth-enabled paths in auth.functions: sessionReadMiddleware and getRoleMapping.
 // A separate file from auth.functions.test.ts is needed because that file mocks
@@ -152,7 +153,7 @@ describe('getRoleMapping (auth enabled)', () => {
 
   it('calls loadAuthConfig to read role mapping when auth is enabled', async () => {
     const { getRoleMapping } = await import('@/data/auth.functions');
-    await getRoleMapping({});
+    await withStartContext(() => getRoleMapping({}));
     // createServerFn() wraps do not return handler values in test context;
     // verify delegation by asserting on mock call counts.
     expect(mockLoadAuthConfig).toHaveBeenCalledTimes(1);

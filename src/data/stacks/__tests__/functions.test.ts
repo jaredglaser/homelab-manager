@@ -1,5 +1,6 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
+import { withStartContext } from '@/lib/test/start-context';
 
 // Inject a synthetic admin user so requireRole checks pass in tests.
 //
@@ -168,7 +169,7 @@ describe('stacks.functions module', () => {
   describe('listStacks', () => {
     it('delegates to getStackSummaries', async () => {
       const { listStacks } = await import('../functions');
-      await listStacks({});
+      await withStartContext(() => listStacks({}));
       expect(mockGetStackSummaries).toHaveBeenCalledTimes(1);
     });
   });
@@ -176,14 +177,14 @@ describe('stacks.functions module', () => {
   describe('getStackDetail', () => {
     it('delegates to getStackDetailByName with stackName', async () => {
       const { getStackDetail } = await import('../functions');
-      await getStackDetail({ data: { stackName: 'nginx' } });
+      await withStartContext(() => getStackDetail({ data: { stackName: 'nginx' } }));
       expect(mockGetStackDetailByName).toHaveBeenCalledTimes(1);
       expect(mockGetStackDetailByName).toHaveBeenCalledWith('nginx');
     });
 
     it('passes through different stack names', async () => {
       const { getStackDetail } = await import('../functions');
-      await getStackDetail({ data: { stackName: 'redis' } });
+      await withStartContext(() => getStackDetail({ data: { stackName: 'redis' } }));
       expect(mockGetStackDetailByName).toHaveBeenCalledWith('redis');
     });
   });
@@ -191,9 +192,11 @@ describe('stacks.functions module', () => {
   describe('triggerDeploy', () => {
     it('delegates to triggerStackDeploy with deploy action', async () => {
       const { triggerDeploy } = await import('../functions');
-      await triggerDeploy({
-        data: { stack: 'nginx', host: 'server1', action: 'deploy' },
-      });
+      await withStartContext(() =>
+        triggerDeploy({
+          data: { stack: 'nginx', host: 'server1', action: 'deploy' },
+        }),
+      );
       expect(mockTriggerStackDeploy).toHaveBeenCalledTimes(1);
       expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
         stack: 'nginx',
@@ -204,9 +207,11 @@ describe('stacks.functions module', () => {
 
     it('delegates with teardown action', async () => {
       const { triggerDeploy } = await import('../functions');
-      await triggerDeploy({
-        data: { stack: 'nginx', host: 'server1', action: 'teardown' },
-      });
+      await withStartContext(() =>
+        triggerDeploy({
+          data: { stack: 'nginx', host: 'server1', action: 'teardown' },
+        }),
+      );
       expect(mockTriggerStackDeploy).toHaveBeenCalledWith({
         stack: 'nginx',
         host: 'server1',
@@ -219,9 +224,11 @@ describe('stacks.functions module', () => {
   describe('controlStack', () => {
     it('delegates start action for stack scope', async () => {
       const { controlStack } = await import('../functions');
-      await controlStack({
-        data: { stack: 'nginx', host: 'server1', action: 'start', scope: 'stack' },
-      });
+      await withStartContext(() =>
+        controlStack({
+          data: { stack: 'nginx', host: 'server1', action: 'start', scope: 'stack' },
+        }),
+      );
       expect(mockControlStackForHost).toHaveBeenCalledTimes(1);
       expect(mockControlStackForHost).toHaveBeenCalledWith(
         'server1',
@@ -232,9 +239,11 @@ describe('stacks.functions module', () => {
 
     it('delegates stop action for service scope', async () => {
       const { controlStack } = await import('../functions');
-      await controlStack({
-        data: { stack: 'nginx', host: 'server1', action: 'stop', scope: 'service', service: 'web' },
-      });
+      await withStartContext(() =>
+        controlStack({
+          data: { stack: 'nginx', host: 'server1', action: 'stop', scope: 'service', service: 'web' },
+        }),
+      );
       expect(mockControlStackForHost).toHaveBeenCalledWith(
         'server1',
         'stop',
@@ -244,9 +253,11 @@ describe('stacks.functions module', () => {
 
     it('delegates restart action for stack scope', async () => {
       const { controlStack } = await import('../functions');
-      await controlStack({
-        data: { stack: 'myapp', host: 'host2', action: 'restart', scope: 'stack' },
-      });
+      await withStartContext(() =>
+        controlStack({
+          data: { stack: 'myapp', host: 'host2', action: 'restart', scope: 'stack' },
+        }),
+      );
       expect(mockControlStackForHost).toHaveBeenCalledWith(
         'host2',
         'restart',
@@ -258,7 +269,9 @@ describe('stacks.functions module', () => {
       mockControlStackForHost.mockRejectedValueOnce(new Error('agent unreachable'));
       const { controlStack } = await import('../functions');
       await expect(
-        controlStack({ data: { stack: 'nginx', host: 'server1', action: 'start', scope: 'stack' } })
+        withStartContext(() =>
+          controlStack({ data: { stack: 'nginx', host: 'server1', action: 'start', scope: 'stack' } }),
+        )
       ).rejects.toThrow('agent unreachable');
     });
   });
@@ -266,14 +279,14 @@ describe('stacks.functions module', () => {
   describe('getDeployHistory', () => {
     it('delegates to getStackDeployHistory with stackName and limit', async () => {
       const { getDeployHistory } = await import('../functions');
-      await getDeployHistory({ data: { stackName: 'nginx', limit: 50 } });
+      await withStartContext(() => getDeployHistory({ data: { stackName: 'nginx', limit: 50 } }));
       expect(mockGetStackDeployHistory).toHaveBeenCalledTimes(1);
       expect(mockGetStackDeployHistory).toHaveBeenCalledWith('nginx', 50);
     });
 
     it('passes through stackName correctly', async () => {
       const { getDeployHistory } = await import('../functions');
-      await getDeployHistory({ data: { stackName: 'postgres', limit: 10 } });
+      await withStartContext(() => getDeployHistory({ data: { stackName: 'postgres', limit: 10 } }));
       expect(mockGetStackDeployHistory).toHaveBeenCalledWith('postgres', 10);
     });
   });
@@ -281,16 +294,18 @@ describe('stacks.functions module', () => {
   describe('saveComposeFile', () => {
     it('delegates to saveStackComposeFile with stackName and content', async () => {
       const { saveComposeFile } = await import('../functions');
-      await saveComposeFile({
-        data: { stackName: 'nginx', content: 'version: "3.8"' },
-      });
+      await withStartContext(() =>
+        saveComposeFile({
+          data: { stackName: 'nginx', content: 'version: "3.8"' },
+        }),
+      );
       expect(mockSaveStackComposeFile).toHaveBeenCalledTimes(1);
       expect(mockSaveStackComposeFile).toHaveBeenCalledWith('nginx', 'version: "3.8"');
     });
 
     it('handles empty content string', async () => {
       const { saveComposeFile } = await import('../functions');
-      await saveComposeFile({ data: { stackName: 'nginx', content: '' } });
+      await withStartContext(() => saveComposeFile({ data: { stackName: 'nginx', content: '' } }));
       expect(mockSaveStackComposeFile).toHaveBeenCalledWith('nginx', '');
     });
   });
@@ -298,14 +313,14 @@ describe('stacks.functions module', () => {
   describe('updateStackIcon', () => {
     it('delegates to updateStackIconSlug with stackName and iconSlug', async () => {
       const { updateStackIcon } = await import('../functions');
-      await updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'nginx' } });
+      await withStartContext(() => updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'nginx' } }));
       expect(mockUpdateStackIconSlug).toHaveBeenCalledTimes(1);
       expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('nginx', 'nginx');
     });
 
     it('passes through different icon slugs', async () => {
       const { updateStackIcon } = await import('../functions');
-      await updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } });
+      await withStartContext(() => updateStackIcon({ data: { stackName: 'redis', iconSlug: 'redis-stack' } }));
       expect(mockUpdateStackIconSlug).toHaveBeenCalledWith('redis', 'redis-stack');
     });
   });
@@ -313,7 +328,7 @@ describe('stacks.functions module', () => {
   describe('resumeDeploy', () => {
     it('delegates to resumePendingDeploy with deployId', async () => {
       const { resumeDeploy } = await import('../functions');
-      await resumeDeploy({ data: { deployId: 42 } });
+      await withStartContext(() => resumeDeploy({ data: { deployId: 42 } }));
       expect(mockResumePendingDeploy).toHaveBeenCalledTimes(1);
       expect(mockResumePendingDeploy).toHaveBeenCalledWith(42);
     });
@@ -323,7 +338,7 @@ describe('stacks.functions module', () => {
         Promise.reject(new Error('Deploy is not pending (status: succeeded)'))
       );
       const { resumeDeploy } = await import('../functions');
-      await expect(resumeDeploy({ data: { deployId: 42 } })).rejects.toThrow(
+      await expect(withStartContext(() => resumeDeploy({ data: { deployId: 42 } }))).rejects.toThrow(
         'Deploy is not pending (status: succeeded)'
       );
     });
@@ -333,7 +348,7 @@ describe('stacks.functions module', () => {
         Promise.reject(new Error('Deploy 999 not found'))
       );
       const { resumeDeploy } = await import('../functions');
-      await expect(resumeDeploy({ data: { deployId: 999 } })).rejects.toThrow(
+      await expect(withStartContext(() => resumeDeploy({ data: { deployId: 999 } }))).rejects.toThrow(
         'Deploy 999 not found'
       );
     });
@@ -342,7 +357,7 @@ describe('stacks.functions module', () => {
   describe('rejectDeploy', () => {
     it('delegates to rejectPendingDeploy with deployId', async () => {
       const { rejectDeploy } = await import('../functions');
-      await rejectDeploy({ data: { deployId: 42 } });
+      await withStartContext(() => rejectDeploy({ data: { deployId: 42 } }));
       expect(mockRejectPendingDeploy).toHaveBeenCalledTimes(1);
       expect(mockRejectPendingDeploy).toHaveBeenCalledWith(42);
     });
@@ -352,7 +367,7 @@ describe('stacks.functions module', () => {
         Promise.reject(new Error('Deploy is not pending (status: in_progress)'))
       );
       const { rejectDeploy } = await import('../functions');
-      await expect(rejectDeploy({ data: { deployId: 42 } })).rejects.toThrow(
+      await expect(withStartContext(() => rejectDeploy({ data: { deployId: 42 } }))).rejects.toThrow(
         'Deploy is not pending (status: in_progress)'
       );
     });
@@ -362,7 +377,7 @@ describe('stacks.functions module', () => {
         Promise.reject(new Error('Deploy 999 not found'))
       );
       const { rejectDeploy } = await import('../functions');
-      await expect(rejectDeploy({ data: { deployId: 999 } })).rejects.toThrow(
+      await expect(withStartContext(() => rejectDeploy({ data: { deployId: 999 } }))).rejects.toThrow(
         'Deploy 999 not found'
       );
     });
@@ -374,7 +389,7 @@ describe('stacks.functions module', () => {
         Promise.resolve({ status: 'teardown-pending' as const, deployId: 42 }),
       );
       const { deleteStack } = await import('../functions');
-      await deleteStack({ data: { stackName: 'nginx', teardown: true } });
+      await withStartContext(() => deleteStack({ data: { stackName: 'nginx', teardown: true } }));
       expect(mockDeleteStackFromRepo).toHaveBeenCalledWith('nginx', true);
     });
   });
@@ -385,7 +400,7 @@ describe('stacks.functions module', () => {
         Promise.reject(new Error('Database connection failed'))
       );
       const { listStacks } = await import('../functions');
-      await expect(listStacks({})).rejects.toThrow('Database connection failed');
+      await expect(withStartContext(() => listStacks({}))).rejects.toThrow('Database connection failed');
     });
 
     it('getStackDetail propagates service errors', async () => {
@@ -394,7 +409,7 @@ describe('stacks.functions module', () => {
       );
       const { getStackDetail } = await import('../functions');
       await expect(
-        getStackDetail({ data: { stackName: 'missing' } })
+        withStartContext(() => getStackDetail({ data: { stackName: 'missing' } }))
       ).rejects.toThrow('Git repo not found');
     });
 
@@ -404,7 +419,7 @@ describe('stacks.functions module', () => {
       );
       const { triggerDeploy } = await import('../functions');
       await expect(
-        triggerDeploy({ data: { stack: 'nginx', host: 'server1', action: 'deploy' } })
+        withStartContext(() => triggerDeploy({ data: { stack: 'nginx', host: 'server1', action: 'deploy' } }))
       ).rejects.toThrow('Agent unreachable');
     });
 
@@ -414,7 +429,7 @@ describe('stacks.functions module', () => {
       );
       const { saveComposeFile } = await import('../functions');
       await expect(
-        saveComposeFile({ data: { stackName: 'nginx', content: 'bad' } })
+        withStartContext(() => saveComposeFile({ data: { stackName: 'nginx', content: 'bad' } }))
       ).rejects.toThrow('Commit failed');
     });
 
@@ -424,7 +439,7 @@ describe('stacks.functions module', () => {
       );
       const { updateStackIcon } = await import('../functions');
       await expect(
-        updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'bad' } })
+        withStartContext(() => updateStackIcon({ data: { stackName: 'nginx', iconSlug: 'bad' } }))
       ).rejects.toThrow('Entity not found');
     });
 
@@ -434,7 +449,7 @@ describe('stacks.functions module', () => {
       );
       const { getDeployHistory } = await import('../functions');
       await expect(
-        getDeployHistory({ data: { stackName: 'nginx', limit: 10 } })
+        withStartContext(() => getDeployHistory({ data: { stackName: 'nginx', limit: 10 } }))
       ).rejects.toThrow('Query timeout');
     });
   });
