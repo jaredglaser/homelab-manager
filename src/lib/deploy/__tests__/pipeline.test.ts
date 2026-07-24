@@ -59,6 +59,7 @@ function createMockAgentClient(success = true): AgentClient {
   return {
     deploy: mock().mockResolvedValue({ success, logs: success ? 'deployed ok' : 'deploy failed' }),
     teardown: mock().mockResolvedValue({ success, logs: 'torn down' }),
+    update: mock().mockResolvedValue({ success, logs: success ? 'updated ok' : 'update failed' }),
     health: mock().mockResolvedValue({ status: 'healthy', version: '0.1.0' }),
   } as unknown as AgentClient;
 }
@@ -461,6 +462,208 @@ describe('DeployPipeline', () => {
       // Change detection is bypassed: deploy should proceed even though hashes match
       expect(result.status).toBe('succeeded');
       expect(deployRepo.getLatestSuccessful).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('update action', () => {
+    const testUpdateRequest: DeployRequest = {
+      stack: 'plex',
+      host: 'homeserver',
+      composeContent: 'version: "3"\nservices:\n  plex:\n    image: plexinc/pms-docker:latest',
+      commitSha: 'abc123',
+      envContent: '',
+      action: 'update',
+      trigger: 'ui',
+      autoApproved: true,
+    };
+
+    it('skips change detection and always executes, even when a matching previous deploy exists', async () => {
+      const { computeHash } = await import('../change-detection');
+      deployRepo = createMockDeployRepo({
+        getLatestSuccessful: mock().mockResolvedValue({
+          id: 99,
+          stack: 'plex',
+          host: 'homeserver',
+          commitSha: 'prev',
+          composeHash: computeHash(testUpdateRequest.composeContent),
+          envHash: computeHash(testUpdateRequest.envContent),
+          status: 'succeeded' as const,
+          trigger: 'ui' as const,
+          action: 'update' as const,
+          forceRecreate: false,
+          logs: null,
+          createdAt: new Date(),
+          postSuccess: null,
+        }) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testUpdateRequest);
+      expect(result.status).toBe('succeeded');
+      expect(deployRepo.getLatestSuccessful).not.toHaveBeenCalled();
+    });
+
+    it('records composeHash/envHash computed exactly like the deploy path', async () => {
+      const { computeHash } = await import('../change-detection');
+      const result = await pipeline.execute(testUpdateRequest);
+      expect(result.status).toBe('succeeded');
+
+      const insertCall = (deployRepo.insertDeployIfNoActive as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(insertCall.composeHash).toBe(computeHash(testUpdateRequest.composeContent));
+      expect(insertCall.envHash).toBe(computeHash(testUpdateRequest.envContent));
+    });
+
+    it('records composeHash/envHash against the resolved env content, not the raw env', async () => {
+      const composeWithVars = 'services:\n  app:\n    environment:\n      - TOKEN=${API_TOKEN}';
+      const requestWithVars = { ...testUpdateRequest, composeContent: composeWithVars };
+      const resolver: SecretResolver = {
+        resolve: mock().mockResolvedValue({ API_TOKEN: 'secret-value' }),
+      };
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver: resolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const { computeHash } = await import('../change-detection');
+      const result = await pipeline.execute(requestWithVars);
+      expect(result.status).toBe('succeeded');
+
+      const insertCall = (deployRepo.insertDeployIfNoActive as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(insertCall.composeHash).toBe(computeHash(composeWithVars));
+      expect(insertCall.envHash).toBe(computeHash("API_TOKEN='secret-value'"));
+    });
+
+    it('resolves secrets before dispatching to the agent', async () => {
+      const composeWithVars = 'services:\n  app:\n    environment:\n      - TOKEN=${API_TOKEN}';
+      const requestWithVars = { ...testUpdateRequest, composeContent: composeWithVars };
+      const resolver: SecretResolver = {
+        resolve: mock().mockResolvedValue({ API_TOKEN: 'secret-value' }),
+      };
+      const mockAgent = createMockAgentClient(true);
+      const capturedFactory = mock().mockReturnValue(mockAgent);
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory: capturedFactory,
+        secretResolver: resolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      await pipeline.execute(requestWithVars);
+      expect(resolver.resolve).toHaveBeenCalledWith('plex', ['API_TOKEN']);
+      const updateCall = (mockAgent.update as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(updateCall.envContent).toContain("API_TOKEN='secret-value'");
+    });
+
+    it('dispatches agent.update with stack, composeContent, envContent (no forceRecreate)', async () => {
+      const mockAgent = createMockAgentClient(true);
+      agentClientFactory = mock().mockReturnValue(mockAgent);
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      await pipeline.execute(testUpdateRequest);
+      expect(mockAgent.update).toHaveBeenCalledWith({
+        stack: 'plex',
+        composeContent: testUpdateRequest.composeContent,
+        envContent: '',
+      });
+      expect(mockAgent.deploy).not.toHaveBeenCalled();
+    });
+
+    it('records forceRecreate:false on the deploy_history row', async () => {
+      await pipeline.execute(testUpdateRequest);
+      const insertCall = (deployRepo.insertDeployIfNoActive as ReturnType<typeof mock>).mock.calls[0][0];
+      expect(insertCall.forceRecreate).toBe(false);
+    });
+
+    it('rejects when another deploy is active for the stack', async () => {
+      deployRepo = createMockDeployRepo({
+        insertDeployIfNoActive: mock().mockResolvedValue(null) as any,
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testUpdateRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toContain('active deploy');
+    });
+
+    it('records failure when the agent update call fails', async () => {
+      const failAgent = createMockAgentClient(false);
+      agentClientFactory = mock().mockReturnValue(failAgent);
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testUpdateRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toBe('update failed');
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 1,
+        status: 'failed',
+        action: 'update',
+        trigger: 'ui',
+        message: 'update failed',
+      });
+    });
+
+    it('records failure when the agent update call throws (e.g. 404 old-agent error)', async () => {
+      agentClientFactory = mock().mockReturnValue({
+        deploy: mock(),
+        teardown: mock(),
+        update: mock().mockRejectedValue(new Error('Agent on agent:9090 does not support image updates. Update the agent container and retry.')),
+        health: mock(),
+      });
+      pipeline = new DeployPipeline({
+        deployRepo: deployRepo as unknown as DeployRepository,
+        hostsRepo: hostsRepo as unknown as HostRepository,
+        agentClientFactory,
+        secretResolver,
+        tokenResolver: async () => async () => 'mock-jwt',
+        stackRepoWriter: createMockStackRepoWriter(),
+      });
+
+      const result = await pipeline.execute(testUpdateRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toContain('does not support image updates');
+    });
+  });
+
+  describe('dispatch exhaustiveness', () => {
+    it('throws for an unknown action reaching dispatch', async () => {
+      const bogusRequest = { ...testRequest, action: 'bogus' } as unknown as DeployRequest;
+      const result = await pipeline.execute(bogusRequest);
+      expect(result.status).toBe('failed');
+      expect(result.logs).toContain('Unknown deploy action');
     });
   });
 

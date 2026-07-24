@@ -1,6 +1,9 @@
 import type { AgentStackResponse, AgentHealthCheckResponse } from '@homelab-manager/agent/types';
-import type { AgentDeployPayload, AgentDeployResponse } from '@/lib/deploy/types';
+import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from '@/lib/deploy/types';
 import { retry } from '@/lib/utils/backoff';
+
+/** Agent's 15-min pull+up budget on /stacks/update, plus 1 min network slack. */
+const UPDATE_TIMEOUT_MS = 960_000;
 
 export interface ZfsPool {
   name: string;
@@ -84,6 +87,25 @@ export class AgentClient {
 
   async deploy(payload: AgentDeployPayload): Promise<AgentDeployResponse> {
     const raw = await this.postJson<AgentStackResponse>('/stacks/deploy', payload);
+    return adaptDeployResponse(raw);
+  }
+
+  async update(payload: AgentUpdatePayload): Promise<AgentDeployResponse> {
+    let raw: AgentStackResponse;
+    try {
+      raw = await this.postJson<AgentStackResponse>('/stacks/update', payload, UPDATE_TIMEOUT_MS);
+    } catch (err) {
+      if (err instanceof AgentClientError && err.statusCode === 404) {
+        const host = safeHost(this.agentUrl);
+        throw new AgentClientError(
+          `Agent on ${host} does not support image updates. Update the agent container and retry.`,
+          err.statusCode,
+          err.agentUrl,
+          err.wasTimeout,
+        );
+      }
+      throw err;
+    }
     return adaptDeployResponse(raw);
   }
 
@@ -232,6 +254,14 @@ export class AgentClient {
         false,
       );
     }
+  }
+}
+
+function safeHost(agentUrl: string): string {
+  try {
+    return new URL(agentUrl).host;
+  } catch {
+    return agentUrl;
   }
 }
 

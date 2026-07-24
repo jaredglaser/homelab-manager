@@ -91,6 +91,29 @@ describe('formatDeployOutcome', () => {
     });
   });
 
+  test('formats a successful update', () => {
+    expect(formatDeployOutcome({ stack: 'plex', action: 'update', status: 'succeeded', trigger: 'ui' })).toEqual({
+      message: 'Image update of plex succeeded',
+      severity: 'success',
+    });
+  });
+
+  test('formats a failed update with a message', () => {
+    expect(formatDeployOutcome({
+      stack: 'plex', action: 'update', status: 'failed', trigger: 'ui', message: 'pull failed: image not found',
+    })).toEqual({
+      message: 'Image update of plex failed: pull failed: image not found',
+      severity: 'error',
+    });
+  });
+
+  test('formats a failed update without a message', () => {
+    expect(formatDeployOutcome({ stack: 'plex', action: 'update', status: 'failed', trigger: 'ui' })).toEqual({
+      message: 'Image update of plex failed',
+      severity: 'error',
+    });
+  });
+
   test('formats a failed git-push deploy with the "(git push)" suffix and a message', () => {
     expect(formatDeployOutcome({
       stack: 'plex', action: 'deploy', status: 'failed', trigger: 'git_push', message: 'image not found',

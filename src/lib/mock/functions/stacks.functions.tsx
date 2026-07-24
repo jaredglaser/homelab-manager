@@ -221,6 +221,19 @@ volumes:
 
 const MOCK_DEPLOY_HISTORY: StackDeployRecord[] = [
   {
+    id: 5,
+    stack: 'plex',
+    host: 'nas01',
+    commitSha: 'b2c3d4e',
+    envHash: 'jkl012',
+    status: 'succeeded',
+    trigger: 'ui',
+    action: 'update',
+    forceRecreate: false,
+    logs: '$ docker compose pull --ignore-buildable\nplex Pulled\n$ docker compose up -d --remove-orphans\nContainer plex-app-1  Recreating\nContainer plex-app-1  Started\n',
+    createdAt: new Date(Date.now() - 3_600_000 / 4).toISOString(),
+  },
+  {
     id: 4,
     stack: 'plex',
     host: 'nas01',

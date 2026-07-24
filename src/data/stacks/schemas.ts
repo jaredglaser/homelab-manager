@@ -17,7 +17,7 @@ export const getStackDetailSchema = z.object({
 export const triggerDeploySchema = z.object({
   stack: stackNameField,
   host: z.string().min(1),
-  action: z.enum(['deploy', 'teardown']),
+  action: z.enum(['deploy', 'teardown', 'update']),
   commitSha: z.string().optional(),
   forceRecreate: z.boolean().optional(),
 });

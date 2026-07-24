@@ -10,13 +10,13 @@ export interface DeployWatchdogConfig {
 }
 
 const DEFAULT_INTERVAL_MS = 2 * 60 * 1000;
-const DEFAULT_THRESHOLD_MINUTES = 10;
+const DEFAULT_THRESHOLD_MINUTES = 20;
 const FAILURE_ESCALATION_THRESHOLD = 3;
 
 /**
- * Defaults: 2 min interval / 10 min threshold (~2x the agent's 5-min compose
- * subprocess cap), so deploys still in_progress past this point mean the
- * failure path itself got lost.
+ * Defaults: 2 min interval / 20 min threshold (~1.3x the agent's 15-min
+ * update budget: 10-min pull + 5-min up), so a legitimate image update
+ * mid-pull is not false-failed by the watchdog.
  */
 export function loadDeployWatchdogConfig(): DeployWatchdogConfig {
   return {

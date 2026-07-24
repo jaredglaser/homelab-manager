@@ -2,7 +2,7 @@ import type { AgentClient } from '@/lib/clients/agent-client';
 import type { DeployRepository } from '@/lib/database/repositories/deploy-repository';
 import type { HostRepository, ManagedHost } from '@/lib/database/repositories/host-repository';
 import type { DeployRequest, DeployStatus, SecretResolver } from '@/lib/deploy/types';
-import { detectChanges } from '@/lib/deploy/change-detection';
+import { computeHash, detectChanges } from '@/lib/deploy/change-detection';
 import { extractVariableReferences } from '@/lib/deploy/secret-resolver';
 
 interface PipelineResult {
@@ -138,6 +138,11 @@ export class DeployPipeline {
         }
         return { status: 'no_change', logs: 'No changes detected, skipping deploy', deployId };
       }
+    } else if (request.action === 'update') {
+      // Hashes must match the deploy path exactly: a later identical deploy
+      // detects no_change against this row via getLatestSuccessful.
+      composeHash = computeHash(request.composeContent);
+      envHash = computeHash(resolvedEnvContent);
     }
 
     // 3. Atomic insert: the partial unique index rejects if an active deploy exists
@@ -227,7 +232,7 @@ export class DeployPipeline {
   }
 
   private async resolveEnv(request: DeployRequest): Promise<string> {
-    if (request.action !== 'deploy') return '';
+    if (request.action !== 'deploy' && request.action !== 'update') return '';
 
     const variables = extractVariableReferences(request.composeContent);
     if (variables.length === 0) return request.envContent;
@@ -260,6 +265,17 @@ export class DeployPipeline {
         case 'teardown':
           result = await agent.teardown(request.stack);
           break;
+        case 'update':
+          result = await agent.update({
+            stack: request.stack,
+            composeContent: request.composeContent,
+            envContent,
+          });
+          break;
+        default: {
+          const _exhaustive: never = request;
+          throw new Error(`Unknown deploy action: ${(_exhaustive as DeployRequest).action}`);
+        }
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);

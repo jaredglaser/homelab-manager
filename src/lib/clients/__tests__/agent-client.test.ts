@@ -111,6 +111,75 @@ describe('AgentClient', () => {
     });
   });
 
+  describe('update', () => {
+    it('sends POST to /stacks/update with stack, composeContent, envContent (no forceRecreate)', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: 'pulled + up', stderr: '' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const result = await client.update({
+        stack: 'plex',
+        composeContent: 'version: "3"',
+        envContent: 'KEY=val',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.logs).toBe('pulled + up');
+
+      const [url, options] = fetchMock.mock.calls[0];
+      expect(url).toBe('http://agent:9090/stacks/update');
+      expect(options.method).toBe('POST');
+      const body = JSON.parse(options.body);
+      expect(body).toEqual({ stack: 'plex', composeContent: 'version: "3"', envContent: 'KEY=val' });
+      expect(body.forceRecreate).toBeUndefined();
+    });
+
+    it('maps a 404 to a friendly "agent does not support image updates" message', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+
+      let thrown: unknown;
+      try {
+        await client.update({ stack: 'plex', composeContent: 'x', envContent: '' });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).message).toBe(
+        'Agent on agent:9090 does not support image updates. Update the agent container and retry.',
+      );
+      expect((thrown as AgentClientError).statusCode).toBe(404);
+    });
+
+    it('passes through non-404 errors unchanged', async () => {
+      fetchMock.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
+
+      let thrown: unknown;
+      try {
+        await client.update({ stack: 'plex', composeContent: 'x', envContent: '' });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(AgentClientError);
+      expect((thrown as AgentClientError).statusCode).toBe(500);
+      expect((thrown as AgentClientError).message).not.toContain('does not support image updates');
+    });
+
+    it('uses the 960_000ms (16 min) per-attempt timeout', async () => {
+      const abortSpy = spyOn(AbortSignal, 'timeout');
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', stdout: 'ok', stderr: '' }), { status: 200 })
+      );
+
+      await client.update({ stack: 'plex', composeContent: 'x', envContent: '' });
+
+      expect(abortSpy).toHaveBeenCalledWith(960_000);
+      abortSpy.mockRestore();
+    });
+  });
+
   describe('teardown', () => {
     it('sends POST to /stacks/teardown', async () => {
       fetchMock.mockResolvedValueOnce(

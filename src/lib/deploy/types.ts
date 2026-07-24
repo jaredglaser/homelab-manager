@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const DEPLOY_ACTION_VALUES = ['deploy', 'teardown'] as const;
+export const DEPLOY_ACTION_VALUES = ['deploy', 'teardown', 'update'] as const;
 export type DeployAction = (typeof DEPLOY_ACTION_VALUES)[number];
 
 export const DEPLOY_STATUS_VALUES = [
@@ -60,7 +60,13 @@ export interface TeardownRequest extends BaseDeployRequest {
   action: 'teardown';
 }
 
-export type DeployRequest = DeployActionRequest | TeardownRequest;
+export interface UpdateRequest extends BaseDeployRequest {
+  action: 'update';
+  composeContent: string;
+  envContent: string;
+}
+
+export type DeployRequest = DeployActionRequest | TeardownRequest | UpdateRequest;
 
 export interface DeployRecord {
   id: number;
@@ -104,6 +110,12 @@ export interface AgentDeployPayload {
   envContent: string;
   action: DeployAction;
   forceRecreate?: boolean;
+}
+
+export interface AgentUpdatePayload {
+  stack: string;
+  composeContent: string;
+  envContent: string;
 }
 
 export interface AgentDeployResponse {
