@@ -1,9 +1,14 @@
 import { describe, expect, test, mock, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
+import type Dockerode from 'dockerode';
 import {
   subscribe,
   _resetBroadcasterForTesting,
   _handleDockerEventForTesting,
+  normalizePorts,
+  normalizeMounts,
+  portCandidatesFromInspect,
+  portCandidatesFromList,
 } from '../docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../docker-events-broadcaster';
 
@@ -38,6 +43,8 @@ function makeContainer(
     StartedAt: null,
     FinishedAt: null,
     ExitCode: null,
+    Ports: [],
+    Mounts: [],
   };
 }
 
@@ -1137,5 +1144,315 @@ describe('_resetBroadcasterForTesting: with active reconnect timer', () => {
       globalThis.setTimeout = originalSetTimeout;
       unsub();
     }
+  });
+});
+
+describe('portCandidatesFromInspect + normalizePorts: inspect shape', () => {
+  test('published port coerces string HostPort to number', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }],
+    }));
+    expect(result).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
+  });
+
+  test('unpublished exposed port has null bindings array', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': null as unknown as Array<{ HostIp: string; HostPort: string }>,
+    }));
+    expect(result).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: null }]);
+  });
+
+  test('udp port normalizes with its protocol', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '53/udp': [{ HostIp: '0.0.0.0', HostPort: '5353' }],
+    }));
+    expect(result).toEqual([{ containerPort: 53, protocol: 'udp', hostIp: '0.0.0.0', hostPort: 5353 }]);
+  });
+
+  test('multiple host bindings (ipv4 and ipv6) each produce a distinct entry', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': [
+        { HostIp: '0.0.0.0', HostPort: '8080' },
+        { HostIp: '::', HostPort: '8080' },
+      ],
+    }));
+    expect(result).toEqual([
+      { containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 },
+      { containerPort: 80, protocol: 'tcp', hostIp: '::', hostPort: 8080 },
+    ]);
+  });
+
+  test('sorts deterministically by containerPort, protocol, hostIp, hostPort', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '443/tcp': [{ HostIp: '0.0.0.0', HostPort: '8443' }],
+      '80/udp': [{ HostIp: '0.0.0.0', HostPort: '8081' }],
+      '80/tcp': [
+        { HostIp: '::', HostPort: '8080' },
+        { HostIp: '0.0.0.0', HostPort: '8080' },
+      ],
+    }));
+    expect(result).toEqual([
+      { containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 },
+      { containerPort: 80, protocol: 'tcp', hostIp: '::', hostPort: 8080 },
+      { containerPort: 80, protocol: 'udp', hostIp: '0.0.0.0', hostPort: 8081 },
+      { containerPort: 443, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8443 },
+    ]);
+  });
+
+  test('skips a malformed binding with non-numeric HostPort', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': [{ HostIp: '0.0.0.0', HostPort: 'not-a-port' }],
+    }));
+    expect(result).toEqual([]);
+  });
+
+  test('null/undefined Ports map produces no entries', () => {
+    expect(normalizePorts(portCandidatesFromInspect(null))).toEqual([]);
+    expect(normalizePorts(portCandidatesFromInspect(undefined))).toEqual([]);
+  });
+
+  test('skips a malformed port key with no "/protocol" suffix', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      garbage: null as unknown as Array<{ HostIp: string; HostPort: string }>,
+    }));
+    expect(result).toEqual([]);
+  });
+
+  test('empty-string HostIp normalizes to null, matching the list shape', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': [{ HostIp: '', HostPort: '8080' }],
+    }));
+    expect(result).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }]);
+  });
+
+  test('empty-string HostPort normalizes to null rather than Number("") === 0', () => {
+    const result = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '' }],
+    }));
+    expect(result).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: null }]);
+  });
+});
+
+describe('portCandidatesFromList + normalizePorts: list shape', () => {
+  test('published port uses number PublicPort directly', () => {
+    const result = normalizePorts(portCandidatesFromList([
+      { IP: '0.0.0.0', PrivatePort: 80, PublicPort: 8080, Type: 'tcp' },
+    ]));
+    expect(result).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
+  });
+
+  test('unpublished port has absent IP and PublicPort', () => {
+    const result = normalizePorts(portCandidatesFromList([
+      { PrivatePort: 80, Type: 'tcp' } as unknown as Dockerode.Port,
+    ]));
+    expect(result).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: null }]);
+  });
+
+  test('null Ports array produces no entries', () => {
+    expect(normalizePorts(portCandidatesFromList(null))).toEqual([]);
+  });
+
+  test('equivalence: inspect shape and list shape normalize a published port identically', () => {
+    const fromInspect = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }],
+    }));
+    const fromList = normalizePorts(portCandidatesFromList([
+      { IP: '0.0.0.0', PrivatePort: 80, PublicPort: 8080, Type: 'tcp' },
+    ]));
+    expect(fromList).toEqual(fromInspect);
+  });
+
+  test('equivalence: inspect shape and list shape normalize an unpublished port identically', () => {
+    const fromInspect = normalizePorts(portCandidatesFromInspect({
+      '80/tcp': null as unknown as Array<{ HostIp: string; HostPort: string }>,
+    }));
+    const fromList = normalizePorts(portCandidatesFromList([
+      { PrivatePort: 80, Type: 'tcp' } as unknown as Dockerode.Port,
+    ]));
+    expect(fromList).toEqual(fromInspect);
+  });
+
+  test('equivalence: multiple ports of mixed protocols normalize to the same sorted output', () => {
+    const fromInspect = normalizePorts(portCandidatesFromInspect({
+      '443/tcp': [{ HostIp: '0.0.0.0', HostPort: '8443' }],
+      '53/udp': [{ HostIp: '0.0.0.0', HostPort: '5353' }],
+      '80/tcp': null as unknown as Array<{ HostIp: string; HostPort: string }>,
+    }));
+    const fromList = normalizePorts(portCandidatesFromList([
+      { IP: '0.0.0.0', PrivatePort: 53, PublicPort: 5353, Type: 'udp' },
+      { PrivatePort: 80, Type: 'tcp' } as unknown as Dockerode.Port,
+      { IP: '0.0.0.0', PrivatePort: 443, PublicPort: 8443, Type: 'tcp' },
+    ]));
+    expect(fromList).toEqual(fromInspect);
+  });
+});
+
+describe('normalizeMounts', () => {
+  test('bind mount with rw true', () => {
+    const result = normalizeMounts([{ Type: 'bind', Source: '/host/data', Destination: '/data', RW: true }]);
+    expect(result).toEqual([{ type: 'bind', source: '/host/data', destination: '/data', rw: true }]);
+  });
+
+  test('bind mount with rw false (read-only)', () => {
+    const result = normalizeMounts([{ Type: 'bind', Source: '/host/data', Destination: '/data', RW: false }]);
+    expect(result).toEqual([{ type: 'bind', source: '/host/data', destination: '/data', rw: false }]);
+  });
+
+  test('volume type mount', () => {
+    const result = normalizeMounts([{ Type: 'volume', Source: 'my-volume', Destination: '/var/lib/data', RW: true }]);
+    expect(result).toEqual([{ type: 'volume', source: 'my-volume', destination: '/var/lib/data', rw: true }]);
+  });
+
+  test('volume type prefers Name over Source when both are present', () => {
+    const result = normalizeMounts([{
+      Type: 'volume',
+      Name: 'my-volume',
+      Source: '/var/lib/docker/volumes/my-volume/_data',
+      Destination: '/var/lib/data',
+      RW: true,
+    }]);
+    expect(result).toEqual([{ type: 'volume', source: 'my-volume', destination: '/var/lib/data', rw: true }]);
+  });
+
+  test('equivalence: a named volume normalizes identically from the inspect shape (resolved path Source) and the list shape (empty Source)', () => {
+    const fromInspect = normalizeMounts([{
+      Type: 'volume',
+      Name: 'my-volume',
+      Source: '/var/lib/docker/volumes/my-volume/_data',
+      Destination: '/var/lib/data',
+      RW: true,
+    }]);
+    const fromList = normalizeMounts([{
+      Type: 'volume',
+      Name: 'my-volume',
+      Source: '',
+      Destination: '/var/lib/data',
+      RW: true,
+    }]);
+    expect(fromList).toEqual(fromInspect);
+  });
+
+  test('sorts by destination', () => {
+    const result = normalizeMounts([
+      { Type: 'bind', Source: '/b', Destination: '/z', RW: true },
+      { Type: 'bind', Source: '/a', Destination: '/a', RW: true },
+    ]);
+    expect(result.map((m) => m.destination)).toEqual(['/a', '/z']);
+  });
+
+  test('skips a malformed entry missing Type or Destination', () => {
+    const result = normalizeMounts([
+      { Source: '/a', Destination: '/a', RW: true },
+      { Type: 'bind', Source: '/b', RW: true },
+      { Type: 'bind', Source: '/c', Destination: '/c', RW: true },
+    ]);
+    expect(result).toEqual([{ type: 'bind', source: '/c', destination: '/c', rw: true }]);
+  });
+
+  test('null/undefined mounts produces no entries', () => {
+    expect(normalizeMounts(null)).toEqual([]);
+    expect(normalizeMounts(undefined)).toEqual([]);
+  });
+});
+
+describe('subscribe: init and upsert carry ports and mounts', () => {
+  test('init event includes ports and mounts from inspect', async () => {
+    const eventsEmitter = new EventEmitter();
+    const listEntry = makeContainer('c1', 'app1', 'running');
+    const docker = {
+      listContainers: mock(() => Promise.resolve([listEntry])),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app1',
+          State: { Status: 'running' },
+          Config: { Image: 'nginx:latest', Labels: {} },
+          NetworkSettings: { Ports: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }] } },
+          Mounts: [{ Type: 'bind', Source: '/host', Destination: '/data', RW: true }],
+        })),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    unsub();
+
+    const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+    expect(init.containers[0].Ports).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
+    expect(init.containers[0].Mounts).toEqual([{ type: 'bind', source: '/host', destination: '/data', rw: true }]);
+  });
+
+  test('upsert event includes ports and mounts from inspect', async () => {
+    const eventsEmitter = new EventEmitter();
+    const containers = [makeContainer('c1', 'app1')];
+    const docker = {
+      listContainers: mock(() => Promise.resolve(containers)),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.resolve({
+          Id: 'c1',
+          Name: '/app1',
+          State: { Status: 'running' },
+          Config: { Image: 'nginx:latest', Labels: {} },
+          NetworkSettings: { Ports: { '80/tcp': [{ HostIp: '0.0.0.0', HostPort: '8080' }] } },
+          Mounts: [{ Type: 'volume', Source: 'vol1', Destination: '/var/data', RW: true }],
+        })),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    let resolveUpsert: (() => void) | null = null;
+    const upsertReceived = new Promise<void>((resolve) => {
+      resolveUpsert = resolve;
+    });
+    // subscribe() awaits startEventsSubscription internally, so by the time it
+    // resolves the 'data' listener is already attached; no need to wait before emitting.
+    const unsub = await subscribe(docker as any, (e) => {
+      received.push(e);
+      if (e.op === 'upsert') resolveUpsert?.();
+    });
+
+    eventsEmitter.emit('data', Buffer.from(JSON.stringify({
+      Type: 'container',
+      Action: 'start',
+      Actor: { ID: 'c1' },
+    }) + '\n'));
+
+    await upsertReceived;
+    unsub();
+
+    const upserts = received.filter((e) => e.op === 'upsert');
+    const upsert = upserts[0] as Extract<BroadcasterEvent, { op: 'upsert' }>;
+    expect(upsert.container.Ports).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
+    expect(upsert.container.Mounts).toEqual([{ type: 'volume', source: 'vol1', destination: '/var/data', rw: true }]);
+  });
+
+  test('init falls back to list normalization (Ports/Mounts) when inspect fails', async () => {
+    const eventsEmitter = new EventEmitter();
+    const listEntry = {
+      Id: 'c1',
+      Names: ['/app1'],
+      State: 'running',
+      Image: 'nginx:latest',
+      Labels: {},
+      Ports: [{ IP: '0.0.0.0', PrivatePort: 80, PublicPort: 8080, Type: 'tcp' }],
+      Mounts: [{ Type: 'bind', Source: '/host', Destination: '/data', RW: true, Mode: 'rw' }],
+    };
+    const docker = {
+      listContainers: mock(() => Promise.resolve([listEntry])),
+      getEvents: mock(() => Promise.resolve(eventsEmitter)),
+      getContainer: mock(() => ({
+        inspect: mock(() => Promise.reject(new Error('inspect blew up'))),
+      })),
+    };
+
+    const received: BroadcasterEvent[] = [];
+    const unsub = await subscribe(docker as any, (e) => received.push(e));
+    unsub();
+
+    const init = received[0] as Extract<BroadcasterEvent, { op: 'init' }>;
+    expect(init.containers[0].Ports).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
+    expect(init.containers[0].Mounts).toEqual([{ type: 'bind', source: '/host', destination: '/data', rw: true }]);
   });
 });

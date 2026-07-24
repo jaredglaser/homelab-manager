@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
+import type { ContainerPort, ContainerMount } from '../types/protocol';
 
 const BACKOFF_BASE_MS = 500;
 const BACKOFF_CAP_MS = 32_000;
@@ -23,6 +24,8 @@ export interface MinimalContainerInfo {
   StartedAt: string | null;
   FinishedAt: string | null;
   ExitCode: number | null;
+  Ports: ContainerPort[];
+  Mounts: ContainerMount[];
 }
 
 function normalizeTimestamp(value: string | null | undefined): string | null {
@@ -33,6 +36,122 @@ function normalizeTimestamp(value: string | null | undefined): string | null {
 function normalizeExitCode(state: string, exitCode: number | null | undefined): number | null {
   if (!TERMINAL_STATES.has(state)) return null;
   return typeof exitCode === 'number' ? exitCode : null;
+}
+
+function compareStrings(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+function comparePorts(a: ContainerPort, b: ContainerPort): number {
+  if (a.containerPort !== b.containerPort) return a.containerPort - b.containerPort;
+  if (a.protocol !== b.protocol) return compareStrings(a.protocol, b.protocol);
+  const aHostIp = a.hostIp ?? '';
+  const bHostIp = b.hostIp ?? '';
+  if (aHostIp !== bHostIp) return compareStrings(aHostIp, bHostIp);
+  return (a.hostPort ?? -1) - (b.hostPort ?? -1);
+}
+
+function compareMounts(a: ContainerMount, b: ContainerMount): number {
+  return compareStrings(a.destination, b.destination);
+}
+
+/** Loosely-typed candidate produced by either Docker API shape before validation and sorting. */
+export interface RawPortCandidate {
+  containerPort: number;
+  protocol: string | undefined;
+  hostIp: string | null | undefined;
+  hostPort: string | number | null | undefined;
+}
+
+/** Shared by buildFromInspect and buildFromListEntry so both paths produce identical canonical output for the same container. */
+export function normalizePorts(candidates: RawPortCandidate[]): ContainerPort[] {
+  const result: ContainerPort[] = [];
+
+  for (const candidate of candidates) {
+    if (!Number.isFinite(candidate.containerPort) || !candidate.protocol) continue;
+
+    const hostIp = candidate.hostIp ? candidate.hostIp : null;
+    const hostPortRaw = typeof candidate.hostPort === 'string' ? candidate.hostPort.trim() : candidate.hostPort;
+
+    if (hostPortRaw === null || hostPortRaw === undefined || hostPortRaw === '') {
+      result.push({ containerPort: candidate.containerPort, protocol: candidate.protocol, hostIp: null, hostPort: null });
+      continue;
+    }
+
+    const hostPort = Number(hostPortRaw);
+    if (!Number.isFinite(hostPort)) continue;
+    result.push({
+      containerPort: candidate.containerPort,
+      protocol: candidate.protocol,
+      hostIp,
+      hostPort,
+    });
+  }
+
+  return result.sort(comparePorts);
+}
+
+/** NetworkSettings.Ports value is null at runtime for exposed-but-unpublished ports, despite the dockerode type saying array. */
+export function portCandidatesFromInspect(
+  ports: Dockerode.ContainerInspectInfo['NetworkSettings']['Ports'] | null | undefined,
+): RawPortCandidate[] {
+  const candidates: RawPortCandidate[] = [];
+  if (!ports) return candidates;
+
+  for (const [key, bindings] of Object.entries(ports)) {
+    const [containerPortRaw, protocol] = key.split('/');
+    const containerPort = Number(containerPortRaw);
+
+    if (!bindings || bindings.length === 0) {
+      candidates.push({ containerPort, protocol, hostIp: null, hostPort: null });
+      continue;
+    }
+
+    for (const binding of bindings) {
+      candidates.push({ containerPort, protocol, hostIp: binding.HostIp, hostPort: binding.HostPort });
+    }
+  }
+
+  return candidates;
+}
+
+/** c.Ports is an array of {IP?, PrivatePort, PublicPort?, Type}; IP/PublicPort are absent when unpublished. */
+export function portCandidatesFromList(ports: Dockerode.Port[] | null | undefined): RawPortCandidate[] {
+  if (!ports) return [];
+  return ports.map((port) => ({
+    containerPort: port.PrivatePort,
+    protocol: port.Type,
+    hostIp: port.IP ?? null,
+    hostPort: port.PublicPort ?? null,
+  }));
+}
+
+/**
+ * For named volumes, inspect's Source is the resolved host path
+ * (/var/lib/docker/volumes/<name>/_data) while listContainers' Source is "".
+ * Name is present and identical in both shapes, so it is the canonical
+ * source for volume mounts; Source remains canonical for bind mounts.
+ */
+export function normalizeMounts(
+  mounts: Array<{ Type?: string; Name?: string; Source?: string; Destination?: string; RW?: boolean }> | null | undefined,
+): ContainerMount[] {
+  const result: ContainerMount[] = [];
+  if (!mounts) return result;
+
+  for (const mount of mounts) {
+    if (!mount.Type || !mount.Destination) continue;
+    const source = mount.Type === 'volume' && mount.Name ? mount.Name : (mount.Source ?? '');
+    result.push({
+      type: mount.Type,
+      source,
+      destination: mount.Destination,
+      rw: mount.RW ?? false,
+    });
+  }
+
+  return result.sort(compareMounts);
 }
 
 function buildFromInspect(inspectData: Dockerode.ContainerInspectInfo): MinimalContainerInfo {
@@ -46,6 +165,8 @@ function buildFromInspect(inspectData: Dockerode.ContainerInspectInfo): MinimalC
     StartedAt: normalizeTimestamp(inspectData.State?.StartedAt),
     FinishedAt: normalizeTimestamp(inspectData.State?.FinishedAt),
     ExitCode: normalizeExitCode(state, inspectData.State?.ExitCode),
+    Ports: normalizePorts(portCandidatesFromInspect(inspectData.NetworkSettings?.Ports)),
+    Mounts: normalizeMounts(inspectData.Mounts),
   };
 }
 
@@ -59,6 +180,8 @@ function buildFromListEntry(c: Dockerode.ContainerInfo): MinimalContainerInfo {
     StartedAt: null,
     FinishedAt: null,
     ExitCode: null,
+    Ports: normalizePorts(portCandidatesFromList(c.Ports)),
+    Mounts: normalizeMounts(c.Mounts),
   };
 }
 
