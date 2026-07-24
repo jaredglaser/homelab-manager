@@ -199,7 +199,7 @@ The highest-ranked KID is used for new encryptions (`vN` KIDs compare numericall
 
 5. Remove the old key env var (`MASTER_KEY` or `MASTER_KEY_v1`) and restart.
 
-The migration script exits non-zero on any failure. Partially migrated rows are safe because both keys remain in the keyring during the rotation window. The CLI re-encrypts `stack_secrets` and `agent_keypairs` only; `git_tokens` rows stay encrypted under their original key, so regenerate git tokens before removing the old key or they become undecryptable.
+The migration script exits non-zero on any failure. Partially migrated rows are safe because both keys remain in the keyring during the rotation window. The CLI re-encrypts `stack_secrets`, `agent_keypairs`, and `git_tokens`; session rows are excluded on purpose (they expire on their own TTL, and an undecryptable session only forces a re-login).
 
 ## Gotchas
 

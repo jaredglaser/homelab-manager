@@ -258,10 +258,7 @@ Encrypted columns use a versioned keyring so a new master key can be enrolled wi
 
 5. Remove the old key from `.env` (and its compose line if you added one), then `docker compose up -d` again.
 
-The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window.
-
-> [!WARNING]
-> `migrate-secrets` re-encrypts `stack_secrets` and `agent_keypairs` only. Git tokens stay encrypted under the key that created them, so regenerate every git token (**Settings → Auth Management**) before step 5 removes the old key; tokens left behind become permanently undecryptable and git pushes with them fail with 401.
+The migration exits non-zero on any failure. Partially migrated rows are safe because both keys stay in the keyring during the rotation window. It covers `stack_secrets`, `agent_keypairs`, and `git_tokens`; active login sessions are not re-encrypted, so a login that predates the rotation may need to sign in again after step 5 removes the old key.
 
 ## Backup and Restore
 

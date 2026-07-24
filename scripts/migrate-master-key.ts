@@ -2,8 +2,10 @@
 /**
  * Master key migration CLI.
  *
- * Re-encrypts all JWE-encrypted values in stack_secrets and agent_keypairs
- * from one key version (--from <kid>) to another (--to <kid>).
+ * Re-encrypts all JWE-encrypted values in stack_secrets, agent_keypairs, and
+ * git_tokens from one key version (--from <kid>) to another (--to <kid>).
+ * Session rows (sessions.encrypted_oidc) are deliberately excluded: they
+ * expire on their own TTL and an undecryptable session only forces a re-login.
  *
  * Both keys must be present in the environment at runtime so that the old key
  * can still decrypt existing ciphertext while the new key encrypts the result.
@@ -230,6 +232,51 @@ async function migrateAgentKeypairs(
   return count;
 }
 
+async function migrateGitTokens(
+  pool: Pool,
+  fromKid: string,
+  toKid: string,
+  fromKey: CryptoKey,
+  toKey: CryptoKey,
+): Promise<number> {
+  const result = await pool.query<{ id: number; encrypted_token: string }>(
+    'SELECT id, encrypted_token FROM git_tokens',
+  );
+
+  let count = 0;
+
+  for (const row of result.rows) {
+    if (extractKid(row.encrypted_token) !== fromKid) continue;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const plaintext = await decryptJwe(row.encrypted_token, fromKey);
+      const newJwe = await encryptJwe(plaintext, toKid, toKey);
+
+      await client.query(
+        `UPDATE git_tokens
+            SET encrypted_token = $1
+          WHERE id = $2`,
+        [newJwe, row.id],
+      );
+
+      await client.query('COMMIT');
+      count++;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw new Error(
+        `Failed to migrate git_tokens(${row.id}): ${String(err)}`,
+      );
+    } finally {
+      client.release();
+    }
+  }
+
+  return count;
+}
+
 // ---- Entry point ------------------------------------------------------------
 
 async function main(): Promise<void> {
@@ -247,8 +294,9 @@ async function main(): Promise<void> {
 
     const secretsMigrated = await migrateStackSecrets(pool, fromKid, toKid, fromKey, toKey);
     const keypairsMigrated = await migrateAgentKeypairs(pool, fromKid, toKid, fromKey, toKey);
+    const tokensMigrated = await migrateGitTokens(pool, fromKid, toKid, fromKey, toKey);
 
-    console.info(`Migration complete: ${secretsMigrated} secret(s), ${keypairsMigrated} keypair(s) migrated.`);
+    console.info(`Migration complete: ${secretsMigrated} secret(s), ${keypairsMigrated} keypair(s), ${tokensMigrated} git token(s) migrated.`);
   } catch (err) {
     console.error('Migration failed:', err);
     process.exit(1);
