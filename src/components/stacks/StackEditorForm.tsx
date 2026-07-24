@@ -17,6 +17,7 @@ import {
   listManagedHostNames,
   resumeDeploy,
   rejectDeploy,
+  scanDrift,
 } from '@/data/stacks/functions'
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
@@ -25,8 +26,9 @@ import StackContainersPanel from '@/components/stacks/StackContainersPanel'
 import StackActionBar from '@/components/stacks/StackActionBar'
 import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
+import StackDriftWarning from '@/components/stacks/StackDriftWarning'
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
-import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import type { StackDetail } from '@/types/stacks'
 import type { StackFormValues } from '@/components/stacks/stack-form'
 
@@ -132,6 +134,13 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     enabled: settingsDialogOpen,
   })
 
+  const { data: driftReport } = useQuery({
+    queryKey: STACK_DRIFT_QUERY_KEY,
+    queryFn: () => scanDrift(),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  })
+
   // Invalidate deploy history when a deploy completes
   useEffect(() => {
     if (deployVersion === 0) return;
@@ -144,6 +153,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const statusKey = `${detail.host}/${detail.name}`
   const containers = statusMap.get(statusKey)?.containers ?? []
+  const driftItem = driftReport?.items.find((item) => item.host === detail.host && item.stack === detail.name) ?? null
 
   function invalidateDeployAndStacks() {
     queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
@@ -320,6 +330,12 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
             <TooltipContent>Stack settings</TooltipContent>
           </Tooltip>
         </div>
+
+        {driftItem && (
+          <div className="pb-3">
+            <StackDriftWarning item={driftItem} />
+          </div>
+        )}
 
         {/* Tab bar */}
         <div className="flex items-center gap-3 border-b border-border">

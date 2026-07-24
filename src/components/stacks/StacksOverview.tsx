@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { Button } from '@/components/ui/button'
 import { Server, Layers, Plus } from 'lucide-react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useStackListContext, useStackStatusContext } from '@/components/stacks/stacks-context'
 import CreateStackDialog from '@/components/stacks/CreateStackDialog'
-import { createStack } from '@/data/stacks/functions'
-import { STACKS_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import StackDriftSummary from '@/components/stacks/StackDriftSummary'
+import { createStack, scanDrift } from '@/data/stacks/functions'
+import { STACKS_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
 export default function StacksOverview() {
   const { stacks, hosts, isLoading } = useStackListContext()
@@ -15,6 +16,15 @@ export default function StacksOverview() {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+
+  const { data: driftReport, isLoading: driftLoading, refetch: refetchDrift } = useQuery({
+    queryKey: STACK_DRIFT_QUERY_KEY,
+    queryFn: () => scanDrift(),
+    // Each scan fans out an HTTP call per docker host, so keep the result warm
+    // across route swaps; Refresh forces a fresh scan.
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  })
 
   const hostSummaries = useMemo(() => {
     const byHost = new Map<string, { total: number; running: number }>();
@@ -64,6 +74,14 @@ export default function StacksOverview() {
     />
   )
 
+  const driftSummary = (
+    <StackDriftSummary
+      report={driftReport}
+      isLoading={driftLoading}
+      onRefresh={() => { void refetchDrift() }}
+    />
+  )
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 opacity-50">
@@ -75,6 +93,7 @@ export default function StacksOverview() {
   if (stacks.length === 0) {
     return (
       <>
+        {driftSummary}
         <div className="flex flex-col items-center justify-center h-64 gap-3">
           <Layers size={40} className="opacity-20" />
           <p className="text-base opacity-50">No stacks yet.</p>
@@ -91,6 +110,7 @@ export default function StacksOverview() {
   return (
     <>
       <div className="max-w-lg">
+        {driftSummary}
         <div className="flex items-center justify-between mb-4">
           <h6 className="text-xl font-medium">Stacks Overview</h6>
           <Button variant="outline" size="sm" onClick={openDialog}>

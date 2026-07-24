@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockNavigate = mock(() => {});
 const mockCreateStack = mock(() => Promise.resolve({}));
+const mockScanDrift = mock(() => Promise.resolve({
+  items: [],
+  summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
+  scanErrors: [],
+}));
 
 let mockListContext = {
   stacks: [] as { host: string; name: string }[],
@@ -23,6 +28,7 @@ mock.module('@tanstack/react-router', () => ({
 
 mock.module('@/data/stacks/functions', () => ({
   createStack: mockCreateStack,
+  scanDrift: mockScanDrift,
 }));
 
 function createWrapper() {

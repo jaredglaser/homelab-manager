@@ -1,5 +1,7 @@
-import { mkdirSync, existsSync, readdirSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs';
+import { Dirent, mkdirSync, existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, resolve, relative } from 'node:path';
+import type { AgentStackComposeResponse, AgentStackInventoryEntry, AgentStackInventoryResponse } from '../types';
 
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const VALID_SERVICE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -44,6 +46,14 @@ function validateServiceName(name: string): Response | null {
     );
   }
   return null;
+}
+
+function computeComposeHash(composeContent: string): string {
+  return createHash('sha256').update(composeContent).digest('hex');
+}
+
+function getComposePath(stacksDir: string, stackName: string): string {
+  return join(stacksDir, stackName, 'docker-compose.yml');
 }
 
 function isContainedInDir(baseDir: string, targetDir: string): boolean {
@@ -657,4 +667,74 @@ export async function handleStackStatus(
   const hasErrors = stacks.some(s => 'error' in s);
 
   return Response.json({ stacks, ...(hasErrors ? { hasErrors: true } : {}) });
+}
+
+export async function handleStackInventory(stacksDir: string): Promise<Response> {
+  if (!existsSync(stacksDir)) {
+    return Response.json({ stacks: [] } satisfies AgentStackInventoryResponse);
+  }
+
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(stacksDir, { withFileTypes: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Failed to read stacks directory '${stacksDir}':`, err);
+    return Response.json({ error: `Failed to read stacks directory: ${msg}` }, { status: 500 });
+  }
+
+  const stacks = entries
+    .filter((entry) => entry.isDirectory() && VALID_STACK_NAME.test(entry.name))
+    .map((entry): AgentStackInventoryEntry | null => {
+      const composePath = getComposePath(stacksDir, entry.name);
+      if (!existsSync(composePath)) return null;
+      // Skip entries we cannot read (EACCES, EIO, TOCTOU delete) rather than
+      // aborting the whole inventory. Hiding one bad directory is safer than
+      // making the scanner conclude the host has zero stacks.
+      let composeContent: string;
+      try {
+        composeContent = readFileSync(composePath, 'utf-8');
+      } catch (err) {
+        console.error(`Failed to read compose file for stack '${entry.name}':`, err);
+        return null;
+      }
+      return {
+        name: entry.name,
+        hasComposeFile: true,
+        composeHash: computeComposeHash(composeContent),
+      };
+    })
+    .filter((stack): stack is AgentStackInventoryEntry => stack !== null)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return Response.json({ stacks } satisfies AgentStackInventoryResponse);
+}
+
+export async function handleGetStackCompose(request: Request, stacksDir: string): Promise<Response> {
+  const stack = new URL(request.url).searchParams.get('stack') ?? '';
+  const nameError = validateStackName(stack);
+  if (nameError) return nameError;
+
+  const composePath = getComposePath(stacksDir, stack);
+  if (!existsSync(composePath)) {
+    return Response.json({ error: `Stack '${stack}' not found` }, { status: 404 });
+  }
+
+  let composeContent: string;
+  try {
+    composeContent = readFileSync(composePath, 'utf-8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') {
+      return Response.json({ error: `Stack '${stack}' not found` }, { status: 404 });
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`Failed to read compose file for stack '${stack}':`, err);
+    return Response.json({ error: `Failed to read compose file: ${msg}` }, { status: 500 });
+  }
+  return Response.json({
+    stack,
+    composeContent,
+    composeHash: computeComposeHash(composeContent),
+  } satisfies AgentStackComposeResponse);
 }

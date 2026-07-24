@@ -77,6 +77,11 @@ const mockResolveDeleteStack = mock(() =>
 const mockResumePendingDeploy = mock(() => Promise.resolve({ deployId: 7, status: 'succeeded' as const, logs: 'ok' }));
 const mockRejectPendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
 const mockControlStackForHost = mock(() => Promise.resolve(undefined));
+const mockScanStackDrift = mock(() => Promise.resolve({
+  items: [],
+  summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
+  scanErrors: [],
+}));
 
 mock.module('@/lib/stacks/stack-service', () => ({
   getStackSummaries: mockGetStackSummaries,
@@ -92,6 +97,7 @@ mock.module('@/lib/stacks/stack-service', () => ({
   resumePendingDeploy: mockResumePendingDeploy,
   rejectPendingDeploy: mockRejectPendingDeploy,
   controlStackForHost: mockControlStackForHost,
+  scanStackDrift: mockScanStackDrift,
 }));
 
 /**
@@ -120,6 +126,7 @@ describe('stacks.functions module', () => {
     mockResumePendingDeploy.mockClear();
     mockRejectPendingDeploy.mockClear();
     mockControlStackForHost.mockClear();
+    mockScanStackDrift.mockClear();
   });
 
   describe('exports', () => {
@@ -219,6 +226,14 @@ describe('stacks.functions module', () => {
       });
     });
 
+  });
+
+  describe('scanDrift', () => {
+    it('delegates to scanStackDrift', async () => {
+      const { scanDrift } = await import('../functions');
+      await withStartContext(() => scanDrift());
+      expect(mockScanStackDrift).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('controlStack', () => {
