@@ -34,8 +34,8 @@ function extractToken(request: Request): string | null {
  *
  * Auth flow:
  * 1. Extract token from Bearer or Basic auth
- * 2. Indexed lookup by token_hash plus timingSafeEqual (legacy rows without
- *    a hash fall back to decrypt-and-compare and are backfilled on match)
+ * 2. Indexed lookup by token_hash (legacy rows without a hash fall back to
+ *    decrypt-and-compare and are backfilled on match)
  * 3. On match: resolve user, check role, update last_used_at
  * 4. On no match: 401
  *
@@ -69,11 +69,20 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
   const gitTokenRepo = new GitTokenRepository(pool);
   const userRepo = new UserRepository(pool);
 
-  // Keyring and JWE decrypt load lazily; the hashed fast path never needs them.
+  // loadMasterKeyring re-reads env and re-imports every key per call, so hold one
+  // promise for the whole request; the hashed fast path never awaits it at all.
+  let cryptoReady: ReturnType<typeof loadCrypto> | null = null;
+  async function loadCrypto() {
+    const [{ loadMasterKeyring }, { decryptValue }] = await Promise.all([
+      import('@/lib/crypto/master-key'),
+      import('@/lib/crypto/encrypted-value'),
+    ]);
+    return { keyring: await loadMasterKeyring(), decryptValue };
+  }
+
   const decryptToken = async (encryptedToken: string) => {
-    const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
-    const { decryptValue } = await import('@/lib/crypto/encrypted-value');
-    const keyring = await loadMasterKeyring();
+    cryptoReady ??= loadCrypto();
+    const { keyring, decryptValue } = await cryptoReady;
     return decryptValue(encryptedToken, keyring);
   };
 

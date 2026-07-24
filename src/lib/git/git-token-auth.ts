@@ -26,10 +26,10 @@ function constantTimeEqual(a: string, b: string): boolean {
 /**
  * Match a presented git token against stored tokens.
  *
- * Fast path: single indexed lookup on token_hash plus timingSafeEqual,
- * mirroring the sessions pattern. Rows created before migration 024 have a
- * NULL token_hash; only those are decrypted and compared, and the hash is
- * backfilled on a successful match so the next request takes the fast path.
+ * Fast path: a single indexed lookup on token_hash. Rows created before
+ * migration 027 have a NULL token_hash; only those are decrypted and compared,
+ * and the hash is backfilled on a successful match so the next request takes
+ * the fast path.
  *
  * @param decryptToken decrypts a stored encrypted_token value to plaintext;
  * only invoked on the legacy fallback path.
@@ -45,8 +45,8 @@ export async function findMatchingGitToken(
   if (hashed) {
     const storedHash = Buffer.from(hashed.tokenHash, 'hex');
     const providedHashBytes = Buffer.from(providedHash, 'hex');
-    // timingSafeEqual throws on length mismatch, so guard against a
-    // malformed stored hash instead of failing the whole request.
+    // A malformed stored hash falls through to the legacy scan rather than
+    // throwing out of timingSafeEqual on a length mismatch.
     if (storedHash.length === providedHashBytes.length && timingSafeEqual(storedHash, providedHashBytes)) {
       return { tokenId: hashed.id, userId: hashed.userId };
     }

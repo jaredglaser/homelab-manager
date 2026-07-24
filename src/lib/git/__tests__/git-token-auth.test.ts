@@ -132,6 +132,12 @@ describe('findMatchingGitToken', () => {
   });
 
   it('does not throw when the backfill write fails', async () => {
+    let onErrorLogged!: (message: string) => void;
+    const errorLogged = new Promise<string>((resolve) => {
+      onErrorLogged = resolve;
+    });
+    errorSpy.mockImplementation((message: unknown) => onErrorLogged(String(message)));
+
     const repo = createRepo({
       findLegacyEncrypted: mock(async () => [
         { id: 1, userId: 10, encryptedToken: 'enc:match' },
@@ -145,9 +151,6 @@ describe('findMatchingGitToken', () => {
     const result = await findMatchingGitToken(RAW_TOKEN, repo, decryptToken);
 
     expect(result).toEqual({ tokenId: 1, userId: 10 });
-    // Backfill is fire-and-forget; let the rejection settle and get logged.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const messages = errorSpy.mock.calls.map((call: unknown[]) => String(call[0]));
-    expect(messages.some((m: string) => m.includes('Failed to backfill token_hash'))).toBe(true);
+    expect(await errorLogged).toContain('Failed to backfill token_hash');
   });
 });

@@ -96,7 +96,7 @@ describe('git-tokens.functions', () => {
     it('stores the SHA-256 hash of the raw token for indexed auth lookups', async () => {
       const { createGitToken } = await import('@/data/git-tokens.functions');
       const { createHash } = await import('node:crypto');
-      await createGitToken({ data: { label: 'hash-key' } });
+      await withStartContext(() => createGitToken({ data: { label: 'hash-key' } }));
       const [plaintext] = mockEncryptValue.mock.calls[0] as [string, unknown];
       const [createArg] = mockCreate.mock.calls[0] as [{ tokenHash: string }];
       expect(createArg.tokenHash).toBe(createHash('sha256').update(plaintext).digest('hex'));

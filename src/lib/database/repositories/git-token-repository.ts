@@ -114,7 +114,7 @@ export class GitTokenRepository {
   }
 
   /**
-   * Tokens created before the token_hash column existed (migration 024).
+   * Tokens created before the token_hash column existed (migration 027).
    * Only these need the decrypt-and-compare fallback during auth.
    */
   async findLegacyEncrypted(): Promise<GitTokenWithEncrypted[]> {

@@ -1,4 +1,4 @@
--- migrations/024_git_token_hash.sql
+-- migrations/027_git_token_hash.sql
 -- Indexed SHA-256 hash (hex) of the raw git token so auth is a single
 -- indexed lookup instead of decrypting every row on each git HTTP request.
 -- Pre-existing rows stay NULL and are backfilled on their next successful
