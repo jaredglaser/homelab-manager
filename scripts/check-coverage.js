@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Check test coverage against minimum thresholds.
- * Reads Bun's text coverage output from stdin and enforces minimums.
+ * Check test results and coverage against minimum thresholds.
+ * Reads Bun's text test + coverage output from stdin, echoes it so the
+ * results stay visible in logs, then enforces both a zero-failure gate and
+ * the coverage minimums.
  *
  * Usage:
  *   bun test --coverage 2>&1 | node scripts/check-coverage.js
@@ -22,58 +24,71 @@ const THRESHOLDS = {
   // Note: Bun doesn't report branch coverage yet
 };
 
-// Read from stdin (piped from bun test --coverage)
 let output;
 try {
   output = readFileSync(0, 'utf-8'); // fd 0 is stdin
-} catch (error) {
-  console.error('❌ Failed to read coverage from stdin');
+} catch {
+  console.error('❌ Failed to read test output from stdin');
   process.exit(1);
 }
 
-// Parse coverage from output
-// Format: "All files                                  |   93.32 |   93.27 |"
-// Note: there may be many spaces between "All files" and the first |
+// Bun's output was consumed by this script; re-emit it so failures and the
+// coverage table remain visible in CI logs.
+process.stdout.write(output);
+
+let failed = false;
+
+// A single piped stream can hide a non-zero bun exit, so gate on the printed
+// summary directly. Bun prints one "<n> fail" line at the end of the run.
+const failMatches = [...output.matchAll(/^\s*(\d+)\s+fail\b/gm)];
+const failCount = failMatches.length > 0 ? Number(failMatches.at(-1)[1]) : null;
+
+if (failCount === null) {
+  console.error('\n❌ Could not find a test summary ("<n> fail") in the output');
+  console.error('The test run likely crashed before reporting; treating as failed.');
+  failed = true;
+} else if (failCount > 0) {
+  console.error(`\n❌ ${failCount} test${failCount === 1 ? '' : 's'} failed`);
+  const failingTests = [...output.matchAll(/^\(fail\) .+$/gm)].map((m) => m[0]);
+  for (const line of failingTests) {
+    console.error(`   ${line}`);
+  }
+  failed = true;
+}
+
 const match = output.match(/All files\s+\|\s+([\d.]+)\s+\|\s+([\d.]+)\s+\|/);
 
 if (!match) {
-  console.error('❌ Could not parse coverage from test output');
+  console.error('\n❌ Could not parse coverage from test output');
   console.error('Expected format: "All files | <functions%> | <lines%> |"');
   process.exit(1);
 }
 
-const [, functionsPercent, linesPercent] = match;
 const coverage = {
-  functions: Number.parseFloat(functionsPercent),
-  lines: Number.parseFloat(linesPercent),
+  functions: Number.parseFloat(match[1]),
+  lines: Number.parseFloat(match[2]),
 };
 
 console.log('\n📊 Coverage Summary:');
 console.log(`   Functions: ${coverage.functions.toFixed(2)}% (threshold: ${THRESHOLDS.functions}%)`);
 console.log(`   Lines: ${coverage.lines.toFixed(2)}% (threshold: ${THRESHOLDS.lines}%)`);
 
-let failed = false;
-
 if (coverage.functions < THRESHOLDS.functions) {
   console.error(`\n❌ Function coverage ${coverage.functions.toFixed(2)}% is below threshold ${THRESHOLDS.functions}%`);
-  const deficit = THRESHOLDS.functions - coverage.functions;
-  console.error(`   Need ${deficit.toFixed(2)}% more function coverage`);
+  console.error(`   Need ${(THRESHOLDS.functions - coverage.functions).toFixed(2)}% more function coverage`);
   failed = true;
 }
 
 if (coverage.lines < THRESHOLDS.lines) {
   console.error(`\n❌ Line coverage ${coverage.lines.toFixed(2)}% is below threshold ${THRESHOLDS.lines}%`);
-  const deficit = THRESHOLDS.lines - coverage.lines;
-  console.error(`   Need ${deficit.toFixed(2)}% more line coverage`);
+  console.error(`   Need ${(THRESHOLDS.lines - coverage.lines).toFixed(2)}% more line coverage`);
   failed = true;
 }
 
 if (failed) {
-  console.error('\n💔 Coverage check FAILED');
-  console.error('Please add tests to improve coverage before committing.');
+  console.error('\n💔 Test/coverage check FAILED');
   process.exit(1);
 }
 
-console.log('\n✅ Coverage check PASSED');
-console.log('All coverage thresholds met!');
+console.log('\n✅ Test and coverage checks PASSED');
 process.exit(0);
