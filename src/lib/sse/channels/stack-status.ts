@@ -9,12 +9,30 @@ export type StackSSEMessage =
   | StackStatusEntry[]
   | { type: 'deploy_changed'; stack: string; host: string; outcome?: DeployChangeOutcome };
 
+/** Duplicated from docker-inventory.ts's zContainerPortWeb to keep the schemas co-located per channel. */
+const zStackContainerPort = z.object({
+  containerPort: z.number(),
+  protocol: z.string(),
+  hostIp: z.string().nullable(),
+  hostPort: z.number().nullable(),
+});
+
+/** Duplicated from docker-inventory.ts's zContainerMountWeb to keep the schemas co-located per channel. */
+const zStackContainerMount = z.object({
+  type: z.string(),
+  source: z.string(),
+  destination: z.string(),
+  rw: z.boolean(),
+});
+
 const zStackContainer = z.object({
   id: z.string(),
   name: z.string(),
   status: z.string(),
   image: z.string(),
   service: z.string().nullable(),
+  ports: z.array(zStackContainerPort).default([]),
+  mounts: z.array(zStackContainerMount).default([]),
 });
 
 const zStackStatusEntry = z.object({

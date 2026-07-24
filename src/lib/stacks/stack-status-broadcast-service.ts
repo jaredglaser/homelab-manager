@@ -34,6 +34,8 @@ function toStackContainer(inv: DockerInventorySnapshotContainer): StackContainer
     status: inv.state,
     image: inv.image,
     service,
+    ports: inv.ports,
+    mounts: inv.mounts,
   };
 }
 
@@ -363,7 +365,14 @@ export class StackStatusBroadcastService {
           byContainer = new Map();
           this.stackContainers.set(sk, byContainer);
         }
-        byContainer.set(`${inv.host}/${inv.containerId}`, inv);
+        const containerKey = `${inv.host}/${inv.containerId}`;
+        const prev = byContainer.get(containerKey);
+        // NOTIFY omits mounts and nulls oversized ports (migration 026); keep prev's for those, but honor a genuine [].
+        byContainer.set(containerKey, {
+          ...inv,
+          ports: parsed.ports != null ? inv.ports : (prev?.ports ?? inv.ports),
+          mounts: prev?.mounts ?? inv.mounts,
+        });
       }
 
       this.broadcastStack(host, composeProject, eventAt);

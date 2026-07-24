@@ -931,6 +931,182 @@ describe('StackStatusBroadcastService', () => {
     consoleSpy.mockRestore();
   });
 
+  it('carries ports and mounts from the init snapshot into stack entries', async () => {
+    const containerWithPortsAndMounts: DockerInventorySnapshotContainer = {
+      ...composeContainer1,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+    };
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [containerWithPortsAndMounts],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    const init = received[0] as Extract<StackBroadcastEvent, { type: 'status' }>;
+    const container = init.entries[0].containers[0];
+    expect(container.ports).toEqual(containerWithPortsAndMounts.ports);
+    expect(container.mounts).toEqual(containerWithPortsAndMounts.mounts);
+  });
+
+  it('a NOTIFY upsert with ports updates ports and preserves the previous mounts', async () => {
+    const seeded: DockerInventorySnapshotContainer = {
+      ...composeContainer1,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+    };
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [seeded],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'running',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        compose_project: 'media',
+        service_key: 'media/plex',
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+        ports: [{ containerPort: 443, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8443 }],
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    const container = lastStatus.entries[0].containers[0];
+    expect(container.ports).toEqual([{ containerPort: 443, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8443 }]);
+    expect(container.mounts).toEqual(seeded.mounts);
+  });
+
+  it('a NOTIFY upsert without a ports field preserves both ports and mounts', async () => {
+    const seeded: DockerInventorySnapshotContainer = {
+      ...composeContainer1,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+    };
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [seeded],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'running',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        compose_project: 'media',
+        service_key: 'media/plex',
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+        // no ports field: simulates an older worker payload predating migration 026
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    const container = lastStatus.entries[0].containers[0];
+    expect(container.ports).toEqual(seeded.ports);
+    expect(container.mounts).toEqual(seeded.mounts);
+  });
+
+  it('a NOTIFY upsert with ports: null preserves the previous entry\'s ports', async () => {
+    const seeded: DockerInventorySnapshotContainer = {
+      ...composeContainer1,
+      ports: [{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }],
+      mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+    };
+    service = new StackStatusBroadcastService({
+      getPoolClient: async () => poolClient as unknown as PoolClient,
+      loadSnapshot: async () => [seeded],
+    });
+
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'abc123',
+        event_type: 'upsert',
+        state: 'running',
+        name: 'plex',
+        image: 'plexinc/pms-docker:latest',
+        compose_project: 'media',
+        service_key: 'media/plex',
+        started_at: null,
+        finished_at: null,
+        exit_code: null,
+        ports: null, // size guard: NOTIFY payload exceeded the 8kB cap and dropped ports
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    const container = lastStatus.entries[0].containers[0];
+    expect(container.ports).toEqual(seeded.ports);
+    expect(container.mounts).toEqual(seeded.mounts);
+  });
+
+  it('a brand-new container via NOTIFY (no previous entry) gets the payload ports and empty mounts', async () => {
+    const received: StackBroadcastEvent[] = [];
+    service.subscribe((e) => received.push(e));
+    await waitForCondition(() => received.length > 0);
+
+    poolClient.emit('notification', {
+      channel: 'docker_container_change',
+      payload: JSON.stringify({
+        at: '2026-04-16T11:00:00Z',
+        host: 'server1',
+        container_id: 'newcontainer1',
+        event_type: 'upsert',
+        state: 'running',
+        name: 'radarr',
+        image: 'linuxserver/radarr:latest',
+        compose_project: 'media',
+        service_key: 'media/radarr',
+        started_at: '2026-04-16T11:00:00Z',
+        finished_at: null,
+        exit_code: null,
+        ports: [{ containerPort: 7878, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 7878 }],
+      }),
+    });
+
+    const statusEvents = received.filter((e) => e.type === 'status') as Extract<StackBroadcastEvent, { type: 'status' }>[];
+    const lastStatus = statusEvents[statusEvents.length - 1];
+    const container = lastStatus.entries[0].containers.find((c) => c.id === 'newcontainer1');
+    expect(container).toBeDefined();
+    expect(container?.ports).toEqual([{ containerPort: 7878, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 7878 }]);
+    expect(container?.mounts).toEqual([]);
+  });
+
   it('stopListening cancels pending reconnect timer on stop', async () => {
     const capturedTimers: Array<() => void> = [];
     const originalSetTimeout = globalThis.setTimeout;

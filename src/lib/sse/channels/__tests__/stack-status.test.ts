@@ -8,12 +8,39 @@ describe('stackStatusChannel', () => {
     expect(stackStatusChannel.errorEvent).toBe('stack_status_error');
   });
 
-  it('validates a status-entries array frame', () => {
+  it('validates a status-entries array frame without ports/mounts (skew-safe defaults)', () => {
     const result = stackStatusChannel.schema.safeParse([
       {
         stack: 'plex',
         host: 'server1',
         containers: [{ id: 'abc', name: 'plex', status: 'running', image: 'plexinc/pms-docker', service: 'plex' }],
+        updated_at: '2026-03-21T00:00:00Z',
+      },
+    ]);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const frame = result.data as Array<{ containers: Array<{ ports: unknown[]; mounts: unknown[] }> }>;
+      expect(frame[0].containers[0].ports).toEqual([]);
+      expect(frame[0].containers[0].mounts).toEqual([]);
+    }
+  });
+
+  it('validates a status-entries array frame with ports/mounts populated', () => {
+    const result = stackStatusChannel.schema.safeParse([
+      {
+        stack: 'plex',
+        host: 'server1',
+        containers: [
+          {
+            id: 'abc',
+            name: 'plex',
+            status: 'running',
+            image: 'plexinc/pms-docker',
+            service: 'plex',
+            ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 32400 }],
+            mounts: [{ type: 'bind', source: '/data/plex', destination: '/config', rw: true }],
+          },
+        ],
         updated_at: '2026-03-21T00:00:00Z',
       },
     ]);
