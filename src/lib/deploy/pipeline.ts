@@ -69,7 +69,7 @@ export class DeployPipeline {
       composeHash = changeResult.composeHash;
       envHash = changeResult.envHash;
 
-      if (!changeResult.changed && !request.forceRecreate) {
+      if (!changeResult.changed && request.trigger === 'git_push' && !request.forceRecreate) {
         let deployId: number | undefined;
         try {
           deployId = await this.deployRepo.insertDeploy({

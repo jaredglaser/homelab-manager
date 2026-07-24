@@ -237,7 +237,7 @@ describe('DeployHistoryList', () => {
     expect(screen.queryByText('Rollback')).toBeNull();
   });
 
-  it('shows "Force Deploy" label when forceRecreate is true', () => {
+  it('shows "Recreate" label when forceRecreate is true', () => {
     const forceRecord: StackDeployRecord[] = [
       {
         id: 10,
@@ -254,7 +254,28 @@ describe('DeployHistoryList', () => {
       },
     ];
     render(<DeployHistoryList records={forceRecord} isLoading={false} />, { wrapper: createWrapper() });
-    expect(screen.getByText('Force Deploy')).toBeDefined();
+    expect(screen.getByText('Recreate')).toBeDefined();
+  });
+
+  it('shows "Rollback" label (not "Recreate") for a manual_rollback deploy, which also carries forceRecreate:true', () => {
+    const rollbackRecord: StackDeployRecord[] = [
+      {
+        id: 11,
+        stack: 'plex',
+        host: 'homeserver',
+        commitSha: 'ccdd445566',
+        envHash: 'xyz',
+        status: 'succeeded',
+        trigger: 'manual_rollback',
+        action: 'deploy',
+        forceRecreate: true,
+        logs: null,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    render(<DeployHistoryList records={rollbackRecord} isLoading={false} />, { wrapper: createWrapper() });
+    expect(screen.getByText('Rollback')).toBeDefined();
+    expect(screen.queryByText('Recreate')).toBeNull();
   });
 
   it('calls onRollbackComplete after successful rollback', async () => {
