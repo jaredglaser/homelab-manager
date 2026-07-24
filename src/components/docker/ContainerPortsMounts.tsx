@@ -45,8 +45,6 @@ interface ContainerPortsMountsProps {
 }
 
 export default function ContainerPortsMounts({ ports, mounts }: Readonly<ContainerPortsMountsProps>) {
-  if (ports.length === 0 && mounts.length === 0) return null;
-
   const dedupedPorts = dedupeWildcardPorts(ports);
 
   return (

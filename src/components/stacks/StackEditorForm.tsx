@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Settings2 } from 'lucide-react'
 import { useStackStatusContext } from '@/components/stacks/stacks-context'
 import { useToast } from '@/hooks/toastAtom'
+import { deployToastGate, formatDeployOutcome } from '@/lib/stacks/deploy-outcome-toast'
 import {
   getDeployHistory,
   triggerDeploy,
@@ -127,8 +128,17 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const deployMutation = useMutation({
     mutationFn: (action: 'deploy' | 'teardown') =>
       triggerDeploy({ data: { stack: stackName, host: detail.host, action, forceRecreate: action === 'deploy' ? forceRecreate : undefined } }),
-    onSuccess: (_data, action) => {
-      showToast(`${action} triggered successfully`, 'success')
+    onSuccess: (data, action) => {
+      if (deployToastGate.shouldToast(data.deployId)) {
+        const outcome = formatDeployOutcome({
+          stack: stackName,
+          action,
+          status: data.status,
+          trigger: 'ui',
+          message: data.logs,
+        })
+        if (outcome) showToast(outcome.message, outcome.severity)
+      }
       invalidateDeployAndStacks()
     },
     onError: (err) => {
@@ -159,11 +169,10 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   const deleteMutation = useMutation({
     mutationFn: (teardown: boolean) =>
       deleteStack({ data: { stackName, teardown } }),
-    onSuccess: (result) => {
+    // The SSE outcome toast in useStackStatus covers this: deleteStack awaits the
+    // full teardown, so its terminal NOTIFY beats this response.
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
-      if (result.status === 'teardown-pending') {
-        showToast(`Teardown queued for ${stackName}: the stack will be removed when the agent finishes.`, 'success')
-      }
     },
     onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
@@ -171,11 +180,8 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   })
 
   function handleDeleteConfirm(teardown: boolean) {
-    // Fire the mutation without awaiting; for teardown the server returns
-    // immediately with a deployId and the pipeline handles the manifest delete
-    // asynchronously. Close the dialog and navigate right away so the user
-    // isn't held up waiting for the agent. Bypass the unsaved-changes guard
-    // since deleting the stack intentionally discards any in-progress edits.
+    // Navigate away without awaiting the mutation, and bypass the unsaved-changes
+    // guard: deleting the stack intentionally discards in-progress edits.
     bypassRef.current = true
     deleteMutation.mutate(teardown)
     setDeleteDialogOpen(false)
@@ -184,11 +190,25 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const approveMutation = useMutation({
     mutationFn: (deployId: number) => resumeDeploy({ data: { deployId } }),
-    onSuccess: () => {
-      showToast(`Deploy approved for ${stackName}`, 'success')
+    // Claim before the SSE outcome for the same deployId can arrive.
+    onMutate: (deployId: number) => {
+      deployToastGate.claim(deployId)
+    },
+    onSuccess: (data) => {
+      const outcome = formatDeployOutcome({
+        stack: stackName,
+        action: 'deploy',
+        status: data.status,
+        trigger: 'ui',
+        message: data.logs,
+      })
+      if (outcome) showToast(outcome.message, outcome.severity)
       invalidateDeployAndStacks()
     },
-    onError: (err) => {
+    // Release the pre-claim: if the server did resume the deploy, its terminal SSE
+    // outcome must still be free to toast rather than being suppressed by the claim.
+    onError: (err, deployId) => {
+      deployToastGate.release(deployId)
       showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
@@ -196,11 +216,16 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const rejectMutation = useMutation({
     mutationFn: (deployId: number) => rejectDeploy({ data: { deployId } }),
+    // Claim before the SSE "Manually rejected" outcome for the same deployId can arrive.
+    onMutate: (deployId: number) => {
+      deployToastGate.claim(deployId)
+    },
     onSuccess: () => {
       showToast(`Deploy rejected for ${stackName}`, 'success')
       invalidateDeployAndStacks()
     },
-    onError: (err) => {
+    onError: (err, deployId) => {
+      deployToastGate.release(deployId)
       showToast(err instanceof Error ? err.message : String(err), 'error')
       queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     },
@@ -289,8 +314,17 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                 isLoading={historyLoading}
                 stackName={stackName}
                 host={detail.host}
-                onRollbackComplete={() => {
-                  showToast('Rollback triggered successfully', 'success')
+                onRollbackComplete={(result) => {
+                  if (deployToastGate.shouldToast(result.deployId)) {
+                    const outcome = formatDeployOutcome({
+                      stack: stackName,
+                      action: 'deploy',
+                      status: result.status,
+                      trigger: 'manual_rollback',
+                      message: result.logs,
+                    })
+                    if (outcome) showToast(outcome.message, outcome.severity)
+                  }
                   queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                   queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
                 }}

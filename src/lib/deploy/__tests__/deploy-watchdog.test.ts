@@ -107,10 +107,10 @@ describe('DeployWatchdog', () => {
       expect(message).toContain('watchdog');
     });
 
-    it('notifies each timed-out row on stack_change', async () => {
+    it('notifies each timed-out row on stack_change with a failed outcome', async () => {
       const rows = [
-        { id: 1, stack: 'plex', host: 'homeserver' },
-        { id: 2, stack: 'traefik', host: 'homeserver' },
+        { id: 1, stack: 'plex', host: 'homeserver', action: 'deploy', trigger: 'git_push' },
+        { id: 2, stack: 'traefik', host: 'homeserver', action: 'teardown', trigger: 'ui' },
       ];
       const timeoutStuckDeploys = mock().mockResolvedValue(rows);
       const notifyStackChange = mock().mockResolvedValue(undefined);
@@ -123,8 +123,16 @@ describe('DeployWatchdog', () => {
       await w.tick(repo);
 
       expect(notifyStackChange).toHaveBeenCalledTimes(2);
-      expect(notifyStackChange.mock.calls[0]).toEqual(['plex', 'homeserver']);
-      expect(notifyStackChange.mock.calls[1]).toEqual(['traefik', 'homeserver']);
+      expect(notifyStackChange.mock.calls[0]).toEqual([
+        'plex',
+        'homeserver',
+        { deployId: 1, status: 'failed', action: 'deploy', trigger: 'git_push', message: expect.stringContaining('30 minutes') },
+      ]);
+      expect(notifyStackChange.mock.calls[1]).toEqual([
+        'traefik',
+        'homeserver',
+        { deployId: 2, status: 'failed', action: 'teardown', trigger: 'ui', message: expect.stringContaining('30 minutes') },
+      ]);
     });
 
     it('does not call notifyStackChange when no deploys are stuck', async () => {
@@ -141,8 +149,8 @@ describe('DeployWatchdog', () => {
 
     it('swallows notify errors so one bad row does not break the sweep', async () => {
       const rows = [
-        { id: 1, stack: 'a', host: 'h' },
-        { id: 2, stack: 'b', host: 'h' },
+        { id: 1, stack: 'a', host: 'h', action: 'deploy', trigger: 'git_push' },
+        { id: 2, stack: 'b', host: 'h', action: 'deploy', trigger: 'git_push' },
       ];
       const notifyStackChange = mock()
         .mockRejectedValueOnce(new Error('notify blew up'))
@@ -156,8 +164,10 @@ describe('DeployWatchdog', () => {
       const w = new DeployWatchdog({ intervalMs: 1000, thresholdMinutes: 30 });
       await expect(w.tick(repo)).resolves.toBeUndefined();
       expect(notifyStackChange).toHaveBeenCalledTimes(2);
-      expect(notifyStackChange.mock.calls[0]).toEqual(['a', 'h']);
-      expect(notifyStackChange.mock.calls[1]).toEqual(['b', 'h']);
+      expect(notifyStackChange.mock.calls[0][0]).toBe('a');
+      expect(notifyStackChange.mock.calls[0][1]).toBe('h');
+      expect(notifyStackChange.mock.calls[1][0]).toBe('b');
+      expect(notifyStackChange.mock.calls[1][1]).toBe('h');
       expect(errSpy).toHaveBeenCalled();
       errSpy.mockRestore();
     });
@@ -244,7 +254,7 @@ describe('DeployWatchdog', () => {
 
   describe('interval firing', () => {
     it('invokes tick when the interval callback runs', async () => {
-      const rows = [{ id: 9, stack: 'a', host: 'h' }];
+      const rows = [{ id: 9, stack: 'a', host: 'h', action: 'deploy', trigger: 'git_push' }];
       const timeoutStuckDeploys = mock().mockResolvedValue(rows);
       const notifyStackChange = mock().mockResolvedValue(undefined);
       const repo = createRepoMock({
@@ -260,7 +270,13 @@ describe('DeployWatchdog', () => {
       await new Promise((r) => setTimeout(r, 0));
 
       expect(timeoutStuckDeploys).toHaveBeenCalledTimes(1);
-      expect(notifyStackChange).toHaveBeenCalledWith('a', 'h');
+      expect(notifyStackChange).toHaveBeenCalledWith('a', 'h', {
+        deployId: 9,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: expect.stringContaining('5 minutes'),
+      });
       w.stop();
     });
   });

@@ -1,6 +1,7 @@
 import type { PoolClient } from 'pg';
 import type { DockerInventorySnapshotContainer } from '@/types/docker-inventory';
 import type { StackContainer, StackStatusEntry } from '@/types/stacks';
+import { zDeployChangeOutcome, type DeployChangeOutcome } from '@/lib/deploy/types';
 import type {
   DockerContainerEventRow,
   DockerContainerEventUpsertRow,
@@ -11,7 +12,7 @@ import { backoffDelayMs } from '@/lib/utils/backoff';
 /** Discriminated union for events sent to SSE subscribers. */
 export type StackBroadcastEvent =
   | { type: 'status'; entries: StackStatusEntry[] }
-  | { type: 'deploy_changed'; stack: string; host: string };
+  | { type: 'deploy_changed'; stack: string; host: string; outcome?: DeployChangeOutcome };
 
 type StackBroadcastCallback = (event: StackBroadcastEvent) => void;
 
@@ -53,6 +54,12 @@ function toStackEntry(host: string, stack: string, containers: DockerInventorySn
  */
 function stackKey(host: string, composeProject: string): string {
   return `${host}/${composeProject}`;
+}
+
+/** A malformed or partial outcome is dropped rather than forwarded half-populated. */
+function parseDeployChangeOutcome(raw: unknown): DeployChangeOutcome | undefined {
+  const parsed = zDeployChangeOutcome.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 async function defaultGetPoolClient(): Promise<PoolClient> {
@@ -391,9 +398,16 @@ export class StackStatusBroadcastService {
       if (typeof stack !== 'string' || typeof host !== 'string') {
         throw new Error('Invalid deploy_change payload: missing stack or host');
       }
+      const outcome = parseDeployChangeOutcome(parsed.outcome);
+      const event: StackBroadcastEvent = {
+        type: 'deploy_changed',
+        stack,
+        host,
+        ...(outcome ? { outcome } : {}),
+      };
       for (const cb of this.subscribers) {
         try {
-          cb({ type: 'deploy_changed', stack, host });
+          cb(event);
         } catch (err) {
           console.error('[StackStatusBroadcastService] Subscriber callback failed:', err);
         }

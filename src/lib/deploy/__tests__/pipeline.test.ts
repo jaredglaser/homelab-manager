@@ -122,6 +122,12 @@ describe('DeployPipeline', () => {
       expect(result.logs).toBe('deployed ok');
       expect(deployRepo.insertDeployIfNoActive).toHaveBeenCalledTimes(1);
       expect(deployRepo.updateStatus).toHaveBeenCalledTimes(2); // in_progress + succeeded
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 1,
+        status: 'succeeded',
+        action: 'deploy',
+        trigger: 'git_push',
+      });
     });
 
     it('returns no_change when compose and env are unchanged', async () => {
@@ -159,6 +165,12 @@ describe('DeployPipeline', () => {
 
       const result = await pipeline.execute(testRequest);
       expect(result.status).toBe('no_change');
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 1,
+        status: 'no_change',
+        action: 'deploy',
+        trigger: 'git_push',
+      });
     });
 
     it('fails validation when host is not found', async () => {
@@ -217,6 +229,13 @@ describe('DeployPipeline', () => {
 
       const result = await pipeline.execute(testRequest);
       expect(result.status).toBe('failed');
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 1,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'deploy failed',
+      });
     });
 
     it('handles teardown action', async () => {
@@ -226,6 +245,12 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('succeeded');
       const agent = agentClientFactory.mock.results[0].value;
       expect(agent.teardown).toHaveBeenCalled();
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 1,
+        status: 'succeeded',
+        action: 'teardown',
+        trigger: 'git_push',
+      });
     });
 
     it('resolves secrets and builds env content', async () => {
@@ -351,6 +376,13 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('failed');
       expect(result.logs).toBe('connection refused');
       expect(deployRepo.updateStatus).toHaveBeenCalledWith(1, 'failed', 'connection refused');
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 1,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: 'connection refused',
+      });
     });
 
     it('handles non-Error throw in dispatch', async () => {
@@ -539,6 +571,13 @@ describe('DeployPipeline', () => {
         'failed',
         expect.stringContaining('manifest delete failed'),
       );
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 1,
+        status: 'failed',
+        action: 'teardown',
+        trigger: 'ui',
+        message: 'git corrupted',
+      });
     });
 
     it('does NOT invoke removeStackFromManifest when deploy fails', async () => {
@@ -642,6 +681,13 @@ describe('DeployPipeline', () => {
       expect(result.status).toBe('failed');
       expect(result.logs).toContain('Secret resolution failed');
       expect(deployRepo.updateStatus).toHaveBeenCalledWith(42, 'failed', expect.stringContaining('vault unreachable'));
+      expect(deployRepo.notifyStackChange).toHaveBeenCalledWith('plex', 'homeserver', {
+        deployId: 42,
+        status: 'failed',
+        action: 'deploy',
+        trigger: 'git_push',
+        message: expect.stringContaining('vault unreachable'),
+      });
     });
 
     it('records failure when agent dispatch fails during resume', async () => {

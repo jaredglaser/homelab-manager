@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "dockerode": "4.0.12",
+    "dockerode": "5.0.0",
     "jose": "6.2.3",
     "zod": "4.4.3"
   },

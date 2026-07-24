@@ -5,7 +5,7 @@ import {
   dedupeWildcardPorts,
   formatPortMapping,
   formatMountSource,
-} from '../ContainerPortsMounts';
+} from '@/components/docker/ContainerPortsMounts';
 import type { ContainerPort, ContainerMount } from '@/types/docker-inventory';
 
 // Mock so content renders unconditionally; simulating real hover through happy-dom to open a Base UI tooltip is unreliable.
@@ -15,7 +15,7 @@ mock.module('@/components/ui/tooltip', () => ({
   TooltipContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
-const { default: ContainerPortsMounts } = await import('../ContainerPortsMounts');
+const { default: ContainerPortsMounts } = await import('@/components/docker/ContainerPortsMounts');
 
 describe('formatPortMapping', () => {
   it('formats a published port with a wildcard bind IP without the IP prefix', () => {
@@ -92,11 +92,6 @@ describe('formatMountSource', () => {
 });
 
 describe('ContainerPortsMounts', () => {
-  it('renders nothing when both ports and mounts are empty', () => {
-    const { container } = render(<ContainerPortsMounts ports={[]} mounts={[]} />);
-    expect(container.firstChild).toBeNull();
-  });
-
   it('renders port chips, dimming unpublished ports', () => {
     const ports: ContainerPort[] = [
       { containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 },

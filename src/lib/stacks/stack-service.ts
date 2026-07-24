@@ -4,7 +4,7 @@
  */
 
 import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
-import type { DeployAction, DeployRecord, DeployRequest } from '@/lib/deploy/types';
+import type { DeployAction, DeployRecord, DeployRequest, DeployStatus } from '@/lib/deploy/types';
 import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-client';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
@@ -117,7 +117,7 @@ export async function triggerStackDeploy(params: {
   commitSha?: string;
   forceRecreate?: boolean;
   postSuccess?: 'removeFromManifest';
-}): Promise<{ deployId: number }> {
+}): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   const repoPath = getRepoPath();
 
   const { default: git } = await import('isomorphic-git');
@@ -174,7 +174,7 @@ export async function triggerStackDeploy(params: {
  * Rebuilds the `DeployRequest` from the stored deploy record, reading the compose
  * file at the record's commitSha so the exact configuration that was pending is what gets deployed.
  */
-export async function resumePendingDeploy(deployId: number): Promise<{ deployId: number }> {
+export async function resumePendingDeploy(deployId: number): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
@@ -204,12 +204,9 @@ export async function resumePendingDeploy(deployId: number): Promise<{ deployId:
   const { pipeline } = await createDeployPipeline();
   const result = await pipeline.resumePending(deployId, host, request);
   // resumePending returns failed (instead of throwing) when claimPending loses a
-  // race or the dispatch fails. Surface either case to the caller so the UI
-  // shows an error toast instead of a misleading "Deploy approved" success.
-  if (result.status === 'failed') {
-    throw new Error(result.logs);
-  }
-  return { deployId: result.deployId ?? deployId };
+  // race or the dispatch fails. The caller toasts the outcome from the returned
+  // status rather than treating every non-throw as success.
+  return { deployId: result.deployId ?? deployId, status: result.status, logs: result.logs };
 }
 
 /**
@@ -238,7 +235,13 @@ export async function rejectPendingDeploy(deployId: number): Promise<{ deployId:
     throw new Error(`Deploy ${deployId} is no longer pending (approved or rejected by another client)`);
   }
   try {
-    await deployRepo.notifyStackChange(deploy.stack, deploy.host);
+    await deployRepo.notifyStackChange(deploy.stack, deploy.host, {
+      deployId,
+      status: 'failed',
+      action: deploy.action,
+      trigger: deploy.trigger,
+      message: 'Manually rejected',
+    });
   } catch (err) {
     console.error(`Failed to notify stack change after rejecting deploy ${deployId}:`, err);
   }
