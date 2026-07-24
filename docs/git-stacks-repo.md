@@ -4,7 +4,7 @@ homelab-manager stores Docker Compose stack definitions in an in-app bare git re
 
 ## How It Works
 
-- The repo is initialized automatically at startup
+- The repo is initialized lazily on the first request to the git HTTP endpoint
 - Location: `$GIT_REPOS_DIR/stacks.git` (default `/data/repos/stacks.git`)
 - Contains a `manifest.yaml` (lists stacks and deploy settings) and per-stack `<stack-name>/docker-compose.yml` files
 - Pushes to the repo trigger the deploy pipeline (post-receive hook diffs commits, identifies changed stacks, builds deploy requests)
@@ -17,7 +17,7 @@ The repo is accessible via Git HTTP smart protocol at:
 http://localhost:3000/api/git/stacks
 ```
 
-Authentication uses per-user git tokens. Generate one in **Settings → Authentication → Generate Git Token** (visible to admins). The token is stored encrypted (JWE, master keyring) in the `git_tokens` table and shown once at creation; pushes require the token's owner to have the `admin` or `operator` role.
+Authentication uses per-user git tokens. Generate one in **Settings → Auth Management → Generate Git Token** (visible to admins). The token is stored encrypted (JWE, master keyring) in the `git_tokens` table and shown once at creation; pushes require the token's owner to have the `admin` or `operator` role.
 
 ### Clone
 
@@ -102,7 +102,7 @@ The repo URL is the same: `http://localhost:3000/api/git/stacks`.
 ## Troubleshooting
 
 **"Unauthorized" (401)**
-Check that you're passing a valid git token generated in **Settings → Authentication**. With curl: `curl -H "Authorization: Bearer <your-git-token>" http://localhost:3000/api/git/stacks/info/refs?service=git-upload-pack`. A 401 also occurs when the token was revoked or its owner lost the `admin`/`operator` role.
+Check that you're passing a valid git token generated in **Settings → Auth Management**. With curl: `curl -H "Authorization: Bearer <your-git-token>" http://localhost:3000/api/git/stacks/info/refs?service=git-upload-pack`. A 401 also occurs when the token was revoked or its owner lost the `admin`/`operator` role.
 
 **Clone hangs or times out**
 Ensure the web server is running and reachable.
