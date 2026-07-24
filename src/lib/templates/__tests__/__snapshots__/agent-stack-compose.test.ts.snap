@@ -56,9 +56,12 @@ services:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
       HLM_CHECK_INTERVAL: \${HLM_CHECK_INTERVAL:-6h}
+      HLM_AGENT_URL: http://hlm-agent:9090
     labels:
       - hlm.managed=true
       - hlm.role=agent-updater
+    networks:
+      - agent-public
 networks:
   agent-internal:
     driver: bridge
@@ -99,6 +102,7 @@ services:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
       HLM_CHECK_INTERVAL: \${HLM_CHECK_INTERVAL:-6h}
+      HLM_AGENT_URL: http://hlm-agent:9090
     labels:
       - hlm.managed=true
       - hlm.role=agent-updater
@@ -167,9 +171,12 @@ services:
       HLM_WATCH_CONTAINER: hlm-agent
       HLM_WATCH_IMAGE: \${AGENT_IMAGE}
       HLM_CHECK_INTERVAL: \${HLM_CHECK_INTERVAL:-6h}
+      HLM_AGENT_URL: http://hlm-agent:9090
     labels:
       - hlm.managed=true
       - hlm.role=agent-updater
+    networks:
+      - agent-public
 networks:
   agent-internal:
     driver: bridge

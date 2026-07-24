@@ -167,6 +167,26 @@ describe('generateAgentStackCompose', () => {
     }
   });
 
+  it('agent-updater always points at the agent for health checks', () => {
+    for (const config of [dockerOnlyConfig, zfsOnlyConfig, dockerZfsConfig]) {
+      const result = generateAgentStackCompose(config);
+      const parsed = parseYaml(result);
+      expect(parsed.services['agent-updater'].environment.HLM_AGENT_URL).toBe(
+        'http://hlm-agent:9090'
+      );
+    }
+  });
+
+  it('agent-updater joins agent-public only when docker capability is enabled', () => {
+    const dockerResult = generateAgentStackCompose(dockerOnlyConfig);
+    const dockerParsed = parseYaml(dockerResult);
+    expect(dockerParsed.services['agent-updater'].networks).toEqual(['agent-public']);
+
+    const zfsResult = generateAgentStackCompose(zfsOnlyConfig);
+    const zfsParsed = parseYaml(zfsResult);
+    expect(zfsParsed.services['agent-updater'].networks).toBeUndefined();
+  });
+
   it('agent attached to both internal and public networks when docker capability', () => {
     const zfsResult = generateAgentStackCompose(zfsOnlyConfig);
     const zfsParsed = parseYaml(zfsResult);
