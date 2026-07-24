@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { Readable } from 'stream';
+import { Readable } from 'node:stream';
 import { createMockJSONStream, collectStreamOutput } from '../stream-utils';
 
 describe('stream-utils', () => {

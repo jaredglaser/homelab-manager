@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
-import { mkdtempSync, rmSync } from 'fs';
-import { join } from 'path';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { getTestTmpDir } from '@/lib/test/tmp-dir';
 import { initBareRepo, commitFiles } from '@/lib/git/repo';
 import * as gitConfig from '@/lib/config/git-config';

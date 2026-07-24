@@ -10,7 +10,7 @@ export const createGitToken = createServerFn()
   .handler(async ({ data, context }): Promise<{ token: string }> => {
     requireRole('admin')(context.user);
 
-    const { randomBytes } = await import('crypto');
+    const { randomBytes } = await import('node:crypto');
     const { databaseConnectionManager } = await import('@/lib/clients/database-client');
     const { loadDatabaseConfig } = await import('@/lib/config/database-config');
     const { loadMasterKeyring } = await import('@/lib/crypto/master-key');

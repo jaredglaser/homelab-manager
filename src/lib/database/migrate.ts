@@ -1,8 +1,8 @@
 import type { DatabaseClient } from '../clients/database-client';
 import type { PoolClient } from 'pg';
-import { readFileSync, readdirSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Get the root directory of the project (3 levels up from this file)
 const currentDir = dirname(fileURLToPath(import.meta.url));

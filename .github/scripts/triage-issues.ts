@@ -6,8 +6,8 @@
  *   triage-summary.md: human-readable summary for the PR description
  */
 
-import { readFileSync, writeFileSync } from "fs";
-import { dirname } from "path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 const MAX_ISSUES = Math.min(Math.max(1, Number(process.env.MAX_ISSUES ?? "10") || 10), 50);
 const INPUT_FILE = process.env.INPUT_FILE ?? "sonar-issues.json";

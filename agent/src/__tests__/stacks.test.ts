@@ -9,8 +9,8 @@ import {
   handleStackStatus,
   parseContainerNames,
 } from '../routes/stacks';
-import { mkdirSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 beforeAll(() => {
   console.error = mock(() => {});

@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, afterEach, beforeEach } from 'bun:test';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { buildStateCookie, generatePkcePair } from '@/lib/auth/login-handler';
 
 // Module mocks must be registered before importing the handler so its dynamic
