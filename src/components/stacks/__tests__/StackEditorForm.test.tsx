@@ -50,14 +50,22 @@ mock.module('@/components/stacks/DeployHistoryList', () => ({
     </div>
   ),
 }));
-mock.module('@/components/stacks/StackContainersPanel', () => ({ default: () => <div>containers-panel</div> }));
+mock.module('@/components/stacks/StackContainersPanel', () => ({
+  default: ({ onRecreate }: { onRecreate: () => void }) => (
+    <div>
+      containers-panel
+      <button onClick={onRecreate}>containers-recreate</button>
+    </div>
+  ),
+}));
 mock.module('@/components/stacks/StackActionBar', () => ({
-  default: ({ onDeploy, onUpdate, onTeardown, onDelete }: { onDeploy: () => void; onUpdate: () => void; onTeardown: () => void; onDelete: () => void }) => (
+  default: ({ onDeploy, onUpdate, onTeardown, onDelete, isDeploying }: { onDeploy: () => void; onUpdate: () => void; onTeardown: () => void; onDelete: () => void; isDeploying: boolean }) => (
     <div>
       <button onClick={onDeploy}>action-deploy</button>
       <button onClick={onUpdate}>action-update</button>
       <button onClick={onTeardown}>action-teardown</button>
       <button onClick={onDelete}>action-delete</button>
+      <span data-testid="is-deploying">{String(isDeploying)}</span>
     </div>
   ),
 }));
@@ -223,6 +231,20 @@ describe('StackEditorForm', () => {
     expect(capturedBlockerOpts?.shouldBlockFn()).toBe(false);
   });
 
+  it('ignores a second Deploy click while a deploy is already in flight', async () => {
+    let resolveDeploy!: (value: { deployId: number; status: 'succeeded'; logs: string }) => void;
+    mockTriggerDeploy.mockImplementationOnce(() => new Promise((resolve) => { resolveDeploy = resolve; }));
+    await renderForm();
+
+    fireEvent.click(screen.getByRole('button', { name: 'action-deploy' }));
+    await waitFor(() => expect(screen.getByTestId('is-deploying').textContent).toBe('true'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'action-deploy' }));
+    expect(mockTriggerDeploy).toHaveBeenCalledTimes(1);
+
+    await act(async () => { resolveDeploy({ deployId: nextDeployId++, status: 'succeeded', logs: '' }); });
+  });
+
   it('deploys immediately when there are no unsaved changes', async () => {
     await renderForm();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
@@ -287,6 +309,46 @@ describe('StackEditorForm', () => {
     await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
 
     fireEvent.click(screen.getByRole('button', { name: 'action-update' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+  });
+
+  it('recreates through the deploy mutation with forceRecreate true when there are no unsaved changes', async () => {
+    await renderForm();
+    fireEvent.click(screen.getByRole('tab', { name: /Containers/ }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'containers-recreate' })); });
+
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockTriggerDeploy).toHaveBeenCalledWith({
+      data: { stack: 'web', host: 'host1', action: 'deploy', forceRecreate: true },
+    });
+  });
+
+  it('warns before recreating with unsaved changes using recreate-specific copy, and recreates on confirm', async () => {
+    await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('tab', { name: /Containers/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'containers-recreate' }));
+    expect(screen.getByRole('heading', { name: 'Recreate with unsaved changes?' })).toBeDefined();
+    expect(screen.getByText(/this recreates all containers from the last saved compose/i)).toBeDefined();
+    expect(mockTriggerDeploy).not.toHaveBeenCalled();
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Recreate anyway' })); });
+    await waitFor(() => expect(mockTriggerDeploy).toHaveBeenCalledTimes(1));
+    expect(mockTriggerDeploy).toHaveBeenCalledWith({
+      data: { stack: 'web', host: 'host1', action: 'deploy', forceRecreate: true },
+    });
+  });
+
+  it('does not recreate when the unsaved-changes warning is cancelled', async () => {
+    await renderForm();
+    act(() => { fireEvent.change(screen.getByLabelText('compose-input'), { target: { value: 'image: redis' } }); });
+    await waitFor(() => expect(capturedBlockerOpts?.shouldBlockFn()).toBe(true));
+
+    fireEvent.click(screen.getByRole('tab', { name: /Containers/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'containers-recreate' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(mockTriggerDeploy).not.toHaveBeenCalled();
   });

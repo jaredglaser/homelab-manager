@@ -1,7 +1,5 @@
-import { HelpCircle, Play, RefreshCw, Square, Trash2 } from 'lucide-react';
+import { Play, RefreshCw, Square, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Label } from '@/components/ui/label';
 import { Spinner } from '@/components/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -11,8 +9,6 @@ interface StackActionBarProps {
   onTeardown: () => void;
   onDelete: () => void;
   isDeploying: boolean;
-  forceRecreate: boolean;
-  onForceRecreateChange: (value: boolean) => void;
 }
 
 export default function StackActionBar({
@@ -21,8 +17,6 @@ export default function StackActionBar({
   onTeardown,
   onDelete,
   isDeploying,
-  forceRecreate,
-  onForceRecreateChange,
 }: StackActionBarProps) {
   return (
     <div className="flex items-center gap-2">
@@ -30,49 +24,6 @@ export default function StackActionBar({
         {isDeploying ? <Spinner className="size-3.5 text-inherit" /> : <Play size={14} />}
         Deploy
       </Button>
-
-      <div className="flex items-center">
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id="force-recreate"
-            className="size-4"
-            checked={forceRecreate}
-            onCheckedChange={(checked) => onForceRecreateChange(checked)}
-            disabled={isDeploying}
-          />
-          <Label htmlFor="force-recreate" className="cursor-pointer">
-            <span className="text-xs select-none">Force</span>
-          </Label>
-        </div>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Force recreate help"
-                className="text-foreground p-0.5 opacity-40 hover:opacity-80"
-              />
-            }
-          >
-            <HelpCircle size={14} />
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">
-            <div className="p-1">
-              <p className="text-sm font-medium mb-1">Force Recreate</p>
-              <p className="text-xs block opacity-90">
-                By default, Docker Compose only recreates containers whose configuration has changed.
-                Enable this to forcefully recreate all containers in the stack, even if their
-                config is unchanged. This also removes any containers with conflicting names
-                from other projects before deploying.
-              </p>
-              <p className="text-xs block opacity-70 mt-1">
-                Use this when you encounter name conflicts or need a clean restart of all services.
-              </p>
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      </div>
 
       <Tooltip>
         <TooltipTrigger

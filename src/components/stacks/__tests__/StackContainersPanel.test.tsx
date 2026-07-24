@@ -52,10 +52,14 @@ const mockContainers: StackContainer[] = [
   { id: 'def456', name: 'plex-db-1', status: 'exited', image: 'postgres:16', service: 'db', ports: [], mounts: [] },
 ];
 
+const mockOnRecreate = mock(() => {});
+
 const defaultProps = {
   containers: mockContainers,
   stackName: 'plex',
   host: 'server1',
+  onRecreate: mockOnRecreate,
+  isDeploying: false,
 };
 
 function createWrapper() {
@@ -76,6 +80,7 @@ describe('StackContainersPanel', () => {
     mockControlStack.mockClear();
     mockToastSuccess.mockClear();
     mockToastError.mockClear();
+    mockOnRecreate.mockClear();
   });
 
   it('renders container names and statuses', () => {
@@ -211,6 +216,63 @@ describe('StackContainersPanel', () => {
     expect(screen.queryByRole('button', { name: /^start orphan/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^stop orphan/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /^restart orphan/i })).toBeNull();
+  });
+
+  it('renders the Recreate button enabled at zero containers, unlike Start', () => {
+    renderPanel({ ...defaultProps, containers: [] });
+    expect(screen.getByRole('button', { name: 'Start' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Recreate' })).toHaveProperty('disabled', false);
+  });
+
+  it('disables the Recreate button while isDeploying is true', () => {
+    renderPanel({ ...defaultProps, isDeploying: true });
+    expect(screen.getByRole('button', { name: 'Recreate' })).toHaveProperty('disabled', true);
+  });
+
+  it('disables Start/Stop/Restart while isDeploying is true even though controlMutation is idle', () => {
+    renderPanel({ ...defaultProps, isDeploying: true });
+    expect(screen.getByRole('button', { name: 'Start' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Stop' })).toHaveProperty('disabled', true);
+    expect(screen.getByRole('button', { name: 'Restart' })).toHaveProperty('disabled', true);
+  });
+
+  it('disables Recreate while a control mutation is pending even though isDeploying is false', async () => {
+    let resolveControl!: () => void;
+    mockControlStack.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { resolveControl = resolve; })
+    );
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /^start$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Recreate' })).toHaveProperty('disabled', true);
+    });
+
+    resolveControl();
+  });
+
+  it('shows a confirmation dialog stating the recreate/removal behavior when Recreate is clicked', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate' }));
+    expect(screen.getByRole('heading', { name: 'Recreate plex?' })).toBeDefined();
+    expect(screen.getByText(/recreates all containers in this stack from the current images/i)).toBeDefined();
+    expect(screen.getByText(/removes any containers with the same name even if they belong to other compose projects/i)).toBeDefined();
+    expect(mockOnRecreate).not.toHaveBeenCalled();
+  });
+
+  it('fires onRecreate when the confirmation dialog is confirmed', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate now' }));
+    expect(mockOnRecreate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fire onRecreate when the confirmation dialog is cancelled', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mockOnRecreate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('heading', { name: 'Recreate plex?' })).toBeNull();
   });
 
   it('renders port chips after the image, deduped and dimmed for unpublished ports', () => {

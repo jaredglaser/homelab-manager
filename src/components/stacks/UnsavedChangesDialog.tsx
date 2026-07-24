@@ -24,6 +24,8 @@ interface UnsavedChangesDialogProps {
  * the editor with unsaved changes, or deploying while edits aren't saved. Backed
  * by AlertDialog so the choice can't be dismissed by clicking the backdrop.
  * Defaults describe the leave-guard; pass overrides for other flows.
+ * Also reused as a generic yes/no confirm (e.g. StackContainersPanel's Recreate
+ * confirmation) since every string is override-able and the defaults are opt-in.
  */
 export default function UnsavedChangesDialog({
   open,
