@@ -6,7 +6,9 @@
  *   fresh       apply every migration to an empty database, assert the schema
  *   upgrade     apply the merge-base migrations, seed data, apply the rest,
  *               assert nothing was lost and the aggregation rules still hold
- *   idempotent  apply the full set twice, assert the second run applies nothing
+ *   idempotent  apply the full set twice, assert the second run applies nothing,
+ *               then force-replay the no-transaction migrations, which are the
+ *               only ones required to be individually idempotent
  *
  * MIGRATION_BASE_ROOT points at a checkout of the merge-base commit. The
  * upgrade scenario imports that checkout's own migrate.ts, which resolves its
@@ -30,6 +32,7 @@ import {
 } from './assertions';
 import { Checks } from './checks';
 import { createPool, recreateDatabase, waitForDatabase } from './db';
+import { assertNoTransactionReplay } from './replay';
 import { seed } from './seed';
 
 type MigrationRunner = (db: DatabaseClient) => Promise<void>;
@@ -140,6 +143,10 @@ async function runIdempotent(): Promise<void> {
       'second run left the ledger unchanged',
       second.map(entry => `${entry.name}@${entry.executedAt}`),
       first.map(entry => `${entry.name}@${entry.executedAt}`)
+    );
+
+    await assertNoTransactionReplay(pool, checks, REPO_ROOT, () =>
+      runMigrations(asDatabaseClient(pool))
     );
     checks.report();
   } finally {
