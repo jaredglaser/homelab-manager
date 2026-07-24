@@ -1,6 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
-import { StatsRepository } from '../stats-repository';
+import { StatsRepository, resolveStatsTier } from '../stats-repository';
 import { createMockPool } from '@/lib/test/mock-pool';
+
+const NOW_MS = Date.now();
+
+/** Window of `seconds` ending now, so tier routing sees data that is still on raw. */
+function recentWindow(seconds: number): { from: Date; to: Date } {
+  return { from: new Date(NOW_MS - seconds * 1000), to: new Date(NOW_MS) };
+}
+
+/** Window of `spanSeconds` whose start sits `startAgeSeconds` in the past. */
+function pannedWindow(spanSeconds: number, startAgeSeconds: number): { from: Date; to: Date } {
+  const fromMs = NOW_MS - startAgeSeconds * 1000;
+  return { from: new Date(fromMs), to: new Date(fromMs + spanSeconds * 1000) };
+}
 
 describe('StatsRepository', () => {
   let mockPool: ReturnType<typeof createMockPool>;
@@ -421,8 +434,7 @@ describe('StatsRepository', () => {
     // Accepts an array of container IDs and queries with ANY($N) to unify history across recreations.
 
     it('should query with correct time range and container filter', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T00:05:00Z');
+      const { from, to } = recentWindow(300);
 
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
@@ -439,8 +451,7 @@ describe('StatsRepository', () => {
     });
 
     it('should accept multiple container IDs for service group queries', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T00:05:00Z');
+      const { from, to } = recentWindow(300);
 
       await repo.getDockerStatsForContainer(['abc123', 'def456', 'ghi789'], undefined, from, to);
 
@@ -449,8 +460,7 @@ describe('StatsRepository', () => {
     });
 
     it('should group by time bucket without container_id (unified series)', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T00:05:00Z');
+      const { from, to } = recentWindow(300);
 
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
@@ -463,8 +473,7 @@ describe('StatsRepository', () => {
     });
 
     it('should append host filter when host is provided', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T00:05:00Z');
+      const { from, to } = recentWindow(300);
 
       await repo.getDockerStatsForContainer(['abc123'], 'server1', from, to);
 
@@ -478,8 +487,7 @@ describe('StatsRepository', () => {
     });
 
     it('should not include host filter when host is undefined', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T00:05:00Z');
+      const { from, to } = recentWindow(300);
 
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
@@ -488,8 +496,7 @@ describe('StatsRepository', () => {
     });
 
     it('should use 1s bucket for short windows (≤ 300s with default targetPoints)', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T00:05:00Z'); // 300s
+      const { from, to } = recentWindow(300);
 
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
@@ -498,18 +505,26 @@ describe('StatsRepository', () => {
     });
 
     it('should compute larger buckets for longer time ranges', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T01:00:00Z'); // 3600s
+      const { from, to } = recentWindow(1800);
 
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
-      // Bounds returns empty → falls back to requested 3600s / 300 targetPoints = 12s bucket
-      expect(mockPool.queries[1].params[2]).toBe(12);
+      // Bounds returns empty → falls back to requested 1800s / 300 targetPoints = 6s bucket
+      expect(mockPool.queries[1].params[2]).toBe(6);
+    });
+
+    it('should floor the bucket at the tier resolution once past the raw window', async () => {
+      const { from, to } = recentWindow(3600);
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      // 3600s reads docker_stats_1m, so ceil(3600 / 300) = 12s is floored to the tier's 60s.
+      expect(mockPool.queries[1].sql).toContain('FROM docker_stats_1m');
+      expect(mockPool.queries[1].params[2]).toBe(60);
     });
 
     it('should respect custom targetPoints', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T00:10:00Z'); // 600s
+      const { from, to } = recentWindow(600);
 
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to, 100);
 
@@ -518,21 +533,19 @@ describe('StatsRepository', () => {
     });
 
     it('should bucket based on actual data extent when shorter than requested range', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-02T00:00:00Z'); // 86400s requested
+      const { from, to } = recentWindow(1800);
 
       // Bounds query returns actual data spanning only 600 seconds
       mockPool.pushResult([{ actual_span_secs: 600 }]);
 
       await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
 
-      // 600s actual / 300 targetPoints = 2s bucket (not 86400/300 = 288s)
+      // 600s actual / 300 targetPoints = 2s bucket (not 1800/300 = 6s)
       expect(mockPool.queries[1].params[2]).toBe(2);
     });
 
     it('should return rows from query result, converting time to epoch ms', async () => {
-      const from = new Date('2024-01-01T00:00:00Z');
-      const to = new Date('2024-01-01T00:05:00Z');
+      const { from, to } = recentWindow(300);
       const rowTime = new Date();
       const mockRows = [{
         time: rowTime, host: 'h1', container_id: 'abc123',
@@ -810,6 +823,260 @@ describe('StatsRepository', () => {
 
       const result = await repo.getProxmoxStatsHistory(60);
       expect(result).toEqual([{ ...mockRows[0], time: rowTime.getTime() }]);
+    });
+  });
+
+  describe('retention tier routing', () => {
+    it('serves a 30-minute window from raw docker_stats', async () => {
+      await repo.getDockerStatsHistory(1800);
+
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats\n');
+      expect(mockPool.queries[0].params).toEqual([1800, 6]);
+    });
+
+    it('crosses to docker_stats_1m one second past 30 minutes', async () => {
+      await repo.getDockerStatsHistory(1801);
+
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats_1m');
+      // Bucket floors at the tier's own 60s resolution instead of ceil(1801 / 300) = 7.
+      expect(mockPool.queries[0].params).toEqual([1801, 60]);
+    });
+
+    it('stays on docker_stats_1m at exactly 2 days', async () => {
+      await repo.getDockerStatsHistory(172800);
+
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats_1m');
+      expect(mockPool.queries[0].params).toEqual([172800, 576]);
+    });
+
+    it('crosses to the hourly averaged view one second past 2 days', async () => {
+      await repo.getDockerStatsHistory(172801);
+
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats_1h_avg');
+      expect(mockPool.queries[0].params).toEqual([172801, 3600]);
+    });
+
+    it('routes zfs windows across the same three boundaries', async () => {
+      await repo.getZFSStatsHistory(1800);
+      await repo.getZFSStatsHistory(1801);
+      await repo.getZFSStatsHistory(172800);
+      await repo.getZFSStatsHistory(172801);
+
+      expect(mockPool.queries[0].sql).toContain('FROM zfs_stats\n');
+      expect(mockPool.queries[1].sql).toContain('FROM zfs_stats_1m');
+      expect(mockPool.queries[2].sql).toContain('FROM zfs_stats_1m');
+      expect(mockPool.queries[3].sql).toContain('FROM zfs_stats_1h_avg');
+      expect(mockPool.queries[1].params).toEqual([1801, 60]);
+      expect(mockPool.queries[3].params).toEqual([172801, 3600]);
+    });
+
+    it('routes proxmox windows across the same three boundaries', async () => {
+      await repo.getProxmoxStatsHistory(1800);
+      await repo.getProxmoxStatsHistory(1801);
+      await repo.getProxmoxStatsHistory(172801);
+
+      expect(mockPool.queries[0].sql).toContain('FROM proxmox_stats\n');
+      expect(mockPool.queries[1].sql).toContain('FROM proxmox_stats_1m');
+      expect(mockPool.queries[2].sql).toContain('FROM proxmox_stats_1h_avg');
+    });
+
+    it('routes both the bounds and data query of a long container range to the same tier', async () => {
+      const { from, to } = recentWindow(7 * 24 * 60 * 60);
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      expect(mockPool.queries).toHaveLength(2);
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats_1h_avg');
+      expect(mockPool.queries[1].sql).toContain('FROM docker_stats_1h_avg');
+      expect(mockPool.queries[1].params[2]).toBe(3600);
+    });
+
+    it('keeps a short container range on raw', async () => {
+      const { from, to } = recentWindow(1200);
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats\n');
+      expect(mockPool.queries[1].sql).toContain('FROM docker_stats\n');
+    });
+
+    it('serves a one-day container range from the minute aggregate', async () => {
+      const { from, to } = recentWindow(24 * 60 * 60);
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      expect(mockPool.queries[1].sql).toContain('FROM docker_stats_1m');
+      expect(mockPool.queries[1].params[2]).toBe(288);
+    });
+
+    it('lifts a short window off raw once its start is older than raw retention', async () => {
+      const { from, to } = pannedWindow(1800, 25 * 60 * 60);
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats_1m');
+      expect(mockPool.queries[1].sql).toContain('FROM docker_stats_1m');
+      expect(mockPool.queries[1].params[2]).toBe(60);
+    });
+
+    it('keeps a short window on raw while its start is still inside raw retention', async () => {
+      const { from, to } = pannedWindow(1800, 23 * 60 * 60);
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      expect(mockPool.queries[1].sql).toContain('FROM docker_stats\n');
+      expect(mockPool.queries[1].params[2]).toBe(6);
+    });
+
+    it('lifts a short window to the hourly view once its start is older than minute retention', async () => {
+      const { from, to } = pannedWindow(1800, 90 * 24 * 60 * 60);
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats_1h_avg');
+      expect(mockPool.queries[1].sql).toContain('FROM docker_stats_1h_avg');
+      expect(mockPool.queries[1].params[2]).toBe(3600);
+    });
+
+    it('lifts a one-day window to the hourly view once its start is older than minute retention', async () => {
+      const { from, to } = pannedWindow(24 * 60 * 60, 60 * 24 * 60 * 60);
+
+      await repo.getDockerStatsForContainer(['abc123'], undefined, from, to);
+
+      expect(mockPool.queries[1].sql).toContain('FROM docker_stats_1h_avg');
+    });
+
+    it('resolves container identity from the minute aggregate, not raw', async () => {
+      await repo.getContainerInfo('abc123');
+
+      expect(mockPool.queries[0].sql).toContain('FROM docker_stats_1m');
+    });
+  });
+
+  describe('resolveStatsTier boundaries', () => {
+    const HOUR = 60 * 60;
+    const DAY = 24 * HOUR;
+
+    it.each([
+      [1800, 'docker_stats', 1],
+      [1801, 'docker_stats_1m', 60],
+      [2 * DAY, 'docker_stats_1m', 60],
+      [2 * DAY + 1, 'docker_stats_1h_avg', 3600],
+    ])('a %ds window ending now reads %s', (windowSeconds, relation, minBucketSeconds) => {
+      expect(resolveStatsTier('docker_stats', windowSeconds as number)).toEqual({
+        relation: relation as string,
+        minBucketSeconds: minBucketSeconds as number,
+      });
+    });
+
+    it.each([
+      [24 * HOUR - 1, 'docker_stats'],
+      [24 * HOUR, 'docker_stats_1m'],
+      [30 * DAY, 'docker_stats_1m'],
+      [30 * DAY + 1, 'docker_stats_1h_avg'],
+    ])('a 30-minute window starting %ds ago reads %s', (startAge, relation) => {
+      expect(resolveStatsTier('docker_stats', 1800, startAge as number).relation).toBe(relation);
+    });
+
+    it('never routes below the tier the window span alone would pick', () => {
+      expect(resolveStatsTier('zfs_stats', 7 * DAY, 60).relation).toBe('zfs_stats_1h_avg');
+    });
+
+    it('applies the same boundaries to every source', () => {
+      expect(resolveStatsTier('zfs_stats', 1800, 25 * HOUR).relation).toBe('zfs_stats_1m');
+      expect(resolveStatsTier('proxmox_stats', 1800, 25 * HOUR).relation).toBe('proxmox_stats_1m');
+      expect(resolveStatsTier('proxmox_stats', 1800, 40 * DAY).relation).toBe(
+        'proxmox_stats_1h_avg',
+      );
+    });
+  });
+
+  describe('numeric coercion through the aggregate views', () => {
+    it('converts numeric strings from docker_stats_1h_avg to numbers', async () => {
+      mockPool.pushResult([{
+        time: '2024-01-01T00:00:00.000Z',
+        host: 'server1',
+        container_id: 'abc123',
+        container_name: 'nginx',
+        image: 'nginx:latest',
+        cpu_percent: '12.5',
+        memory_usage: '1073741824',
+        memory_limit: '2147483648',
+        memory_percent: '50',
+        network_rx_bytes_per_sec: '1024',
+        network_tx_bytes_per_sec: '2048',
+        block_io_read_bytes_per_sec: '4096',
+        block_io_write_bytes_per_sec: '8192',
+      }]);
+
+      const [row] = await repo.getDockerStatsHistory(172801);
+
+      expect(typeof row.memory_usage).toBe('number');
+      expect(typeof row.memory_limit).toBe('number');
+      expect(row.memory_usage).toBe(1073741824);
+      expect(row.cpu_percent).toBe(12.5);
+    });
+
+    it('converts numeric strings from zfs_stats_1h_avg to numbers', async () => {
+      mockPool.pushResult([{
+        time: '2024-01-01T00:00:00.000Z',
+        host: 'server1',
+        pool: 'tank',
+        entity: 'tank',
+        entity_type: 'pool',
+        indent: '0',
+        capacity_alloc: '1000000000',
+        capacity_free: '2000000000',
+        read_ops_per_sec: '42.5',
+        write_ops_per_sec: '7',
+        read_bytes_per_sec: '1048576',
+        write_bytes_per_sec: '512',
+        utilization_percent: '33.3',
+      }]);
+
+      const [row] = await repo.getZFSStatsHistory(172801);
+
+      expect(typeof row.capacity_alloc).toBe('number');
+      expect(typeof row.capacity_free).toBe('number');
+      expect(row.capacity_alloc).toBe(1000000000);
+      expect(row.utilization_percent).toBe(33.3);
+    });
+
+    it('converts numeric strings from proxmox_stats_1h_avg to numbers', async () => {
+      mockPool.pushResult([{
+        time: '2024-01-01T00:00:00.000Z',
+        host: 'pve',
+        entity_type: 'qemu',
+        node: 'pve1',
+        entity_id: '100',
+        entity_name: 'vm',
+        status: 'running',
+        cpu: '0.25',
+        max_cpu: '4',
+        mem: '4294967296',
+        max_mem: '8589934592',
+        disk: '10737418240',
+        max_disk: '21474836480',
+        uptime: '86400',
+        vmid: '100',
+        netin: '123456789',
+        netout: '987654321',
+        storage_type: null,
+        storage_content: null,
+        storage_avail: '5368709120',
+        storage_shared: null,
+        cluster_version: '3',
+        sample_count: '3600',
+      }]);
+
+      const [row] = await repo.getProxmoxStatsHistory(172801);
+
+      expect(typeof row.mem).toBe('number');
+      expect(typeof row.storage_avail).toBe('number');
+      expect(typeof row.netin).toBe('number');
+      expect(row.mem).toBe(4294967296);
+      expect(row.netin).toBe(123456789);
+      expect(row.uptime).toBe(86400);
     });
   });
 

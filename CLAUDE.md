@@ -96,7 +96,7 @@ bun run test:coverage:all     # Run tests in both with coverage enforcement
 - **Charts:** Apache ECharts
 - **Clients:** Dockerode (Docker), pg (PostgreSQL), native fetch (Proxmox)
 - **Crypto:** jose (JWT for agent auth, JWE for at-rest secret encryption)
-- **Database:** TimescaleDB (PostgreSQL 16, wide hypertables, auto-compression after 7 days)
+- **Database:** TimescaleDB (PostgreSQL 16, wide hypertables, three-tier retention cascade with per-tier compression)
 - **Worker:** Standalone Bun process for continuous data collection
 - **Testing:** `bun:test` with Happy-DOM + Testing Library
 
@@ -175,7 +175,17 @@ Server-side bare git repo via isomorphic-git. Git HTTP smart protocol at `/api/g
 
 ### Database Tables
 
-Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`, `docker_container_events` (append-only state-change log; current snapshot via `DISTINCT ON (host, container_id) ORDER BY at DESC`, broadcast via `NOTIFY docker_container_change`). The three stats hypertables use a 1-day `chunk_time_interval` so the short windows the UI queries hit a single small chunk. Plus `entity_metadata` (icons/labels), `settings` (KV with NOTIFY trigger), `managed_hosts` (Docker hosts with agent connection details), `deploy_history` (deploy records with status tracking), `deploy_queue` (newest git-push request blocked by an active deploy, one row per stack+host), `stack_secrets` (per-stack environment-variable secrets, JWE-encrypted at rest), and `agent_keypairs` (per-host Ed25519 keypair: private JWK encrypted, public JWK as JSONB). Schema details in `migrations/`.
+Hypertables: `docker_stats`, `zfs_stats`, `proxmox_stats`, `docker_container_events` (append-only state-change log; current snapshot via `DISTINCT ON (host, container_id) ORDER BY at DESC`, broadcast via `NOTIFY docker_container_change`). Plus `entity_metadata` (icons/labels), `settings` (KV with NOTIFY trigger), `managed_hosts` (Docker hosts with agent connection details), `deploy_history` (deploy records with status tracking), `deploy_queue` (newest git-push request blocked by an active deploy, one row per stack+host), `stack_secrets` (per-stack environment-variable secrets, JWE-encrypted at rest), and `agent_keypairs` (per-host Ed25519 keypair: private JWK encrypted, public JWK as JSONB). Schema details in `migrations/`. A migration whose first line is `-- migrate:no-transaction` is split on top-level semicolons and applied one statement at a time (needed for `CALL refresh_continuous_aggregate`); such a file re-runs in full after a mid-file failure, so every statement in it must be idempotent.
+
+### Stats Retention Cascade
+
+Each stats hypertable has three tiers: raw (1-hour chunks, compress after 6h, dropped at 24h), `<table>_1m` (1-day chunks, compress after 7d, dropped at 30d) and `<table>_1h` (7-day chunks, compress after 30d, never dropped). `_1h` is a hierarchical continuous aggregate over `_1m`, never over raw: a refresh that recomputes a region whose source rows are gone deletes the aggregate for that region, so the source's retention is the aggregate's recovery window. Every refresh window sits strictly inside its source's retention (`_1m` start_offset 6h < 24h; `_1h` start_offset 3d < 30d).
+
+`_1m` carries `count(*) AS sample_count` and `_1h` materializes `SUM(metric * sample_count)`, because AVG over AVGs is only correct when every minute has the same sample count. A cagg cannot divide two aggregates, so `<table>_1h_avg` is a plain view that does the division and casts to `double precision` (keeping `AVG(bigint)`'s `numeric` from reaching node-postgres as a string).
+
+Read routing lives in `resolveStatsTier` (`stats-repository.ts`), which picks the coarser of two tiers: by span (<= 30 min raw, <= 2 days `_1m`, longer `_1h_avg`) and by how far back the window starts (< 24h raw, <= 30 days `_1m`, older `_1h_avg`). Span alone would send a one-hour chart panned three months back to raw, where the data no longer exists; age alone would read a month-long window a second at a time. The bucket size is floored at the chosen tier's resolution. Retention values are not user-settable, since the refresh offsets are sized against them; the Settings sliders display them read-only.
+
+The backfill in each migration opens with an unbounded `refresh_continuous_aggregate(..., NULL, now() - INTERVAL '30 days')` sweep before the windowed calls. Migration 007 removed retention entirely, so an existing deployment holds months of raw rows that the new 24-hour policy would otherwise drop without ever rolling them up.
 
 ### Key Rotation
 

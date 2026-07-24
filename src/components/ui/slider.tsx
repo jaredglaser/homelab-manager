@@ -12,6 +12,7 @@ interface SliderProps {
    * the slider moves in steps of 1.
    */
   marks?: number[];
+  disabled?: boolean;
   'aria-label'?: string;
   className?: string;
 }
@@ -24,7 +25,7 @@ function snapToMark(value: number, marks: number[]): number {
   return nearest;
 }
 
-function Slider({ value, onValueChange, min, max, marks, className, ...props }: Readonly<SliderProps>) {
+function Slider({ value, onValueChange, min, max, marks, disabled, className, ...props }: Readonly<SliderProps>) {
   const handleChange = useCallback(
     (next: number) => {
       onValueChange(marks && marks.length > 0 ? snapToMark(next, marks) : next);
@@ -39,7 +40,8 @@ function Slider({ value, onValueChange, min, max, marks, className, ...props }: 
       onValueChange={handleChange}
       min={min}
       max={max}
-      className={cn('w-full', className)}
+      disabled={disabled}
+      className={cn('w-full', disabled && 'opacity-50', className)}
       {...props}
     >
       <SliderPrimitive.Control className="flex w-full touch-none items-center py-2 select-none">

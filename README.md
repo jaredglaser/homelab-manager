@@ -41,7 +41,7 @@ Homelab Manager is a **one-stop-shop dashboard** for monitoring and managing Doc
 - **Stack Management** - GitOps-style Docker Compose stack management with in-app editor (Monaco + YAML validation), deploy, teardown, rollback, and deploy history
 - **Host Management** - Add and configure managed Docker hosts via a setup wizard; agent sidecars handle stats streaming, log access, and deployments
 - **Secrets Management** - JWE-encrypted stack secrets and per-agent keypairs stored in TimescaleDB
-- **TimescaleDB Persistence** - 1-second collection interval with automatic compression and indefinite retention
+- **TimescaleDB Persistence** - 1-second collection interval, rolled up into 1-minute and 1-hour continuous aggregates so hourly history is kept forever
 - **Live-Updating UI** - SSE streaming with shared server-side polling (1 DB query/sec per source, regardless of client count)
 - **Cross-Browser Sync** - User preferences persisted and synced across tabs via a dedicated SSE channel
 - **Theming** - Dark/light color modes with selectable light-mode palettes

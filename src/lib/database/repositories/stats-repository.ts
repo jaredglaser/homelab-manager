@@ -39,6 +39,68 @@ export interface NewZFSStat {
   writeBytesPerSec: number;
 }
 
+export type StatsSourceTable = 'docker_stats' | 'zfs_stats' | 'proxmox_stats';
+
+export interface StatsTier {
+  relation: string;
+  minBucketSeconds: number;
+}
+
+/** Longest window worth reading off raw before the row count gets out of hand. */
+export const RAW_TIER_MAX_SECONDS = 30 * 60;
+/** Longest window worth reading off the 1-minute aggregate. */
+export const MINUTE_TIER_MAX_SECONDS = 2 * 24 * 60 * 60;
+
+/** Retention of each tier, which bounds how far back it can be read at all. */
+const RAW_RETENTION_SECONDS = 24 * 60 * 60;
+const MINUTE_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+
+const TIER_SUFFIXES = ['', '_1m', '_1h_avg'];
+const TIER_MIN_BUCKET_SECONDS = [1, 60, 3600];
+
+function tierByVolume(windowSeconds: number): number {
+  if (windowSeconds <= RAW_TIER_MAX_SECONDS) return 0;
+  if (windowSeconds <= MINUTE_TIER_MAX_SECONDS) return 1;
+  return 2;
+}
+
+function tierByAvailability(windowStartAgeSeconds: number): number {
+  if (windowStartAgeSeconds < RAW_RETENTION_SECONDS) return 0;
+  if (windowStartAgeSeconds <= MINUTE_RETENTION_SECONDS) return 1;
+  return 2;
+}
+
+/**
+ * Pick a tier that can serve the window on both counts, taking whichever is coarser.
+ * Span alone is not enough: a one-hour window panned three months back is small but its
+ * data only exists in the hourly tier, and routing it to raw renders an empty chart.
+ * Age alone is not enough either, since a month-long window ending now would be read a
+ * second at a time off raw.
+ *
+ * @param windowSeconds length of the requested window
+ * @param windowStartAgeSeconds how long ago the window starts; defaults to `windowSeconds`
+ *   for the callers whose window ends at now
+ */
+export function resolveStatsTier(
+  table: StatsSourceTable,
+  windowSeconds: number,
+  windowStartAgeSeconds: number = windowSeconds,
+): StatsTier {
+  const level = Math.max(tierByVolume(windowSeconds), tierByAvailability(windowStartAgeSeconds));
+  return {
+    relation: `${table}${TIER_SUFFIXES[level]}`,
+    minBucketSeconds: TIER_MIN_BUCKET_SECONDS[level],
+  };
+}
+
+/**
+ * Target ~300 data points per entity, floored at the tier's own resolution: bucketing an
+ * hourly aggregate into 6-second buckets would just repeat each row 600 times.
+ */
+function tierBucketSeconds(tier: StatsTier, windowSeconds: number, targetPoints = 300): number {
+  return Math.max(tier.minBucketSeconds, Math.ceil(windowSeconds / targetPoints));
+}
+
 export class StatsRepository {
   constructor(private pool: Pool) {}
 
@@ -183,9 +245,8 @@ export class StatsRepository {
   }
 
   async getDockerStatsHistory(seconds: number): Promise<DockerStatsRow[]> {
-    // Target ~300 data points per entity: bucket larger windows to avoid sending
-    // thousands of 1-second rows over the wire for windows like 30 minutes.
-    const bucketSeconds = Math.max(1, Math.ceil(seconds / 300));
+    const tier = resolveStatsTier('docker_stats', seconds);
+    const bucketSeconds = tierBucketSeconds(tier, seconds);
     const result = await this.pool.query(
       `SELECT
          time_bucket(make_interval(secs => $2), time) AS time,
@@ -201,7 +262,7 @@ export class StatsRepository {
          AVG(network_tx_bytes_per_sec)           AS network_tx_bytes_per_sec,
          AVG(block_io_read_bytes_per_sec)        AS block_io_read_bytes_per_sec,
          AVG(block_io_write_bytes_per_sec)       AS block_io_write_bytes_per_sec
-       FROM docker_stats
+       FROM ${tier.relation}
        WHERE time > NOW() - make_interval(secs => $1)
        GROUP BY time_bucket(make_interval(secs => $2), time), host, container_id
        ORDER BY time ASC`,
@@ -222,6 +283,10 @@ export class StatsRepository {
     to: Date,
     targetPoints = 300,
   ): Promise<DockerStatsRow[]> {
+    const requestedSpanSecs = (to.getTime() - from.getTime()) / 1000;
+    const windowStartAgeSecs = Math.max(0, (Date.now() - from.getTime()) / 1000);
+    const tier = resolveStatsTier('docker_stats', requestedSpanSecs, windowStartAgeSecs);
+
     // Find the actual data extent so we bucket based on real data density
     // rather than the full requested range. This prevents low-resolution graphs
     // when the requested range exceeds the available data.
@@ -230,7 +295,7 @@ export class StatsRepository {
 
     const boundsResult = await this.pool.query(
       `SELECT EXTRACT(EPOCH FROM (MAX(time) - MIN(time))) AS actual_span_secs
-       FROM docker_stats
+       FROM ${tier.relation}
        WHERE time >= $1 AND time <= $2
          AND container_id = ANY($3)
          ${boundsHostFilter}`,
@@ -238,11 +303,10 @@ export class StatsRepository {
     );
 
     const actualSpanSecs = Number(boundsResult.rows[0]?.actual_span_secs) || 0;
-    const requestedSpanSecs = (to.getTime() - from.getTime()) / 1000;
     const effectiveSpan = actualSpanSecs > 0
       ? Math.min(actualSpanSecs, requestedSpanSecs)
       : requestedSpanSecs;
-    const bucketSeconds = Math.max(1, Math.ceil(effectiveSpan / targetPoints));
+    const bucketSeconds = tierBucketSeconds(tier, effectiveSpan, targetPoints);
 
     const params: (string | Date | number | string[])[] = [from, to, bucketSeconds, containerIds];
     const hostFilter = host ? `AND host = $${params.push(host)}` : '';
@@ -262,7 +326,7 @@ export class StatsRepository {
          AVG(network_tx_bytes_per_sec)           AS network_tx_bytes_per_sec,
          AVG(block_io_read_bytes_per_sec)        AS block_io_read_bytes_per_sec,
          AVG(block_io_write_bytes_per_sec)       AS block_io_write_bytes_per_sec
-       FROM docker_stats
+       FROM ${tier.relation}
        WHERE time >= $1 AND time <= $2
          AND container_id = ANY($4)
          ${hostFilter}
@@ -280,9 +344,11 @@ export class StatsRepository {
     const params: string[] = [containerId];
     const hostFilter = host ? `AND host = $${params.push(host)}` : '';
 
+    // Reads the minute aggregate, not raw: raw is dropped after 24 hours, so a container
+    // idle longer than that would otherwise lose its name and image.
     const result = await this.pool.query(
       `SELECT container_name, image, host
-       FROM docker_stats
+       FROM docker_stats_1m
        WHERE container_id = $1 ${hostFilter}
        ORDER BY time DESC
        LIMIT 1`,
@@ -298,7 +364,8 @@ export class StatsRepository {
   }
 
   async getZFSStatsHistory(seconds: number): Promise<ZFSStatsRow[]> {
-    const bucketSeconds = Math.max(1, Math.ceil(seconds / 300));
+    const tier = resolveStatsTier('zfs_stats', seconds);
+    const bucketSeconds = tierBucketSeconds(tier, seconds);
     const result = await this.pool.query(
       `SELECT
          time_bucket(make_interval(secs => $2), time) AS time,
@@ -314,7 +381,7 @@ export class StatsRepository {
          AVG(read_bytes_per_sec)    AS read_bytes_per_sec,
          AVG(write_bytes_per_sec)   AS write_bytes_per_sec,
          AVG(utilization_percent)   AS utilization_percent
-       FROM zfs_stats
+       FROM ${tier.relation}
        WHERE time > NOW() - make_interval(secs => $1)
        GROUP BY time_bucket(make_interval(secs => $2), time), host, pool, entity
        ORDER BY time ASC`,
@@ -413,8 +480,9 @@ export class StatsRepository {
   }
 
   async getProxmoxStatsHistory(seconds: number): Promise<ProxmoxStatsRow[]> {
+    const tier = resolveStatsTier('proxmox_stats', seconds);
     const result = await this.pool.query(
-      `SELECT * FROM proxmox_stats
+      `SELECT * FROM ${tier.relation}
        WHERE time > NOW() - make_interval(secs => $1)
        ORDER BY time ASC`,
       [seconds]

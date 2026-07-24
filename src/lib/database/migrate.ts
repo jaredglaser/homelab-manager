@@ -17,6 +17,92 @@ const migrationsDir = join(projectRoot, 'migrations');
 export const MIGRATIONS_ADVISORY_LOCK_KEY = 0x686c6d31;
 
 /**
+ * Opt-out marker for migrations containing statements PostgreSQL refuses to run inside a
+ * transaction block (`CALL refresh_continuous_aggregate`). Must appear on its own line.
+ */
+export const NO_TRANSACTION_DIRECTIVE = '-- migrate:no-transaction';
+
+const DOLLAR_TAG = /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/;
+
+/**
+ * Split a migration file into individual statements on top-level semicolons, so a
+ * no-transaction migration can send them one at a time. Multi-statement `client.query`
+ * uses the simple query protocol, which wraps the batch in an implicit transaction and
+ * would reject the very statements that need to run outside one.
+ *
+ * Comments are replaced with whitespace; string literals and dollar-quoted bodies
+ * (a `DO $$ ... $$` block may contain semicolons) are copied through verbatim.
+ */
+export function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let i = 0;
+
+  while (i < sql.length) {
+    if (sql.startsWith('--', i)) {
+      const newline = sql.indexOf('\n', i);
+      i = newline === -1 ? sql.length : newline;
+      current += ' ';
+      continue;
+    }
+    if (sql.startsWith('/*', i)) {
+      const end = sql.indexOf('*/', i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      current += ' ';
+      continue;
+    }
+
+    const char = sql[i];
+
+    if (char === "'" || char === '"') {
+      let j = i + 1;
+      while (j < sql.length) {
+        if (sql[j] === char) {
+          if (sql[j + 1] === char) {
+            j += 2;
+            continue;
+          }
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      current += sql.slice(i, j);
+      i = j;
+      continue;
+    }
+
+    if (char === '$') {
+      const tag = DOLLAR_TAG.exec(sql.slice(i))?.[0];
+      if (tag) {
+        const end = sql.indexOf(tag, i + tag.length);
+        const stop = end === -1 ? sql.length : end + tag.length;
+        current += sql.slice(i, stop);
+        i = stop;
+        continue;
+      }
+    }
+
+    if (char === ';') {
+      statements.push(current);
+      current = '';
+      i += 1;
+      continue;
+    }
+
+    current += char;
+    i += 1;
+  }
+
+  statements.push(current);
+  return statements.map((statement) => statement.trim()).filter((statement) => statement.length > 0);
+}
+
+function hasNoTransactionDirective(sql: string): boolean {
+  return sql.split('\n').some((line) => line.trim() === NO_TRANSACTION_DIRECTIVE);
+}
+
+/**
  * Run all pending database migrations
  * Migrations are applied sequentially and tracked in the migrations table
  */
@@ -65,26 +151,54 @@ async function applyPendingMigrations(client: PoolClient): Promise<void> {
       continue;
     }
 
-    // Run migration in a transaction
     console.log(`[Migrations] Running ${migrationFile}...`);
     const migrationPath = join(migrationsDir, migrationFile);
     const sql = readFileSync(migrationPath, 'utf-8');
 
     try {
-      await client.query('BEGIN');
-      await client.query(sql);
-      await client.query(
-        'INSERT INTO migrations (name) VALUES ($1)',
-        [migrationFile]
-      );
-      await client.query('COMMIT');
+      if (hasNoTransactionDirective(sql)) {
+        await applyWithoutTransaction(client, sql, migrationFile);
+      } else {
+        await applyInTransaction(client, sql, migrationFile);
+      }
       console.log(`[Migrations] ✓ Successfully applied ${migrationFile}`);
     } catch (err) {
-      await client.query('ROLLBACK');
       console.error(`[Migrations] ✗ Failed to apply ${migrationFile}:`, err);
       throw err;
     }
   }
 
   console.log('[Migrations] All migrations completed successfully');
+}
+
+async function applyInTransaction(
+  client: PoolClient,
+  sql: string,
+  migrationFile: string,
+): Promise<void> {
+  try {
+    await client.query('BEGIN');
+    await client.query(sql);
+    await client.query('INSERT INTO migrations (name) VALUES ($1)', [migrationFile]);
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * Applies each statement on its own, with no surrounding transaction to roll back.
+ * A failure part-way leaves the migration unrecorded and the whole file re-runs on the
+ * next boot, so every statement in such a file has to be idempotent.
+ */
+async function applyWithoutTransaction(
+  client: PoolClient,
+  sql: string,
+  migrationFile: string,
+): Promise<void> {
+  for (const statement of splitSqlStatements(sql)) {
+    await client.query(statement);
+  }
+  await client.query('INSERT INTO migrations (name) VALUES ($1)', [migrationFile]);
 }
