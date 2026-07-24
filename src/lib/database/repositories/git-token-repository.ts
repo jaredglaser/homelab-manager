@@ -1,3 +1,4 @@
+import '@tanstack/react-start/server-only';
 import type { Pool } from 'pg';
 
 export interface GitTokenRow {
