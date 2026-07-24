@@ -20,7 +20,7 @@ export interface HostListItem {
 }
 
 export type HealthCheckOutcome =
-  | { healthy: true; version?: string; dockerVersion?: string }
+  | { healthy: true; version?: string; dockerVersion?: string; infoSupported?: boolean }
   | { healthy: false; error: string };
 
 /**

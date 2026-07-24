@@ -354,12 +354,15 @@ describe('AgentClient', () => {
   });
 
   describe('health', () => {
-    it('returns health info from GET /health', async () => {
+    it('returns agent info from GET /info', async () => {
       fetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify({
           status: 'healthy',
           agentVersion: '0.1.0',
-          docker: { version: '24.0.7', apiVersion: '1.43' },
+          capabilities: {
+            docker: { available: true, version: '24.0.7', apiVersion: '1.43' },
+            zfs: { available: false },
+          },
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -369,6 +372,7 @@ describe('AgentClient', () => {
       const result = await client.health();
       expect(result.status).toBe('healthy');
       expect(result.version).toBe('0.1.0');
+      expect(fetchMock.mock.calls[0][0]).toBe('http://agent:9090/info');
     });
 
     it('throws AgentClientError when agent is unreachable', async () => {

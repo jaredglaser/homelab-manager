@@ -1,27 +1,81 @@
-export interface AgentHealthResponse {
-  status: string;
-  version: string;
-  dockerVersion?: string;
-  uptime?: number;
-}
+import type { AgentHealthCheckResponse, AgentInfoResponse } from '@homelab-manager/agent/types';
 
 export type AgentHealthResult =
-  | { healthy: true; version?: string; dockerVersion?: string }
+  | { healthy: true; version?: string; dockerVersion?: string; infoSupported?: boolean }
   | { healthy: false; error: string };
 
 const HEALTH_CHECK_TIMEOUT_MS = 5000;
 
 /**
- * Check the health of an agent by calling its /health endpoint.
- * Returns a result object indicating health status and version info.
+ * Fetch version and capability detail from the agent's authenticated /info
+ * endpoint. Best-effort: returns an empty object on any failure so liveness
+ * reporting is never blocked by missing detail.
+ * getToken failures are silent (expected for pending/unenrolled hosts).
+ * HTTP errors and network failures are logged so operators can diagnose why
+ * version info is missing in Settings -> Managed Hosts.
+ *
+ * @returns `infoSupported: false` when the agent predates /info (404), which
+ * callers use to tell "version unknown" apart from "version unchanged".
+ */
+async function fetchAgentInfo(
+  agentUrl: string,
+  timeoutMs: number,
+  fetchFn: typeof fetch,
+  getToken: () => Promise<string>
+): Promise<{ version?: string; dockerVersion?: string; infoSupported?: boolean }> {
+  let token: string;
+  try {
+    token = await getToken();
+  } catch {
+    return {};
+  }
+
+  try {
+    const response = await fetchFn(`${agentUrl}/info`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'manual',
+    });
+    if (response.status === 404) {
+      console.info(
+        `[agent-health] ${agentUrl} has no /info endpoint; agent predates authenticated version reporting`
+      );
+      return { infoSupported: false };
+    }
+    if (!response.ok) {
+      console.error(`[agent-health] /info returned ${response.status} for ${agentUrl}`);
+      return {};
+    }
+    const data = (await response.json()) as AgentInfoResponse;
+    return {
+      version: data.agentVersion,
+      dockerVersion: data.capabilities?.docker?.version,
+      infoSupported: true,
+    };
+  } catch (err) {
+    console.error(
+      `[agent-health] /info request failed for ${agentUrl}:`,
+      err instanceof Error ? err.message : err
+    );
+    return {};
+  }
+}
+
+/**
+ * Check the health of an agent by calling its unauthenticated /health endpoint
+ * (liveness only, the agent strips version and capability detail from it).
+ * When `getToken` is provided, version info is fetched from the authenticated
+ * /info endpoint; failures there do not affect the healthy verdict.
  * Never throws: all errors are captured in the result.
  *
  * @param fetchFn - Injectable fetch function for testing (defaults to globalThis.fetch)
+ * @param getToken - Optional JWT minter for the authenticated /info request
  */
 export async function checkAgentHealth(
   agentUrl: string,
   timeoutMs: number = HEALTH_CHECK_TIMEOUT_MS,
-  fetchFn: typeof fetch = globalThis.fetch
+  fetchFn: typeof fetch = globalThis.fetch,
+  getToken?: () => Promise<string>
 ): Promise<AgentHealthResult> {
   try {
     const response = await fetchFn(`${agentUrl}/health`, {
@@ -40,18 +94,23 @@ export async function checkAgentHealth(
       };
     }
 
-    let data: AgentHealthResponse;
+    // Validate the body shape to confirm this is an agent response, not an
+    // unrelated HTTP server that happens to return 200.
+    let body: AgentHealthCheckResponse;
     try {
-      data = (await response.json()) as AgentHealthResponse;
+      body = (await response.json()) as AgentHealthCheckResponse;
     } catch {
       return { healthy: false, error: `Agent returned non-JSON response (status ${response.status})` };
     }
+    if (body?.status !== 'healthy') {
+      return { healthy: false, error: 'Agent /health response missing expected status field' };
+    }
 
-    return {
-      healthy: true,
-      version: data.version,
-      dockerVersion: data.dockerVersion,
-    };
+    const info = getToken
+      ? await fetchAgentInfo(agentUrl, timeoutMs, fetchFn, getToken)
+      : {};
+
+    return { healthy: true, ...info };
   } catch (err: unknown) {
     if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       return {

@@ -151,6 +151,19 @@ describe('handleRefreshHostStatus', () => {
     await expect(handleRefreshHostStatus(deps, { hostId: 999 })).rejects.toThrow('not found');
   });
 
+  it('passes the host name to checkHealth', async () => {
+    let capturedHostName = '';
+    const checkHealth = mock((_url: string, hostName: string): Promise<HealthCheckOutcome> => {
+      capturedHostName = hostName;
+      return Promise.resolve({ healthy: true as const });
+    });
+    const repo = mockRepo({
+      findById: mock(() => Promise.resolve(mockRow({ name: 'my-host', agentUrl: 'http://x:9090' }))),
+    });
+    await handleRefreshHostStatus({ ...baseDeps(), repo, checkHealth }, { hostId: 1 });
+    expect(capturedHostName).toBe('my-host');
+  });
+
 });
 
 describe('handleVerifyHost', () => {
@@ -613,6 +626,46 @@ describe('handleUpdateAgent', () => {
     fetchSpy.mockRestore();
   });
 
+  it('treats a pre-update /info 404 followed by a readable version as a successful upgrade', async () => {
+    let callCount = 0;
+    const checkHealth = mock((): Promise<HealthCheckOutcome> => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ healthy: true, infoSupported: false });
+      return Promise.resolve({ healthy: true, version: '2.0.0', infoSupported: true });
+    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const deps = updateDeps(undefined, { checkHealth });
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(true);
+    if (result.healthy) expect(result.version).toBe('2.0.0');
+    fetchSpy.mockRestore();
+  });
+
+  it('does not claim success when the pre-update version was unreadable for a reason other than a 404', async () => {
+    let callCount = 0;
+    const checkHealth = mock((): Promise<HealthCheckOutcome> => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ healthy: true, version: undefined });
+      return Promise.resolve({ healthy: true, version: '2.0.0', infoSupported: true });
+    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const repo = mockRepo();
+    const deps = updateDeps(undefined, { checkHealth });
+    deps.repo = repo;
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(false);
+    if (!result.healthy) {
+      expect(result.error).toContain('could not be confirmed');
+      expect(result.suggestions).toBeDefined();
+    }
+    expect(repo.updateAgentVersion).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it('returns unhealthy with suggestions when POST to agent update endpoint throws', async () => {
     const fetchSpy = spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
     const deps = updateDeps();
@@ -624,6 +677,25 @@ describe('handleUpdateAgent', () => {
       expect(result.error).toContain('ECONNREFUSED');
       expect(result.suggestions).toBeDefined();
     }
+    fetchSpy.mockRestore();
+  });
+
+  it('does not treat undefined version as a version change during polling', async () => {
+    let callCount = 0;
+    const checkHealth = mock((): Promise<HealthCheckOutcome> => {
+      callCount++;
+      if (callCount === 1) return Promise.resolve({ healthy: true, version: '1.0.0' });
+      // /info fails transiently on first poll; should not exit the loop
+      if (callCount === 2) return Promise.resolve({ healthy: true, version: undefined });
+      return Promise.resolve({ healthy: true, version: '2.0.0' });
+    });
+    const fetchSpy = spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 202 }));
+    const deps = updateDeps(undefined, { checkHealth });
+
+    const result = await handleUpdateAgent(deps, { hostId: 1 });
+
+    expect(result.healthy).toBe(true);
+    if (result.healthy) expect(result.version).toBe('2.0.0');
     fetchSpy.mockRestore();
   });
 
