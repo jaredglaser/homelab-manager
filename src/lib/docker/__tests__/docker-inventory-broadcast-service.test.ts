@@ -60,6 +60,8 @@ const container1: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: { 'com.docker.compose.project': 'media' },
+  ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
+  mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
   updatedAt: new Date('2026-04-16T10:00:00Z'),
 };
 
@@ -75,6 +77,8 @@ const container2: DockerInventorySnapshotContainer = {
   finishedAt: new Date('2026-04-16T09:00:00Z'),
   exitCode: 1,
   labels: {},
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2026-04-16T09:00:00Z'),
 };
 
@@ -454,6 +458,8 @@ describe('rowToInventory', () => {
     name: 'plex',
     image: 'plexinc/pms-docker:latest',
     labels: { 'com.docker.compose.project': 'media' },
+    ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
+    mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
     composeProject: 'media',
     serviceKey: 'media/plex',
     startedAt: new Date('2026-04-16T09:50:00Z'),
@@ -479,6 +485,8 @@ describe('rowToInventory', () => {
     expect(result.finishedAt).toBeNull();
     expect(result.exitCode).toBeNull();
     expect(result.labels).toEqual({ 'com.docker.compose.project': 'media' });
+    expect(result.ports).toEqual(baseRow.ports);
+    expect(result.mounts).toEqual(baseRow.mounts);
     expect(result.updatedAt).toEqual(new Date('2026-04-16T10:00:00Z'));
   });
 
@@ -492,6 +500,14 @@ describe('rowToInventory', () => {
       asUpsert({ ...baseRow, labels: null as unknown as Record<string, string> }),
     );
     expect(result.labels).toEqual({});
+  });
+
+  it('defaults null ports and mounts to empty arrays', () => {
+    const result = rowToInventory(
+      asUpsert({ ...baseRow, ports: null as unknown as typeof baseRow.ports, mounts: null as unknown as typeof baseRow.mounts }),
+    );
+    expect(result.ports).toEqual([]);
+    expect(result.mounts).toEqual([]);
   });
 });
 
@@ -509,6 +525,7 @@ describe('notifyPayloadToInventory', () => {
     started_at: '2026-04-16T10:00:00Z',
     finished_at: null,
     exit_code: null,
+    ports: [{ containerPort: 80, protocol: 'tcp', hostIp: null, hostPort: 8080 }],
   };
 
   it('maps all fields from a NOTIFY payload', () => {
@@ -524,6 +541,28 @@ describe('notifyPayloadToInventory', () => {
     expect(result.exitCode).toBeNull();
     expect(result.labels).toEqual({});
     expect(result.updatedAt).toEqual(new Date('2026-04-16T11:00:00Z'));
+  });
+
+  it('maps a single-entry ports array to that entry', () => {
+    const result = notifyPayloadToInventory(basePayload);
+    expect(result.ports).toEqual(basePayload.ports);
+  });
+
+  it('leaves ports undefined (not []) when the field is absent from the payload', () => {
+    const { ports: _ports, ...withoutPorts } = basePayload;
+    void _ports;
+    const result = notifyPayloadToInventory(withoutPorts);
+    expect(result.ports).toBeUndefined();
+  });
+
+  it('leaves ports undefined (not []) when the payload carries ports: null (oversized-payload guard)', () => {
+    const result = notifyPayloadToInventory({ ...basePayload, ports: null });
+    expect(result.ports).toBeUndefined();
+  });
+
+  it('always returns empty mounts (NOTIFY payloads never carry mounts)', () => {
+    const result = notifyPayloadToInventory(basePayload);
+    expect(result.mounts).toEqual([]);
   });
 
   it('defaults null nullable fields to empty values', () => {

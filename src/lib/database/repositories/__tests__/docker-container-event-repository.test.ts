@@ -12,6 +12,8 @@ const baseEvent: NewContainerEvent = {
   name: 'plex',
   image: 'plexinc/pms-docker:latest',
   labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
+  ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
+  mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
   serviceKey: 'media/plex',
   startedAt: new Date('2026-04-16T09:50:00Z'),
   finishedAt: null,
@@ -27,6 +29,8 @@ const dbRow = {
   name: 'plex',
   image: 'plexinc/pms-docker:latest',
   labels: { 'com.docker.compose.project': 'media', 'com.docker.compose.service': 'plex' },
+  ports: [{ containerPort: 32400, protocol: 'tcp', hostIp: null, hostPort: 32400 }],
+  mounts: [{ type: 'volume', source: 'plex-config', destination: '/config', rw: true }],
   compose_project: 'media',
   service_key: 'media/plex',
   started_at: new Date('2026-04-16T09:50:00Z'),
@@ -61,6 +65,8 @@ describe('DockerContainerEventRepository', () => {
         'plex',
         'plexinc/pms-docker:latest',
         JSON.stringify(baseEvent.labels),
+        JSON.stringify(baseEvent.ports),
+        JSON.stringify(baseEvent.mounts),
         'media/plex',
         baseEvent.startedAt,
         null,
@@ -77,6 +83,8 @@ describe('DockerContainerEventRepository', () => {
       expect(result.startedAt).toEqual(new Date('2026-04-16T09:50:00Z'));
       expect(result.finishedAt).toBeNull();
       expect(result.exitCode).toBeNull();
+      expect(result.ports).toEqual(baseEvent.ports);
+      expect(result.mounts).toEqual(baseEvent.mounts);
     });
 
     it('inserts a destroy event with null fields', async () => {
@@ -104,7 +112,7 @@ describe('DockerContainerEventRepository', () => {
         containerId: 'abc123',
         eventType: 'destroy',
       };
-      mock.pushResult([{ ...dbRow, event_type: 'destroy', state: null, name: null, image: null, labels: {}, compose_project: null, service_key: null, started_at: null }]);
+      mock.pushResult([{ ...dbRow, event_type: 'destroy', state: null, name: null, image: null, labels: {}, ports: [], mounts: [], compose_project: null, service_key: null, started_at: null }]);
 
       await repo.insert(destroyEvent);
 
@@ -112,10 +120,12 @@ describe('DockerContainerEventRepository', () => {
       expect(params[4]).toBeNull();  // state
       expect(params[5]).toBeNull();  // name
       expect(params[6]).toBeNull();  // image
-      expect(params[8]).toBeNull();  // service_key
-      expect(params[9]).toBeNull();  // started_at
-      expect(params[10]).toBeNull(); // finished_at
-      expect(params[11]).toBeNull(); // exit_code
+      expect(params[8]).toBe('[]');  // ports
+      expect(params[9]).toBe('[]');  // mounts
+      expect(params[10]).toBeNull(); // service_key
+      expect(params[11]).toBeNull(); // started_at
+      expect(params[12]).toBeNull(); // finished_at
+      expect(params[13]).toBeNull(); // exit_code
     });
 
     it('stores labels as JSON string parameter', async () => {
@@ -213,6 +223,24 @@ describe('DockerContainerEventRepository', () => {
       const row = rows[0];
       if (row.eventType !== 'upsert') throw new Error('expected upsert row');
       expect(row.exitCode).toBe(1);
+    });
+
+    it('defaults null ports and mounts to empty arrays', async () => {
+      mock.pushResult([{ ...dbRow, ports: null, mounts: null }]);
+      const rows = await repo.getCurrentSnapshot();
+      const row = rows[0];
+      if (row.eventType !== 'upsert') throw new Error('expected upsert row');
+      expect(row.ports).toEqual([]);
+      expect(row.mounts).toEqual([]);
+    });
+
+    it('passes through ports and mounts from the row', async () => {
+      mock.pushResult([dbRow]);
+      const rows = await repo.getCurrentSnapshot();
+      const row = rows[0];
+      if (row.eventType !== 'upsert') throw new Error('expected upsert row');
+      expect(row.ports).toEqual(dbRow.ports);
+      expect(row.mounts).toEqual(dbRow.mounts);
     });
   });
 });

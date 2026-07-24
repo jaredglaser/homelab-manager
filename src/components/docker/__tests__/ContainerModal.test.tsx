@@ -47,6 +47,8 @@ const sampleInventory: DockerInventorySnapshotContainer = {
   finishedAt: null,
   exitCode: null,
   labels: {},
+  ports: [],
+  mounts: [],
   updatedAt: new Date('2024-01-01T00:00:00Z'),
 };
 
