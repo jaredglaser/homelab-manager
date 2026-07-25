@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import type { Checks } from './checks';
 import {
   ACTIVE_CONTAINER,
+  COUNTER_BUCKET_SAMPLES,
   COUNTER_GUEST,
   DOCKER_HOST,
   DROPPED_TABLES,
@@ -309,7 +310,12 @@ export async function assertCumulativeCounters(pool: Pool, checks: Checks): Prom
     );
     checks.equal(`proxmox_stats.${column} is monotonically increasing`, violations, 0);
 
-    const row = await selectRow<{ last_value: string; avg_value: string; max_value: string }>(
+    const row = await selectRow<{
+      last_value: string;
+      avg_value: string;
+      max_value: string;
+      bucket_samples: string;
+    }>(
       pool,
       `WITH bucketed AS (
          SELECT date_trunc('minute', time) AS bucket, time, ${column} AS value
@@ -324,13 +330,20 @@ export async function assertCumulativeCounters(pool: Pool, checks: Checks): Prom
          (SELECT avg(value) FROM bucketed, newest_bucket
           WHERE bucketed.bucket = newest_bucket.bucket) AS avg_value,
          (SELECT max(value) FROM bucketed, newest_bucket
-          WHERE bucketed.bucket = newest_bucket.bucket) AS max_value`,
+          WHERE bucketed.bucket = newest_bucket.bucket) AS max_value,
+         (SELECT count(*) FROM bucketed, newest_bucket
+          WHERE bucketed.bucket = newest_bucket.bucket) AS bucket_samples`,
       [PROXMOX_HOST, COUNTER_GUEST.entityId, COUNTER_GUEST.entityType]
     );
 
     const lastValue = Number(row?.last_value);
     const avgValue = Number(row?.avg_value);
     const maxValue = Number(row?.max_value);
+    checks.equal(
+      `${column} newest bucket is a whole minute of samples`,
+      Number(row?.bucket_samples),
+      COUNTER_BUCKET_SAMPLES
+    );
     checks.equal(`${column} bucket LAST equals bucket MAX`, lastValue, maxValue);
     checks.differsBy(
       `${column} bucket AVG is not the counter value`,
