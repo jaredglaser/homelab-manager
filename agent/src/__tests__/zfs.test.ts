@@ -71,23 +71,42 @@ describe('handleZfsStatsStream', () => {
     expect(response.headers.get('Connection')).toBe('keep-alive');
   });
 
-  test('discards subprocess stderr instead of piping it', () => {
+  test('pipes subprocess stderr and drains it into the log', async () => {
     let spawnOptions: unknown;
+    let resolveLogged!: (line: string) => void;
+    const logged = new Promise<string>((resolve) => {
+      resolveLogged = resolve;
+    });
+    console.error = mock((...args: unknown[]) => {
+      if (args[0] === 'zpool iostat:') resolveLogged(String(args[1]));
+    });
+
     Bun.spawn = mock((_cmd: string[], options: unknown) => {
       spawnOptions = options;
       return {
         stdout: new ReadableStream<Uint8Array>({ start() {} }),
+        stderr: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode("cannot open 'tank': no such pool\n"),
+            );
+          },
+        }),
         kill: mock(() => {}),
         exited: new Promise(() => {}),
       };
     }) as any;
 
     const ac = new AbortController();
-    const request = new Request('http://localhost/zfs/stats/stream', { signal: ac.signal });
+    const request = new Request('http://localhost/zfs/stats/stream', {
+      signal: ac.signal,
+    });
     handleZfsStatsStream(request, zfsAvailable);
+
+    expect(await logged).toBe("cannot open 'tank': no such pool");
     ac.abort();
 
-    expect(spawnOptions).toMatchObject({ stderr: 'ignore' });
+    expect(spawnOptions).toMatchObject({ stderr: 'pipe' });
   });
 
   test('streams parsed lines as SSE events', async () => {
@@ -233,6 +252,37 @@ describe('handleZfsStatsStream', () => {
     ac.abort();
 
     expect(console.error).toHaveBeenCalled();
+  });
+
+  test('logs error when stderr reader throws unexpectedly', async () => {
+    let resolveLogged!: (err: unknown) => void;
+    const logged = new Promise<unknown>((resolve) => {
+      resolveLogged = resolve;
+    });
+    console.error = mock((...args: unknown[]) => {
+      if (args[0] === 'ZFS stats stderr read error:') resolveLogged(args[1]);
+    });
+
+    Bun.spawn = mock(() => ({
+      stdout: new ReadableStream<Uint8Array>({ start() {} }),
+      stderr: new ReadableStream<Uint8Array>({
+        start() {},
+        pull() {
+          throw new Error('stderr read failure');
+        },
+      }),
+      kill: mock(() => {}),
+      exited: new Promise(() => {}),
+    })) as any;
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/zfs/stats/stream', {
+      signal: ac.signal,
+    });
+    handleZfsStatsStream(request, zfsAvailable);
+
+    expect(await logged).toBeInstanceOf(Error);
+    ac.abort();
   });
 
   test('skips empty lines in output', async () => {
