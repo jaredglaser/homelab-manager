@@ -12,9 +12,10 @@ small, so durable state lives on GitHub, not in your head and not in this repo.
 
 Several orchestrator sessions can run at once, so each owns a tag and its own tracking issue.
 
-The tag lives at `SESSION.md` in your scratchpad directory. Read it first. If it is missing, create
-it: the tag is `pq-` plus the first segment of the session id (so it cannot collide with a
-concurrent session), and the file records the tag and the tracking issue URL.
+The tag is `pq-` plus the first segment of the session id, which cannot collide with a concurrent
+session. **Derive it, never store it.** Your scratchpad path contains the session id, so the tag is
+always recomputable; a file holding it would be one more thing to keep in sync and one more thing to
+lose, in exchange for a fact you already have.
 
 Every GitHub artifact this session produces ends with the tag on its own last line:
 
@@ -23,11 +24,14 @@ Every GitHub artifact this session produces ends with the tag on its own last li
 ```
 
 That means the tracking issue, any PR this session opens, and any issue opened for a parked
-question. Not ordinary review replies, and never code comments. The whole session then resolves
-with `repo:<owner>/<repo> pq-xxxxxxxx`.
+question. Not ordinary review replies, and never code comments.
 
-Pass the tag inline in every subagent brief, not just via the file — an agent that reads the brief
-and not the file still needs to tag correctly.
+The whole session then resolves with `repo:<owner>/<repo> pq-xxxxxxxx`. That search is also how you
+find your own tracking issue again after a compaction: search the tag rather than remembering the
+number.
+
+Subagents get the tag verbatim in their brief, never by reading a file. A subagent's scratchpad is
+not guaranteed to be yours, and the brief is a channel that works either way.
 
 ## State lives in one tracking issue, not in the repo
 
