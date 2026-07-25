@@ -1,5 +1,3 @@
-// Server-only marker: any import of this file from the client graph fails the
-// build instead of breaking at runtime with node:async_hooks errors.
 import '@tanstack/react-start/server-only';
 import { Pool, type PoolConfig } from 'pg';
 import type { StreamingClient } from '../streaming/types';
