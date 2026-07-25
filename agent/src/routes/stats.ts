@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 import type Dockerode from 'dockerode';
+import { createSseStream, type SseEmitter } from '../lib/sse-stream';
 
 const DEFAULT_REFRESH_INTERVAL_MS = 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
@@ -149,26 +150,15 @@ export function computeMetrics(
 
 /** Shared mutable state for a single SSE stats session. */
 interface StreamContext {
-  closed: boolean;
-  readonly encoder: TextEncoder;
+  /** Flipped by the stream's cleanup, so the poll loop stops once the consumer is gone. */
+  stopped: boolean;
+  readonly emit: SseEmitter;
   readonly containerStreams: Map<string, Readable>;
-  readonly controller: ReadableStreamDefaultController<Uint8Array>;
-}
-
-/** Enqueue an SSE message, silently swallowing enqueue-after-close TypeError. */
-function sendSSE(ctx: StreamContext, data: string, event?: string): void {
-  if (ctx.closed) return;
-  try {
-    const prefix = event ? `event: ${event}\n` : '';
-    ctx.controller.enqueue(ctx.encoder.encode(`${prefix}data: ${data}\n\n`));
-  } catch (err) {
-    if (!(err instanceof TypeError)) console.error('Unexpected error during SSE enqueue:', err);
-  }
 }
 
 /** Enqueue a JSON error payload as an SSE event. */
 function sendErrorSSE(ctx: StreamContext, payload: Record<string, unknown>, event = 'container-error'): void {
-  sendSSE(ctx, JSON.stringify(payload), event);
+  ctx.emit.event(event, payload);
 }
 
 /** Destroy all tracked container streams and clear the map. */
@@ -224,7 +214,7 @@ function openContainerStream(
   container.stats({ stream: true }).then((statsStream) => {
     // @types/dockerode 4.0.1 types stats() stream result as any; cast required to use Readable API
     const readable = statsStream as unknown as Readable;
-    if (ctx.closed) {
+    if (ctx.stopped) {
       if (typeof readable.destroy === 'function') readable.destroy();
       return;
     }
@@ -232,9 +222,9 @@ function openContainerStream(
 
     let buffer = '';
     readable.on('data', (chunk: Buffer) => {
-      if (ctx.closed) return;
+      if (ctx.stopped) return;
       buffer = parseStatsChunks(buffer, chunk, (stats) => {
-        sendSSE(ctx, JSON.stringify(computeMetrics(id, name, image, stats as Record<string, any>, prevFrames)));
+        ctx.emit.data(computeMetrics(id, name, image, stats as Record<string, any>, prevFrames));
       }, () => {
         console.error(`Malformed stats JSON from container ${id}, skipping frame`);
       });
@@ -290,16 +280,7 @@ function reconcileContainers(
     if (!previousIds.has(c.Id)) openContainerStream(ctx, docker, c, prevFrames);
   }
 
-  sendSSE(ctx, JSON.stringify({ ids: [...currentIds] }), 'containers');
-}
-
-/** Try to close a ReadableStream controller, ignoring errors if already closed. */
-function tryCloseController(controller: ReadableStreamDefaultController<Uint8Array>): void {
-  try {
-    controller.close();
-  } catch (err) {
-    if (!(err instanceof TypeError)) console.error('Unexpected error closing controller:', err);
-  }
+  ctx.emit.event('containers', { ids: [...currentIds] });
 }
 
 /**
@@ -316,7 +297,7 @@ async function tryRefreshContainers(
 ): Promise<{ containers: Dockerode.ContainerInfo[]; shouldBreak: boolean } | null> {
   try {
     const current = await docker.listContainers({ all: false });
-    if (ctx.closed) return { containers: current, shouldBreak: true };
+    if (ctx.stopped) return { containers: current, shouldBreak: true };
     reconcileContainers(ctx, docker, previous, current, prevFrames);
     return { containers: current, shouldBreak: false };
   } catch (error) {
@@ -327,7 +308,7 @@ async function tryRefreshContainers(
 
     if (count >= maxFailures) {
       console.error('Max consecutive refresh failures reached, closing stats stream');
-      sendSSE(ctx, JSON.stringify({ error: 'Docker daemon unreachable, stream closed' }), 'error');
+      ctx.emit.event('error', { error: 'Docker daemon unreachable, stream closed' });
     }
     return null;
   }
@@ -343,7 +324,7 @@ async function runStatsLoop(
 ): Promise<void> {
   const prevFrames = new Map<string, PreviousFrame>();
   let containers = await docker.listContainers({ all: false });
-  if (ctx.closed) return;
+  if (ctx.stopped) return;
   let lastRefresh = Date.now();
   let consecutiveFailures = 0;
 
@@ -351,11 +332,11 @@ async function runStatsLoop(
     openContainerStream(ctx, docker, c, prevFrames);
   }
 
-  sendSSE(ctx, JSON.stringify({ ids: containers.map(c => c.Id) }), 'containers');
+  ctx.emit.event('containers', { ids: containers.map(c => c.Id) });
 
-  while (!ctx.closed) {
+  while (!ctx.stopped) {
     await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-    if (ctx.closed) break;
+    if (ctx.stopped) break;
 
     const now = Date.now();
     if (now - lastRefresh < refreshIntervalMs) continue;
@@ -373,8 +354,7 @@ async function runStatsLoop(
   }
 
   destroyAllStreams(ctx.containerStreams);
-  ctx.closed = true;
-  tryCloseController(ctx.controller);
+  ctx.emit.close();
 }
 
 /**
@@ -411,37 +391,27 @@ export function handleStatsStream(
   const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
 
-  const stream = new ReadableStream({
-    async start(controller) {
+  return createSseStream(request, {
+    onStart: (emit) => {
       const ctx: StreamContext = {
-        closed: false,
-        encoder: new TextEncoder(),
+        stopped: false,
+        emit,
         containerStreams: new Map(),
-        controller,
       };
 
-      request.signal.addEventListener('abort', () => {
-        ctx.closed = true;
-        destroyAllStreams(ctx.containerStreams);
-        tryCloseController(controller);
-      });
-
-      try {
-        await runStatsLoop(ctx, docker, pollIntervalMs, refreshIntervalMs, maxConsecutiveFailures);
-      } catch (error) {
+      // Not awaited: the cleanup below has to be registered before the poll
+      // loop blocks, or a teardown mid-loop would never stop it.
+      void runStatsLoop(ctx, docker, pollIntervalMs, refreshIntervalMs, maxConsecutiveFailures).catch((error) => {
         console.error('Failed to start stats stream:', error);
         const msg = error instanceof Error ? error.message : String(error);
-        sendSSE(ctx, JSON.stringify({ error: msg }), 'error');
-        tryCloseController(controller);
-      }
-    },
-  });
+        emit.event('error', { error: msg });
+        emit.close();
+      });
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+      return () => {
+        ctx.stopped = true;
+        destroyAllStreams(ctx.containerStreams);
+      };
     },
   });
 }

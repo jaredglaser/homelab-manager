@@ -1,7 +1,14 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
+import { randomBytes } from 'node:crypto';
 import { authMiddleware } from '@/middleware/auth-middleware';
 import { requireRole } from '@/lib/auth/require-role';
+import { databaseConnectionManager } from '@/lib/clients/database-client';
+import { loadDatabaseConfig } from '@/lib/config/database-config';
+import { loadMasterKeyring } from '@/lib/crypto/master-key';
+import { encryptValue } from '@/lib/crypto/encrypted-value';
+import { GitTokenRepository } from '@/lib/database/repositories/git-token-repository';
+import { hashGitToken } from '@/lib/git/git-token-auth';
 
 /** Creates a git token. The raw token is returned once and never stored in plaintext. */
 export const createGitToken = createServerFn()
@@ -9,15 +16,6 @@ export const createGitToken = createServerFn()
   .inputValidator(z.object({ label: z.string().min(1).max(100) }))
   .handler(async ({ data, context }): Promise<{ token: string }> => {
     requireRole('admin')(context.user);
-
-    const { randomBytes } = await import('node:crypto');
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
-    const { encryptValue } = await import('@/lib/crypto/encrypted-value');
-    const { GitTokenRepository } = await import(
-      '@/lib/database/repositories/git-token-repository'
-    );
 
     const rawToken = randomBytes(32).toString('hex');
 
@@ -31,6 +29,7 @@ export const createGitToken = createServerFn()
     await repo.create({
       userId: context.user.id,
       encryptedToken,
+      tokenHash: hashGitToken(rawToken),
       label: data.label,
     });
 
@@ -44,12 +43,6 @@ export const listGitTokens = createServerFn()
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     requireRole('admin')(context.user);
-
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { GitTokenRepository } = await import(
-      '@/lib/database/repositories/git-token-repository'
-    );
 
     const dbConfig = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(dbConfig);
@@ -66,12 +59,6 @@ export const revokeGitToken = createServerFn()
   .inputValidator(z.object({ tokenId: z.number() }))
   .handler(async ({ data, context }): Promise<void> => {
     requireRole('admin')(context.user);
-
-    const { databaseConnectionManager } = await import('@/lib/clients/database-client');
-    const { loadDatabaseConfig } = await import('@/lib/config/database-config');
-    const { GitTokenRepository } = await import(
-      '@/lib/database/repositories/git-token-repository'
-    );
 
     const dbConfig = loadDatabaseConfig();
     const dbClient = await databaseConnectionManager.getClient(dbConfig);

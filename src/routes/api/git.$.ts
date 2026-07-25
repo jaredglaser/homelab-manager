@@ -1,12 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { createHash, timingSafeEqual } from 'node:crypto';
 import type { AuthUser } from '@/lib/auth/types';
-
-function constantTimeEqual(a: string, b: string): boolean {
-  const hashA = createHash('sha256').update(a).digest();
-  const hashB = createHash('sha256').update(b).digest();
-  return timingSafeEqual(hashA, hashB);
-}
 
 /**
  * Extract the raw token from the Authorization header.
@@ -41,10 +34,12 @@ function extractToken(request: Request): string | null {
  *
  * Auth flow:
  * 1. Extract token from Bearer or Basic auth
- * 2. Load all git tokens from DB and decrypt via JWE keyring
- * 3. Timing-safe compare against provided token
- * 4. On match: resolve user, check role, update last_used_at
- * 5. On no match: 403
+ * 2. Indexed lookup by token_hash
+ * 3. On match: resolve user, check role, update last_used_at
+ * 4. On no match: 401
+ *
+ * This path never loads the master keyring, so git pushes keep working when
+ * MASTER_KEY is unavailable.
  *
  * Returns the authenticated user on success, or a Response on failure.
  */
@@ -67,8 +62,7 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
     '@/lib/database/repositories/user-repository'
   );
   const { requireRole } = await import('@/lib/auth/require-role');
-  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
-  const { decryptValue } = await import('@/lib/crypto/encrypted-value');
+  const { findMatchingGitToken } = await import('@/lib/git/git-token-auth');
 
   const dbConfig = loadDatabaseConfig();
   const dbClient = await databaseConnectionManager.getClient(dbConfig);
@@ -77,35 +71,9 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
   const gitTokenRepo = new GitTokenRepository(pool);
   const userRepo = new UserRepository(pool);
 
-  const keyring = await loadMasterKeyring();
-  const encryptedTokens = await gitTokenRepo.findAllEncrypted();
+  const match = await findMatchingGitToken(providedToken, gitTokenRepo);
 
-  let matchedTokenId: number | null = null;
-  let matchedUserId: number | null = null;
-  let decryptFailures = 0;
-
-  for (const tokenRecord of encryptedTokens) {
-    let decrypted: string;
-    try {
-      decrypted = await decryptValue(tokenRecord.encryptedToken, keyring);
-    } catch (error) {
-      decryptFailures++;
-      console.error(`[GitAuth] Failed to decrypt token ${tokenRecord.id}:`, error instanceof Error ? error.message : error);
-      continue;
-    }
-
-    if (constantTimeEqual(providedToken, decrypted)) {
-      matchedTokenId = tokenRecord.id;
-      matchedUserId = tokenRecord.userId;
-      break;
-    }
-  }
-
-  if (decryptFailures > 0 && decryptFailures === encryptedTokens.length) {
-    console.error(`[GitAuth] ALL ${decryptFailures} token(s) failed to decrypt (Transit may be unavailable)`);
-  }
-
-  if (matchedTokenId === null || matchedUserId === null) {
+  if (!match) {
     // 401 lets git CLI re-prompt for credentials on token mismatch
     return new Response('Unauthorized', {
       status: 401,
@@ -113,7 +81,7 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
     });
   }
 
-  const userRow = await userRepo.findById(matchedUserId);
+  const userRow = await userRepo.findById(match.userId);
   if (!userRow) {
     return new Response('Forbidden', { status: 403 });
   }
@@ -132,9 +100,9 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
   }
 
   // Update last_used_at non-blocking; auth has already succeeded.
-  gitTokenRepo.updateLastUsed(matchedTokenId).catch((err) => {
+  gitTokenRepo.updateLastUsed(match.tokenId).catch((err) => {
     console.error(
-      `[GitAuth] Failed to update last_used_at for token ${matchedTokenId}:`,
+      `[GitAuth] Failed to update last_used_at for token ${match.tokenId}:`,
       err instanceof Error ? err.message : err,
     );
   });

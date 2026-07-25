@@ -1,11 +1,13 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { resolveUserFromCookie, parseCookie, resetAuthResolverState } from '@/lib/auth/resolve-user';
+import { resolveUserFromCookie, resetAuthResolverState } from '@/lib/auth/resolve-user';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
 import type { AuthUser } from '@/lib/auth/types';
 
 let authDisabled = false;
+let secureCookie = false;
 mock.module('@/lib/config/auth-config', () => ({
   isAuthDisabled: () => authDisabled,
+  isSecureCookie: () => secureCookie,
 }));
 
 const mockValidateSession = mock(async (_token: string) => null as AuthUser | null);
@@ -38,36 +40,10 @@ function makeRequest(cookieHeader?: string): Request {
   } as unknown as Request;
 }
 
-describe('parseCookie', () => {
-  it('returns the value for a matching cookie', () => {
-    expect(parseCookie('session=abc123', 'session')).toBe('abc123');
-  });
-
-  it('returns null when header is null', () => {
-    expect(parseCookie(null, 'session')).toBeNull();
-  });
-
-  it('returns null when cookie name not present', () => {
-    expect(parseCookie('other=xyz', 'session')).toBeNull();
-  });
-
-  it('handles multiple cookies and returns the right one', () => {
-    expect(parseCookie('foo=bar; session=tok123; baz=qux', 'session')).toBe('tok123');
-  });
-
-  it('URL-decodes the cookie value', () => {
-    const encoded = encodeURIComponent('value with spaces');
-    expect(parseCookie(`session=${encoded}`, 'session')).toBe('value with spaces');
-  });
-
-  it('returns null for empty header string', () => {
-    expect(parseCookie('', 'session')).toBeNull();
-  });
-});
-
 describe('resolveUserFromCookie', () => {
   beforeEach(() => {
     authDisabled = false;
+    secureCookie = false;
     resetAuthResolverState();
     mockValidateSession.mockClear();
     mockBuildSessionManager.mockClear();
@@ -108,6 +84,27 @@ describe('resolveUserFromCookie', () => {
 
     expect(result).toEqual(user);
     expect(mockValidateSession).toHaveBeenCalledWith('valid-token');
+  });
+
+  it('reads the __Host-session cookie when the deployment is https', async () => {
+    secureCookie = true;
+    const user = makeUser({ id: 7, email: 'eve@example.com', role: 'admin' });
+    mockValidateSession.mockImplementation(async () => user);
+
+    const result = await resolveUserFromCookie(makeRequest('__Host-session=host-token-xyz'));
+
+    expect(result).toEqual(user);
+    expect(mockValidateSession).toHaveBeenCalledWith('host-token-xyz');
+  });
+
+  it('ignores a plain session cookie when the deployment is https', async () => {
+    secureCookie = true;
+    mockValidateSession.mockImplementation(async () => makeUser());
+
+    const result = await resolveUserFromCookie(makeRequest('session=planted-token'));
+
+    expect(result).toBeNull();
+    expect(mockBuildSessionManager).not.toHaveBeenCalled();
   });
 
   it('returns null for an expired or invalid session token', async () => {

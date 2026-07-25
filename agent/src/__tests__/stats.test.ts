@@ -1,35 +1,11 @@
 import { describe, expect, test, mock, beforeAll } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { handleStatsStream, computeMetrics, type StatsStreamOptions, type ComputedStats } from '../routes/stats';
+import { readUntil } from '../lib/test/sse-test-utils';
 
 beforeAll(() => {
   console.error = mock(() => {});
 });
-
-/** Read chunks from the stream until predicate is satisfied or timeout. */
-async function readUntil(
-  response: Response,
-  predicate: (accumulated: string) => boolean,
-  timeoutMs = 5000,
-): Promise<string> {
-  let text = '';
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  try {
-    while (true) {
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`readUntil timed out after ${timeoutMs}ms`)), timeoutMs),
-      );
-      const { done, value } = await Promise.race([reader.read(), timeoutPromise]);
-      if (done) break;
-      text += decoder.decode(value, { stream: true });
-      if (predicate(text)) break;
-    }
-  } finally {
-    reader.cancel();
-  }
-  return text;
-}
 
 function makeStatsJson(overrides?: {
   cpuTotal?: number;
@@ -622,5 +598,34 @@ describe('handleStatsStream: container refresh', () => {
     expect(text).toContain('event: container-error');
     expect(text).toContain('"type":"refresh_failed"');
     expect(text).toContain('"error":"Docker daemon down"');
+  });
+
+  test('emits a comment heartbeat when the host runs no containers', async () => {
+    // With nothing running there are no stats frames at all, so the stream would
+    // otherwise sit silent past Bun's 10s HTTP idleTimeout.
+    const realSetInterval = globalThis.setInterval;
+    const ticks: Array<{ cb: () => void; ms: number }> = [];
+    globalThis.setInterval = mock((cb: () => void, ms: number) => {
+      ticks.push({ cb, ms });
+      return ticks.length as unknown as ReturnType<typeof setInterval>;
+    }) as unknown as typeof setInterval;
+
+    try {
+      const mockDocker = { listContainers: mock(() => Promise.resolve([])) };
+      const ac = new AbortController();
+      const request = new Request('http://localhost/stats/stream', { signal: ac.signal });
+      const response = handleStatsStream(mockDocker as any, request, fastOptions);
+
+      expect(ticks).toHaveLength(1);
+      expect(ticks[0].ms).toBe(5000);
+
+      ticks[0].cb();
+      const text = await readUntil(response, (s) => s.split('\n\n').includes(':'));
+      ac.abort();
+
+      expect(text.split('\n\n')).toContain(':');
+    } finally {
+      globalThis.setInterval = realSetInterval;
+    }
   });
 });
