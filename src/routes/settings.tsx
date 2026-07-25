@@ -21,7 +21,8 @@ import {
   UPDATE_INTERVAL_MARKS,
   RAW_DATA_MARKS,
   MINUTE_AGG_MARKS,
-  HOUR_AGG_MARKS,
+  RAW_RETENTION_HOURS,
+  MINUTE_AGG_RETENTION_DAYS,
   formatChartWindow,
   formatUpdateInterval,
   formatHours,
@@ -34,17 +35,17 @@ export const Route = createFileRoute('/settings')({
   component: SettingsContent,
 })
 
+const noopRetentionChange = () => {};
+
 function SettingsContent() {
   const {
     general,
-    retention,
     developer,
     setUse12HourTime,
     setUpdateInterval,
     setShowSparklines,
     setUseAbbreviatedUnits,
     setLightPalette,
-    setRetention,
     setDockerDebugLogging,
     setDbFlushDebugLogging,
     setSseDebugLogging,
@@ -223,17 +224,18 @@ function SettingsContent() {
             <div>
               <div className="flex justify-between items-baseline mb-1">
                 <Label>Raw Data</Label>
-                <p className="text-sm font-mono">{formatHours(retention.rawDataHours)}</p>
+                <p className="text-sm font-mono">{formatHours(RAW_RETENTION_HOURS)}</p>
               </div>
               <span className="text-xs text-muted-foreground mb-3 block">
-                Second-level data is downsampled to minute averages after this period
+                Second-level data is rolled up into minute averages, then dropped after this period
               </span>
               <Slider
-                value={retention.rawDataHours}
-                onValueChange={(v) => setRetention('rawDataHours', v)}
+                value={RAW_RETENTION_HOURS}
+                onValueChange={noopRetentionChange}
                 min={1}
                 max={168}
                 marks={RAW_DATA_MARKS}
+                disabled
                 aria-label="Raw Data retention"
               />
             </div>
@@ -241,37 +243,30 @@ function SettingsContent() {
             <div>
               <div className="flex justify-between items-baseline mb-1">
                 <Label>Minute Aggregates</Label>
-                <p className="text-sm font-mono">{formatDays(retention.minuteAggDays)}</p>
+                <p className="text-sm font-mono">{formatDays(MINUTE_AGG_RETENTION_DAYS)}</p>
               </div>
               <span className="text-xs text-muted-foreground mb-3 block">
-                Minute averages are downsampled to hourly averages after this period
+                Minute averages are rolled up into hourly averages, then dropped after this period
               </span>
               <Slider
-                value={retention.minuteAggDays}
-                onValueChange={(v) => setRetention('minuteAggDays', v)}
+                value={MINUTE_AGG_RETENTION_DAYS}
+                onValueChange={noopRetentionChange}
                 min={1}
                 max={30}
                 marks={MINUTE_AGG_MARKS}
+                disabled
                 aria-label="Minute Aggregates retention"
               />
             </div>
 
-            <div>
-              <div className="flex justify-between items-baseline mb-1">
+            <div className="flex justify-between items-baseline">
+              <div>
                 <Label>Hour Aggregates</Label>
-                <p className="text-sm font-mono">{formatDays(retention.hourAggDays)}</p>
+                <span className="text-xs text-muted-foreground block">
+                  Hourly averages are the permanent tier and are never dropped
+                </span>
               </div>
-              <span className="text-xs text-muted-foreground mb-3 block">
-                Hourly averages are downsampled to daily averages after this period. Daily data is kept forever.
-              </span>
-              <Slider
-                value={retention.hourAggDays}
-                onValueChange={(v) => setRetention('hourAggDays', v)}
-                min={1}
-                max={365}
-                marks={HOUR_AGG_MARKS}
-                aria-label="Hour Aggregates retention"
-              />
+              <p className="text-sm font-mono">Kept forever</p>
             </div>
           </div>
         </div>

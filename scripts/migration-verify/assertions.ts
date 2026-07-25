@@ -28,11 +28,8 @@ const EXPECTED_SEGMENTBY: Record<string, string[]> = {
 };
 
 /**
- * Registry of continuous-aggregate tiers. The current migrations/ set defines
- * none, so this is empty and `assertAggregateTiers` only enforces that the
- * database matches the registry. A PR adding a tier registers it here and the
- * generic weighted/last-value checks below start running against it with no
- * other harness change.
+ * Registry of continuous-aggregate tiers. `assertAggregateTiers` enforces that
+ * the database's set of continuous aggregates matches this list exactly.
  */
 export interface AggregateTier {
   view: string;
@@ -43,7 +40,63 @@ export interface AggregateTier {
   lastValueColumns: string[];
 }
 
-export const AGGREGATE_TIERS: AggregateTier[] = [];
+/**
+ * Both column lists are empty on every tier: the generic checks below filter the
+ * source on `container_id` or `entity_id`, truncate the bucket bound to the hour,
+ * and read one column name from both view and source, none of which holds for a
+ * minute tier, a zfs tier, or the hourly tiers' `<metric>_sum` columns. The
+ * aggregates are also created `WITH NO DATA`, so the harness sees them unpopulated.
+ */
+export const AGGREGATE_TIERS: AggregateTier[] = [
+  {
+    view: 'docker_stats_1m',
+    sourceTable: 'docker_stats',
+    timeColumn: 'time',
+    sampleCountColumn: 'sample_count',
+    weightedAverageColumns: [],
+    lastValueColumns: [],
+  },
+  {
+    view: 'docker_stats_1h',
+    sourceTable: 'docker_stats_1m',
+    timeColumn: 'time',
+    sampleCountColumn: 'sample_count',
+    weightedAverageColumns: [],
+    lastValueColumns: [],
+  },
+  {
+    view: 'zfs_stats_1m',
+    sourceTable: 'zfs_stats',
+    timeColumn: 'time',
+    sampleCountColumn: 'sample_count',
+    weightedAverageColumns: [],
+    lastValueColumns: [],
+  },
+  {
+    view: 'zfs_stats_1h',
+    sourceTable: 'zfs_stats_1m',
+    timeColumn: 'time',
+    sampleCountColumn: 'sample_count',
+    weightedAverageColumns: [],
+    lastValueColumns: [],
+  },
+  {
+    view: 'proxmox_stats_1m',
+    sourceTable: 'proxmox_stats',
+    timeColumn: 'time',
+    sampleCountColumn: 'sample_count',
+    weightedAverageColumns: [],
+    lastValueColumns: [],
+  },
+  {
+    view: 'proxmox_stats_1h',
+    sourceTable: 'proxmox_stats_1m',
+    timeColumn: 'time',
+    sampleCountColumn: 'sample_count',
+    weightedAverageColumns: [],
+    lastValueColumns: [],
+  },
+];
 
 export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
   const tables = await selectColumn<string>(
