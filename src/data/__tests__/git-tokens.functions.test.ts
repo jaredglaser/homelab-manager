@@ -43,7 +43,7 @@ mock.module('@/lib/crypto/master-key', () => ({
   loadMasterKeyring: mock(async () => ({ activeKid: 'v1', keys: new Map() })),
 }));
 
-const mockCreate = mock(async (input: { userId: number; encryptedToken: string; label: string }) => ({
+const mockCreate = mock(async (input: { userId: number; encryptedToken: string; tokenHash: string; label: string }) => ({
   id: 1,
   userId: input.userId,
   label: input.label,
@@ -87,10 +87,19 @@ describe('git-tokens.functions', () => {
       const { createGitToken } = await import('@/data/git-tokens.functions');
       await withStartContext(() => createGitToken({ data: { label: 'ci-key' } }));
       expect(mockCreate).toHaveBeenCalledTimes(1);
-      const [createArg] = mockCreate.mock.calls[0] as [{ userId: number; encryptedToken: string; label: string }];
+      const [createArg] = mockCreate.mock.calls[0] as [{ userId: number; encryptedToken: string; tokenHash: string; label: string }];
       expect(createArg.userId).toBe(SYNTHETIC_ADMIN.id);
       expect(createArg.encryptedToken).toBe('jwe:encrypted:token');
       expect(createArg.label).toBe('ci-key');
+    });
+
+    it('stores the SHA-256 hash of the raw token for indexed auth lookups', async () => {
+      const { createGitToken } = await import('@/data/git-tokens.functions');
+      const { createHash } = await import('node:crypto');
+      await withStartContext(() => createGitToken({ data: { label: 'hash-key' } }));
+      const [plaintext] = mockEncryptValue.mock.calls[0] as [string, unknown];
+      const [createArg] = mockCreate.mock.calls[0] as [{ tokenHash: string }];
+      expect(createArg.tokenHash).toBe(createHash('sha256').update(plaintext).digest('hex'));
     });
 
     it('uses a different random plaintext for each call', async () => {

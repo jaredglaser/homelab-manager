@@ -20,9 +20,15 @@ export interface GitTokenWithEncrypted {
   encryptedToken: string;
 }
 
+export interface GitTokenHashMatch {
+  id: number;
+  userId: number;
+}
+
 export interface CreateGitTokenInput {
   userId: number;
   encryptedToken: string;
+  tokenHash: string;
   label: string;
 }
 
@@ -47,10 +53,10 @@ export class GitTokenRepository {
 
   async create(input: CreateGitTokenInput): Promise<GitTokenRow> {
     const result = await this.pool.query(
-      `INSERT INTO git_tokens (user_id, encrypted_token, label)
-       VALUES ($1, $2, $3)
+      `INSERT INTO git_tokens (user_id, encrypted_token, token_hash, label)
+       VALUES ($1, $2, $3, $4)
        RETURNING id, user_id, label, last_used_at, created_at`,
-      [input.userId, input.encryptedToken, input.label]
+      [input.userId, input.encryptedToken, input.tokenHash, input.label]
     );
     return rowToGitToken(result.rows[0] as Parameters<typeof rowToGitToken>[0]);
   }
@@ -89,15 +95,33 @@ export class GitTokenRepository {
     }));
   }
 
-  async findAllEncrypted(): Promise<GitTokenWithEncrypted[]> {
+  async findByTokenHash(tokenHash: string): Promise<GitTokenHashMatch | null> {
     const result = await this.pool.query(
-      `SELECT id, user_id, encrypted_token FROM git_tokens`
+      `SELECT id, user_id FROM git_tokens WHERE token_hash = $1`,
+      [tokenHash]
+    );
+    const row = result.rows[0] as { id: unknown; user_id: unknown } | undefined;
+    if (!row) return null;
+    return { id: Number(row.id), userId: Number(row.user_id) };
+  }
+
+  /** Rows predating migration 027, for the startup hash backfill. */
+  async findMissingHash(): Promise<GitTokenWithEncrypted[]> {
+    const result = await this.pool.query(
+      `SELECT id, user_id, encrypted_token FROM git_tokens WHERE token_hash IS NULL`
     );
     return (result.rows as { id: unknown; user_id: unknown; encrypted_token: unknown }[]).map(row => ({
       id: Number(row.id),
       userId: Number(row.user_id),
       encryptedToken: row.encrypted_token as string,
     }));
+  }
+
+  async setTokenHash(id: number, tokenHash: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE git_tokens SET token_hash = $2 WHERE id = $1',
+      [id, tokenHash]
+    );
   }
 
   async deleteById(id: number): Promise<void> {
