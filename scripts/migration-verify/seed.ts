@@ -197,11 +197,13 @@ const PROXMOX_COLUMNS = `(
   cpu, max_cpu, mem, max_mem, disk, max_disk, uptime, vmid, netin, netout
 )`;
 
+// Anchored to the last second of the previous whole minute: seeding up to now() leaves the newest
+// bucket holding only the seconds elapsed past it, and under 4 samples its AVG converges on its LAST.
 async function seedProxmoxCounters(pool: Pool): Promise<void> {
   await pool.query(
     `INSERT INTO proxmox_stats ${PROXMOX_COLUMNS}
      SELECT
-       now() - make_interval(secs => s),
+       date_trunc('minute', now()) - make_interval(secs => s + 1),
        $1, $2, $3, $4, $5, 'running',
        0.15 + 0.05 * sin(s / 20.0), 4,
        2147483648, 4294967296, 10737418240, 53687091200,

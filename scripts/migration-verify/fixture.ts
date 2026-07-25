@@ -71,6 +71,9 @@ export const COUNTER_GUEST = {
   uptimeStep: 1,
 };
 
+/** Counter rows are one per second, so a whole minute bucket holds 60 of them. */
+export const COUNTER_BUCKET_SAMPLES = Math.min(COUNTER_GUEST.samples, 60);
+
 export const PROXMOX_SUPPORTING_ENTITIES = [
   { entityType: 'cluster', entityId: 'ci-cluster', entityName: 'ci-cluster', node: null },
   { entityType: 'node', entityId: 'ci-node-1', entityName: 'ci-node-1', node: 'ci-node-1' },
