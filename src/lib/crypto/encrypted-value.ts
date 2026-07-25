@@ -1,3 +1,4 @@
+import '@tanstack/react-start/server-only';
 import { CompactEncrypt, compactDecrypt } from 'jose';
 import type { MasterKeyring } from '@/lib/crypto/master-key';
 

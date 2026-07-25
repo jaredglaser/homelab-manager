@@ -50,6 +50,9 @@ export default defineConfig({
       spa: {
         enabled: true,
       },
+      importProtection: {
+        behavior: 'error',
+      },
     }),
     viteReact(),
   ],
