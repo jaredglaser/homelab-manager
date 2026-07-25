@@ -99,13 +99,13 @@ are chosen on that basis. Each notes the MSW/`page.route` setup that drives it.
 ## Demo target: smoke only
 
 - The public demo boots, shows the demo banner, and renders mocked Docker data
-  (this exists today as `e2e/demo.demo.spec.ts`).
+  (this exists today as `e2e/demo.demo.e2e.ts`).
 - Each top-level route (`/docker`, `/stacks`, `/zfs`, `/proxmox`, `/settings`)
   loads without an error boundary.
 
 ## Conventions
 
-- Spec files: `*.spec.ts` run on `app`; `*.demo.spec.ts` run on `demo`.
+- Spec files: `*.e2e.ts` run on `app`; `*.demo.e2e.ts` run on `demo`.
 - Prefer role/text queries over test ids; add `data-testid` only where the DOM is
   ambiguous.
 - Drive scenarios by overriding the shared mocks (`overrideServerFn`, `page.route`

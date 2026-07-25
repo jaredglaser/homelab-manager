@@ -15,8 +15,9 @@ import { defineConfig, devices } from '@playwright/test';
  *   `overrideServerFn` fixture (a window-seeded map the MSW handler reads;
  *   `page.route` can't reach `/_serverFn`, the service worker answers first).
  *
- * Specs ending in `.demo.spec.ts` run against `demo`; all other specs run
- * against `app`.
+ * Specs ending in `.demo.e2e.ts` run against `demo`; all other `*.e2e.ts` run
+ * against `app`. The `.e2e.ts` suffix keeps `bun test` from collecting them:
+ * bun's runner claims `*.spec.ts` and Playwright's `test()` throws under it.
  */
 
 const DEMO_PORT = 3100;
@@ -36,12 +37,13 @@ export default defineConfig({
   projects: [
     {
       name: 'app',
-      testIgnore: /.*\.demo\.spec\.ts/,
+      testMatch: /.*\.e2e\.ts$/,
+      testIgnore: /.*\.demo\.e2e\.ts$/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${APP_PORT}` },
     },
     {
       name: 'demo',
-      testMatch: /.*\.demo\.spec\.ts/,
+      testMatch: /.*\.demo\.e2e\.ts$/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${DEMO_PORT}` },
     },
   ],

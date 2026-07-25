@@ -233,10 +233,12 @@ bun run test:e2e:ui     # Playwright UI mode
 
 Two targets share the handlers in `src/lib/mock`: `demo` (the `VITE_DEMO_MODE`
 build, smoke-tested) and `app` (the real non-demo build with `VITE_ENABLE_MSW`,
-deep flows). Specs live in `e2e/`; `*.demo.spec.ts` run on `demo`, all other
-`*.spec.ts` on `app`. Tests reshape individual responses per scenario with
-`overrideServerFn` / `page.route` (see `e2e/fixtures.ts`). The flow inventory is
-in [playwright-test-plan.md](playwright-test-plan.md).
+deep flows). Specs live in `e2e/`; `*.demo.e2e.ts` run on `demo`, all other
+`*.e2e.ts` on `app`. The `.e2e.ts` suffix is deliberate: `bun test` collects
+`*.spec.ts`, and Playwright's `test()` throws when bun's runner loads it. Tests
+reshape individual responses per scenario with `overrideServerFn` (see
+`e2e/fixtures.ts`). The flow inventory is in
+[playwright-test-plan.md](playwright-test-plan.md).
 
 Playwright's browser must be available; in a fresh checkout run
 `bunx playwright install chromium` first.

@@ -67,7 +67,8 @@ bun run test:e2e:ui           # Playwright UI mode
 
 E2e runs against static production builds served over MSW (not a dev server), so
 loaders/auth/SSE are intercepted before first render. Specs live in `e2e/`;
-`*.demo.spec.ts` run on the demo build, all other `*.spec.ts` on the app build.
+`*.demo.e2e.ts` run on the demo build, all other `*.e2e.ts` on the app build
+(the suffix keeps `bun test` from collecting Playwright specs).
 Plan and flow inventory: `docs/playwright-test-plan.md`.
 
 ## Critical Rules
