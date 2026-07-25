@@ -5,8 +5,9 @@ on:
     branches: [main]
     tags:
       - 'v*.*.*'
+  # No branches filter: a mid-stack PR targets its parent PR's branch, not main, and a
+  # filter here silently gives it zero check runs instead of a failure anyone can see.
   pull_request:
-    branches: [main]
 
 # One run per ref: a newer push cancels the in-progress run for the same branch or
 # PR, so rapid merges to main (e.g. a batch of Dependabot PRs) don't each run CI to
