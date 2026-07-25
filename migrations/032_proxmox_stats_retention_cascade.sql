@@ -1,7 +1,6 @@
--- migrate:no-transaction
---
 -- Multi-tier retention cascade for proxmox_stats: raw (24h) -> _1m (30d) -> _1h (forever).
--- Same invariants and statement ordering as 030_docker_stats_retention_cascade.sql.
+-- Same invariants as 030_docker_stats_retention_cascade.sql, including where the backfill
+-- and the retention policies live.
 --
 -- Only cpu, mem, disk and storage_avail are true gauges and get averaged. netin/netout
 -- are cumulative byte counters straight from the Proxmox API and uptime is monotonic;
@@ -124,33 +123,6 @@ BEGIN
 END
 $$;
 
--- Leading NULL-bounded sweep covers ALL pre-existing history before the 24-hour retention
--- policy at the end of this file can drop it; see 030 for why that trade is worth the
--- unbounded call. The _1m sweep must finish before the _1h sweep, since _1h reads _1m.
-CALL refresh_continuous_aggregate('proxmox_stats_1m', NULL, now() - INTERVAL '30 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '30 days', now() - INTERVAL '28 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '28 days', now() - INTERVAL '26 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '26 days', now() - INTERVAL '24 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '24 days', now() - INTERVAL '22 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '22 days', now() - INTERVAL '20 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '20 days', now() - INTERVAL '18 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '18 days', now() - INTERVAL '16 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '16 days', now() - INTERVAL '14 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '14 days', now() - INTERVAL '12 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '12 days', now() - INTERVAL '10 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '10 days', now() - INTERVAL '8 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '8 days', now() - INTERVAL '6 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '6 days', now() - INTERVAL '4 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '4 days', now() - INTERVAL '2 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1m', now() - INTERVAL '2 days', now());
-
-CALL refresh_continuous_aggregate('proxmox_stats_1h', NULL, now() - INTERVAL '30 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1h', now() - INTERVAL '30 days', now() - INTERVAL '24 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1h', now() - INTERVAL '24 days', now() - INTERVAL '18 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1h', now() - INTERVAL '18 days', now() - INTERVAL '12 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1h', now() - INTERVAL '12 days', now() - INTERVAL '6 days');
-CALL refresh_continuous_aggregate('proxmox_stats_1h', now() - INTERVAL '6 days', now());
-
 SELECT add_continuous_aggregate_policy('proxmox_stats_1m',
   start_offset      => INTERVAL '6 hours',
   end_offset        => INTERVAL '1 minute',
@@ -178,7 +150,3 @@ SELECT add_compression_policy('proxmox_stats_1h', INTERVAL '30 days', if_not_exi
 
 SELECT remove_compression_policy('proxmox_stats', if_exists => TRUE);
 SELECT add_compression_policy('proxmox_stats', INTERVAL '6 hours', if_not_exists => TRUE);
-
-SELECT add_retention_policy('proxmox_stats_1m', INTERVAL '30 days', if_not_exists => TRUE);
-
-SELECT add_retention_policy('proxmox_stats', INTERVAL '24 hours', if_not_exists => TRUE);

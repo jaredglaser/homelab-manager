@@ -1,5 +1,3 @@
--- migrate:no-transaction
---
 -- Multi-tier retention cascade for docker_stats: raw (24h) -> _1m (30d) -> _1h (forever).
 --
 -- Two invariants this file depends on:
@@ -10,9 +8,10 @@
 --   2. Every refresh window sits strictly inside its source's retention: _1m's
 --      start_offset (6h) < raw retention (24h), _1h's start_offset (3d) < _1m retention (30d).
 --
--- Statement order is load-bearing: create -> backfill -> policies -> raw retention LAST,
--- so no raw row is dropped before it has been rolled up. Every statement is idempotent
--- because a mid-file failure re-runs the whole file (no enclosing transaction).
+-- The initial backfill and the retention policies are NOT here: they run as a startup task
+-- (src/lib/database/stats-rollup-backfill.ts), which can issue each
+-- refresh_continuous_aggregate on its own connection outside a transaction block and only
+-- adds retention once the backfill for that source has actually succeeded.
 
 -- 1-hour raw chunks: retention drops whole chunks only, so a 24-hour policy against
 -- 1-day chunks would hold nearly 48 hours of raw data before reclaiming anything.
@@ -107,40 +106,6 @@ BEGIN
 END
 $$;
 
--- Backfill covers ALL existing history, not just the recent window. Migration 007 removed
--- retention entirely, so a long-running deployment has months of raw rows here and the
--- 24-hour policy added at the end of this file would drop every one that was never rolled
--- up. The leading NULL-bounded sweep is deliberately unbounded: it holds the migration
--- advisory lock (and locks on the source) for as long as the backlog takes, which on a
--- homelab-sized database is minutes, and a one-time startup cost beats deleting history
--- the operator cannot recover. The recent 30 days then run in 2-day windows that each
--- commit on their own, so the worker's inserts can interleave over the period where new
--- rows are actually arriving. The _1m sweep must finish before the _1h sweep, since _1h
--- reads _1m.
-CALL refresh_continuous_aggregate('docker_stats_1m', NULL, now() - INTERVAL '30 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '30 days', now() - INTERVAL '28 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '28 days', now() - INTERVAL '26 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '26 days', now() - INTERVAL '24 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '24 days', now() - INTERVAL '22 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '22 days', now() - INTERVAL '20 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '20 days', now() - INTERVAL '18 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '18 days', now() - INTERVAL '16 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '16 days', now() - INTERVAL '14 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '14 days', now() - INTERVAL '12 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '12 days', now() - INTERVAL '10 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '10 days', now() - INTERVAL '8 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '8 days', now() - INTERVAL '6 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '6 days', now() - INTERVAL '4 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '4 days', now() - INTERVAL '2 days');
-CALL refresh_continuous_aggregate('docker_stats_1m', now() - INTERVAL '2 days', now());
-
-CALL refresh_continuous_aggregate('docker_stats_1h', NULL, now() - INTERVAL '30 days');
-CALL refresh_continuous_aggregate('docker_stats_1h', now() - INTERVAL '30 days', now() - INTERVAL '24 days');
-CALL refresh_continuous_aggregate('docker_stats_1h', now() - INTERVAL '24 days', now() - INTERVAL '18 days');
-CALL refresh_continuous_aggregate('docker_stats_1h', now() - INTERVAL '18 days', now() - INTERVAL '12 days');
-CALL refresh_continuous_aggregate('docker_stats_1h', now() - INTERVAL '12 days', now() - INTERVAL '6 days');
-CALL refresh_continuous_aggregate('docker_stats_1h', now() - INTERVAL '6 days', now());
-
 SELECT add_continuous_aggregate_policy('docker_stats_1m',
   start_offset      => INTERVAL '6 hours',
   end_offset        => INTERVAL '1 minute',
@@ -168,7 +133,3 @@ SELECT add_compression_policy('docker_stats_1h', INTERVAL '30 days', if_not_exis
 
 SELECT remove_compression_policy('docker_stats', if_exists => TRUE);
 SELECT add_compression_policy('docker_stats', INTERVAL '6 hours', if_not_exists => TRUE);
-
-SELECT add_retention_policy('docker_stats_1m', INTERVAL '30 days', if_not_exists => TRUE);
-
-SELECT add_retention_policy('docker_stats', INTERVAL '24 hours', if_not_exists => TRUE);

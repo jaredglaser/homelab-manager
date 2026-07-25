@@ -1,7 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { splitSqlStatements } from '@/lib/database/migrate';
 
 const migrationsDir = join(import.meta.dir, '..', '..', '..', '..', 'migrations');
 
@@ -10,10 +9,6 @@ const SOURCES = [
   { table: 'zfs_stats', file: '031_zfs_stats_retention_cascade.sql' },
   { table: 'proxmox_stats', file: '032_proxmox_stats_retention_cascade.sql' },
 ];
-
-function lastIndexWhere(values: string[], predicate: (value: string) => boolean): number {
-  return values.reduce((found, value, index) => (predicate(value) ? index : found), -1);
-}
 
 function readMigration(file: string): string {
   return readFileSync(join(migrationsDir, file), 'utf-8');
@@ -28,10 +23,17 @@ function weightedPairs(sql: string): { sumColumn: string; metric: string }[] {
 
 for (const { table, file } of SOURCES) describe(file, () => {
   const sql = readMigration(file);
-  const statements = splitSqlStatements(sql);
 
-  test('opts out of the transaction wrapper', () => {
-    expect(sql.split('\n')[0].trim()).toBe('-- migrate:no-transaction');
+  test('runs inside the standard transaction wrapper', () => {
+    expect(sql).not.toContain('-- migrate:no-transaction');
+  });
+
+  test('leaves the backfill to the startup task', () => {
+    expect(sql).not.toContain('refresh_continuous_aggregate(');
+  });
+
+  test('leaves retention to the startup task, which adds it only after a backfill', () => {
+    expect(sql).not.toContain('add_retention_policy(');
   });
 
   test('cuts raw chunks to 1 hour so 24-hour retention can actually drop them', () => {
@@ -57,12 +59,6 @@ for (const { table, file } of SOURCES) describe(file, () => {
         `add_continuous_aggregate_policy\\('${table}_1h',\\s*\\n\\s*start_offset\\s*=> INTERVAL '3 days'`,
       ),
     );
-    expect(sql).toContain(`add_retention_policy('${table}_1m', INTERVAL '30 days'`);
-    expect(sql).toContain(`add_retention_policy('${table}', INTERVAL '24 hours'`);
-  });
-
-  test('never puts a retention policy on the hourly tier', () => {
-    expect(sql).not.toContain(`add_retention_policy('${table}_1h'`);
   });
 
   test('counts samples per minute bucket so the hourly tier can weight them', () => {
@@ -81,42 +77,10 @@ for (const { table, file } of SOURCES) describe(file, () => {
     expect(sql).toContain('SUM(sample_count)');
   });
 
-  test('drops raw only after every rollup statement has run', () => {
-    const lastRefresh = lastIndexWhere(statements, (s) =>
-      s.startsWith('CALL refresh_continuous_aggregate'),
-    );
-    const rawRetention = statements.findIndex(
-      (s) => s.includes(`add_retention_policy('${table}'`) && s.includes("INTERVAL '24 hours'"),
-    );
-    expect(lastRefresh).toBeGreaterThan(0);
-    expect(rawRetention).toBe(statements.length - 1);
-    expect(rawRetention).toBeGreaterThan(lastRefresh);
-  });
-
-  test('sweeps all pre-existing history before the recent windows', () => {
-    const refreshes = statements.filter((s) => s.startsWith('CALL refresh_continuous_aggregate'));
-    expect(refreshes.length).toBeGreaterThan(2);
-
-    for (const cagg of [`${table}_1m`, `${table}_1h`]) {
-      const forCagg = refreshes.filter((s) => s.includes(`'${cagg}'`));
-      expect(forCagg[0]).toBe(
-        `CALL refresh_continuous_aggregate('${cagg}', NULL, now() - INTERVAL '30 days')`,
-      );
-      for (const windowed of forCagg.slice(1)) {
-        expect(windowed).not.toContain('NULL');
-        expect(windowed).toContain('now() - INTERVAL');
-      }
-    }
-  });
-
-  test('finishes the minute sweep before the hourly sweep that reads it', () => {
-    const lastMinute = lastIndexWhere(statements, (s) =>
-      s.startsWith(`CALL refresh_continuous_aggregate('${table}_1m'`),
-    );
-    const firstHour = statements.findIndex((s) =>
-      s.startsWith(`CALL refresh_continuous_aggregate('${table}_1h'`),
-    );
-    expect(firstHour).toBeGreaterThan(lastMinute);
+  test('compresses both tiers and shortens raw compression to 6 hours', () => {
+    expect(sql).toContain(`add_compression_policy('${table}_1m', INTERVAL '7 days'`);
+    expect(sql).toContain(`add_compression_policy('${table}_1h', INTERVAL '30 days'`);
+    expect(sql).toContain(`add_compression_policy('${table}', INTERVAL '6 hours'`);
   });
 });
 
