@@ -3,9 +3,11 @@
  * `${TSS_SERVER_FN_BASE}/<functionId>`. The functionId format depends on the build:
  *
  * - Dev: base64url(JSON.stringify({ file, export })) (the compiler's default).
- * - Prod: whatever `serverFns.generateFunctionId` returns in vite.config.ts. We
- *   deliberately mirror the dev format there so a single decoder works in both
- *   builds, which keeps the MSW dispatch table keyed by the plain export name.
+ * - Demo / MSW builds: vite.config.ts installs `serverFns.generateFunctionId` so
+ *   those targets keep the dev format and one decoder covers both, which keeps
+ *   the MSW dispatch table keyed by the plain export name. Production builds get
+ *   no override and keep TanStack's opaque ids, so this decoder falls through to
+ *   the raw segment there (no mock backend runs in production anyway).
  *
  * This module owns that decode so handlers never reach into TanStack internals.
  */
@@ -57,17 +59,7 @@ export function resolveFunctionName(functionIdSegment: string): string | null {
   return id.length > 0 ? stripHandlerSuffix(id) : null;
 }
 
-/**
- * Build the stable function id that vite.config.ts hands TanStack Start for
- * production builds. Kept here so the encoder and decoder live together.
- */
-export function encodeFunctionId(file: string, exportName: string): string {
-  const json = JSON.stringify({ file, export: exportName });
-  const bytes = new TextEncoder().encode(json);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+export { encodeFunctionId } from '@/lib/server-fn-id';
 
 /** Extract the trailing `/_serverFn/<id>` segment from a full request URL. */
 export function functionIdFromUrl(url: string): string | null {

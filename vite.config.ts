@@ -5,7 +5,7 @@ import viteReact from '@vitejs/plugin-react'
 import { fileURLToPath, URL } from 'node:url'
 import { nitro } from 'nitro/vite'
 import tailwindcss from '@tailwindcss/vite'
-import { encodeFunctionId } from './src/lib/mock/handlers/function-id'
+import { encodeFunctionId } from './src/lib/server-fn-id'
 
 const logger = createLogger()
 const customLogger = {
@@ -20,6 +20,11 @@ const customLogger = {
 }
 
 const isDev = process.env.NODE_ENV !== 'production'
+
+// Demo and Playwright targets only; a production build keeps TanStack's opaque
+// ids so RPC URLs do not decode back to a source path and export name.
+const isMockBuild =
+  process.env.VITE_DEMO_MODE === 'true' || process.env.VITE_ENABLE_MSW === 'true'
 
 function buildAliases(): Record<string, string> {
   // Demo and e2e modes no longer swap server-function modules at build time;
@@ -46,13 +51,14 @@ export default defineConfig({
       importProtection: {
         behavior: 'error',
       },
-      serverFns: {
-        // Mirror the dev compiler's base64url(JSON{file,export}) id format in
-        // production builds so the MSW dispatcher decodes server-function calls
-        // the same way in the dev app target and the built demo deploy.
-        generateFunctionId: ({ filename, functionName }) =>
-          encodeFunctionId(filename, functionName),
-      },
+      ...(isMockBuild
+        ? {
+            serverFns: {
+              generateFunctionId: ({ filename, functionName }: { filename: string; functionName: string }) =>
+                encodeFunctionId(filename, functionName),
+            },
+          }
+        : {}),
     }),
     viteReact(),
   ],
