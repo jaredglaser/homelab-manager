@@ -1,6 +1,7 @@
 import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 import { handleZfsStatsStream, handleZfsPools } from '../routes/zfs';
+import { readUntil, parseDataFrames } from '../lib/test/sse-test-utils';
 
 const originalConsoleError = console.error;
 
@@ -30,30 +31,6 @@ const originalSpawn = Bun.spawn;
 afterEach(() => {
   Bun.spawn = originalSpawn;
 });
-
-/** Read SSE chunks from a response until a predicate is satisfied or timeout. */
-async function readUntil(
-  response: Response,
-  predicate: (accumulated: string) => boolean,
-  timeoutMs = 5000,
-): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  let text = '';
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  try {
-    while (true) {
-      if (Date.now() > deadline) break;
-      const { done, value } = await reader.read();
-      if (done) break;
-      text += decoder.decode(value, { stream: true });
-      if (predicate(text)) break;
-    }
-  } finally {
-    reader.cancel();
-  }
-  return text;
-}
 
 describe('handleZfsStatsStream', () => {
   test('returns 503 when ZFS is not available', () => {
@@ -94,6 +71,44 @@ describe('handleZfsStatsStream', () => {
     expect(response.headers.get('Connection')).toBe('keep-alive');
   });
 
+  test('pipes subprocess stderr and drains it into the log', async () => {
+    let spawnOptions: unknown;
+    let resolveLogged!: (line: string) => void;
+    const logged = new Promise<string>((resolve) => {
+      resolveLogged = resolve;
+    });
+    console.error = mock((...args: unknown[]) => {
+      if (args[0] === 'zpool iostat:') resolveLogged(String(args[1]));
+    });
+
+    Bun.spawn = mock((_cmd: string[], options: unknown) => {
+      spawnOptions = options;
+      return {
+        stdout: new ReadableStream<Uint8Array>({ start() {} }),
+        stderr: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              new TextEncoder().encode("cannot open 'tank': no such pool\n"),
+            );
+          },
+        }),
+        kill: mock(() => {}),
+        exited: new Promise(() => {}),
+      };
+    }) as any;
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/zfs/stats/stream', {
+      signal: ac.signal,
+    });
+    handleZfsStatsStream(request, zfsAvailable);
+
+    expect(await logged).toBe("cannot open 'tank': no such pool");
+    ac.abort();
+
+    expect(spawnOptions).toMatchObject({ stderr: 'pipe' });
+  });
+
   test('streams parsed lines as SSE events', async () => {
     const killMock = mock(() => {});
     const iostatOutput = [
@@ -126,13 +141,7 @@ describe('handleZfsStatsStream', () => {
 
     expect(text).toContain('data:');
     // Each non-empty line should be a separate SSE event
-    const events = text
-      .split('\n\n')
-      .filter(Boolean)
-      .map((e) => {
-        const json = e.replace(/^data:\s*/, '');
-        return JSON.parse(json);
-      });
+    const events = parseDataFrames(text);
 
     expect(events.length).toBeGreaterThanOrEqual(1);
     const tankEvent = events.find((e: { line: string }) => e.line.includes('tank'));
@@ -245,6 +254,37 @@ describe('handleZfsStatsStream', () => {
     expect(console.error).toHaveBeenCalled();
   });
 
+  test('logs error when stderr reader throws unexpectedly', async () => {
+    let resolveLogged!: (err: unknown) => void;
+    const logged = new Promise<unknown>((resolve) => {
+      resolveLogged = resolve;
+    });
+    console.error = mock((...args: unknown[]) => {
+      if (args[0] === 'ZFS stats stderr read error:') resolveLogged(args[1]);
+    });
+
+    Bun.spawn = mock(() => ({
+      stdout: new ReadableStream<Uint8Array>({ start() {} }),
+      stderr: new ReadableStream<Uint8Array>({
+        start() {},
+        pull() {
+          throw new Error('stderr read failure');
+        },
+      }),
+      kill: mock(() => {}),
+      exited: new Promise(() => {}),
+    })) as any;
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/zfs/stats/stream', {
+      signal: ac.signal,
+    });
+    handleZfsStatsStream(request, zfsAvailable);
+
+    expect(await logged).toBeInstanceOf(Error);
+    ac.abort();
+  });
+
   test('skips empty lines in output', async () => {
     const killMock = mock(() => {});
     const output = '\n\n  \nactual data line\n\n';
@@ -270,10 +310,44 @@ describe('handleZfsStatsStream', () => {
     ac.abort();
 
     // Only the non-empty line should appear
-    const events = text.split('\n\n').filter(Boolean);
+    const events = parseDataFrames(text);
     expect(events.length).toBe(1);
-    const parsed = JSON.parse(events[0].replace(/^data:\s*/, ''));
-    expect(parsed.line).toBe('actual data line');
+    expect(events[0].line).toBe('actual data line');
+  });
+
+  test('emits a comment heartbeat while zpool produces no output', async () => {
+    // `zpool iostat -v 1` normally ticks every second, but a degraded pool with
+    // a hung disk can stall it well past Bun's 10s HTTP idleTimeout.
+    const realSetInterval = globalThis.setInterval;
+    const ticks: Array<{ cb: () => void; ms: number }> = [];
+    globalThis.setInterval = mock((cb: () => void, ms: number) => {
+      ticks.push({ cb, ms });
+      return ticks.length as unknown as ReturnType<typeof setInterval>;
+    }) as unknown as typeof setInterval;
+
+    Bun.spawn = mock(() => ({
+      stdout: new ReadableStream<Uint8Array>({ start() {} }),
+      stderr: new ReadableStream(),
+      kill: mock(() => {}),
+      exited: new Promise(() => {}),
+    })) as any;
+
+    try {
+      const ac = new AbortController();
+      const request = new Request('http://localhost/zfs/stats/stream', { signal: ac.signal });
+      const response = handleZfsStatsStream(request, zfsAvailable);
+
+      expect(ticks).toHaveLength(1);
+      expect(ticks[0].ms).toBe(5000);
+
+      ticks[0].cb();
+      const text = await readUntil(response, (s) => s.split('\n\n').includes(':'));
+      ac.abort();
+
+      expect(text.split('\n\n')).toContain(':');
+    } finally {
+      globalThis.setInterval = realSetInterval;
+    }
   });
 });
 

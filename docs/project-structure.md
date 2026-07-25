@@ -18,7 +18,7 @@ src/                        # Web app + worker (TanStack Start SPA, Bun)
 ├── data/                   # Server functions + Zod schemas per domain (docker, hosts, proxmox, settings, stacks, zfs)
 ├── middleware/             # createServerFn middleware (database client injection)
 ├── lib/
-│   ├── auth/               # OIDC client, sessions, role mapping, SSE auth, token migration
+│   ├── auth/               # OIDC client, sessions, role mapping, SSE auth
 │   ├── charts/             # ECharts helpers (CSS var colors, y-axis scaling)
 │   ├── clients/            # Agent, database (pg pool), and Proxmox clients
 │   ├── config/             # Env-based config loaders
