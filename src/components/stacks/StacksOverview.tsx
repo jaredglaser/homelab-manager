@@ -7,6 +7,7 @@ import { useStackListContext, useStackStatusContext } from '@/components/stacks/
 import CreateStackDialog from '@/components/stacks/CreateStackDialog'
 import StackDriftSummary from '@/components/stacks/StackDriftSummary'
 import { createStack, scanDrift } from '@/data/stacks/functions'
+import { useCanWrite } from '@/hooks/useAuth'
 import { STACKS_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
 
 export default function StacksOverview() {
@@ -17,6 +18,8 @@ export default function StacksOverview() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
+  const canWrite = useCanWrite()
+
   const { data: driftReport, isLoading: driftLoading, refetch: refetchDrift } = useQuery({
     queryKey: STACK_DRIFT_QUERY_KEY,
     queryFn: () => scanDrift(),
@@ -24,6 +27,7 @@ export default function StacksOverview() {
     // across route swaps; Refresh forces a fresh scan.
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    enabled: canWrite,
   })
 
   const hostSummaries = useMemo(() => {
@@ -74,13 +78,13 @@ export default function StacksOverview() {
     />
   )
 
-  const driftSummary = (
+  const driftSummary = canWrite ? (
     <StackDriftSummary
       report={driftReport}
       isLoading={driftLoading}
       onRefresh={() => { void refetchDrift() }}
     />
-  )
+  ) : null
 
   if (isLoading) {
     return (

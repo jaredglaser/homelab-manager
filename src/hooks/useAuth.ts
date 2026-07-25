@@ -44,3 +44,15 @@ export function useAuth(): { user: AuthUser | null; loading: boolean; authEnable
 
   return { user, loading, authEnabled };
 }
+
+/**
+ * True when the session may call server functions guarded by `requireRole('admin', 'operator')`.
+ * False while the check is in flight; true when auth is disabled, where every request runs
+ * as the synthetic admin that `useAuth` reports as a null user.
+ */
+export function useCanWrite(): boolean {
+  const { user, loading, authEnabled } = useAuth();
+  if (loading) return false;
+  if (!authEnabled) return true;
+  return user?.role === 'admin' || user?.role === 'operator';
+}

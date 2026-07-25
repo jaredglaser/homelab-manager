@@ -39,8 +39,8 @@ export default function StackDriftSummary({ report, isLoading, onRefresh }: Stac
         </div>
 
         {report?.scanErrors.map((error) => (
-          <p key={error.host} className="text-sm">
-            {error.host}: {error.message}
+          <p key={`${error.host}/${error.stack ?? ''}`} className="text-sm">
+            {error.stack ? `${error.host}/${error.stack}` : error.host}: {error.message}
           </p>
         ))}
 

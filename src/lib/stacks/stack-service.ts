@@ -6,7 +6,7 @@
 import type { StackSummary, StackDetail, StackDeployRecord, StackDriftReport, StackDriftScanError } from '@/types/stacks';
 import type { DeployAction, DeployRecord, DeployRequest, DeployStatus } from '@/lib/deploy/types';
 import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-client';
-import type { AgentStackInventoryEntry } from '@homelab-manager/agent/types';
+import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
 import type { RepoStackSnapshot } from '@/lib/stacks/stack-drift-service';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
@@ -577,6 +577,7 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
     .map((host) => ({ name: host.name, dockerEnabled: true }));
 
   const agentStacksByHost = new Map<string, AgentStackInventoryEntry[]>();
+  const agentStackErrorsByHost = new Map<string, AgentStackInventoryError[]>();
   const scanErrors: StackDriftScanError[] = [];
 
   const dockerHostNames = new Set(dockerHosts.map((host) => host.name));
@@ -591,7 +592,9 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
   await Promise.all(dockerHosts.map(async (host) => {
     try {
       const agent = await getAgentClientForHost(host.name);
-      agentStacksByHost.set(host.name, await agent.getStackInventory());
+      const inventory = await agent.getStackInventory();
+      agentStacksByHost.set(host.name, inventory.stacks);
+      if (inventory.errors.length > 0) agentStackErrorsByHost.set(host.name, inventory.errors);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[StackService] drift scan failed for host "${host.name}":`, err);
@@ -605,6 +608,7 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
     latestDeploys,
     currentHeadSha,
     agentStacksByHost,
+    agentStackErrorsByHost,
     scanErrors,
   });
 }

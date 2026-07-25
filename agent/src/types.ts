@@ -11,19 +11,22 @@ export interface AgentStackResponse {
   exitCode?: number;
 }
 
-/** One stack directory discovered on the agent filesystem. */
 export interface AgentStackInventoryEntry {
   name: string;
   hasComposeFile: true;
   composeHash: string;
 }
 
-/** Successful /stacks/inventory response. */
-export interface AgentStackInventoryResponse {
-  stacks: AgentStackInventoryEntry[];
+export interface AgentStackInventoryError {
+  name: string;
+  message: string;
 }
 
-/** Successful /stacks/compose response. */
+export interface AgentStackInventoryResponse {
+  stacks: AgentStackInventoryEntry[];
+  errors?: AgentStackInventoryError[];
+}
+
 export interface AgentStackComposeResponse {
   stack: string;
   composeContent: string;

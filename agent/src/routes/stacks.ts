@@ -1,7 +1,12 @@
 import { Dirent, mkdirSync, existsSync, readdirSync, readFileSync, unlinkSync, writeFileSync, chmodSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve, relative } from 'node:path';
-import type { AgentStackComposeResponse, AgentStackInventoryEntry, AgentStackInventoryResponse } from '../types';
+import type {
+  AgentStackComposeResponse,
+  AgentStackInventoryEntry,
+  AgentStackInventoryError,
+  AgentStackInventoryResponse,
+} from '../types';
 
 const VALID_STACK_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const VALID_SERVICE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
@@ -683,31 +688,34 @@ export async function handleStackInventory(stacksDir: string): Promise<Response>
     return Response.json({ error: `Failed to read stacks directory: ${msg}` }, { status: 500 });
   }
 
-  const stacks = entries
-    .filter((entry) => entry.isDirectory() && VALID_STACK_NAME.test(entry.name))
-    .map((entry): AgentStackInventoryEntry | null => {
-      const composePath = getComposePath(stacksDir, entry.name);
-      if (!existsSync(composePath)) return null;
-      // Skip entries we cannot read (EACCES, EIO, TOCTOU delete) rather than
-      // aborting the whole inventory. Hiding one bad directory is safer than
-      // making the scanner conclude the host has zero stacks.
-      let composeContent: string;
-      try {
-        composeContent = readFileSync(composePath, 'utf-8');
-      } catch (err) {
-        console.error(`Failed to read compose file for stack '${entry.name}':`, err);
-        return null;
-      }
-      return {
-        name: entry.name,
-        hasComposeFile: true,
-        composeHash: computeComposeHash(composeContent),
-      };
-    })
-    .filter((stack): stack is AgentStackInventoryEntry => stack !== null)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const stacks: AgentStackInventoryEntry[] = [];
+  const errors: AgentStackInventoryError[] = [];
 
-  return Response.json({ stacks } satisfies AgentStackInventoryResponse);
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !VALID_STACK_NAME.test(entry.name)) continue;
+    const composePath = getComposePath(stacksDir, entry.name);
+    if (!existsSync(composePath)) continue;
+    // An unreadable entry (EACCES, EIO, TOCTOU delete) is reported, never omitted:
+    // absent from the inventory it is indistinguishable from a deleted stack.
+    let composeContent: string;
+    try {
+      composeContent = readFileSync(composePath, 'utf-8');
+    } catch (err) {
+      console.error(`Failed to read compose file for stack '${entry.name}':`, err);
+      errors.push({ name: entry.name, message: err instanceof Error ? err.message : String(err) });
+      continue;
+    }
+    stacks.push({
+      name: entry.name,
+      hasComposeFile: true,
+      composeHash: computeComposeHash(composeContent),
+    });
+  }
+
+  stacks.sort((a, b) => a.name.localeCompare(b.name));
+  errors.sort((a, b) => a.name.localeCompare(b.name));
+
+  return Response.json({ stacks, ...(errors.length > 0 ? { errors } : {}) } satisfies AgentStackInventoryResponse);
 }
 
 export async function handleGetStackCompose(request: Request, stacksDir: string): Promise<Response> {

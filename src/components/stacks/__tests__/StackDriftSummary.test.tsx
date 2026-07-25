@@ -66,4 +66,22 @@ describe('StackDriftSummary', () => {
     );
     expect(screen.getByText(/alpha: agent unreachable/i)).toBeDefined();
   });
+
+  it('qualifies a scan error with the stack name when the failure is stack-scoped', () => {
+    render(
+      <StackDriftSummary
+        report={{
+          ...emptyReport,
+          scanErrors: [
+            { host: 'alpha', stack: 'plex', message: 'EACCES: permission denied' },
+            { host: 'alpha', stack: 'grafana', message: 'EIO' },
+          ],
+        }}
+        isLoading={false}
+        onRefresh={() => {}}
+      />,
+    );
+    expect(screen.getByText(/alpha\/plex: EACCES: permission denied/i)).toBeDefined();
+    expect(screen.getByText(/alpha\/grafana: EIO/i)).toBeDefined();
+  });
 });

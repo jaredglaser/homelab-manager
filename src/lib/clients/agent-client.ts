@@ -3,6 +3,7 @@ import type {
   AgentInfoResponse,
   AgentStackInventoryResponse,
   AgentStackInventoryEntry,
+  AgentStackInventoryError,
   AgentStackComposeResponse,
 } from '@homelab-manager/agent/types';
 import type { AgentDeployPayload, AgentDeployResponse, AgentUpdatePayload } from '@/lib/deploy/types';
@@ -147,9 +148,9 @@ export class AgentClient {
     await this.postJson<{ status: string }>(`/containers/${containerId}/restart`, {}, this.controlTimeoutMs);
   }
 
-  async getStackInventory(): Promise<AgentStackInventoryEntry[]> {
+  async getStackInventory(): Promise<{ stacks: AgentStackInventoryEntry[]; errors: AgentStackInventoryError[] }> {
     const raw = await this.getJson<AgentStackInventoryResponse>('/stacks/inventory');
-    return raw.stacks;
+    return { stacks: raw.stacks, errors: raw.errors ?? [] };
   }
 
   async getStackCompose(stack: string): Promise<AgentStackComposeResponse> {

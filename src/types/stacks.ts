@@ -34,8 +34,10 @@ export interface StackDriftSummary {
   content: number;
 }
 
+/** `stack` is set when the failure is scoped to one stack; absent when the whole host scan failed. */
 export interface StackDriftScanError {
   host: string;
+  stack?: string;
   message: string;
 }
 

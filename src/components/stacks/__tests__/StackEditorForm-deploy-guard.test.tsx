@@ -23,6 +23,8 @@ mock.module('@tanstack/react-router', () => ({
   useBlocker: () => ({ status: 'idle', proceed: () => {}, reset: () => {} }),
 }));
 
+mock.module('@/hooks/useAuth', () => ({ useCanWrite: () => true }));
+
 const mockTriggerDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
 const realFns = await import('@/data/stacks/functions');
 mock.module('@/data/stacks/functions', () => ({

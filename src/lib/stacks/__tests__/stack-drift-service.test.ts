@@ -250,6 +250,68 @@ describe('buildStackDriftReport', () => {
     expect(report.scanErrors).toEqual([{ host: 'alpha', message: 'agent unreachable' }]);
   });
 
+  it('does not report a stack as ghost when the agent could not read its compose file', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack()],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy()],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      agentStackErrorsByHost: new Map([['alpha', [{ name: 'plex', message: 'EACCES: permission denied' }]]]),
+      scanErrors: [],
+    });
+
+    expect(report.items).toEqual([]);
+    expect(report.summary).toEqual({ total: 0, ghost: 0, untracked: 0, content: 0 });
+    expect(report.scanErrors).toEqual([
+      { host: 'alpha', stack: 'plex', message: 'EACCES: permission denied' },
+    ]);
+  });
+
+  it('still classifies the readable stacks on a host with one unreadable compose file', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack(), repoStack({ stack: 'grafana' })],
+      hosts: [{ name: 'alpha', dockerEnabled: true }],
+      latestDeploys: [deploy(), deploy({ id: 2, stack: 'grafana' })],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      agentStackErrorsByHost: new Map([['alpha', [{ name: 'plex', message: 'EIO' }]]]),
+      scanErrors: [],
+    });
+
+    expect(report.items).toEqual([
+      {
+        kind: 'ghost',
+        host: 'alpha',
+        stack: 'grafana',
+        repoComposeHash: 'repo-hash',
+        latestDeployStatus: 'succeeded',
+      },
+    ]);
+    expect(report.scanErrors).toEqual([{ host: 'alpha', stack: 'plex', message: 'EIO' }]);
+  });
+
+  it('keeps host-level scan errors alongside per-stack ones', () => {
+    const report = buildStackDriftReport({
+      repoStacks: [repoStack(), repoStack({ host: 'beta' })],
+      hosts: [
+        { name: 'alpha', dockerEnabled: true },
+        { name: 'beta', dockerEnabled: true },
+      ],
+      latestDeploys: [deploy(), deploy({ id: 2, host: 'beta' })],
+      currentHeadSha: HEAD_SHA,
+      agentStacksByHost: new Map([['alpha', []]]),
+      agentStackErrorsByHost: new Map([['alpha', [{ name: 'plex', message: 'EACCES' }]]]),
+      scanErrors: [{ host: 'beta', message: 'agent unreachable' }],
+    });
+
+    expect(report.items).toEqual([]);
+    expect(report.scanErrors).toEqual([
+      { host: 'beta', message: 'agent unreachable' },
+      { host: 'alpha', stack: 'plex', message: 'EACCES' },
+    ]);
+  });
+
   it('treats a null HEAD sha as not synced', () => {
     const report = buildStackDriftReport({
       repoStacks: [repoStack()],

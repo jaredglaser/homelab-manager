@@ -196,12 +196,32 @@ describe('AgentClient', () => {
 
       const result = await client.getStackInventory();
 
-      expect(result).toEqual([
-        { name: 'grafana', hasComposeFile: true, composeHash: 'hash-1' },
-        { name: 'plex', hasComposeFile: true, composeHash: 'hash-2' },
-      ]);
+      expect(result).toEqual({
+        stacks: [
+          { name: 'grafana', hasComposeFile: true, composeHash: 'hash-1' },
+          { name: 'plex', hasComposeFile: true, composeHash: 'hash-2' },
+        ],
+        errors: [],
+      });
       const [url] = fetchMock.mock.calls[0];
       expect(url).toBe('http://agent:9090/stacks/inventory');
+    });
+
+    it('carries per-stack read errors through to the caller', async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          stacks: [{ name: 'grafana', hasComposeFile: true, composeHash: 'hash-1' }],
+          errors: [{ name: 'plex', message: 'EACCES: permission denied' }],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+
+      const result = await client.getStackInventory();
+
+      expect(result.stacks).toEqual([{ name: 'grafana', hasComposeFile: true, composeHash: 'hash-1' }]);
+      expect(result.errors).toEqual([{ name: 'plex', message: 'EACCES: permission denied' }]);
     });
   });
 

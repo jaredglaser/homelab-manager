@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Settings2 } from 'lucide-react'
 import { useStackStatusContext } from '@/components/stacks/stacks-context'
 import { useToast } from '@/hooks/toastAtom'
+import { useCanWrite } from '@/hooks/useAuth'
 import { deployToastGate, formatDeployOutcome } from '@/lib/stacks/deploy-outcome-toast'
 import {
   getDeployHistory,
@@ -123,6 +124,8 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     withResolver: true,
   })
 
+  const canWrite = useCanWrite()
+
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName],
     queryFn: () => getDeployHistory({ data: { stackName, limit: 100 } }),
@@ -139,6 +142,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     queryFn: () => scanDrift(),
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    enabled: canWrite,
   })
 
   // Invalidate deploy history when a deploy completes
@@ -158,6 +162,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
   function invalidateDeployAndStacks() {
     queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+    queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
   }
 
   const deployMutation = useMutation({
@@ -228,6 +233,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     // full teardown, so its terminal NOTIFY beats this response.
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
     },
     onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
@@ -292,6 +298,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
       setSettingsDialogOpen(false)
       showToast('Stack settings updated', 'success')
     },
@@ -390,6 +397,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                   }
                   queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                   queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+                  queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
                 }}
                 onRollbackError={(err) => {
                   showToast(err.message, 'error')

@@ -20,6 +20,11 @@ mock.module('@tanstack/react-router', () => ({
   useBlocker: (opts: typeof capturedBlockerOpts) => { capturedBlockerOpts = opts; return blockerReturn; },
 }));
 
+let mockCanWrite = true;
+mock.module('@/hooks/useAuth', () => ({
+  useCanWrite: () => mockCanWrite,
+}));
+
 // Compose/secrets panels are stubbed with inputs bound to the shared form so
 // tests can dirty the fields; the rest are inert stand-ins.
 mock.module('@/components/stacks/ComposeEditorLoader', () => ({
@@ -89,6 +94,11 @@ const mockDeleteStack = mock((_args: unknown): Promise<DeleteResult> => Promise.
 const mockUpdateSettings = mock((_args: unknown) => Promise.resolve({ commitSha: 'x' }));
 const mockResumeDeploy = mock((_args: unknown): Promise<{ deployId: number; status: DeployStatus; logs: string }> => Promise.resolve({ deployId: 1, status: 'succeeded', logs: '' }));
 const mockRejectDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
+const mockScanDrift = mock(() => Promise.resolve({
+  items: [],
+  summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
+  scanErrors: [],
+}));
 const realFns = await import('@/data/stacks/functions');
 mock.module('@/data/stacks/functions', () => ({
   ...realFns,
@@ -99,11 +109,7 @@ mock.module('@/data/stacks/functions', () => ({
   updateStackSettings: mockUpdateSettings,
   resumeDeploy: mockResumeDeploy,
   rejectDeploy: mockRejectDeploy,
-  scanDrift: mock(() => Promise.resolve({
-    items: [],
-    summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
-    scanErrors: [],
-  })),
+  scanDrift: mockScanDrift,
 }));
 
 const detail: StackDetail = {
@@ -150,6 +156,24 @@ describe('StackEditorForm', () => {
     mockRejectDeploy.mockImplementation(() => Promise.resolve({ deployId: 1 }));
     capturedBlockerOpts = undefined;
     blockerReturn = { status: 'idle', proceed: proceedSpy, reset: resetSpy };
+    mockCanWrite = true;
+    mockScanDrift.mockClear();
+  });
+
+  it('does not scan for drift without deploy permission', async () => {
+    mockCanWrite = false;
+    await renderForm();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'web' })).toBeDefined());
+    expect(mockScanDrift).not.toHaveBeenCalled();
+  });
+
+  it('rescans for drift after a successful deploy', async () => {
+    await renderForm();
+    await waitFor(() => expect(mockScanDrift).toHaveBeenCalledTimes(1));
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'action-deploy' })); });
+
+    await waitFor(() => expect(mockScanDrift).toHaveBeenCalledTimes(2));
   });
 
   it('renders the header and all four tabs', async () => {

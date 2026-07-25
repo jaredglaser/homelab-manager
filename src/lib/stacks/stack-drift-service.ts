@@ -3,7 +3,7 @@
  * actually has on disk. Reporting only: nothing here mutates the repo or a host.
  */
 
-import type { AgentStackInventoryEntry } from '@homelab-manager/agent/types';
+import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
 import type { DeployRecord } from '@/lib/deploy/types';
 import type {
   StackDriftItem,
@@ -31,6 +31,7 @@ interface BuildStackDriftReportInput {
   latestDeploys: DeployRecord[];
   currentHeadSha: string | null;
   agentStacksByHost: Map<string, AgentStackInventoryEntry[]>;
+  agentStackErrorsByHost?: Map<string, AgentStackInventoryError[]>;
   scanErrors: StackDriftScanError[];
 }
 
@@ -48,6 +49,7 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
   const latestDeployMap = new Map(input.latestDeploys.map((deploy) => [`${deploy.host}/${deploy.stack}`, deploy]));
   const scanErrorHosts = new Set(input.scanErrors.map((error) => error.host));
   const items: StackDriftItem[] = [];
+  const stackScanErrors: StackDriftScanError[] = [];
 
   for (const host of input.hosts) {
     if (!host.dockerEnabled || scanErrorHosts.has(host.name)) continue;
@@ -57,7 +59,16 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
     const agentStacks = input.agentStacksByHost.get(host.name) ?? [];
     const agentByName = new Map(agentStacks.map((stack) => [stack.name, stack]));
 
+    // A stack the agent could not read is present on disk but has no hash. Classifying it
+    // would report a live stack as ghost, so it is excluded and reported as a scan error.
+    const agentStackErrors = input.agentStackErrorsByHost?.get(host.name) ?? [];
+    const unreadableStacks = new Set(agentStackErrors.map((error) => error.name));
+    for (const error of agentStackErrors) {
+      stackScanErrors.push({ host: host.name, stack: error.name, message: error.message });
+    }
+
     for (const repoStack of repoStacks) {
+      if (unreadableStacks.has(repoStack.stack)) continue;
       const latestDeploy = latestDeployMap.get(`${repoStack.host}/${repoStack.stack}`) ?? null;
       // Only a stack the repo believes is deployed and current can drift. Never-deployed
       // (createStackInRepo commits without deploying), failed, and edited-since-deploy
@@ -113,6 +124,6 @@ export function buildStackDriftReport(input: BuildStackDriftReportInput): StackD
       untracked: items.filter((item) => item.kind === 'untracked').length,
       content: items.filter((item) => item.kind === 'content').length,
     },
-    scanErrors: input.scanErrors,
+    scanErrors: [...input.scanErrors, ...stackScanErrors],
   };
 }
