@@ -34,10 +34,12 @@ function extractToken(request: Request): string | null {
  *
  * Auth flow:
  * 1. Extract token from Bearer or Basic auth
- * 2. Indexed lookup by token_hash (legacy rows without a hash fall back to
- *    decrypt-and-compare and are backfilled on match)
+ * 2. Indexed lookup by token_hash
  * 3. On match: resolve user, check role, update last_used_at
  * 4. On no match: 401
+ *
+ * This path never loads the master keyring, so git pushes keep working when
+ * MASTER_KEY is unavailable.
  *
  * Returns the authenticated user on success, or a Response on failure.
  */
@@ -69,24 +71,7 @@ async function authenticateRequest(request: Request): Promise<AuthUser | Respons
   const gitTokenRepo = new GitTokenRepository(pool);
   const userRepo = new UserRepository(pool);
 
-  // loadMasterKeyring re-reads env and re-imports every key per call, so hold one
-  // promise for the whole request; the hashed fast path never awaits it at all.
-  let cryptoReady: ReturnType<typeof loadCrypto> | null = null;
-  async function loadCrypto() {
-    const [{ loadMasterKeyring }, { decryptValue }] = await Promise.all([
-      import('@/lib/crypto/master-key'),
-      import('@/lib/crypto/encrypted-value'),
-    ]);
-    return { keyring: await loadMasterKeyring(), decryptValue };
-  }
-
-  const decryptToken = async (encryptedToken: string) => {
-    cryptoReady ??= loadCrypto();
-    const { keyring, decryptValue } = await cryptoReady;
-    return decryptValue(encryptedToken, keyring);
-  };
-
-  const match = await findMatchingGitToken(providedToken, gitTokenRepo, decryptToken);
+  const match = await findMatchingGitToken(providedToken, gitTokenRepo);
 
   if (!match) {
     // 401 lets git CLI re-prompt for credentials on token mismatch

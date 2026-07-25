@@ -1,24 +1,20 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { findMatchingGitToken, hashGitToken } from '@/lib/git/git-token-auth';
-import type { GitTokenAuthRepo } from '@/lib/git/git-token-auth';
-import type { GitTokenHashMatch, GitTokenWithEncrypted } from '@/lib/database/repositories/git-token-repository';
+import {
+  backfillGitTokenHashes,
+  findMatchingGitToken,
+  hashGitToken,
+} from '@/lib/git/git-token-auth';
+import type { GitTokenAuthRepo, GitTokenBackfillRepo } from '@/lib/git/git-token-auth';
+import type {
+  GitTokenHashMatch,
+  GitTokenWithEncrypted,
+} from '@/lib/database/repositories/git-token-repository';
 
 const RAW_TOKEN = 'a'.repeat(64);
 const RAW_HASH = createHash('sha256').update(RAW_TOKEN).digest('hex');
-
-function createRepo(overrides: Partial<GitTokenAuthRepo> = {}): GitTokenAuthRepo & {
-  findByTokenHash: ReturnType<typeof mock>;
-  findLegacyEncrypted: ReturnType<typeof mock>;
-  setTokenHash: ReturnType<typeof mock>;
-} {
-  return {
-    findByTokenHash: mock(async (): Promise<GitTokenHashMatch | null> => null),
-    findLegacyEncrypted: mock(async (): Promise<GitTokenWithEncrypted[]> => []),
-    setTokenHash: mock(async () => {}),
-    ...overrides,
-  } as never;
-}
+const OTHER_TOKEN = 'b'.repeat(64);
+const OTHER_HASH = createHash('sha256').update(OTHER_TOKEN).digest('hex');
 
 describe('hashGitToken', () => {
   it('returns the SHA-256 hex digest of the raw token', () => {
@@ -28,129 +24,142 @@ describe('hashGitToken', () => {
 });
 
 describe('findMatchingGitToken', () => {
+  it('matches via the indexed hash lookup', async () => {
+    const repo: GitTokenAuthRepo = {
+      findByTokenHash: mock(async (): Promise<GitTokenHashMatch | null> => ({ id: 3, userId: 11 })),
+    };
+
+    const result = await findMatchingGitToken(RAW_TOKEN, repo);
+
+    expect(result).toEqual({ tokenId: 3, userId: 11 });
+    expect(repo.findByTokenHash).toHaveBeenCalledWith(RAW_HASH);
+  });
+
+  it('returns null for an unknown token after a single lookup', async () => {
+    const findByTokenHash = mock(async (): Promise<GitTokenHashMatch | null> => null);
+
+    const result = await findMatchingGitToken(RAW_TOKEN, { findByTokenHash });
+
+    expect(result).toBeNull();
+    expect(findByTokenHash).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('backfillGitTokenHashes', () => {
   let errorSpy: ReturnType<typeof spyOn>;
+  let infoSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    infoSpy = spyOn(console, 'info').mockImplementation(() => {});
   });
 
   afterEach(() => {
     errorSpy.mockRestore();
+    infoSpy.mockRestore();
   });
 
-  it('matches via indexed hash lookup without touching legacy rows or decrypting', async () => {
-    const repo = createRepo({
-      findByTokenHash: mock(async () => ({ id: 3, userId: 11, tokenHash: RAW_HASH })),
-    });
-    const decryptToken = mock(async () => 'never');
+  function createRepo(rows: GitTokenWithEncrypted[]): GitTokenBackfillRepo & {
+    setTokenHash: ReturnType<typeof mock>;
+  } {
+    return {
+      findMissingHash: mock(async () => rows),
+      setTokenHash: mock(async () => {}),
+    };
+  }
 
-    const result = await findMatchingGitToken(RAW_TOKEN, repo, decryptToken);
+  it('hashes every row missing a hash', async () => {
+    const repo = createRepo([
+      { id: 1, userId: 10, encryptedToken: 'enc:a' },
+      { id: 2, userId: 20, encryptedToken: 'enc:b' },
+    ]);
+    const decryptToken = mock(async (enc: string) => (enc === 'enc:a' ? RAW_TOKEN : OTHER_TOKEN));
 
-    expect(result).toEqual({ tokenId: 3, userId: 11 });
-    expect(repo.findByTokenHash).toHaveBeenCalledWith(RAW_HASH);
-    expect(repo.findLegacyEncrypted).not.toHaveBeenCalled();
+    const result = await backfillGitTokenHashes(repo, decryptToken);
+
+    expect(result).toEqual({ hashed: 2, failed: 0 });
+    expect(repo.setTokenHash).toHaveBeenNthCalledWith(1, 1, RAW_HASH);
+    expect(repo.setTokenHash).toHaveBeenNthCalledWith(2, 2, OTHER_HASH);
+  });
+
+  it('does not decrypt anything when no rows are missing a hash', async () => {
+    const repo = createRepo([]);
+    const decryptToken = mock(async () => RAW_TOKEN);
+
+    const result = await backfillGitTokenHashes(repo, decryptToken);
+
+    expect(result).toEqual({ hashed: 0, failed: 0 });
     expect(decryptToken).not.toHaveBeenCalled();
-  });
-
-  it('matches a legacy row by decrypting and backfills its hash', async () => {
-    const repo = createRepo({
-      findLegacyEncrypted: mock(async () => [
-        { id: 1, userId: 10, encryptedToken: 'enc:other' },
-        { id: 2, userId: 20, encryptedToken: 'enc:match' },
-      ]),
-    });
-    const decryptToken = mock(async (enc: string) =>
-      enc === 'enc:match' ? RAW_TOKEN : 'b'.repeat(64),
-    );
-
-    const result = await findMatchingGitToken(RAW_TOKEN, repo, decryptToken);
-
-    expect(result).toEqual({ tokenId: 2, userId: 20 });
-    expect(repo.setTokenHash).toHaveBeenCalledWith(2, RAW_HASH);
-  });
-
-  it('falls through without throwing when the stored hash is malformed', async () => {
-    const repo = createRepo({
-      findByTokenHash: mock(async () => ({ id: 3, userId: 11, tokenHash: 'abc' })),
-    });
-    const decryptToken = mock(async () => 'never');
-
-    const result = await findMatchingGitToken(RAW_TOKEN, repo, decryptToken);
-
-    expect(result).toBeNull();
-    expect(repo.findLegacyEncrypted).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns null when neither hashed nor legacy rows match', async () => {
-    const repo = createRepo({
-      findLegacyEncrypted: mock(async () => [
-        { id: 1, userId: 10, encryptedToken: 'enc:other' },
-      ]),
-    });
-    const decryptToken = mock(async () => 'b'.repeat(64));
-
-    const result = await findMatchingGitToken(RAW_TOKEN, repo, decryptToken);
-
-    expect(result).toBeNull();
     expect(repo.setTokenHash).not.toHaveBeenCalled();
   });
 
-  it('skips legacy rows that fail to decrypt and still matches a later row', async () => {
-    const repo = createRepo({
-      findLegacyEncrypted: mock(async () => [
-        { id: 1, userId: 10, encryptedToken: 'enc:broken' },
-        { id: 2, userId: 20, encryptedToken: 'enc:match' },
-      ]),
-    });
+  it('continues past a row that fails to decrypt and leaves it unhashed', async () => {
+    const repo = createRepo([
+      { id: 1, userId: 10, encryptedToken: 'enc:broken' },
+      { id: 2, userId: 20, encryptedToken: 'enc:ok' },
+    ]);
     const decryptToken = mock(async (enc: string) => {
       if (enc === 'enc:broken') throw new Error('bad jwe');
       return RAW_TOKEN;
     });
 
-    const result = await findMatchingGitToken(RAW_TOKEN, repo, decryptToken);
+    const result = await backfillGitTokenHashes(repo, decryptToken);
 
-    expect(result).toEqual({ tokenId: 2, userId: 20 });
-    expect(errorSpy).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ hashed: 1, failed: 1 });
+    expect(repo.setTokenHash).toHaveBeenCalledTimes(1);
+    expect(repo.setTokenHash).toHaveBeenCalledWith(2, RAW_HASH);
+    expect(String(errorSpy.mock.calls[0][0])).toContain('Token 1 left unhashed');
   });
 
-  it('logs when every legacy row fails to decrypt and returns null', async () => {
-    const repo = createRepo({
-      findLegacyEncrypted: mock(async () => [
-        { id: 1, userId: 10, encryptedToken: 'enc:broken1' },
-        { id: 2, userId: 20, encryptedToken: 'enc:broken2' },
-      ]),
-    });
-    const decryptToken = mock(async () => {
-      throw new Error('keyring unavailable');
-    });
-
-    const result = await findMatchingGitToken(RAW_TOKEN, repo, decryptToken);
-
-    expect(result).toBeNull();
-    const messages = errorSpy.mock.calls.map((call: unknown[]) => String(call[0]));
-    expect(messages.some((m: string) => m.includes('ALL 2 legacy token(s) failed to decrypt'))).toBe(true);
-  });
-
-  it('does not throw when the backfill write fails', async () => {
-    let onErrorLogged!: (message: string) => void;
-    const errorLogged = new Promise<string>((resolve) => {
-      onErrorLogged = resolve;
-    });
-    errorSpy.mockImplementation((message: unknown) => onErrorLogged(String(message)));
-
-    const repo = createRepo({
-      findLegacyEncrypted: mock(async () => [
-        { id: 1, userId: 10, encryptedToken: 'enc:match' },
-      ]),
-      setTokenHash: mock(async () => {
-        throw new Error('db write failed');
-      }),
+  it('counts a failed hash write as unhashed and keeps going', async () => {
+    const repo = createRepo([
+      { id: 1, userId: 10, encryptedToken: 'enc:a' },
+      { id: 2, userId: 20, encryptedToken: 'enc:b' },
+    ]);
+    repo.setTokenHash = mock(async (id: number) => {
+      if (id === 1) throw new Error('db write failed');
     });
     const decryptToken = mock(async () => RAW_TOKEN);
 
-    const result = await findMatchingGitToken(RAW_TOKEN, repo, decryptToken);
+    const result = await backfillGitTokenHashes(repo, decryptToken);
 
-    expect(result).toEqual({ tokenId: 1, userId: 10 });
-    expect(await errorLogged).toContain('Failed to backfill token_hash');
+    expect(result).toEqual({ hashed: 1, failed: 1 });
+  });
+
+  it('logs loudly and leaves every row intact when the keyring is unavailable', async () => {
+    const repo = createRepo([
+      { id: 1, userId: 10, encryptedToken: 'enc:a' },
+      { id: 2, userId: 20, encryptedToken: 'enc:b' },
+    ]);
+    const decryptToken = mock(async () => {
+      throw new Error('MASTER_KEY environment variable must be set');
+    });
+
+    const result = await backfillGitTokenHashes(repo, decryptToken);
+
+    expect(result).toEqual({ hashed: 0, failed: 2 });
+    expect(repo.setTokenHash).not.toHaveBeenCalled();
+    const messages = errorSpy.mock.calls.map((call: unknown[]) => String(call[0]));
+    expect(messages.some((m: string) => m.includes('All 2 token(s) failed'))).toBe(true);
+  });
+
+  it('makes a backfilled token authenticate on the indexed path', async () => {
+    const stored = new Map<number, string>();
+    const backfillRepo: GitTokenBackfillRepo = {
+      findMissingHash: async () => [{ id: 7, userId: 42, encryptedToken: 'enc:a' }],
+      setTokenHash: async (id, tokenHash) => {
+        stored.set(id, tokenHash);
+      },
+    };
+
+    await backfillGitTokenHashes(backfillRepo, async () => RAW_TOKEN);
+
+    const authRepo: GitTokenAuthRepo = {
+      findByTokenHash: async (tokenHash) =>
+        stored.get(7) === tokenHash ? { id: 7, userId: 42 } : null,
+    };
+
+    expect(await findMatchingGitToken(RAW_TOKEN, authRepo)).toEqual({ tokenId: 7, userId: 42 });
+    expect(await findMatchingGitToken(OTHER_TOKEN, authRepo)).toBeNull();
   });
 });

@@ -146,10 +146,10 @@ describe('GitTokenRepository', () => {
   });
 
   describe('findByTokenHash', () => {
-    it('returns id, userId, and tokenHash for a matching row', async () => {
-      mock.pushResult([{ id: '1', user_id: '10', token_hash: 'c'.repeat(64) }]);
+    it('returns id and userId for a matching row', async () => {
+      mock.pushResult([{ id: '1', user_id: '10' }]);
       const result = await repo.findByTokenHash('c'.repeat(64));
-      expect(result).toEqual({ id: 1, userId: 10, tokenHash: 'c'.repeat(64) });
+      expect(result).toEqual({ id: 1, userId: 10 });
       expect(mock.calls[0].params).toEqual(['c'.repeat(64)]);
     });
 
@@ -160,22 +160,22 @@ describe('GitTokenRepository', () => {
     });
   });
 
-  describe('findLegacyEncrypted', () => {
+  describe('findMissingHash', () => {
     it('returns id, userId, and encryptedToken for tokens without a hash', async () => {
       mock.pushResult([
         { id: '1', user_id: '10', encrypted_token: 'enc:token1' },
         { id: '2', user_id: '20', encrypted_token: 'enc:token2' },
       ]);
-      const result = await repo.findLegacyEncrypted();
+      const result = await repo.findMissingHash();
       expect(result).toHaveLength(2);
       expect(result[0]).toEqual({ id: 1, userId: 10, encryptedToken: 'enc:token1' });
       expect(result[1]).toEqual({ id: 2, userId: 20, encryptedToken: 'enc:token2' });
       expect(mock.calls[0].sql).toContain('token_hash IS NULL');
     });
 
-    it('returns empty array when no legacy tokens exist', async () => {
+    it('returns empty array when every token already has a hash', async () => {
       mock.pushResult([]);
-      const result = await repo.findLegacyEncrypted();
+      const result = await repo.findMissingHash();
       expect(result).toEqual([]);
     });
   });

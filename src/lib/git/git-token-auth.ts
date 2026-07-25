@@ -1,5 +1,5 @@
 import '@tanstack/react-start/server-only';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { GitTokenRepository } from '@/lib/database/repositories/git-token-repository';
 
 export interface GitTokenMatch {
@@ -7,85 +7,68 @@ export interface GitTokenMatch {
   userId: number;
 }
 
-export type GitTokenAuthRepo = Pick<
-  GitTokenRepository,
-  'findByTokenHash' | 'findLegacyEncrypted' | 'setTokenHash'
->;
+export type GitTokenAuthRepo = Pick<GitTokenRepository, 'findByTokenHash'>;
+
+export type GitTokenBackfillRepo = Pick<GitTokenRepository, 'findMissingHash' | 'setTokenHash'>;
+
+export interface GitTokenBackfillResult {
+  hashed: number;
+  failed: number;
+}
 
 /** SHA-256 hex digest of the raw token; the value stored in git_tokens.token_hash. */
 export function hashGitToken(rawToken: string): string {
   return createHash('sha256').update(rawToken).digest('hex');
 }
 
-function constantTimeEqual(a: string, b: string): boolean {
-  const hashA = createHash('sha256').update(a).digest();
-  const hashB = createHash('sha256').update(b).digest();
-  return timingSafeEqual(hashA, hashB);
-}
-
-/**
- * Match a presented git token against stored tokens.
- *
- * Fast path: a single indexed lookup on token_hash. Rows created before
- * migration 027 have a NULL token_hash; only those are decrypted and compared,
- * and the hash is backfilled on a successful match so the next request takes
- * the fast path.
- *
- * @param decryptToken decrypts a stored encrypted_token value to plaintext;
- * only invoked on the legacy fallback path.
- */
 export async function findMatchingGitToken(
   providedToken: string,
   repo: GitTokenAuthRepo,
-  decryptToken: (encryptedToken: string) => Promise<string>,
 ): Promise<GitTokenMatch | null> {
-  const providedHash = hashGitToken(providedToken);
+  const match = await repo.findByTokenHash(hashGitToken(providedToken));
+  if (!match) return null;
+  return { tokenId: match.id, userId: match.userId };
+}
 
-  const hashed = await repo.findByTokenHash(providedHash);
-  if (hashed) {
-    const storedHash = Buffer.from(hashed.tokenHash, 'hex');
-    const providedHashBytes = Buffer.from(providedHash, 'hex');
-    // A malformed stored hash falls through to the legacy scan rather than
-    // throwing out of timingSafeEqual on a length mismatch.
-    if (storedHash.length === providedHashBytes.length && timingSafeEqual(storedHash, providedHashBytes)) {
-      return { tokenId: hashed.id, userId: hashed.userId };
-    }
-  }
+/**
+ * Populate token_hash for rows predating migration 027. A SQL migration cannot do
+ * this: the hash covers the raw token and only the app holds the master keyring.
+ *
+ * Never throws, so a failure cannot take down startup; rows that fail keep a NULL
+ * hash for the next start to retry.
+ */
+export async function backfillGitTokenHashes(
+  repo: GitTokenBackfillRepo,
+  decryptToken: (encryptedToken: string) => Promise<string>,
+): Promise<GitTokenBackfillResult> {
+  const rows = await repo.findMissingHash();
+  if (rows.length === 0) return { hashed: 0, failed: 0 };
 
-  const legacyTokens = await repo.findLegacyEncrypted();
-  let decryptFailures = 0;
+  let hashed = 0;
+  let failed = 0;
 
-  for (const tokenRecord of legacyTokens) {
-    let decrypted: string;
+  for (const row of rows) {
     try {
-      decrypted = await decryptToken(tokenRecord.encryptedToken);
+      const rawToken = await decryptToken(row.encryptedToken);
+      await repo.setTokenHash(row.id, hashGitToken(rawToken));
+      hashed++;
     } catch (error) {
-      decryptFailures++;
+      failed++;
       console.error(
-        `[GitAuth] Failed to decrypt token ${tokenRecord.id}:`,
+        `[GitTokenBackfill] Token ${row.id} left unhashed:`,
         error instanceof Error ? error.message : error,
       );
-      continue;
-    }
-
-    if (constantTimeEqual(providedToken, decrypted)) {
-      // Backfill non-blocking; the match already succeeded and the next
-      // request simply retries the legacy scan if this write fails.
-      repo.setTokenHash(tokenRecord.id, providedHash).catch((err) => {
-        console.error(
-          `[GitAuth] Failed to backfill token_hash for token ${tokenRecord.id}:`,
-          err instanceof Error ? err.message : err,
-        );
-      });
-      return { tokenId: tokenRecord.id, userId: tokenRecord.userId };
     }
   }
 
-  if (decryptFailures > 0 && decryptFailures === legacyTokens.length) {
+  if (failed === rows.length) {
     console.error(
-      `[GitAuth] ALL ${decryptFailures} legacy token(s) failed to decrypt (keyring may be unavailable)`,
+      `[GitTokenBackfill] All ${failed} token(s) failed; the master keyring may be unavailable. ` +
+        'Those tokens cannot authenticate until a later start hashes them.',
     );
+  } else {
+    console.info(`[GitTokenBackfill] Hashed ${hashed} token(s), ${failed} failed.`);
   }
 
-  return null;
+  return { hashed, failed };
 }

@@ -23,7 +23,6 @@ export interface GitTokenWithEncrypted {
 export interface GitTokenHashMatch {
   id: number;
   userId: number;
-  tokenHash: string;
 }
 
 export interface CreateGitTokenInput {
@@ -96,28 +95,18 @@ export class GitTokenRepository {
     }));
   }
 
-  /** Indexed lookup for the auth fast path. Returns null when no row matches. */
   async findByTokenHash(tokenHash: string): Promise<GitTokenHashMatch | null> {
     const result = await this.pool.query(
-      `SELECT id, user_id, token_hash FROM git_tokens WHERE token_hash = $1`,
+      `SELECT id, user_id FROM git_tokens WHERE token_hash = $1`,
       [tokenHash]
     );
-    const row = result.rows[0] as
-      | { id: unknown; user_id: unknown; token_hash: unknown }
-      | undefined;
+    const row = result.rows[0] as { id: unknown; user_id: unknown } | undefined;
     if (!row) return null;
-    return {
-      id: Number(row.id),
-      userId: Number(row.user_id),
-      tokenHash: row.token_hash as string,
-    };
+    return { id: Number(row.id), userId: Number(row.user_id) };
   }
 
-  /**
-   * Tokens created before the token_hash column existed (migration 027).
-   * Only these need the decrypt-and-compare fallback during auth.
-   */
-  async findLegacyEncrypted(): Promise<GitTokenWithEncrypted[]> {
+  /** Rows predating migration 027, for the startup hash backfill. */
+  async findMissingHash(): Promise<GitTokenWithEncrypted[]> {
     const result = await this.pool.query(
       `SELECT id, user_id, encrypted_token FROM git_tokens WHERE token_hash IS NULL`
     );
@@ -128,7 +117,6 @@ export class GitTokenRepository {
     }));
   }
 
-  /** Backfill the hash for a legacy token after a successful auth match. */
   async setTokenHash(id: number, tokenHash: string): Promise<void> {
     await this.pool.query(
       'UPDATE git_tokens SET token_hash = $2 WHERE id = $1',

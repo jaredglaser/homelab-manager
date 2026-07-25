@@ -41,7 +41,31 @@ async function startDeployRecovery(): Promise<void> {
   });
 }
 
-/** Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy recovery. */
+async function startGitTokenHashBackfill(): Promise<void> {
+  const { databaseConnectionManager: dbm } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { GitTokenRepository } = await import('@/lib/database/repositories/git-token-repository');
+  const { backfillGitTokenHashes } = await import('@/lib/git/git-token-auth');
+  const { loadMasterKeyring } = await import('@/lib/crypto/master-key');
+  const { decryptValue } = await import('@/lib/crypto/encrypted-value');
+
+  const dbClient = await dbm.getClient(loadDatabaseConfig());
+  const repo = new GitTokenRepository(dbClient.getPool());
+
+  // loadMasterKeyring re-reads env and re-imports every key per call, so one
+  // promise covers the whole backfill.
+  let keyring: ReturnType<typeof loadMasterKeyring> | null = null;
+
+  await backfillGitTokenHashes(repo, async (encryptedToken) => {
+    keyring ??= loadMasterKeyring();
+    return decryptValue(encryptedToken, await keyring);
+  });
+}
+
+/**
+ * Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy
+ * recovery and the git token hash backfill.
+ */
 export function initServer(): void {
   if (initialized) return;
 
@@ -74,6 +98,10 @@ export function initServer(): void {
 
   startDeployRecovery().catch((err) => {
     console.error('[Server] Deploy recovery / watchdog startup failed:', err);
+  });
+
+  startGitTokenHashBackfill().catch((err) => {
+    console.error('[Server] Git token hash backfill failed:', err);
   });
 
   console.info('[Server] Shutdown handlers registered');
