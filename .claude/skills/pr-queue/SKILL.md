@@ -17,6 +17,12 @@ session. **Derive it, never store it.** Your scratchpad path contains the sessio
 always recomputable; a file holding it would be one more thing to keep in sync and one more thing to
 lose, in exchange for a fact you already have.
 
+The tag resolves searches but is not sayable, so the tracking issue title carries a friendly name
+beside it: `PR queue — otter (pq-xxxxxxxx)`. Pick any short memorable word at session start. It
+needs no coordination and never has to be unique — the tag already guarantees that, and the tag is
+what every search and every subagent brief uses. The name exists only so a human can say "the otter
+queue" instead of reading out hex.
+
 Every GitHub artifact this session produces ends with the tag on its own last line:
 
 ```
