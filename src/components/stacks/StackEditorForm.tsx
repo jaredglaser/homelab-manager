@@ -157,7 +157,9 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const statusKey = `${detail.host}/${detail.name}`
   const containers = statusMap.get(statusKey)?.containers ?? []
-  const driftItem = driftReport?.items.find((item) => item.host === detail.host && item.stack === detail.name) ?? null
+  const driftItem = canWrite
+    ? driftReport?.items.find((item) => item.host === detail.host && item.stack === detail.name) ?? null
+    : null
 
   function invalidateDeployAndStacks() {
     queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })

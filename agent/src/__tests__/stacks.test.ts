@@ -11,7 +11,7 @@ import {
   handleGetStackCompose,
   parseContainerNames,
 } from '../routes/stacks';
-import { mkdirSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 beforeAll(() => {
@@ -1454,6 +1454,20 @@ describe('handleStackInventory', () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0].name).toBe('bad');
     expect(result.errors[0].message).toBeTruthy();
+  });
+
+  test('reports a compose file whose stat fails rather than skipping it', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'looped'), { recursive: true });
+    // A self-referential symlink stats as ELOOP: absent to a stat probe, an error to a read.
+    symlinkSync('docker-compose.yml', join(TEST_STACKS_DIR, 'looped', 'docker-compose.yml'));
+
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.stacks).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].name).toBe('looped');
   });
 
   test('omits the errors field when every compose file is readable', async () => {

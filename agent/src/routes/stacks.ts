@@ -694,13 +694,13 @@ export async function handleStackInventory(stacksDir: string): Promise<Response>
   for (const entry of entries) {
     if (!entry.isDirectory() || !VALID_STACK_NAME.test(entry.name)) continue;
     const composePath = getComposePath(stacksDir, entry.name);
-    if (!existsSync(composePath)) continue;
-    // An unreadable entry (EACCES, EIO, TOCTOU delete) is reported, never omitted:
-    // absent from the inventory it is indistinguishable from a deleted stack.
+    // Only ENOENT means genuinely absent. Any other read failure is reported, never omitted:
+    // absent from the inventory a stack is indistinguishable from a deleted one.
     let composeContent: string;
     try {
       composeContent = readFileSync(composePath, 'utf-8');
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
       console.error(`Failed to read compose file for stack '${entry.name}':`, err);
       errors.push({ name: entry.name, message: err instanceof Error ? err.message : String(err) });
       continue;
