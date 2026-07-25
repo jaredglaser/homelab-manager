@@ -22,27 +22,34 @@ Every GitHub artifact this session produces ends with the tag on its own last li
 `pr-queue session pq-xxxxxxxx`
 ```
 
-That means the tracking issue, every per-PR status comment, and any issue opened for a parked
+That means the tracking issue, any PR this session opens, and any issue opened for a parked
 question. Not ordinary review replies, and never code comments. The whole session then resolves
 with `repo:<owner>/<repo> pq-xxxxxxxx`.
 
 Pass the tag inline in every subagent brief, not just via the file — an agent that reads the brief
 and not the file still needs to tag correctly.
 
-## State lives in two places, neither of them the repo
+## State lives in one tracking issue, not in the repo
 
-**Queue-level state: one GitHub issue per session, whose body you edit in place.** Titled
-`PR queue — pq-xxxxxxxx`. Holds the PR table (number, base, CI, merge state, one-line status),
-decisions waiting on the human, parked repo-wide questions, and a short merged log. About one
-screen. Issue edit history gives you versioning for free.
+One GitHub issue per session, titled `PR queue — pq-xxxxxxxx`, whose body you **edit in place** so
+it reads as current state rather than a log. Issue edit history gives you versioning for free.
 
-**Per-PR state: one status comment per PR, edited in place.** Ten to fifteen lines: merge and CI
-state, unresolved findings and their disposition, what is needed from the human on this PR
-specifically. Refresh it on every event so the thread shows live state rather than a pile of
-stale updates.
+It carries everything, because it is the only place state lives:
 
-Do not put queue state in PR descriptions. The body is the author's artifact, it feeds templates,
-and reviewers read it.
+- **A row per open PR**: number, base, CI verdict, merge state against that base, and enough detail
+  to act without opening the PR — what is blocking it, which findings are unresolved and how each
+  was dispositioned, what is needed from the human on that PR specifically.
+- Decisions waiting on the human, numbered so they can be answered by number.
+- Parked repo-wide questions that belong to no single PR.
+- A short merged log, kept only while it still explains something.
+
+Detail beats brevity here. A row that says "blocked on review" forces a round trip; a row that says
+which finding, at which file:line, and what the fix costs does not. Prune what no longer changes a
+decision rather than trimming what does.
+
+Do not open a status comment per PR — the tracker is the single view, and per-PR comments drift
+against it. Do not put queue state in PR descriptions either: the body is the author's artifact, it
+feeds templates, and reviewers read it.
 
 Keep a scratchpad mirror if you like, but treat the issue as the source of truth: it is the copy
 that survives container reclaim. **Update it before ending any turn that changed PR state,
