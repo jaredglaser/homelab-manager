@@ -65,10 +65,12 @@ const registry: Record<string, ServerFnMock> = {
   triggerDeploy: fn(stacksFns.triggerDeploy),
   resumeDeploy: fn(stacksFns.resumeDeploy),
   rejectDeploy: fn(stacksFns.rejectDeploy),
+  scanDrift: fn(stacksFns.scanDrift),
   getDeployHistory: fn(stacksFns.getDeployHistory),
   saveComposeFile: fn(stacksFns.saveComposeFile),
   updateStackIcon: fn(stacksFns.updateStackIcon),
   getStackVariables: fn(stacksFns.getStackVariables),
+  getStackVariableValues: fn(stacksFns.getStackVariableValues),
   getVariableValue: fn(stacksFns.getVariableValue),
   setVariableValue: fn(stacksFns.setVariableValue),
   deleteVariable: fn(stacksFns.deleteVariable),
@@ -102,6 +104,8 @@ const registry: Record<string, ServerFnMock> = {
   createGitToken: fn(gitTokenFns.createGitToken),
   revokeGitToken: fn(gitTokenFns.revokeGitToken),
 };
+
+export const registeredServerFnNames: readonly string[] = Object.keys(registry);
 
 /**
  * Decode the seroval-serialized `{ data, context }` payload that TanStack Start
