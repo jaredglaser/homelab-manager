@@ -3,11 +3,11 @@
 ## Workflow
 
 **End of every task:**
-- Run `bun run typecheck:all` and `bun run test:all` after code changes (covers homelab-manager + agent).
+- Run `bun run typecheck:all`, `bun run test:all`, and `bun run lint` after code changes (covers homelab-manager + agent).
 - Check if `README.md` and `CLAUDE.md` need updates.
 
 **First-time setup / dependency changes:**
-- Run `bun run setup` (installs homelab-manager and agent). The agent is NOT a workspace member; its lockfile is independent so the docker build (`context: ./agent`) stays self-consistent.
+- Run `bun run setup` (installs homelab-manager, agent, and agent-updater). Neither the agent nor agent-updater is a workspace member; their lockfiles are independent so the docker builds (`context: ./agent`, `context: ./agent-updater`) stay self-consistent. Lint dependencies live in the root `package.json` only, for the same reason.
 - Always pin dependencies to an exact version (no `^` or `~`). All existing entries in `package.json` are pinned; new additions must follow the same pattern.
 
 **After editing files:**
@@ -36,7 +36,12 @@ bun run dev:local:logs:agent  # Agent logs only
 bun run dev:local:logs:db     # Postgres logs only
 
 # Setup
-bun run setup                 # Install homelab-manager and agent
+bun run setup                 # Install homelab-manager, agent, and agent-updater
+
+# Lint (one flat config at the repo root covers all three packages)
+bun run lint                  # ESLint across root + agent + agent-updater
+bun run lint:fix              # Apply autofixes
+bun run lint:sse              # SSE seam selectors only (no type info, sub-second)
 
 # Testing & Build (homelab-manager only)
 bun run typecheck             # TypeScript type checking
