@@ -1,7 +1,7 @@
 import type Dockerode from 'dockerode';
 import { subscribe as broadcasterSubscribe } from '../lib/docker-events-broadcaster';
 import type { MinimalContainerInfo, BroadcasterEvent } from '../lib/docker-events-broadcaster';
-import { sendSSE } from '../lib/sse-utils';
+import { createSseStream } from '../lib/sse-stream';
 import type {
   AgentContainerEvent,
   ContainerState,
@@ -68,32 +68,10 @@ function toUpdateContainer(c: MinimalContainerInfo): InventoryUpdateContainer {
  * @param docker - Dockerode client used to interact with the Docker daemon
  * @param request - The HTTP request; its abort signal triggers cleanup
  */
-export async function handleContainerEvents(docker: Dockerode, request: Request): Promise<Response> {
-  const encoder = new TextEncoder();
-  const closed = { value: false };
-  let unsubscribe: (() => void) | null = null;
-  let heartbeat: ReturnType<typeof setInterval> | null = null;
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      request.signal.addEventListener('abort', () => {
-        closed.value = true;
-        if (heartbeat) clearInterval(heartbeat);
-        unsubscribe?.();
-        try {
-          controller.close();
-        } catch {}
-      });
-
-      if (request.signal.aborted) {
-        closed.value = true;
-        try {
-          controller.close();
-        } catch {}
-        return;
-      }
-
-      const sub = await broadcasterSubscribe(docker, (event: BroadcasterEvent) => {
+export function handleContainerEvents(docker: Dockerode, request: Request): Response {
+  return createSseStream(request, {
+    onStart: async (emit) =>
+      broadcasterSubscribe(docker, (event: BroadcasterEvent) => {
         let message: AgentContainerEvent;
 
         if (event.op === 'init') {
@@ -110,43 +88,7 @@ export async function handleContainerEvents(docker: Dockerode, request: Request)
           message = { op: 'destroy', containerId: event.containerId };
         }
 
-        sendSSE(controller, encoder, closed, JSON.stringify(message));
-      });
-
-      // If abort fired while subscribe was pending, the abort handler saw a
-      // null unsubscribe. Tear down the late subscriber ourselves.
-      if (closed.value) {
-        sub();
-        return;
-      }
-
-      unsubscribe = sub;
-
-      // The inventory stream only emits on container state changes, so a quiet
-      // host stays silent past the agent's HTTP idleTimeout (Bun default 10s),
-      // which drops the socket and forces the worker into a reconnect loop. A
-      // comment heartbeat keeps it warm; mirrors the logs route. 5s stays under
-      // typical Bun/proxy idle defaults.
-      const hb = setInterval(() => {
-        if (closed.value) {
-          clearInterval(hb);
-          return;
-        }
-        try {
-          controller.enqueue(encoder.encode(':\n\n'));
-        } catch {
-          clearInterval(hb);
-        }
-      }, 5_000);
-      heartbeat = hb;
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
+        emit.data(message);
+      }),
   });
 }

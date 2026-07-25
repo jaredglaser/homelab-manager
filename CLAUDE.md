@@ -159,6 +159,8 @@ Unified table using TanStack Table v8 (headless) + CSS Grid rows. Key files: `Da
 
 Separate Bun package that runs as a sidecar container alongside Docker hosts. Provides a REST/SSE API for Docker management operations (deploy, logs, stats streaming). Uses raw `Bun.serve()` with manual route matching and timing-safe auth middleware (zero framework dependencies beyond Dockerode). The agent replaces direct Docker API calls from the worker; the main app communicates with agents rather than Docker hosts directly.
 
+Every agent SSE route (`stats`, `logs`, `containers-events`, `zfs`) builds its `Response` through `agent/src/lib/sse-stream.ts`, which owns the headers, initial flush, 5s comment heartbeat, frame grammar, and abort/enqueue-failure teardown. It is a deliberate copy of the web app's `src/lib/sse/create-sse-stream.ts`: the agent is not a workspace member and cannot import web code, so the seam exists once on each side of the split. Routes that own a subprocess or subscription return a cleanup from `onStart` (run exactly once at teardown) and must register it before any long-running loop, otherwise a teardown mid-loop never reaches it.
+
 The agent is intentionally NOT a workspace member of the homelab-manager `package.json`: its `agent/bun.lock` is the only lockfile the docker build (`context: ./agent`) sees, and workspace membership would mask drift by routing local `bun install` to the homelab-manager lockfile. Web/worker import only types from the agent via the TS path alias `@homelab-manager/agent/*` (resolved at compile time, no runtime dependency). Run `bun run setup` for a full install.
 
 ### Authentication (`src/lib/auth/`)
