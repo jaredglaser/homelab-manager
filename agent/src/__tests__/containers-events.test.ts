@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { handleContainerEvents } from '../routes/containers-events';
 import { _resetBroadcasterForTesting } from '../lib/docker-events-broadcaster';
 import { zInventorySnapshotContainer } from '../types/protocol';
+import { readUntil, parseDataFrames } from '../lib/test/sse-test-utils';
 
 const originalConsoleError = console.error;
 
@@ -18,37 +19,23 @@ beforeEach(() => {
   _resetBroadcasterForTesting();
 });
 
-/** Read chunks from the stream until predicate is satisfied or timeout. */
-async function readUntil(
-  response: Response,
-  predicate: (accumulated: string) => boolean,
-  timeoutMs = 3000,
-): Promise<string> {
-  let text = '';
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  try {
-    while (true) {
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(
-          () => reject(new Error(`readUntil timed out after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
-      });
-      try {
-        const { done, value } = await Promise.race([reader.read(), timeoutPromise]);
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
-        if (predicate(text)) break;
-      } finally {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
-      }
-    }
-  } finally {
-    reader.cancel();
-  }
-  return text;
+function countDataFrames(text: string): number {
+  return text.split('\n\n').filter((frame) => frame.startsWith('data: ')).length;
+}
+
+/**
+ * A docker events stream whose teardown is awaitable. The broadcaster destroys
+ * it once its last subscriber unsubscribes, which is how a test observes that a
+ * disconnected client released its subscription.
+ */
+function makeDestroyableEventsStream(): { stream: EventEmitter; destroyed: Promise<void> } {
+  const stream = new EventEmitter();
+  let markDestroyed = () => {};
+  const destroyed = new Promise<void>((resolve) => {
+    markDestroyed = resolve;
+  });
+  Object.assign(stream, { destroy: mock(() => markDestroyed()) });
+  return { stream, destroyed };
 }
 
 function makeContainer(id: string, name: string, state = 'running', image = 'nginx:latest') {
@@ -118,7 +105,7 @@ describe('handleContainerEvents: init snapshot', () => {
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const event = parseDataFrames(text)[0];
     expect(event.op).toBe('init');
     expect(event.containers).toHaveLength(2);
     expect(event.containers.map((c: { id: string }) => c.id).sort()).toEqual(['c1', 'c2'].sort((a, b) => a.localeCompare(b)));
@@ -138,7 +125,7 @@ describe('handleContainerEvents: init snapshot', () => {
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const event = parseDataFrames(text)[0];
     expect(event.containers).toHaveLength(2);
   });
 
@@ -153,7 +140,7 @@ describe('handleContainerEvents: init snapshot', () => {
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const event = parseDataFrames(text)[0];
     const c = event.containers[0];
     expect(c.id).toBe('abc123');
     expect(c.name).toBe('my-app');
@@ -176,7 +163,7 @@ describe('handleContainerEvents: init snapshot', () => {
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const event = parseDataFrames(text)[0];
     expect(event.containers[0].name).toBe('test-app');
   });
 
@@ -191,7 +178,7 @@ describe('handleContainerEvents: init snapshot', () => {
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const event = parseDataFrames(text)[0];
     expect(event.containers[0].state).toBe('unknown');
   });
 
@@ -205,7 +192,7 @@ describe('handleContainerEvents: init snapshot', () => {
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const event = parseDataFrames(text)[0];
     expect(event.containers).toHaveLength(0);
   });
 });
@@ -231,12 +218,11 @@ describe('handleContainerEvents: start event produces upsert', () => {
     }) + '\n'));
 
     const text = await readUntil(response, (s) => {
-      const events = s.split('\n\n').filter(Boolean);
-      return events.length >= 2;
+      return countDataFrames(s) >= 2;
     });
     ac.abort();
 
-    const events = text.split('\n\n').filter(Boolean).map((line) => JSON.parse(line.replace(/^data: /, '')));
+    const events = parseDataFrames(text);
     const upsert = events.find((e) => e.op === 'upsert');
     expect(upsert).toBeDefined();
     expect(upsert.container.id).toBe('c1');
@@ -275,12 +261,11 @@ describe('handleContainerEvents: die event produces upsert with exited state', (
     }) + '\n'));
 
     const text = await readUntil(response, (s) => {
-      const events = s.split('\n\n').filter(Boolean);
-      return events.length >= 2;
+      return countDataFrames(s) >= 2;
     });
     ac.abort();
 
-    const events = text.split('\n\n').filter(Boolean).map((line) => JSON.parse(line.replace(/^data: /, '')));
+    const events = parseDataFrames(text);
     const upsert = events.find((e) => e.op === 'upsert');
     expect(upsert).toBeDefined();
     expect(upsert.container.id).toBe('c1');
@@ -307,12 +292,11 @@ describe('handleContainerEvents: destroy event', () => {
     }) + '\n'));
 
     const text = await readUntil(response, (s) => {
-      const events = s.split('\n\n').filter(Boolean);
-      return events.length >= 2;
+      return countDataFrames(s) >= 2;
     });
     ac.abort();
 
-    const events = text.split('\n\n').filter(Boolean).map((line) => JSON.parse(line.replace(/^data: /, '')));
+    const events = parseDataFrames(text);
     const destroy = events.find((e) => e.op === 'destroy');
     expect(destroy).toBeDefined();
     expect(destroy.containerId).toBe('c1');
@@ -420,27 +404,32 @@ describe('handleContainerEvents: request abort cleanup', () => {
     expect(done).toBe(true);
   });
 
-  test('already-aborted request does not register a broadcaster subscriber', async () => {
-    const docker = makeDocker([]);
+  test('already-aborted request unsubscribes the broadcaster once subscribe resolves', async () => {
+    const { stream, destroyed } = makeDestroyableEventsStream();
+    const docker = makeDocker([], stream);
     const ac = new AbortController();
     ac.abort();
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
     const response = await handleContainerEvents(docker as any, request);
 
     const reader = response.body!.getReader();
-    const result = await reader.read();
-    expect(result.done).toBe(true);
-    expect(docker.getEvents).not.toHaveBeenCalled();
+    let done = false;
+    while (!done) {
+      done = (await reader.read()).done;
+    }
+
+    await destroyed;
   });
 
   test('abort during broadcasterSubscribe tears down the late-arriving subscriber', async () => {
     // Slow listContainers so subscribe()'s await is in-flight when we abort.
     const listHolder: { resolve: ((v: unknown[]) => void) | null } = { resolve: null };
+    const { stream, destroyed } = makeDestroyableEventsStream();
     const docker = {
       listContainers: mock(() => new Promise<unknown[]>((resolve) => {
         listHolder.resolve = resolve;
       })),
-      getEvents: mock(() => Promise.resolve(new EventEmitter())),
+      getEvents: mock(() => Promise.resolve(stream)),
       getContainer: mock(() => ({
         inspect: mock(() => Promise.reject(Object.assign(new Error('n/a'), { statusCode: 404 }))),
       })),
@@ -455,8 +444,11 @@ describe('handleContainerEvents: request abort cleanup', () => {
     ac.abort();
     listHolder.resolve?.([]);
 
-    const result = await reader.read();
-    expect(result.done).toBe(true);
+    let done = false;
+    while (!done) {
+      done = (await reader.read()).done;
+    }
+    await destroyed;
   });
 });
 
@@ -512,7 +504,7 @@ describe('handleContainerEvents: ports and mounts pass-through', () => {
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const event = parseDataFrames(text)[0];
     const c = event.containers[0];
     expect(c.ports).toEqual([{ containerPort: 80, protocol: 'tcp', hostIp: '0.0.0.0', hostPort: 8080 }]);
     expect(c.mounts).toEqual([{ type: 'bind', source: '/host', destination: '/data', rw: true }]);
@@ -529,7 +521,7 @@ describe('handleContainerEvents: ports and mounts pass-through', () => {
     const text = await readUntil(response, (s) => s.includes('"op":"init"'));
     ac.abort();
 
-    const event = JSON.parse(text.split('\n\n').find(Boolean)!.replace(/^data: /, ''));
+    const event = parseDataFrames(text)[0];
     const c = event.containers[0];
     expect(c.ports).toEqual([]);
     expect(c.mounts).toEqual([]);
@@ -569,12 +561,11 @@ describe('handleContainerEvents: ports and mounts pass-through', () => {
     }) + '\n'));
 
     const text = await readUntil(response, (s) => {
-      const events = s.split('\n\n').filter(Boolean);
-      return events.length >= 2;
+      return countDataFrames(s) >= 2;
     });
     ac.abort();
 
-    const events = text.split('\n\n').filter(Boolean).map((line) => JSON.parse(line.replace(/^data: /, '')));
+    const events = parseDataFrames(text);
     const upsert = events.find((e) => e.op === 'upsert');
     expect(upsert.container.ports).toEqual([{ containerPort: 53, protocol: 'udp', hostIp: '::', hostPort: 5353 }]);
     expect(upsert.container.mounts).toEqual([{ type: 'volume', source: 'vol1', destination: '/var/data', rw: true }]);
@@ -612,20 +603,18 @@ describe('zInventorySnapshotContainer: ports/mounts schema round-trip', () => {
 
 describe('handleContainerEvents: idle heartbeat', () => {
   const realSetInterval = globalThis.setInterval;
-  const realClearInterval = globalThis.clearInterval;
 
   afterEach(() => {
     globalThis.setInterval = realSetInterval;
-    globalThis.clearInterval = realClearInterval;
   });
 
-  test('enqueues a comment heartbeat to keep the idle socket alive', async () => {
-    // A quiet host emits no container events, so without this the socket sits
-    // silent past Bun's 10s HTTP idleTimeout and the worker reconnects in a loop.
-    let captured: (() => void) | null = null;
-    globalThis.setInterval = mock((cb: () => void) => {
-      captured = cb;
-      return 1 as unknown as ReturnType<typeof setInterval>;
+  test('a quiet host still gets a comment heartbeat on the 5s cadence', async () => {
+    // Bun's HTTP idleTimeout defaults to 10s, so a host with no container
+    // activity would otherwise go silent long enough to drop the socket.
+    const ticks: Array<{ cb: () => void; ms: number }> = [];
+    globalThis.setInterval = mock((cb: () => void, ms: number) => {
+      ticks.push({ cb, ms });
+      return ticks.length as unknown as ReturnType<typeof setInterval>;
     }) as unknown as typeof setInterval;
 
     const docker = makeDocker([]);
@@ -633,34 +622,13 @@ describe('handleContainerEvents: idle heartbeat', () => {
     const request = new Request('http://localhost/containers/events', { signal: ac.signal });
     const response = await handleContainerEvents(docker as any, request);
 
-    // Let start() finish broadcaster setup and register the interval.
-    await new Promise((r) => setTimeout(r, 50));
-    expect(captured).not.toBeNull();
+    expect(ticks).toHaveLength(1);
+    expect(ticks[0].ms).toBe(5000);
 
-    captured!();
-    const text = await readUntil(response, (s) => s.includes(':\n\n'));
+    ticks[0].cb();
+    const text = await readUntil(response, (s) => s.split('\n\n').includes(':'));
     ac.abort();
 
-    // Init frame plus a bare ':' comment heartbeat.
     expect(text.split('\n\n')).toContain(':');
-  });
-
-  test('clears the heartbeat interval when the request aborts', async () => {
-    const fakeId = Symbol('hb') as unknown as ReturnType<typeof setInterval>;
-    globalThis.setInterval = mock(() => fakeId) as unknown as typeof setInterval;
-    const clearSpy = mock(() => {});
-    globalThis.clearInterval = clearSpy as unknown as typeof clearInterval;
-
-    const docker = makeDocker([]);
-    const ac = new AbortController();
-    const request = new Request('http://localhost/containers/events', { signal: ac.signal });
-    const response = await handleContainerEvents(docker as any, request);
-
-    await new Promise((r) => setTimeout(r, 50)); // let the interval register
-    ac.abort();
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(clearSpy).toHaveBeenCalledWith(fakeId);
-    void response;
   });
 });

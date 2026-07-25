@@ -5,8 +5,9 @@ on:
     branches: [main]
     tags:
       - 'v*.*.*'
+  # No branches filter: a mid-stack PR targets its parent PR's branch, not main, and a
+  # filter here silently gives it zero check runs instead of a failure anyone can see.
   pull_request:
-    branches: [main]
 
 # One run per ref: a newer push cancels the in-progress run for the same branch or
 # PR, so rapid merges to main (e.g. a batch of Dependabot PRs) don't each run CI to
@@ -199,6 +200,75 @@ jobs:
 
       - name: Build demo
         run: bun run build:demo
+
+  migrations:
+    name: Migration Verification
+    runs-on: ubuntu-latest
+
+    # Pinned by digest: a floating tag (latest-pg16) lets an upstream image push
+    # break main with no commit in this repo. This digest is what latest-pg16
+    # resolved to when the job was added; bump both together.
+    services:
+      timescaledb:
+        image: timescale/timescaledb:2.28.3-pg16@sha256:61f891691050da6032023c01ea885730eeeba06b7c17b403e7d0b9c49c37dfe9
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+          --health-start-period 30s
+
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: '5432'
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check out the merge base
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+          fi
+          if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            echo "No usable base commit, comparing HEAD against itself"
+            BASE_SHA="$(git rev-parse HEAD)"
+          fi
+          MERGE_BASE="$(git merge-base "$BASE_SHA" HEAD || echo "$BASE_SHA")"
+          echo "Merge base: $MERGE_BASE"
+          git worktree add --detach "$RUNNER_TEMP/migrations-base" "$MERGE_BASE"
+          echo "root=$RUNNER_TEMP/migrations-base" >> "$GITHUB_OUTPUT"
+
+      - name: Fresh install
+        run: bun scripts/migration-verify/run.ts fresh
+
+      - name: Upgrade with existing data
+        run: bun scripts/migration-verify/run.ts upgrade
+        env:
+          MIGRATION_BASE_ROOT: ${{ steps.base.outputs.root }}
+
+      - name: Re-run idempotency
+        run: bun scripts/migration-verify/run.ts idempotent
 
   sonarcloud:
     name: SonarCloud Analysis

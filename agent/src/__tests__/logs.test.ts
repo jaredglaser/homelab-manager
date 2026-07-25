@@ -381,9 +381,11 @@ describe('handleLogStream', () => {
     const originalSetInterval = globalThis.setInterval;
     const originalClearInterval = globalThis.clearInterval;
     let heartbeatCb: (() => void) | null = null;
+    const heartbeatDelays: number[] = [];
     const fakeTimerId = 999;
-    globalThis.setInterval = ((cb: () => void) => {
+    globalThis.setInterval = ((cb: () => void, ms: number) => {
       heartbeatCb = cb;
+      heartbeatDelays.push(ms);
       return fakeTimerId as unknown as ReturnType<typeof setInterval>;
     }) as typeof setInterval;
     globalThis.clearInterval = mock(() => {}) as typeof clearInterval;
@@ -399,6 +401,7 @@ describe('handleLogStream', () => {
 
       // Fire the heartbeat callback
       expect(heartbeatCb).not.toBeNull();
+      expect(heartbeatDelays).toEqual([5000]);
       heartbeatCb!();
 
       liveEmitter.emit('end');

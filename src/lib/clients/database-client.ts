@@ -1,3 +1,4 @@
+import '@tanstack/react-start/server-only';
 import { Pool, type PoolConfig } from 'pg';
 import type { StreamingClient } from '../streaming/types';
 

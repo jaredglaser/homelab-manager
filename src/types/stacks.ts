@@ -8,6 +8,45 @@ export type SyncStatus = 'in_sync' | 'pending' | 'in_progress' | 'failed' | 'unk
 
 export type DeployMode = 'auto' | 'manual';
 
+export type StackDriftKind = 'ghost' | 'untracked' | 'content';
+
+/**
+ * Drift between the repo's view of a stack and the agent's filesystem.
+ * `untracked` carries no `latestDeployStatus`: the repo has no record of a stack it
+ * does not track.
+ */
+export type StackDriftItem =
+  | { kind: 'ghost'; host: string; stack: string; repoComposeHash: string; latestDeployStatus: DeployStatus }
+  | { kind: 'untracked'; host: string; stack: string; agentComposeHash: string }
+  | {
+      kind: 'content';
+      host: string;
+      stack: string;
+      repoComposeHash: string;
+      agentComposeHash: string;
+      latestDeployStatus: DeployStatus;
+    };
+
+export interface StackDriftSummary {
+  total: number;
+  ghost: number;
+  untracked: number;
+  content: number;
+}
+
+/** `stack` is set when the failure is scoped to one stack; absent when the whole host scan failed. */
+export interface StackDriftScanError {
+  host: string;
+  stack?: string;
+  message: string;
+}
+
+export interface StackDriftReport {
+  items: StackDriftItem[];
+  summary: StackDriftSummary;
+  scanErrors: StackDriftScanError[];
+}
+
 /** Summary of a stack as shown in the list view */
 export interface StackSummary {
   name: string;

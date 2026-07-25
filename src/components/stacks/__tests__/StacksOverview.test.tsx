@@ -4,6 +4,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const mockNavigate = mock(() => {});
 const mockCreateStack = mock(() => Promise.resolve({}));
+const mockScanDrift = mock(() => Promise.resolve({
+  items: [],
+  summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
+  scanErrors: [],
+}));
 
 let mockListContext = {
   stacks: [] as { host: string; name: string }[],
@@ -23,6 +28,12 @@ mock.module('@tanstack/react-router', () => ({
 
 mock.module('@/data/stacks/functions', () => ({
   createStack: mockCreateStack,
+  scanDrift: mockScanDrift,
+}));
+
+let mockCanWrite = true;
+mock.module('@/hooks/useAuth', () => ({
+  useCanWrite: () => mockCanWrite,
 }));
 
 function createWrapper() {
@@ -39,6 +50,8 @@ const { default: StacksOverview } = await import('@/components/stacks/StacksOver
 beforeEach(() => {
   mockNavigate.mockClear();
   mockCreateStack.mockClear();
+  mockScanDrift.mockClear();
+  mockCanWrite = true;
   mockListContext = { stacks: [], hosts: ['server-1'], isLoading: false };
   mockStatusMap = new Map();
 });
@@ -160,5 +173,21 @@ describe('StacksOverview', () => {
     render(<StacksOverview />, { wrapper: createWrapper() });
     expect(screen.getByText(/1 stack /)).toBeDefined();
     expect(screen.queryByText(/1 stacks/)).toBeNull();
+  });
+
+  it('scans for drift when the session may deploy', async () => {
+    mockScanDrift.mockClear();
+    render(<StacksOverview />, { wrapper: createWrapper() });
+    await waitFor(() => expect(mockScanDrift).toHaveBeenCalled());
+  });
+
+  it('does not scan for drift or render the summary without deploy permission', async () => {
+    mockCanWrite = false;
+    mockScanDrift.mockClear();
+    render(<StacksOverview />, { wrapper: createWrapper() });
+
+    await waitFor(() => expect(screen.getByText('No stacks yet.')).toBeDefined());
+    expect(mockScanDrift).not.toHaveBeenCalled();
+    expect(screen.queryByText('Stack Drift')).toBeNull();
   });
 });

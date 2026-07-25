@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start';
 import { z } from 'zod';
-import type { StackSummary, StackDetail, StackDeployRecord, DeployStatus } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord, DeployStatus, StackDriftReport } from '@/types/stacks';
 import { stackSecretsMiddleware } from '@/middleware/stack-secrets-middleware';
 import type { StackControlRequest } from '@/lib/clients/agent-client';
 import { authMiddleware } from '@/middleware/auth-middleware';
@@ -71,6 +71,19 @@ export const rejectDeploy = createServerFn({ method: 'POST' })
     requireRole('admin', 'operator')(context.user);
     const { rejectPendingDeploy } = await import('@/lib/stacks/stack-service');
     return rejectPendingDeploy(data.deployId);
+  });
+
+/**
+ * Scan for drift between the repo manifest and each Docker host's agent filesystem.
+ * Operator-gated: the report names stacks read off host filesystems that the repo
+ * does not track, which no other read path exposes.
+ */
+export const scanDrift = createServerFn({ method: 'GET' })
+  .middleware([authMiddleware])
+  .handler(async ({ context }): Promise<StackDriftReport> => {
+    requireRole('admin', 'operator')(context.user);
+    const { scanStackDrift } = await import('@/lib/stacks/stack-service');
+    return scanStackDrift();
   });
 
 /**

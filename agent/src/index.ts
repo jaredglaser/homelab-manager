@@ -3,7 +3,7 @@ import { authenticateRequest } from './middleware';
 import { handleHealth, handleInfo } from './routes/health';
 import { handleStatsStream } from './routes/stats';
 import { handleLogStream } from './routes/logs';
-import { handleStackDeploy, handleStackUpdate, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus } from './routes/stacks';
+import { handleStackDeploy, handleStackUpdate, handleStackTeardown, handleStackRestart, handleStackStart, handleStackStop, handleStackStatus, handleStackInventory, handleGetStackCompose } from './routes/stacks';
 import { handleContainerEvents } from './routes/containers-events';
 import { handleContainerStart, handleContainerStop, handleContainerRestart } from './routes/containers';
 import { handleZfsStatsStream, handleZfsPools } from './routes/zfs';
@@ -148,6 +148,8 @@ function matchRoute(request: Request, url: URL): Promise<Response> | Response | 
     if (url.pathname === '/stacks/start' && request.method === 'POST') return handleStackStart(request, STACKS_DIR);
     if (url.pathname === '/stacks/stop' && request.method === 'POST') return handleStackStop(request, STACKS_DIR);
     if (url.pathname === '/stacks/status' && request.method === 'GET') return handleStackStatus(STACKS_DIR);
+    if (url.pathname === '/stacks/inventory' && request.method === 'GET') return handleStackInventory(STACKS_DIR);
+    if (url.pathname === '/stacks/compose' && request.method === 'GET') return handleGetStackCompose(request, STACKS_DIR);
   }
 
   if (url.pathname === '/zfs/stats/stream' && request.method === 'GET') return handleZfsStatsStream(request, zfsCapabilities);

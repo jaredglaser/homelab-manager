@@ -1,5 +1,6 @@
 import type { OidcTokens, Role, RoleMappingConfig } from '@/lib/auth/types';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
+import { buildSessionCookie } from '@/lib/auth/session-cookie';
 
 export interface CallbackOidcClient {
   exchangeCode(code: string, codeVerifier: string): Promise<OidcTokens>;
@@ -33,11 +34,8 @@ export interface CallbackHandlerDeps {
   sessionManager: CallbackSessionManager;
   roleMapping: RoleMappingConfig;
   isSecure: boolean;
-}
-
-export function buildSessionCookie(rawToken: string, isSecure: boolean): string {
-  const securePart = isSecure ? ' Secure;' : '';
-  return `session=${encodeURIComponent(rawToken)}; HttpOnly;${securePart} SameSite=Lax; Path=/`;
+  /** Session TTL in hours, drives the cookie Max-Age so it matches the DB session lifetime. */
+  sessionTtlHours: number;
 }
 
 export const CLEAR_STATE_COOKIE =
@@ -134,7 +132,11 @@ export async function handleCallback(
     userAgent,
   );
 
-  const sessionCookie = buildSessionCookie(rawSessionToken, deps.isSecure);
+  const sessionCookie = buildSessionCookie(
+    rawSessionToken,
+    deps.isSecure,
+    deps.sessionTtlHours * 3600,
+  );
 
   return new Response(null, {
     status: 302,
@@ -203,6 +205,7 @@ export async function callbackGetHandler({
         sessionManager,
         roleMapping: config.roleMapping,
         isSecure,
+        sessionTtlHours: config.sessionTtlHours,
       },
       code,
       state,

@@ -1,3 +1,4 @@
+import '@tanstack/react-start/server-only';
 import { readFileSync } from 'node:fs';
 
 export type Kid = string;
