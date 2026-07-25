@@ -54,9 +54,11 @@ export function handleZfsStatsStream(
 
   return createSseStream(request, {
     onStart: (emit) => {
+      // stderr is discarded, not piped: this subprocess lives for the whole SSE
+      // session, and an unread pipe fills its OS buffer and blocks zpool's stdout.
       const proc = Bun.spawn(['zpool', 'iostat', '-v', '1'], {
         stdout: 'pipe',
-        stderr: 'pipe',
+        stderr: 'ignore',
       });
 
       let stopped = false;

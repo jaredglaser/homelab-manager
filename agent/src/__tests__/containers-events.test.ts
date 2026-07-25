@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { handleContainerEvents } from '../routes/containers-events';
 import { _resetBroadcasterForTesting } from '../lib/docker-events-broadcaster';
 import { zInventorySnapshotContainer } from '../types/protocol';
+import { readUntil, parseDataFrames } from '../lib/test/sse-test-utils';
 
 const originalConsoleError = console.error;
 
@@ -17,47 +18,6 @@ afterAll(() => {
 beforeEach(() => {
   _resetBroadcasterForTesting();
 });
-
-/** Read chunks from the stream until predicate is satisfied or timeout. */
-async function readUntil(
-  response: Response,
-  predicate: (accumulated: string) => boolean,
-  timeoutMs = 3000,
-): Promise<string> {
-  let text = '';
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  try {
-    while (true) {
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(
-          () => reject(new Error(`readUntil timed out after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
-      });
-      try {
-        const { done, value } = await Promise.race([reader.read(), timeoutPromise]);
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
-        if (predicate(text)) break;
-      } finally {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
-      }
-    }
-  } finally {
-    reader.cancel();
-  }
-  return text;
-}
-
-/** Parse the `data:` frames out of SSE text, ignoring the seam's flush and heartbeat comments. */
-function parseDataFrames(text: string): any[] {
-  return text
-    .split('\n\n')
-    .filter((frame) => frame.startsWith('data: '))
-    .map((frame) => JSON.parse(frame.slice('data: '.length)));
-}
 
 function countDataFrames(text: string): number {
   return text.split('\n\n').filter((frame) => frame.startsWith('data: ')).length;

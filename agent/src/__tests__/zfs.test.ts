@@ -1,6 +1,7 @@
 import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test';
 import type { ZfsCapabilities } from '../lib/zfs-capabilities';
 import { handleZfsStatsStream, handleZfsPools } from '../routes/zfs';
+import { readUntil, parseDataFrames } from '../lib/test/sse-test-utils';
 
 const originalConsoleError = console.error;
 
@@ -30,38 +31,6 @@ const originalSpawn = Bun.spawn;
 afterEach(() => {
   Bun.spawn = originalSpawn;
 });
-
-/** Read SSE chunks from a response until a predicate is satisfied or timeout. */
-async function readUntil(
-  response: Response,
-  predicate: (accumulated: string) => boolean,
-  timeoutMs = 5000,
-): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  let text = '';
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  try {
-    while (true) {
-      if (Date.now() > deadline) break;
-      const { done, value } = await reader.read();
-      if (done) break;
-      text += decoder.decode(value, { stream: true });
-      if (predicate(text)) break;
-    }
-  } finally {
-    reader.cancel();
-  }
-  return text;
-}
-
-/** Parse the `data:` frames out of SSE text, ignoring the seam's flush and heartbeat comments. */
-function parseDataFrames(text: string): any[] {
-  return text
-    .split('\n\n')
-    .filter((frame) => frame.startsWith('data: '))
-    .map((frame) => JSON.parse(frame.slice('data: '.length)));
-}
 
 describe('handleZfsStatsStream', () => {
   test('returns 503 when ZFS is not available', () => {
@@ -100,6 +69,25 @@ describe('handleZfsStatsStream', () => {
     expect(response.headers.get('Content-Type')).toBe('text/event-stream');
     expect(response.headers.get('Cache-Control')).toBe('no-cache');
     expect(response.headers.get('Connection')).toBe('keep-alive');
+  });
+
+  test('discards subprocess stderr instead of piping it', () => {
+    let spawnOptions: unknown;
+    Bun.spawn = mock((_cmd: string[], options: unknown) => {
+      spawnOptions = options;
+      return {
+        stdout: new ReadableStream<Uint8Array>({ start() {} }),
+        kill: mock(() => {}),
+        exited: new Promise(() => {}),
+      };
+    }) as any;
+
+    const ac = new AbortController();
+    const request = new Request('http://localhost/zfs/stats/stream', { signal: ac.signal });
+    handleZfsStatsStream(request, zfsAvailable);
+    ac.abort();
+
+    expect(spawnOptions).toMatchObject({ stderr: 'ignore' });
   });
 
   test('streams parsed lines as SSE events', async () => {
