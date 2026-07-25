@@ -7,26 +7,30 @@ export async function readUntil(
   let text = '';
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
+  // One deadline for the whole read, not one per chunk: a per-chunk timer is reset
+  // by every heartbeat frame, so a predicate that never matches would never fire it.
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`readUntil timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+
   try {
     while (true) {
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(
-          () => reject(new Error(`readUntil timed out after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
-      });
-      try {
-        const { done, value } = await Promise.race([reader.read(), timeoutPromise]);
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
-        if (predicate(text)) break;
-      } finally {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
-      }
+      const { done, value } = await Promise.race([reader.read(), deadline]);
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (predicate(text)) break;
     }
   } finally {
-    reader.cancel();
+    clearTimeout(timeoutId);
+    try {
+      await reader.cancel();
+    } catch {
+      // cancel() rejects when the stream already errored, which several tests induce
+    }
   }
   return text;
 }

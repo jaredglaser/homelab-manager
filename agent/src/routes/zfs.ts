@@ -25,7 +25,6 @@ async function readLines(
   }
 }
 
-/** Forward each non-empty `zpool iostat` line as a `{ line, timestamp }` frame until the stream stops. */
 async function pumpZpoolOutput(
   emit: SseEmitter,
   stdout: ReadableStream<Uint8Array>,
