@@ -11,6 +11,28 @@ export interface AgentStackResponse {
   exitCode?: number;
 }
 
+export interface AgentStackInventoryEntry {
+  name: string;
+  hasComposeFile: true;
+  composeHash: string;
+}
+
+export interface AgentStackInventoryError {
+  name: string;
+  message: string;
+}
+
+export interface AgentStackInventoryResponse {
+  stacks: AgentStackInventoryEntry[];
+  errors?: AgentStackInventoryError[];
+}
+
+export interface AgentStackComposeResponse {
+  stack: string;
+  composeContent: string;
+  composeHash: string;
+}
+
 /**
  * Liveness response from the unauthenticated /health endpoint
  * (HTTP 200 when healthy, 503 when unhealthy). Status only:

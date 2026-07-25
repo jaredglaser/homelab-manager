@@ -3,9 +3,11 @@
  * Called by server functions in src/data/stacks/functions.tsx.
  */
 
-import type { StackSummary, StackDetail, StackDeployRecord } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord, StackDriftReport, StackDriftScanError } from '@/types/stacks';
 import type { DeployAction, DeployRecord, DeployRequest, DeployStatus } from '@/lib/deploy/types';
 import type { AgentClient, StackControlRequest } from '@/lib/clients/agent-client';
+import type { AgentStackInventoryEntry, AgentStackInventoryError } from '@homelab-manager/agent/types';
+import type { RepoStackSnapshot } from '@/lib/stacks/stack-drift-service';
 import { loadGitConfig } from '@/lib/config/git-config';
 import { readFileFromRepo, commitFiles, FileNotFoundError } from '@/lib/git/repo';
 import { parseManifest } from '@/lib/git/manifest';
@@ -461,11 +463,11 @@ async function dispatchControlAction(
   }
 }
 
-export async function controlStackForHost(
-  host: string,
-  action: 'start' | 'stop' | 'restart',
-  req: StackControlRequest,
-): Promise<void> {
+/**
+ * Build an AgentClient for a host, signing requests with that host's Ed25519
+ * private key decrypted from `agent_keypairs` via the master keyring.
+ */
+async function getAgentClientForHost(host: string): Promise<AgentClient> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
   const { HostRepository } = await import('@/lib/database/repositories/host-repository');
@@ -488,7 +490,15 @@ export async function controlStackForHost(
   if (!privateKey) throw new Error(`No agent keypair for host "${managedHost.name}". Re-enroll the agent.`);
 
   const signer = () => signAgentJwt(privateKey, managedHost.name);
-  const agent = new AgentClient({ agentUrl: managedHost.agentUrl, signer });
+  return new AgentClient({ agentUrl: managedHost.agentUrl, signer });
+}
+
+export async function controlStackForHost(
+  host: string,
+  action: 'start' | 'stop' | 'restart',
+  req: StackControlRequest,
+): Promise<void> {
+  const agent = await getAgentClientForHost(host);
 
   let result: { success: boolean; logs: string };
   try {
@@ -502,4 +512,103 @@ export async function controlStackForHost(
     console.error(`[StackService] ${msg} (host: ${host})`);
     throw new Error(msg);
   }
+}
+
+async function loadRepoStacks(): Promise<RepoStackSnapshot[]> {
+  const repoPath = getRepoPath();
+  let manifestContent: string;
+  try {
+    manifestContent = await readFileFromRepo(repoPath, MANIFEST);
+  } catch (err) {
+    // A missing manifest means there are no stacks yet. Rethrow anything else so
+    // a corrupt git ODB cannot masquerade as "every agent stack is untracked".
+    if (err instanceof FileNotFoundError) return [];
+    console.error('[StackService] loadRepoStacks: failed to read manifest:', err);
+    throw err;
+  }
+
+  const manifest = parseManifest(manifestContent);
+  const { computeHash } = await import('@/lib/deploy/change-detection');
+
+  return Promise.all(
+    Object.entries(manifest.stacks).map(async ([stack, entry]) => {
+      let composeContent = '';
+      try {
+        composeContent = await readFileFromRepo(repoPath, composePath(stack));
+      } catch (err) {
+        if (!(err instanceof FileNotFoundError)) throw err;
+      }
+
+      return {
+        stack,
+        host: entry.host,
+        autoDeploy: entry.autoDeploy,
+        composeHash: computeHash(composeContent),
+      } satisfies RepoStackSnapshot;
+    }),
+  );
+}
+
+/**
+ * Compare the repo manifest against each Docker host's on-disk stack inventory.
+ * Read-only: one agent inventory call per host, no writes anywhere.
+ */
+export async function scanStackDrift(): Promise<StackDriftReport> {
+  const { databaseConnectionManager } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { DeployRepository } = await import('@/lib/database/repositories/deploy-repository');
+  const { HostRepository } = await import('@/lib/database/repositories/host-repository');
+  const { buildStackDriftReport } = await import('@/lib/stacks/stack-drift-service');
+  const { default: git } = await import('isomorphic-git');
+  const fs = await import('node:fs');
+
+  const dbClient = await databaseConnectionManager.getClient(loadDatabaseConfig());
+  const pool = dbClient.getPool();
+
+  const [repoStacks, hosts, latestDeploys, currentHeadSha] = await Promise.all([
+    loadRepoStacks(),
+    new HostRepository(pool).findAll(),
+    new DeployRepository(pool).getLatestDeployPerStack(),
+    git.resolveRef({ fs, gitdir: getRepoPath(), ref: 'HEAD' }).catch(() => null),
+  ]);
+
+  const dockerHosts = hosts
+    .filter((host) => host.capabilities.docker === true)
+    .map((host) => ({ name: host.name, dockerEnabled: true }));
+
+  const agentStacksByHost = new Map<string, AgentStackInventoryEntry[]>();
+  const agentStackErrorsByHost = new Map<string, AgentStackInventoryError[]>();
+  const scanErrors: StackDriftScanError[] = [];
+
+  const dockerHostNames = new Set(dockerHosts.map((host) => host.name));
+  for (const repoHost of new Set(repoStacks.map((stack) => stack.host))) {
+    if (!dockerHostNames.has(repoHost)) {
+      scanErrors.push({ host: repoHost, message: 'Host is not managed or is not Docker-capable; drift scan skipped.' });
+    }
+  }
+
+  // Every path inside must report through scanErrors: an uncaught throw would
+  // abort the other host scans and lose visibility on hosts that are reachable.
+  await Promise.all(dockerHosts.map(async (host) => {
+    try {
+      const agent = await getAgentClientForHost(host.name);
+      const inventory = await agent.getStackInventory();
+      agentStacksByHost.set(host.name, inventory.stacks);
+      if (inventory.errors.length > 0) agentStackErrorsByHost.set(host.name, inventory.errors);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[StackService] drift scan failed for host "${host.name}":`, err);
+      scanErrors.push({ host: host.name, message });
+    }
+  }));
+
+  return buildStackDriftReport({
+    repoStacks,
+    hosts: dockerHosts,
+    latestDeploys,
+    currentHeadSha,
+    agentStacksByHost,
+    agentStackErrorsByHost,
+    scanErrors,
+  });
 }

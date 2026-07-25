@@ -23,6 +23,8 @@ mock.module('@tanstack/react-router', () => ({
   useBlocker: () => ({ status: 'idle', proceed: () => {}, reset: () => {} }),
 }));
 
+mock.module('@/hooks/useAuth', () => ({ useCanWrite: () => true }));
+
 const mockTriggerDeploy = mock((_args: unknown) => Promise.resolve({ deployId: 1 }));
 const realFns = await import('@/data/stacks/functions');
 mock.module('@/data/stacks/functions', () => ({
@@ -35,6 +37,11 @@ mock.module('@/data/stacks/functions', () => ({
   updateStackSettings: mock(() => Promise.resolve({ commitSha: 'x' })),
   resumeDeploy: mock(() => Promise.resolve({ deployId: 1 })),
   rejectDeploy: mock(() => Promise.resolve({ deployId: 1 })),
+  scanDrift: mock(() => Promise.resolve({
+    items: [],
+    summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
+    scanErrors: [],
+  })),
 }));
 
 const detail: StackDetail = {

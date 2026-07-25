@@ -1,8 +1,10 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
+import type { AuthUser } from '@/lib/auth/types';
 import { withStartContext } from '@/lib/test/start-context';
 
 // Inject a synthetic admin user so requireRole checks pass in tests.
+// `activeUser` is read at call time, so `withUser` can swap the role for one call.
 //
 // In tests (no Babel transform), createServerFn's client middleware path calls
 // extractedFn(payload) where payload.context = sendContext (starts empty). The
@@ -11,17 +13,28 @@ import { withStartContext } from '@/lib/test/start-context';
 //
 // The middleware shape must match TanStack's flattenMiddlewares expectations:
 // an object with options.server and/or options.client, and options.middleware undefined.
+let activeUser: AuthUser = SYNTHETIC_ADMIN;
+
+async function withUser<T>(user: AuthUser, run: () => Promise<T>): Promise<T> {
+  activeUser = user;
+  try {
+    return await run();
+  } finally {
+    activeUser = SYNTHETIC_ADMIN;
+  }
+}
+
 mock.module('@/middleware/auth-middleware', () => ({
   authMiddleware: {
     options: {
       type: 'function',
       // client path: inject user into sendContext so handler receives context.user
       client: async ({ next, sendContext }: { next: (opts: { sendContext: unknown }) => unknown; sendContext: unknown }) => {
-        return next({ sendContext: { ...(sendContext as Record<string, unknown>), user: SYNTHETIC_ADMIN } });
+        return next({ sendContext: { ...(sendContext as Record<string, unknown>), user: activeUser } });
       },
       // server path: inject user into context (used when middleware runs server-side)
       server: async ({ next, context }: { next: (opts: { context: unknown }) => unknown; context: unknown }) => {
-        return next({ context: { ...(context as Record<string, unknown>), user: SYNTHETIC_ADMIN } });
+        return next({ context: { ...(context as Record<string, unknown>), user: activeUser } });
       },
     },
   },
@@ -77,6 +90,11 @@ const mockResolveDeleteStack = mock(() =>
 const mockResumePendingDeploy = mock(() => Promise.resolve({ deployId: 7, status: 'succeeded' as const, logs: 'ok' }));
 const mockRejectPendingDeploy = mock(() => Promise.resolve({ deployId: 7 }));
 const mockControlStackForHost = mock(() => Promise.resolve(undefined));
+const mockScanStackDrift = mock(() => Promise.resolve({
+  items: [],
+  summary: { total: 0, ghost: 0, untracked: 0, content: 0 },
+  scanErrors: [],
+}));
 
 mock.module('@/lib/stacks/stack-service', () => ({
   getStackSummaries: mockGetStackSummaries,
@@ -92,6 +110,7 @@ mock.module('@/lib/stacks/stack-service', () => ({
   resumePendingDeploy: mockResumePendingDeploy,
   rejectPendingDeploy: mockRejectPendingDeploy,
   controlStackForHost: mockControlStackForHost,
+  scanStackDrift: mockScanStackDrift,
 }));
 
 /**
@@ -120,6 +139,7 @@ describe('stacks.functions module', () => {
     mockResumePendingDeploy.mockClear();
     mockRejectPendingDeploy.mockClear();
     mockControlStackForHost.mockClear();
+    mockScanStackDrift.mockClear();
   });
 
   describe('exports', () => {
@@ -219,6 +239,24 @@ describe('stacks.functions module', () => {
       });
     });
 
+  });
+
+  describe('scanDrift', () => {
+    it('delegates to scanStackDrift', async () => {
+      const { scanDrift } = await import('../functions');
+      await withStartContext(() => scanDrift());
+      expect(mockScanStackDrift).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a viewer without reaching the service', async () => {
+      const { scanDrift } = await import('../functions');
+      const viewer: AuthUser = { ...SYNTHETIC_ADMIN, role: 'viewer' };
+
+      await expect(
+        withUser(viewer, () => withStartContext(() => scanDrift())),
+      ).rejects.toThrow('Insufficient permissions');
+      expect(mockScanStackDrift).not.toHaveBeenCalled();
+    });
   });
 
   describe('controlStack', () => {

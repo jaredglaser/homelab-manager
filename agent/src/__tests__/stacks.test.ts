@@ -7,9 +7,11 @@ import {
   handleStackStart,
   handleStackStop,
   handleStackStatus,
+  handleStackInventory,
+  handleGetStackCompose,
   parseContainerNames,
 } from '../routes/stacks';
-import { mkdirSync, rmSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 beforeAll(() => {
@@ -17,6 +19,11 @@ beforeAll(() => {
 });
 
 const TEST_STACKS_DIR = join(import.meta.dir, '../../.test-stacks');
+
+const PLEX_COMPOSE = 'services:\n  plex:\n    image: plexinc/pms-docker';
+const GRAFANA_COMPOSE = 'services:\n  grafana:\n    image: grafana/grafana';
+const PLEX_COMPOSE_SHA256 = 'c191db0ef6f528390f0899b973e05fdf5f7e7dc90aa51ab7a7c3fbdc20667864';
+const GRAFANA_COMPOSE_SHA256 = '77bad98ad96af38677bd5cf4bf7d2a55f7218b16308065f5ad1542db418b1778';
 
 const emptyStream = () => new ReadableStream({ start(c) { c.close(); } });
 
@@ -1390,6 +1397,151 @@ describe('handleStackStatus', () => {
     // If concurrent, both spawns start nearly simultaneously and total time ≈ 50ms
     // If sequential, total time ≈ 100ms
     expect(elapsed).toBeLessThan(90);
+  });
+});
+
+describe('handleStackInventory', () => {
+  test('returns compose hashes for valid stack directories', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
+    mkdirSync(join(TEST_STACKS_DIR, 'grafana'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), PLEX_COMPOSE);
+    await Bun.write(join(TEST_STACKS_DIR, 'grafana', 'docker-compose.yml'), GRAFANA_COMPOSE);
+
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.stacks).toEqual([
+      { name: 'grafana', hasComposeFile: true, composeHash: GRAFANA_COMPOSE_SHA256 },
+      { name: 'plex', hasComposeFile: true, composeHash: PLEX_COMPOSE_SHA256 },
+    ]);
+  });
+
+  test('skips invalid stack directories and directories without compose files', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, '.hidden'), { recursive: true });
+    mkdirSync(join(TEST_STACKS_DIR, 'missing-compose'), { recursive: true });
+    mkdirSync(join(TEST_STACKS_DIR, 'valid-stack'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'valid-stack', 'docker-compose.yml'), 'services: {}');
+
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.stacks).toEqual([
+      expect.objectContaining({ name: 'valid-stack', hasComposeFile: true }),
+    ]);
+  });
+
+  test('returns an empty list when the stacks directory is empty', async () => {
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.stacks).toEqual([]);
+  });
+
+  test('reports stack directories whose docker-compose.yml cannot be read without aborting the inventory', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'good'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'good', 'docker-compose.yml'), 'services: {}');
+    mkdirSync(join(TEST_STACKS_DIR, 'bad', 'docker-compose.yml'), { recursive: true });
+
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.stacks).toHaveLength(1);
+    expect(result.stacks[0].name).toBe('good');
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].name).toBe('bad');
+    expect(result.errors[0].message).toBeTruthy();
+  });
+
+  test('reports a compose file whose stat fails rather than skipping it', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'looped'), { recursive: true });
+    // A self-referential symlink stats as ELOOP: absent to a stat probe, an error to a read.
+    symlinkSync('docker-compose.yml', join(TEST_STACKS_DIR, 'looped', 'docker-compose.yml'));
+
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.stacks).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0].name).toBe('looped');
+  });
+
+  test('omits the errors field when every compose file is readable', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'good'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'good', 'docker-compose.yml'), 'services: {}');
+
+    const response = await handleStackInventory(TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result.errors).toBeUndefined();
+  });
+
+  test('returns 500 when the stacks directory cannot be read', async () => {
+    const filePath = join(TEST_STACKS_DIR, 'not-a-dir');
+    await Bun.write(filePath, 'file');
+
+    const response = await handleStackInventory(filePath);
+    const result = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(result.error).toContain('Failed to read stacks directory');
+  });
+});
+
+describe('handleGetStackCompose', () => {
+  test('returns compose content and hash for an existing stack', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), PLEX_COMPOSE);
+
+    const request = new Request('http://localhost/stacks/compose?stack=plex');
+    const response = await handleGetStackCompose(request, TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(result).toEqual({
+      stack: 'plex',
+      composeContent: PLEX_COMPOSE,
+      composeHash: PLEX_COMPOSE_SHA256,
+    });
+  });
+
+  test('hashes identical compose content the same way as the inventory endpoint', async () => {
+    mkdirSync(join(TEST_STACKS_DIR, 'plex'), { recursive: true });
+    await Bun.write(join(TEST_STACKS_DIR, 'plex', 'docker-compose.yml'), PLEX_COMPOSE);
+
+    const inventory = await (await handleStackInventory(TEST_STACKS_DIR)).json();
+    const compose = await (
+      await handleGetStackCompose(new Request('http://localhost/stacks/compose?stack=plex'), TEST_STACKS_DIR)
+    ).json();
+
+    expect(compose.composeHash).toBe(PLEX_COMPOSE_SHA256);
+    expect(compose.composeHash).toBe(inventory.stacks[0].composeHash);
+  });
+
+  test('returns 404 when the stack compose file does not exist', async () => {
+    const request = new Request('http://localhost/stacks/compose?stack=missing');
+    const response = await handleGetStackCompose(request, TEST_STACKS_DIR);
+    const result = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(result.error).toContain("Stack 'missing' not found");
+  });
+
+  test('returns 400 for an invalid stack name', async () => {
+    const request = new Request('http://localhost/stacks/compose?stack=../etc');
+    const response = await handleGetStackCompose(request, TEST_STACKS_DIR);
+    expect(response.status).toBe(400);
+  });
+
+  test('returns 400 when the stack query parameter is missing', async () => {
+    const request = new Request('http://localhost/stacks/compose');
+    const response = await handleGetStackCompose(request, TEST_STACKS_DIR);
+    expect(response.status).toBe(400);
   });
 });
 

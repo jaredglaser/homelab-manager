@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Settings2 } from 'lucide-react'
 import { useStackStatusContext } from '@/components/stacks/stacks-context'
 import { useToast } from '@/hooks/toastAtom'
+import { useCanWrite } from '@/hooks/useAuth'
 import { deployToastGate, formatDeployOutcome } from '@/lib/stacks/deploy-outcome-toast'
 import {
   getDeployHistory,
@@ -17,6 +18,7 @@ import {
   listManagedHostNames,
   resumeDeploy,
   rejectDeploy,
+  scanDrift,
 } from '@/data/stacks/functions'
 import ComposeEditorLoader from '@/components/stacks/ComposeEditorLoader'
 import VariablesPanel from '@/components/stacks/VariablesPanel'
@@ -25,8 +27,9 @@ import StackContainersPanel from '@/components/stacks/StackContainersPanel'
 import StackActionBar from '@/components/stacks/StackActionBar'
 import DeleteStackDialog from '@/components/stacks/DeleteStackDialog'
 import StackSettingsDialog from '@/components/stacks/StackSettingsDialog'
+import StackDriftWarning from '@/components/stacks/StackDriftWarning'
 import UnsavedChangesDialog from '@/components/stacks/UnsavedChangesDialog'
-import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY } from '@/lib/constants/stacks-keys'
+import { STACKS_QUERY_KEY, DEPLOY_HISTORY_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys'
 import type { StackDetail } from '@/types/stacks'
 import type { StackFormValues } from '@/components/stacks/stack-form'
 
@@ -121,6 +124,8 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     withResolver: true,
   })
 
+  const canWrite = useCanWrite()
+
   const { data: history, isLoading: historyLoading } = useQuery({
     queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName],
     queryFn: () => getDeployHistory({ data: { stackName, limit: 100 } }),
@@ -130,6 +135,14 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     queryKey: ['managed-host-names'],
     queryFn: () => listManagedHostNames(),
     enabled: settingsDialogOpen,
+  })
+
+  const { data: driftReport } = useQuery({
+    queryKey: STACK_DRIFT_QUERY_KEY,
+    queryFn: () => scanDrift(),
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+    enabled: canWrite,
   })
 
   // Invalidate deploy history when a deploy completes
@@ -144,10 +157,14 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
 
   const statusKey = `${detail.host}/${detail.name}`
   const containers = statusMap.get(statusKey)?.containers ?? []
+  const driftItem = canWrite
+    ? driftReport?.items.find((item) => item.host === detail.host && item.stack === detail.name) ?? null
+    : null
 
   function invalidateDeployAndStacks() {
     queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
     queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+    queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
   }
 
   const deployMutation = useMutation({
@@ -218,6 +235,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     // full teardown, so its terminal NOTIFY beats this response.
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
     },
     onError: (err) => {
       showToast(err instanceof Error ? err.message : String(err), 'error')
@@ -282,6 +300,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stack-detail', stackName] })
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
       setSettingsDialogOpen(false)
       showToast('Stack settings updated', 'success')
     },
@@ -320,6 +339,12 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
             <TooltipContent>Stack settings</TooltipContent>
           </Tooltip>
         </div>
+
+        {driftItem && (
+          <div className="pb-3">
+            <StackDriftWarning item={driftItem} />
+          </div>
+        )}
 
         {/* Tab bar */}
         <div className="flex items-center gap-3 border-b border-border">
@@ -374,6 +399,7 @@ export default function StackEditorForm({ stackName, detail }: Readonly<StackEdi
                   }
                   queryClient.invalidateQueries({ queryKey: [...DEPLOY_HISTORY_QUERY_KEY, stackName] })
                   queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY })
+                  queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY })
                 }}
                 onRollbackError={(err) => {
                   showToast(err.message, 'error')

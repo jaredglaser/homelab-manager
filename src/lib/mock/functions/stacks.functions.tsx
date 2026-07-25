@@ -1,4 +1,4 @@
-import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest, DeployStatus } from '@/types/stacks';
+import type { StackSummary, StackDetail, StackDeployRecord, UIDeployRequest, DeployStatus, StackDriftReport } from '@/types/stacks';
 
 const MOCK_STACKS: StackSummary[] = [
   // nas01
@@ -447,6 +447,10 @@ export async function ensureVariablesExist(_opts: {
   data: { stackName: string; variableNames: string[] };
 }): Promise<void> {
   // No-op in demo mode
+}
+
+export async function scanDrift(): Promise<StackDriftReport> {
+  return { items: [], summary: { total: 0, ghost: 0, untracked: 0, content: 0 }, scanErrors: [] };
 }
 
 export async function controlStack(_opts: {
