@@ -1,10 +1,5 @@
 import { createHash } from 'node:crypto';
-
-/** Builds the Set-Cookie header value that clears the session cookie. */
-export function buildClearSessionCookie(isSecure: boolean): string {
-  const securePart = isSecure ? ' Secure;' : '';
-  return `session=; HttpOnly;${securePart} SameSite=Lax; Path=/; Max-Age=0`;
-}
+import { buildClearSessionCookie, parseSessionCookie } from '@/lib/auth/session-cookie';
 
 export interface LogoutHandlerDeps {
   /**
@@ -61,7 +56,6 @@ export async function handleLogout(
     }
   }
 
-  const clearCookie = buildClearSessionCookie(deps.isSecure);
   // prompt=login forces re-auth when the provider still holds a valid browser session.
   const redirectTo = oidcLogoutUrl ?? '/login?prompt=login';
 
@@ -69,20 +63,22 @@ export async function handleLogout(
     status: 302,
     headers: {
       Location: redirectTo,
-      'Set-Cookie': clearCookie,
+      'Set-Cookie': buildClearSessionCookie(deps.isSecure),
     },
   });
 }
 
 export async function logoutWithCookie(cookieHeader: string): Promise<Response> {
-  const { isAuthDisabled, loadAuthConfig } = await import('@/lib/config/auth-config');
+  const { isAuthDisabled, isSecureCookie, loadAuthConfig } = await import(
+    '@/lib/config/auth-config'
+  );
 
   if (isAuthDisabled()) {
     return new Response(null, {
       status: 302,
       headers: {
         Location: '/login?prompt=login',
-        'Set-Cookie': buildClearSessionCookie(false),
+        'Set-Cookie': buildClearSessionCookie(isSecureCookie()),
       },
     });
   }
@@ -91,8 +87,7 @@ export async function logoutWithCookie(cookieHeader: string): Promise<Response> 
   const isSecure = config.redirectUri.startsWith('https://');
   const postLogoutRedirectUri = `${new URL(config.redirectUri).origin}/login`;
 
-  const match = cookieHeader.match(/(?:^|;\s*)session=([^;]*)/);
-  const token = match ? decodeURIComponent(match[1]) : null;
+  const token = parseSessionCookie(cookieHeader, isSecure);
 
   // Build session manager lazily: only connect to the DB when there's an active session to revoke.
   const getSessionManager = async () => {

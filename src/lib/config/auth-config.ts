@@ -68,6 +68,15 @@ export function enforceAuthConfig(): void {
   }
 }
 
+/**
+ * Picks the session cookie name on read paths that hold no parsed AuthConfig.
+ * Unlike loadAuthConfig(), this must never throw on incomplete OIDC env vars:
+ * an unauthenticated request has to resolve to null, not a 500.
+ */
+export function isSecureCookie(): boolean {
+  return process.env.OIDC_REDIRECT_URI?.startsWith('https://') ?? false;
+}
+
 export function loadAuthConfig(): AuthConfig {
   const issuerUrl = process.env.OIDC_ISSUER_URL;
   const clientId = process.env.OIDC_CLIENT_ID;

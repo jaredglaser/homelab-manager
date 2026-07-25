@@ -34,6 +34,8 @@ const mockLoadAuthConfig = mock(() => ({
 mock.module('@/lib/config/auth-config', () => ({
   isAuthDisabled: () => false,
   loadAuthConfig: mockLoadAuthConfig,
+  // http redirect URI above -> plain "session" name is the active one.
+  isSecureCookie: () => false,
 }));
 
 mock.module('@/middleware/auth-middleware', () => ({

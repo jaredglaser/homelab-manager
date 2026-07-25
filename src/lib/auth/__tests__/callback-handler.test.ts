@@ -1,11 +1,11 @@
 import { describe, it, expect, mock, afterEach } from 'bun:test';
 import {
   handleCallback,
-  buildSessionCookie,
   CLEAR_STATE_COOKIE,
   callbackGetHandler,
 } from '@/lib/auth/callback-handler';
 import type { CallbackHandlerDeps } from '@/lib/auth/callback-handler';
+import { buildSessionCookie } from '@/lib/auth/session-cookie';
 import type { OidcTokens, Role } from '@/lib/auth/types';
 import type { UserRow } from '@/lib/database/repositories/user-repository';
 
@@ -79,6 +79,7 @@ function makeDeps(overrides?: Partial<CallbackHandlerDeps>): CallbackHandlerDeps
       viewer: 'homelab-viewers',
     },
     isSecure: false,
+    sessionTtlHours: 8,
     ...overrides,
   };
 }
@@ -370,29 +371,30 @@ describe('handleCallback', () => {
     });
   });
 
-  describe('buildSessionCookie helper', () => {
-    it('includes HttpOnly, SameSite=Lax, and Path=/ for non-secure', () => {
-      const cookie = buildSessionCookie('my-raw-token', false);
-      expect(cookie).toContain('HttpOnly');
-      expect(cookie).toContain('SameSite=Lax');
-      expect(cookie).toContain('Path=/');
-      expect(cookie).not.toContain('Secure');
+  describe('session cookie on success', () => {
+    // Happy-DOM hides Set-Cookie on Response (browser forbidden response
+    // header), so cookie attribute assertions live in session-cookie.test.ts.
+    // These tests exercise the secure and TTL deps through the success path.
+    it('succeeds with isSecure=true and a custom TTL', async () => {
+      const deps = makeDeps({ isSecure: true, sessionTtlHours: 2 });
+      const response = await handleCallback(
+        deps,
+        'auth-code',
+        validState,
+        validCookieHeader(),
+        null,
+        null,
+      );
+
+      expect(response.status).toBe(302);
+      expect(response.headers.get('Location')).toBe('/');
     });
 
-    it('includes Secure flag when isSecure=true', () => {
-      const cookie = buildSessionCookie('my-raw-token', true);
-      expect(cookie).toContain('Secure');
-    });
-
-    it('encodes the raw token in the cookie value', () => {
-      const token = 'raw/token+value';
-      const cookie = buildSessionCookie(token, false);
-      expect(cookie).toContain(`session=${encodeURIComponent(token)}`);
-    });
-
-    it('starts with session= prefix', () => {
-      const cookie = buildSessionCookie('abc', false);
+    it('builds the session cookie with Max-Age derived from sessionTtlHours', () => {
+      // 8 hours * 3600 = 28800 seconds, the same conversion handleCallback applies.
+      const cookie = buildSessionCookie('raw-session-token-abc', false, 8 * 3600);
       expect(cookie).toMatch(/^session=/);
+      expect(cookie).toContain('Max-Age=28800');
     });
   });
 

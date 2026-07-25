@@ -1,14 +1,15 @@
 import { describe, it, expect, mock, afterEach } from 'bun:test';
 import {
   handleLogout,
-  buildClearSessionCookie,
   logoutGetHandler,
   logoutWithCookie,
   type LogoutHandlerDeps,
 } from '@/lib/auth/logout-handler';
+import { buildClearSessionCookie } from '@/lib/auth/session-cookie';
 
 // mock.module intercepts dynamic imports inside logoutGetHandler.
 const mockIsAuthDisabled = mock(() => false);
+const mockIsSecureCookie = mock(() => false);
 const mockLoadAuthConfig = mock(() => ({
   issuerUrl: 'https://pocketid.example.com',
   clientId: 'homelab-manager',
@@ -19,6 +20,7 @@ const mockLoadAuthConfig = mock(() => ({
 
 mock.module('@/lib/config/auth-config', () => ({
   isAuthDisabled: mockIsAuthDisabled,
+  isSecureCookie: mockIsSecureCookie,
   loadAuthConfig: mockLoadAuthConfig,
 }));
 
@@ -214,32 +216,27 @@ describe('handleLogout', () => {
 });
 
 // ------------------------------------------------------------------
-// buildClearSessionCookie helper
+// Clear-cookie behavior in handleLogout
 // ------------------------------------------------------------------
 
-describe('buildClearSessionCookie', () => {
-  it('includes HttpOnly, SameSite=Lax, Path=/, and Max-Age=0', () => {
-    const cookie = buildClearSessionCookie(false);
-    expect(cookie).toContain('session=');
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('SameSite=Lax');
-    expect(cookie).toContain('Path=/');
-    expect(cookie).toContain('Max-Age=0');
+describe('handleLogout clear cookies', () => {
+  // Happy-DOM hides Set-Cookie on Response (browser forbidden response
+  // header), so cookie attribute assertions live in session-cookie.test.ts.
+  // These tests exercise both isSecure branches through handleLogout.
+  it('redirects successfully when isSecure=false (plain clear cookie)', async () => {
+    const deps = makeDeps({ isSecure: false });
+    const response = await handleLogout(deps, 'raw-session-token');
+
+    expect(response.status).toBe(302);
+    expect(buildClearSessionCookie(false)).toMatch(/^session=;/);
   });
 
-  it('does not include Secure when isSecure=false', () => {
-    const cookie = buildClearSessionCookie(false);
-    expect(cookie).not.toContain('Secure');
-  });
+  it('redirects successfully when isSecure=true (__Host- clear cookie)', async () => {
+    const deps = makeDeps({ isSecure: true });
+    const response = await handleLogout(deps, 'raw-session-token');
 
-  it('includes Secure flag when isSecure=true', () => {
-    const cookie = buildClearSessionCookie(true);
-    expect(cookie).toContain('Secure');
-  });
-
-  it('sets session to empty value (clears the cookie)', () => {
-    const cookie = buildClearSessionCookie(false);
-    expect(cookie).toMatch(/^session=;/);
+    expect(response.status).toBe(302);
+    expect(buildClearSessionCookie(true)).toMatch(/^__Host-session=;/);
   });
 });
 
@@ -253,6 +250,7 @@ describe('logoutGetHandler', () => {
   afterEach(() => {
     process.env = { ...originalEnv };
     mockIsAuthDisabled.mockReset();
+    mockIsSecureCookie.mockReset();
     mockLoadAuthConfig.mockReset();
     mockGetIdToken.mockReset();
     mockRevokeSession.mockReset();
@@ -261,6 +259,7 @@ describe('logoutGetHandler', () => {
 
   it('redirects to /login?prompt=login when auth is disabled', async () => {
     mockIsAuthDisabled.mockImplementation(() => true);
+    mockIsSecureCookie.mockImplementation(() => false);
 
     const response = await logoutGetHandler({
       request: new Request('http://localhost/api/auth/logout'),
@@ -268,6 +267,18 @@ describe('logoutGetHandler', () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toBe('/login?prompt=login');
+  });
+
+  // Happy-DOM strips Set-Cookie off Response, so assert the name is derived rather
+  // than hardcoded to the non-secure one; buildClearSessionCookie covers the value.
+  it('derives the cleared cookie name from isSecureCookie when auth is disabled', async () => {
+    mockIsAuthDisabled.mockImplementation(() => true);
+    mockIsSecureCookie.mockImplementation(() => true);
+
+    await logoutGetHandler({ request: new Request('http://localhost/api/auth/logout') });
+
+    expect(mockIsSecureCookie).toHaveBeenCalled();
+    expect(buildClearSessionCookie(mockIsSecureCookie())).toMatch(/^__Host-session=;/);
   });
 
   it('with session cookie: revokes session and redirects via OIDC logout URL', async () => {
@@ -288,6 +299,24 @@ describe('logoutGetHandler', () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get('Location')).toContain('pocketid.example.com/end-session');
+    expect(mockRevokeSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts the session token under the __Host-session cookie name', async () => {
+    mockIsAuthDisabled.mockImplementation(() => false);
+    mockLoadAuthConfig.mockImplementation(() => ({
+      issuerUrl: 'https://pocketid.example.com',
+      clientId: 'homelab-manager',
+      redirectUri: 'https://homelab.example.com/api/auth/callback',
+      sessionTtlHours: 8,
+      roleMapping: { admin: 'homelab-admins', operator: 'homelab-operators', viewer: 'homelab-viewers' },
+    }));
+    mockGetIdToken.mockImplementation(async () => 'id-tok');
+    mockGetLogoutUrl.mockImplementation(async () => null);
+
+    const response = await logoutWithCookie('__Host-session=rawtoken456');
+
+    expect(response.status).toBe(302);
     expect(mockRevokeSession).toHaveBeenCalledTimes(1);
   });
 
