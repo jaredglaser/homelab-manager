@@ -41,7 +41,19 @@ async function startDeployRecovery(): Promise<void> {
   });
 }
 
-/** Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy recovery. */
+async function startStatsRollupBackfill(): Promise<void> {
+  const { databaseConnectionManager: dbm } = await import('@/lib/clients/database-client');
+  const { loadDatabaseConfig } = await import('@/lib/config/database-config');
+  const { runStatsRollupBackfill } = await import('@/lib/database/stats-rollup-backfill');
+
+  const dbClient = await dbm.getClient(loadDatabaseConfig());
+  await runStatsRollupBackfill(dbClient);
+}
+
+/**
+ * Idempotent. Registers SIGTERM/SIGINT shutdown handlers and kicks off deploy recovery and
+ * the stats rollup backfill.
+ */
 export function initServer(): void {
   if (initialized) return;
 
@@ -74,6 +86,10 @@ export function initServer(): void {
 
   startDeployRecovery().catch((err) => {
     console.error('[Server] Deploy recovery / watchdog startup failed:', err);
+  });
+
+  startStatsRollupBackfill().catch((err) => {
+    console.error('[Server] Stats rollup backfill failed:', err);
   });
 
   console.info('[Server] Shutdown handlers registered');

@@ -87,7 +87,7 @@ docker compose down -v
 
 | Service | Image | Description |
 |---------|-------|-------------|
-| `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (infinite retention, automatic compression after 7 days). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
+| `postgres` | `timescale/timescaledb:latest-pg16` | Time-series database (raw stats kept 24 hours, 1-minute aggregates 30 days, 1-hour aggregates forever; automatic compression per tier). Runs with `synchronous_commit=off` - up to ~200ms of stats can be lost on a hard crash, which is acceptable for monitoring data where transaction latency matters more than durability. |
 | `worker` | `ghcr.io/jaredglaser/homelab-manager-worker` | Background collector - connects to agent sidecars (Docker/ZFS) and polls Proxmox, writes stats to TimescaleDB. Also applies database migrations on startup. |
 | `web` | `ghcr.io/jaredglaser/homelab-manager-web` | Dashboard UI and API server. Streams stats from TimescaleDB to connected clients via SSE. |
 
