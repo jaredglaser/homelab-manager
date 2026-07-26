@@ -219,6 +219,7 @@ Non-obvious pitfalls from past sessions (not restated from rules above):
 20. **`bun test` claims any `*.spec.ts`**: in a repo that also runs Playwright it collects the Playwright specs and dies with "did not expect test() to be called here" and no failing assertion. Name e2e specs `*.e2e.ts` and give each Playwright project an explicit `testMatch`, plus `testIgnore` where two projects share a directory.
 21. **Bun version drift**: compare `bun --version` against `.bun-version`. When they differ, local failures may have nothing to do with the change: module mocks can leak across files despite `--isolate`, contradicting rule 7.
 22. **The container may run as uid 0**: root voids `chmod`-based test fixtures because it reads the file either way. Check `id -u`. Root-safe substitutes: a self-referential symlink (`existsSync` false, `readFileSync` throws `ELOOP`), or a directory where the file belongs (`EISDIR`).
+23. **Migration numbers collide silently**: two migrations can share a number with distinct filenames, so git sees no conflict and CI does not check. Before adding one, take the highest number on `main` and on every other open PR, not just the highest in your working tree. main already carries a duplicate `013` from two PRs that landed a day apart.
 
 ## CI/CD
 

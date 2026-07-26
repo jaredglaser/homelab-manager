@@ -335,6 +335,6 @@ Report the raw numbers and the delta. Never report a green you did not observe.
 
 ## Migration numbering
 
-Migrations collide silently: distinct filenames, so git will not flag it and CI will not catch it.
-Before merging anything carrying a migration, check the highest number on the default branch and on
-every other open PR, and renumber on the way in.
+You are the last gate on this. Before merging anything carrying a migration, check its number
+against the default branch and every other open PR, and renumber on the way in. CLAUDE.md gotcha 23
+covers why the collision is silent.
