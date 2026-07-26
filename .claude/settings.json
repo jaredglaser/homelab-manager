@@ -11,6 +11,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/scripts/pr-queue-session-start.sh",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "permissions": {
@@ -22,7 +34,9 @@
       "Bash(bun run typecheck)",
       "Bash(bun run typecheck:all)",
       "Bash(bun run typecheck:agent)",
+      "Bash(bun run test)",
       "Bash(bun run test:all)",
+      "Bash(bun run test:coverage:all)",
       "mcp__plugin_context7_context7__query-docs",
       "mcp__plugin_context7_context7__resolve-library-id"
     ]
