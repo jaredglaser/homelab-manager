@@ -48,12 +48,16 @@ for spec in "$@"; do
   base=${spec#*:}
   if [ "$base" = "$spec" ]; then base=$default_base; fi
 
+  # `|` is legal in a ref name and would shift every cell to its right.
+  head_md=${head//|/\\|}
+  base_md=${base//|/\\|}
+
   if ! git rev-parse --verify --quiet "origin/$head^{commit}" >/dev/null; then
-    echo "| $head | $base | | | MISSING | |"
+    echo "| $head_md | $base_md | | | MISSING | |"
     continue
   fi
   if ! git rev-parse --verify --quiet "origin/$base^{commit}" >/dev/null; then
-    echo "| $head | $base | MISSING | $(short "origin/$head") | | |"
+    echo "| $head_md | $base_md | MISSING | $(short "origin/$head") | | |"
     continue
   fi
 
@@ -63,5 +67,5 @@ for spec in "$@"; do
   fi
   behind=$(git rev-list --count "origin/$head..origin/$base")
 
-  echo "| $head | $base | $(short "origin/$base") | $(short "origin/$head") | $merge | $behind |"
+  echo "| $head_md | $base_md | $(short "origin/$base") | $(short "origin/$head") | $merge | $behind |"
 done

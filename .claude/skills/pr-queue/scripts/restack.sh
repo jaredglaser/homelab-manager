@@ -16,6 +16,15 @@ Run it from a detached worktree whose HEAD is the branch tip. It rebases with
 `--force-with-lease=<branch>:<expected-remote-sha>` (default: current
 origin/<branch>).
 
+THE HEAD GATE
+
+The lease protects origin/<branch> only. It says nothing about which commit is
+checked out here, so a worktree left at a sibling's tip would get rebased and
+pushed over <branch> with the lease satisfied. HEAD must therefore be
+<expected-remote-sha>, or be a commit this same worktree already rebased from it
+(ORIG_HEAD) that descends from <new-base>, which is the resume path below.
+Anything else exits 2 naming both SHAs.
+
 THE AUTO-CLOSE GUARD
 
 GitHub treats "head is an ancestor of base" as merged and closes the pull
@@ -35,8 +44,8 @@ Set RESTACK_ACK_AUTOCLOSE=1 to proceed once that is done.
 The guard is local-only. It cannot see which PRs exist or what their bases are,
 so it reports candidates, not certainties. Treat a hit as a stop.
 
-Already-restacked branches skip the rebase, so a second run is a verify plus a
-no-op push.
+Already-restacked branches skip the rebase, so a re-run after a stop at exit 3
+is a verify plus the push.
 USAGE
 }
 
@@ -57,6 +66,23 @@ for ref in "$new_base" "$old_parent"; do
 done
 
 expected=${4:-$(git rev-parse "origin/$branch")}
+expected_sha=$(git rev-parse --verify --quiet "$expected^{commit}" || true)
+[ -n "$expected_sha" ] || { echo "restack.sh: no such commit: $expected" >&2; exit 65; }
+
+head_sha=$(git rev-parse HEAD)
+# The lease guards origin/$branch and never HEAD, so a sibling branch's tip left
+# checked out here would be rebased and pushed over $branch, lease still passing.
+if [ "$head_sha" != "$expected_sha" ]; then
+  rebased_from=$(git rev-parse --verify --quiet ORIG_HEAD || true)
+  if [ "$rebased_from" != "$expected_sha" ] \
+    || ! git merge-base --is-ancestor "$new_base" "$head_sha" 2>/dev/null; then
+    echo "restack.sh: HEAD is $head_sha, but $branch's tip is $expected_sha." >&2
+    echo "Detach a worktree at $expected_sha and run it from there, or pass the tip" >&2
+    echo "you mean as <expected-remote-sha>." >&2
+    exit 2
+  fi
+  echo "HEAD $head_sha is this worktree's rebase of $expected_sha; skipping to the push"
+fi
 
 default_base=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
 default_base=${default_base#origin/}

@@ -82,5 +82,7 @@ The force-push auto-close hazard is in SKILL.md, not here, because it destroys w
   damage is a commit rather than a checkout, the tree was clean and nothing uncommitted was lost.
   Then `git worktree add --detach` at the correct parent, `git cherry-pick <sha>`, push. Never
   rebase in a tree holding staged changes. When the permission layer blocks `git reset --hard`, `git
-  read-tree -u --reset HEAD` is the plumbing equivalent. If a stop hook demands committing a dirty
+  read-tree -u --reset HEAD` is the plumbing equivalent, and equally destructive: it drops staged and
+  unstaged changes to tracked files, and no reflog entry exists to recover a working tree. Run `git
+  status --short` first and stop if it prints anything. If a stop hook demands committing a dirty
   tree, look at what the tree holds first.

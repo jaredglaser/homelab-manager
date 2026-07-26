@@ -16,8 +16,8 @@ usage() {
 pr-queue-session-start.sh - SessionStart (matcher: compact) hook.
 
 Reads the hook payload on stdin. Prints a short digest when
-${TMPDIR:-/tmp}/claude-pr-queue/<tag>.url exists for this session, otherwise
-nothing at all.
+${TMPDIR:-/tmp}/claude-pr-queue/<tag>.url exists for this session and holds a
+GitHub issue URL, otherwise nothing at all.
 
 <tag> is `pq-` plus the first segment of the session UUID, which appears in the
 payload's transcript_path and in the session scratchpad path alike.
@@ -39,7 +39,14 @@ tag="pq-${uuid%%-*}"
 state_dir="${TMPDIR:-/tmp}/claude-pr-queue"
 [ -f "$state_dir/$tag.url" ] || exit 0
 
-tracker=$(head -1 "$state_dir/$tag.url")
+tracker=$(head -1 "$state_dir/$tag.url" 2>/dev/null || true)
+# This line is printed into model context, so anyone who can write the state dir
+# can otherwise forge the pointer. Only an issue URL is allowed through.
+[ "${#tracker}" -le 200 ] || exit 0
+printf '%s' "$tracker" \
+  | grep -qE '^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/issues/[1-9][0-9]*$' \
+  || exit 0
+
 repo="${CLAUDE_PROJECT_DIR:-$PWD}"
 
 branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD 2>/dev/null || echo "detached")

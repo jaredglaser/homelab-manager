@@ -19,9 +19,13 @@ Prints two sets:
   fails only on the branch  -> yours, and the number that matters
   fails only on the base    -> tests your branch fixed or stopped running
 
-Re-running reuses an existing base worktree instead of failing on it, and
-overwrites the previous output files. Never uses `git stash`: .git/refs/stash is
-shared across every worktree in this repo.
+A green run is a real answer: an empty failure set is reported as empty, not
+treated as an error.
+
+Re-running reuses an existing base worktree, but only when its HEAD is still
+<base-sha>; otherwise it aborts naming both SHAs rather than reporting some other
+revision's failures as the base's. Output files are overwritten. Never uses `git
+stash`: .git/refs/stash is shared across every worktree in this repo.
 USAGE
 }
 
@@ -44,17 +48,26 @@ base_wt="$scratch/wt-base-$short"
 out="$scratch/failure-set-diff-$short"
 mkdir -p "$out"
 
+want=$(git -C "$fix_wt" rev-parse "$base_sha^{commit}")
 if [ -d "$base_wt" ]; then
+  at=$(git -C "$base_wt" rev-parse HEAD 2>/dev/null || true)
+  if [ "$at" != "$want" ]; then
+    echo "failure-set-diff.sh: $base_wt is at ${at:-no readable HEAD}, wanted $want." >&2
+    echo "Its results would not be the base's. Remove it and re-run:" >&2
+    echo "  git -C $fix_wt worktree remove --force $base_wt" >&2
+    exit 1
+  fi
   echo "reusing base worktree $base_wt"
 else
-  git -C "$fix_wt" worktree add --detach "$base_wt" "$base_sha"
+  git -C "$fix_wt" worktree add --detach "$base_wt" "$want"
 fi
 
 collect() {
   local dir=$1 dest=$2
-  (cd "$dir" && bun run setup >/dev/null 2>&1 || true)
+  (cd "$dir" && bun run setup >/dev/null 2>&1) \
+    || { echo "failure-set-diff.sh: bun run setup failed in $dir" >&2; return 1; }
   (cd "$dir" && bun run test:all 2>&1 || true) \
-    | grep -E "^\(fail\)" \
+    | { grep -E "^\(fail\)" || [ "$?" -eq 1 ]; } \
     | sed 's/ \[[0-9.]*ms\]$//' \
     | sort -u > "$dest"
 }

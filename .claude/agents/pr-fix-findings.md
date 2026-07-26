@@ -11,8 +11,12 @@ sets and its reasons. Agents that helpfully fix the declined ones create a secon
 
 - Work in the **detached worktree at the explicit SHA the dispatch names**. `cd` there before any
   file write and use relative paths from there. Never touch the orchestrator's tree.
-- **Never chain `git checkout` into `git reset --hard` with `&&`.** A failed checkout still runs the
-  reset, on whatever branch was actually checked out. Verify `git rev-parse HEAD` separately first.
+- **Never chain `git checkout` into `git reset --hard`**, with any separator. `&&` short-circuits, so
+  it is the safer of the two; `;` runs the reset even after the checkout fails, so switching to it
+  makes this strictly worse. The hazard `&&` does not catch is a checkout that exits 0 while landing
+  somewhere you did not mean: `git checkout foo` DWIM-creates a local branch tracking `origin/foo`,
+  and `git checkout origin/foo` detaches HEAD. A chained reset then moves a ref you never targeted.
+  Run `git rev-parse HEAD` as its own command and read the output before any reset.
 - **Never `git stash`.** `.git/refs/stash` is shared across every worktree in this repo and dozens
   are live.
 - Install with **`bun run setup`**. Never `bun install --force` or `--frozen-lockfile`: the agent
