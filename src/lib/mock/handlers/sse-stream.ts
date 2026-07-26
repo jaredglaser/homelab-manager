@@ -41,6 +41,12 @@ export function createSseResponse(produce: (controller: SseController) => void):
   const timers = new Set<ReturnType<typeof setInterval>>();
   let closed = false;
 
+  const teardown = () => {
+    closed = true;
+    for (const id of timers) clearInterval(id);
+    timers.clear();
+  };
+
   const stream = new ReadableStream<Uint8Array>({
     start(streamController) {
       const enqueue = (frame: string) => {
@@ -48,8 +54,7 @@ export function createSseResponse(produce: (controller: SseController) => void):
         try {
           streamController.enqueue(encoder.encode(frame));
         } catch {
-          // Controller already closed by a racing cancel; stop emitting.
-          closed = true;
+          teardown();
         }
       };
 
@@ -68,9 +73,7 @@ export function createSseResponse(produce: (controller: SseController) => void):
       produce(controller);
     },
     cancel() {
-      closed = true;
-      for (const id of timers) clearInterval(id);
-      timers.clear();
+      teardown();
     },
   });
 

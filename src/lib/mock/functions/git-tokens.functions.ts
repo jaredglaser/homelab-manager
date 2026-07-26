@@ -4,6 +4,8 @@
  * it on create/revoke so the settings page works without a database. Field shapes
  * mirror the real `GitTokenWithUser` DTO (`label`, `Date` timestamps).
  */
+import { z } from 'zod';
+
 
 // Single demo user the tokens belong to; mirrors the user join on the real
 // `GitTokenWithUser` DTO without standing up an auth backend.
@@ -38,14 +40,13 @@ export async function listGitTokens(): Promise<MockGitToken[]> {
   return [...mockGitTokens];
 }
 
+// Mirrors the real endpoint's `inputValidator` so a rejected label surfaces the same ZodError.
+const createGitTokenInput = z.object({ label: z.string().min(1).max(100) });
+
 export async function createGitToken(opts?: {
   data?: { label?: string };
 }): Promise<{ token: string }> {
-  // Real endpoint validates `z.string().min(1)`; reject empty labels the same way.
-  const label = opts?.data?.label?.trim();
-  if (!label) {
-    throw new Error('label must be a non-empty string');
-  }
+  const { label } = createGitTokenInput.parse({ label: opts?.data?.label?.trim() });
   mockGitTokens = [
     {
       id: nextTokenId++,

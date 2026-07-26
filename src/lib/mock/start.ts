@@ -9,6 +9,14 @@
 export async function startMockServiceWorker(): Promise<void> {
   const { worker } = await import('@/lib/mock/browser');
   const base = import.meta.env.BASE_URL || '/';
+
+  // The worker tees every mocked response and ships one branch to the page for
+  // the life-cycle events; nothing reads it, and leaving it undrained
+  // backpressures an SSE stream's source for the life of the tab.
+  worker.events.on('response:mocked', ({ response }) => {
+    void response.body?.cancel().catch(() => {});
+  });
+
   await worker.start({
     serviceWorker: {
       // Respect the deploy base path (e.g. GitHub Pages) so the worker script
@@ -45,6 +53,22 @@ export async function startMockServiceWorker(): Promise<void> {
       if (import.meta.env.VITE_ENABLE_MSW === 'true') {
         throw new Error(message);
       }
+      // A demo build has no backend to degrade to, so retry the load once per tab.
+      if (import.meta.env.VITE_DEMO_MODE === 'true' && claimTakeoverReload()) {
+        window.location.reload();
+      }
     }
+  }
+}
+
+const TAKEOVER_RELOAD_KEY = 'msw:takeover-reload';
+
+function claimTakeoverReload(): boolean {
+  try {
+    if (sessionStorage.getItem(TAKEOVER_RELOAD_KEY)) return false;
+    sessionStorage.setItem(TAKEOVER_RELOAD_KEY, '1');
+    return true;
+  } catch {
+    return false;
   }
 }

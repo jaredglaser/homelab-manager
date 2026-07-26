@@ -1,5 +1,9 @@
 import { http, HttpResponse } from 'msw';
 import { fromJSON, toCrossJSONAsync } from 'seroval';
+// Both directions need the plugin list the TanStack client uses; without its
+// ShallowErrorPlugin an Error with a non-serializable own property (a ZodError)
+// fails to encode instead of reaching the client.
+import { defaultSerovalPlugins } from '@tanstack/router-core';
 
 import * as dockerFns from '@/lib/mock/functions/docker.functions';
 import * as zfsFns from '@/lib/mock/functions/zfs.functions';
@@ -122,7 +126,9 @@ async function decodePayload(request: Request): Promise<ServerFnPayload> {
   }
   if (!raw) return {};
   try {
-    return (fromJSON(JSON.parse(raw)) as ServerFnPayload) ?? {};
+    return (
+      (fromJSON(JSON.parse(raw), { plugins: defaultSerovalPlugins }) as ServerFnPayload) ?? {}
+    );
   } catch {
     return {};
   }
@@ -144,7 +150,7 @@ export async function handleServerFn(request: Request): Promise<Response> {
   const payload = await decodePayload(request);
   try {
     const result = await mock(payload);
-    return serializedResponse(result);
+    return await serializedResponse(result);
   } catch (error) {
     // Keep parity with the real server: a thrown handler is delivered as the
     // envelope's `error`, which the client rethrows, rather than a raw 500.
@@ -163,7 +169,10 @@ async function serializedResponse(
   error: unknown = undefined,
 ): Promise<Response> {
   const envelope = { result, error, context: {} };
-  const crossJson = await toCrossJSONAsync(envelope, { refs: new Map() });
+  const crossJson = await toCrossJSONAsync(envelope, {
+    refs: new Map(),
+    plugins: defaultSerovalPlugins,
+  });
   return new HttpResponse(JSON.stringify(crossJson), {
     headers: {
       'Content-Type': 'application/json',

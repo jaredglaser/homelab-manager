@@ -98,6 +98,44 @@ describe('sse-stream', () => {
         scheduled[0].tick();
         expect(ticks).toBe(1);
       });
+
+      it('clears interval timers when a write fails on a closed controller', () => {
+        const scheduled: { id: number; tick: () => void }[] = [];
+        const cleared: unknown[] = [];
+        let nextId = 1;
+
+        const setSpy = spyOn(globalThis, 'setInterval').mockImplementation(((
+          tick: () => void,
+        ) => {
+          const id = nextId++;
+          scheduled.push({ id, tick });
+          return id;
+        }) as unknown as typeof setInterval);
+        const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(((
+          id: number,
+        ) => {
+          cleared.push(id);
+        }) as unknown as typeof clearInterval);
+        const encodeSpy = spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
+          throw new TypeError('Invalid state: Controller is already closed');
+        });
+        spies.push(setSpy, clearSpy, encodeSpy);
+
+        let ticks = 0;
+        createSseResponse((c) => {
+          c.interval(5, () => {
+            ticks += 1;
+            c.send({ tick: ticks });
+          });
+          c.send({ first: true });
+        });
+
+        expect(scheduled).toHaveLength(1);
+        expect(cleared).toEqual([scheduled[0].id]);
+
+        scheduled[0].tick();
+        expect(ticks).toBe(0);
+      });
     });
   });
 });

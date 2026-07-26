@@ -23,8 +23,14 @@ Bun.serve({
   port,
   async fetch(req) {
     const url = new URL(req.url);
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      return new Response('Bad request', { status: 400 });
+    }
     // Resolve under baseDir and reject anything that escapes it (`..` traversal).
-    const resolved = path.resolve(baseDir, `.${decodeURIComponent(url.pathname)}`);
+    const resolved = path.resolve(baseDir, `.${pathname}`);
     if (resolved !== baseDir && !resolved.startsWith(`${baseDir}${path.sep}`)) {
       return new Response('Forbidden', { status: 403 });
     }

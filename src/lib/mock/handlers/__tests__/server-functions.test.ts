@@ -1,20 +1,30 @@
 import { describe, it, expect, spyOn } from 'bun:test';
 import { toJSONAsync, fromCrossJSON } from 'seroval';
+import { defaultSerovalPlugins } from '@tanstack/router-core';
 
 import { handleServerFn } from '@/lib/mock/handlers/server-functions';
 import { encodeFunctionId } from '@/lib/mock/handlers/function-id';
 import { SYNTHETIC_ADMIN } from '@/lib/auth/types';
+import type { DockerStatsRow } from '@/types/docker';
 
 function serverFnUrl(name: string): string {
   return `http://localhost/_serverFn/${encodeFunctionId('/f.tsx', name)}`;
 }
 
-/** Decode the server's `{ result }` envelope the way the TanStack client does. */
+/** Decode the `{ result, error }` envelope the way the TanStack client does. */
+async function decodeEnvelope(res: Response): Promise<{ result: unknown; error: unknown }> {
+  return fromCrossJSON(await res.json(), {
+    refs: new Map(),
+    plugins: defaultSerovalPlugins,
+  }) as { result: unknown; error: unknown };
+}
+
 async function decodeResult(res: Response): Promise<unknown> {
-  const envelope = fromCrossJSON(await res.json(), { refs: new Map() }) as {
-    result: unknown;
-  };
-  return envelope.result;
+  return (await decodeEnvelope(res)).result;
+}
+
+async function encodePayload(payload: { data?: unknown; context?: unknown }): Promise<string> {
+  return JSON.stringify(await toJSONAsync(payload, { plugins: defaultSerovalPlugins }));
 }
 
 async function callGet(
@@ -23,10 +33,18 @@ async function callGet(
 ): Promise<Response> {
   let url = serverFnUrl(name);
   if (payload) {
-    const serialized = JSON.stringify(await toJSONAsync(payload));
-    url += `?payload=${encodeURIComponent(serialized)}`;
+    url += `?payload=${encodeURIComponent(await encodePayload(payload))}`;
   }
   return handleServerFn(new Request(url, { method: 'GET' }));
+}
+
+async function callPost(
+  name: string,
+  payload: { data?: unknown; context?: unknown },
+): Promise<Response> {
+  return handleServerFn(
+    new Request(serverFnUrl(name), { method: 'POST', body: await encodePayload(payload) }),
+  );
 }
 
 describe('handleServerFn', () => {
@@ -47,23 +65,25 @@ describe('handleServerFn', () => {
   });
 
   it('decodes the GET payload and passes data to the mock', async () => {
-    const res = await callGet('getHistoricalDockerStats', { data: { seconds: 1 } });
-    const result = await decodeResult(res);
-    expect(Array.isArray(result)).toBe(true);
+    const res = await callGet('getHistoricalDockerStats', { data: { seconds: 4 } });
+    const rows = (await decodeResult(res)) as DockerStatsRow[];
+    // One snapshot per requested second, inclusive of both endpoints.
+    expect(new Set(rows.map((row) => row.time)).size).toBe(5);
   });
 
   it('decodes a POST body payload', async () => {
-    const serialized = JSON.stringify(
-      await toJSONAsync({ data: { host: 'h', containerId: 'c', action: 'stop' } }),
-    );
-    const res = await handleServerFn(
-      new Request(serverFnUrl('controlContainer'), {
-        method: 'POST',
-        body: serialized,
-      }),
-    );
-    // controlContainer is a no-op mock: void result.
-    expect(await decodeResult(res)).toBeUndefined();
+    const res = await callPost('getStackDetail', { data: { stackName: 'plex' } });
+    const detail = (await decodeResult(res)) as { name: string };
+    expect(detail.name).toBe('plex');
+  });
+
+  it('delivers a thrown ZodError as the envelope error instead of escaping', async () => {
+    const res = await callPost('createGitToken', { data: { label: '' } });
+    expect(res.headers.get('x-tss-serialized')).toBe('true');
+    const { result, error } = await decodeEnvelope(res);
+    expect(result).toBeUndefined();
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('label');
   });
 
   it('returns a null result and warns for an unmapped function', async () => {
