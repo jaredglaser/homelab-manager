@@ -288,11 +288,14 @@ describe('stacks.functions module', () => {
     it('gates on the operator role', async () => {
       const requireRoleSpy = spyOn(requireRoleModule, 'requireRole');
       const { resolveDrift } = await import('../functions');
-      await withStartContext(() =>
-        resolveDrift({ data: { host: 'server1', stack: 'nginx', kind: 'ghost', resolution: 'trust_repo' } }),
-      );
-      expect(requireRoleSpy).toHaveBeenCalledWith('admin', 'operator');
-      requireRoleSpy.mockRestore();
+      try {
+        await withStartContext(() =>
+          resolveDrift({ data: { host: 'server1', stack: 'nginx', kind: 'ghost', resolution: 'trust_repo' } }),
+        );
+        expect(requireRoleSpy).toHaveBeenCalledWith('admin', 'operator');
+      } finally {
+        requireRoleSpy.mockRestore();
+      }
     });
 
     it('refuses a viewer', async () => {

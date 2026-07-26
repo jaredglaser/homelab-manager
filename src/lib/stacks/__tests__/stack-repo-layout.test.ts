@@ -152,6 +152,18 @@ describe('driftRecoveryPath', () => {
     );
   });
 
+  it('neutralizes a lone-dot host segment', () => {
+    expect(driftRecoveryPath('.', 'plex', '2026-07-24T10:20:30.400Z')).toStartWith(
+      '.drift-recovery/_/plex/',
+    );
+  });
+
+  it('neutralizes a parent-dir stack segment', () => {
+    expect(driftRecoveryPath('alpha', '..', '2026-07-24T10:20:30.400Z')).toStartWith(
+      '.drift-recovery/alpha/__/',
+    );
+  });
+
   it('stays outside every stack directory, so deleting a stack never sweeps its archives', () => {
     const path = driftRecoveryPath('alpha', 'plex', '2026-07-24T10:20:30.400Z');
     expect(stackFiles([path, composePath('plex')], 'plex')).toEqual([composePath('plex')]);

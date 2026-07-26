@@ -38,15 +38,15 @@ mock.module('@/lib/database/repositories/deploy-repository', () => ({
   },
 }));
 
+const MANAGED_HOSTS = [
+  { name: 'alpha', agentUrl: 'http://alpha:3001', capabilities: { docker: true } },
+  { name: 'gamma', agentUrl: 'http://gamma:3001', capabilities: { docker: false } },
+];
+
 mock.module('@/lib/database/repositories/host-repository', () => ({
   HostRepository: class {
-    findAll = () => Promise.resolve([
-      { name: 'alpha', agentUrl: 'http://alpha:3001', capabilities: { docker: true } },
-    ]);
-    findByName = (name: string) =>
-      Promise.resolve(
-        name === 'alpha' ? { name: 'alpha', agentUrl: 'http://alpha:3001', capabilities: { docker: true } } : null,
-      );
+    findAll = () => Promise.resolve(MANAGED_HOSTS);
+    findByName = (name: string) => Promise.resolve(MANAGED_HOSTS.find((host) => host.name === name) ?? null);
   },
 }));
 
@@ -424,10 +424,17 @@ describe('resolveStackDriftItem', () => {
     expect(events).toEqual([]);
   });
 
-  test('rejects a host that is not Docker-capable', async () => {
+  test('rejects a host that is not managed', async () => {
     const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
     await expect(
       resolveStackDriftItem({ host: 'beta', stack: 'plex', kind: 'ghost', resolution: 'trust_agent' }),
     ).rejects.toThrow(/not found in managed_hosts/);
+  });
+
+  test('rejects a managed host that is not Docker-capable', async () => {
+    const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+    await expect(
+      resolveStackDriftItem({ host: 'gamma', stack: 'plex', kind: 'ghost', resolution: 'trust_agent' }),
+    ).rejects.toThrow(/not a Docker-capable managed host/);
   });
 });
