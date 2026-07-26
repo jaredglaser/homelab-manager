@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import {
   createDeployToastGate,
   formatDeployOutcome,
+  formatDriftResolutionOutcome,
   truncateDeployMessage,
 } from '@/lib/stacks/deploy-outcome-toast';
 
@@ -223,5 +224,50 @@ describe('createDeployToastGate', () => {
     const gateB = createDeployToastGate();
     expect(gateA.shouldToast(1)).toBe(true);
     expect(gateB.shouldToast(1)).toBe(true);
+  });
+});
+
+describe('formatDriftResolutionOutcome', () => {
+  test('reports a failed deploy as an error instead of claiming the drift was resolved', () => {
+    const toast = formatDriftResolutionOutcome('alpha/plex', {
+      recoveryCommitSha: 'abc1234def5678',
+      deployStatus: 'failed',
+    });
+    expect(toast.severity).toBe('error');
+    expect(toast.message).toBe('Deploy of alpha/plex failed. Host copy archived in abc1234.');
+  });
+
+  test('reports a succeeded deploy as success and names the archive commit', () => {
+    expect(
+      formatDriftResolutionOutcome('alpha/plex', { recoveryCommitSha: 'abc1234def5678', deployStatus: 'succeeded' }),
+    ).toEqual({ message: 'Deploy of alpha/plex succeeded. Host copy archived in abc1234.', severity: 'success' });
+  });
+
+  test('reports a queued deploy as info', () => {
+    const toast = formatDriftResolutionOutcome('alpha/plex', { recoveryCommitSha: null, deployStatus: 'queued' });
+    expect(toast.severity).toBe('info');
+    expect(toast.message).toContain('queued behind an active deploy');
+  });
+
+  test('reports a non-terminal deploy without claiming it finished', () => {
+    expect(
+      formatDriftResolutionOutcome('alpha/plex', { recoveryCommitSha: 'abc1234def5678', deployStatus: 'in_progress' }),
+    ).toEqual({
+      message: 'Drift resolution for alpha/plex is still deploying. Host copy archived in abc1234.',
+      severity: 'info',
+    });
+  });
+
+  test('reports success for a resolution that runs no deploy', () => {
+    expect(
+      formatDriftResolutionOutcome('alpha/grafana', { recoveryCommitSha: 'abc1234def5678', deployStatus: null }),
+    ).toEqual({ message: 'Resolved drift for alpha/grafana. Host copy archived in abc1234.', severity: 'success' });
+  });
+
+  test('omits the archive clause when the resolution archived nothing', () => {
+    expect(formatDriftResolutionOutcome('alpha/plex', { recoveryCommitSha: null, deployStatus: null })).toEqual({
+      message: 'Resolved drift for alpha/plex.',
+      severity: 'success',
+    });
   });
 });

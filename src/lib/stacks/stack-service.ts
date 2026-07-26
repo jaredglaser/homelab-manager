@@ -567,7 +567,6 @@ interface DriftScanInputs {
   currentHeadSha: string | null;
 }
 
-/** Everything a drift classification needs except the agent inventories themselves. */
 async function loadDriftScanInputs(): Promise<DriftScanInputs> {
   const { databaseConnectionManager } = await import('@/lib/clients/database-client');
   const { loadDatabaseConfig } = await import('@/lib/config/database-config');
@@ -639,9 +638,9 @@ export async function scanStackDrift(): Promise<StackDriftReport> {
 }
 
 /**
- * Re-classify drift for one stack on one host, reusing an already-built agent
- * client. Runs the same `buildStackDriftReport` gate the full scan runs, so a
- * resolution can never act on a stack the scan would not report as drifted.
+ * Re-classify drift for one stack on one host. Runs the same
+ * `buildStackDriftReport` gate the full scan runs, so a resolution can never act
+ * on a stack the scan would not report as drifted.
  */
 async function rescanDriftItem(
   agent: AgentClient,
@@ -695,6 +694,9 @@ async function captureAgentCompose(
   const capturedAt = new Date().toISOString();
   try {
     const { composeContent } = await agent.getStackCompose(stack);
+    if (!composeContent.trim()) {
+      throw new Error('The agent returned an empty compose file, so there is nothing to recover from.');
+    }
     return await commitFiles(getRepoPath(), () => ({
       files: [{ path: driftRecoveryPath(host, stack, capturedAt), content: composeContent }],
       message: `Archive ${host}/${stack} compose before ${resolution} of ${kind} drift (${capturedAt})`,
@@ -734,10 +736,34 @@ async function adoptAgentCompose(
   });
 }
 
-async function teardownOnAgent(agent: AgentClient, host: string, stack: string): Promise<void> {
+async function teardownOnAgent(
+  agent: AgentClient,
+  host: string,
+  stack: string,
+  recoveryCommitSha: string,
+): Promise<void> {
   const result = await agent.teardown(stack);
   if (!result.success) {
-    throw new Error(`docker compose down failed for "${host}/${stack}": ${result.logs}`);
+    throw new Error(
+      `docker compose down failed for "${host}/${stack}"; the host may be partly torn down, and re-running this resolution is safe. The host copy is archived in ${recoveryCommitSha.slice(0, 7)}. ${result.logs}`,
+    );
+  }
+}
+
+async function deployAfterCapture(
+  host: string,
+  stack: string,
+  recoveryCommitSha: string,
+): Promise<{ deployId: number; status: DeployStatus; logs: string }> {
+  try {
+    return await triggerStackDeploy({ stack, host, action: 'deploy', forceRecreate: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[StackService] drift redeploy failed for "${host}/${stack}":`, err);
+    throw new Error(
+      `Could not start the redeploy of "${host}/${stack}"; the host compose file may already be overwritten, and re-running this resolution is safe. The host copy is archived in ${recoveryCommitSha.slice(0, 7)}. ${message}`,
+      { cause: err },
+    );
   }
 }
 
@@ -800,7 +826,7 @@ export async function resolveStackDriftItem(input: {
   // repo tracks no version to restore, so trusting it means the stack should not run.
   if (kind === 'untracked') {
     const recoveryCommitSha = await captureAgentCompose(agent, host, stack, kind, resolution);
-    await teardownOnAgent(agent, host, stack);
+    await teardownOnAgent(agent, host, stack, recoveryCommitSha);
     return { ...base, ...EMPTY_RESOLUTION, recoveryCommitSha };
   }
 
@@ -809,6 +835,6 @@ export async function resolveStackDriftItem(input: {
   }
 
   const recoveryCommitSha = await captureAgentCompose(agent, host, stack, kind, resolution);
-  const deploy = await triggerStackDeploy({ stack, host, action: 'deploy', forceRecreate: true });
+  const deploy = await deployAfterCapture(host, stack, recoveryCommitSha);
   return { ...base, ...EMPTY_RESOLUTION, recoveryCommitSha, deployId: deploy.deployId, deployStatus: deploy.status };
 }

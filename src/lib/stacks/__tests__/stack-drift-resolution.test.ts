@@ -292,6 +292,19 @@ describe('resolveStackDriftItem', () => {
       expect(events).toEqual(['inventory', 'compose']);
     });
 
+    test('an empty host compose aborts before teardown and archives nothing', async () => {
+      composeResponse = () =>
+        Promise.resolve({ stack: 'grafana', composeContent: '  \n\t', composeHash: 'agent-hash' });
+      const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+
+      await expect(
+        resolveStackDriftItem({ host: 'alpha', stack: 'grafana', kind: 'untracked', resolution: 'remove' }),
+      ).rejects.toThrow(/aborted and the host was left untouched\. The agent returned an empty compose file/);
+
+      expect(events).toEqual(['inventory', 'compose']);
+      expect(await recoveryFiles()).toEqual([]);
+    });
+
     test('a failed teardown surfaces the agent logs and keeps the archive', async () => {
       teardownResponse = () => Promise.resolve({ success: false, logs: 'network in use' });
       const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
@@ -301,6 +314,17 @@ describe('resolveStackDriftItem', () => {
       ).rejects.toThrow(/network in use/);
 
       expect(await recoveryFiles()).toHaveLength(1);
+    });
+
+    test('a failed teardown names the recovery commit and says the host may be partly torn down', async () => {
+      teardownResponse = () => Promise.resolve({ success: false, logs: 'network in use' });
+      const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+
+      await expect(
+        resolveStackDriftItem({ host: 'alpha', stack: 'grafana', kind: 'untracked', resolution: 'remove' }),
+      ).rejects.toThrow(
+        /the host may be partly torn down, and re-running this resolution is safe\. The host copy is archived in [0-9a-f]{7}\./,
+      );
     });
   });
 
@@ -326,6 +350,23 @@ describe('resolveStackDriftItem', () => {
 
       const [request] = executeMock.mock.calls[0] as [DeployRequest];
       expect(request).toMatchObject({ composeContent: REPO_COMPOSE, forceRecreate: true });
+    });
+
+    test('a redeploy that never starts names the recovery commit and warns the compose may be gone', async () => {
+      executeMock = mock(() => {
+        events.push('deploy');
+        return Promise.reject(new Error('pipeline unavailable'));
+      });
+      const { resolveStackDriftItem } = await import('@/lib/stacks/stack-service');
+
+      await expect(
+        resolveStackDriftItem({ host: 'alpha', stack: 'plex', kind: 'content', resolution: 'trust_repo' }),
+      ).rejects.toThrow(
+        /Could not start the redeploy of "alpha\/plex"; the host compose file may already be overwritten, and re-running this resolution is safe\. The host copy is archived in [0-9a-f]{7}\. pipeline unavailable/,
+      );
+
+      expect(events).toEqual(['inventory', 'compose', 'deploy']);
+      expect(await recoveryFiles()).toHaveLength(1);
     });
 
     test('trust_agent adopts the host version over the repo version without an archive', async () => {

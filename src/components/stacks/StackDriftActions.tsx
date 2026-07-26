@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { toast } from 'sonner';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -10,8 +9,10 @@ import {
   getStackDriftResolutionLabel,
   isDestructiveStackDriftResolution,
 } from '@/lib/stacks/stack-drift-service';
+import { formatDriftResolutionOutcome } from '@/lib/stacks/deploy-outcome-toast';
 import { resolveDrift } from '@/data/stacks/functions';
 import { STACKS_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys';
+import { useToast } from '@/hooks/toastAtom';
 
 interface StackDriftActionsProps {
   item: StackDriftItem;
@@ -19,6 +20,7 @@ interface StackDriftActionsProps {
 
 export default function StackDriftActions({ item }: Readonly<StackDriftActionsProps>) {
   const queryClient = useQueryClient();
+  const { showToast } = useToast();
   const [pendingResolution, setPendingResolution] = useState<StackDriftResolution | null>(null);
 
   const mutation = useMutation({
@@ -28,14 +30,12 @@ export default function StackDriftActions({ item }: Readonly<StackDriftActionsPr
       setPendingResolution(null);
       queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY });
-      const archived = result.recoveryCommitSha
-        ? ` Host copy archived in ${result.recoveryCommitSha.slice(0, 7)}.`
-        : '';
-      toast.success(`Resolved drift for ${item.host}/${item.stack}.${archived}`);
+      const { message, severity } = formatDriftResolutionOutcome(`${item.host}/${item.stack}`, result);
+      showToast(message, severity);
     },
     onError: (err) => {
       setPendingResolution(null);
-      toast.error(err instanceof Error ? err.message : String(err));
+      showToast(err instanceof Error ? err.message : String(err), 'error');
     },
   });
 

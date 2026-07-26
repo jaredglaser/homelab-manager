@@ -95,8 +95,7 @@ export const scanDrift = createServerFn({ method: 'GET' })
   });
 
 /**
- * Apply a resolution to one drifted stack. The service re-scans before acting,
- * so an outcome from a stale report is rejected rather than applied.
+ * Apply a resolution to one drifted stack.
  */
 export const resolveDrift = createServerFn({ method: 'POST' })
   .middleware([authMiddleware])
