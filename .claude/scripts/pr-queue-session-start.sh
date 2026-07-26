@@ -39,9 +39,6 @@ tag="pq-${uuid%%-*}"
 state_dir="${TMPDIR:-/tmp}/claude-pr-queue"
 [ -f "$state_dir/$tag.url" ] || exit 0
 
-# Each compaction cycle gets exactly one PreCompact nag.
-rm -f "$state_dir/$tag.precompact-nagged"
-
 tracker=$(head -1 "$state_dir/$tag.url")
 repo="${CLAUDE_PROJECT_DIR:-$PWD}"
 
@@ -53,12 +50,19 @@ default=${default#origin/}
 default=${default:-main}
 base_sha=$(git -C "$repo" rev-parse --short=8 "origin/$default" 2>/dev/null || echo "?")
 
+# Branches held by other worktrees. A dispatched agent usually still owns one, so
+# re-dispatching onto a listed branch races a live agent on the same ref.
+others=$(git -C "$repo" worktree list --porcelain 2>/dev/null \
+  | sed -n 's|^branch refs/heads/||p' | grep -vxF "$branch" | sort -u | head -8 | paste -sd' ' -)
+others=${others:-none}
+
 cat <<EOF
 pr-queue session restored after compaction.
 
 Session tag: $tag
 Tracker:     $tracker
 Git:         $branch @ $head_sha, $dirty uncommitted path(s); origin/$default @ $base_sha (not fetched)
+Worktrees:   $others
 
 Read the tracker before acting. Every row in it is a summary you must re-derive
 from the API, not a fact. Do not trust a carried-forward mergeable_state.
