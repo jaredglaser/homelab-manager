@@ -17,7 +17,7 @@ test('streams live stats that change over time', async ({ page }) => {
   await page.goto('/docker');
   await expect(page.getByText('nginx-proxy').first()).toBeVisible();
 
-  await expectLiveTextUpdate(page.locator('[data-host-id="nas01"] > div').nth(1));
+  await expectLiveTextUpdate(page.locator('[data-host-id="192.168.1.10"]'));
 });
 
 test('a running container offers an enabled stop control', async ({ page }) => {
