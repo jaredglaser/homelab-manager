@@ -28,4 +28,6 @@ async function bootstrap(): Promise<void> {
   });
 }
 
-void bootstrap();
+bootstrap().catch((error: unknown) => {
+  console.error('[client] bootstrap failed, the app did not hydrate', error);
+});

@@ -36,10 +36,6 @@ function stripHandlerSuffix(name: string): string {
   return name.replace(/_createServerFn_handler$/, '');
 }
 
-/**
- * Resolve the server function's export name from the URL path segment.
- * Returns null when the segment is not a decodable TanStack function id.
- */
 export function resolveFunctionName(functionIdSegment: string): string | null {
   let id: string;
   try {
@@ -61,7 +57,6 @@ export function resolveFunctionName(functionIdSegment: string): string | null {
 
 export { encodeFunctionId } from '@/lib/server-fn-id';
 
-/** Extract the trailing `/_serverFn/<id>` segment from a full request URL. */
 export function functionIdFromUrl(url: string): string | null {
   const match = /\/_serverFn\/([^/?#]+)/.exec(url);
   return match ? match[1] : null;

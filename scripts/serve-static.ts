@@ -1,10 +1,8 @@
 /**
- * Minimal static file server with SPA fallback, used to serve the prebuilt
- * demo / e2e bundles for Playwright. Unlike `vite dev`, a production build has
- * no dev SSR pass or dependency re-optimization, so MSW reliably intercepts
- * every request (including route loaders) before the app renders.
- *
- * Usage: bun scripts/serve-static.ts <dir> <port>
+ * Serves the prebuilt demo / e2e bundles for Playwright. Unlike `vite dev`, a
+ * production build has no dev SSR pass or dependency re-optimization, so MSW
+ * reliably intercepts every request (including route loaders) before the app
+ * renders.
  */
 import path from 'node:path';
 
@@ -34,8 +32,6 @@ Bun.serve({
     if (await file.exists()) {
       return new Response(file);
     }
-    // Asset-looking paths that are missing are real 404s; everything else falls
-    // back to the SPA shell so client routing can take over.
     if (/\.[a-zA-Z0-9]+$/.test(url.pathname)) {
       return new Response('Not found', { status: 404 });
     }

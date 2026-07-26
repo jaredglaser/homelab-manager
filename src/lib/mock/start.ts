@@ -37,5 +37,14 @@ export async function startMockServiceWorker(): Promise<void> {
       // Safety net: never hang the app if the event is missed.
       setTimeout(done, 3000);
     });
+
+    if (!navigator.serviceWorker.controller) {
+      const message =
+        '[msw] service worker never took control; requests reach the real backend and the app redirects to /login';
+      console.error(message);
+      if (import.meta.env.VITE_ENABLE_MSW === 'true') {
+        throw new Error(message);
+      }
+    }
   }
 }
