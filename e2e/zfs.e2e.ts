@@ -15,5 +15,7 @@ test('streams live ZFS stats that change over time', async ({ page }) => {
   await page.goto('/zfs');
   await expect(page.getByText('nas01').first()).toBeVisible();
 
-  await expectLiveTextUpdate(page.locator('body'));
+  await expectLiveTextUpdate(
+    page.locator('[role="button"]').filter({ hasText: 'nas01' }),
+  );
 });

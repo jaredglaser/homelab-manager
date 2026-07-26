@@ -17,14 +17,14 @@ test('streams live stats that change over time', async ({ page }) => {
   await page.goto('/docker');
   await expect(page.getByText('nginx-proxy').first()).toBeVisible();
 
-  await expectLiveTextUpdate(page.locator('body'));
+  await expectLiveTextUpdate(page.locator('[data-host-id="nas01"] > div').nth(1));
 });
 
-test('exposes lifecycle controls on a container row', async ({ page }) => {
+test('a running container offers an enabled stop control', async ({ page }) => {
   await page.goto('/docker');
-  await expect(page.getByText('nginx-proxy').first()).toBeVisible();
-  // A running container offers a stop control (controlContainer server fn).
-  await expect(
-    page.getByRole('button', { name: /stop container/i }).first(),
-  ).toBeVisible();
+  await page.getByText('nginx-proxy').first().click();
+
+  const stop = page.getByRole('button', { name: 'Stop container', disabled: false });
+  await expect(stop).toHaveCount(1);
+  await expect(stop).toBeVisible();
 });

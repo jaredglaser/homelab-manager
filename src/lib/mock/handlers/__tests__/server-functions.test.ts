@@ -27,6 +27,18 @@ async function encodePayload(payload: { data?: unknown; context?: unknown }): Pr
   return JSON.stringify(await toJSONAsync(payload, { plugins: defaultSerovalPlugins }));
 }
 
+type OverrideHost = typeof globalThis & {
+  __mockServerFnOverrides?: Record<string, unknown>;
+};
+
+function setOverrides(overrides: Record<string, unknown>): void {
+  (globalThis as OverrideHost).__mockServerFnOverrides = overrides;
+}
+
+function clearOverrides(): void {
+  delete (globalThis as OverrideHost).__mockServerFnOverrides;
+}
+
 async function callGet(
   name: string,
   payload?: { data?: unknown; context?: unknown },
@@ -84,6 +96,30 @@ describe('handleServerFn', () => {
     expect(result).toBeUndefined();
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain('label');
+  });
+
+  it('answers a name from the window override, not from the registry mock', async () => {
+    const session = { id: 7, email: 'op@example.com', name: 'Operator', role: 'operator' };
+    setOverrides({ getSession: session });
+    try {
+      const res = await callGet('getSession');
+      expect(res.headers.get('content-type')).toBe('application/json');
+      expect(res.headers.get('x-tss-serialized')).toBe('true');
+      const result = await decodeResult(res);
+      expect(result).toEqual(session);
+      expect(result).not.toEqual(SYNTHETIC_ADMIN);
+    } finally {
+      clearOverrides();
+    }
+  });
+
+  it('falls through to the registry mock for a name with no override', async () => {
+    setOverrides({ listStacks: [] });
+    try {
+      expect(await decodeResult(await callGet('getSession'))).toEqual(SYNTHETIC_ADMIN);
+    } finally {
+      clearOverrides();
+    }
   });
 
   it('returns a null result and warns for an unmapped function', async () => {

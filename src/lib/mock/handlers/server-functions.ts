@@ -138,7 +138,7 @@ async function decodePayload(request: Request): Promise<ServerFnPayload> {
  * E2e override hook. Playwright seeds `window.__mockServerFnOverrides` (a plain
  * map of export name -> result) via an init script before navigation, and MSW
  * runs its handlers in the page, so it reads that map here. This is how tests
- * reshape a single response (empty list, error, alternate session) without
+ * reshape a single response (empty list, alternate session) without
  * touching the shared mocks. `page.route` cannot do this: the service worker
  * answers the request before it reaches Playwright's network layer.
  */

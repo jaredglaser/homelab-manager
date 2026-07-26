@@ -1,10 +1,12 @@
 import { test as base, expect, type Locator, type Page } from '@playwright/test';
 
+import { registeredServerFnNames } from '@/lib/mock/handlers/server-functions';
+
 /**
  * Override the result of a server function for a test, layered on top of the
  * shared MSW mocks. The function name is the `createServerFn` export (e.g.
  * `listStacks`); `result` replaces what the mock would return (an empty list, an
- * error-shaped value, an alternate session, ...).
+ * alternate session, ...).
  *
  * This is the "modify requests" half of the harness. It cannot use `page.route`:
  * MSW's service worker answers `/_serverFn` before the request reaches
@@ -18,6 +20,11 @@ export async function overrideServerFn(
   functionName: string,
   result: unknown,
 ): Promise<void> {
+  if (!registeredServerFnNames.includes(functionName)) {
+    throw new Error(
+      `overrideServerFn: "${functionName}" is not a mocked server function. Known names: ${registeredServerFnNames.join(', ')}`,
+    );
+  }
   await page.addInitScript(
     ([name, value]) => {
       const w = window as typeof window & {
@@ -31,20 +38,22 @@ export async function overrideServerFn(
 }
 
 /**
- * Assert that the text rendered within `target` changes within `timeoutMs`,
- * proving SSE updates reach the DOM. The stats streams push a fresh snapshot
- * about every second, so a live page mutates while a static fixture would not;
- * this is the end-to-end signal that EventSource plus the table merge live data,
- * which a unit test with a frozen fixture cannot show.
+ * A single change is also produced by the page settling after load, so two are
+ * required: only the second one rules out a stream that sent one frame and died.
+ * `target` must be the narrowest locator carrying streamed values, since a
+ * page-wide one is satisfied by unrelated chrome.
  */
 export async function expectLiveTextUpdate(
   target: Locator,
   timeoutMs = 8000,
 ): Promise<void> {
-  const first = await target.innerText();
-  await expect
-    .poll(async () => (await target.innerText()) !== first, { timeout: timeoutMs })
-    .toBe(true);
+  let previous = await target.innerText();
+  for (let change = 0; change < 2; change++) {
+    await expect
+      .poll(async () => (await target.innerText()) !== previous, { timeout: timeoutMs })
+      .toBe(true);
+    previous = await target.innerText();
+  }
 }
 
 export const test = base;
