@@ -75,6 +75,7 @@ jobs:
   e2e:
     name: E2E (Playwright + MSW)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
 
