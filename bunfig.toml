@@ -15,5 +15,5 @@ coveragePathIgnorePatterns = [
   "src/lib/mock/start.ts",
   "src/lib/mock/handlers/index.ts",
   "src/lib/mock/handlers/sse.ts",
-  "src/lib/mock/functions/",
+  "src/lib/mock/functions/**",
 ]
