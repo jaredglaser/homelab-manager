@@ -2,6 +2,7 @@ import { describe, expect, it, mock } from 'bun:test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { StackDriftItem } from '@/types/stacks';
+import { STACKS_QUERY_KEY, STACK_DRIFT_QUERY_KEY } from '@/lib/constants/stacks-keys';
 
 const mockResolveDrift = mock(() => Promise.resolve({}));
 
@@ -24,13 +25,15 @@ function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return function Wrapper({ children }: { children: React.ReactNode }) {
+  const Wrapper = function Wrapper({ children }: { children: React.ReactNode }) {
     return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
   };
+  return { Wrapper, queryClient };
 }
 
 function renderWarning() {
-  return render(<StackDriftWarning item={item} />, { wrapper: createWrapper() });
+  const { Wrapper, queryClient } = createWrapper();
+  return { ...render(<StackDriftWarning item={item} />, { wrapper: Wrapper }), queryClient };
 }
 
 describe('StackDriftWarning', () => {
@@ -69,5 +72,21 @@ describe('StackDriftWarning', () => {
         data: { host: 'alpha', stack: 'plex', kind: 'content', resolution: 'trust_agent' },
       }),
     );
+  });
+
+  it('refreshes the drift report when a resolution fails, since the host may already have changed', async () => {
+    mockResolveDrift.mockImplementationOnce(() => Promise.reject(new Error('teardown failed')));
+    const { queryClient } = renderWarning();
+    const invalidated: unknown[] = [];
+    queryClient.invalidateQueries = ((filters: { queryKey: unknown }) => {
+      invalidated.push(filters.queryKey);
+      return Promise.resolve();
+    }) as typeof queryClient.invalidateQueries;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Adopt host version' }));
+    await screen.findByRole('dialog');
+    fireEvent.click(screen.getByRole('button', { name: 'Adopt host version' }));
+
+    await waitFor(() => expect(invalidated).toEqual([STACK_DRIFT_QUERY_KEY, STACKS_QUERY_KEY]));
   });
 });

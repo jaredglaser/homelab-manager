@@ -35,6 +35,9 @@ export default function StackDriftActions({ item }: Readonly<StackDriftActionsPr
     },
     onError: (err) => {
       setPendingResolution(null);
+      // A resolution can fail after the host was already changed.
+      queryClient.invalidateQueries({ queryKey: STACK_DRIFT_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: STACKS_QUERY_KEY });
       showToast(err instanceof Error ? err.message : String(err), 'error');
     },
   });
