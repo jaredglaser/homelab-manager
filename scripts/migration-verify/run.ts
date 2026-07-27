@@ -40,7 +40,7 @@ import {
   captureRowCounts,
 } from './assertions';
 import { Checks } from './checks';
-import { createPool, recreateDatabase, waitForDatabase } from './db';
+import { createPool, disableBackgroundJobs, recreateDatabase, waitForDatabase } from './db';
 import { seed } from './seed';
 
 type MigrationRunner = (db: DatabaseClient) => Promise<void>;
@@ -72,6 +72,7 @@ async function runFresh(): Promise<void> {
   const pool = await freshDatabase('fresh');
   try {
     await runMigrations(asDatabaseClient(pool));
+    await disableBackgroundJobs(pool);
 
     const applied = await appliedMigrations(pool);
     checks.sameSet('every migration file was applied', applied, migrationFiles(REPO_ROOT));
@@ -105,6 +106,7 @@ async function runUpgrade(): Promise<void> {
 
     const baseRunner = baseRoot ? await loadBaseRunner(baseRoot) : runMigrations;
     await baseRunner(asDatabaseClient(pool));
+    await disableBackgroundJobs(pool);
     const ledgerBefore = await appliedMigrations(pool);
     checks.sameSet('base revision applied its own migrations', ledgerBefore, baseFiles);
 
@@ -113,6 +115,7 @@ async function runUpgrade(): Promise<void> {
     console.info(`[upgrade] seeded ${Object.values(before).reduce((a, b) => a + b, 0)} rows`);
 
     await runMigrations(asDatabaseClient(pool));
+    await disableBackgroundJobs(pool);
     const ledgerAfter = await appliedMigrations(pool);
     checks.containsAll('head migrations are all recorded', ledgerAfter, headFiles);
     checks.sameSet(
@@ -149,6 +152,7 @@ async function runIdempotent(): Promise<void> {
   const pool = await freshDatabase('idempotent');
   try {
     await runMigrations(asDatabaseClient(pool));
+    await disableBackgroundJobs(pool);
     const first = await migrationLedger(pool);
     checks.equal('first run applied every migration', first.length, migrationFiles(REPO_ROOT).length);
 

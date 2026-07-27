@@ -32,6 +32,19 @@ export async function recreateDatabase(name: string): Promise<void> {
   }
 }
 
+/**
+ * TimescaleDB fires a policy job as soon as its policy is created, so the refresh and compression
+ * schedulers otherwise race the assertions for the same buckets and flood the service container log
+ * that CI dumps at teardown. Every aggregate this harness reads is materialized by the backfill task
+ * it calls directly. Job ids below 1000 are the built-in internal jobs.
+ */
+export async function disableBackgroundJobs(pool: Pool): Promise<void> {
+  await pool.query(
+    `SELECT alter_job(job_id, scheduled => false)
+     FROM timescaledb_information.jobs WHERE job_id >= 1000`
+  );
+}
+
 export async function waitForDatabase(attempts = 30, delayMs = 2000): Promise<void> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
