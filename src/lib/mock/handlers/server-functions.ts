@@ -134,9 +134,32 @@ async function decodePayload(request: Request): Promise<ServerFnPayload> {
   }
 }
 
+/**
+ * E2e override hook. Playwright seeds `window.__mockServerFnOverrides` (a plain
+ * map of export name -> result) via an init script before navigation, and MSW
+ * runs its handlers in the page, so it reads that map here. This is how tests
+ * reshape a single response (empty list, alternate session) without
+ * touching the shared mocks. `page.route` cannot do this: the service worker
+ * answers the request before it reaches Playwright's network layer.
+ */
+function readOverride(name: string): { hit: boolean; value: unknown } {
+  const overrides = (globalThis as { __mockServerFnOverrides?: Record<string, unknown> })
+    .__mockServerFnOverrides;
+  if (overrides && Object.prototype.hasOwnProperty.call(overrides, name)) {
+    return { hit: true, value: overrides[name] };
+  }
+  return { hit: false, value: undefined };
+}
+
 export async function handleServerFn(request: Request): Promise<Response> {
   const segment = functionIdFromUrl(request.url);
   const name = segment ? resolveFunctionName(segment) : null;
+
+  if (name) {
+    const override = readOverride(name);
+    if (override.hit) return serializedResponse(override.value);
+  }
+
   const mock = name ? registry[name] : undefined;
 
   if (!mock) {

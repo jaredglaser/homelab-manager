@@ -219,10 +219,15 @@ Test files use `*.test.ts` naming in `__tests__/` directories co-located with so
 
 ### End-to-End (Playwright + MSW)
 
-E2e tests cover what unit tests cannot: real layout, streaming SSE, the service
-worker, charts, and multi-step navigation with live data. They run against static
-production builds served over [MSW](https://mswjs.io) - the same in-browser mock
-backend that powers demo mode - so there is no database or backend to stand up.
+E2e tests cover what unit tests cannot. They run against static production builds
+served over [MSW](https://mswjs.io) - the same in-browser mock backend that powers
+demo mode - so there is no database or backend to stand up.
+
+Unit tests run in Happy-DOM, so they cannot exercise real layout and overflow, the
+service worker, EventSource streaming end to end, canvas charts, the virtualizer's
+real measurement, cross-tab broadcast, focus and scroll, or multi-step navigation
+with live data. **A flow earns a Playwright test only when it needs one of those**;
+anything else belongs in `bun test`, which is faster and easier to debug.
 
 ```bash
 bun run test:e2e        # Build the demo + app targets, then run Playwright
@@ -237,8 +242,15 @@ deep flows). Specs live in `e2e/`; `*.demo.e2e.ts` run on `demo`, all other
 `*.e2e.ts` on `app`. The `.e2e.ts` suffix is deliberate: `bun test` collects
 `*.spec.ts`, and Playwright's `test()` throws when bun's runner loads it. Tests
 reshape individual responses per scenario with `overrideServerFn` (see
-`e2e/fixtures.ts`). The flow inventory is in
-[playwright-test-plan.md](playwright-test-plan.md).
+`e2e/fixtures.ts`).
+
+When authoring a spec, prefer role and text queries over test ids, adding
+`data-testid` only where the DOM is genuinely ambiguous, and drive scenarios by
+overriding the shared mocks rather than adding bespoke demo data, so the demo stays
+representative of what the tests assert.
+
+The flow inventory, including what is covered and what is still open, lives in
+[issue #384](https://github.com/jaredglaser/homelab-manager/issues/384).
 
 Playwright's browser must be available; in a fresh checkout run
 `bunx playwright install chromium` first.
