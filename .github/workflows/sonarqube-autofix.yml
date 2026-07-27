@@ -28,6 +28,9 @@ on:
         default: "jaredglaser"
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   autofix:
     name: Fetch → Triage → Fix → PR
@@ -77,8 +80,10 @@ jobs:
       - name: Check for issues to fix
         id: check-issues
         if: ${{ !inputs.dry_run && steps.triage.outcome == 'success' }}
+        env:
+          ISSUE_COUNT: ${{ steps.triage.outputs.issue_count }}
         run: |
-          if [ "${{ steps.triage.outputs.issue_count }}" != "0" ]; then
+          if [ "$ISSUE_COUNT" != "0" ]; then
             echo "has_issues=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_issues=false" >> "$GITHUB_OUTPUT"
