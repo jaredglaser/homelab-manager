@@ -45,8 +45,8 @@ const REPO_ROOT = join(import.meta.dir, '..', '..');
 const DB_PREFIX = process.env.MIGRATION_DB_PREFIX ?? 'migverify';
 
 /**
- * Every ledger check below tolerates a superset, so this list is all that
- * separates a deliberate migration deletion from an accidental one.
+ * A removed migration keeps its ledger row and no check below flags it, so this
+ * list is all that separates a deliberate deletion from an accidental one.
  */
 const ACKNOWLEDGED_REMOVALS = ['013_stack_status.sql', '019_drop_stack_status.sql'];
 
