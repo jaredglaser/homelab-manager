@@ -384,4 +384,70 @@ describe('AuthManagementCard', () => {
       })
     })
   })
+
+  describe('below the lg breakpoint', () => {
+    const originalMatchMedia = window.matchMedia
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: (query: string) => ({
+          matches: query === '(max-width: 1023px)',
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }),
+      })
+    })
+
+    afterEach(() => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      })
+    })
+
+    it('renders users as stacked cards instead of a table', async () => {
+      const authFns = require('@/data/auth.functions') as { listUsers: ReturnType<typeof mock> }
+      authFns.listUsers.mockImplementation(() => Promise.resolve(mockUsers))
+
+      renderCard()
+      await waitFor(() => expect(screen.getByText('alice@example.com')).toBeDefined())
+      expect(!!screen.getByText('alice@example.com').closest('table')).toBe(false)
+    })
+
+    it('shows the full user agent inline instead of behind a hover tooltip', async () => {
+      const authFns = require('@/data/auth.functions') as { listSessions: ReturnType<typeof mock> }
+      authFns.listSessions.mockImplementation(() => Promise.resolve(mockSessions))
+
+      renderCard()
+      await waitFor(() => {
+        expect(screen.getByText(mockSessions[0]!.userAgent!)).toBeDefined()
+      })
+    })
+
+    it('renders git tokens as stacked cards instead of a table', async () => {
+      const gitFns = require('@/data/git-tokens.functions') as { listGitTokens: ReturnType<typeof mock> }
+      gitFns.listGitTokens.mockImplementation(() => Promise.resolve(mockTokens))
+
+      renderCard()
+      await waitFor(() => expect(screen.getByText('CI deploy key')).toBeDefined())
+      expect(!!screen.getByText('CI deploy key').closest('table')).toBe(false)
+    })
+
+    it('truncates a long display name in the Revoke All Sessions header row', async () => {
+      const authFns = require('@/data/auth.functions') as { listSessions: ReturnType<typeof mock> }
+      authFns.listSessions.mockImplementation(() =>
+        Promise.resolve([{ ...mockSessions[0]!, userName: 'A'.repeat(200) }]),
+      )
+
+      renderCard()
+      await waitFor(() => {
+        const headerName = screen.getAllByText('A'.repeat(200)).find((el) => el.classList.contains('font-semibold'))
+        expect(headerName?.classList.contains('truncate')).toBe(true)
+      })
+    })
+  })
 })

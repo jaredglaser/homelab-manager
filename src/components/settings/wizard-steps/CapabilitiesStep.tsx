@@ -11,6 +11,25 @@ interface CapabilitiesStepProps {
   onZfsChange: (value: boolean) => void
 }
 
+interface CapabilityRowProps {
+  id: string
+  checked: boolean
+  onChange: (value: boolean) => void
+  label: string
+  ariaLabel: string
+}
+
+function CapabilityRow({ id, checked, onChange, label, ariaLabel }: CapabilityRowProps) {
+  return (
+    <div className="flex items-center gap-2 min-h-11">
+      <Checkbox id={id} checked={checked} onCheckedChange={onChange} aria-label={ariaLabel} />
+      <Label htmlFor={id} className="flex-1 self-stretch flex items-center cursor-pointer">
+        {label}
+      </Label>
+    </div>
+  )
+}
+
 export default function CapabilitiesStep({ name, docker, zfs, onNameChange, onDockerChange, onZfsChange }: CapabilitiesStepProps) {
   return (
     <div className="flex flex-col gap-3" data-testid="step-capabilities">
@@ -30,24 +49,8 @@ export default function CapabilitiesStep({ name, docker, zfs, onNameChange, onDo
       <p className="text-sm text-muted-foreground">
         Select the capabilities this host will provide:
       </p>
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="capability-docker"
-          checked={docker}
-          onCheckedChange={(checked) => onDockerChange(checked)}
-          aria-label="Docker capability"
-        />
-        <Label htmlFor="capability-docker" className="cursor-pointer">Docker</Label>
-      </div>
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id="capability-zfs"
-          checked={zfs}
-          onCheckedChange={(checked) => onZfsChange(checked)}
-          aria-label="ZFS capability"
-        />
-        <Label htmlFor="capability-zfs" className="cursor-pointer">ZFS</Label>
-      </div>
+      <CapabilityRow id="capability-docker" checked={docker} onChange={onDockerChange} label="Docker" ariaLabel="Docker capability" />
+      <CapabilityRow id="capability-zfs" checked={zfs} onChange={onZfsChange} label="ZFS" ariaLabel="ZFS capability" />
     </div>
   )
 }
