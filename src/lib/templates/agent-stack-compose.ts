@@ -46,7 +46,7 @@ export function generateAgentStackCompose(config: AgentStackConfig): string {
     '',
   ].join('\n');
 
-  return header + dump(doc, { lineWidth: -1, quotingType: '"' });
+  return header + dump(doc, { lineWidth: -1, quoteStyle: 'double' });
 }
 
 /** Generate a .env file content string for the agent stack. */
