@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, beforeAll } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -22,7 +22,11 @@ function weightedPairs(sql: string): { sumColumn: string; metric: string }[] {
 }
 
 for (const { table, file } of SOURCES) describe(file, () => {
-  const sql = readMigration(file);
+  let sql: string;
+
+  beforeAll(() => {
+    sql = readMigration(file);
+  });
 
   test('runs inside the standard transaction wrapper', () => {
     expect(sql).not.toContain('-- migrate:no-transaction');
@@ -85,7 +89,11 @@ for (const { table, file } of SOURCES) describe(file, () => {
 });
 
 describe('032_proxmox_stats_retention_cascade.sql counter columns', () => {
-  const sql = readMigration('032_proxmox_stats_retention_cascade.sql');
+  let sql: string;
+
+  beforeAll(() => {
+    sql = readMigration('032_proxmox_stats_retention_cascade.sql');
+  });
 
   // netin/netout are cumulative byte counters from the Proxmox API and uptime is monotonic;
   // averaging any of them yields the bucket midpoint, which is a plausible-looking lie.
