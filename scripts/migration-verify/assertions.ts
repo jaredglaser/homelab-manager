@@ -103,7 +103,7 @@ export async function assertSchema(pool: Pool, checks: Checks): Promise<void> {
     `SELECT table_name FROM information_schema.tables
      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'`
   );
-  checks.containsAll('expected tables exist', tables, EXPECTED_TABLES);
+  checks.sameSet('public tables match the expected set exactly', tables, EXPECTED_TABLES);
 
   const hypertables = await selectColumn<string>(
     pool,

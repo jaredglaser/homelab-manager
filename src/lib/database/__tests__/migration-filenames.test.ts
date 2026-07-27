@@ -1,13 +1,11 @@
 import { describe, test, expect } from 'bun:test';
 import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
-
-const migrationsDir = join(import.meta.dir, '..', '..', '..', '..', 'migrations');
+import { MIGRATIONS_DIR } from '@/lib/database/migrate';
 
 const PREFIX_PATTERN = /^(\d{3})_/;
 
 function migrationFiles(): string[] {
-  return readdirSync(migrationsDir)
+  return readdirSync(MIGRATIONS_DIR)
     .filter((file) => file.endsWith('.sql'))
     .sort();
 }
@@ -25,7 +23,8 @@ describe('migration filenames', () => {
   test('no two files share a numeric prefix', () => {
     const byPrefix = new Map<string, string[]>();
     for (const file of migrationFiles()) {
-      const prefix = PREFIX_PATTERN.exec(file)?.[1] ?? file;
+      const prefix = PREFIX_PATTERN.exec(file)?.[1];
+      if (!prefix) continue;
       byPrefix.set(prefix, [...(byPrefix.get(prefix) ?? []), file]);
     }
 
