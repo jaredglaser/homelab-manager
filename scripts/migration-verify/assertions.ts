@@ -39,20 +39,6 @@ const FIXTURE_HOUR_CTE = `bounds AS (
   FROM docker_stats WHERE host = $1 AND container_id = $2
 )`;
 
-/**
- * Scaffolding: substitutes the number a regressed aggregate would report so every value check
- * below can be watched to fail in CI. Set MIGRATION_VERIFY_SIMULATE_REGRESSION=true to arm it.
- */
-const SIMULATE_REGRESSION = process.env.MIGRATION_VERIFY_SIMULATE_REGRESSION === 'true';
-
-function observed(actual: number, regression: number): number {
-  return SIMULATE_REGRESSION ? regression : actual;
-}
-
-function observedText(actual: string | null, regression: string): string | null {
-  return SIMULATE_REGRESSION ? regression : actual;
-}
-
 function toleranceFor(expected: number): number {
   return Math.max(1e-9, Math.abs(expected) * RELATIVE_EPSILON);
 }
@@ -389,12 +375,12 @@ export async function assertRollupBackfill(pool: Pool, checks: Checks): Promise<
   for (const source of ROLLUP_SOURCES) {
     checks.equal(
       `${source} raw rows are dropped after 24 hours`,
-      observedText(dropAfter.get(source) ?? 'none', 'none'),
+      dropAfter.get(source) ?? 'none',
       '24 hours'
     );
     checks.equal(
       `${source}_1m rows are dropped after 30 days`,
-      observedText(dropAfter.get(`${source}_1m`) ?? 'none', 'none'),
+      dropAfter.get(`${source}_1m`) ?? 'none',
       '30 days'
     );
     checks.equal(`${source}_1h keeps its rows forever`, dropAfter.has(`${source}_1h`), false);
@@ -473,7 +459,7 @@ export async function assertWeightedRollup(pool: Pool, checks: Checks): Promise<
     checks.record('docker_stats_1h_avg holds the sparse hour bucket', false, 'cpu_percent is NULL or the bucket is missing');
     return;
   }
-  const hourlyCpu = observed(Number(rolled.hourly_cpu), sparseHourNaiveAverage());
+  const hourlyCpu = Number(rolled.hourly_cpu);
   checks.closeTo(
     'docker_stats_1h_avg.cpu_percent equals the raw average',
     hourlyCpu,
@@ -553,7 +539,7 @@ export async function assertCumulativeCounters(pool: Pool, checks: Checks): Prom
     }
 
     const rawAvg = Number(row.raw_avg);
-    const tierValue = observed(Number(row.tier_value), rawAvg);
+    const tierValue = Number(row.tier_value);
     checks.equal(
       `proxmox_stats_1m.${column} carries the bucket LAST value`,
       tierValue,
@@ -637,7 +623,7 @@ export async function assertNullMetricDilution(pool: Pool, checks: Checks): Prom
     return;
   }
 
-  const hourlyCpu = observed(Number(row.hourly_cpu), nullMetricRawAverage());
+  const hourlyCpu = Number(row.hourly_cpu);
   checks.closeTo(
     `docker_stats_1h_avg.cpu_percent is diluted to ${populatedMinutes}/${NULL_METRIC_HOUR.minutes} of the populated average`,
     hourlyCpu,
@@ -654,7 +640,7 @@ export async function assertNullMetricDilution(pool: Pool, checks: Checks): Prom
   const rawMemoryAvg = Number(row.raw_memory_avg);
   checks.closeTo(
     'a metric populated on every row is undiluted in the same hour',
-    observed(Number(row.hourly_memory), rawMemoryAvg * 1.5 + 1),
+    Number(row.hourly_memory),
     rawMemoryAvg,
     toleranceFor(rawMemoryAvg)
   );
@@ -716,7 +702,7 @@ export async function assertAggregateTierValues(pool: Pool, checks: Checks): Pro
     const expectedWeight = Number(counts?.expected);
     checks.equal(
       `${tier.view}.sample_count totals the source weights`,
-      observed(Number(counts?.view_value), expectedWeight + 1),
+      Number(counts?.view_value),
       expectedWeight
     );
 
@@ -751,7 +737,7 @@ export async function assertAggregateTierValues(pool: Pool, checks: Checks): Pro
         weightedSum
           ? `${label} is the sample-count weighted sum of its source`
           : `${label} is the bucket mean of its source`,
-        observed(Number(row.view_value), expected * 1.5 + 1),
+        Number(row.view_value),
         expected,
         toleranceFor(expected)
       );
@@ -779,7 +765,7 @@ export async function assertAggregateTierValues(pool: Pool, checks: Checks): Pro
       }
       checks.equal(
         `${label} carries the bucket LAST value`,
-        observedText(row.view_value, 'simulated-regression'),
+        row.view_value,
         row.expected
       );
     }

@@ -347,7 +347,6 @@ jobs:
         run: bun scripts/migration-verify/run.ts upgrade
         env:
           MIGRATION_BASE_ROOT: ${{ steps.base.outputs.root }}
-          MIGRATION_VERIFY_SIMULATE_REGRESSION: 'true'
 
       - name: Re-run idempotency
         run: bun scripts/migration-verify/run.ts idempotent
