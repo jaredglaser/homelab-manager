@@ -2,22 +2,15 @@ import { describe, it, expect, spyOn, afterEach } from 'bun:test';
 
 import { sseData, sseEvent, createSseResponse } from '@/lib/mock/handlers/sse-stream';
 
-const FRAME_DELIMITER = '\n\n';
-
+// The producer never closes the stream, so reading to completion would hang; take
+// a fixed count and cancel. One send is one enqueue is one read, so frames never split.
 async function readFrames(response: Response, count: number): Promise<string[]> {
   const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
   const frames: string[] = [];
-  let buffer = '';
   while (frames.length < count) {
     const { value, done } = await reader.read();
     if (done) break;
-    buffer += value ?? '';
-    let end = buffer.indexOf(FRAME_DELIMITER);
-    while (end !== -1 && frames.length < count) {
-      frames.push(buffer.slice(0, end + FRAME_DELIMITER.length));
-      buffer = buffer.slice(end + FRAME_DELIMITER.length);
-      end = buffer.indexOf(FRAME_DELIMITER);
-    }
+    frames.push(value);
   }
   await reader.cancel();
   return frames;
@@ -57,24 +50,28 @@ describe('sse-stream', () => {
         for (const spy of spies.splice(0)) spy.mockRestore();
       });
 
-      it('clears interval timers and stops ticking after cancel', async () => {
+      function captureTimers(): {
+        scheduled: { id: number; tick: () => void }[];
+        cleared: unknown[];
+      } {
         const scheduled: { id: number; tick: () => void }[] = [];
         const cleared: unknown[] = [];
         let nextId = 1;
+        spies.push(
+          spyOn(globalThis, 'setInterval').mockImplementation(((tick: () => void) => {
+            const id = nextId++;
+            scheduled.push({ id, tick });
+            return id;
+          }) as unknown as typeof setInterval),
+          spyOn(globalThis, 'clearInterval').mockImplementation(((id: number) => {
+            cleared.push(id);
+          }) as unknown as typeof clearInterval),
+        );
+        return { scheduled, cleared };
+      }
 
-        const setSpy = spyOn(globalThis, 'setInterval').mockImplementation(((
-          tick: () => void,
-        ) => {
-          const id = nextId++;
-          scheduled.push({ id, tick });
-          return id;
-        }) as unknown as typeof setInterval);
-        const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(((
-          id: number,
-        ) => {
-          cleared.push(id);
-        }) as unknown as typeof clearInterval);
-        spies.push(setSpy, clearSpy);
+      it('clears interval timers and stops ticking after cancel', async () => {
+        const { scheduled, cleared } = captureTimers();
 
         let ticks = 0;
         const res = createSseResponse((c) => {
@@ -100,26 +97,12 @@ describe('sse-stream', () => {
       });
 
       it('clears interval timers when a write fails on a closed controller', () => {
-        const scheduled: { id: number; tick: () => void }[] = [];
-        const cleared: unknown[] = [];
-        let nextId = 1;
-
-        const setSpy = spyOn(globalThis, 'setInterval').mockImplementation(((
-          tick: () => void,
-        ) => {
-          const id = nextId++;
-          scheduled.push({ id, tick });
-          return id;
-        }) as unknown as typeof setInterval);
-        const clearSpy = spyOn(globalThis, 'clearInterval').mockImplementation(((
-          id: number,
-        ) => {
-          cleared.push(id);
-        }) as unknown as typeof clearInterval);
-        const encodeSpy = spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
-          throw new TypeError('Invalid state: Controller is already closed');
-        });
-        spies.push(setSpy, clearSpy, encodeSpy);
+        const { scheduled, cleared } = captureTimers();
+        spies.push(
+          spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
+            throw new TypeError('Invalid state: Controller is already closed');
+          }),
+        );
 
         let ticks = 0;
         createSseResponse((c) => {
