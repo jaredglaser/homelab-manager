@@ -414,7 +414,7 @@ export async function assertRollupBackfill(pool: Pool, checks: Checks): Promise<
   }
 
   await assertBackfillReachedFullHistory(pool, checks);
-  await assertNoFailedPolicyJobs(pool, checks);
+  await assertNoFailedRetentionJobs(pool, checks);
 
   const policies = await pool.query<{ target: string; drop_after: string }>(
     `SELECT
@@ -478,11 +478,14 @@ async function assertBackfillReachedFullHistory(pool: Pool, checks: Checks): Pro
 
 /**
  * The verification databases run at `log_min_messages = 'fatal'`, which hides the server-side ERROR
- * a failed background job leaves behind, so the harness has to read the job status itself. Scoped
- * to the two policies the rollup assertions depend on; compression is excluded because it competes
- * with retention for the same chunks and a loss there says nothing about the aggregate definitions.
+ * a failed background job leaves behind, so the harness has to read the job status itself.
+ *
+ * Retention only. The runner is short enough on background workers that a refresh or compression
+ * policy regularly loses its slot ("out of background workers"), and neither one's run status is
+ * load-bearing here: the harness drives every refresh itself through `runStatsRollupBackfill` and
+ * checks the resulting numbers directly. Retention is the one policy nothing else re-derives.
  */
-async function assertNoFailedPolicyJobs(pool: Pool, checks: Checks): Promise<void> {
+async function assertNoFailedRetentionJobs(pool: Pool, checks: Checks): Promise<void> {
   const available = await selectRow<{ present: boolean }>(
     pool,
     `SELECT to_regclass('timescaledb_information.job_stats') IS NOT NULL AS present`
@@ -500,10 +503,9 @@ async function assertNoFailedPolicyJobs(pool: Pool, checks: Checks): Promise<voi
      LEFT JOIN timescaledb_information.continuous_aggregates ca
        ON ca.materialization_hypertable_schema = j.hypertable_schema
       AND ca.materialization_hypertable_name = j.hypertable_name
-     WHERE s.last_run_status = 'Failed'
-       AND j.proc_name IN ('policy_retention', 'policy_refresh_continuous_aggregate')`
+     WHERE s.last_run_status = 'Failed' AND j.proc_name = 'policy_retention'`
   );
-  checks.equal('no retention or refresh job has failed', failed.join(', ') || 'none', 'none');
+  checks.equal('no retention job has failed', failed.join(', ') || 'none', 'none');
 }
 
 /**
