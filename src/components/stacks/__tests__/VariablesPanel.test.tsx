@@ -196,22 +196,24 @@ describe('VariablesPanel', () => {
     await waitFor(() => expect(mockShowToast).toHaveBeenCalledWith('Secrets saved', 'success'));
   });
 
-  it('delete button is disabled with tooltip when variable is referenced in compose', async () => {
+  it('disables delete and states the reason inline when the variable is referenced in compose', async () => {
     mockGetValues.mockImplementation(() => Promise.resolve({ DB_URL: '' }));
     await renderPanel('mystack', ['DB_URL']);
     await waitFor(() => expect(screen.getByText('DB_URL')).toBeDefined());
 
     const deleteBtn = screen.getByLabelText('Delete variable');
     expect((deleteBtn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/still referenced in the compose file/i)).toBeDefined();
   });
 
-  it('delete button is enabled when variable is not referenced in compose', async () => {
+  it('enables delete and shows no reason when the variable is not referenced in compose', async () => {
     mockGetValues.mockImplementation(() => Promise.resolve({ ORPHAN_VAR: '' }));
     await renderPanel('mystack', []);
     await waitFor(() => expect(screen.getByText('ORPHAN_VAR')).toBeDefined());
 
     const deleteBtn = screen.getByLabelText('Delete variable');
     expect((deleteBtn as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/still referenced in the compose file/i)).toBeNull();
   });
 
   it('opens delete confirmation dialog when delete is clicked', async () => {

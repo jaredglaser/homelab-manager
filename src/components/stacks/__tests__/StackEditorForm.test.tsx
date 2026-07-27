@@ -496,4 +496,28 @@ describe('StackEditorForm', () => {
     await waitFor(() => expect(mockDeleteStack).toHaveBeenCalledTimes(1));
     expect(mockShowToast).not.toHaveBeenCalled();
   });
+
+  describe('narrow-viewport layout', () => {
+    it('puts the tab bar in a horizontal scroller so it cannot widen the page', async () => {
+      await renderForm();
+      const composeTab = await screen.findByRole('tab', { name: /compose/i });
+      expect(composeTab.closest('.overflow-x-auto')).not.toBeNull();
+    });
+
+    it('keeps every tab on one line at a touch height', async () => {
+      await renderForm();
+      const composeTab = await screen.findByRole('tab', { name: /compose/i });
+      expect(composeTab.className).toContain('whitespace-nowrap');
+      expect(composeTab.className).toContain('shrink-0');
+      expect(composeTab.className).toContain('py-3');
+      expect(composeTab.className).toContain('lg:py-2');
+    });
+
+    it('truncates the stack name so the settings control stays on screen', async () => {
+      await renderForm();
+      const heading = await screen.findByRole('heading', { name: 'web' });
+      expect(heading.className).toContain('truncate');
+      expect(screen.getByRole('button', { name: 'stack settings' }).className).toContain('shrink-0');
+    });
+  });
 });
