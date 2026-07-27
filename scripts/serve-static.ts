@@ -38,7 +38,7 @@ Bun.serve({
     if (await file.exists()) {
       return new Response(file);
     }
-    if (/\.[a-zA-Z0-9]+$/.test(url.pathname)) {
+    if (/\.[a-zA-Z0-9]+$/.test(pathname)) {
       return new Response('Not found', { status: 404 });
     }
     return new Response(Bun.file(shellPath), {

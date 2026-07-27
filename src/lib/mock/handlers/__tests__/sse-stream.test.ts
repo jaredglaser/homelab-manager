@@ -119,6 +119,25 @@ describe('sse-stream', () => {
         scheduled[0].tick();
         expect(ticks).toBe(0);
       });
+
+      // The shipped producers (statsHandler, dockerLogs) send before registering
+      // their interval, so this is the ordering that actually reaches the leak.
+      it('schedules no timer when the first send already tore the stream down', () => {
+        const { scheduled, cleared } = captureTimers();
+        spies.push(
+          spyOn(TextEncoder.prototype, 'encode').mockImplementation(() => {
+            throw new TypeError('Invalid state: Controller is already closed');
+          }),
+        );
+
+        createSseResponse((c) => {
+          c.send({ first: true });
+          c.interval(5, () => c.send({ tick: true }));
+        });
+
+        expect(scheduled).toEqual([]);
+        expect(cleared).toEqual([]);
+      });
     });
   });
 });

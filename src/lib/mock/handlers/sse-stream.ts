@@ -62,6 +62,9 @@ export function createSseResponse(produce: (controller: SseController) => void):
         send: (payload) => enqueue(sseData(payload)),
         sendEvent: (event, payload) => enqueue(sseEvent(event, payload)),
         interval: (ms, tick) => {
+          // Producers send before registering their interval, so a teardown from
+          // that first send lands here; a timer added now is never cleared.
+          if (closed) return;
           const id = setInterval(() => {
             if (closed) return;
             tick();
